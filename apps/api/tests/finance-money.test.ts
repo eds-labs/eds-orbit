@@ -31,7 +31,17 @@ describe("parseAmount", () => {
 
   it("treats a lone separator before three digits as decimal, then rejects excess decimals", () => {
     expect(code(() => parseAmount("1,234", "EUR"))).toBe("AMOUNT_INVALID");
-    expect(parseAmount("1,234", "USDC")).toBe(1_234_000n);
+  });
+
+  it("rejects a lone comma before exactly three digits for currencies with more than 2 decimals", () => {
+    expect(code(() => parseAmount("1,000", "USDC"))).toBe("AMOUNT_INVALID");
+    expect(code(() => parseAmount("12,345", "USDC"))).toBe("AMOUNT_INVALID");
+    expect(code(() => parseAmount("1.234,567", "USDC"))).toBe("AMOUNT_INVALID");
+    expect(code(() => parseAmount("-1,000", "USDC"))).toBe("AMOUNT_INVALID");
+    expect(parseAmount("1,5", "USDC")).toBe(1_500_000n);
+    expect(parseAmount("1,0005", "USDC")).toBe(1_000_500n);
+    expect(parseAmount("1,000.50", "USDC")).toBe(1_000_500_000n);
+    expect(parseAmount("1.000", "USDC")).toBe(1_000_000n);
   });
 
   it("rejects too many decimals and malformed input", () => {

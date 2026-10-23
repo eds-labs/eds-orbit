@@ -416,18 +416,22 @@ export function financeApi(projectId: string) {
             "x-file-type": file.type || "application/octet-stream",
           },
         }),
+      // The review actions answer the document without its history.
       patch: (id: string, version: number, changes: Record<string, unknown>) =>
-        patch<DocumentDetail>(base(`/documents/${id}`), {
+        patch<FinanceDocument>(base(`/documents/${id}`), {
           ...changes,
           version,
         }),
       book: (id: string, version: number, booking: unknown) =>
         post<unknown>(base(`/documents/${id}/book`), { version, booking }),
       reject: (id: string, body: { version: number; reason?: string }) =>
-        post<unknown>(base(`/documents/${id}/reject`), body),
+        post<FinanceDocument>(base(`/documents/${id}/reject`), body),
       notDuplicate: (id: string, version: number) =>
-        post<unknown>(base(`/documents/${id}/not-duplicate`), { version }),
-      retry: (id: string) => post<unknown>(base(`/documents/${id}/retry`), {}),
+        post<FinanceDocument>(base(`/documents/${id}/not-duplicate`), {
+          version,
+        }),
+      retry: (id: string) =>
+        post<FinanceDocument>(base(`/documents/${id}/retry`), {}),
       fileUrl: (
         id: string,
         disposition: "inline" | "attachment" = "attachment",

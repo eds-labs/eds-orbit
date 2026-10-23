@@ -78,6 +78,21 @@ export function allocationOf(rows: readonly AllocationRow[]): {
   };
 }
 
+/** The text of an allocation problem. */
+export function allocationMessage(
+  t: FinanceText,
+  problem: AllocationProblem,
+): string {
+  const a = t.allocation;
+  return problem === "percent"
+    ? a.percentInvalid
+    : problem === "center"
+      ? a.centerMissing
+      : problem === "duplicate"
+        ? a.duplicate
+        : a.sumInvalid;
+}
+
 /** Stored basis points (a draft or a suggestion) as editable rows. */
 export function rowsOf(allocation: unknown): AllocationRow[] {
   if (!Array.isArray(allocation)) return [];
@@ -118,16 +133,7 @@ export function AllocationEditor({
     costCenters.filter((c) => !c.archivedAt || c.id === current);
   const set = (index: number, change: Partial<AllocationRow>) =>
     onChange(rows.map((row, i) => (i === index ? { ...row, ...change } : row)));
-  const message =
-    state.problem === "percent"
-      ? a.percentInvalid
-      : state.problem === "center"
-        ? a.centerMissing
-        : state.problem === "duplicate"
-          ? a.duplicate
-          : state.problem === "sum"
-            ? a.sumInvalid
-            : null;
+  const message = state.problem ? allocationMessage(t, state.problem) : null;
   return (
     <fieldset className="finance-allocation" disabled={disabled}>
       <legend>{a.legend}</legend>

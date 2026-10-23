@@ -5,10 +5,17 @@ import {
   amountMicros,
   BookingForm,
   bookingOf,
+  bookingReducer,
+  draftPatchOf,
   initialForm,
   type BookingLists,
 } from "./booking-form";
-import { DocumentPreview, duplicateOpen } from "./document";
+import {
+  DocumentPreview,
+  duplicateOpen,
+  mergeSaved,
+  withCreated,
+} from "./document";
 import { financeText } from "./labels";
 import { sortQueue } from "./review";
 
@@ -222,6 +229,119 @@ describe("finance booking form", () => {
     expect(amountMicros("12.123456", "USDC")).toBe(12_123_456n);
     expect(amountMicros("12.1234567", "USDC")).toBeNull();
     expect(amountMicros("-1", "EUR")).toBeNull();
+    expect(amountMicros("1,000.50", "EUR")).toBe(1_000_500_000n);
+    expect(amountMicros("1.000,50", "EUR")).toBe(1_000_500_000n);
+    expect(amountMicros("1,234,567", "EUR")).toBe(1_234_567_000_000n);
+    expect(amountMicros("1,2,3", "EUR")).toBeNull();
+  });
+
+  it("rejects a lone comma before three digits for USDC like the server", () => {
+    expect(amountMicros("1,000", "USDC")).toBeNull();
+    expect(amountMicros("1.234,567", "USDC")).toBeNull();
+    expect(amountMicros("1,5", "USDC")).toBe(1_500_000n);
+    expect(amountMicros("1,000.50", "USDC")).toBe(1_000_500_000n);
+    expect(amountMicros("1.000", "USDC")).toBe(1_000_000n);
+    // Sent as a plain decimal, never with grouping.
+    const form = {
+      ...initialForm(doc({ currency: "USDC" })),
+      lines: [
+        {
+          description: "Credits",
+          amount: "1,000.50",
+          tax: "0",
+          categoryId: CATEGORY,
+          allocation: [],
+        },
+      ],
+    };
+    expect(
+      bookingOf(form, t, { fxMissing: false }).booking?.lines[0],
+    ).toMatchObject({ amount: "1000.500000", tax: "0.000000" });
+    expect(draftPatchOf(form).lines).toMatchObject([{ amount: "1000.500000" }]);
+  });
+
+  it("selects a counterparty created inline and keeps the other fields", () => {
+    const start = {
+      ...initialForm(doc({ suggestion: { source: "none" } })),
+      paid: true,
+      accountId: ACCOUNT,
+      paidDate: "2026-10-05",
+      rateOverride: "1.08",
+      creditsInvoiceId: "inv-1",
+      counterpartyId: "__new",
+    };
+    const next = bookingReducer(start, {
+      type: "counterpartyCreated",
+      id: COUNTERPARTY,
+    });
+    expect(next).toEqual({ ...start, counterpartyId: COUNTERPARTY });
+    const created = { ...lists.counterparties[0]!, id: "new-1", name: "New" };
+    expect(
+      withCreated(lists.counterparties, [
+        created,
+        lists.counterparties[0]!,
+      ]).map((c) => c.id),
+    ).toEqual([COUNTERPARTY, "new-1"]);
+  });
+
+  it("forces a receipt to be paid through the reducer", () => {
+    const form = { ...initialForm(doc()), paid: false };
+    expect(
+      bookingReducer(form, { type: "set", change: { kind: "receipt" } }).paid,
+    ).toBe(true);
+  });
+
+  it("a saved draft takes the new version and keeps the history", () => {
+    const detail = {
+      ...doc(),
+      revisions: [
+        {
+          id: "r1",
+          version: 3,
+          actorUserId: null,
+          changes: {},
+          createdAt: "2026-10-02T09:00:00.000Z",
+        },
+      ],
+      invoices: [],
+    };
+    const saved = mergeSaved(detail, {
+      ...doc({ number: "INV-8" }),
+      version: 4,
+    });
+    expect(saved.version).toBe(4);
+    expect(saved.revisions).toHaveLength(1);
+    expect((saved.extraction as { number: string }).number).toBe("INV-8");
+  });
+
+  it("Book is a plain button, so Enter in a field does not book", () => {
+    expect(bookButton(render(doc()))).toContain('type="button"');
+    expect(render(doc())).not.toContain('type="submit"');
+  });
+
+  it("names the specific allocation problem", () => {
+    const form = initialForm(doc());
+    const withRows = (
+      allocation: { costCenterId: string; percent: string }[],
+    ) =>
+      bookingOf({ ...form, lines: [{ ...form.lines[0]!, allocation }] }, t, {
+        fxMissing: false,
+      }).problems;
+    expect(withRows([{ costCenterId: "", percent: "100" }])).toContain(
+      "Line 1: Choose a cost center for every share.",
+    );
+    expect(
+      withRows([
+        { costCenterId: "a", percent: "50" },
+        { costCenterId: "a", percent: "50" },
+      ]),
+    ).toContain("Line 1: Each cost center can appear once.");
+    expect(withRows([{ costCenterId: "a", percent: "1.234" }])).toContain(
+      "Line 1: Enter shares as percentages with up to two decimals.",
+    );
+    expect(withRows([{ costCenterId: "a", percent: "90" }])).toContain(
+      "Line 1: The shares must add up to 100.00 %.",
+    );
   });
 
   it("warns when the lines do not add up to the total", () => {

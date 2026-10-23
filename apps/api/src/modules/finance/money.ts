@@ -54,6 +54,12 @@ const divHalfEven = (numerator: bigint, divisor: bigint): bigint => {
 const GROUPED = (separator: string) =>
   new RegExp(`^\\d{1,3}(?:\\${separator}\\d{3})+$`);
 const DIGITS = /^\d+$/;
+/**
+ * A comma before exactly three final digits, with at most dot-grouped
+ * thousands before it ("1,000", "1.234,567"): a thousands group to some
+ * readers and a decimal comma to others.
+ */
+const AMBIGUOUS_COMMA = /^\d{1,3}(?:\.\d{3})*,\d{3}$/;
 
 /**
  * Parses user-entered money text into micros. Accepts an optional leading
@@ -65,7 +71,10 @@ const DIGITS = /^\d+$/;
  * ("1,234,567"). A single separator followed by exactly three digits and
  * preceded by 1-3 digits ("1,234") is ambiguous; with no further groups it is
  * read as the decimal separator, so it is rejected for 2-decimal currencies
- * (three decimals are too many) rather than silently scaled by 1000.
+ * (three decimals are too many) rather than silently scaled by 1000. For
+ * currencies with more decimals (USDC) a comma before exactly three final
+ * digits ("1,000", "1.234,567") is rejected as well instead of guessed; a
+ * dot stays a decimal point ("1.000" is 1).
  */
 export function parseAmount(text: string, currency: string): bigint {
   const decimals = decimalsFor(currency);
@@ -74,6 +83,7 @@ export function parseAmount(text: string, currency: string): bigint {
   const negative = trimmed.startsWith("-");
   const body = negative ? trimmed.slice(1) : trimmed;
   if (!/^[\d.,]+$/.test(body)) throw invalid();
+  if (decimals > 2 && AMBIGUOUS_COMMA.test(body)) throw invalid();
 
   const lastDot = body.lastIndexOf(".");
   const lastComma = body.lastIndexOf(",");

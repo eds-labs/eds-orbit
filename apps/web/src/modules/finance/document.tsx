@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Download, ExternalLink, RotateCcw, X } from "lucide-react";
 import { ApiError, useResource } from "@/lib/api";
 import {
@@ -206,7 +206,39 @@ export const SEVERE_FLAGS: ReadonlySet<string> = new Set([
 type Items<T> = { items: T[] };
 type Notice = "saved" | "booked" | "rejected" | "retried" | "resolved" | null;
 
-/** The master data the form chooses from; lists still loading are empty. */
+/**
+ * The last non-null value: a refetch (which clears the resource's data)
+ * keeps showing what was loaded before instead of unmounting the form.
+ */
+function useLast<T>(value: T | null): T | null {
+  const [last, setLast] = useState<T | null>(value);
+  if (value !== null && value !== last) setLast(value);
+  return value ?? last;
+}
+
+/** A saved document (an action's answer) over the loaded detail, keeping its history. */
+export function mergeSaved(
+  prev: DocumentDetail,
+  saved: FinanceDocument,
+): DocumentDetail {
+  return {
+    ...prev,
+    ...saved,
+    revisions: prev.revisions,
+    invoices: prev.invoices,
+  };
+}
+
+/** The listed counterparties plus those created here, each once. */
+export function withCreated(
+  listed: readonly Counterparty[],
+  created: readonly Counterparty[],
+): Counterparty[] {
+  const ids = new Set(listed.map((c) => c.id));
+  return [...listed, ...created.filter((c) => !ids.has(c.id))];
+}
+
+/** The master data the form chooses from, kept across refetches. */
 function useLists(projectId: string) {
   const path = (rest: string) => financePath(projectId, rest);
   const counterparties = useResource<Items<Counterparty>>(
@@ -225,20 +257,28 @@ function useLists(projectId: string) {
     path(`/invoices${query({ limit: 500 })}`),
   );
   const settings = useResource<SettingsResponse>(path("/settings"));
+  const last = {
+    counterparties: useLast(counterparties.data),
+    categories: useLast(categories.data),
+    costCenters: useLast(costCenters.data),
+    accounts: useLast(accounts.data),
+    invoices: useLast(invoices.data),
+  };
+  const lastSettings = useLast(settings.data);
   const all = [counterparties, categories, costCenters, accounts, invoices];
   return {
     lists: {
-      counterparties: counterparties.data?.items ?? [],
-      categories: categories.data?.items ?? [],
-      costCenters: costCenters.data?.items ?? [],
-      accounts: accounts.data?.items ?? [],
-      invoices: invoices.data?.items ?? [],
+      counterparties: last.counterparties?.items ?? [],
+      categories: last.categories?.items ?? [],
+      costCenters: last.costCenters?.items ?? [],
+      accounts: last.accounts?.items ?? [],
+      invoices: last.invoices?.items ?? [],
     },
-    settings: settings.data?.settings ?? null,
-    loading: all.some((r) => r.loading),
+    settings: lastSettings?.settings ?? null,
+    /** True until every list arrived once. */
+    loading: Object.values(last).some((v) => v === null),
     error: all.find((r) => r.error)?.error ?? null,
     retry: () => all.forEach((r) => r.refresh()),
-    refreshCounterparties: counterparties.refresh,
   };
 }
 
@@ -267,6 +307,16 @@ export function FinanceDocumentDetail({
     financePath(project.id, `/documents/${encodeURIComponent(documentId)}`),
   );
   const lists = useLists(project.id);
+  const [created, setCreated] = useState<Counterparty[]>([]);
+  // The document shown: the loaded detail, then each action's answer. It
+  // is kept while a refetch runs, so the form (keyed by doc.id) stays.
+  const [doc, setDoc] = useState<DocumentDetail | null>(null);
+  const [seen, setSeen] = useState<DocumentDetail | null>(null);
+  if (detail.data !== seen) {
+    setSeen(detail.data);
+    if (detail.data) setDoc(detail.data);
+  }
+  const lock = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bookError, setBookError] = useState<string | null>(null);
@@ -274,13 +324,18 @@ export function FinanceDocumentDetail({
   const [notice, setNotice] = useState<Notice>(null);
   const [reason, setReason] = useState("");
 
-  /** Runs one action; maps its error code and refreshes on success. */
+  /**
+   * Runs one action at a time (a ref lock, so a double click posts once);
+   * maps its error code. An answer that is the document replaces the shown
+   * one; a booking refetches the detail.
+   */
   async function act<T>(
     task: () => Promise<T>,
     done: Notice,
-    options: { book?: boolean } = {},
+    options: { book?: boolean; saved?: (result: T) => FinanceDocument } = {},
   ): Promise<T | undefined> {
-    if (pending) return;
+    if (lock.current) return;
+    lock.current = true;
     setPending(true);
     setError(null);
     setNotice(null);
@@ -288,10 +343,11 @@ export function FinanceDocumentDetail({
       const result = await task();
       setBookError(null);
       setNotice(done);
-      if (done) {
-        detail.refresh();
-        onChanged();
-      }
+      if (options.saved) {
+        const saved = options.saved(result);
+        setDoc((prev) => (prev ? mergeSaved(prev, saved) : prev));
+      } else if (done) detail.refresh();
+      if (done) onChanged();
       return result;
     } catch (e) {
       const code = e instanceof ApiError ? e.code : null;
@@ -300,14 +356,18 @@ export function FinanceDocumentDetail({
       else setError(e instanceof Error ? e.message : "Request failed.");
       return undefined;
     } finally {
+      lock.current = false;
       setPending(false);
     }
   }
 
-  const doc = detail.data;
-  if (detail.loading) return <Skeleton />;
-  if (detail.error || !doc)
-    return <ResourceError error={detail.error} retry={detail.refresh} />;
+  if (!doc)
+    return detail.error ? (
+      <ResourceError error={detail.error} retry={detail.refresh} />
+    ) : (
+      <Skeleton />
+    );
+  const asDoc = (result: FinanceDocument) => result;
 
   const status = r.statuses[doc.status] ?? doc.status;
   const target = duplicateTarget(doc);
@@ -319,6 +379,7 @@ export function FinanceDocumentDetail({
           reason: text,
         }),
       "rejected",
+      { saved: asDoc },
     );
   return (
     <article
@@ -345,6 +406,9 @@ export function FinanceDocumentDetail({
         </Button>
       </div>
       <div className="finance-body">
+        {detail.error && (
+          <ResourceError error={detail.error} retry={detail.refresh} />
+        )}
         {conflict && (
           <Alert kind="warning">
             {r.conflict}{" "}
@@ -373,12 +437,15 @@ export function FinanceDocumentDetail({
         )}
         {(doc.status === "booked" || doc.status === "rejected") && (
           <p className="panel-note">
-            {r.notEditable.replace("{status}", status.toLowerCase())}
+            {r.notEditable.replace("{status}", () => status.toLowerCase())}
           </p>
         )}
         {doc.rejectionReason && (
           <p className="panel-note">
-            {r.rejectionReason.replace("{reason}", doc.rejectionReason)}
+            {r.rejectionReason.replace(
+              "{reason}",
+              () => doc.rejectionReason ?? "",
+            )}
           </p>
         )}
         {duplicateOpen(doc) && REJECTABLE.has(doc.status) && (
@@ -392,6 +459,7 @@ export function FinanceDocumentDetail({
               act(
                 () => finance.documents.notDuplicate(doc.id, doc.version),
                 "resolved",
+                { saved: asDoc },
               )
             }
             onReject={() => reject(r.duplicateReason)}
@@ -413,14 +481,22 @@ export function FinanceDocumentDetail({
               <ResourceError error={lists.error} retry={lists.retry} />
             )}
             {lists.loading ? (
-              <Skeleton />
+              lists.error ? null : (
+                <Skeleton />
+              )
             ) : (
               <BookingForm
-                key={`${doc.id}:${doc.version}`}
+                key={doc.id}
                 t={t}
                 locale={locale}
                 doc={doc}
-                lists={lists.lists}
+                lists={{
+                  ...lists.lists,
+                  counterparties: withCreated(
+                    lists.lists.counterparties,
+                    created,
+                  ),
+                }}
                 currencies={lists.settings?.currencies}
                 baseCurrency={lists.settings?.baseCurrency}
                 canWrite={write}
@@ -438,15 +514,17 @@ export function FinanceDocumentDetail({
                   act(
                     () => finance.documents.patch(doc.id, doc.version, patch),
                     "saved",
+                    { saved: asDoc },
                   )
                 }
                 onCreateCounterparty={async (name) => {
-                  const created = await act(
+                  // Appended locally and selected by the form; no refetch.
+                  const made = await act(
                     () => finance.counterparties.create({ name }),
                     null,
                   );
-                  if (created) lists.refreshCounterparties();
-                  return created?.id;
+                  if (made) setCreated((list) => [...list, made]);
+                  return made?.id;
                 }}
               />
             )}
@@ -460,7 +538,9 @@ export function FinanceDocumentDetail({
                 variant="outline"
                 disabled={pending}
                 onClick={() =>
-                  act(() => finance.documents.retry(doc.id), "retried")
+                  act(() => finance.documents.retry(doc.id), "retried", {
+                    saved: asDoc,
+                  })
                 }
               >
                 <RotateCcw aria-hidden size={14} />

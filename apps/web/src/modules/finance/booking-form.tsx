@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useReducer } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Alert, Button, Input } from "@/components/ui/primitives";
 import type { Locale } from "@/lib/i18n";
@@ -13,6 +13,7 @@ import type {
 } from "./api";
 import {
   AllocationEditor,
+  allocationMessage,
   allocationOf,
   rowsOf,
   type Allocation,
@@ -95,16 +96,53 @@ const RATE = /^\d{1,12}(?:\.\d{1,12})?$/;
 export const currencyDecimals = (currency: string): number | null =>
   DECIMALS[currency] ?? null;
 
+const GROUPED = (separator: "." | ",") =>
+  new RegExp(`^\\d{1,3}(?:\\${separator}\\d{3})+$`);
+/** A comma before exactly three final digits: refused for USDC (see below). */
+const AMBIGUOUS_COMMA = /^\d{1,3}(?:\.\d{3})*,\d{3}$/;
+
 /**
- * Typed amount text ("12", "12.5", "12,50") as micros, or null when it is
- * not a non-negative amount with at most the currency's decimals.
+ * Typed amount text as micros, or null when it is not a non-negative
+ * amount with at most the currency's decimals. Reads separators like the
+ * server's parseAmount: with both "." and "," the last one is the decimal
+ * separator and the other must group thousands ("1,000.50", "1.000,50"); a
+ * separator that repeats groups thousands ("1,234,567"); a single one is
+ * the decimal separator ("12,5"). For currencies with more than two
+ * decimals a comma before exactly three final digits ("1,000") is
+ * ambiguous and refused.
  */
 export function amountMicros(text: string, currency: string): bigint | null {
   const decimals = currencyDecimals(currency);
   if (decimals === null) return null;
-  const match = /^(\d{1,12})(?:[.,](\d+))?$/.exec(text.trim());
-  if (!match || (match[2] ?? "").length > decimals) return null;
-  return BigInt(match[1]!) * MICRO + BigInt((match[2] ?? "").padEnd(6, "0"));
+  const body = text.trim();
+  if (!/^[\d.,]+$/.test(body)) return null;
+  if (decimals > 2 && AMBIGUOUS_COMMA.test(body)) return null;
+  const lastDot = body.lastIndexOf(".");
+  const lastComma = body.lastIndexOf(",");
+  let whole = body;
+  let fraction = "";
+  if (lastDot >= 0 && lastComma >= 0) {
+    const index = Math.max(lastDot, lastComma);
+    const grouping = body[index] === "." ? "," : ".";
+    const left = body.slice(0, index);
+    fraction = body.slice(index + 1);
+    if (!GROUPED(grouping).test(left) || !fraction) return null;
+    whole = left.replaceAll(grouping, "");
+  } else if (lastDot >= 0 || lastComma >= 0) {
+    const separator = lastDot >= 0 ? "." : ",";
+    const index = Math.max(lastDot, lastComma);
+    if (body.split(separator).length > 2) {
+      if (!GROUPED(separator).test(body)) return null;
+      whole = body.replaceAll(separator, "");
+    } else {
+      whole = body.slice(0, index);
+      fraction = body.slice(index + 1);
+      if (!fraction) return null;
+    }
+  }
+  if (!/^\d{1,12}$/.test(whole) || !/^\d*$/.test(fraction)) return null;
+  if (fraction.length > decimals) return null;
+  return BigInt(whole) * MICRO + BigInt(fraction.padEnd(6, "0"));
 }
 
 /** Micros text ("12500000") as input text in the currency's decimals ("12.50"). */
@@ -230,7 +268,13 @@ export function lineSumMicros(form: BookingFormState): bigint | null {
   return sum;
 }
 
-const normalize = (text: string) => text.trim().replace(",", ".");
+/** Valid amount text as the plain decimal sent to the API ("1,000.50" → "1000.50"). */
+const canonical = (text: string, currency: string) => {
+  const micros = amountMicros(text, currency);
+  return micros === null
+    ? text.trim()
+    : microsToInput(String(micros), currency);
+};
 
 /** The payment date that is sent: a receipt is paid on its issue date. */
 export const paymentDate = (form: BookingFormState) =>
@@ -270,11 +314,13 @@ export function bookingOf(
     if (!line.categoryId) problems.push(r.categoryRequired.replace("{n}", n));
     const split = allocationOf(line.allocation);
     if (split.problem)
-      problems.push(`${r.line.replace("{n}", n)}: ${t.allocation.sumInvalid}`);
+      problems.push(
+        `${r.line.replace("{n}", n)}: ${allocationMessage(t, split.problem)}`,
+      );
     lines.push({
       description: line.description.trim(),
-      amount: normalize(line.amount),
-      tax: normalize(line.tax || "0"),
+      amount: canonical(line.amount, form.currency),
+      tax: canonical(line.tax || "0", form.currency),
       categoryId: line.categoryId,
       allocation: split.allocation ?? [],
     });
@@ -327,7 +373,7 @@ export function bookingOf(
 export function draftPatchOf(form: BookingFormState): Record<string, unknown> {
   const amount = (text: string) =>
     text.trim() && amountMicros(text, form.currency) !== null
-      ? normalize(text)
+      ? canonical(text, form.currency)
       : null;
   return {
     docType: form.kind,
@@ -366,6 +412,46 @@ export function creditableInvoices(
       inv.direction === form.direction &&
       inv.currency === form.currency,
   );
+}
+
+/** A change of the form state; `bookingReducer` applies it. */
+export type BookingAction =
+  | { type: "set"; change: Partial<BookingFormState> }
+  | { type: "line"; index: number; change: Partial<LineForm> }
+  | { type: "addLine" }
+  | { type: "removeLine"; index: number }
+  | { type: "counterpartyCreated"; id: string };
+
+/**
+ * The form's state changes. A receipt is always paid; a counterparty
+ * created inline is selected at once.
+ */
+export function bookingReducer(
+  state: BookingFormState,
+  action: BookingAction,
+): BookingFormState {
+  switch (action.type) {
+    case "set": {
+      const next = { ...state, ...action.change };
+      return next.kind === "receipt" ? { ...next, paid: true } : next;
+    }
+    case "line":
+      return {
+        ...state,
+        lines: state.lines.map((l, i) =>
+          i === action.index ? { ...l, ...action.change } : l,
+        ),
+      };
+    case "addLine":
+      return { ...state, lines: [...state.lines, EMPTY_LINE] };
+    case "removeLine":
+      return {
+        ...state,
+        lines: state.lines.filter((_, i) => i !== action.index),
+      };
+    case "counterpartyCreated":
+      return { ...state, counterpartyId: action.id };
+  }
 }
 
 export type BookingLists = {
@@ -421,20 +507,20 @@ export function BookingForm({
   onCreateCounterparty: (name: string) => Promise<string | undefined>;
 }) {
   const r = t.review;
-  const [form, setForm] = useState(() => initialForm(doc));
+  // Initialized once per document (the parent keys the form by doc.id), so
+  // a refetch or a saved draft never resets what the person typed.
+  const [form, dispatch] = useReducer(bookingReducer, doc, initialForm);
   const draft = draftOf(doc);
   const suggestion = draft.suggestion;
+  const extractedName = draft.counterparty?.name;
   const editable =
     canWrite && (doc.status === "needs_review" || doc.status === "failed");
   const fxMissing = bookError === "FX_RATE_MISSING";
   const { booking, problems } = bookingOf(form, t, { fxMissing });
   const update = (change: Partial<BookingFormState>) =>
-    setForm((f) => ({ ...f, ...change }));
+    dispatch({ type: "set", change });
   const setLine = (index: number, change: Partial<LineForm>) =>
-    setForm((f) => ({
-      ...f,
-      lines: f.lines.map((l, i) => (i === index ? { ...l, ...change } : l)),
-    }));
+    dispatch({ type: "line", index, change });
   const hint =
     suggestion?.source === "history"
       ? r.suggestedHistory
@@ -470,10 +556,8 @@ export function BookingForm({
     <form
       className="settings-form finance-booking"
       aria-label={r.form}
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (booking && !duplicateOpen) onBook(booking);
-      }}
+      // Enter in a field never books; only the Book button does.
+      onSubmit={(e) => e.preventDefault()}
     >
       <fieldset disabled={!editable || pending}>
         <div className="finance-grid">
@@ -483,12 +567,7 @@ export function BookingForm({
               id={fid("kind")}
               className="input"
               value={form.kind}
-              onChange={(e) =>
-                update({
-                  kind: e.target.value as BookingKind,
-                  ...(e.target.value === "receipt" ? { paid: true } : {}),
-                })
-              }
+              onChange={(e) => update({ kind: e.target.value as BookingKind })}
             >
               {(["invoice", "receipt", "credit_note"] as const).map((k) => (
                 <option key={k} value={k}>
@@ -538,9 +617,9 @@ export function BookingForm({
             suggestion.counterpartyId === form.counterpartyId && (
               <small className="field-hint">{hint}</small>
             )}
-          {draft.counterparty?.name && (
+          {extractedName && (
             <small className="field-hint">
-              {r.extractedName.replace("{name}", draft.counterparty.name)}
+              {r.extractedName.replace("{name}", () => extractedName)}
             </small>
           )}
         </label>
@@ -565,7 +644,7 @@ export function BookingForm({
                 const id = await onCreateCounterparty(
                   form.newCounterpartyName.trim(),
                 );
-                if (id) update({ counterpartyId: id });
+                if (id) dispatch({ type: "counterpartyCreated", id });
               }}
             >
               {r.counterpartyCreate}
@@ -720,12 +799,7 @@ export function BookingForm({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() =>
-                      setForm((f) => ({
-                        ...f,
-                        lines: f.lines.filter((_, i) => i !== index),
-                      }))
-                    }
+                    onClick={() => dispatch({ type: "removeLine", index })}
                   >
                     <Trash2 aria-hidden size={14} />
                     {r.removeLine}
@@ -739,9 +813,7 @@ export function BookingForm({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() =>
-                setForm((f) => ({ ...f, lines: [...f.lines, EMPTY_LINE] }))
-              }
+              onClick={() => dispatch({ type: "addLine" })}
             >
               <Plus aria-hidden size={14} />
               {r.addLine}
@@ -824,8 +896,8 @@ export function BookingForm({
             <Alert kind="warning">
               {r.rateTitle}.{" "}
               {r.rateHint
-                .replace("{base}", baseCurrency ?? "—")
-                .replace("{currency}", form.currency || "—")}
+                .replace("{base}", () => baseCurrency ?? "—")
+                .replace("{currency}", () => form.currency || "—")}
             </Alert>
             <label>
               <span>{r.rate}</span>
@@ -875,8 +947,11 @@ export function BookingForm({
           </Button>
           {doc.status === "needs_review" && (
             <Button
-              type="submit"
+              type="button"
               disabled={pending || duplicateOpen || booking === null}
+              onClick={() => {
+                if (booking && !duplicateOpen) onBook(booking);
+              }}
             >
               {r.book}
             </Button>
