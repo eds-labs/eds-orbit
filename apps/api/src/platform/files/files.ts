@@ -17,7 +17,10 @@ import { databaseStore } from "./db-store.ts";
  *
  * Off unless ORBIT_FILES is "true" and the bucket is configured. Deleting
  * marks the row first (no reader sees the file again), then removes the
- * object and the row; the hourly cleanup retries what failed.
+ * object and the row; the hourly cleanup retries what failed. A file with
+ * `retainUntil` in the future cannot be deleted (409 FILE_RETAINED); the
+ * cleanup only purges rows that were marked deleted, which a retained file
+ * never is.
  */
 
 export const FILES_MAX_LIMIT = 50 * 1024 * 1024;
@@ -36,6 +39,19 @@ const TYPES: Record<string, ((bytes: Uint8Array) => boolean) | null> = {
   "text/csv": null,
   "message/rfc822": null,
 };
+/**
+ * Types modules may store and members download, but that Support's inbound
+ * e-mail attachments do not accept: `allowedFileTypes()` leaves them out.
+ */
+const STORAGE_ONLY_TYPES: Record<string, (bytes: Uint8Array) => boolean> = {
+  "application/xml": (b) =>
+    starts(
+      b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? b.subarray(3) : b,
+      [0x3c, 0x3f, 0x78, 0x6d, 0x6c],
+    ),
+  // Generated bundles (e.g. finance receipt exports): local file header.
+  "application/zip": (b) => starts(b, [0x50, 0x4b, 0x03, 0x04]),
+};
 const starts = (bytes: Uint8Array, signature: number[]) =>
   signature.every((value, i) => bytes[i] === value);
 
@@ -48,10 +64,17 @@ const EXTENSIONS: Record<string, string[]> = {
   "application/pdf": [".pdf"],
   "text/plain": [".txt"],
   "text/csv": [".csv"],
+  "application/xml": [".xml"],
+  "application/zip": [".zip"],
   "message/rfc822": [".eml"],
 };
 
 export const allowedFileTypes = () => Object.keys(TYPES);
+
+/** The largest single file the platform stores. */
+export const maxFileBytes = () => loadConfig().FILES_MAX_BYTES;
+
+const TYPE_CHECKS = { ...TYPES, ...STORAGE_ONLY_TYPES };
 
 type FilesConfig = {
   backend: "database" | "s3";
@@ -122,6 +145,7 @@ type FileRow = {
   sha256: string;
   createdBy: string;
   createdAt: Date;
+  retainUntil: Date | null;
 };
 
 /** What a client may see of a file: never its object key. */
@@ -134,6 +158,7 @@ export const fileView = (row: FileRow) => ({
   sha256: row.sha256,
   createdBy: row.createdBy,
   createdAt: row.createdAt,
+  retainUntil: row.retainUntil,
 });
 
 const sha256 = (bytes: Uint8Array) =>
@@ -178,7 +203,14 @@ async function projectBytes(tx: DbTx, scope: Scope) {
  */
 export async function storeFile(
   scope: Scope,
-  input: { moduleId: string; bytes: Uint8Array; mime: string; name?: unknown },
+  input: {
+    moduleId: string;
+    bytes: Uint8Array;
+    mime: string;
+    name?: unknown;
+    /** The file cannot be deleted before this time (e.g. legal retention). */
+    retainUntil?: Date;
+  },
 ) {
   const config = requireFiles();
   // "platform" holds the platform's own files, such as raw inbound e-mail.
@@ -191,7 +223,7 @@ export async function storeFile(
   if (input.bytes.byteLength > config.maxBytes)
     throw new DomainError("FILE_TOO_LARGE", 413);
   const mime = input.mime.split(";")[0]!.trim().toLowerCase();
-  const check = TYPES[mime];
+  const check = TYPE_CHECKS[mime];
   if (check === undefined || (check && !check(input.bytes)))
     throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
   const size = input.bytes.byteLength;
@@ -224,6 +256,7 @@ export async function storeFile(
           sha256: digest,
           encryption: FILE_ENCRYPTION,
           createdBy: scope.userId,
+          retainUntil: input.retainUntil ?? null,
         },
       });
       await audit(tx, scope, "file.stored", id, {
@@ -292,11 +325,16 @@ async function purge(scope: Scope, store: ObjectStore, row: FileRow) {
   return true;
 }
 
-/** Deletes a file: unreadable at once, object and row right after. */
+/**
+ * Deletes a file: unreadable at once, object and row right after. A file
+ * under retention (`retainUntil` in the future) is refused with 409.
+ */
 export async function deleteFile(scope: Scope, id: string) {
   const config = requireFiles();
   const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const found = await fileRow(tx, scope, id);
+    if (found.retainUntil && found.retainUntil > new Date())
+      throw new DomainError("FILE_RETAINED", 409);
     await tx.file.update({
       where: { id },
       data: { deletedAt: new Date() },

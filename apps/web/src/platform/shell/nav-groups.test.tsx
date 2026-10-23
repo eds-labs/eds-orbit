@@ -21,6 +21,7 @@ describe("buildNavGroups", () => {
       "marketing",
       "support",
       "knowledge",
+      "finance",
       "project",
     ]);
     expect(groups[0]!.label).toBeNull();

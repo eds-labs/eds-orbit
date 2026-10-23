@@ -1,6 +1,8 @@
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { connectionsOf } from "../../platform/connections/connections.ts";
 import { INBOUND_KIND } from "../../platform/email/inbound.ts";
+import { mailboxOwner } from "../../platform/email/ownership.ts";
 import { EMAIL_KIND, ORBIT_MESSAGE_ID } from "../../platform/email/send.ts";
 import { deleteFile, filesConfig } from "../../platform/files/files.ts";
 import type { PeriodicTask } from "../../platform/jobs/types.ts";
@@ -225,15 +227,32 @@ export async function eraseContact(scope: Scope, contactId: string) {
       const addresses = [contact.email, contact.claimedEmail].filter(
         (v): v is string => Boolean(v),
       );
+      // Mail of a mailbox another module owns (platform/email/ownership.ts)
+      // belongs to that module; every other mailbox's mail goes, as before.
+      const foreignMailboxes = new Set(
+        (await connectionsOf(tx, scope, "email"))
+          .filter((row) => {
+            const owner = mailboxOwner(data(row));
+            return owner !== null && owner !== "support";
+          })
+          .map((row) => row.id),
+      );
       const unlinked = addresses.length
-        ? await tx.entity.findMany({
-            where: {
-              projectId: scope.projectId,
-              kind: INBOUND_KIND,
-              OR: addresses.map((a) => ({
-                data: { path: ["from"], equals: a },
-              })),
-            },
+        ? (
+            await tx.entity.findMany({
+              where: {
+                projectId: scope.projectId,
+                kind: INBOUND_KIND,
+                OR: addresses.map((a) => ({
+                  data: { path: ["from"], equals: a },
+                })),
+              },
+            })
+          ).filter((r) => {
+            const mailbox = data(r).connectionId;
+            return (
+              typeof mailbox !== "string" || !foreignMailboxes.has(mailbox)
+            );
           })
         : [];
       await tx.entity.deleteMany({

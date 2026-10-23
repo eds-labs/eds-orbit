@@ -23,6 +23,44 @@
 | CI07 Existing project connections cut over to central connections with rollback | `connectionAccess`, `connector-attach`, `connections-migrate.ts`; cutover and migration tests | PASS_TEST (Postiz, Matomo, customer context; mailboxes/Slack/GitHub/Drive not cut over) |
 | CI08 Central MCP administration and n8n bindings | `administration/mcp.ts`, `automation/workflows.ts`; MCP admin and automation tests | PASS_TEST |
 
+## Finance module phase 1 (2026-10-23)
+
+Spec `docs/superpowers/specs/2026-10-23-finance-module-design.md`; behaviour in `docs/FINANCE.md`. States use the file's vocabulary: PASS_TEST here means the focused tests passed at the task's commit and the full suite passed on the finished branch (Task 24).
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| F-D1 Dedicated project, cost centers as finance-internal labels, no workspace tenancy | `finance-master-data.integration.test.ts`, `rls-matrix.integration.test.ts` (every finance table seeded) | PASS_TEST |
+| F-D2 AI reads receipts as files (PDF, image) for OpenAI and Anthropic, no new dependency | `packages/ai/src/cost.test.ts`, `providers/anthropic.test.ts`, `routing.test.ts`; `finance-extraction.test.ts` | PASS_TEST (no live provider call: NOT_RUN) |
+| F-D3 ECB historical rates per date, stored per project, manual override per booking | `finance-fx.test.ts`, `finance-fx.integration.test.ts` (fixture `ecb-hist.xml`), `finance-booking.integration.test.ts` | PASS_TEST (live ECB fetch NOT_RUN) |
+| F-D4 AI result stays a draft until a person books; posted entries immutable, corrections are reversals | `finance-extraction.integration.test.ts`, `finance-booking.integration.test.ts`, `finance-integrity.integration.test.ts` | PASS_TEST |
+| Module opt-in: flag off by default, project row required, 404 `FINANCE_DISABLED` | `finance-module.test.ts`, `module-registry.test.ts`, `finance-routes.integration.test.ts` | PASS_TEST |
+| Permissions `finance.read/.write/.export/.settings` (sensitive), owner-only mailboxes and settings, viewers denied | `finance-routes.integration.test.ts`, `access-matrix.integration.test.ts` + `fixtures/access-matrix.json` (reviewed additions) | PASS_TEST |
+| Tenant isolation: composite FKs, FORCE RLS on 17 tables, cross-project negatives | `rls-matrix.integration.test.ts`, `finance-integrity.integration.test.ts` | PASS_TEST |
+| Mailbox owner routing; finance and Support refuse each other's mailbox; Support erasure scoped | `email-ownership.integration.test.ts`, `email-mailboxes.integration.test.ts`, `support-mailboxes.integration.test.ts`, `support-email.integration.test.ts` | PASS_TEST |
+| IMAP archive after acknowledgement, owner only, errors recorded (`lastArchiveError`) | `email-archive.integration.test.ts`, `finance-intake.integration.test.ts` | PASS_TEST (real IMAP server NOT_RUN: fake IMAP) |
+| File retention lock (`FILE_RETAINED`), XML and ZIP storage-only types, Support allow-list unchanged | `files.integration.test.ts`, `support-email.integration.test.ts` | PASS_TEST |
+| Mail intake: attachments, body-only mail, inline logo filter, duplicate Message-ID, partial-failure retry | `finance-intake.integration.test.ts` (fixtures `invoice.pdf`, `receipt-body-only.eml`, `receipt-inline-logo.eml`) | PASS_TEST |
+| Manual upload (API and web control), exact duplicates, unsupported types | `finance-intake.integration.test.ts`, `finance-routes.integration.test.ts`, `apps/web/src/modules/finance/upload.test.tsx`, `upload-access.test.tsx`, `apps/web/tests/finance.spec.ts` | PASS_TEST (browser spec local) |
+| Extraction safety: consent off by default, spend mandate, daily ceiling, no tools, injection text, invalid JSON, unknown outcome never retried | `finance-extraction.test.ts`, `finance-extraction.integration.test.ts` (stubbed provider) | PASS_TEST |
+| Duplicate rules (hash, counterparty and number, total within window) | `finance-extraction.integration.test.ts`, `finance-intake.integration.test.ts` | PASS_TEST |
+| Money as bigint micros, half-even rounding, ambiguous comma rejected | `finance-money.test.ts`, `apps/web/src/modules/finance/money.test.tsx`, `booking-form.test.tsx` | PASS_TEST |
+| Posting rules per transaction type, balance, splits, FX difference, reversal | `finance-posting.test.ts`, `finance-ledger.integration.test.ts`, `finance-booking.integration.test.ts` | PASS_TEST |
+| Database integrity: no DELETE, immutable lines, balanced entries, one reversal | `finance-integrity.integration.test.ts` | PASS_TEST |
+| Corrections: void invoice (reopens document), void payment, credit-note settlement, closing entry | `finance-booking.integration.test.ts` | PASS_TEST (partial credit at very different rates: known limitation) |
+| Booking concurrency and version conflict | `finance-booking.integration.test.ts`, `apps/web/tests/finance.spec.ts` | PASS_TEST |
+| Reports: summary, cost report, year overview open items at 31 December | `finance-reports.integration.test.ts`, `apps/web/src/modules/finance/overview.test.tsx`, `reports.test.tsx` | PASS_TEST |
+| Exports: journal CSV, receipt ZIP, year overview; CSV formula guard with numeric pass-through; size gate | `finance-exports.test.ts`, `finance-exports.integration.test.ts` | PASS_TEST (peak-memory and large-export runs NOT_RUN) |
+| Assistant tools (read-only, aggregates, role filtering, MCP off) | `finance-tools.integration.test.ts`, `module-contributions.test.ts` | PASS_TEST |
+| Attention items and the `finance_review_needed` notification (content-free) | `finance-tools.integration.test.ts`, `finance-extraction.integration.test.ts`, `apps/web/src/platform/shell/home.test.tsx` (home card) | PASS_TEST |
+| Content-free audit and logs (no amounts, names, document text) | audit assertions in `finance-booking`, `finance-exports`, `finance-extraction` and `finance-tools` integration tests | PASS_TEST |
+| Queue classes and worker dispatch (`finance_mail_receipt`, `finance_extract`, `email_archive`) | `apps/worker/tests/queue-dispatch.integration.test.ts` | PASS_TEST |
+| Web: overview, charts, review and booking form, upload, entries, invoices, reports, settings (the recurring page has no component test) | `apps/web/src/modules/finance/*.test.tsx`, `apps/web/tests/finance.spec.ts` | PASS_TEST (visual check on desktop and phone NOT_RUN) |
+| Documentation: guide, configuration runbook, ADR, platform docs | `docs/FINANCE.md`, `docs/adr/0012-finance-module.md`, `docs/EMAIL_AND_NOTIFICATIONS.md`, `docs/PLATFORM_FILES.md`, `docs/MODEL_ROUTING.md`, `docs/MODULE_ACTIVATION.md` | DOCUMENTED |
+| Full verification of the finished branch (lint, typecheck, test, build, e2e, Compose, source check, whole-branch review) | Task 24 | PASS_TEST |
+| Assumptions confirmed (USD base, USDC peg, accrual, 10-year retention) | Mario | BLOCKED_EXTERNAL |
+| Production: deploy, migrations `202610230001`/`202610230002`, flag, mailbox `payment@eds-labs.io`, AI consent | Runbook in `docs/FINANCE.md`; approvals required | BLOCKED_EXTERNAL |
+| DATEV export, bank/card/wallet sync, on-chain USDC, uLiquid Desk income, XRechnung parsing, monthly reports, MCP scope | Extension points only (spec §11) | NOT_RUN (out of Phase 1) |
+
 ## n8n integration layer — customer context phase 1 (2026-10-21)
 
 | Requirement | Evidence | State |

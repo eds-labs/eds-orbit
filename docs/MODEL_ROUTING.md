@@ -82,3 +82,13 @@ Plan and architecture report: `docs/superpowers/plans/2026-10-19-anthropic-provi
 **Not used.** Dynamic web-search filtering, the batch API, the 1-hour cache, task budgets, fast mode, images and embeddings on Anthropic.
 
 Verify live with `scripts/anthropic-smoke.ts` (one Haiku call, at most 64 output tokens; needs `ANTHROPIC_API_KEY` in the shell, never in the repository).
+
+## Finance extraction and file input (2026-10-23, local; flag off)
+
+The finance module (`docs/FINANCE.md`, ADR 0012) adds the task class `finance_extraction` and the run kind `finance` (`AgentRun_kind_check` widened by the additive migration `202610230001_platform_finance_prerequisites`).
+
+**Route.** Like every task class, `finance_extraction` resolves an explicit saved route first (Settings → AI, section "Finance extraction"; default ceiling 4,000 output tokens), otherwise the legacy `standard` tier. The provider catalogue suggests `claude-sonnet-5-5` for it; nothing is used until the owner verifies and prices the model and saves the route. A route that is unverified or unpriced fails closed as usual.
+
+**File input.** `respond()` accepts user input parts `input_file` (PDF) and `input_image`. The OpenAI adapter passes them through; the Anthropic adapter maps them to `document` and `image` content blocks, and text-only messages map exactly as before. A model without the PDF or image capability is rejected **before** transmission (`AI_INPUT_UNSUPPORTED`). The pre-transmission estimate adds a conservative allowance of 3,000 input tokens per PDF page and 1,600 per image (`attachmentInputTokens` in `packages/ai/src/cost.ts`) on top of the instruction and text bytes; settlement uses the reported usage.
+
+**Calls.** Each document is one call under the budget category `finance_document`: spend mandate (the active project policy), the finance daily ceiling (`aiDailyCeilingMicros`, default USD 2 per UTC day; settled plus open reservations), reservation, settlement. No tools, `store: false` on OpenAI, strict structured output validated again by zod and deterministic checks. A document over 10 MB or 20 PDF pages is not sent. An unknown outcome settles as unknown and is never retried automatically; a request the provider refuses is not billed. The run stops before the call if the AI configuration was saved meanwhile (`FINANCE_ROUTE_CHANGED`). No paid call was made during implementation.

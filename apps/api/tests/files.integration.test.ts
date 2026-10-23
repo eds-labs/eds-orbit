@@ -10,6 +10,7 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import {
+  allowedFileTypes,
   fileCleanup,
   setObjectStoreForTests,
   storeFile,
@@ -431,6 +432,109 @@ describe.skipIf(!enabled)("platform files", () => {
       tx.file.count({ where: { id: file.id } }),
     );
     expect(rows).toBe(0);
+  });
+
+  it("refuses to delete a retained file", async () => {
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: PNG,
+      mime: "image/png",
+      retainUntil: new Date(Date.now() + 86_400_000),
+    });
+    expect(file.retainUntil).toBeInstanceOf(Date);
+    const refused = await call("owner", "DELETE", file.id);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("FILE_RETAINED");
+    // Still readable, and the cleanup never purges it.
+    expect((await call("owner", "GET", file.id)).statusCode).toBe(200);
+    await expect(deleteFile(owner(), file.id)).rejects.toMatchObject({
+      code: "FILE_RETAINED",
+      status: 409,
+    });
+    await fileCleanup.run(owner());
+    expect(
+      bucket.objects.has(`projects/${projectId}/knowledge/${file.id}`),
+    ).toBe(true);
+  });
+
+  it("deletes after retention ends", async () => {
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: PNG,
+      mime: "image/png",
+      retainUntil: new Date(Date.now() + 86_400_000),
+    });
+    await scoped(workspaceId, projectId, (tx) =>
+      tx.file.update({
+        where: { id: file.id },
+        data: { retainUntil: new Date(Date.now() - 1000) },
+      }),
+    );
+    expect((await call("owner", "DELETE", file.id)).statusCode).toBe(200);
+    expect(
+      bucket.objects.has(`projects/${projectId}/knowledge/${file.id}`),
+    ).toBe(false);
+  });
+
+  it("stores xml with a declaration", async () => {
+    const xml = Buffer.from('<?xml version="1.0"?><a/>');
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: xml,
+      mime: "application/xml",
+      name: "rates",
+    });
+    expect(file).toMatchObject({ mime: "application/xml", name: "rates.xml" });
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), xml]);
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: bom,
+        mime: "application/xml",
+      }),
+    ).resolves.toMatchObject({ mime: "application/xml" });
+  });
+
+  it("keeps xml out of the types e-mail attachments may use", async () => {
+    expect(allowedFileTypes()).not.toContain("application/xml");
+    expect(allowedFileTypes()).toContain("application/pdf");
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: Buffer.from('<?xml version="1.0"?><a/>'),
+        mime: "application/xml",
+      }),
+    ).resolves.toMatchObject({ mime: "application/xml" });
+  });
+
+  it("stores zip bundles but keeps them out of e-mail attachment types", async () => {
+    expect(allowedFileTypes()).not.toContain("application/zip");
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: zip,
+        mime: "application/zip",
+        name: "bundle",
+      }),
+    ).resolves.toMatchObject({ mime: "application/zip", name: "bundle.zip" });
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: Buffer.from("not a zip"),
+        mime: "application/zip",
+      }),
+    ).rejects.toMatchObject({ status: 415 });
+  });
+
+  it("refuses xml without a declaration", async () => {
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: Buffer.from("<a/>"),
+        mime: "application/xml",
+      }),
+    ).rejects.toMatchObject({ status: 415 });
   });
 
   // Review findings (WP4.6 review, 2026-10-17).

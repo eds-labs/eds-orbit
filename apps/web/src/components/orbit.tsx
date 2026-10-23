@@ -303,12 +303,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     const states = knownStates?.modules;
     // Until the states load, or if they fail, every module counts as enabled.
     // A module the member has no access to (WP4.5) is hidden like a disabled one.
-    const enabled = (id: string) =>
-      moduleShown(
-        states,
-        id,
-        registry.modules.find((m) => m.id === id)?.optIn === true,
-      );
+    // So is one whose `minAccess` the member's access does not reach.
+    const enabled = (id: string) => {
+      const module = registry.modules.find((m) => m.id === id);
+      return moduleShown(states, id, module?.optIn === true, module?.minAccess);
+    };
     const nav = navOrder(
       navigationForFeatures(table.routes, knownStates?.features),
     );
@@ -646,6 +645,18 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const isOn = (id: string) =>
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
+  // Off only because the member's access is below the module's minAccess:
+  // a no-access notice instead of "turned off" (or the server's 403s).
+  const noAccess = (() => {
+    const id = route?.moduleId ?? route?.requiresModule;
+    const module = registry.modules.find((m) => m.id === id);
+    if (!id || !module?.minAccess) return false;
+    const states = knownStates?.modules;
+    return (
+      moduleShown(states, id, module.optIn === true) &&
+      !moduleShown(states, id, module.optIn === true, module.minAccess)
+    );
+  })();
   const navGroups = withSettingsLinks(
     buildNavGroups(shell.table.routes, shell.modules),
     shell.modules,
@@ -874,7 +885,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                   // no "module off" flash and no remount for an opt-in module.
                   <Loading label={t("loading")} />
                 ) : moduleOff ? (
-                  <ModuleOff t={t} homeHref={homeHref} />
+                  <ModuleOff t={t} homeHref={homeHref} noAccess={noAccess} />
                 ) : (
                   <route.component />
                 )}
@@ -933,11 +944,19 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     </ShellContext.Provider>
   );
 }
-function ModuleOff({ t, homeHref }: { t: Text; homeHref: string }) {
+export function ModuleOff({
+  t,
+  homeHref,
+  noAccess = false,
+}: {
+  t: Text;
+  homeHref: string;
+  noAccess?: boolean;
+}) {
   return (
     <Alert kind="warning">
-      <strong>{t("moduleOff")}</strong>
-      <p>{t("moduleOffHint")}</p>
+      <strong>{t(noAccess ? "moduleNoAccess" : "moduleOff")}</strong>
+      <p>{t(noAccess ? "moduleNoAccessHint" : "moduleOffHint")}</p>
       <Link className="text-link" href={homeHref}>
         {t("backHome")}
       </Link>

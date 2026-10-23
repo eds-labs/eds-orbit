@@ -205,6 +205,7 @@ describe.skipIf(!enabled)("support inboxes on several mailboxes", () => {
           messages: box(a).filter((m) => uids.includes(m.uid)),
           skipped: [],
         }),
+        move: async () => "moved" as const,
         fetchNew: async (state, limits) => ({
           uidValidity: "1",
           messages: box(a)

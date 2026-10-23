@@ -150,6 +150,14 @@ export type WebModule = {
    * the module states load and say it is on.
    */
   optIn?: true;
+  /**
+   * The least module access that sees the module at all. Below it the
+   * shell hides the module's navigation, home card, settings sections and
+   * other contributions, and a deep link shows a no-access notice; the
+   * server's own permission checks are unchanged. Finance sets "editor":
+   * its data is sensitive, so viewers get none of it.
+   */
+  minAccess?: "editor" | "owner";
   displayName: Label;
   description: Label;
   /** Position of the module's group in the sidebar (UI restructure). */

@@ -113,14 +113,27 @@ export type ModuleContributions = {
    * row's id. Bounces are the platform's and never handed over.
    * `mailboxUse` tells the platform whether the module still uses a mailbox
    * (a removal is refused then) and lets go of the uses that do not block,
-   * right before the mailbox is removed.
+   * right before the mailbox is removed. With `ownedOnly` the module gets
+   * only the mail of mailboxes it owns (platform/email/ownership.ts), never
+   * the broadcast of unowned ones.
    */
-  emailInbound?: { queueClass: string; mailboxUse?: MailboxUse };
+  emailInbound?: {
+    queueClass: string;
+    mailboxUse?: MailboxUse;
+    ownedOnly?: boolean;
+  };
   /**
    * Member notification kinds the module sends with `notifyMembers`
    * (WP4.7), by kind name, unique across modules.
    */
   userNotifications?: Readonly<Record<string, UserNotificationKind>>;
+  /**
+   * The module's platform files (platform/files/). With `privateToModule`
+   * they are reachable only through the module's own routes: the platform
+   * file routes answer 404 for them, so the module's own checks (such as
+   * finance's sensitive permissions) are never bypassed.
+   */
+  files?: { privateToModule?: boolean };
   /**
    * False while the module is switched off for the whole installation, such
    * as support without ORBIT_SUPPORT (WP5.1): projects neither see it in the
@@ -272,6 +285,7 @@ type Registered = {
     owner: string;
     queueClass: string;
     mailboxUse?: MailboxUse;
+    ownedOnly?: boolean;
   }[];
   userNotifications: ReadonlyMap<
     string,
@@ -659,6 +673,11 @@ export function registeredUserNotifications() {
 }
 
 /** The modules that take inbound e-mail, in registry order (WP4.7). */
+/** True when a module's files are reachable through its own routes only. */
+export function registeredPrivateFiles(moduleId: string) {
+  return current().byModule.get(moduleId)?.files?.privateToModule === true;
+}
+
 export function registeredEmailInbound() {
   return current().emailInbound;
 }

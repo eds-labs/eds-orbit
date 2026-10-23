@@ -118,6 +118,7 @@ describe.skipIf(!enabled)("several e-mail mailboxes per project", () => {
           messages: box(a).filter((m) => uids.includes(m.uid)),
           skipped: [],
         }),
+        move: async () => "moved" as const,
         fetchNew: async (state, limits) => {
           logins.push(a.fromAddress);
           return {

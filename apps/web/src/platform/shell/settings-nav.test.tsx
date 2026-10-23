@@ -52,11 +52,22 @@ describe("groupSettings", () => {
       // Marketing page since 2026-10-19).
       ["marketing", ["policy", "brand"]],
       ["support", ["support"]],
+      [
+        "finance",
+        [
+          "finance-mailboxes",
+          "finance-accounts",
+          "finance-cost-centers",
+          "finance-currencies",
+          "finance-ai",
+        ],
+      ],
     ]);
     expect(groups.map((g) => g.label.de)).toEqual([
       "Projekt",
       "Marketing",
       "Support",
+      "Finanzen",
     ]);
   });
 
@@ -98,7 +109,11 @@ describe("groupSettings", () => {
       collectSettingsTabs(owner, contributed),
       hidden,
     );
-    expect(groups.map((g) => g.id)).toEqual(["project", "marketing"]);
+    expect(groups.map((g) => g.id)).toEqual([
+      "project",
+      "marketing",
+      "finance",
+    ]);
     expect(groups.flatMap((g) => g.tabs.map((t) => t.key))).not.toContain(
       "support",
     );
@@ -238,6 +253,7 @@ describe("module settings links in the sidebar", () => {
       ["knowledge", undefined],
       ["marketing", "policy"],
       ["support", "support"],
+      ["finance", "finance-mailboxes"],
     ]);
   });
 

@@ -200,9 +200,35 @@ try {
     "SupportAttachment",
     "SupportTicketEvent",
     "SupportTicketCounter",
+    // Finance master data and exchange rates.
+    "FinanceAccount",
+    "FinanceCategory",
+    "FinanceCostCenter",
+    "FinanceCounterparty",
+    "FinanceMailbox",
+    "FinanceRecurring",
+    "FinanceFxRate",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
+  );
+  // Finance records (spec §4): no DELETE for the business role, so posted
+  // entries, their documents and payments cannot be removed; project
+  // deletion still cascades. Triggers keep posted lines and entries fixed.
+  const financeRecords = [
+    "FinanceJournalEntry",
+    "FinanceJournalLine",
+    "FinanceEntryCounter",
+    "FinanceDocument",
+    "FinanceDocumentRevision",
+    "FinanceInvoice",
+    "FinanceInvoiceLine",
+    "FinancePayment",
+    "FinancePaymentAllocation",
+    "FinanceExport",
+  ];
+  await migrator.query(
+    `GRANT SELECT,INSERT,UPDATE ON ${financeRecords.map(identifier).join(",")} TO orbit_app`,
   );
   await migrator.query('GRANT SELECT,UPDATE ON "Project" TO orbit_app');
   // Module activation (WP1.4): disabling keeps the row, so no DELETE.

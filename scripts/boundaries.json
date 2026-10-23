@@ -44,6 +44,9 @@
       "apps/api/src/modules/",
       "apps/api/src/modules/marketing/"
     ],
+    "module:finance": [
+      "apps/api/src/modules/finance/"
+    ],
     "worker": [
       "apps/worker/src/"
     ],
@@ -57,6 +60,9 @@
     ],
     "web-module:marketing": [
       "apps/web/src/modules/marketing/"
+    ],
+    "web-module:finance": [
+      "apps/web/src/modules/finance/"
     ],
     "package:ai": [
       "packages/ai/"

@@ -28,6 +28,7 @@ import {
   skipEmailForPause,
 } from "../email/send.ts";
 import { emailInbound } from "../email/inbound.ts";
+import { ARCHIVE_QUEUE, archiveInboundEmail } from "../email/archive.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
@@ -109,6 +110,12 @@ export const platformContributions: ModuleContributions = {
         sendQueuedEmail(scope, job.resourceId).then(() => undefined),
       // A pause stops it for good; the message says so.
       onBlockedByPause: (tx, job) => skipEmailForPause(tx, job),
+    },
+    {
+      // Moves an acknowledged inbound message into the archive folder its
+      // owner module asked for (IMAP). Records its outcome on the message.
+      queueClass: ARCHIVE_QUEUE,
+      handler: ({ scope, job }) => archiveInboundEmail(scope, job.resourceId),
     },
     {
       queueClass: "index_evaluation",

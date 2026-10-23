@@ -1,0 +1,11 @@
+From: Shop <shop@store.example>
+To: receipts@company.example
+Subject: Your receipt #4711
+Date: Fri, 23 Oct 2026 10:00:00 +0000
+Message-ID: <body-only-1@store.example>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Receipt #4711
+Total: 42.00 USD
+Paid by card.

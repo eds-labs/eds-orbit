@@ -141,3 +141,24 @@ export function webSearchInputTokens(model: string, calls: number, runtime: Cost
     runtime.rateCard?.[model]?.webSearchInputTokensPerCall ?? DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL;
   return calls * perCall;
 }
+
+/** Input tokens a reservation allows per PDF page and per image attachment. */
+export const PDF_PAGE_INPUT_TOKENS = 3000;
+export const IMAGE_INPUT_TOKENS = 1600;
+
+/** Estimated input tokens of file and image attachments, for the reservation before the call. */
+export function attachmentInputTokens(
+  parts: ({ kind: "pdf"; pages: number } | { kind: "image" })[],
+): number {
+  return parts.reduce(
+    (sum, p) =>
+      sum + (p.kind === "pdf" ? Math.max(1, p.pages) * PDF_PAGE_INPUT_TOKENS : IMAGE_INPUT_TOKENS),
+    0,
+  );
+}
+
+/** Pages of a PDF: its `/Type /Page` objects (not `/Pages`), at least 1. Object streams may hide pages, so treat this as an estimate. */
+export function pdfPageCount(bytes: Uint8Array): number {
+  const text = new TextDecoder("latin1").decode(bytes);
+  return Math.max(1, (text.match(/\/Type\s*\/Page(?![A-Za-z])/g) ?? []).length);
+}

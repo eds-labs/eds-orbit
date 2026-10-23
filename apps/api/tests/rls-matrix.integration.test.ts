@@ -49,6 +49,24 @@ const PROJECT_TABLES = [
   "SupportTicket",
   "SupportTicketCounter",
   "SupportTicketEvent",
+  // Finance.
+  "FinanceAccount",
+  "FinanceCategory",
+  "FinanceCostCenter",
+  "FinanceCounterparty",
+  "FinanceDocument",
+  "FinanceDocumentRevision",
+  "FinanceEntryCounter",
+  "FinanceExport",
+  "FinanceFxRate",
+  "FinanceInvoice",
+  "FinanceInvoiceLine",
+  "FinanceJournalEntry",
+  "FinanceJournalLine",
+  "FinanceMailbox",
+  "FinancePayment",
+  "FinancePaymentAllocation",
+  "FinanceRecurring",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -112,6 +130,32 @@ const NO_APP_ACCESS = [
   ...SYSTEM_TABLES,
 ];
 const SCOPED_TABLES = [...PROJECT_TABLES, ...CHAT_TABLES];
+// Scoped tables the business role may not fully control, with exactly the
+// privileges it has ([select, insert, update, delete]); every other scoped
+// table has all four.
+const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
+  {
+    // Append-only audit log.
+    AuditEvent: [true, true, false, false],
+    // Disabling a module keeps its row (WP1.4).
+    ProjectModule: [true, true, true, false],
+    // Finance records: posted entries, their documents and payments cannot
+    // be deleted (spec §4); project deletion still cascades.
+    ...Object.fromEntries(
+      [
+        "FinanceDocument",
+        "FinanceDocumentRevision",
+        "FinanceEntryCounter",
+        "FinanceExport",
+        "FinanceInvoice",
+        "FinanceInvoiceLine",
+        "FinanceJournalEntry",
+        "FinanceJournalLine",
+        "FinancePayment",
+        "FinancePaymentAllocation",
+      ].map((t) => [t, [true, true, true, false] as const]),
+    ),
+  };
 
 type TableInfo = {
   relname: string;
@@ -135,6 +179,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   // foreign key checks.
   const inboxes = new Map<string, string>();
   const mailboxes = new Map<string, string>();
+  // A finance payment account per project, for the same-project key check.
+  const financeAccounts = new Map<string, string>();
 
   const synthetic = async () => {
     const row = await authDb.user.create({
@@ -452,7 +498,189 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           after: {},
         },
       });
+      await seedFinance(tx, s, mailbox.id, fileId);
       return inbox.id;
+    });
+  }
+
+  // One row in every finance table, with a balanced posted entry.
+  async function seedFinance(
+    tx: DbTx,
+    s: Scope,
+    connectionId: string,
+    fileId: string,
+  ) {
+    const row = () => ({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+    });
+    const bank = await tx.financeAccount.create({
+      data: {
+        ...row(),
+        code: "1000",
+        name: "Bank",
+        type: "asset",
+        paymentAccount: true,
+      },
+    });
+    financeAccounts.set(s.projectId, bank.id);
+    const costs = await tx.financeAccount.create({
+      data: { ...row(), code: "6000", name: "Costs", type: "expense" },
+    });
+    const category = await tx.financeCategory.create({
+      data: {
+        ...row(),
+        name: "Software",
+        kind: "expense",
+        accountId: costs.id,
+      },
+    });
+    const costCenter = await tx.financeCostCenter.create({
+      data: { ...row(), code: "CC1", name: "Synthetic cost center" },
+    });
+    const counterparty = await tx.financeCounterparty.create({
+      data: {
+        ...row(),
+        name: "Synthetic vendor",
+        normalizedName: "synthetic vendor",
+        defaultCategoryId: category.id,
+      },
+    });
+    const financeMailbox = await tx.financeMailbox.create({
+      data: { ...row(), emailConnectionId: connectionId },
+    });
+    const document = await tx.financeDocument.create({
+      data: {
+        ...row(),
+        fileId,
+        sha256: "c".repeat(64),
+        source: "email",
+        mailboxId: financeMailbox.id,
+        mimeType: "application/pdf",
+        status: "booked",
+      },
+    });
+    await tx.financeDocumentRevision.create({
+      data: { ...row(), documentId: document.id, version: 1, changes: {} },
+    });
+    const entry = await tx.financeJournalEntry.create({
+      data: {
+        ...row(),
+        number: "2026-000001",
+        entryDate: new Date("2026-10-23"),
+        kind: "invoice",
+        documentId: document.id,
+        postedBy: s.userId,
+      },
+    });
+    const line = (accountId: string, side: string) => ({
+      ...row(),
+      entryId: entry.id,
+      accountId,
+      side,
+      currency: "USD",
+      amountMicros: 1_000_000n,
+      fxRate: "1",
+      rateDate: new Date("2026-10-23"),
+      rateSource: "identity",
+      baseAmountMicros: 1_000_000n,
+    });
+    await tx.financeJournalLine.create({
+      data: {
+        ...line(costs.id, "debit"),
+        categoryId: category.id,
+        costCenterId: costCenter.id,
+      },
+    });
+    await tx.financeJournalLine.create({ data: line(bank.id, "credit") });
+    await tx.financeEntryCounter.create({
+      data: {
+        workspaceId: s.workspaceId,
+        projectId: s.projectId,
+        year: 2026,
+        next: 2,
+      },
+    });
+    const recurring = await tx.financeRecurring.create({
+      data: {
+        ...row(),
+        name: "Synthetic subscription",
+        counterpartyId: counterparty.id,
+        categoryId: category.id,
+        interval: "monthly",
+        expectedAmountMicros: 1_000_000n,
+        currency: "USD",
+        nextDueDate: new Date("2026-11-23"),
+      },
+    });
+    const invoice = await tx.financeInvoice.create({
+      data: {
+        ...row(),
+        kind: "invoice",
+        direction: "payable",
+        counterpartyId: counterparty.id,
+        number: "RLS-1",
+        issueDate: new Date("2026-10-23"),
+        currency: "USD",
+        netMicros: 1_000_000n,
+        taxMicros: 0n,
+        totalMicros: 1_000_000n,
+        status: "paid",
+        documentId: document.id,
+        recurringId: recurring.id,
+        entryId: entry.id,
+      },
+    });
+    await tx.financeInvoiceLine.create({
+      data: {
+        ...row(),
+        invoiceId: invoice.id,
+        description: "Synthetic line",
+        amountMicros: 1_000_000n,
+        categoryId: category.id,
+      },
+    });
+    const payment = await tx.financePayment.create({
+      data: {
+        ...row(),
+        date: new Date("2026-10-23"),
+        direction: "outgoing",
+        accountId: bank.id,
+        currency: "USD",
+        amountMicros: 1_000_000n,
+        counterpartyId: counterparty.id,
+      },
+    });
+    await tx.financePaymentAllocation.create({
+      data: {
+        ...row(),
+        paymentId: payment.id,
+        invoiceId: invoice.id,
+        amountMicros: 1_000_000n,
+        baseMicros: 1_000_000n,
+      },
+    });
+    await tx.financeFxRate.create({
+      data: {
+        ...row(),
+        date: new Date("2026-10-23"),
+        currency: "USD",
+        perEur: "1.160000",
+        source: "ecb",
+      },
+    });
+    await tx.financeExport.create({
+      data: {
+        ...row(),
+        kind: "journal_csv",
+        periodStart: new Date("2026-01-01"),
+        periodEnd: new Date("2026-12-31"),
+        fileId,
+        sha256: "d".repeat(64),
+        rowCount: 2,
+        createdBy: s.userId,
+      },
     });
   }
 
@@ -584,6 +812,19 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     });
   });
 
+  it("grants every scoped table full access except the listed restrictions", () => {
+    for (const name of SCOPED_TABLES) {
+      const t = tables.find((x) => x.relname === name)!;
+      expect({
+        name,
+        grants: [t.select, t.insert, t.update, t.delete],
+      }).toEqual({
+        name,
+        grants: RESTRICTED_GRANTS[name] ?? [true, true, true, true],
+      });
+    }
+  });
+
   it("shows no row of any readable table without a project scope", async () => {
     for (const t of tables.filter((x) => x.select)) {
       const rows = await db.$queryRawUnsafe<{ n: bigint }[]>(
@@ -703,6 +944,16 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         [randomUUID(), b.workspaceId, b.projectId, inboxes.get(b.projectId)],
       ],
       [
+        "FinanceAccount",
+        `INSERT INTO "FinanceAccount" (id, "workspaceId", "projectId", code, name, type) VALUES ($1::uuid, $2::uuid, $3::uuid, 'X1', 'x', 'asset')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "FinanceJournalEntry",
+        `INSERT INTO "FinanceJournalEntry" (id, "workspaceId", "projectId", number, "entryDate", kind, "postedBy") VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-000099', '2026-10-23', 'expense', 'rls')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
         "ChatConversation",
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
@@ -746,12 +997,28 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     expect(bound.error ?? "updated").toMatch(/foreign key/);
   });
 
-  it("deletes a project together with its support rows", async () => {
+  it("keeps finance references inside one project, even past RLS", async () => {
+    // A payment of A cannot be booked against B's bank account.
+    const result = await attempt(
+      a,
+      `INSERT INTO "FinancePayment" (id, "workspaceId", "projectId", date, direction, "accountId", currency, "amountMicros")
+       VALUES ($1::uuid, $2::uuid, $3::uuid, '2026-10-23', 'outgoing', $4::uuid, 'USD', 1)`,
+      randomUUID(),
+      a.workspaceId,
+      a.projectId,
+      financeAccounts.get(b.projectId),
+    );
+    expect(result.error ?? "inserted").toMatch(/foreign key/);
+  });
+
+  it("deletes a project together with its support and finance rows", async () => {
     const owner = await synthetic();
     const doomed = await project(await workspace(owner), owner);
     await seed(doomed);
     await authDb.project.delete({ where: { id: doomed.projectId } });
-    for (const table of PROJECT_TABLES.filter((t) => t.startsWith("Support")))
+    for (const table of PROJECT_TABLES.filter(
+      (t) => t.startsWith("Support") || t.startsWith("Finance"),
+    ))
       expect({ table, rows: await visible(doomed, table, doomed) }).toEqual({
         table,
         rows: 0,

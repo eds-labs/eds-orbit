@@ -15,6 +15,8 @@ export const taskClasses = [
   // Support AI (WP5.6): ticket triage and grounded draft replies for agents.
   "support_triage",
   "support_draft",
+  // Finance module: structured extraction from receipt PDFs and images.
+  "finance_extraction",
 ] as const;
 export type TaskClass = (typeof taskClasses)[number];
 export const reasoningEfforts = [
@@ -44,6 +46,7 @@ export const taskRoutesSchema = z
     agent_review: modelRouteSchema.optional(),
     support_triage: modelRouteSchema.optional(),
     support_draft: modelRouteSchema.optional(),
+    finance_extraction: modelRouteSchema.optional(),
   })
   .strict();
 /** The tier models of a second provider (Anthropic); the OpenAI tiers stay `modelRoutes`. */
@@ -65,6 +68,7 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   agent_review: 1800,
   support_triage: 800,
   support_draft: 1800,
+  finance_extraction: 4000,
 };
 // Tier used when no explicit task route is configured.
 export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
@@ -77,6 +81,7 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   agent_review: "quality",
   support_triage: "standard",
   support_draft: "quality",
+  finance_extraction: "standard",
 };
 
 // Blog drafts use the blog route; every other content type uses the social route.

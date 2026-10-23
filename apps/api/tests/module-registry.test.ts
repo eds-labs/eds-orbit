@@ -74,9 +74,15 @@ describe("static module registry", () => {
       "knowledge",
       "marketing",
       "support",
+      "finance",
     ]);
     // Modules without pending dependencies are ordered by id.
-    expect(registry.order).toEqual(["knowledge", "support", "marketing"]);
+    expect(registry.order).toEqual([
+      "finance",
+      "knowledge",
+      "support",
+      "marketing",
+    ]);
   });
 
   it("keeps support off unless a project enables it (WP5.1)", () => {
@@ -99,6 +105,15 @@ describe("static module registry", () => {
     expect(
       support.permissions.find((p) => p.key === "support.settings.manage"),
     ).toMatchObject({ defaultRoles: ["owner"], sensitive: true });
+  });
+
+  it("keeps finance off unless a project enables it", () => {
+    const finance = modules.find((m) => m.id === "finance")!;
+    expect(finance.defaultEnabled).toBe(false);
+    expect(finance.permissions.every((p) => p.sensitive === true)).toBe(true);
+    expect(
+      finance.permissions.find((p) => p.key === "finance.settings"),
+    ).toMatchObject({ defaultRoles: ["owner"] });
   });
 
   it("gives every entity kind the code uses an owner", () => {

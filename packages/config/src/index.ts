@@ -137,6 +137,9 @@ const baseConfigSchema = z.object({
   // Support module (WP5.1): off until the pilot is approved. Even when "true",
   // support works only in projects whose owner enabled the module.
   ORBIT_SUPPORT: z.enum(["false", "true"]).default("false"),
+  // Finance module: off until its rollout is approved. Even when "true",
+  // finance works only in projects whose owner enabled the module.
+  ORBIT_FINANCE: z.enum(["false", "true"]).default("false"),
   // Universal customer context (ADR 0011): live, read-only account facts
   // from external products for Support. Off until a provider passed its
   // integration test; each inbox must still be bound by its owner.

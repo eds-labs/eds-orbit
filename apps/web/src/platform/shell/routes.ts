@@ -251,10 +251,31 @@ export function moduleUsable(state?: { enabled: boolean; access?: string }) {
   return state ? state.enabled && state.access !== "none" : true;
 }
 
+const ACCESS_RANK: Readonly<Record<string, number>> = {
+  none: 0,
+  viewer: 1,
+  editor: 2,
+  owner: 3,
+};
+
+/**
+ * Whether a member's module access reaches a module's `minAccess`. An
+ * unknown access (the server sent none) is not held against the member;
+ * the server checks every request anyway.
+ */
+export function accessReaches(
+  access: string | undefined,
+  minAccess?: "editor" | "owner",
+) {
+  if (!minAccess || access === undefined) return true;
+  return (ACCESS_RANK[access] ?? 0) >= ACCESS_RANK[minAccess]!;
+}
+
 /**
  * Whether the shell shows a module given the loaded module states (WP5.1).
  * Once loaded, a module the server does not list (unavailable for the
- * installation, like support without ORBIT_SUPPORT) is hidden. Until they
+ * installation, like support without ORBIT_SUPPORT) is hidden, and so is a
+ * module whose `minAccess` the member's access does not reach. Until they
  * load, or if they fail, modules show, except opt-in modules.
  */
 export function moduleShown(
@@ -263,10 +284,13 @@ export function moduleShown(
     | undefined,
   id: string,
   optIn = false,
+  minAccess?: "editor" | "owner",
 ) {
   if (!states) return !optIn;
   const state = states.find((m) => m.id === id);
-  return state ? moduleUsable(state) : false;
+  return state
+    ? moduleUsable(state) && accessReaches(state.access, minAccess)
+    : false;
 }
 
 /**

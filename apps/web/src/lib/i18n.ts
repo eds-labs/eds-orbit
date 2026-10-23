@@ -2,6 +2,17 @@ export type Locale = "en" | "de";
 export const labels = {
   en: {
     overview: "Overview",
+    // Finance report rows whose name is null (Task 19 reads these).
+    financeReportOther: "Other",
+    financeReportUnassigned: "Unassigned",
+    // The member notification of a document that needs review (server text).
+    financeReviewNeeded: "A receipt needs review",
+    // The finance review page in the navigation.
+    financeReviewNav: "Review",
+    financeBookingsNav: "Bookings",
+    financeInvoicesNav: "Invoices",
+    financeRecurringNav: "Recurring",
+    financeReportsNav: "Reports",
     tickets: "Tickets",
     contacts: "Contacts",
     statistics: "Statistics",
@@ -133,6 +144,9 @@ export const labels = {
     backHome: "Back to start",
     moduleOff: "Module turned off",
     moduleOffHint: "An owner turned this module off for the project.",
+    moduleNoAccess: "No access",
+    moduleNoAccessHint:
+      "Your role in this project does not include this module. Ask an owner if you need access.",
     askAssistantHint:
       "Your text opens in Orbit Chat; nothing is sent until you press Send.",
     askAssistantLabel: "Message for Orbit Chat",
@@ -266,6 +280,17 @@ export const labels = {
   },
   de: {
     overview: "Übersicht",
+    // Finance report rows whose name is null (Task 19 reads these).
+    financeReportOther: "Sonstige",
+    financeReportUnassigned: "Nicht zugeordnet",
+    // The member notification of a document that needs review (server text).
+    financeReviewNeeded: "Ein Beleg muss geprüft werden",
+    // The finance review page in the navigation.
+    financeReviewNav: "Prüfen",
+    financeBookingsNav: "Buchungen",
+    financeInvoicesNav: "Rechnungen",
+    financeRecurringNav: "Laufende Kosten",
+    financeReportsNav: "Berichte",
     tickets: "Tickets",
     contacts: "Kontakte",
     statistics: "Statistik",
@@ -398,6 +423,9 @@ export const labels = {
     backHome: "Zurück zum Start",
     moduleOff: "Modul ausgeschaltet",
     moduleOffHint: "Ein Owner hat dieses Modul für das Projekt ausgeschaltet.",
+    moduleNoAccess: "Kein Zugriff",
+    moduleNoAccessHint:
+      "Ihre Rolle in diesem Projekt umfasst dieses Modul nicht. Fragen Sie einen Owner, wenn Sie Zugriff brauchen.",
     askAssistantHint:
       "Dein Text öffnet sich im Orbit Chat; gesendet wird erst mit Senden.",
     askAssistantLabel: "Nachricht für den Orbit Chat",

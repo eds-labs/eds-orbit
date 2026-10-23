@@ -160,6 +160,58 @@ function itemText(content: unknown): string {
     .join("");
 }
 
+export const AI_INPUT_UNSUPPORTED = "AI_INPUT_UNSUPPORTED";
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/** Splits a base64 data URL into its media type and payload; anything else is unsupported. */
+function parseDataUrl(value: unknown): { mediaType: string; data: string } {
+  const m = /^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(value ?? ""));
+  if (!m) throw new Error(AI_INPUT_UNSUPPORTED);
+  return { mediaType: m[1]!, data: m[2]! };
+}
+
+/**
+ * The content blocks of a user message that carries `input_file` (PDF) or
+ * `input_image` parts, or null when it has none (text-only messages keep the
+ * flattened text path). Text parts keep their order.
+ */
+function attachmentBlocks(content: unknown): ContentBlockParam[] | null {
+  if (
+    !Array.isArray(content) ||
+    !content.some((p) => {
+      const t = (p as Item | null)?.type;
+      return t === "input_file" || t === "input_image";
+    })
+  )
+    return null;
+  const blocks: ContentBlockParam[] = [];
+  for (const part of content as Item[]) {
+    if (part?.type === "input_file") {
+      const { mediaType, data } = parseDataUrl(part.file_data);
+      if (mediaType !== "application/pdf") throw new Error(AI_INPUT_UNSUPPORTED);
+      blocks.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data },
+      });
+    } else if (part?.type === "input_image") {
+      const { mediaType, data } = parseDataUrl(part.image_url);
+      if (!IMAGE_TYPES.has(mediaType)) throw new Error(AI_INPUT_UNSUPPORTED);
+      blocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mediaType as "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+          data,
+        },
+      });
+    } else {
+      const text = itemText([part]);
+      if (text) blocks.push({ type: "text", text });
+    }
+  }
+  return blocks;
+}
+
 /**
  * Orbit's item list as Messages API messages. Consecutive items of one side
  * join one message (parallel tool results must arrive in a single user
@@ -223,6 +275,13 @@ export function toAnthropicMessages(items: unknown[]): MessageParam[] {
         if (block?.type === "tool_use") carried.add(String(block.id));
       push("assistant", item.providerContent as ContentBlockParam[]);
       continue;
+    }
+    if (role === "user") {
+      const blocks = attachmentBlocks(item.content);
+      if (blocks) {
+        push(role, blocks);
+        continue;
+      }
     }
     const text = itemText(item.content);
     // The API refuses empty text blocks; an empty turn carries nothing.

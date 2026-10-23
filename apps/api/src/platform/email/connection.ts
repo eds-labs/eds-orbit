@@ -19,6 +19,7 @@ import {
   CONNECTION_KIND,
   type ConnectionProvider,
 } from "../connections/connections.ts";
+import { mailboxOwner } from "./ownership.ts";
 import {
   mailFactories,
   MailSendError,
@@ -171,8 +172,13 @@ export async function connectEmail(tx: DbTx, scope: Scope, raw: unknown) {
   const known = (await emailMailboxes(tx, scope)).find(
     (row) => addressOf(row) === account.fromAddress.toLowerCase(),
   );
+  // A re-save keeps the mailbox's owner module (ownership.ts).
+  const owner = known ? mailboxOwner(data(known)) : null;
   const row = known
-    ? await update(tx, scope, known, fields)
+    ? await update(tx, scope, known, {
+        ...fields,
+        ...(owner ? { ownerModule: owner } : {}),
+      })
     : await create(tx, scope, CONNECTION_KIND, fields);
   await audit(tx, scope, known ? "email.updated" : "email.connected", row.id, {
     smtpHost: account.smtpHost,
