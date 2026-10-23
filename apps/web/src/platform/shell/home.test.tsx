@@ -493,9 +493,18 @@ describe("homeSections", () => {
   const ids = (enabled: (id: string) => boolean) =>
     homeSections(webRegistry.modules, enabled).map((s) => s.moduleId);
 
-  it("knowledge card registered: support, marketing, knowledge by homeOrder", () => {
-    expect(ids(() => true)).toEqual(["support", "marketing", "knowledge"]);
-    expect(ids((id) => id !== "support")).toEqual(["marketing", "knowledge"]);
+  it("cards registered: support, marketing, knowledge, finance by homeOrder", () => {
+    expect(ids(() => true)).toEqual([
+      "support",
+      "marketing",
+      "knowledge",
+      "finance",
+    ]);
+    expect(ids((id) => id !== "support")).toEqual([
+      "marketing",
+      "knowledge",
+      "finance",
+    ]);
   });
 });
 

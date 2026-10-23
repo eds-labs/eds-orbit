@@ -2,6 +2,11 @@ export type Locale = "en" | "de";
 export const labels = {
   en: {
     overview: "Overview",
+    // Finance report rows whose name is null (Task 19 reads these).
+    financeReportOther: "Other",
+    financeReportUnassigned: "Unassigned",
+    // The member notification of a document that needs review (server text).
+    financeReviewNeeded: "A receipt needs review",
     tickets: "Tickets",
     contacts: "Contacts",
     statistics: "Statistics",
@@ -185,8 +190,10 @@ export const labels = {
     connectScopeRead: "Read what you can read in the chosen projects",
     connectScopePropose:
       "Propose changes and actions; you still approve them in Orbit",
-    connectScopeWrite: "Execute authorized internal work; external actions still require Orbit approval",
-    connectScopeSupport: "Read customer ticket messages through this external app",
+    connectScopeWrite:
+      "Execute authorized internal work; external actions still require Orbit approval",
+    connectScopeSupport:
+      "Read customer ticket messages through this external app",
     connectScopeOther: "Other permission",
     connectNoProjects:
       "This workspace has no project you can share. Ask an owner to add you to a project, or choose another workspace.",
@@ -258,6 +265,11 @@ export const labels = {
   },
   de: {
     overview: "Übersicht",
+    // Finance report rows whose name is null (Task 19 reads these).
+    financeReportOther: "Sonstige",
+    financeReportUnassigned: "Nicht zugeordnet",
+    // The member notification of a document that needs review (server text).
+    financeReviewNeeded: "Ein Beleg muss geprüft werden",
     tickets: "Tickets",
     contacts: "Kontakte",
     statistics: "Statistik",
@@ -442,8 +454,10 @@ export const labels = {
     connectScopeRead: "Lesen, was du in den gewählten Projekten lesen darfst",
     connectScopePropose:
       "Änderungen und Aktionen vorschlagen; du gibst sie weiterhin in Orbit frei",
-    connectScopeWrite: "Autorisierte interne Arbeit ausführen; externe Aktionen benötigen weiterhin eine Orbit-Freigabe",
-    connectScopeSupport: "Kundennachrichten in Supporttickets über diese externe App lesen",
+    connectScopeWrite:
+      "Autorisierte interne Arbeit ausführen; externe Aktionen benötigen weiterhin eine Orbit-Freigabe",
+    connectScopeSupport:
+      "Kundennachrichten in Supporttickets über diese externe App lesen",
     connectScopeOther: "Weitere Berechtigung",
     connectNoProjects:
       "Dieser Workspace hat kein Projekt, das du freigeben kannst. Bitte einen Owner, dich zu einem Projekt hinzuzufügen, oder wähle einen anderen Workspace.",
