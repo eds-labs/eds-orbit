@@ -1,6 +1,7 @@
 import type { DbTx, Prisma } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
+import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { assertUpdated } from "../common.ts";
 import { FINANCE_EXTRACT } from "../queues.ts";
@@ -75,6 +76,15 @@ export async function extractionJob(tx: DbTx, scope: Scope, doc: Doc) {
 }
 
 /**
+ * The paid call needs the owner's consent (`aiOn`) and an active policy
+ * with a spending mandate; without one every call stops at POLICY_REQUIRED.
+ */
+async function paidCallBlock(tx: DbTx, scope: Scope, aiOn: boolean) {
+  if (!aiOn) return "FINANCE_AI_OFF";
+  return (await activePolicyRecord(tx, scope)) ? null : "POLICY_REQUIRED";
+}
+
+/**
  * Why the extraction may not start now, or null. `aiOn` is the project's
  * consent; a person's edits are never overwritten by a new model answer.
  */
@@ -87,9 +97,7 @@ export async function extractionBlock(
   if (doc.status === "received") {
     const job = await extractionJob(tx, scope, doc);
     return !job || ["blocked_dependency", "failed"].includes(job.status)
-      ? aiOn
-        ? null
-        : "FINANCE_AI_OFF"
+      ? paidCallBlock(tx, scope, aiOn)
       : "FINANCE_EXTRACTION_RUNNING";
   }
   if (doc.status === "needs_review") {
@@ -101,7 +109,7 @@ export async function extractionBlock(
     });
     if (edits) return "FINANCE_DRAFT_EDITED";
   } else if (doc.status !== "failed") return "FINANCE_EXTRACTION_NOT_POSSIBLE";
-  return aiOn ? null : "FINANCE_AI_OFF";
+  return paidCallBlock(tx, scope, aiOn);
 }
 
 /**
@@ -163,6 +171,8 @@ export async function startExtractionFor(
  * stops wait with `ai_ceiling` for a person.
  */
 export async function queuePendingExtractions(tx: DbTx, scope: Scope) {
+  // Without a spending mandate every queued job would stop at once.
+  if (!(await activePolicyRecord(tx, scope))) return 0;
   const since = new Date(Date.now() - BACKLOG_DAYS * 86_400_000);
   const candidates = await tx.financeDocument.findMany({
     where: {

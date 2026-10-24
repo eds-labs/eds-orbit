@@ -293,6 +293,37 @@ describe.skipIf(!enabled)("finance extraction processing", () => {
     await setAi("off");
   });
 
+  it("refuses to start without an active policy and queues nothing then", async () => {
+    const setPolicyActive = (active: boolean) =>
+      run(async (tx) => {
+        const rows = await tx.entity.findMany({
+          where: { projectId: scope().projectId, kind: "policies" },
+        });
+        for (const row of rows)
+          await tx.entity.update({
+            where: { id: row.id },
+            data: { data: { ...(row.data as object), active } },
+          });
+        return rows.length;
+      });
+    expect(await setPolicyActive(false)).toBeGreaterThan(0);
+    try {
+      const waiting = await upload();
+      await setAi("on");
+      // Turning AI on without a mandate queues nothing.
+      expect(await doc(waiting)).toMatchObject({ status: "needs_review" });
+      expect(await code(() => run((tx) => retryExtraction(tx, scope(), waiting)))).toBe(
+        "POLICY_REQUIRED",
+      );
+      expect(
+        await run((tx) => processingStatus(tx, scope(), waiting, true)),
+      ).toMatchObject({ blockedBy: "POLICY_REQUIRED", canStartExtraction: false });
+    } finally {
+      await setPolicyActive(true);
+      await setAi("off");
+    }
+  });
+
   it("records why an extraction stopped and lists it as a processing error", async () => {
     await run(async (tx) =>
       tx.projectModule.updateMany({
