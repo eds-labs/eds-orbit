@@ -86,7 +86,10 @@ export const NO_MODULE_INSTRUCTIONS = [
 ].join(" ");
 
 const MAX_MODEL_CALLS = 6;
-const MAX_TOOL_CALLS = 8;
+// Tool calls are reads or proposals and spend nothing themselves; model
+// calls stay capped. Claude calls several tools in parallel and spent 8 in
+// two steps before it could act (FamilyPlan, 2026-10-24).
+const MAX_TOOL_CALLS = 16;
 // Each call reserves its cost from these bytes, so the limit bounds size, not
 // spend. The full tool set alone takes about 20 KB (assignment tools ~5.5 KB
 // each); 32 KB left too little for the conversation and tool results.
@@ -239,9 +242,12 @@ function chatToolHost(host: {
           await recordTool();
           throw error;
         }
-        // Invalid input of a proposal tool reaches the model with the fields to fix.
+        // Invalid tool input reaches the model with the fields to fix: a
+        // proposal tool's own code, TOOL_INPUT_INVALID for any other tool.
         const validationCode =
-          error instanceof ZodError ? validationCodes()[call.name] : undefined;
+          error instanceof ZodError
+            ? (validationCodes()[call.name] ?? "TOOL_INPUT_INVALID")
+            : undefined;
         output =
           validationCode && error instanceof ZodError
             ? {
@@ -257,7 +263,10 @@ function chatToolHost(host: {
                               /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(part),
                           )
                           .slice(0, 2)
-                          .join(".") || "mission",
+                          .join(".") ||
+                        (validationCode === "TOOL_INPUT_INVALID"
+                          ? "input"
+                          : "mission"),
                     ),
                   ),
                 ].slice(0, 8),

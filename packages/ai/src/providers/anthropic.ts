@@ -117,7 +117,8 @@ export function anthropicStrictSchema(schema: unknown): unknown {
  * one grammar per request and refuses Orbit's tool set as too large
  * ("compiled grammar is too large"), even within its documented limits.
  * Orbit validates every tool input with the tool's own schema before
- * running it, so strict decoding adds no check Orbit relies on.
+ * running it, so strict decoding adds no check Orbit relies on. The schema
+ * goes in full: its bounds (such as a maximum page size) guide the model.
  */
 export function toAnthropicTools(
   tools: unknown[],
@@ -131,9 +132,10 @@ export function toAnthropicTools(
         ...(typeof tool.description === "string"
           ? { description: tool.description }
           : {}),
-        input_schema: anthropicStrictSchema(
-          tool.parameters ?? { type: "object", properties: {} },
-        ) as { type: "object"; [key: string]: unknown },
+        input_schema: (tool.parameters ?? {
+          type: "object",
+          properties: {},
+        }) as { type: "object"; [key: string]: unknown },
       };
     if (tool?.type === "web_search" || tool?.type === "web_search_preview")
       return {

@@ -746,3 +746,16 @@ describe("tools without strict decoding", () => {
     expect(tools.some((t) => "strict" in t)).toBe(false);
   });
 });
+
+describe("tool schemas for Claude", () => {
+  it("keeps the bounds of a tool schema as guidance", () => {
+    const parameters = {
+      type: "object",
+      properties: { limit: { type: "integer", minimum: 1, maximum: 20 } },
+      required: ["limit"],
+      additionalProperties: false,
+    };
+    const [tool] = toAnthropicTools([{ type: "function", name: "knowledge_facts", parameters }]);
+    expect((tool as { input_schema: unknown }).input_schema).toEqual(parameters);
+  });
+});

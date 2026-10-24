@@ -113,7 +113,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
             response: {
               usage: { input_tokens: 100, output_tokens: 30 },
               output: Array.from(
-                { length: mocked.mode === "tool_limit" ? 9 : 5 },
+                { length: mocked.mode === "tool_limit" ? 17 : 5 },
                 (_, index) => ({
                   type: "function_call",
                   name: "project_status",
@@ -137,6 +137,21 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
                     mission: { sourceIds: ["private-value-must-not-return"] },
                     factIds: [randomUUID()],
                   }),
+                },
+              ],
+            },
+          };
+        } else if (mocked.mode === "invalid_read" && step === 1) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: { input_tokens: 100, output_tokens: 30 },
+              output: [
+                {
+                  type: "function_call",
+                  name: "approved_assets",
+                  call_id: "invalid-read",
+                  arguments: JSON.stringify({ query: 42 }),
                 },
               ],
             },
@@ -468,6 +483,28 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         }),
       ),
     ).toBe(0);
+  });
+  it("returns the invalid fields of any tool's input to the model", async () => {
+    mocked.mode = "invalid_read";
+    mocked.calls = 0;
+    mocked.inputs = [];
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Which assets are approved?",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      const followup = mocked.inputs[1] as Array<Record<string, unknown>>;
+      const result = followup.find((item) => item.type === "function_call_output");
+      expect(JSON.parse(String(result?.output))).toEqual({
+        error: "TOOL_INPUT_INVALID",
+        invalidFields: ["query"],
+      });
+    } finally {
+      mocked.mode = "normal";
+    }
   });
   it("returns only invalid proposal field names to the model", async () => {
     mocked.mode = "invalid_proposal";
