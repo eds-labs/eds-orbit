@@ -1,0 +1,722 @@
+{
+  "datasetVersion": "familyplan-knowledge-2026-10-24.v1",
+  "cases": [
+    {
+      "id": "pos-01",
+      "query": "Was ist das Ziel der Marketingstrategie für FamilyPlan?",
+      "expectedChunkIds": [
+        "6edadf18-5fb8-4487-9b2b-faa11d76129d",
+        "c070d4ab-d9bd-403c-a4ac-6f7187154073"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-02",
+      "query": "Welche Zielgruppe spricht FamilyPlan primär an?",
+      "expectedChunkIds": [
+        "10ef5131-48f5-4a86-a3d4-54a514f97138"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-03",
+      "query": "Welche Kampagnenprioritäten hat die 90-Tage-Strategie?",
+      "expectedChunkIds": [
+        "6c75abec-31b0-496e-a29b-a74b607fbe0b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-04",
+      "query": "Wie viele Reels pro Woche sind auf Instagram geplant?",
+      "expectedChunkIds": [
+        "092609f6-8af3-4582-95b4-3676c8f2e9e2",
+        "bec1e153-eecb-44c8-b2d5-2ff7066d1cb5"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-05",
+      "query": "Wie sieht der Conversion-Funnel von FamilyPlan aus?",
+      "expectedChunkIds": [
+        "7c3532ed-edb8-4128-bb4d-f21cecf7d534"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-06",
+      "query": "Was passiert in Woche 1 bis 2 der Marketing-Roadmap?",
+      "expectedChunkIds": [
+        "5eabd623-e8b7-4620-a876-562c7d357dda"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-07",
+      "query": "Wie viel Werbebudget ist im ersten Monat vorgesehen?",
+      "expectedChunkIds": [
+        "208a7a20-cda2-4962-acd3-c3bfb024a55e"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-08",
+      "query": "Was ist die North-Star-Kennzahl von FamilyPlan?",
+      "expectedChunkIds": [
+        "7253e595-60d6-4562-9d1f-d0dba93b807f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-09",
+      "query": "Wie arbeitet der Marketing-Agent in Orbit mit der Strategie?",
+      "expectedChunkIds": [
+        "bec1e153-eecb-44c8-b2d5-2ff7066d1cb5"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-10",
+      "query": "Welche Claim-Regeln gelten für Android und die Web-Version?",
+      "expectedChunkIds": [
+        "e94da31c-2438-4dab-bd48-a626d714d4c6",
+        "b2748543-096e-42d7-934c-8e992f878269",
+        "4400a3ef-16f9-451e-b619-555326260ff3"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-11",
+      "query": "Welche strategischen Entscheidungen sind bestätigt?",
+      "expectedChunkIds": [
+        "34fa37e7-08bf-4edb-af21-904c193bda92"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-12",
+      "query": "Wann wurden die iOS-Versionen im Store veröffentlicht?",
+      "expectedChunkIds": [
+        "b2aeb630-da00-4468-b647-582ba47d445d",
+        "4400a3ef-16f9-451e-b619-555326260ff3"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-13",
+      "query": "Welche Entscheidungen sind noch offen?",
+      "expectedChunkIds": [
+        "e01bbec2-21c3-4ea8-847c-5946c14bdb72"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-14",
+      "query": "Ist der Premiumpreis von 4,99 Euro noch gültig?",
+      "expectedChunkIds": [
+        "e53f93d3-8138-4fbf-9960-f2070749cd2b",
+        "54185ea8-1193-4f83-809a-40b06bdc2f46"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-15",
+      "query": "Was kostet FamilyPlan Premium im Monat und im Jahr?",
+      "expectedChunkIds": [
+        "82c988dc-f5fb-40c6-ac82-c4d2184186e2",
+        "b2748543-096e-42d7-934c-8e992f878269"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-16",
+      "query": "Welche Funktionen sind in Free und welche in Premium enthalten?",
+      "expectedChunkIds": [
+        "8f85052d-807d-41c8-b842-4ee18816b3c9"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-17",
+      "query": "Wie werden Abos gekauft und gekündigt?",
+      "expectedChunkIds": [
+        "eb049727-3c6e-481e-b572-ef15211206d0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-18",
+      "query": "Wie heißt die App im App Store?",
+      "expectedChunkIds": [
+        "fdf17b4c-c404-4c2d-a329-02813053f360"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-19",
+      "query": "Wodurch unterscheidet sich FamilyPlan, ohne überzogene Claims zu machen?",
+      "expectedChunkIds": [
+        "b3d81201-db7a-443b-b949-085dca52f388"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-20",
+      "query": "Was brauchen Kinder in der FamilyPlan-App?",
+      "expectedChunkIds": [
+        "f7122559-a2ed-4258-b2a9-d4808a7b5bc8"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-21",
+      "query": "Welcher Ton und welche Markenwerte gelten für FamilyPlan?",
+      "expectedChunkIds": [
+        "a381e7ae-7fc7-4d1f-a556-468c01ed85c2",
+        "9d2f93a5-95ee-4703-b8ca-4ce0ec748396"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-22",
+      "query": "Wie lautet die Positionierung von FamilyPlan in einem Satz?",
+      "expectedChunkIds": [
+        "f7c83b4a-f861-43fd-b49e-3050ffa26d2b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-23",
+      "query": "Welche Kernbotschaften nutzt das Marketing?",
+      "expectedChunkIds": [
+        "390bc317-bcd8-41a3-8a7f-89366e2dca60"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-24",
+      "query": "Welches Gestaltungsprinzip und welche Markenfarbe hat FamilyPlan?",
+      "expectedChunkIds": [
+        "b16cace8-9ad8-466c-baee-b89e93259c3e"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-25",
+      "query": "Welcher Call-to-Action ist primär?",
+      "expectedChunkIds": [
+        "e3c5bfda-3c7b-474e-87c1-dbbf6424cb54",
+        "7c3532ed-edb8-4128-bb4d-f21cecf7d534"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-26",
+      "query": "Welche Social-Media-Kanäle wurden früher priorisiert?",
+      "expectedChunkIds": [
+        "59d1ced2-fbf1-45bf-899b-37965cd931da",
+        "092609f6-8af3-4582-95b4-3676c8f2e9e2"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-27",
+      "query": "Welche Aussagen sind in Marketinginhalten zulässig?",
+      "expectedChunkIds": [
+        "b2748543-096e-42d7-934c-8e992f878269"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-28",
+      "query": "Welche KPIs werden zur Messung empfohlen?",
+      "expectedChunkIds": [
+        "5b78b173-d755-4d1b-9a7a-462c15d7c80f",
+        "7253e595-60d6-4562-9d1f-d0dba93b807f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-29",
+      "query": "Wie werden Daten in FamilyPlan klassifiziert?",
+      "expectedChunkIds": [
+        "061d12d4-6bfe-4679-a2a3-37e35ece008b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-30",
+      "query": "Welche Rollen gibt es für Eltern, Betreuer und Kinder?",
+      "expectedChunkIds": [
+        "50dc77cc-75b0-41bb-85c1-befdec06df21"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-31",
+      "query": "Ist die Standortfreigabe freiwillig und abschaltbar?",
+      "expectedChunkIds": [
+        "f657fa45-8237-4615-82c8-92825de89d49"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-32",
+      "query": "Wie werden importierte externe Kalendertermine geteilt?",
+      "expectedChunkIds": [
+        "bafc71fb-40b8-4924-8703-eb529c598b21"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-33",
+      "query": "Wie geht der KI-Assistent mit Datenschutz und Einwilligung um?",
+      "expectedChunkIds": [
+        "3b3bb203-858c-496e-9bd3-a73238553108"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-34",
+      "query": "Wo finde ich Datenschutzerklärung und Kontolöschung?",
+      "expectedChunkIds": [
+        "e2a55a7d-66c3-4e4d-adf0-ff14e0dcf00f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-35",
+      "query": "Darf Orbit Daten echter Familienkonten lesen?",
+      "expectedChunkIds": [
+        "7d851551-3200-42e6-ae39-5d06f105867a",
+        "7bc94080-fc22-4733-9b95-62a8323035cc"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-36",
+      "query": "Welche Datenschutzthemen sind noch zu prüfen?",
+      "expectedChunkIds": [
+        "af0701d2-b6c8-44da-b162-044b213a1c08"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-37",
+      "query": "Welche öffentlichen Primärquellen gibt es für FamilyPlan?",
+      "expectedChunkIds": [
+        "80e07c2a-afef-4674-a546-12ce3c7432a0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-38",
+      "query": "Wie oft sollen Preise und App-Version geprüft werden?",
+      "expectedChunkIds": [
+        "2c04cd6a-9660-4092-81b3-eba99d4cd43b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-39",
+      "query": "Was ist das Leitprinzip des FamilyPlan Assistant?",
+      "expectedChunkIds": [
+        "2629a53e-d7a4-432f-be6f-adf71536455e"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-40",
+      "query": "Was kann der KI-Assistent heute nachweisbar?",
+      "expectedChunkIds": [
+        "1ef45c24-8cdd-4521-8344-762316048f04"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-41",
+      "query": "Welche Tools und Aktionen nutzt der Assistant?",
+      "expectedChunkIds": [
+        "f3b9c137-560d-4977-aca3-3ccbb0c2f17d"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-42",
+      "query": "Welche KI-Funktionen sind geplant und dürfen nicht beworben werden?",
+      "expectedChunkIds": [
+        "d3b23455-4284-430d-bc32-740fcf3a3f5b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-43",
+      "query": "Ist eine Zero-Data-Retention mit OpenAI vereinbart?",
+      "expectedChunkIds": [
+        "7baae038-c79f-4baa-84b5-1ca34601d851",
+        "e01bbec2-21c3-4ea8-847c-5946c14bdb72"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-44",
+      "query": "Wie ist die technische Architektur von FamilyPlan aufgebaut?",
+      "expectedChunkIds": [
+        "b8f34ab8-b0da-447b-a528-ea97e1b8e49f",
+        "3b9049e0-f3fb-4e50-94bb-68e9e7c4edf2"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-45",
+      "query": "Mit welchen Technologien ist die iOS-App gebaut?",
+      "expectedChunkIds": [
+        "28290b79-00b3-4af3-bb98-329bb8cc8b93"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-46",
+      "query": "Welches Backend und welche Autorisierung nutzt FamilyPlan?",
+      "expectedChunkIds": [
+        "549d734c-f1c0-441e-8039-e8ddf9cddece"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-47",
+      "query": "Wie funktioniert die Offline-Synchronisierung der Apps?",
+      "expectedChunkIds": [
+        "cc19c3e7-87ab-46f7-a908-bd627aef5058"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-48",
+      "query": "Wie ist die Abrechnung über Apple umgesetzt?",
+      "expectedChunkIds": [
+        "efa83a45-2fb9-487a-9011-a9340071ae80",
+        "eb049727-3c6e-481e-b572-ef15211206d0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-49",
+      "query": "Welche Sicherheitsregeln gelten für den Betrieb?",
+      "expectedChunkIds": [
+        "920bc940-9dac-45d8-9946-c072b7eb8073"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-50",
+      "query": "Welche Projekt-ID hat FamilyPlan in EDS Orbit?",
+      "expectedChunkIds": [
+        "673691e4-b38e-4445-966c-af991a7620b9",
+        "a54d2628-a971-4d14-84e4-64ae8b70cad8"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-51",
+      "query": "Welche externen Kalender werden unterstützt?",
+      "expectedChunkIds": [
+        "5bb5327d-5806-4783-917d-2cefb4ccf97a"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-52",
+      "query": "Unter welchem Pfad ist die Web-Beta auf der Website zu finden?",
+      "expectedChunkIds": [
+        "8fdecdfe-9444-4a0d-8175-916d428e31d8"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-53",
+      "query": "Welche Betriebsregeln gelten für Orbit gegen erfundene Zahlen?",
+      "expectedChunkIds": [
+        "eb3acbbe-9fee-4834-875b-e8576796162d"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-54",
+      "query": "Was ist FamilyPlan kurz zusammengefasst?",
+      "expectedChunkIds": [
+        "56df3f19-29e4-4d27-8726-84a1baa09114",
+        "95042280-878e-4df8-a367-283de099698a"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-55",
+      "query": "Welche Supportfragen dürfen nicht ohne Ticketsystem beantwortet werden?",
+      "expectedChunkIds": [
+        "b4d7c17b-4a1f-4ade-8be5-eee0cda0e497"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "pos-56",
+      "query": "Wie soll der Support bei Unsicherheit antworten und eskalieren?",
+      "expectedChunkIds": [
+        "2f8f1401-35e6-4b6a-a112-068147188353"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "de",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-01",
+      "query": "How much does FamilyPlan Premium cost?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "82c988dc-f5fb-40c6-ac82-c4d2184186e2"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-02",
+      "query": "Is location sharing optional?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "f657fa45-8237-4615-82c8-92825de89d49"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-03",
+      "query": "What is FamilyPlan's North Star metric?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "7253e595-60d6-4562-9d1f-d0dba93b807f"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-04",
+      "query": "Which backend does FamilyPlan use?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "549d734c-f1c0-441e-8039-e8ddf9cddece"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-05",
+      "query": "What is the assistant's guiding principle?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "2629a53e-d7a4-432f-be6f-adf71536455e"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-06",
+      "query": "How many reels per week are planned on Instagram?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "092609f6-8af3-4582-95b4-3676c8f2e9e2"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-07",
+      "query": "Is zero data retention agreed with OpenAI?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "7baae038-c79f-4baa-84b5-1ca34601d851"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-08",
+      "query": "What is the paid ad budget in the first month?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "208a7a20-cda2-4962-acd3-c3bfb024a55e"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-09",
+      "query": "How do I cancel my subscription?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "eb049727-3c6e-481e-b572-ef15211206d0"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-10",
+      "query": "Which roles exist for children in the app?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "50dc77cc-75b0-41bb-85c1-befdec06df21"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-11",
+      "query": "What is the brand design principle?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "b16cace8-9ad8-466c-baee-b89e93259c3e"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-12",
+      "query": "Which data classification levels exist?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "061d12d4-6bfe-4679-a2a3-37e35ece008b"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-13",
+      "query": "When was iOS version 1.2 released?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "b2aeb630-da00-4468-b647-582ba47d445d"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    },
+    {
+      "id": "neg-lang-14",
+      "query": "What is the primary call to action?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "e3c5bfda-3c7b-474e-87c1-dbbf6424cb54"
+      ],
+      "language": "en",
+      "purpose": "internal"
+    }
+  ]
+}

@@ -48,6 +48,9 @@ Production: after deploy the owner sets the FamilyPlan source to `official` (fre
   - Postiz write verification (a real post) stays in Orbit.
 - **Readiness fixes:** it now reads the effective AI configuration (central profiles and granted keys), so projects on central keys no longer report `VERIFIED_OPENAI_MODELS_REQUIRED` and image blockers wrongly. Bound Postiz connections count their organization-assigned channels.
 - **Claude projects:** chat and text drafting count as ready when their routes resolve to a verified, priced Claude model with an Anthropic key, not only with an OpenAI key (found on FamilyPlan live, 2026-10-24).
+- **Knowledge search without embeddings (2026-10-24):** an active index without a single embedding is searched full-text without buying a query embedding. Before, the assistant's and Support's searches on such a project (FamilyPlan) failed with `CURRENT_PRICE_REQUIRED`, since the project had no embedding price or OpenAI key. Indexes with embeddings keep the paid hybrid path and its checks.
+- **Global models in `ai_models_update`:** models verified in the deployment configuration or a system or organization AI profile can be selected again by a project with its own settings, with their global prices.
+- **FamilyPlan RAG dataset:** `evals/knowledge/familyplan-knowledge-2026-10-24.v1.json` (56 positive, 14 negative cases; review sheet beside it), checked by `knowledge-eval-datasets.test.ts`.
 - **Shared services:** the policy save, connector attach/check and index build moved into functions shared by Orbit and MCP, unchanged.
 - **Flag:** `ORBIT_MCP_PROJECT_ADMINISTRATION` (default off); proposals also need `ORBIT_MCP_PROPOSALS`. No migration.
 - **Tests:** `project-administration-mcp.integration.test.ts` (9 cases, FamilyPlan-like project on central Postiz, Matomo and OpenAI connections).

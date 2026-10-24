@@ -49,8 +49,8 @@ These tools extend [project configuration over MCP](MCP_PROJECT_CONFIGURATION.md
   - Providers, keys and the system and organization AI profiles are global, managed in the administration.
   - The project selects among them. A project without its own settings starts from what it uses now.
   - From then on, the project's settings override the profile's fields for this project.
-- **Verified models only.** A model must already be verified in the effective configuration or listed in the reviewed Anthropic catalog (`MODEL_NOT_VERIFIED:<model>`).
-- **Prices.** Text and embedding prices come from the configured rate cards or that catalog, never from the request. Routed models need a price (`MODEL_PRICE_NOT_VERIFIED:<model>`).
+- **Verified models only.** A model must be verified in the effective configuration, globally (the deployment configuration or a system or organization AI profile) or in the reviewed Anthropic catalog (`MODEL_NOT_VERIFIED:<model>`).
+- **Prices.** Text and embedding prices come from the configured or global rate cards or that catalog, never from the request. Routed models need a price (`MODEL_PRICE_NOT_VERIFIED:<model>`).
 - **Image ceiling.** The per-image cost ceiling and its price verification date are the owner's own values. The request proposes them, and the approval shows them.
 - **The forms' validation** runs as well, for example `ROUTED_MODEL_NOT_VERIFIED` and `IMAGE_MODEL_NOT_VERIFIED`.
 - **No keys.** The tool takes no key. A project may start its own settings only when a granted central connection supplies its OpenAI key and no environment image key is in use (`AI_KEY_SETUP_REQUIRED`); otherwise the settings would replace the environment keys. A first save also writes the provider fields as shown, so the profile's default provider and model registry are kept. A missing key is added in Orbit (Administration → Connections, or Settings → AI).
@@ -132,5 +132,5 @@ The tool never changes a check. A blocker clears only when its own check passes.
 
 - **Google Drive.** Connecting Drive needs the owner's Google consent in a browser (Orbit → Settings → Integrations); a folder named like the project becomes the root on connect. Choosing another root also stays in Orbit: it calls Google inside its own transactions, which an approval cannot run.
 - **Postiz write verification** stays in Orbit (a real test post). Without it, `postiz_live`/`postiz_schedule` stay blocked by design; `postiz_draft` needs only assigned channels and `ENABLE_POSTIZ_DRAFTS`.
-- **Live RAG evaluation.** The client must supply 60 to 120 evaluation cases with chunk ids. `knowledge_evaluation_get` and the knowledge search tools provide them. Building and evaluating cost money under the policy's paid budget.
+- **Live RAG evaluation.** The client must supply 60 to 120 evaluation cases with chunk ids (FamilyPlan: `evals/knowledge/familyplan-knowledge-2026-10-24.v1.json`). Building and evaluating need an embedding model with a price and an OpenAI key for the project. `knowledge_evaluation_get` and the knowledge search tools provide them. Building and evaluating cost money under the policy's paid budget.
 - **Granting central connections.** Grants of AI keys or Matomo to a project, and AI profiles, stay in the administration. MCP binds only what is granted, and hands out free Postiz channels to organization owners.

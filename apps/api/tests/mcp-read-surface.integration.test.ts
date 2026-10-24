@@ -437,6 +437,18 @@ describe.skipIf(!enabled)(
           "Alpha generated summary",
         ),
       );
+      // One embedded passage in a source no search returns (generated):
+      // Alpha's index has embeddings, so its searches buy a query embedding
+      // (an index without any is searched full-text for free).
+      await document(
+        "Alpha",
+        await source("Alpha", { authority: "generated" }),
+        "Alpha embedded",
+        {
+          text: "Unrelated embedded fixture paragraph.",
+          embeddings: [Array.from({ length: 1536 }, (_, index) => (index === 7 ? 1 : 0))],
+        },
+      );
       facts.set("alpha fact", await fact("Alpha", alpha, "alpha"));
       await run(ownerScope("Alpha"), async (tx) => {
         const scope = ownerScope("Alpha");

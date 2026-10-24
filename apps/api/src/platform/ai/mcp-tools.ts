@@ -5,6 +5,7 @@ import {
   anthropicCatalog,
   anthropicCatalogRateCard,
   anthropicCatalogRegistry,
+  environmentRuntimeConfig,
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
   imagePriceConfigured,
@@ -52,6 +53,33 @@ async function configurationRow(tx: DbTx, scope: Scope) {
       kind: "openai_configuration",
     },
   });
+}
+
+/**
+ * The models verified globally, with their global prices: the deployment's
+ * configuration, then the system's and the organization's AI profile. A
+ * project's own settings replace these in what it uses, so a project can
+ * select from them again; prices still come from these sources only.
+ */
+async function globalModels(tx: DbTx, scope: Scope) {
+  const environment = environmentRuntimeConfig();
+  const profiles = connectionsEnabled()
+    ? await tx.aiProfile.findMany({
+        where: { OR: [{ scope: "system" }, { workspaceId: scope.workspaceId }] },
+      })
+    : [];
+  const verified = new Set(environment.verifiedModels);
+  const rates: Record<string, unknown> = { ...environment.rateCard };
+  // The organization's profile wins over the system's, as at run time.
+  for (const p of [
+    ...profiles.filter((x) => x.scope === "system"),
+    ...profiles.filter((x) => x.scope === "workspace"),
+  ]) {
+    const d = data(p);
+    for (const m of d.verifiedModels ?? []) verified.add(m);
+    Object.assign(rates, d.rateCard ?? {});
+  }
+  return { verified, rates };
 }
 
 /** The project configuration's version; 0 while the project has none. */
@@ -119,19 +147,29 @@ export async function readAiModels(tx: DbTx, scope: Scope) {
     grantedConnections(tx, scope, { provider: "anthropic", purpose: "text" }),
   ]);
   const catalog = anthropicCatalogRateCard();
+  const global = await globalModels(tx, scope);
   const candidates = [
-    ...new Set([...effective.verifiedModels, ...Object.keys(catalog)]),
+    ...new Set([
+      ...effective.verifiedModels,
+      ...global.verified,
+      ...Object.keys(catalog),
+    ]),
   ].map((model) => ({
     model,
     provider: providerOfModel(model, effective.models),
+    // In use for this project now.
     verified: effective.verifiedModels.includes(model),
     price:
-      rateStatus(model, effective.rateCard) === "current" || catalog[model]
+      rateStatus(model, effective.rateCard) === "current" ||
+      global.rates[model] ||
+      catalog[model]
         ? "current"
         : "missing",
     source: effective.verifiedModels.includes(model)
       ? "configured"
-      : "anthropic_catalog",
+      : global.verified.has(model)
+        ? "global"
+        : "anthropic_catalog",
   }));
   return {
     projectId: scope.projectId,
@@ -185,7 +223,7 @@ export async function readAiModels(tx: DbTx, scope: Scope) {
     notes: {
       keys: "API keys are never returned. A missing key is added in Orbit: Administration → Connections (granted to the project) or Settings → AI.",
       selection:
-        "ai_models_update accepts verified models only; prices come from the configured rate cards or the reviewed Anthropic catalog, never from the request.",
+        "ai_models_update accepts verified models only (in use, verified globally, or in the reviewed Anthropic catalog); prices come from the configured or global rate cards or that catalog, never from the request.",
     },
   };
 }
@@ -273,9 +311,11 @@ async function proposedAi(tx: DbTx, scope: Scope, change: AiModelsChange) {
     if (value !== undefined) next[key] = value ?? undefined;
   const catalogRates = anthropicCatalogRateCard();
   const catalogModels = anthropicCatalogRegistry();
+  const global = await globalModels(tx, scope);
   const known = new Set([
     ...effective.verifiedModels,
     ...(base.verifiedModels as string[]),
+    ...global.verified,
     ...Object.keys(catalogRates),
   ]);
   const unknown = (next.verifiedModels as string[]).filter((m) => !known.has(m));
@@ -287,6 +327,7 @@ async function proposedAi(tx: DbTx, scope: Scope, change: AiModelsChange) {
     const rate =
       (base.rateCard as Record<string, unknown>)[m] ??
       effective.rateCard[m] ??
+      global.rates[m] ??
       catalogRates[m];
     if (rate) rateCard[m] = rate;
     if (catalogModels[m] && !models[m]) models[m] = catalogModels[m];

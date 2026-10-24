@@ -200,6 +200,20 @@ describe.skipIf(!enabled)(
           validFrom: past,
         });
         documentId = doc.documentId;
+        // An embedded index: a query against it is a paid hybrid search
+        // (an index without embeddings is searched full-text for free).
+        await ingest(tx, s, {
+          sourceId,
+          externalId: "paid-race-embedded",
+          title: "Embedded fixture",
+          text: "An already embedded fixture document.",
+          mimeType: "text/plain",
+          language: "en",
+          validFrom: past,
+          embeddings: [
+            Array.from({ length: 1536 }, (_, index) => (index === 1 ? 1 : 0)),
+          ],
+        });
         await create(tx, s, "policies", {
           mode: "observe",
           channels: ["test"],
@@ -1991,6 +2005,11 @@ describe.skipIf(!enabled)(
       });
     });
     it("traces a reindex batch under a reindex run", async () => {
+      // One vector per indexed chunk (the fixture has two documents).
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
       const index = await run((tx) =>
         beginIndexBuild(tx, s, EMBEDDING_PROFILE),
       );

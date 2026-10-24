@@ -436,6 +436,38 @@ describe.skipIf(!enabled)("Project administration over MCP", () => {
     ).rejects.toMatchObject({ code: "AI_CONFIGURATION_VERSION_CONFLICT" });
   });
 
+  it("adds a globally verified model with its global price to a project's own selection", async () => {
+    const saved = {
+      models: process.env.OPENAI_VERIFIED_MODELS,
+      rates: process.env.OPENAI_RATE_CARD_JSON,
+    };
+    const price = { inputMicrosPerMillion: 20000, outputMicrosPerMillion: 0, verifiedAt: new Date().toISOString() };
+    process.env.OPENAI_VERIFIED_MODELS = "text-embedding-3-large";
+    process.env.OPENAI_RATE_CARD_JSON = JSON.stringify({ "text-embedding-3-large": price });
+    try {
+      const ai = await read("ai_models_get");
+      expect(ai.candidates).toContainEqual(
+        expect.objectContaining({ model: "text-embedding-3-large", source: "global", price: "current", verified: false }),
+      );
+      const proposal = await call(owner, "ai_models_update", {
+        expectedVersion: ai.version,
+        changes: { verifiedModels: [...ai.effective.verifiedModels, "text-embedding-3-large"] },
+        idempotencyKey: randomUUID(),
+      });
+      await decide(proposal.actionRequestId);
+      const after = await read("ai_models_get");
+      expect(after.effective.verifiedModels).toContain("text-embedding-3-large");
+      expect(after.effective.prices["text-embedding-3-large"]).toBe("current");
+    } finally {
+      for (const [key, value] of [
+        ["OPENAI_VERIFIED_MODELS", saved.models],
+        ["OPENAI_RATE_CARD_JSON", saved.rates],
+      ] as const)
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+  });
+
   it("attaches the granted Matomo connection with its site and reports verification failures", async () => {
     const proposal = await call(owner, "integrations_configure", {
       action: "attach_connection",
