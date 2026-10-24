@@ -16,6 +16,8 @@ These tools extend [project configuration over MCP](MCP_PROJECT_CONFIGURATION.md
 | `marketing_policy_update` | `orbit:propose` | owners | marketing | Proposes a policy change. |
 | `ai_models_get` | `orbit:read` | members | platform | Reads the AI configuration: global profiles, key presence and source (never the key), the project's own selection, the effective verified models with price status, routes, image settings, provider budgets, checks and selectable models. |
 | `ai_models_update` | `orbit:propose` | owners | platform | Proposes the project's model selection. |
+| `ai_spend_policy_get` | `orbit:read` | owners | platform | Reads the AI spending authority (ADR 0015): the effective limits, their source (`platform`, `marketing_policy` or `none`), this month's and today's spend and the standard profiles. |
+| `ai_spend_policy_update` | `orbit:propose` | owners | platform | Proposes the AI spending authority. |
 | `integrations_get` | `orbit:read` | members | marketing | Reads Postiz, Matomo and Google Drive: status, channels (assigned, write-verified, posting time), Matomo site, Drive connection and root, granted central connections, and for organization owners the central Postiz channels that are free to assign. |
 | `integrations_configure` | `orbit:propose` | owners | marketing | Proposes an integration change. |
 | `integration_verify` | `orbit:read` | owners | marketing | Runs a provider's read-only check (Postiz, Matomo or Drive) and records the verified state. Publishes nothing. |
@@ -37,6 +39,19 @@ These tools extend [project configuration over MCP](MCP_PROJECT_CONFIGURATION.md
 - **Channels.** Only Postiz channels assigned to the project (`POSTIZ_CHANNEL_NOT_ASSIGNED`).
 - **Saving.** The save path is the policy form's. The new record replaces the active one, and the project's mode follows. Approvals of packages made under the old policy must be given again.
 - **No policy needed.** The proposal does not need an active policy; it may be the project's first.
+
+### `ai_spend_policy_update`
+
+```json
+{ "expectedVersion": 0, "policy": { "profile": "test" }, "idempotencyKey": "…" }
+{ "expectedVersion": 3, "policy": { "profile": "custom", "startAt": "…", "endAt": "…", "approvedPaidUse": true, "dailyBudgetMicros": 1000000, "monthlyBudgetMicros": 10000000, "perRunBudgetMicros": 500000 }, "idempotencyKey": "…" }
+```
+
+- **What it is.** The limits every paid model call of every module is reserved against (ADR 0015). It belongs to the platform and works without Marketing.
+- **Version.** `expectedVersion` is the version of the active record from `ai_spend_policy_get` (`record.version`), or 0 when there is none yet.
+- **Profiles.** `off`, `test` (USD 1 per day, 10 per month, 0.50 per run, 14 days) and `normal` (USD 5, 50, 2, one year) set every limit and the window from the approval on. `custom` names them.
+- **No policy needed.** Like the policy update, the proposal needs no active policy.
+- **Marketing.** `marketing_policy_update` refuses budget fields with `SPEND_POLICY_ON_PLATFORM` once the project has a platform record.
 
 ### `ai_models_update`
 

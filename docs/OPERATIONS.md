@@ -32,6 +32,22 @@ Rollout note (cache-aware estimates): the higher estimate raises the first-draft
 
 Settings → AI (owners) shows both providers, the verified models with their prices and task classes, the Claude credit budget and the usage. The Anthropic key is saved encrypted through "Configure Claude" (`ai-provider-configure`); `ANTHROPIC_API_KEY` in the environment is a bootstrap fallback only. Read the spend per provider with `GET /api/projects/:projectId/ai-cost?groupBy=provider` and the Claude budget with `GET /api/projects/:projectId/ai-budget`: `level` goes `ok` → `warn` (first threshold) → `warn2` (second) → `stopped` (the internal stop, from which `reserve` refuses Anthropic models with `PROVIDER_BUDGET_STOP`). The attention item `platform_provider_budget` (warning, critical when stopped) points owners to the settings. The spend is Orbit's own calculation; the remaining credit in the Anthropic console is entered by hand ("Credit balance (manual)") and shown with its verification time, never as a live value. When the credit renews, keep `anchorDay` at the renewal day; to continue after a stop raise the stop or wait for the next period. A stop with the fallback setting `openai` routes new calls to the task's OpenAI tier at OpenAI prices; the spans say `(fallback)`. Spans of Claude calls are named `messages.create` / `messages.stream` in Operations → AI runs. Live check without the application: `ANTHROPIC_API_KEY=… node scripts/anthropic-smoke.ts` (one Haiku call, at most 64 output tokens, prints the usage and the cost at the catalog prices).
 
+## AI spending authority (ADR 0015)
+
+Settings → AI & budget (owners) holds the project's AI spending authority: the daily, monthly and per-run limits and the window that every paid model call of every module is reserved against. It is a platform record (`ai_spend_policies`), so it works with Marketing off. Read it with `GET /api/projects/:projectId/ai-spend-policy`; save it with the owner action `ai-spend-policy` (`{ "profile": "off" | "test" | "normal" }` or `custom` with the limits). Every save is a new version, audited as `ai_spend_policy.activated`.
+
+- **Transition.** Without a platform record, the budget fields of the active Marketing policy still apply (`source: "marketing_policy"`).
+- **Backfill.** Inside the api container:
+  - `node scripts/ai-spend-policy-backfill.ts` reports per project what it would do; it changes nothing.
+  - `--apply` copies each active Marketing policy's budget into a platform record (audited as `ai_spend_policy.migrated`, with `sourcePolicyId`). It skips projects that already have one.
+  - It never changes a Marketing policy, so package hashes and approvals stay valid.
+  - Run it outside the assignment run (04:00) and the posting slots. A production run needs its own approval.
+- **Enforcement.** `reserve` enforces the platform record over the limits a caller passes. The Marketing editor no longer edits the budget.
+- **Rollback.** `ORBIT_SPEND_POLICY_SOURCE=marketing` ignores every platform record; nothing is deleted.
+- **Switches.**
+  - `ORBIT_MARKETING=false` removes Marketing from the installation: routes, collections, actions, tools, jobs and navigation. Default `true`.
+  - `ORBIT_TELEGRAM` turns the owner's bot on or off on its own. Empty follows `ORBIT_AGENTS`, as before.
+
 ## Model routes and generation evals
 
 Routes per task class (`chat_operator`, `draft_social`, `draft_blog`) are set by the owner in the OpenAI configuration dialog; precedence, effort and ceilings are described in `MODEL_ROUTING.md`. Migration `202610010001_agent_run_route_version` adds the nullable `AgentRun.routeVersion` (the configuration's entity version); it is additive and deploys with the normal migration step. With no task route saved, behaviour is unchanged.

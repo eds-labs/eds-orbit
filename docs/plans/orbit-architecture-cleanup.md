@@ -556,3 +556,83 @@ Background to E-8/E-9: Anthropic has no embedding model of its own (it recommend
 - Whether `ORBIT_CONNECTIONS` and `OPENAI_API_KEY` are set in production.
 - Whether `Entity` and `BudgetReservation` are covered by FORCE RLS.
 - How the web shows the dashboard with Marketing blockers when Marketing is off.
+
+---
+
+## Implementation status (2026-10-24, local; not pushed)
+
+### Phase 1: done
+
+Commits `f5569e56` to `6a205a7f`:
+- Status from `effectiveAiStatus`.
+- Routes without a key.
+- Neutral readiness texts.
+- Fallback prompt.
+- Support boundary zones.
+- Mandate location in error texts.
+- `MODEL_ROUTING.md`.
+- Characterization tests.
+
+Deviations from the plan:
+- **1.6 dropped.** `knowledge_search` is registered with owner `platform` (`alwaysOffered`) and stays offered without Marketing, ORBIT_MARKETING=false included. Moving it would only reorder the assistant's tool list (prompt snapshot).
+- **No new readiness codes.** The code `VERIFIED_OPENAI_MODELS_REQUIRED` stays stable for API and MCP clients; only its texts are neutral.
+
+### Phase 2: done locally
+
+ADR 0015.
+
+**2.2–2.4 Spending authority**
+- `ai_spend_policies` and its services:
+  - `platform/ai/spend-policy.ts`: profiles, save, read view;
+  - `spend-mandate.ts`: dual read, legacy budget subset only;
+  - `reserve` enforces the platform record.
+- The route `GET /ai-spend-policy` and the owner action `ai-spend-policy` (access matrix: two new owner-only rows, no existing cell changed; OpenAPI regenerated).
+- MCP `ai_spend_policy_get/update`.
+- Rollback flag `ORBIT_SPEND_POLICY_SOURCE`.
+- Backfill `scripts/ai-spend-policy-backfill.ts` (dry run by default).
+- Readiness, attention, dashboard, Finance pre-checks and Knowledge evaluation tools read the mandate.
+- `marketing_policy_update` refuses budget fields once a platform record exists (`SPEND_POLICY_ON_PLATFORM`).
+
+**2.5 Approval requirements**
+- `ActionDefinition.requires`. Marketing types need the publishing policy; every other type needs the spend mandate, which is the same or a superset of today.
+- Requests store `spendPolicy`.
+- Relaxed after review (E-5): `support_update_ticket`, `knowledge_propose_fact`, `knowledge_withdraw_fact`. None spends, and each still needs the owner's approval.
+
+**2.6 Settings → AI & budget**
+- The tab is renamed and holds the spending authority with profiles, status, spend and validity.
+- The Marketing editor shows the budget and saves it unchanged.
+- `?section=policy` opens AI & budget when Marketing's policy is not offered.
+- The overview's spend link points there.
+
+**2.7 Readiness**
+- The provider is used only when its module is enabled.
+- Without Marketing, the platform's AI readiness applies.
+- Not moved: `project_readiness_get` stays a Marketing tool, because it explains Marketing's readiness.
+
+**2.8 Telegram**
+- `ORBIT_TELEGRAM`; empty follows `ORBIT_AGENTS`.
+- The bot routes have their own early 404.
+
+**2.9 Approval inbox: no move needed.**
+- "Approvals" lists Marketing content.
+- ActionRequests of every module are the platform's "App approvals" (`decisions`), which needs no module.
+- Only the comment was corrected.
+
+**2.10 `ORBIT_MARKETING` (default `true`)**
+- `available` hook.
+- Central availability check for routes, actions and collections, with module-specific codes (`unavailableCode`).
+- Compose, `.env.example` and the Compose check updated.
+
+**2.11 Project mode**
+- Every API reader of `Project.mode` was already Marketing code.
+- The platform overview shows the mode only while Marketing is on.
+- `savePolicy` still mirrors the mode into the project field; the field stays readable.
+
+**Open (phase 3):**
+- E-1b key rule.
+- One AI save path.
+- UI consolidation.
+- Generic provider budgets.
+- Image and embedding purposes (E-8, E-9).
+- Moving the flat platform files.
+- Removing the legacy fallback (3.8, after the backfill and evidence).

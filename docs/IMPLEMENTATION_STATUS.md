@@ -1,5 +1,29 @@
 # Implementation status
 
+## Architecture clean-up phases 1 and 2: AI spending authority on the platform (2026-10-24, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed)
+
+Plan and decisions: [plans/orbit-architecture-cleanup.md](plans/orbit-architecture-cleanup.md); ADR: [adr/0015-ai-spend-policy.md](adr/0015-ai-spend-policy.md).
+
+**Phase 1**
+- AI key status as calls use it.
+- Routes without a key.
+- Neutral readiness texts.
+- Fallback assistant prompt.
+- Support boundary zones.
+
+**Phase 2**
+- The AI spending authority as a platform record (`ai_spend_policies`), with:
+  - a dual read of the Marketing policy budget;
+  - `reserve` enforcing it;
+  - owner action, route, MCP tools and backfill script;
+  - rollback flag `ORBIT_SPEND_POLICY_SOURCE`.
+- Approval requirements per type.
+- Settings → AI & budget.
+- Readiness by enabled module.
+- `ORBIT_TELEGRAM` and `ORBIT_MARKETING`.
+
+**Not deployed.** Production needs the deploy approval and, separately, the backfill run.
+
 ## Finance: AI extraction for documents received while AI was off (2026-10-24, branch `claude/finance-extraction-recovery`)
 
 - **Cause:** documents that arrived while `aiExtraction` was off were left in review with `ai_off`, and nothing could start their extraction later (switching AI on did not pick them up, Retry refused documents in review). EDS-Labs also has no active policy, so paid calls stop at `POLICY_REQUIRED`. Details: `docs/FINANCE.md`, "Incident 2026-10-24".

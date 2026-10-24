@@ -76,6 +76,15 @@ of Marketing. The API remains authoritative after every navigation or role chang
 - Jobs that a disabled module blocked stay `blocked_dependency` / `MODULE_DISABLED`. They are not restarted automatically; once the module is on again, a writer can restart them with the existing `retry` action. Work the module's own scheduler plans (missed slots, assignments) is planned again by its next sweep.
 - The code itself is rolled back by reverting the PR.
 
+## Installation switches (ADR 0015)
+
+`ORBIT_MARKETING=false` removes Marketing from the whole installation, as `ORBIT_SUPPORT` and `ORBIT_FINANCE` do for their modules. It applies whatever `ORBIT_MODULES` says.
+- Its routes, actions and collections answer `404 MODULE_DISABLED`.
+- Its tools, jobs, scheduler and navigation are gone.
+- Support and Finance keep their own codes (`SUPPORT_DISABLED`, `FINANCE_DISABLED`, `unavailableCode` in their contributions).
+- The platform's `knowledge_search` and the AI spending authority (Settings → AI & budget) stay.
+- Without Marketing, the dashboard shows the platform's AI readiness (spending authority and text model) instead of Marketing's go-live readiness.
+
 ## Rollout
 
 1. Merge with the flag off; no behaviour change.
