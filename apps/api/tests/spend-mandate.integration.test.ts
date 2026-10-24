@@ -107,6 +107,8 @@ describe.skipIf(!enabled)("AI spend mandate projection", () => {
           monthlyBudgetMicros: 20_000_000,
           perRunBudgetMicros: 200_000,
         },
+        // Without a platform record the Marketing policy is the source (ADR 0015).
+        source: "marketing_policy",
       });
       // Marketing reads the same record.
       expect((await activePolicy(tx, scope))?.id).toBe(row.id);
@@ -122,19 +124,31 @@ describe.skipIf(!enabled)("AI spend mandate projection", () => {
     });
   });
 
-  it("validates like before: an invalid stored policy fails, its reference does not", async () => {
+  it("validates the budget fields only: an invalid publishing field no longer stops paid AI (ADR 0015)", async () => {
     await run(async (tx) => {
-      const row = await create(
+      const publishing = await create(
         tx,
         scope,
         "policies",
         policy({ maxPerDay: 99 }),
       );
+      expect((await requireSpendMandate(tx, scope)).id).toBe(publishing.id);
+      await update(tx, scope, publishing, {
+        ...(publishing.data as object),
+        active: false,
+      });
+      // An invalid budget still fails; its reference does not.
+      const budget = await create(
+        tx,
+        scope,
+        "policies",
+        policy({ dailyBudgetMicros: -1 }),
+      );
       await expect(requireSpendMandate(tx, scope)).rejects.toBeInstanceOf(
         ZodError,
       );
-      expect((await activeSpendMandateRef(tx, scope))?.id).toBe(row.id);
-      await update(tx, scope, row, { ...(row.data as object), active: false });
+      expect((await activeSpendMandateRef(tx, scope))?.id).toBe(budget.id);
+      await update(tx, scope, budget, { ...(budget.data as object), active: false });
     });
   });
 

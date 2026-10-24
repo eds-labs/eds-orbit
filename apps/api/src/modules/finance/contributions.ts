@@ -14,6 +14,7 @@ import { financeTools } from "./tools.ts";
 /** What the finance module plugs into the platform; later tasks add to it. */
 export const financeContributions: ModuleContributions = {
   available: financeSwitchedOn,
+  unavailableCode: "FINANCE_DISABLED",
   routes: financeRoutes,
   periodic: [financeFxSync],
   // Assistant reads plus the MCP reads and the owner-approved retry

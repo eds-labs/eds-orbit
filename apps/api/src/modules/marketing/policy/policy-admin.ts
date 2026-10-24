@@ -6,7 +6,10 @@ import {
 } from "../../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
 import { audit, create, data, DomainError, list, update } from "../../../shared.ts";
-import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
+import {
+  activePolicyRecord,
+  activeSpendPolicyRecord,
+} from "../../../platform/ai/spend-mandate.ts";
 import { projectReadiness } from "../../../platform/governance/readiness.ts";
 import {
   assertSameChanges,
@@ -180,6 +183,12 @@ export const policyChange = z
   })
   .strict();
 type PolicyChange = z.infer<typeof policyChange>;
+const BUDGET_FIELDS = [
+  "dailyBudgetMicros",
+  "monthlyBudgetMicros",
+  "perRunBudgetMicros",
+  "approvedPaidTests",
+] as const;
 
 /** The stored policy with the change applied, validated like the form. */
 async function proposedPolicy(tx: DbTx, scope: Scope, change: PolicyChange) {
@@ -191,6 +200,14 @@ async function proposedPolicy(tx: DbTx, scope: Scope, change: PolicyChange) {
     if (value === null) delete merged[key];
     else if (value !== undefined) merged[key] = value;
   const next = policySchema.parse(merged);
+  // Once the platform holds the AI spending authority (ADR 0015), the
+  // policy's budget copy no longer decides anything: changing it here would
+  // only mislead, so it goes through ai_spend_policy_update.
+  if (
+    BUDGET_FIELDS.some((key) => change.changes[key] !== undefined) &&
+    (await activeSpendPolicyRecord(tx, scope))
+  )
+    throw new DomainError("SPEND_POLICY_ON_PLATFORM", 409);
   // Human approval of every post is the floor over MCP.
   if (next.mode === "autopilot")
     throw new DomainError("MCP_AUTOPILOT_NOT_ALLOWED", 409);
@@ -227,7 +244,7 @@ const updateTool = approvedOperation({
   policyRequired: false,
   mcpProjectRequired: true,
   description:
-    "Proposes a change to the Marketing policy: changes = {field: value} with only the fields to change, against expectedVersion from marketing_policy_get. mode is observe or assisted (every post needs owner approval); channels must be assigned Postiz channels. A project without a policy proposes all required fields. Owners only.",
+    "Proposes a change to the Marketing policy: changes = {field: value} with only the fields to change, against expectedVersion from marketing_policy_get. mode is observe or assisted (every post needs owner approval); channels must be assigned Postiz channels. A project without a policy proposes all required fields. The AI budget is set with ai_spend_policy_update once the project has one (SPEND_POLICY_ON_PLATFORM). Owners only.",
   input: policyChange,
   permission: PROJECT_OWN,
   validate: async (tx, scope, args) => {

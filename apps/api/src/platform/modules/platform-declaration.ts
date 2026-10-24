@@ -16,6 +16,10 @@ export const platformDeclaration: PlatformDeclaration = {
     },
     { kind: "budget_runs", description: "Reservations grouped per paid run" },
     {
+      kind: "ai_spend_policies",
+      description: "The project's AI spending authority (ADR 0015)",
+    },
+    {
       kind: "openai_configuration",
       description: "Per-project AI provider keys and routes",
     },

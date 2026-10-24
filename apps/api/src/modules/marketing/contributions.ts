@@ -1,3 +1,4 @@
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { marketingConfigurationSection } from "./brand/configuration-section.ts";
 import { marketingMcpTools, marketingMcpActions } from "./mcp-tools.ts";
 import { policyAdminActionTypes, policyAdminTools } from "./policy/policy-admin.ts";
@@ -37,6 +38,8 @@ import { marketingAttention, marketingAttentionStatus } from "./attention.ts";
  * the contributed code still lives in the flat api modules until WP2.1.
  */
 export const marketingContributions: ModuleContributions = {
+  // Switchable for the whole installation (ADR 0015, E-7); on by default.
+  available: () => loadConfig().ORBIT_MARKETING !== "false",
   // Every assistant tool Orbit has today, in the order the chat offered them.
   // Then the MCP tools, and the project administration over MCP
   // (docs/MCP_PROJECT_ADMINISTRATION.md).

@@ -27,6 +27,8 @@ import {
   registeredActionPermission,
   registeredRegistry,
   registeredRoutesByOwner,
+  moduleAvailable,
+  moduleUnavailableCode,
 } from "./platform/modules/contributions.ts";
 import {
   assertModuleEnabled,
@@ -75,6 +77,8 @@ import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import { projectReadiness } from "./platform/governance/readiness.ts";
 import { projectAiConfigurationView } from "./modules/openai-configuration.ts";
+import { readSpendPolicy } from "./platform/ai/spend-policy.ts";
+import { platformSpendLimits } from "./platform/ai/spend-mandate.ts";
 import { providerBudgetStatus } from "./platform/ai/provider-budget.ts";
 import {
   beginConnect,
@@ -210,12 +214,15 @@ import { passwordResetAvailable } from "./platform/account/service.ts";
 import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
 import { emailEnabled } from "./platform/email/connection.ts";
 const object = z.record(z.string(), z.unknown());
-// Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
-const AGENT_ROUTES = new Set([
+// The owner's Telegram bot routes, by registered pattern (on with telegramEnabled()).
+const TELEGRAM_ROUTES = new Set([
   "/api/telegram/:projectId/:connectionId",
   "/api/projects/:projectId/telegram",
   "/api/projects/:projectId/telegram/connect",
   "/api/projects/:projectId/telegram/disconnect",
+]);
+// Orbit Agents routes (assignments, assignment posts), by registered pattern.
+const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/assignments",
   "/api/projects/:projectId/assignments/:id/status",
   "/api/projects/:projectId/assignment-posts",
@@ -328,6 +335,9 @@ export async function buildServer(
     // matched route pattern is checked, not the raw URL, so percent-encoded
     // paths cannot slip past (R62); each handler checks again.
     if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
+      throw new DomainError("NOT_FOUND", 404);
+    // The bot's routes follow its own switch (ADR 0015), checked as early.
+    if (TELEGRAM_ROUTES.has(req.routeOptions.url ?? "") && !telegramEnabled())
       throw new DomainError("NOT_FOUND", 404);
     // Platform files (WP4.6) do not exist while off or not configured.
     if (
@@ -792,6 +802,9 @@ export async function buildServer(
         (c) => connectionVerified(data(c).status),
       ).length;
       const capabilityReadiness = await projectReadiness(tx, scope);
+      const platformLimits = await platformSpendLimits(tx, scope).catch(
+        () => null,
+      );
       return {
         project,
         counts,
@@ -809,8 +822,15 @@ export async function buildServer(
           spentMicros: reservations
             .filter((x) => x.state === "settled")
             .reduce((n, x) => n + Number(x.settledMicros), 0),
-          dailyLimitMicros: data(policy).dailyBudgetMicros ?? null,
-          monthlyLimitMicros: data(policy).monthlyBudgetMicros ?? null,
+          // The platform's spending authority wins (ADR 0015).
+          dailyLimitMicros:
+            platformLimits?.dailyBudgetMicros ??
+            data(policy).dailyBudgetMicros ??
+            null,
+          monthlyLimitMicros:
+            platformLimits?.monthlyBudgetMicros ??
+            data(policy).monthlyBudgetMicros ??
+            null,
         },
         readiness: capabilityReadiness,
       };
@@ -880,6 +900,14 @@ export async function buildServer(
       },
     };
   });
+  // The AI spending authority (ADR 0015): platform-owned, visible without Marketing.
+  app.get("/api/projects/:projectId/ai-spend-policy", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      readSpendPolicy(tx, scope),
+    );
+  });
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
@@ -904,6 +932,10 @@ export async function buildServer(
       child.addHook("preHandler", async (req) => {
         // scopeFor gives the module's routes the member's role in the module (WP4.5).
         (req as { orbitModule?: string }).orbitModule = owner;
+        // A module switched off for the installation (ORBIT_MARKETING,
+        // ORBIT_SUPPORT, …) has no routes at all, with its own code (ADR 0015).
+        if (!moduleAvailable(owner))
+          throw new DomainError(moduleUnavailableCode(owner), 404);
         if (!moduleSwitchingEnabled()) return;
         if (!req.routeOptions.url?.startsWith("/api/projects/:projectId/"))
           return;

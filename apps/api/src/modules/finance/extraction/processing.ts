@@ -1,7 +1,7 @@
 import type { DbTx, Prisma } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
-import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
+import { activeSpendMandateRef } from "../../../platform/ai/spend-mandate.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { assertUpdated } from "../common.ts";
 import { FINANCE_EXTRACT } from "../queues.ts";
@@ -81,12 +81,13 @@ export async function extractionJob(tx: DbTx, scope: Scope, doc: Doc) {
 }
 
 /**
- * The paid call needs the owner's consent (`aiOn`) and an active policy
- * with a spending mandate; without one every call stops at POLICY_REQUIRED.
+ * The paid call needs the owner's consent (`aiOn`) and a spending mandate
+ * (the platform's spending authority or an active policy, ADR 0015);
+ * without one every call stops at POLICY_REQUIRED.
  */
 async function paidCallBlock(tx: DbTx, scope: Scope, aiOn: boolean) {
   if (!aiOn) return "FINANCE_AI_OFF";
-  return (await activePolicyRecord(tx, scope)) ? null : "POLICY_REQUIRED";
+  return (await activeSpendMandateRef(tx, scope)) ? null : "POLICY_REQUIRED";
 }
 
 /**
@@ -182,7 +183,7 @@ export async function startExtractionFor(
  */
 export async function queuePendingExtractions(tx: DbTx, scope: Scope) {
   // Without a spending mandate every queued job would stop at once.
-  if (!(await activePolicyRecord(tx, scope))) return 0;
+  if (!(await activeSpendMandateRef(tx, scope))) return 0;
   const since = new Date(Date.now() - BACKLOG_DAYS * 86_400_000);
   const candidates = await tx.financeDocument.findMany({
     where: {

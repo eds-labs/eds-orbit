@@ -18,7 +18,7 @@ import {
 } from "../../platform/knowledge/index-evaluation.ts";
 import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
 import { runtimeOpenAiConfiguration } from "../../platform/ai/openai-configuration.ts";
-import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
+import { requireSpendMandate } from "../../platform/ai/spend-mandate.ts";
 import { projectAdministrationEnabled } from "../../platform/configuration/configuration.ts";
 import {
   approvedOperation,
@@ -84,7 +84,8 @@ export async function readKnowledgeEvaluation(tx: DbTx, scope: Scope) {
   const live = await validateActiveIndexEvaluation(tx, scope);
   const runs = (await list(tx, scope, "index_evaluations")).slice(0, 10);
   const sources = await knowledgeIndexStatus(tx, scope);
-  const policy = data(await activePolicyRecord(tx, scope));
+  // The spend mandate (ADR 0015): the platform's authority or the policy.
+  const mandate = await requireSpendMandate(tx, scope).catch(() => null);
   return {
     projectId: scope.projectId,
     liveEvaluation: {
@@ -140,9 +141,9 @@ export async function readKnowledgeEvaluation(tx: DbTx, scope: Scope) {
       embeddingProfiles: Object.keys(EMBEDDING_PROFILES),
     },
     paidMandate: {
-      activePolicy: Boolean(policy.active),
-      approvedPaidTests: policy.approvedPaidTests === true,
-      perRunBudgetMicros: policy.perRunBudgetMicros ?? 0,
+      activePolicy: Boolean(mandate),
+      approvedPaidTests: mandate?.limits.approvedPaidTests === true,
+      perRunBudgetMicros: mandate?.limits.perRunBudgetMicros ?? 0,
     },
     steps:
       "knowledge_evaluate step begin_index (free) → build_index (paid embeddings) → evaluate (paid query embeddings) → activate (only a passed evaluation).",
@@ -284,7 +285,7 @@ const evaluate = approvedOperation({
   proposable: projectAdministrationEnabled,
   mcpProjectRequired: true,
   description:
-    "Proposes one step of the official live RAG evaluation: begin_index (optional profile), build_index (indexId; paid embeddings), evaluate (indexId, datasetVersion, 60-120 cases with expectedChunkIds or forbiddenChunkIds, confirmQueriesMayBeSentToOpenAI; paid) or activate (indexId; only after a passed live evaluation). Paid steps need an active policy with approved paid tests. Owners only.",
+    "Proposes one step of the official live RAG evaluation: begin_index (optional profile), build_index (indexId; paid embeddings), evaluate (indexId, datasetVersion, 60-120 cases with expectedChunkIds or forbiddenChunkIds, confirmQueriesMayBeSentToOpenAI; paid) or activate (indexId; only after a passed live evaluation). Paid steps need an AI spending mandate with approved paid use. Owners only.",
   input: knowledgeEvaluateInput,
   permission: PROJECT_OWN,
   validate: (tx, scope, args) => validateStep(tx, scope, args),

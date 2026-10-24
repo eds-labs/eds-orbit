@@ -86,6 +86,9 @@ const baseConfigSchema = z.object({
   // Orbit Agents: assignments, runs and specialists; everything stays off when false.
   ORBIT_KNOWLEDGE_WORKSPACE: z.enum(["false", "true"]).default("false"),
   ORBIT_AGENTS: z.enum(["false", "true"]).default("false"),
+  // The owner's Telegram bot (ADR 0015): a platform switch of its own.
+  // Unset, it follows the modules as before (on with Orbit Agents).
+  ORBIT_TELEGRAM: unset(z.enum(["false", "true"]).optional()),
   // Assignment images: "true" sends style references through images.edit (verified from types only);
   // off by default, images then follow the stored style description.
   ORBIT_IMAGE_REFERENCES: z.enum(["false", "true"]).default("false"),
@@ -141,10 +144,17 @@ const baseConfigSchema = z.object({
   ORBIT_MCP_PROJECT_ADMINISTRATION: unset(
     z.enum(["false", "true"]).default("false"),
   ),
+  // Where the AI spending authority is read from (ADR 0015): "platform" uses
+  // an active ai_spend_policies record and falls back to the budget fields
+  // of the Marketing policy; "marketing" ignores the platform record (rollback).
+  ORBIT_SPEND_POLICY_SOURCE: z.enum(["platform", "marketing"]).default("platform"),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.
   ORBIT_PUBLIC_INGRESS: z.enum(["false", "true"]).default("false"),
+  // Marketing module for the whole installation (ADR 0015, E-7). On by
+  // default, as before; "false" removes it everywhere like ORBIT_SUPPORT does.
+  ORBIT_MARKETING: z.enum(["false", "true"]).default("true"),
   // Support module (WP5.1): off until the pilot is approved. Even when "true",
   // support works only in projects whose owner enabled the module.
   ORBIT_SUPPORT: z.enum(["false", "true"]).default("false"),

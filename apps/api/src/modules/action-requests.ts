@@ -22,7 +22,10 @@ import {
   listedRequester,
   update,
 } from "../shared.ts";
-import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
+import {
+  activePolicyRecord,
+  activeSpendMandateRef,
+} from "../platform/ai/spend-mandate.ts";
 import {
   registeredActionType,
   registeredActionTypeOwner,
@@ -89,6 +92,14 @@ export type ActionDefinition<P> = {
    * (such as a configuration change): no active policy is required.
    */
   policyRequired?: boolean;
+  /**
+   * What must be active to propose this type (ADR 0015): the AI spend
+   * mandate (the platform's spending authority or a Marketing policy), the
+   * Marketing publishing policy, or nothing (`[]`, for reviewed types that
+   * spend nothing). Without it a Marketing type needs the publishing policy
+   * and any other type the spend mandate; `policyRequired: false` means `[]`.
+   */
+  requires?: readonly ActionRequirement[];
   ttlMs: number;
   payload: z.ZodType<P>;
   costCeilingMicros: (payload: P) => number;
@@ -100,6 +111,20 @@ export type ActionDefinition<P> = {
   /** Module-owned projection of a durable result, e.g. current delivery state. */
   executionResult?: (tx: DbTx, scope: Scope, request: Row) => Promise<unknown>;
 };
+
+export type ActionRequirement = "spend_mandate" | "publishing_policy";
+
+/** What a type needs to be proposed, with today's defaults (ADR 0015). */
+export function actionRequirements(
+  actionType: string,
+  type: Pick<ActionDefinition<unknown>, "policyRequired" | "requires">,
+): readonly ActionRequirement[] {
+  if (type.policyRequired === false) return [];
+  if (type.requires) return type.requires;
+  return registeredActionTypeOwner(actionType) === "marketing"
+    ? ["publishing_policy"]
+    : ["spend_mandate"];
+}
 
 /**
  * Action types are code constants contributed by modules (WP1.6): no policy,
@@ -128,10 +153,16 @@ export async function createActionRequest(
   if (requester.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
   const payload = type.payload.parse(input.payload);
-  // Types that spend nothing and need no automation may run without one.
-  const policy =
-    type.policyRequired === false ? null : await activePolicyRecord(tx, scope);
-  if (!policy && type.policyRequired !== false)
+  // Types that spend nothing and need no automation may run without one;
+  // the error code stays the same for every missing requirement.
+  const requires = actionRequirements(input.actionType, type);
+  const policy = requires.length ? await activePolicyRecord(tx, scope) : null;
+  if (requires.includes("publishing_policy") && !policy)
+    throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
+  const spendPolicy = requires.includes("spend_mandate")
+    ? await activeSpendMandateRef(tx, scope)
+    : null;
+  if (requires.includes("spend_mandate") && !spendPolicy)
     throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const packageHash = hash({ actionType: input.actionType, payload });
   const row = await create(tx, scope, KIND, {
@@ -139,6 +170,10 @@ export async function createActionRequest(
     riskClass: type.riskClass,
     approvalMode: type.approvalMode,
     policy: policy ? { id: policy.id, version: policy.version } : null,
+    // The mandate the request was proposed under (ADR 0015).
+    ...(spendPolicy
+      ? { spendPolicy: { id: spendPolicy.id, version: spendPolicy.version } }
+      : {}),
     requestedBy: requester,
     payload,
     packageHash,

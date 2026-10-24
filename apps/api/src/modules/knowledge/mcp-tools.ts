@@ -230,6 +230,9 @@ const writes = [
   approvedOperation({
     ...shared,
     name: "knowledge_propose_fact",
+    // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): it records a
+    // candidate, never a verified fact; no budget is needed.
+    requires: [],
     description:
       "Record a candidate fact through the native engine. Candidate status never becomes verified merely because an agent proposed it.",
     permission: PROJECT_OWN,
@@ -250,6 +253,9 @@ const writes = [
   approvedOperation({
     ...shared,
     name: "knowledge_withdraw_fact",
+    // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): withdrawing must
+    // stay possible without a budget, since it only removes claims.
+    requires: [],
     description:
       "Withdraw an exact fact version and invalidate dependent evidence/content through native impact handlers.",
     permission: PROJECT_OWN,

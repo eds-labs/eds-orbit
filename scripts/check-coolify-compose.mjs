@@ -53,6 +53,9 @@ for (const key of [
   "ORBIT_PUBLIC_INGRESS",
   "ORBIT_SUPPORT",
   "ORBIT_FINANCE",
+  "ORBIT_MARKETING",
+  "ORBIT_TELEGRAM",
+  "ORBIT_SPEND_POLICY_SOURCE",
   "ORBIT_CUSTOMER_CONTEXT",
   "ORBIT_FILES",
   "ORBIT_EMAIL",
@@ -232,6 +235,14 @@ for (const name of apiLike)
       "true",
       `${name} must follow ${flag} from the deployment environment`,
     );
+
+// ADR 0015: Marketing stays on, the bot follows ORBIT_AGENTS and the
+// spending authority is the platform's unless the deployment says otherwise.
+for (const name of apiLike) {
+  assert.equal(services[name].environment.ORBIT_MARKETING, "true");
+  assert.equal(services[name].environment.ORBIT_TELEGRAM, "");
+  assert.equal(services[name].environment.ORBIT_SPEND_POLICY_SOURCE, "platform");
+}
 
 // The MCP OAuth server (Track M WP-M1) is off by default, its resource falls
 // back to the config default (empty), and CIMD discovery is limited to

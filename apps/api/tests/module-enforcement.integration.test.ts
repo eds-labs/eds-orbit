@@ -223,6 +223,8 @@ describe.skipIf(!enabled)("Module activation enforcement", () => {
       "project_configuration_update",
       "ai_models_get",
       "ai_models_update",
+      "ai_spend_policy_get",
+      "ai_spend_policy_update",
       "knowledge_search",
     ]);
     expect(registeredToolOwner("knowledge_search")).toBe("platform");

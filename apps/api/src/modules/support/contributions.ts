@@ -19,6 +19,7 @@ import {
 /** What the support module plugs into the platform (WP5.1). */
 export const supportContributions: ModuleContributions = {
   available: supportSwitchedOn,
+  unavailableCode: "SUPPORT_DISABLED",
   routes: supportRoutes,
   // The e-mail channel (WP5.3) on the project's WP4.7 mailboxes; a live
   // inbox keeps its mailbox from being removed.

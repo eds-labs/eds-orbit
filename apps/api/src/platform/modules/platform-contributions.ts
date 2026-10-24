@@ -11,6 +11,10 @@ import {
 } from "../configuration/configuration.ts";
 import { projectSection } from "../configuration/project-section.ts";
 import { aiModelActionTypes, aiModelTools } from "../ai/mcp-tools.ts";
+import {
+  spendPolicyActionTypes,
+  spendPolicyTools,
+} from "../ai/spend-policy-tools.ts";
 import type { ModuleContributions } from "./contributions.ts";
 import { platformActions } from "../http/platform-actions.ts";
 import { sourceSyncScheduler } from "../knowledge/source-sync.ts";
@@ -43,10 +47,12 @@ export const platformContributions: ModuleContributions = {
     "platform.task.start": taskStart,
     ...configurationActionTypes,
     ...aiModelActionTypes,
+    ...spendPolicyActionTypes,
   },
   // The project configuration over MCP (plans/project-configuration-mcp.md)
   // and the AI model selection (docs/MCP_PROJECT_ADMINISTRATION.md).
-  tools: [...configurationTools, ...aiModelTools],
+  // The AI spending authority (ADR 0015) follows them.
+  tools: [...configurationTools, ...aiModelTools, ...spendPolicyTools],
   configurationSections: { project: projectSection },
   scheduler: sourceSyncScheduler,
   // The bot's `/pause` confirmation; modules add their own buttons.

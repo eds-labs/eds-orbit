@@ -17,6 +17,7 @@ import {
   saveOpenAiConfiguration,
 } from "../ai/openai-configuration.ts";
 import { settleOnGrant } from "../ai/central-ai.ts";
+import { saveSpendPolicy } from "../ai/spend-policy.ts";
 import {
   CONNECTION_KIND,
   providerScopes,
@@ -84,6 +85,13 @@ export const platformActions: Record<string, ActionHandler> = {
         },
       );
       return result;
+    }),
+  ),
+  // The project's AI spending authority (ADR 0015); audited in the service.
+  "ai-spend-policy": ownTransaction(({ scope, input }) =>
+    scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await saveSpendPolicy(tx, scope, input);
+      return { id: row.id, version: row.version, ...(data(row) as object) };
     }),
   ),
   "add-member": ownTransaction(({ scope, input }) =>

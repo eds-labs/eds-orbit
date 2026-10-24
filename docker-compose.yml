@@ -62,6 +62,12 @@ x-api-environment: &api-environment
   ORBIT_SUPPORT: ${ORBIT_SUPPORT:-false}
   # Finance module: off until its rollout is approved.
   ORBIT_FINANCE: ${ORBIT_FINANCE:-false}
+  # Marketing module for the whole installation (ADR 0015): on by default.
+  ORBIT_MARKETING: ${ORBIT_MARKETING:-true}
+  # The owner's Telegram bot (ADR 0015); empty follows ORBIT_AGENTS as before.
+  ORBIT_TELEGRAM: ${ORBIT_TELEGRAM:-}
+  # Where the AI spending authority is read (ADR 0015): platform, or marketing to roll back.
+  ORBIT_SPEND_POLICY_SOURCE: ${ORBIT_SPEND_POLICY_SOURCE:-platform}
   # Customer context from external products (ADR 0011); per-inbox binding.
   ORBIT_CUSTOMER_CONTEXT: ${ORBIT_CUSTOMER_CONTEXT:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.

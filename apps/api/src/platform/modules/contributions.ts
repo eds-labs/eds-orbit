@@ -147,6 +147,11 @@ export type ModuleContributions = {
    */
   available?: () => boolean;
   /**
+   * The error code a request to the module answers while it is unavailable
+   * (404); MODULE_DISABLED when absent. Support and Finance keep their own.
+   */
+  unavailableCode?: string;
+  /**
    * What needs the member's attention in the module (UI restructure §4.1),
    * read for GET /api/projects/:id/attention with the member's role in the
    * module. Called only while the module is enabled and visible to them.
@@ -554,6 +559,10 @@ function fromOwners<T>(
 export function moduleAvailable(id: string) {
   return registered?.byModule.get(id)?.available?.() ?? true;
 }
+/** The code an unavailable module's requests answer with. */
+export function moduleUnavailableCode(id: string) {
+  return registered?.byModule.get(id)?.unavailableCode ?? "MODULE_DISABLED";
+}
 /** The validated registry the contributions were registered for. */
 export function registeredRegistry(): ValidatedRegistry {
   return current().registry;
@@ -760,9 +769,17 @@ export function registeredRoutesByOwner(): Array<[string, RoutesContribution]> {
   );
 }
 
-/** The registered readiness provider, if any. */
-export function registeredReadiness(): ReadinessProvider | undefined {
-  return [...current().byModule.values()].find((c) => c.readiness)?.readiness;
+/**
+ * The registered readiness provider, if any; with `enabled`, only one whose
+ * owner is enabled for the project (a disabled module's readiness is not
+ * the project's).
+ */
+export function registeredReadiness(
+  enabled?: ReadonlySet<string>,
+): ReadinessProvider | undefined {
+  return [...current().byModule.entries()].find(
+    ([owner, c]) => c.readiness && ownerEnabled(owner, enabled),
+  )?.[1].readiness;
 }
 /** Channel directories: platform first, then modules in registry order. */
 export function registeredChannelDirectories(): ChannelDirectory[] {

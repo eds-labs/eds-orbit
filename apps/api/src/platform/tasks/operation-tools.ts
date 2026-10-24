@@ -12,6 +12,7 @@ import {
   createActionRequest,
   decideActionRequest,
   type ActionDefinition,
+  type ActionRequirement,
   type RequestedBy,
 } from "../../modules/action-requests.ts";
 import { userScoped } from "../tenancy/scope.ts";
@@ -57,6 +58,8 @@ type Operation = {
   assistant?: boolean;
   /** False when the change spends nothing and needs no active policy. */
   policyRequired?: boolean;
+  /** What must be active to propose it (ADR 0015); see ActionDefinition. */
+  requires?: readonly ActionRequirement[];
   output?: z.ZodType;
   validate?(tx: DbTx, scope: Scope, args: any): Promise<void>;
   approvalContext?(tx: DbTx, scope: Scope, args: any): Promise<unknown>;
@@ -228,6 +231,7 @@ export function approvedOperation(op: Operation) {
       return (op.proposable ?? mcp2Enabled)();
     },
     ...(op.policyRequired === false ? { policyRequired: false } : {}),
+    ...(op.requires ? { requires: op.requires } : {}),
     ...contentScopes(op),
     ttlMs: 24 * 3600000,
     payload,

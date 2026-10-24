@@ -2,7 +2,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { openOwnerRequests } from "../../modules/action-requests.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
-import { activePolicyRecord } from "../ai/spend-mandate.ts";
+import { activePolicyRecord, platformSpendLimits } from "../ai/spend-mandate.ts";
 import { providerBudgetStatus } from "../ai/provider-budget.ts";
 import { data } from "../shared.ts";
 import { can, PROJECT_OWN, PROJECT_WRITE } from "../tenancy/permissions.ts";
@@ -77,6 +77,11 @@ export async function aiMonthStatus(
 ): Promise<AttentionStatus["aiMonth"]> {
   if (!can(scope, PROJECT_WRITE)) return undefined;
   const spentMicros = month.spentMicros;
+  // The platform's spending authority (ADR 0015) belongs to no module, so a
+  // Marketing role does not hide it.
+  const platform = await platformSpendLimits(tx, scope).catch(() => null);
+  if (platform)
+    return { spentMicros, limitMicros: platform.monthlyBudgetMicros };
   if (hiddenKinds(scope).includes("policies")) return { spentMicros };
   const limit = data(await activePolicyRecord(tx, scope)).monthlyBudgetMicros;
   return {

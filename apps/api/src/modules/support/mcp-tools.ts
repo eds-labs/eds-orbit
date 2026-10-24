@@ -318,6 +318,9 @@ const writes = [
   approvedOperation({
     ...shared,
     name: "support_update_ticket",
+    // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): a ticket's own
+    // fields change only after the owner's approval; no budget is needed.
+    requires: [],
     description:
       "Propose native status, priority, assignee, category or label changes. Only explicitly supplied fields change. Merged tickets are immutable.",
     async validate(tx, scope, { ticketId, ...change }) {

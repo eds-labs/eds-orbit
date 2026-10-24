@@ -84,11 +84,13 @@ function owner(scope: Scope) {
 }
 
 /**
- * Bot routes and the webhook exist only while a contributor turns the bot
- * on; today marketing does, with Orbit Agents on.
+ * Bot routes and the webhook exist only while the bot is on: ORBIT_TELEGRAM
+ * when set (ADR 0015), else a contributor's switch (marketing, with Orbit
+ * Agents on), so production keeps its behaviour until the flag is set.
  */
 export function telegramEnabled() {
-  return telegramContributorEnabled();
+  const flag = loadConfig().ORBIT_TELEGRAM;
+  return flag ? flag === "true" : telegramContributorEnabled();
 }
 
 /**

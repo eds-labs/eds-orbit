@@ -178,6 +178,23 @@ export const policy = z
   })
   .strict()
   .refine((v) => v.endAt > v.startAt, { message: "Invalid policy interval" });
+/**
+ * The project's AI spending authority (ADR 0015): the limits every paid
+ * model call of every module is reserved against. Platform-owned; the
+ * Marketing policy keeps only publishing rules.
+ */
+export const aiSpendPolicy = z
+  .object({
+    profile: z.enum(["off", "test", "normal", "custom"]).default("custom"),
+    startAt: z.iso.datetime(),
+    endAt: z.iso.datetime(),
+    approvedPaidUse: z.boolean().default(false),
+    dailyBudgetMicros: z.number().int().min(0).max(1000000000),
+    monthlyBudgetMicros: z.number().int().min(0).max(10000000000),
+    perRunBudgetMicros: z.number().int().min(0).max(100000000),
+  })
+  .strict()
+  .refine((v) => v.endAt > v.startAt, { message: "Invalid policy interval" });
 export const metric = z
   .object({
     source: z.enum(["csv", "matomo", "postiz", "manual_test"]),

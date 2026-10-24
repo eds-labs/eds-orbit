@@ -225,6 +225,7 @@ describe("module contributions", () => {
       "adapt-content",
       "add-member",
       "ai-provider-configure",
+      "ai-spend-policy",
       "analyze",
       "approve",
       "archive-mission",
@@ -325,6 +326,7 @@ describe("module contributions", () => {
     ).toEqual([
       "add-member",
       "ai-provider-configure",
+      "ai-spend-policy",
       "connector-health",
       "import-matomo",
       "knowledge-analysis-cancel",

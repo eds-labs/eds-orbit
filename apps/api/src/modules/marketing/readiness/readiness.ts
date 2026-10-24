@@ -23,6 +23,7 @@ import {
   publishingUsesDriveAssets,
 } from "../brand/drive-readiness.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
+import { requireSpendMandate } from "../../../platform/ai/spend-mandate.ts";
 /**
  * The effective AI status; when a stored key cannot be opened (after a key
  * rotation, say), the project's own presence flags as before, so readiness
@@ -83,12 +84,18 @@ export async function readiness(tx: DbTx, scope: Scope) {
   const policy = Boolean(
       active && Date.parse(p.startAt) <= now && Date.parse(p.endAt) > now,
     ),
+    // The paid budget is the spend mandate (ADR 0015): the platform's
+    // spending authority, else this policy's budget fields.
+    mandate = await requireSpendMandate(tx, scope).catch(() => null),
+    limits = mandate?.limits,
     budget = Boolean(
-      policy &&
-      p.approvedPaidTests &&
-      p.dailyBudgetMicros > 0 &&
-      p.monthlyBudgetMicros > 0 &&
-      p.perRunBudgetMicros > 0,
+      limits &&
+      Date.parse(limits.startAt) <= now &&
+      Date.parse(limits.endAt) > now &&
+      limits.approvedPaidTests &&
+      limits.dailyBudgetMicros > 0 &&
+      limits.monthlyBudgetMicros > 0 &&
+      limits.perRunBudgetMicros > 0,
     );
   // What calls would use now, central profiles and granted keys included
   // (ADR 0014); presence flags only.

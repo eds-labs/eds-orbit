@@ -4,6 +4,7 @@ import { DomainError } from "../shared.ts";
 import { listModuleStates, moduleSwitchingEnabled } from "./activation.ts";
 import {
   moduleAvailable,
+  moduleUnavailableCode,
   ownerEnabled,
   registeredRegistry,
 } from "./contributions.ts";
@@ -47,23 +48,33 @@ export async function enabledModules(
   return new Set(states.filter((s) => s.enabled).map((s) => s.id));
 }
 
-/** Throws 404 MODULE_DISABLED when the owner module is off for the project. */
+/**
+ * Throws 404 when the owner module is switched off for the installation
+ * (whatever ORBIT_MODULES says, ADR 0015) or, with enforcement on, for the
+ * project: MODULE_DISABLED, or the module's own code.
+ */
 export async function assertModuleEnabled(
   tx: DbTx,
   scope: Scope,
   owner: string | undefined,
 ) {
-  if (!moduleSwitchingEnabled() || !owner || owner === "platform") return;
+  if (!owner || owner === "platform") return;
+  if (!moduleAvailable(owner))
+    throw new DomainError(moduleUnavailableCode(owner), 404);
+  if (!moduleSwitchingEnabled()) return;
   if (!ownerEnabled(owner, await enabledModules(tx, scope)))
     throw new DomainError("MODULE_DISABLED", 404);
 }
 
-/** The same check in its own project transaction, only while enforcement is on. */
+/** The same check in its own project transaction when it can fail. */
 export async function assertModuleEnabledFor(
   scope: Scope,
   owner: string | undefined,
 ) {
-  if (!moduleSwitchingEnabled() || !owner || owner === "platform") return;
+  if (!owner || owner === "platform") return;
+  if (!moduleAvailable(owner))
+    throw new DomainError(moduleUnavailableCode(owner), 404);
+  if (!moduleSwitchingEnabled()) return;
   await scoped(scope.workspaceId, scope.projectId, (tx) =>
     assertModuleEnabled(tx, scope, owner),
   );
