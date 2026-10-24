@@ -22,6 +22,28 @@ import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
  * whether a call already reserved.
  */
 export const queryReservationKey = (queryKey: string) => "query:" + queryKey;
+
+/**
+ * Whether a search buys a query embedding: only when the active index
+ * holds embeddings. Without any, it searches full-text for free, so cost
+ * estimates must not count (or price) a query embedding either.
+ */
+export async function indexHasEmbeddings(
+  tx: DbTx,
+  scope: Scope,
+  index: { profile: string; generation: number },
+) {
+  return (
+    (await tx.chunkEmbedding.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        profile: index.profile,
+        indexGeneration: index.generation,
+      },
+    })) > 0
+  );
+}
 /**
  * `trace` is set by a caller that owns an agent run (generation): the query
  * reservation and embedding span then join that run and no retrieval run is
@@ -88,15 +110,7 @@ export async function retrieveHybrid(
   // keeps the paid hybrid path and its price and mandate checks.
   const lexical = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const index = await getActiveIndex(tx, scope);
-    const embedded = await tx.chunkEmbedding.count({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        profile: index.profile,
-        indexGeneration: index.generation,
-      },
-    });
-    if (embedded) return null;
+    if (await indexHasEmbeddings(tx, scope, index)) return null;
     const evidence = await retrieve(tx, scope, input);
     if (jobKey)
       await create(tx, scope, "retrieval_runs", {

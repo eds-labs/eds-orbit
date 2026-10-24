@@ -17,6 +17,7 @@ import {
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
+import { indexHasEmbeddings } from "../../../platform/knowledge/retrieval.ts";
 import { runtimeOpenAiConfiguration } from "../../../platform/ai/openai-configuration.ts";
 import {
   audit,
@@ -92,9 +93,12 @@ export async function validateDraftMission(
   const draftRoute = resolveRoute(draftTaskClass(parsed.contentType), ai);
   const draftModel = draftRoute.model;
   const index = await getActiveIndex(tx, scope);
+  // A query embedding is bought (and priced) only for an embedded index.
   const firstDraftMaxMicros =
     estimateCost(draftModel, 50000, draftRoute.maxOutputTokens, ai) +
-    estimateCost(index.model, 8000, 0, ai);
+    ((await indexHasEmbeddings(tx, scope, index))
+      ? estimateCost(index.model, 8000, 0, ai)
+      : 0);
   if (firstDraftMaxMicros > p.perRunBudgetMicros)
     throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
   const sourceRows = await tx.entity.findMany({
@@ -281,7 +285,9 @@ export async function confirmProposal(
     const currentModel = currentRoute.model;
     const currentCost =
       estimateCost(currentModel, 50000, currentRoute.maxOutputTokens, ai) +
-      estimateCost(currentIndex.model, 8000, 0, ai);
+      ((await indexHasEmbeddings(tx, scope, currentIndex))
+        ? estimateCost(currentIndex.model, 8000, 0, ai)
+        : 0);
     if (
       currentIndex.id !== payload.index.id ||
       currentModel !== payload.draftModel ||
