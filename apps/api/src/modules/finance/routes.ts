@@ -40,6 +40,10 @@ import {
   updateCounterparty,
 } from "./counterparties.ts";
 import { createExport } from "./exports/exporter.ts";
+import {
+  listProcessingErrors,
+  processingStatus,
+} from "./extraction/processing.ts";
 import { setManualRate } from "./fx.ts";
 import { requireFinance } from "./gate.ts";
 import { ingestDocument } from "./intake/documents.ts";
@@ -161,6 +165,9 @@ const archivedQuery = z
   .strict();
 const inactiveQuery = z
   .object({ includeInactive: z.enum(["true", "false"]).optional() })
+  .strict();
+const processingQuery = z
+  .object({ limit: z.coerce.number().int().min(1).max(200).default(50) })
   .strict();
 const dispositionQuery = z
   .object({
@@ -445,6 +452,27 @@ export const financeRoutes: RoutesContribution = ({ app, auth }) => {
     inFinance(auth, req, FINANCE_WRITE, (tx, scope, p) =>
       retryExtraction(tx, scope, idOf(p)),
     ),
+  );
+  // Where the AI extraction stands and why it stopped (fixed codes only).
+  app.get(`${BASE}/documents/:id/processing`, (req) =>
+    inFinance(auth, req, FINANCE_READ, async (tx, scope, p) => {
+      const { settings } = await readFinanceSettings(tx, scope);
+      return processingStatus(
+        tx,
+        scope,
+        idOf(p),
+        settings.aiExtraction === "on",
+      );
+    }),
+  );
+  app.get(`${BASE}/processing-errors`, (req) =>
+    inFinance(auth, req, FINANCE_READ, async (tx, scope) => ({
+      items: await listProcessingErrors(
+        tx,
+        scope,
+        processingQuery.parse(req.query ?? {}).limit,
+      ),
+    })),
   );
   // The original, inline only for types a browser shows without running
   // anything (PDF and images); everything else is an attachment.

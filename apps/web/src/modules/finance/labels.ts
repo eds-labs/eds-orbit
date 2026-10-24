@@ -278,6 +278,10 @@ const en = {
     currencyRequired: "Choose a supported currency.",
     failedHint: "Extraction failed. Retry it, or fill in the booking by hand.",
     receivedHint: "This document is still being read.",
+    pendingHint:
+      "No AI reading yet ({reason}). Start it now, or fill in the booking by hand.",
+    lastError: "Last attempt stopped: {code} ({at}).",
+    startExtraction: "Run AI extraction",
     dueBeforeIssue: "The due date is before the issue date.",
     accountRequired: "Choose a payment account.",
     save: "Save draft",
@@ -380,6 +384,16 @@ const en = {
         "No exchange rate is stored for this date. Enter a rate or add one in the currency settings.",
       FINANCE_EXTRACTION_RUNNING:
         "The extraction is still running. Try again in a moment.",
+      FINANCE_AI_OFF:
+        "AI extraction is off for this project. Turn it on in the finance settings first.",
+      FINANCE_DRAFT_EDITED:
+        "This draft was edited by hand, so a new AI reading would overwrite it. Fill in the rest by hand.",
+      FINANCE_EXTRACTION_DONE:
+        "This document has already been read by the AI.",
+      FINANCE_DOCUMENT_TOO_LONG:
+        "This document is too long for AI extraction. Fill in the booking by hand.",
+      FINANCE_EXTRACTION_NOT_POSSIBLE:
+        "This document can no longer be read again.",
       FINANCE_SETUP_REQUIRED:
         "Set up the chart of accounts first (Settings, finance accounts).",
     } as Record<string, string>,
@@ -1062,6 +1076,10 @@ const de: typeof en = {
     failedHint:
       "Das Auslesen ist fehlgeschlagen. Starte es neu oder fülle die Buchung von Hand aus.",
     receivedHint: "Dieser Beleg wird noch ausgelesen.",
+    pendingHint:
+      "Noch keine KI-Auslesung ({reason}). Starte sie jetzt oder fülle die Buchung von Hand aus.",
+    lastError: "Letzter Versuch abgebrochen: {code} ({at}).",
+    startExtraction: "KI-Auslesung starten",
     dueBeforeIssue: "Die Fälligkeit liegt vor dem Belegdatum.",
     accountRequired: "Wähle ein Zahlungskonto.",
     save: "Entwurf speichern",
@@ -1172,6 +1190,16 @@ const de: typeof en = {
         "Für dieses Datum ist kein Wechselkurs gespeichert. Gib einen Kurs ein oder ergänze ihn in den Währungseinstellungen.",
       FINANCE_EXTRACTION_RUNNING:
         "Die Auslesung läuft noch. Versuche es gleich noch einmal.",
+      FINANCE_AI_OFF:
+        "Das KI-Auslesen ist für dieses Projekt aus. Schalte es zuerst in den Finanz-Einstellungen ein.",
+      FINANCE_DRAFT_EDITED:
+        "Dieser Entwurf wurde von Hand bearbeitet; ein neues KI-Auslesen würde ihn überschreiben. Ergänze den Rest von Hand.",
+      FINANCE_EXTRACTION_DONE:
+        "Dieser Beleg wurde bereits von der KI ausgelesen.",
+      FINANCE_DOCUMENT_TOO_LONG:
+        "Dieser Beleg ist für das KI-Auslesen zu lang. Fülle die Buchung von Hand aus.",
+      FINANCE_EXTRACTION_NOT_POSSIBLE:
+        "Dieser Beleg kann nicht mehr neu ausgelesen werden.",
       FINANCE_SETUP_REQUIRED:
         "Richte zuerst den Kontenrahmen ein (Einstellungen, Finanzkonten).",
     },

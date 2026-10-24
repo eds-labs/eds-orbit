@@ -1,7 +1,7 @@
 "use client";
 import { useReducer, useRef, useState } from "react";
 import { Download, ExternalLink, RotateCcw, X } from "lucide-react";
-import { ApiError, useResource } from "@/lib/api";
+import { ApiError, useResource, when } from "@/lib/api";
 import {
   Alert,
   Badge,
@@ -53,9 +53,34 @@ export function duplicateTarget(doc: FinanceDocument): string | null {
   );
 }
 
-/** Retry is offered for a failed extraction and one still in `received` (the server refuses a running one). */
-export const canRetry = (doc: Pick<FinanceDocument, "status">) =>
-  doc.status === "failed" || doc.status === "received";
+/** Flags meaning "no usable AI result yet" (server: extraction/processing.ts). */
+const PENDING_AI_FLAGS = ["ai_off", "ai_ceiling", "extraction_failed"];
+
+/** A document in review that has no AI result yet and may still get one. */
+export const awaitsExtraction = (doc: Pick<FinanceDocument, "status" | "flags">) =>
+  doc.status === "needs_review" &&
+  !doc.flags.includes("too_long") &&
+  doc.flags.some((flag) => PENDING_AI_FLAGS.includes(flag));
+
+/** The last extraction failure the server kept (a fixed code and a time). */
+export function lastErrorOf(doc: Pick<FinanceDocument, "extraction">) {
+  const processing = (
+    doc.extraction as {
+      processing?: { lastErrorCode?: string; lastErrorAt?: string };
+    } | null
+  )?.processing;
+  return processing?.lastErrorCode && processing.lastErrorAt
+    ? { lastErrorCode: processing.lastErrorCode, lastErrorAt: processing.lastErrorAt }
+    : null;
+}
+
+/**
+ * Retry is offered for a failed extraction, one still in `received` and a
+ * document in review without an AI result; the server decides (a running
+ * job, missing consent or hand edits answer 409 with the reason).
+ */
+export const canRetry = (doc: Pick<FinanceDocument, "status" | "flags">) =>
+  doc.status === "failed" || doc.status === "received" || awaitsExtraction(doc);
 
 /**
  * The original: an image or a sandboxed PDF frame from the inline URL,
@@ -528,6 +553,25 @@ export function FinanceDocumentDetail({
         {doc.status === "received" && (
           <p className="panel-note">{r.receivedHint}</p>
         )}
+        {awaitsExtraction(doc) && (
+          <p className="panel-note">
+            {r.pendingHint.replace("{reason}", () =>
+              doc.flags
+                .filter((flag) => PENDING_AI_FLAGS.includes(flag))
+                .map((flag) => r.flags[flag] ?? flag)
+                .join(", "),
+            )}
+          </p>
+        )}
+        {lastErrorOf(doc) && (
+          <p className="panel-note">
+            {r.lastError
+              .replace("{code}", () => lastErrorOf(doc)!.lastErrorCode)
+              .replace("{at}", () =>
+                when(lastErrorOf(doc)!.lastErrorAt, locale, project.timezone),
+              )}
+          </p>
+        )}
         {(doc.status === "booked" || doc.status === "rejected") && (
           <p className="panel-note">
             {r.notEditable.replace("{status}", () => status.toLowerCase())}
@@ -638,7 +682,9 @@ export function FinanceDocumentDetail({
                 }
               >
                 <RotateCcw aria-hidden size={14} />
-                {r.retry}
+                {awaitsExtraction(doc) && !doc.flags.includes("extraction_failed")
+                  ? r.startExtraction
+                  : r.retry}
               </Button>
             )}
             {REJECTABLE.has(doc.status) && (

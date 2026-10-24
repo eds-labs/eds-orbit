@@ -1360,51 +1360,51 @@ describe.skipIf(!enabled)("finance booking", () => {
   });
 
   it("retries extraction under a new attempt key", async () => {
-    const settings = await run((tx) => readFinanceSettings(tx, scope()));
-    await run((tx) =>
-      writeFinanceSettings(tx, scope(), settings.version, { aiExtraction: "on" }),
-    );
-    let id: string;
-    try {
-      id = await upload();
-    } finally {
+    const setAi = async (value: "on" | "off") => {
       const now = await run((tx) => readFinanceSettings(tx, scope()));
       await run((tx) =>
-        writeFinanceSettings(tx, scope(), now.version, { aiExtraction: "off" }),
+        writeFinanceSettings(tx, scope(), now.version, { aiExtraction: value }),
       );
-    }
+    };
     const job = async (key: string) =>
       (await run((tx) => list(tx, scope(), "jobs"))).find(
         (j) => data(j).idempotencyKey === key,
       );
-    expect((await doc(id)).status).toBe("received");
-    expect(await job(`finance-extract:${id}`)).toBeDefined();
-    // The first job is still queued.
-    expect(await failure(run((tx) => retryExtraction(tx, scope(), id)))).toBe(
-      "FINANCE_EXTRACTION_RUNNING",
-    );
-    const first = (await job(`finance-extract:${id}`))!;
-    await run((tx) =>
-      update(tx, scope(), first, { ...data(first), status: "blocked_dependency" }),
-    );
-    await run((tx) => retryExtraction(tx, scope(), id));
-    expect(await job(`finance-extract:${id}:1`)).toBeDefined();
-    expect((await doc(id)).extraction).toMatchObject({ extractionAttempt: 1 });
-    expect(await failure(run((tx) => retryExtraction(tx, scope(), id)))).toBe(
-      "FINANCE_EXTRACTION_RUNNING",
-    );
-    // A failed document goes back to received.
-    await run((tx) =>
-      tx.financeDocument.update({ where: { id }, data: { status: "failed" } }),
-    );
-    const retried = await run((tx) => retryExtraction(tx, scope(), id));
-    expect(retried.status).toBe("received");
-    expect(await job(`finance-extract:${id}:2`)).toBeDefined();
-    // A document in review is not retried.
-    const reviewed = await upload();
+    // A retry is a paid call: it needs the project's AI consent.
+    await setAi("on");
+    try {
+      const id = await upload();
+      expect((await doc(id)).status).toBe("received");
+      expect(await job(`finance-extract:${id}`)).toBeDefined();
+      // The first job is still queued.
+      expect(await failure(run((tx) => retryExtraction(tx, scope(), id)))).toBe(
+        "FINANCE_EXTRACTION_RUNNING",
+      );
+      const first = (await job(`finance-extract:${id}`))!;
+      await run((tx) =>
+        update(tx, scope(), first, { ...data(first), status: "blocked_dependency" }),
+      );
+      await run((tx) => retryExtraction(tx, scope(), id));
+      expect(await job(`finance-extract:${id}:1`)).toBeDefined();
+      expect((await doc(id)).extraction).toMatchObject({ extractionAttempt: 1 });
+      expect(await failure(run((tx) => retryExtraction(tx, scope(), id)))).toBe(
+        "FINANCE_EXTRACTION_RUNNING",
+      );
+      // A failed document goes back to received.
+      await run((tx) =>
+        tx.financeDocument.update({ where: { id }, data: { status: "failed" } }),
+      );
+      const retried = await run((tx) => retryExtraction(tx, scope(), id));
+      expect(retried.status).toBe("received");
+      expect(await job(`finance-extract:${id}:2`)).toBeDefined();
+    } finally {
+      await setAi("off");
+    }
+    // Without consent nothing is started, not even for a waiting document.
+    const waiting = await upload();
     expect(
-      await failure(run((tx) => retryExtraction(tx, scope(), reviewed))),
-    ).toBe("FINANCE_EXTRACTION_RUNNING");
+      await failure(run((tx) => retryExtraction(tx, scope(), waiting))),
+    ).toBe("FINANCE_AI_OFF");
   });
 
   it("requests the mail archive on booking when archiveAfter is booked", async () => {

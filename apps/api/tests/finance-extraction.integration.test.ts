@@ -418,7 +418,10 @@ describe.skipIf(!enabled)("finance extraction", () => {
     const row = await doc(id);
     expect(row.status).toBe("needs_review");
     expect(row.flags).toContain("extraction_failed");
-    expect(row.extraction).toBeNull();
+    // Only the reason is kept, as a fixed code.
+    expect(row.extraction).toMatchObject({
+      processing: { lastErrorCode: "FINANCE_OUTPUT_NOT_VALID" },
+    });
     // The call happened: its actual cost is settled.
     expect(await reservations(id)).toMatchObject([
       { state: "settled", settledMicros: 9n },

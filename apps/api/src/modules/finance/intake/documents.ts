@@ -14,8 +14,8 @@ import { readFinanceSettings } from "../settings.ts";
 // never stored again: the new row shares the earlier document's file, so
 // duplicates cost no quota (final review I4).
 
-export const FINANCE_MAIL_RECEIPT = "finance_mail_receipt";
-export const FINANCE_EXTRACT = "finance_extract";
+export { FINANCE_EXTRACT, FINANCE_MAIL_RECEIPT } from "../queues.ts";
+import { FINANCE_EXTRACT } from "../queues.ts";
 
 /** Types a finance document may have: the mail itself, scans, e-invoices. */
 export const DOCUMENT_TYPES = [

@@ -7,6 +7,7 @@ import {
 } from "../../platform/modules/settings.ts";
 import { DomainError } from "../../shared.ts";
 import { isCurrency, type Currency } from "./money.ts";
+import { queuePendingExtractions } from "./extraction/processing.ts";
 
 const currency = z.string().refine(isCurrency, "Unknown currency");
 
@@ -120,7 +121,7 @@ export async function writeFinanceSettings(
 ) {
   const { settings } = await readFinanceSettings(tx, scope);
   await assertCurrencyChangeAllowed(tx, scope, settings, patch);
-  return writeModuleSettings(
+  const written = await writeModuleSettings(
     tx,
     scope,
     "finance",
@@ -128,4 +129,8 @@ export async function writeFinanceSettings(
     { ...settings, ...patch },
     version,
   );
+  // Turning AI on picks up documents that arrived while it was off.
+  if (settings.aiExtraction !== "on" && patch.aiExtraction === "on")
+    await queuePendingExtractions(tx, scope);
+  return written;
 }

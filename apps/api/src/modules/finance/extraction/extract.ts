@@ -53,6 +53,7 @@ import {
   validateExtraction,
   type Normalized,
 } from "./validate.ts";
+import { withProcessing } from "./processing.ts";
 
 // AI extraction of one finance document (spec §6 "AI safety"). The
 // document is untrusted input: the model gets no tools, the document only
@@ -171,6 +172,12 @@ async function toReview(
       status: outcome.status,
       flags: unique([...doc.flags, outcome.flag]),
       ...(outcome.agentRunId ? { agentRunId: outcome.agentRunId } : {}),
+      // Why it stopped, as a fixed code: shown on the review page and over MCP.
+      extraction: withProcessing(doc, {
+        lastErrorCode: outcome.reason,
+        lastErrorAt: new Date().toISOString(),
+        agentRunId: outcome.agentRunId ?? null,
+      }),
     });
     if (moved) {
       await audit(

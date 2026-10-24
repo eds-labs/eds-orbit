@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DbTx, Prisma } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { audit, canonical, data, DomainError } from "../../shared.ts";
-import { enqueue } from "../../platform/jobs/enqueue.ts";
+import { audit, canonical, DomainError } from "../../shared.ts";
 import { allocationSchema, assertUpdated, isoDate, versionField } from "./common.ts";
 import { EXTRACTION_SCHEMA_VERSION } from "./extraction/schema.ts";
 import type { Normalized } from "./extraction/validate.ts";
-import { FINANCE_EXTRACT } from "./intake/documents.ts";
+import { startExtractionFor } from "./extraction/processing.ts";
 import {
   dedupeKeys,
   duplicateCheck,
@@ -413,46 +412,25 @@ export async function markNotDuplicate(
   return loadDocument(tx, scope, doc.id);
 }
 
-const extractKey = (documentId: string, attempt: number) =>
-  attempt ? `finance-extract:${documentId}:${attempt}` : `finance-extract:${documentId}`;
-
 /**
- * Runs extraction again under a new job (`finance-extract:<id>:<n>`, the
- * attempt counter kept in the extraction metadata). Allowed for a `failed`
- * document, which goes back to `received`, and for one still in
- * `received` whose current job ended `blocked_dependency` or `failed`;
- * otherwise 409 FINANCE_EXTRACTION_RUNNING.
+ * Starts the AI extraction (again) under a new job. Allowed for a `failed`
+ * document, for one still in `received` whose job ended, and for one in
+ * review that has no usable AI result yet (it arrived with AI off, hit the
+ * daily ceiling or the model's answer failed) and that nobody edited;
+ * otherwise 409 with the reason (`extractionBlock`).
  */
 export async function retryExtraction(
   tx: DbTx,
   scope: Scope,
   documentId: string,
 ): Promise<DocumentView> {
-  const doc = await loadDocument(tx, scope, documentId);
-  const stored = (doc.extraction ?? {}) as Stored;
-  const attempt = Number(stored.extractionAttempt ?? 0);
-  if (doc.status === "received") {
-    const job = await tx.entity.findFirst({
-      where: {
-        projectId: scope.projectId,
-        kind: "jobs",
-        data: { path: ["idempotencyKey"], equals: extractKey(doc.id, attempt) },
-      },
-    });
-    const ended =
-      !job || ["blocked_dependency", "failed"].includes(String(data(job).status));
-    if (!ended) throw new DomainError("FINANCE_EXTRACTION_RUNNING", 409);
-  } else if (doc.status !== "failed")
-    throw new DomainError("FINANCE_EXTRACTION_RUNNING", 409);
-  const next = attempt + 1;
-  await moveDocument(tx, scope, doc, {
-    status: "received",
-    flags: doc.flags.filter((flag) => flag !== "extraction_failed"),
-    extraction: json({ ...stored, extractionAttempt: next }),
-  });
-  await enqueue(tx, scope, FINANCE_EXTRACT, doc.id, extractKey(doc.id, next));
-  await audit(tx, scope, "finance.extraction.retried", doc.id, {
-    attempt: next,
-  });
-  return loadDocument(tx, scope, doc.id);
+  const { settings } = await readFinanceSettings(tx, scope);
+  await startExtractionFor(
+    tx,
+    scope,
+    documentId,
+    settings.aiExtraction === "on",
+    "person",
+  );
+  return loadDocument(tx, scope, documentId);
 }
