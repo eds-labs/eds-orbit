@@ -985,7 +985,7 @@ export function BrandApproval() {
 }
 
 type OpenAiImageConfiguration = {
-  configured: boolean;
+  imageKeyConfigured: boolean;
   imageGeneration?: {
     model: string;
     maxCostMicrosPerImage: number;
@@ -1023,8 +1023,10 @@ export function BrandAssetLibrary() {
     return matchesQuery && matchesFilter;
   });
   const imageConfig = openAi.data?.imageGeneration;
+  // An image key calls would actually use (project, granted or environment),
+  // not merely a saved configuration.
   const imageReady = Boolean(
-    openAi.data?.configured &&
+    openAi.data?.imageKeyConfigured &&
     imageConfig?.maxCostMicrosPerImage &&
     imageConfig.pricingVerifiedAt,
   );

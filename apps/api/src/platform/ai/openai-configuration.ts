@@ -264,17 +264,24 @@ export function anthropicSuggestions() {
   };
 }
 
-/** Provider status for the admin view: configured where, never a key. */
+/**
+ * Provider status for the admin view: configured where, never a key. It
+ * follows the runtime's rule without central connections
+ * (`runtimeOpenAiConfiguration`): once a configuration is saved, the
+ * environment OpenAI key is no longer used, so it does not count here
+ * either; the environment Anthropic key still does.
+ */
 function providerStatus(
   fallback: OpenAiRuntimeConfig,
   value: StoredConfiguration | null,
 ) {
   const source = (orbit: boolean, environment: boolean) =>
     orbit ? "orbit" : environment ? "environment" : "none";
+  const environmentOpenAi = !value && Boolean(fallback.apiKey);
   return {
     openai: {
-      keyConfigured: Boolean(value?.encryptedApiKey || fallback.apiKey),
-      source: source(Boolean(value?.encryptedApiKey), Boolean(fallback.apiKey)),
+      keyConfigured: Boolean(value?.encryptedApiKey) || environmentOpenAi,
+      source: source(Boolean(value?.encryptedApiKey), environmentOpenAi),
     },
     anthropic: {
       keyConfigured: Boolean(
@@ -284,6 +291,43 @@ function providerStatus(
         Boolean(value?.encryptedAnthropicApiKey),
         Boolean(fallback.anthropicApiKey),
       ),
+    },
+  };
+}
+
+type KeySource = "project" | "connection" | "environment" | "none";
+/** The admin view's name for a key source: a project key is "orbit". */
+const viewSource = (source: KeySource) =>
+  source === "project" ? "orbit" : source;
+
+/**
+ * The admin view of the project's AI configuration, with key presence taken
+ * from what calls would use now (`effectiveAiStatus`): a granted connection
+ * counts, an environment key the runtime ignores does not. If a stored key
+ * cannot be opened (after a key rotation, say), the view keeps the stored
+ * presence flags instead of failing.
+ */
+export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
+  const view = publicOpenAiConfiguration(await configurationRow(tx, scope));
+  let status: Awaited<ReturnType<typeof effectiveAiStatus>>;
+  try {
+    status = await effectiveAiStatus(tx, scope);
+  } catch {
+    return view;
+  }
+  return {
+    ...view,
+    textKeyConfigured: status.textKeyConfigured,
+    imageKeyConfigured: status.imageKeyConfigured,
+    providers: {
+      openai: {
+        keyConfigured: status.textKeyConfigured,
+        source: viewSource(status.keySources.openai),
+      },
+      anthropic: {
+        keyConfigured: status.anthropicKeyConfigured,
+        source: viewSource(status.keySources.anthropic),
+      },
     },
   };
 }
@@ -449,7 +493,7 @@ export async function effectiveAiStatus(tx: DbTx, scope: Scope) {
     key: "openai" | "image" | "anthropic",
     present: boolean,
     ownKey: boolean,
-  ) =>
+  ): KeySource =>
     !present
       ? "none"
       : ownKey
@@ -504,9 +548,11 @@ const TEXT_TASKS = ["chat_operator", "draft_social"] as const;
 
 /**
  * Whether chat and text drafting can call a verified model now: an OpenAI
- * text key with verified models (the rule before the Anthropic provider),
- * or routes for chat and social drafts that resolve to a verified, priced
- * model whose provider has a key, so a project on Claude counts too.
+ * text key with verified models (the rule before the Anthropic provider)
+ * while no text route goes to Claude, or routes for chat and social drafts
+ * that resolve to a verified, priced model whose provider has a key, so a
+ * project on Claude counts too and one routed to Claude without an
+ * Anthropic key does not.
  */
 export function textModelReady(status: {
   textKeyConfigured: boolean;
@@ -514,11 +560,19 @@ export function textModelReady(status: {
   verifiedModels: string[];
   effectiveRoutes?: Record<string, unknown>;
 }) {
-  if (status.textKeyConfigured && status.verifiedModels.length) return true;
-  return TEXT_TASKS.every((task) => {
-    const route = status.effectiveRoutes?.[task] as
-      | { error?: string; provider?: ProviderId; price?: string }
-      | undefined;
+  const routes = TEXT_TASKS.map(
+    (task) =>
+      status.effectiveRoutes?.[task] as
+        | { error?: string; provider?: ProviderId; price?: string }
+        | undefined,
+  );
+  if (
+    status.textKeyConfigured &&
+    status.verifiedModels.length &&
+    !routes.some((route) => route?.provider === "anthropic")
+  )
+    return true;
+  return routes.every((route) => {
     if (!route || route.error || route.price !== "current") return false;
     return route.provider === "anthropic"
       ? status.anthropicKeyConfigured

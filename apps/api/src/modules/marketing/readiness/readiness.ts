@@ -92,13 +92,10 @@ export async function readiness(tx: DbTx, scope: Scope) {
     );
   // What calls would use now, central profiles and granted keys included
   // (ADR 0014); presence flags only.
+  // A text model counts only with a key of the provider its routes use: an
+  // image-only key or a Claude key behind OpenAI routes is not enough.
   const openAi = await aiStatus(tx, scope),
-    model = Boolean(
-      (openAi.textKeyConfigured ||
-        openAi.imageKeyConfigured ||
-        openAi.anthropicKeyConfigured) &&
-        openAi.verifiedModels.length,
-    ),
+    model = textModelReady(openAi),
     evaluation = await validateActiveIndexEvaluation(tx, scope),
     evals = evaluation.valid;
   const publisher = connectors.find(

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { textModelReady } from "./openai-configuration.ts";
+import {
+  publicOpenAiConfiguration,
+  textModelReady,
+} from "./openai-configuration.ts";
 
 // Chat and text drafting count as ready on a verified OpenAI key, as
 // before, or on Claude routes with an Anthropic key (FamilyPlan's setup).
@@ -66,5 +69,56 @@ describe("textModelReady", () => {
       }),
     ).toBe(false);
     expect(textModelReady({ ...claude, effectiveRoutes: undefined })).toBe(false);
+  });
+
+  it("does not let an OpenAI key stand in for Claude routes without an Anthropic key", () => {
+    expect(
+      textModelReady({
+        ...claude,
+        textKeyConfigured: true,
+        anthropicKeyConfigured: false,
+        verifiedModels: ["gpt-test", "claude-sonnet-5-5"],
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("publicOpenAiConfiguration provider status", () => {
+  const environment = {
+    apiKey: "sk-environment-openai",
+    anthropicApiKey: "sk-ant-environment",
+    verifiedModels: [],
+    rateCard: {},
+  };
+  const saved = {
+    version: 3,
+    data: {
+      verifiedModels: ["claude-sonnet-5-5"],
+      rateCard: {},
+      modelRoutes: {
+        fast: "gpt-5.6-luna",
+        standard: "gpt-5.6-terra",
+        quality: "gpt-5.6-sol",
+        escalation: "gpt-6-astra",
+      },
+      updatedBy: "owner",
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  it("counts the environment OpenAI key only while nothing is saved, as the runtime does", () => {
+    expect(publicOpenAiConfiguration(null, environment).providers.openai).toEqual({
+      keyConfigured: true,
+      source: "environment",
+    });
+    // EDS-Labs/FamilyPlan: a saved configuration without an OpenAI key.
+    const view = publicOpenAiConfiguration(saved, environment);
+    expect(view.providers.openai).toEqual({ keyConfigured: false, source: "none" });
+    expect(view.textKeyConfigured).toBe(false);
+    // The runtime keeps the environment Anthropic key after a save.
+    expect(view.providers.anthropic).toEqual({
+      keyConfigured: true,
+      source: "environment",
+    });
   });
 });

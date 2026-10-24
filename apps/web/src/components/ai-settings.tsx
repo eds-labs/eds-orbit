@@ -49,7 +49,10 @@ type ProviderFields = {
   fallback: { onProviderBudgetStop: "none" | "openai" };
   providers: Record<
     ProviderId,
-    { keyConfigured: boolean; source: "orbit" | "environment" | "none" }
+    {
+      keyConfigured: boolean;
+      source: "orbit" | "connection" | "environment" | "none";
+    }
   >;
   suggestions: {
     anthropic: {
@@ -101,6 +104,22 @@ type CostRow = {
 const providerName: Record<ProviderId, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic (Claude)",
+};
+// Where the key a call would use comes from (the API's effective status).
+type KeySourceName = ProviderFields["providers"][ProviderId]["source"];
+const sourceName: Record<"en" | "de", Record<KeySourceName, string>> = {
+  en: {
+    orbit: "project",
+    connection: "granted connection",
+    environment: "environment",
+    none: "none",
+  },
+  de: {
+    orbit: "Projekt",
+    connection: "zugeteilte Verbindung",
+    environment: "Umgebung",
+    none: "keine",
+  },
 };
 const perMillion = (micros: number | undefined) =>
   micros === undefined
@@ -269,8 +288,8 @@ function AnthropicConfiguration({
       <p className="panel-note">
         {view.providers.anthropic.keyConfigured
           ? de
-            ? `Key konfiguriert über ${view.providers.anthropic.source}.`
-            : `Key configured through ${view.providers.anthropic.source}.`
+            ? `Key konfiguriert über ${sourceName.de[view.providers.anthropic.source]}.`
+            : `Key configured through ${sourceName.en[view.providers.anthropic.source]}.`
           : de
             ? "Noch kein Anthropic-Key gespeichert."
             : "No Anthropic key saved yet."}
@@ -593,8 +612,8 @@ export function AiSettings() {
                   <p>
                     {view.providers[id].keyConfigured
                       ? de
-                        ? `Key konfiguriert (${view.providers[id].source === "orbit" ? "Orbit" : "Umgebung"})`
-                        : `Key configured (${view.providers[id].source})`
+                        ? `Key konfiguriert (${sourceName.de[view.providers[id].source]})`
+                        : `Key configured (${sourceName.en[view.providers[id].source]})`
                       : de
                         ? "Kein Key"
                         : "No key"}

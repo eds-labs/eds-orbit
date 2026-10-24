@@ -15,6 +15,7 @@ import {
 } from "../src/platform/connections/central.ts";
 import {
   openAiConfigurationVersion,
+  projectAiConfigurationView,
   runtimeOpenAiConfiguration,
 } from "../src/platform/ai/openai-configuration.ts";
 import { reserve, settle } from "../src/platform/ai/budget.ts";
@@ -212,6 +213,11 @@ describe.skipIf(!enabled)("Central connections (ADR 0014)", () => {
     const runtime = await scoped(wsA, a1, (tx) => runtimeOpenAiConfiguration(tx, scope(wsA, a1)));
     expect(runtime.apiKey).toBe(SECRET);
     expect(runtime.keySources?.openai).toEqual({ connectionId, grantId: projectGrantId });
+    // The settings view reports the granted key as the runtime uses it.
+    const view = await scoped(wsA, a1, (tx) => projectAiConfigurationView(tx, scope(wsA, a1)));
+    expect(view.providers.openai).toEqual({ keyConfigured: true, source: "connection" });
+    expect(view.textKeyConfigured).toBe(true);
+    expect(JSON.stringify(view)).not.toContain(SECRET);
     const other = await scoped(wsA, a2, (tx) => runtimeOpenAiConfiguration(tx, scope(wsA, a2)));
     expect(other.apiKey).not.toBe(SECRET);
     const before = await scoped(wsA, a1, (tx) => openAiConfigurationVersion(tx, scope(wsA, a1)));

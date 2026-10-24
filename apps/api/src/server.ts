@@ -74,7 +74,7 @@ import {
 import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import { projectReadiness } from "./platform/governance/readiness.ts";
-import { publicOpenAiConfiguration } from "./modules/openai-configuration.ts";
+import { projectAiConfigurationView } from "./modules/openai-configuration.ts";
 import { providerBudgetStatus } from "./platform/ai/provider-budget.ts";
 import {
   beginConnect,
@@ -883,16 +883,9 @@ export async function buildServer(
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-    return scoped(scope.workspaceId, projectId, async (tx) =>
-      publicOpenAiConfiguration(
-        await tx.entity.findFirst({
-          where: {
-            workspaceId: scope.workspaceId,
-            projectId,
-            kind: "openai_configuration",
-          },
-        }),
-      ),
+    // Key presence as calls would use it now, granted connections included.
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      projectAiConfigurationView(tx, scope),
     );
   });
   app.get("/api/projects/:projectId/export", async (req) => {
