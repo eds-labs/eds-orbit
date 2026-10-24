@@ -33,6 +33,7 @@ import {
   publicOpenAiConfiguration,
   saveAiProviderConfiguration,
   saveOpenAiConfiguration,
+  routesWithoutKey,
   textModelReady,
 } from "./openai-configuration.ts";
 
@@ -108,6 +109,7 @@ function modelChecks(effective: Awaited<ReturnType<typeof effectiveAiStatus>>) {
   const image = effective.imageGeneration;
   return {
     textModelVerified: textModelReady(effective),
+    routesWithoutKey: routesWithoutKey(effective),
     unverifiedRoutedModels: [
       ...new Set(routed.filter((m) => !effective.verifiedModels.includes(m))),
     ],

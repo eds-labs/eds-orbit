@@ -55,7 +55,9 @@ const actionLabels: Record<Locale, Record<string, string>> = {
 const blockerReasons: Record<Locale, Record<string, string>> = {
   en: {
     PROJECT_PAUSED: "The project is paused.",
-    VERIFIED_OPENAI_MODELS_REQUIRED: "Add an OpenAI key with verified models.",
+    // The code keeps its historical name; the check covers every provider.
+    VERIFIED_OPENAI_MODELS_REQUIRED:
+      "Add a key for the provider of the chat and draft routes, with verified, priced models.",
     OWNER_POLICY_REQUIRED: "An owner needs to activate a current policy.",
     APPROVED_PAID_BUDGET_REQUIRED:
       "The policy needs an approved AI spend limit.",
@@ -89,7 +91,7 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
   de: {
     PROJECT_PAUSED: "Das Projekt ist pausiert.",
     VERIFIED_OPENAI_MODELS_REQUIRED:
-      "OpenAI-Schlüssel mit geprüften Modellen hinterlegen.",
+      "Schlüssel für den Anbieter der Chat- und Entwurfsrouten mit geprüften, bepreisten Modellen hinterlegen.",
     OWNER_POLICY_REQUIRED: "Ein Owner muss eine aktuelle Policy aktivieren.",
     APPROVED_PAID_BUDGET_REQUIRED:
       "Die Policy braucht ein freigegebenes KI-Kostenlimit.",

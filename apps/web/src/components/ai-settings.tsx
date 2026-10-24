@@ -596,8 +596,8 @@ export function AiSettings() {
             <h2>{de ? "KI-Provider" : "AI providers"}</h2>
             <p>
               {de
-                ? "Schlüssel liegen verschlüsselt auf dem Server. Bilder und Embeddings laufen weiter über OpenAI."
-                : "Keys are stored encrypted on the server. Images and embeddings stay on OpenAI."}
+                ? "Schlüssel liegen verschlüsselt auf dem Server. Bilderzeugung und semantische Suche (Embeddings) brauchen einen OpenAI-Key; Text läuft auch nur mit Claude."
+                : "Keys are stored encrypted on the server. Image generation and semantic search (embeddings) need an OpenAI key; text also works with Claude alone."}
             </p>
           </div>
         </div>
@@ -605,6 +605,13 @@ export function AiSettings() {
           <Loading />
         ) : view ? (
           <div className="capability-readiness">
+            {view.routesWithoutKey?.length ? (
+              <Alert kind="warning">
+                {de
+                  ? `Für diese Aufgaben fehlt der Key des gerouteten Anbieters, sie schlagen beim Aufruf fehl: ${view.routesWithoutKey.join(", ")}.`
+                  : `These tasks are routed to a provider without a key and fail when called: ${view.routesWithoutKey.join(", ")}.`}
+              </Alert>
+            ) : null}
             {(["openai", "anthropic"] as const).map((id) => (
               <div className="data-row" key={id}>
                 <div>
@@ -883,6 +890,8 @@ export function AiSettings() {
 
 export type OpenAiConfigurationView = {
   configured: boolean;
+  // Task classes routed to a provider without a usable key (effective view).
+  routesWithoutKey?: string[];
   source: "orbit" | "environment" | "none";
   textKeyConfigured: boolean;
   imageKeyConfigured: boolean;

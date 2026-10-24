@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   publicOpenAiConfiguration,
+  routesWithoutKey,
   textModelReady,
 } from "./openai-configuration.ts";
 
@@ -120,5 +121,26 @@ describe("publicOpenAiConfiguration provider status", () => {
       keyConfigured: true,
       source: "environment",
     });
+  });
+});
+
+describe("routesWithoutKey", () => {
+  it("lists the task classes routed to a provider without a key", () => {
+    const status = {
+      textKeyConfigured: false,
+      anthropicKeyConfigured: true,
+      effectiveRoutes: {
+        chat_operator: route("anthropic"),
+        draft_blog: route("openai"),
+        support_triage: route("openai", "missing"),
+        draft_social: { error: "MODEL_CAPABILITY_NOT_VERIFIED" },
+      },
+    };
+    // Unverified routes fail for their own reason and are not listed.
+    expect(routesWithoutKey(status)).toEqual(["draft_blog", "support_triage"]);
+    expect(routesWithoutKey({ ...status, textKeyConfigured: true })).toEqual([]);
+    expect(
+      routesWithoutKey({ ...status, anthropicKeyConfigured: false, textKeyConfigured: true }),
+    ).toEqual(["chat_operator"]);
   });
 });

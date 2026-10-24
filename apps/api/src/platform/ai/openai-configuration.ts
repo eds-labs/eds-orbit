@@ -317,6 +317,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   }
   return {
     ...view,
+    routesWithoutKey: routesWithoutKey(status),
     textKeyConfigured: status.textKeyConfigured,
     imageKeyConfigured: status.imageKeyConfigured,
     providers: {
@@ -578,6 +579,31 @@ export function textModelReady(status: {
       ? status.anthropicKeyConfigured
       : status.textKeyConfigured;
   });
+}
+
+/**
+ * Task classes whose effective route names a model of a provider without a
+ * usable key. Saving such a route is allowed (an owner may add the key
+ * next), but a call on it fails with PAID_CALL_NOT_AUTHORIZED, so the
+ * settings and the MCP model view show it.
+ */
+export function routesWithoutKey(status: {
+  textKeyConfigured: boolean;
+  anthropicKeyConfigured: boolean;
+  effectiveRoutes?: Record<string, unknown>;
+}) {
+  return Object.entries(status.effectiveRoutes ?? {})
+    .filter(([, value]) => {
+      const route = value as
+        | { error?: string; provider?: ProviderId }
+        | undefined;
+      if (!route || route.error || !route.provider) return false;
+      return route.provider === "anthropic"
+        ? !status.anthropicKeyConfigured
+        : !status.textKeyConfigured;
+    })
+    .map(([task]) => task)
+    .sort();
 }
 
 /**
