@@ -34,6 +34,10 @@ export const MCP_SCOPES = [
   "orbit:propose",
   "orbit:write",
   "orbit:support",
+  // Finance content (read) and proposing a paid extraction retry; like
+  // orbit:support, explicit and unchecked on the consent screen.
+  "orbit:finance.read",
+  "orbit:finance.extract",
 ] as const;
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */

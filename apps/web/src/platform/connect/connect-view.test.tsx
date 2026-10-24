@@ -253,6 +253,34 @@ describe("consent step", () => {
     expect(input("openid")).toBeUndefined();
   });
 
+  it("offers the finance scopes as explicit choices that start unchecked, with their labels", () => {
+    for (const locale of ["en", "de"] as const) {
+      const html = consent(
+        {
+          scopes: ["orbit:read", "orbit:finance.read", "orbit:finance.extract"],
+        },
+        locale,
+      );
+      for (const scope of ["orbit:finance.read", "orbit:finance.extract"]) {
+        const input = html.match(
+          new RegExp(`<input[^>]*value="${scope}"[^>]*>`),
+        )?.[0];
+        expect(input).toBeDefined();
+        expect(input).not.toContain("checked");
+        expect(input).not.toContain("disabled");
+      }
+      expect(html).toContain(labels[locale].connectScopeFinanceRead);
+      expect(html).toContain(labels[locale].connectScopeFinanceExtract);
+    }
+    const ticked = consent({
+      scopes: ["orbit:read", "orbit:finance.read"],
+      extraScopes: ["orbit:finance.read"],
+    });
+    expect(
+      ticked.match(/<input[^>]*value="orbit:finance.read"[^>]*>/)?.[0],
+    ).toContain("checked");
+  });
+
   it("names all current projects when the selection covers them", () => {
     const html = consent({ allCurrent: true, projects: [] });
     expect(html).toContain("All current projects");

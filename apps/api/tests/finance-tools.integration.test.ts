@@ -8,7 +8,11 @@ import {
 import { userScoped } from "../src/platform/tenancy/scope.ts";
 import { setObjectStoreForTests } from "../src/platform/files/files.ts";
 import type { ObjectStore } from "../src/platform/files/s3.ts";
-import { availableTools, exposedToMcp } from "../src/modules/agents/tools/registry.ts";
+import {
+  availableTools,
+  exposedToAssistant,
+  exposedToMcp,
+} from "../src/modules/agents/tools/registry.ts";
 import {
   registeredToolOwner,
   registeredTools,
@@ -334,7 +338,9 @@ describe.skipIf(!enabled)("finance assistant tools", () => {
     expect(availableTools(financeTools, "editor")).toHaveLength(4);
     const offered = (enabled: Set<string>) =>
       registeredTools(enabled).filter((t) => registeredToolOwner(t.name) === "finance");
-    expect(offered(new Set(["finance"]))).toHaveLength(4);
+    // The assistant's four, next to the MCP-only tools (finance-mcp tests).
+    expect(offered(new Set(["finance"])).filter(exposedToAssistant)).toHaveLength(4);
+    expect(offered(new Set(["finance"])).filter((t) => !exposedToAssistant(t))).toHaveLength(5);
     expect(offered(new Set())).toHaveLength(0);
     // A viewer who reaches execute anyway is refused.
     await expect(

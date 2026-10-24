@@ -72,6 +72,8 @@ export const MCP_RESOURCE_SCOPES = [
   "orbit:propose",
   "orbit:write",
   "orbit:support",
+  "orbit:finance.read",
+  "orbit:finance.extract",
 ] as const;
 const PRM_PATH = "/.well-known/oauth-protected-resource";
 

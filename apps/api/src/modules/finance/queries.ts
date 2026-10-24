@@ -33,18 +33,19 @@ export async function setupStatus(tx: DbTx, scope: Scope) {
   return { ready: missingRoles.length === 0, missingRoles };
 }
 
+/** The statuses a finance document can have. */
+export const DOCUMENT_STATUSES = [
+  "received",
+  "needs_review",
+  "failed",
+  "duplicate",
+  "booked",
+  "rejected",
+] as const;
+
 const documentQuery = z
   .object({
-    status: z
-      .enum([
-        "received",
-        "needs_review",
-        "failed",
-        "duplicate",
-        "booked",
-        "rejected",
-      ])
-      .optional(),
+    status: z.enum(DOCUMENT_STATUSES).optional(),
     limit: limit(200),
   })
   .strict();

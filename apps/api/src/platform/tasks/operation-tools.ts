@@ -35,6 +35,13 @@ type Operation = {
   input: z.ZodObject;
   permission: PermissionDef;
   sensitive?: boolean;
+  /**
+   * Extra explicit MCP content scopes (all required), e.g. a finance scope.
+   * `sensitive` keeps meaning `orbit:support`.
+   */
+  mcpScopes?: readonly string[];
+  /** Content-free summary for the native approval renderer (ids only). */
+  summary?(args: any): Record<string, unknown>;
   /** Code-owned, default-off standing authorization for this owner's MCP calls only. */
   ownerMcpAutoApproval?(
     tx: DbTx,
@@ -158,6 +165,15 @@ async function check(tx: DbTx, scope: Scope, op: Operation) {
 }
 export const mcp2Enabled = () => loadConfig().ORBIT_MCP_TASKS === "true";
 
+/** The extra MCP scopes an operation's tool and action type require. */
+function contentScopes(op: Operation): { mcpScopes?: readonly string[] } {
+  const scopes = [
+    ...(op.sensitive ? ["orbit:support"] : []),
+    ...(op.mcpScopes ?? []),
+  ];
+  return scopes.length ? { mcpScopes: scopes } : {};
+}
+
 export function readOperation(op: Operation) {
   return defineTool({
     name: op.name,
@@ -171,7 +187,7 @@ export function readOperation(op: Operation) {
     outputSchema: op.output ? envelope.extend({ result: op.output }) : envelope,
     deferLoading: true,
     feature: op.feature ?? "mcp_tasks",
-    ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
+    ...contentScopes(op),
     async execute(ctx, raw) {
       const args = serviceArgs(op.input, raw);
       const result = await userScoped(ctx.scope, async (tx) => {
@@ -212,10 +228,16 @@ export function approvedOperation(op: Operation) {
       return (op.proposable ?? mcp2Enabled)();
     },
     ...(op.policyRequired === false ? { policyRequired: false } : {}),
-    ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
+    ...contentScopes(op),
     ttlMs: 24 * 3600000,
     payload,
     costCeilingMicros: (p) => p.ceilingMicros,
+    ...(op.summary
+      ? {
+          summary: (p: z.infer<typeof payload>) =>
+            op.summary!(op.input.parse(p.args)),
+        }
+      : {}),
     async revalidate(tx, scope, p) {
       const actor = await actorScope(
         scope.workspaceId,
@@ -297,7 +319,7 @@ export function approvedOperation(op: Operation) {
     ...(op.ownerMcpAutoApproval
       ? { openWorld: true as const, mcpDirectEffect: true as const }
       : {}),
-    ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
+    ...contentScopes(op),
     async execute(ctx: ToolContext, raw: unknown) {
       const { idempotencyKey, ...args } = serviceArgs(input, raw);
       const requester: RequestedBy = ctx.channel

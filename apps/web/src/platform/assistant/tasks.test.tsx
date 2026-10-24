@@ -27,4 +27,27 @@ describe("MCP 2.0 explicit sensitive consent", () => {
       "orbit:write",
     ]);
   });
+  it("keeps the finance scopes unchecked and accepts only the ticked one", () => {
+    const requested = [
+      "orbit:read",
+      "orbit:propose",
+      "orbit:finance.read",
+      "orbit:finance.extract",
+    ];
+    expect(acceptedScopes(requested, true)).toEqual([
+      "orbit:read",
+      "orbit:propose",
+    ]);
+    expect(acceptedScopes(requested, true, ["orbit:finance.read"])).toEqual([
+      "orbit:read",
+      "orbit:propose",
+      "orbit:finance.read",
+    ]);
+    expect(
+      acceptedScopes(requested, true, [
+        "orbit:finance.read",
+        "orbit:finance.extract",
+      ]),
+    ).toEqual(requested);
+  });
 });

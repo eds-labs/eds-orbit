@@ -36,6 +36,7 @@ import { sendMessageInTransaction } from "../../modules/chat.ts";
 import { projectScope, type McpPrincipal } from "../mcp/principal.ts";
 import { principalModules } from "../mcp/visibility.ts";
 import { mcpApproveUrl } from "../mcp/proposals.ts";
+import { FINANCE_READ_SCOPE } from "../mcp/scopes.ts";
 import { assertDelegation, type Delegation } from "./delegation.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 
@@ -166,6 +167,13 @@ export async function createTask(
     !principal.scopes.has("orbit:support")
   )
     throw new DomainError("MCP_SUPPORT_CONSENT_REQUIRED", 403);
+  // Finance content reaches a task only through the native finance tools,
+  // which need the same explicit consent as a direct MCP read.
+  if (
+    input.modules.includes("finance") &&
+    !principal.scopes.has(FINANCE_READ_SCOPE)
+  )
+    throw new DomainError("MCP_FINANCE_CONSENT_REQUIRED", 403);
   const modules = [...new Set(input.modules)].sort();
   const argsHash = hash({ ...input, modules });
   return userScoped(scope, async (tx) => {

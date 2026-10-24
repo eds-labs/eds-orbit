@@ -118,6 +118,17 @@ export async function submitSelection(
   navigate(next);
 }
 
+/**
+ * Optional scopes that start unchecked: accepted only when the user ticks
+ * them. Old grants gain none of them; a client reconnects to ask.
+ */
+export const EXPLICIT_SCOPES = [
+  "orbit:write",
+  "orbit:support",
+  "orbit:finance.read",
+  "orbit:finance.extract",
+] as const;
+
 /** The scopes to accept: the requested ones in order, minus an unticked propose. */
 export function acceptedScopes(
   requested: readonly string[],
@@ -127,7 +138,7 @@ export function acceptedScopes(
   return requested.filter(
     (scope) =>
       (scope !== "orbit:propose" || propose) &&
-      (!["orbit:write", "orbit:support"].includes(scope) ||
+      (!(EXPLICIT_SCOPES as readonly string[]).includes(scope) ||
         extra.includes(scope)),
   );
 }

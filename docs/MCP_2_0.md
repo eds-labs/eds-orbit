@@ -49,6 +49,13 @@ endpoint. Repeating an approval returns the recorded result.
   original contract. Sensitive operations require both this scope and their
   normal risk scope. Contact addresses/names are omitted or replaced with the
   native Support AI placeholders before returning message content.
+- `orbit:finance.read` / `orbit:finance.extract`: explicit, initially unchecked
+  finance consents. The first is required (with `orbit:read`) for the finance
+  document reads and for a task that names the `finance` module
+  (`MCP_FINANCE_CONSENT_REQUIRED`); the second (with `orbit:propose`) for the
+  owner-approved `finance_retry_extraction` proposal. Every scope in a tool's
+  `mcpScopes` is required (all-of). Finance tools stay hidden, also from
+  discovery, without their scope. See [Finance](FINANCE.md#mcp).
 - Module roles, installation switches and project activation still apply.
   Support also needs `ORBIT_SUPPORT` and explicit per-project activation.
 - Text generation needs the existing spend mandate, priced/verified model and

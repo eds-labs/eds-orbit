@@ -213,6 +213,10 @@ export const labels = {
       "Propose changes and actions; you still approve them in Orbit",
     connectScopeWrite: "Execute authorized internal work; external actions still require Orbit approval",
     connectScopeSupport: "Read customer ticket messages through this external app",
+    connectScopeFinanceRead:
+      "Read finance documents (counterparty, number, amounts, extraction and processing state) through this external app; never files or e-mails",
+    connectScopeFinanceExtract:
+      "Propose a paid AI extraction retry for a finance document; an owner still approves it in Orbit",
     connectScopeOther: "Other permission",
     connectNoProjects:
       "This workspace has no project you can share. Ask an owner to add you to a project, or choose another workspace.",
@@ -501,6 +505,10 @@ export const labels = {
       "Änderungen und Aktionen vorschlagen; du gibst sie weiterhin in Orbit frei",
     connectScopeWrite: "Autorisierte interne Arbeit ausführen; externe Aktionen benötigen weiterhin eine Orbit-Freigabe",
     connectScopeSupport: "Kundennachrichten in Supporttickets über diese externe App lesen",
+    connectScopeFinanceRead:
+      "Finanzbelege (Geschäftspartner, Nummer, Beträge, Extraktions- und Verarbeitungsstand) über diese externe App lesen; nie Dateien oder E-Mails",
+    connectScopeFinanceExtract:
+      "Eine kostenpflichtige KI-Extraktion für einen Finanzbeleg erneut vorschlagen; ein Owner gibt sie weiterhin in Orbit frei",
     connectScopeOther: "Weitere Berechtigung",
     connectNoProjects:
       "Dieser Workspace hat kein Projekt, das du freigeben kannst. Bitte einen Owner, dich zu einem Projekt hinzuzufügen, oder wähle einen anderen Workspace.",

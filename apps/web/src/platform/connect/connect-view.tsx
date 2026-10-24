@@ -17,6 +17,7 @@ import {
 import {
   acceptedScopes,
   clientHost,
+  EXPLICIT_SCOPES,
   connectStep,
   signedQuery,
   submitConsent,
@@ -58,6 +59,8 @@ const SCOPE_TEXT: Record<string, Parameters<Text>[0]> = {
   "orbit:propose": "connectScopePropose",
   "orbit:write": "connectScopeWrite",
   "orbit:support": "connectScopeSupport",
+  "orbit:finance.read": "connectScopeFinanceRead",
+  "orbit:finance.extract": "connectScopeFinanceExtract",
 };
 const scopeText = (t: Text, scope: string) =>
   t(SCOPE_TEXT[scope] ?? "connectScopeOther");
@@ -266,12 +269,9 @@ export function ConsentStep({
       <ul className="connect-scopes">
         {scopes.map((scope) => (
           <li key={scope}>
-            {[
-              "orbit:read",
-              "orbit:propose",
-              "orbit:write",
-              "orbit:support",
-            ].includes(scope) ? (
+            {(
+              ["orbit:read", "orbit:propose", ...EXPLICIT_SCOPES] as string[]
+            ).includes(scope) ? (
               <label className="connect-choice">
                 <Input
                   type="checkbox"

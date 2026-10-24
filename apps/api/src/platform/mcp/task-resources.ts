@@ -4,6 +4,7 @@ import type { Server } from "@modelcontextprotocol/server";
 import type { McpPrincipal } from "./principal.ts";
 import { projectScope } from "./principal.ts";
 import { principalModules } from "./visibility.ts";
+import { lacksModuleConsent } from "./scopes.ts";
 import { readTask, listTasks } from "../tasks/tasks.ts";
 import { DomainError } from "../shared.ts";
 import { mcp2Enabled } from "../tasks/operation-tools.ts";
@@ -36,7 +37,8 @@ export async function readTaskResource(p: McpPrincipal, uri: string) {
   if (
     (task.modules as string[]).some((m) => !allowed.includes(m)) ||
     ((task.modules as string[]).includes("support") &&
-      !p.scopes.has("orbit:support"))
+      !p.scopes.has("orbit:support")) ||
+    lacksModuleConsent(task.modules as string[], p.scopes)
   )
     throw new DomainError("NOT_FOUND", 404);
   return task;

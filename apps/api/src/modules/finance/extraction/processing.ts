@@ -147,7 +147,7 @@ export async function startExtraction(
   return next;
 }
 
-/** A person's (or an approved MCP proposal's) explicit start. */
+/** A person's (or an approved MCP proposal's) explicit start; returns the attempt. */
 export async function startExtractionFor(
   tx: DbTx,
   scope: Scope,
@@ -161,7 +161,7 @@ export async function startExtractionFor(
   if (!doc) throw new DomainError("FINANCE_DOCUMENT_NOT_FOUND", 404);
   const block = await extractionBlock(tx, scope, doc, aiOn);
   if (block) throw new DomainError(block, 409);
-  await startExtraction(tx, scope, doc, trigger);
+  return startExtraction(tx, scope, doc, trigger);
 }
 
 /**

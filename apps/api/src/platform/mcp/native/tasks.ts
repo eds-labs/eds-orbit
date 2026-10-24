@@ -11,6 +11,7 @@ import {
 } from "../../tasks/tasks.ts";
 import { data, DomainError } from "../../shared.ts";
 import { principalModules } from "../visibility.ts";
+import { lacksModuleConsent } from "../scopes.ts";
 import { projectScope } from "../principal.ts";
 import type { NativeTool } from "../native-tools.ts";
 import type { McpPrincipal } from "../principal.ts";
@@ -31,7 +32,8 @@ async function scopeForTask(
   if (
     (task.modules as string[]).some((m) => !allowed.includes(m)) ||
     ((task.modules as string[]).includes("support") &&
-      !p.scopes.has("orbit:support"))
+      !p.scopes.has("orbit:support")) ||
+    lacksModuleConsent(task.modules as string[], p.scopes)
   )
     throw new DomainError("NOT_FOUND", 404);
   return scope;

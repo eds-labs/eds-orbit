@@ -27,6 +27,7 @@ import { enabledModules } from "../modules/enforcement.ts";
 import { DomainError } from "../shared.ts";
 import { effectiveRole, visibleModules } from "../tenancy/module-roles.ts";
 import { projectScope, type McpPrincipal } from "./principal.ts";
+import { SUPPORT_SCOPE } from "./scopes.ts";
 
 export type McpScope = "orbit:read" | "orbit:propose" | "orbit:write";
 
@@ -132,6 +133,7 @@ async function allowedTools(
       const role = effectiveRole(scope, owner);
       if (role === "none") return false;
       if (!availableTools([tool], role, features).length) return false;
+      // The risk scope plus every content scope the tool lists (all-of).
       return (
         principal.scopes.has(requiredScope(tool)) &&
         (tool.mcpScopes ?? []).every((s) => principal.scopes.has(s))
@@ -198,13 +200,16 @@ export async function principalModules(
  * client cannot learn which scope to request. This never reads ticket content.
  * Base risk scopes, current membership, modules, roles and flags still apply.
  * authorizeMcpCall always uses the original token/grant intersection.
+ * Only `orbit:support` is assumed here: finance tools (`orbit:finance.read`,
+ * `orbit:finance.extract`) stay hidden, even from discovery, until the token
+ * carries their scope, so not even a finance tool's existence is listed.
  */
 export async function visibleMcpToolsForDiscovery(
   principal: McpPrincipal,
   projectId: string,
 ): Promise<OrbitTool[]> {
   return allowedTools(
-    { ...principal, scopes: new Set([...principal.scopes, "orbit:support"]) },
+    { ...principal, scopes: new Set([...principal.scopes, SUPPORT_SCOPE]) },
     await projectScope(principal, projectId),
   );
 }

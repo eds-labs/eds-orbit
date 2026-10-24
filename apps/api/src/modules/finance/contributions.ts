@@ -6,6 +6,7 @@ import { financeSwitchedOn } from "./gate.ts";
 import { FINANCE_EXTRACT, FINANCE_MAIL_RECEIPT } from "./intake/documents.ts";
 import { handleMailReceipt } from "./intake/mail.ts";
 import { financeMailboxUse } from "./mailboxes.ts";
+import { financeMcpActions, financeMcpTools } from "./mcp-tools.ts";
 import { financeUserNotifications } from "./notifications.ts";
 import { financeRoutes } from "./routes.ts";
 import { financeTools } from "./tools.ts";
@@ -15,7 +16,10 @@ export const financeContributions: ModuleContributions = {
   available: financeSwitchedOn,
   routes: financeRoutes,
   periodic: [financeFxSync],
-  tools: financeTools,
+  // Assistant reads plus the MCP reads and the owner-approved retry
+  // (mcp-tools.ts), which need the explicit orbit:finance.* scopes.
+  tools: [...financeTools, ...financeMcpTools],
+  actionTypes: financeMcpActions,
   attention: financeAttention,
   userNotifications: financeUserNotifications,
   // Receipts and exports are sensitive: only finance's own routes, with
