@@ -138,6 +138,8 @@ async function runIndexEvaluationBatch(
     const cases = r.cases.slice(r.batch * 32, (r.batch + 1) * 32);
     if (!cases.length) throw new DomainError("EVALUATION_BATCH_INVALID");
     const ai = await runtimeOpenAiConfiguration(tx, s);
+    // Refused before any reservation without an embedding key (E-8).
+    if (!ai.apiKey) throw new DomainError("EMBEDDING_KEY_REQUIRED", 409);
     const amount = estimateCost(
       index.model,
       cases.reduce((n: number, c: any) => n + Buffer.byteLength(c.query), 0),

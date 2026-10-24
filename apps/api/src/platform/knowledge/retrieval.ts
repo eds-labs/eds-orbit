@@ -83,9 +83,10 @@ export async function retrieveHybrid(
     if (cached) return cached;
   }
   // An active index without a single embedding has nothing a query vector
-  // could match: search full-text, without buying a query embedding (and
-  // without needing an embedding price or key). An index with embeddings
-  // keeps the paid hybrid path and its price and mandate checks.
+  // could match, and a project without an embedding key cannot buy one
+  // (decision E-8, Claude-only projects): search full-text, without a
+  // query embedding, price or key. An index with embeddings and a key keeps
+  // the paid hybrid path and its price and mandate checks.
   const lexical = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const index = await getActiveIndex(tx, scope);
     const embedded = await tx.chunkEmbedding.count({
@@ -96,7 +97,8 @@ export async function retrieveHybrid(
         indexGeneration: index.generation,
       },
     });
-    if (embedded) return null;
+    if (embedded && (await runtimeOpenAiConfiguration(tx, scope)).apiKey)
+      return null;
     const evidence = await retrieve(tx, scope, input);
     if (jobKey)
       await create(tx, scope, "retrieval_runs", {

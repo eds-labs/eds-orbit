@@ -102,6 +102,9 @@ export async function queueDocumentEmbedding(
     }),
   ]);
   if (stored === total) return { unchanged: true, embedded: stored, total };
+  // Nothing to queue without an embedding key (E-8): search stays full-text.
+  if (!(await runtimeOpenAiConfiguration(tx, scope)).apiKey)
+    throw new DomainError("EMBEDDING_KEY_REQUIRED", 409);
   const prefix = `embedding:${document.activeVersionId}:${activeIndex.generation}:${stored}:`;
   const matching = jobs.filter((job) => {
     const value = data(job);
@@ -199,10 +202,14 @@ async function embedDocumentBatch(
         .filter((chunk) => !stored.has(chunk.id))
         .slice(0, 32);
       if (!batch.length) return null;
+      const ai = await runtimeOpenAiConfiguration(tx, scope);
+      // Without an OpenAI key there is no embedding (decision E-8): the
+      // document stays searchable full-text, and nothing is reserved, so no
+      // reservation ends as an unknown outcome of a call that never left.
+      if (!ai.apiKey) return "lexical_only" as const;
       const p = await requireSpendMandate(tx, scope);
       const approved = p.limits;
       const texts = batch.map((x) => x.text);
-      const ai = await runtimeOpenAiConfiguration(tx, scope);
       const amount = estimateCost(
         "text-embedding-3-small",
         texts.reduce((n, x) => n + Buffer.byteLength(x), 0),
@@ -240,6 +247,7 @@ async function embedDocumentBatch(
     },
   );
   if (!prepared) return { unchanged: true };
+  if (prepared === "lexical_only") return { unchanged: true, lexicalOnly: true };
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const source = await entity(tx, scope, "sources", prepared.doc.sourceId);
     const s = sourceData(source.data);

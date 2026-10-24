@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aiCapabilities,
   publicOpenAiConfiguration,
   routesWithoutKey,
   textModelReady,
@@ -142,5 +143,29 @@ describe("routesWithoutKey", () => {
     expect(
       routesWithoutKey({ ...status, anthropicKeyConfigured: false, textKeyConfigured: true }),
     ).toEqual(["chat_operator"]);
+  });
+});
+
+describe("aiCapabilities", () => {
+  const image = {
+    model: "gpt-image-2.5-flare",
+    maxCostMicrosPerImage: 40_000,
+    pricingVerifiedAt: new Date().toISOString(),
+  };
+  it("gives a Claude-only project text and full-text search, and no images (E-8, E-9)", () => {
+    expect(
+      aiCapabilities({ ...claude, imageKeyConfigured: false, imageGeneration: image }),
+    ).toEqual({ text: true, search: "full_text", images: false });
+  });
+  it("adds semantic search and images with an OpenAI key, a verified image model and a price", () => {
+    expect(
+      aiCapabilities({
+        ...claude,
+        textKeyConfigured: true,
+        imageKeyConfigured: true,
+        verifiedModels: [...claude.verifiedModels, image.model],
+        imageGeneration: image,
+      }),
+    ).toEqual({ text: true, search: "semantic", images: true });
   });
 });

@@ -121,6 +121,71 @@ const sourceName: Record<"en" | "de", Record<KeySourceName, string>> = {
     none: "keine",
   },
 };
+/**
+ * Text, search and images as the project can use them now: Claude alone
+ * covers text; semantic search and image generation need an OpenAI key.
+ */
+function CapabilityRows({
+  capabilities,
+  de,
+}: {
+  capabilities: NonNullable<OpenAiConfigurationView["capabilities"]>;
+  de: boolean;
+}) {
+  const rows = [
+    {
+      key: "text",
+      label: de ? "Text (Chat, Entwürfe, Support, Finanzen)" : "Text (chat, drafts, Support, Finance)",
+      ready: capabilities.text,
+      detail: capabilities.text
+        ? de
+          ? "Bereit."
+          : "Ready."
+        : de
+          ? "Braucht einen Key für den Anbieter der Routen."
+          : "Needs a key for the provider of its routes.",
+    },
+    {
+      key: "search",
+      label: de ? "Wissenssuche" : "Knowledge search",
+      ready: true,
+      detail:
+        capabilities.search === "semantic"
+          ? de
+            ? "Semantische Suche (Embeddings über OpenAI)."
+            : "Semantic search (embeddings through OpenAI)."
+          : de
+            ? "Volltextsuche. Semantische Suche braucht einen OpenAI-Key; Anthropic bietet keine Embeddings."
+            : "Full-text search. Semantic search needs an OpenAI key; Anthropic offers no embeddings.",
+    },
+    {
+      key: "images",
+      label: de ? "Bilderzeugung" : "Image generation",
+      ready: capabilities.images,
+      detail: capabilities.images
+        ? de
+          ? "Bereit."
+          : "Ready."
+        : de
+          ? "Aus: braucht einen OpenAI-Key, ein geprüftes Bildmodell und einen aktuellen Preis."
+          : "Off: needs an OpenAI key, a verified image model and a current price.",
+    },
+  ];
+  return (
+    <>
+      {rows.map((row) => (
+        <div className="data-row" key={row.key}>
+          <div>
+            <strong>{row.label}</strong>
+            <p>{row.detail}</p>
+          </div>
+          <Status value={row.ready ? "ready" : "not_configured"} />
+        </div>
+      ))}
+    </>
+  );
+}
+
 const perMillion = (micros: number | undefined) =>
   micros === undefined
     ? "—"
@@ -605,6 +670,9 @@ export function AiSettings() {
           <Loading />
         ) : view ? (
           <div className="capability-readiness">
+            {view.capabilities && (
+              <CapabilityRows capabilities={view.capabilities} de={de} />
+            )}
             {view.routesWithoutKey?.length ? (
               <Alert kind="warning">
                 {de
@@ -892,6 +960,12 @@ export type OpenAiConfigurationView = {
   configured: boolean;
   // Task classes routed to a provider without a usable key (effective view).
   routesWithoutKey?: string[];
+  // What the project can do with its keys now (decisions E-8, E-9).
+  capabilities?: {
+    text: boolean;
+    search: "semantic" | "full_text";
+    images: boolean;
+  };
   source: "orbit" | "environment" | "none";
   textKeyConfigured: boolean;
   imageKeyConfigured: boolean;

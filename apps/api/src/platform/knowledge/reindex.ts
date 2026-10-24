@@ -85,6 +85,8 @@ async function buildIndexBatchTraced(
       const p = await requireSpendMandate(tx, scope);
       const approved = p.limits;
       const ai = await runtimeOpenAiConfiguration(tx, scope);
+      // Refused before any reservation without an embedding key (E-8).
+      if (!ai.apiKey) throw new DomainError("EMBEDDING_KEY_REQUIRED", 409);
       const amount = estimateCost(
         index.model,
         texts.reduce((n, t) => n + Buffer.byteLength(t), 0),

@@ -33,6 +33,7 @@ import {
   publicOpenAiConfiguration,
   saveAiProviderConfiguration,
   saveOpenAiConfiguration,
+  aiCapabilities,
   routesWithoutKey,
   textModelReady,
 } from "./openai-configuration.ts";
@@ -110,6 +111,8 @@ function modelChecks(effective: Awaited<ReturnType<typeof effectiveAiStatus>>) {
   return {
     textModelVerified: textModelReady(effective),
     routesWithoutKey: routesWithoutKey(effective),
+    // Text, search mode (semantic or full-text) and image generation (E-8, E-9).
+    capabilities: aiCapabilities(effective),
     unverifiedRoutedModels: [
       ...new Set(routed.filter((m) => !effective.verifiedModels.includes(m))),
     ],

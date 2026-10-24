@@ -13,6 +13,7 @@ import {
   environmentRuntimeConfig,
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
+  imagePriceConfigured,
   modelRegistrySchema,
   providerBudgetsSchema,
   providerIdSchema,
@@ -309,6 +310,32 @@ const viewSource = (source: KeySource) =>
  * cannot be opened (after a key rotation, say), the view keeps the stored
  * presence flags instead of failing.
  */
+/**
+ * What the project can do with the keys it has now, per capability
+ * (decisions E-8, E-9): text on any provider with a key for its routes;
+ * semantic search only with an OpenAI key (Anthropic has no embedding
+ * model), else full-text search; image generation only with an OpenAI image
+ * key, a verified model and a current price, else off.
+ */
+export function aiCapabilities(status: {
+  textKeyConfigured: boolean;
+  imageKeyConfigured: boolean;
+  anthropicKeyConfigured: boolean;
+  verifiedModels: string[];
+  effectiveRoutes?: Record<string, unknown>;
+  imageGeneration: { model: string } & Parameters<typeof imagePriceConfigured>[0];
+}) {
+  const image = status.imageGeneration;
+  return {
+    text: textModelReady(status),
+    search: status.textKeyConfigured ? ("semantic" as const) : ("full_text" as const),
+    images:
+      status.imageKeyConfigured &&
+      status.verifiedModels.includes(image.model) &&
+      imagePriceConfigured(image),
+  };
+}
+
 export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   const view = publicOpenAiConfiguration(await configurationRow(tx, scope));
   let status: Awaited<ReturnType<typeof effectiveAiStatus>>;
@@ -319,6 +346,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   }
   return {
     ...view,
+    capabilities: aiCapabilities(status),
     routesWithoutKey: routesWithoutKey(status),
     textKeyConfigured: status.textKeyConfigured,
     imageKeyConfigured: status.imageKeyConfigured,
@@ -429,8 +457,12 @@ export async function openAiConfigurationVersion(
   return centralRouteVersion(tx, scope, row?.version ?? null);
 }
 
-/** Key rule v2 (E-1b): the environment is a bootstrap for unsaved projects only. */
-export const aiKeyRuleV2 = () => loadConfig().ORBIT_AI_KEY_RULE_V2 === "true";
+/**
+ * Key rule v2 (E-1b): the environment is a bootstrap for unsaved projects
+ * only. Read from the environment directly, like ENABLE_EXTERNAL_WRITES, so
+ * the pure admin view needs no full configuration.
+ */
+export const aiKeyRuleV2 = () => process.env.ORBIT_AI_KEY_RULE_V2 === "true";
 
 export async function runtimeOpenAiConfiguration(
   tx: DbTx,

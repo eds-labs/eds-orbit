@@ -270,12 +270,22 @@ describe.skipIf(!enabled)("Knowledge indexing and retrieval", () => {
       "Fehlerfall",
       "Der Einbettungsfehler Fehlwortzeta wird angezeigt.",
     );
+    // Without an embedding key nothing is queued (decision E-8).
+    const keyBefore = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    await expect(
+      run(scope, (tx) => queueDocumentEmbedding(tx, scope, doc.documentId)),
+    ).rejects.toMatchObject({ code: "EMBEDDING_KEY_REQUIRED" });
+    // Queueing only records a job; no worker runs, so this key is never sent.
+    process.env.OPENAI_API_KEY = "synthetic-queue-only-key";
     const queued = await run(scope, (tx) =>
       queueDocumentEmbedding(tx, scope, doc.documentId),
     );
     const again = await run(scope, (tx) =>
       queueDocumentEmbedding(tx, scope, doc.documentId),
     );
+    if (keyBefore === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = keyBefore;
     expect((again as { id: string }).id).toBe((queued as { id: string }).id);
     expect(await status(scope, sourceId)).toMatchObject({
       state: "pending",
@@ -414,6 +424,38 @@ describe.skipIf(!enabled)("Knowledge indexing and retrieval", () => {
     await run(scope, (tx) => revokeSource(tx, scope, sourceId));
     expect(await hits(scope, "Standortwortomega")).toEqual([]);
     expect(await status(scope, sourceId)).toBeUndefined();
+  });
+
+  it("keeps a project without an embedding key on full-text search, reserving nothing (E-8)", async () => {
+    const keyBefore = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      const sourceId = await source(scope);
+      const doc = await add(
+        scope,
+        sourceId,
+        "10_CLAUDE.md",
+        "Nur Claude",
+        "Das Suchwort Volltextwortkappa findet die Suche ohne Embeddings.",
+      );
+      const before = await run(scope, (tx) =>
+        tx.budgetReservation.count({ where: { projectId: scope.projectId } }),
+      );
+      expect(await embedDocument(scope, doc.documentId, randomUUID())).toMatchObject({
+        unchanged: true,
+        lexicalOnly: true,
+      });
+      // No reservation, so none can end as an unknown outcome.
+      expect(
+        await run(scope, (tx) =>
+          tx.budgetReservation.count({ where: { projectId: scope.projectId } }),
+        ),
+      ).toBe(before);
+      expect(await hits(scope, "Volltextwortkappa")).toHaveLength(1);
+    } finally {
+      if (keyBefore === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = keyBefore;
+    }
   });
 
   it("keeps modelUse=false content away from models", async () => {

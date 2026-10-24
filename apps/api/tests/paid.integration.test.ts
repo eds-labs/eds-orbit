@@ -101,6 +101,9 @@ import {
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
+// Embedding work needs a key before it reserves anything (decision E-8);
+// the provider is mocked above, so this key never leaves the process.
+process.env.OPENAI_API_KEY ??= "synthetic-no-provider-call-key";
 describe.skipIf(!enabled)(
   "Paid call races / real SQL cost journal / mocked provider only",
   () => {
