@@ -468,7 +468,11 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       state.delegation ? new Set(state.delegation.modules) : enabled,
     );
     const features = assistants.flatMap((a) => a.features({ toolSearch }));
-    if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
+    // Module operations are for delegated MCP work orders; the in-app chat
+    // has its own tools for the same work, and the ~22 KB of operation
+    // schemas left a Claude chat too little room (CHAT_CONTEXT_LIMIT).
+    if (state.delegation && loadConfig().ORBIT_MCP_TASKS === "true")
+      features.push("mcp_tasks");
     if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
       features.push("project_configuration");
     if (loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
