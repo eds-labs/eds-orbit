@@ -144,13 +144,17 @@ export async function snapshot(
   if (input.kind === "github") return readRepository(s, input);
   if (input.kind === "website") {
     const u = new URL(input.url!);
+    // The same bounds as an uploaded file: 1 MB raw, 100,000 characters of
+    // text. A current home page carries inline styles and scripts, so its
+    // HTML alone passed the former 100 KB (familyplan.cloud: 174 KB).
     const page = await fetchApprovedDocument(u.href, {
       allowedOrigins: [u.origin],
       allowedPaths: [u.pathname],
-      maxBytes: 100000,
+      maxBytes: 1000000,
     });
     const result = await extractDocument(page.bytes, page.mimeType);
     const text = result.text;
+    if (text.length > 100000) throw new DomainError("DOCUMENT_TOO_LARGE", 409);
     if (containsCredentials(text))
       throw new DomainError("KNOWLEDGE_SENSITIVE_TEXT_EXCLUDED", 409);
     return {
