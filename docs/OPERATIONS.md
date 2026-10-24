@@ -48,6 +48,14 @@ Settings → AI & budget (owners) holds the project's AI spending authority: the
   - `ORBIT_MARKETING=false` removes Marketing from the installation: routes, collections, actions, tools, jobs and navigation. Default `true`.
   - `ORBIT_TELEGRAM` turns the owner's bot on or off on its own. Empty follows `ORBIT_AGENTS`, as before.
 
+## AI key rule v2
+
+`ORBIT_AI_KEY_RULE_V2=true` makes the environment AI keys a bootstrap for projects without saved AI settings only, for OpenAI and Anthropic alike.
+1. First run `node scripts/ai-key-rule-report.ts [--workspace <id>]` in the api container. It is read-only and prints no keys.
+2. For each project with `actionRequired`, set up a project key or a grant in Administration → Integrations.
+3. Turn the flag on. Route versions do not change. A running job of a project that loses a key fails at its next paid call with `PAID_CALL_NOT_AUTHORIZED`, before anything is sent.
+4. Rollback: set the flag to `false`.
+
 ## Model routes and generation evals
 
 Routes per task class (`chat_operator`, `draft_social`, `draft_blog`) are set by the owner in the OpenAI configuration dialog; precedence, effort and ceilings are described in `MODEL_ROUTING.md`. Migration `202610010001_agent_run_route_version` adds the nullable `AgentRun.routeVersion` (the configuration's entity version); it is additive and deploys with the normal migration step. With no task route saved, behaviour is unchanged.

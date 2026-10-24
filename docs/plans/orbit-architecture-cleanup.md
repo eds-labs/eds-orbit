@@ -636,3 +636,46 @@ ADR 0015.
 - Image and embedding purposes (E-8, E-9).
 - Moving the flat platform files.
 - Removing the legacy fallback (3.8, after the backfill and evidence).
+
+### Phase 3: done locally (except 3.7 and 3.8)
+
+**3.1 Key rule v2** behind `ORBIT_AI_KEY_RULE_V2` (default off).
+- Runtime, settings view and readiness follow the same rule.
+- A first save needs an own or granted key.
+- Dry run: `scripts/ai-key-rule-report.ts`, read-only and without keys.
+
+**3.5 Claude-only projects**
+- Without an OpenAI key, documents are not embedded and nothing is reserved.
+- This fixes a source of "outcome unknown" reservations: before, the embedding job reserved and marked the call as transmitted, and only then failed for the missing key.
+- Search falls back to full text. Queueing, reindexing and evaluation refuse with `EMBEDDING_KEY_REQUIRED`.
+- `capabilities` (text, search, images) appear in the settings and in `ai_models_get`.
+
+**3.4 Provider budgets** for OpenAI too, inherited from organization or system AI profiles. A budget panel per provider.
+
+**3.2 One save path:** `ai-configure` with the sections `models` and `providers`.
+- The web settings and the MCP model update use it.
+- Old actions stay as aliases.
+- Access matrix: one new owner-only row.
+
+**3.3 One place for AI settings**
+- The overview and Integrations link to AI & budget instead of opening their own copy of the OpenAI dialog.
+- Neutral labels in the model dialog.
+- Marketing's section is "Publishing rules".
+- The AI profile editor shows Claude's tiers and provider budgets and no longer drops the fields it does not show.
+- E2E specs adjusted, not run.
+
+**3.6 Files moved** to `platform/`, with re-exports at the old paths:
+- `action-requests.ts` → `platform/governance/`
+- `chat.ts`, `chat-runner.ts` → `platform/assistant/`
+- `agents/tools/registry.ts` → `platform/agents/tools/`
+- `runtime.ts` → `platform/jobs/runtime-health.ts`
+
+Importers still use the old paths, so existing test mocks keep working.
+
+**Not done, on purpose:**
+- **3.7 Integrations admin, Slack transport and Drive.**
+  - Moving `integrations_*` from Marketing to the platform changes MCP tool namespaces that connected clients use.
+  - Drive and assets wait for decision Q-06.
+  - Both need their own decision.
+- **3.8 Removing the legacy fallback.** Only after the production backfill and evidence that no project reads the Marketing policy budget any more (separate approval).
+- **Marketing branches in `action-requests.ts`** (`content_packages` lookup, `assignment.confirm` payload, channel directories) stay until module hooks for request descriptions exist.

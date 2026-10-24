@@ -22,7 +22,20 @@ Plan and decisions: [plans/orbit-architecture-cleanup.md](plans/orbit-architectu
 - Readiness by enabled module.
 - `ORBIT_TELEGRAM` and `ORBIT_MARKETING`.
 
-**Not deployed.** Production needs the deploy approval and, separately, the backfill run.
+**Phase 3**
+- Key rule v2 behind `ORBIT_AI_KEY_RULE_V2`, with a dry-run report.
+- Claude-only projects: full-text search, and no unknown-outcome reservations for missing embedding keys.
+- Capability status for text, search and images.
+- Provider budgets for OpenAI, inherited from AI profiles.
+- One save path (`ai-configure`).
+- One AI settings place.
+- Platform files moved to `platform/`.
+
+Open: 3.7 (integrations admin and Drive, needs a decision) and 3.8 (legacy fallback removal, after the backfill).
+
+**Not deployed.** Production needs the deploy approval and, separately:
+- the spending-authority backfill run;
+- the key rule report before `ORBIT_AI_KEY_RULE_V2`.
 
 ## Finance: AI extraction for documents received while AI was off (2026-10-24, branch `claude/finance-extraction-recovery`)
 

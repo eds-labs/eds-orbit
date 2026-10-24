@@ -73,7 +73,20 @@ Plan and architecture report: `docs/superpowers/plans/2026-10-19-anthropic-provi
 - `OPENAI_API_KEY` (and the image key) only while the project has no saved configuration (`central-ai.ts`, `runtimeOpenAiConfiguration`). A project that saved Claude settings without an OpenAI key therefore has no OpenAI key, even when the environment has one: OpenAI-routed tasks, embeddings and image generation fail there with `PAID_CALL_NOT_AUTHORIZED` / `EMBEDDING_NOT_AUTHORIZED`.
 - `ANTHROPIC_API_KEY` applies even after a save.
 
-Settings → AI, the MCP model view and readiness report key presence by this same rule (`effectiveAiStatus`), and list the task classes whose routed provider has no key (`routesWithoutKey`). Decision E-1b (docs/plans/orbit-architecture-cleanup.md) makes the environment a bootstrap only for projects without a saved configuration, for both providers. That change is planned behind a flag and is not built yet.
+Settings → AI, the MCP model view and readiness report key presence by this same rule (`effectiveAiStatus`), and list the task classes whose routed provider has no key (`routesWithoutKey`). **Key rule v2 (decision E-1b, built, off by default).** With `ORBIT_AI_KEY_RULE_V2=true`, the environment is a bootstrap only for projects without a saved configuration, for both providers. The Anthropic environment key then ends with a save, as the OpenAI key does today.
+- A first save under v2 needs a key the project keeps: its own, or a granted connection.
+- Before turning the flag on, run `node scripts/ai-key-rule-report.ts` in the api container. Per project it lists the key sources today and after the switch, the keys the project would lose (`lostKeys`), and whether chat and drafting still run. Set up a project key or a grant for every row with `actionRequired`.
+
+**Without an OpenAI key (decisions E-8, E-9).** Anthropic offers no embedding model and no image generation, so a project with only a Claude key:
+- runs text normally;
+- searches knowledge full-text: no document embedding is attempted and nothing is reserved; queueing, reindexing and index evaluation refuse with `EMBEDDING_KEY_REQUIRED`;
+- has image generation off.
+
+Settings → AI & budget and `ai_models_get` show this as `capabilities: { text, search: "semantic" | "full_text", images }`.
+
+**Provider budgets (phase 3.4).** `providerBudgets` takes `openai` as well as `anthropic`. `reserve`, `GET /ai-budget` and the attention item cover both. An organization or system AI profile may hold provider budgets; a project inherits one for each provider it sets none for.
+
+**One save path (phase 3.2).** The owner action `ai-configure` (`{ models?, providers? }`) saves both sections of the configuration in one transaction with one audit entry. `openai-configure` and `ai-provider-configure` remain as aliases.
 
 **Suggested models (not defaults).** `packages/ai/src/provider.ts` ships a dated suggestion (`anthropicCatalog`, read from the official model and pricing pages on 2026-10-19): `claude-haiku-5-5` (USD 0.10 / 0.50 per million input / output tokens, cache read 0.01, cache write 0.125; prompts up to 100,000 tokens), `claude-sonnet-5-5` (2 / 10, cache read 0.10, write 2.50), `claude-opus-5-5` (4 / 20, cache read 0.20, write 5), web search USD 10 per 1,000 searches, with the tiers fast = Haiku, standard = Sonnet, quality = Opus and the start routes of the request (chat, drafts, research, review: Sonnet; strategy: Opus; analytics and support triage: Haiku). The Claude dialog can add them to the verified models and the rate card; nothing is used until the owner saves it, and the owner updates the prices when Anthropic changes them. Existing routes are never overwritten by the suggestion.
 
