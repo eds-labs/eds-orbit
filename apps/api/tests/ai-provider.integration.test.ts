@@ -575,4 +575,44 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     ).toBeUndefined();
     expect(view.fallback.onProviderBudgetStop).toBe("none");
   });
+
+  it("stops OpenAI reservations at an OpenAI budget as well (phase 3.4)", async () => {
+    // Read this period's OpenAI spend under a budget far above it.
+    await configureProvider({
+      anthropicApiKey: KEY,
+      providerBudgets: { openai: budget(90_000_000) },
+    });
+    const current = await run((tx) => providerBudgetStatus(tx, scope, "openai"));
+    const spent = current.spend!.spentMicros;
+    // Room for exactly one more 1 USD OpenAI reservation.
+    await configureProvider({
+      anthropicApiKey: KEY,
+      providerBudgets: { openai: budget(spent + 1_500_000) },
+    });
+    const reserveGpt = (key: string) =>
+      run(async (tx) => {
+        const mandate = await requireSpendMandate(tx, scope);
+        return reserve(tx, scope, key, "chat_text", 1_000_000, mandate.limits, new Date(), key, {
+          agentRunId: null,
+          taskClass: "chat_operator",
+          model: GPT,
+        });
+      });
+    await expect(reserveGpt(`openai-budget:${randomUUID()}`)).resolves.toMatchObject({
+      state: "reserved",
+    });
+    await expect(reserveGpt(`openai-budget:${randomUUID()}`)).rejects.toMatchObject({
+      code: "PROVIDER_BUDGET_STOP",
+    });
+    const status = await run((tx) => providerBudgetStatus(tx, scope, "openai"));
+    expect(status).toMatchObject({ configured: true, provider: "openai" });
+    // The route reports both providers.
+    const view = await app.inject({
+      method: "GET",
+      url: `/api/projects/${scope.projectId}/ai-budget`,
+      headers: { cookie: ownerCookie, origin },
+    });
+    expect(view.json().providers.openai.configured).toBe(true);
+    await configureProvider({ anthropicApiKey: KEY, providerBudgets: {} });
+  });
 });

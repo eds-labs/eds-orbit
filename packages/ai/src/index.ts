@@ -171,8 +171,12 @@ export const fallbackConfigurationSchema = z
   })
   .strict();
 export type FallbackConfiguration = z.infer<typeof fallbackConfigurationSchema>;
+// One budget per provider (plan phase 3.4): Anthropic since D-A6, OpenAI too.
 export const providerBudgetsSchema = z
-  .object({ anthropic: providerBudgetSchema.optional() })
+  .object({
+    anthropic: providerBudgetSchema.optional(),
+    openai: providerBudgetSchema.optional(),
+  })
   .strict();
 export type ProviderBudgets = z.infer<typeof providerBudgetsSchema>;
 

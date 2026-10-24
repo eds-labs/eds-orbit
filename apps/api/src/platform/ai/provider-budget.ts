@@ -97,8 +97,7 @@ export async function providerBudgetStatus(
   now = new Date(),
 ): Promise<ProviderBudgetStatus> {
   const { providerBudgets, models } = await runtimeProviderBudgets(tx, scope);
-  const budget =
-    provider === "anthropic" ? providerBudgets?.anthropic : undefined;
+  const budget = providerBudgets?.[provider];
   if (!budget)
     return {
       provider,
@@ -139,8 +138,7 @@ export async function assertProviderBudget(
 ) {
   const { providerBudgets, models } = await runtimeProviderBudgets(tx, scope);
   const provider = providerOfModel(model, models);
-  const budget =
-    provider === "anthropic" ? providerBudgets?.anthropic : undefined;
+  const budget = providerBudgets?.[provider];
   if (!budget) return null;
   const spend = await providerPeriodSpend(
     tx,

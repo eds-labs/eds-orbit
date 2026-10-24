@@ -17,6 +17,7 @@ import {
   openAiConfigurationVersion,
   projectAiConfigurationView,
   runtimeOpenAiConfiguration,
+  runtimeProviderBudgets,
 } from "../src/platform/ai/openai-configuration.ts";
 import { reserve, settle } from "../src/platform/ai/budget.ts";
 import { setAiCheckFetchForTests } from "../src/platform/ai/connection-providers.ts";
@@ -231,6 +232,25 @@ describe.skipIf(!enabled)("Central connections (ADR 0014)", () => {
     const merged = await scoped(wsA, a1, (tx) => runtimeOpenAiConfiguration(tx, scope(wsA, a1)));
     expect(merged.verifiedModels).toContain("gpt-5.6-terra");
     expect(merged.routeVersion).toBe(after);
+    // A provider budget in the system profile reaches projects without their own (phase 3.4).
+    const openaiBudget = {
+      monthlyMicros: 50_000_000,
+      warnMicros: 30_000_000,
+      warn2Micros: 40_000_000,
+      stopMicros: 45_000_000,
+      anchorDay: 1,
+    };
+    expect(
+      (
+        await call("PUT", "/api/admin/ai/profile", people.admin, {
+          verifiedModels: ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
+          modelRoutes: { fast: "gpt-5.6-luna", standard: "gpt-5.6-terra", quality: "gpt-5.6-sol", escalation: "gpt-6-astra" },
+          providerBudgets: { openai: openaiBudget },
+        })
+      ).statusCode,
+    ).toBe(200);
+    const budgets = await scoped(wsA, a1, (tx) => runtimeProviderBudgets(tx, scope(wsA, a1)));
+    expect(budgets.providerBudgets.openai).toMatchObject({ stopMicros: 45_000_000 });
   });
 
   it("holds the organization budget across projects, also under concurrency", async () => {

@@ -5,7 +5,9 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
+  providerBudgetsSchema,
   type OpenAiRuntimeConfig,
+  type ProviderBudgets,
 } from "../../../../../packages/ai/src/index.ts";
 import { rateCardSchema } from "../../../../../packages/ai/src/cost.ts";
 import {
@@ -52,6 +54,8 @@ export const aiProfileInput = z
     defaultProvider: providerIdSchema.optional(),
     fallback: fallbackConfigurationSchema.optional(),
     imageGeneration: imageGenerationConfigurationSchema.optional(),
+    // Provider budgets projects inherit where they set none (phase 3.4).
+    providerBudgets: providerBudgetsSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -67,6 +71,22 @@ export const aiProfileInput = z
       context.addIssue({ code: "custom", message: "ROUTED_MODEL_NOT_VERIFIED" });
   });
 export type AiProfileData = z.infer<typeof aiProfileInput>;
+
+/**
+ * The provider budgets of the organization and system AI profiles, the
+ * organization's first: a project inherits one for each provider it sets
+ * no budget for. Empty while central connections are off.
+ */
+export async function centralProviderBudgets(
+  tx: DbTx,
+  scope: Scope,
+): Promise<ProviderBudgets> {
+  const l = await layer(tx, scope);
+  return {
+    ...stripUndefined(l?.profiles.system?.providerBudgets ?? {}),
+    ...stripUndefined(l?.profiles.workspace?.providerBudgets ?? {}),
+  } as ProviderBudgets;
+}
 
 /**
  * Which provider key a call uses: "image" for image models, otherwise

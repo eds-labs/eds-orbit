@@ -868,37 +868,37 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return aiCostSummary(scope, aiCostQuery.parse(req.query));
   });
-  // The Anthropic credit budget of the project: period, spend and level
+  // The provider credit budgets of the project: period, spend and level
   // (plan D-A6, D-A8). Same level as /ai-cost; no key, no prompt content.
   app.get("/api/projects/:projectId/ai-budget", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-    const status = await scoped(scope.workspaceId, projectId, (tx) =>
-      providerBudgetStatus(tx, scope, "anthropic"),
-    );
-    return {
+    // Every provider's budget (phase 3.4); OpenAI's is new and optional.
+    const view = (status: Awaited<ReturnType<typeof providerBudgetStatus>>) => ({
+      configured: status.configured,
+      budget: status.budget,
+      level: status.level,
+      spend: status.spend
+        ? {
+            spentMicros: String(status.spend.spentMicros),
+            settledMicros: String(status.spend.settledMicros),
+            pendingMicros: String(status.spend.pendingMicros),
+            unknownMicros: String(status.spend.unknownMicros),
+            count: status.spend.count,
+            periodStart: status.spend.periodStart.toISOString(),
+            periodEnd: status.spend.periodEnd.toISOString(),
+          }
+        : null,
+      // Orbit calculates its spend itself; the credit balance is the
+      // owner's manually verified value and is not read from the provider.
+      creditSync: "manual",
+    });
+    return scoped(scope.workspaceId, projectId, async (tx) => ({
       providers: {
-        anthropic: {
-          configured: status.configured,
-          budget: status.budget,
-          level: status.level,
-          spend: status.spend
-            ? {
-                spentMicros: String(status.spend.spentMicros),
-                settledMicros: String(status.spend.settledMicros),
-                pendingMicros: String(status.spend.pendingMicros),
-                unknownMicros: String(status.spend.unknownMicros),
-                count: status.spend.count,
-                periodStart: status.spend.periodStart.toISOString(),
-                periodEnd: status.spend.periodEnd.toISOString(),
-              }
-            : null,
-          // Orbit calculates its spend itself; the credit balance is the
-          // owner's manually verified value and is not read from Anthropic.
-          creditSync: "manual",
-        },
+        anthropic: view(await providerBudgetStatus(tx, scope, "anthropic")),
+        openai: view(await providerBudgetStatus(tx, scope, "openai")),
       },
-    };
+    }));
   });
   // The AI spending authority (ADR 0015): platform-owned, visible without Marketing.
   app.get("/api/projects/:projectId/ai-spend-policy", async (req) => {

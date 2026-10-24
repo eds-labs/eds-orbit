@@ -122,27 +122,29 @@ export async function platformAttention(
       params: { micros: unknown.micros },
       ...OPERATIONS,
     });
-  // The Anthropic credit budget (plan D-A8): a warning from the first
-  // threshold, critical from the second and when calls are stopped.
-  const anthropic = await providerBudgetStatus(tx, scope, "anthropic", now);
-  if (anthropic.configured && anthropic.level && anthropic.level !== "ok")
-    items.push({
-      id: "platform:provider-budget:anthropic",
-      moduleId: "platform",
-      kind: "platform_provider_budget",
-      severity: anthropic.level === "warn" ? "warning" : "critical",
-      dueAt: anthropic.spend!.periodEnd.toISOString(),
-      since: anthropic.spend!.periodStart.toISOString(),
-      params: {
-        provider: "anthropic",
-        level: anthropic.level,
-        spentMicros: anthropic.spend!.spentMicros,
-        stopMicros: anthropic.budget!.stopMicros,
-        monthlyMicros: anthropic.budget!.monthlyMicros,
-      },
-      navKey: "operations",
-      link: "/settings?section=ai",
-    });
+  // Each provider's credit budget (plan D-A8, phase 3.4): a warning from
+  // the first threshold, critical from the second and when calls are stopped.
+  for (const provider of ["anthropic", "openai"] as const) {
+    const status = await providerBudgetStatus(tx, scope, provider, now);
+    if (status.configured && status.level && status.level !== "ok")
+      items.push({
+        id: `platform:provider-budget:${provider}`,
+        moduleId: "platform",
+        kind: "platform_provider_budget",
+        severity: status.level === "warn" ? "warning" : "critical",
+        dueAt: status.spend!.periodEnd.toISOString(),
+        since: status.spend!.periodStart.toISOString(),
+        params: {
+          provider,
+          level: status.level,
+          spentMicros: status.spend!.spentMicros,
+          stopMicros: status.budget!.stopMicros,
+          monthlyMicros: status.budget!.monthlyMicros,
+        },
+        navKey: "operations",
+        link: "/settings?section=ai",
+      });
+  }
   const requests = await openOwnerRequests(tx, scope, now);
   if (requests.length) {
     const expiries = requests

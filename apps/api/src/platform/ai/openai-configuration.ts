@@ -1,4 +1,5 @@
 import {
+  centralProviderBudgets,
   centralRouteVersion,
   withCentralAi,
 } from "./central-ai.ts";
@@ -666,14 +667,25 @@ export function routesWithoutKey(status: {
  * The provider budgets and model registry of the project, for the budget
  * check inside `reserve`: one row read, no key decrypted.
  */
+const stripEmpty = <T extends object>(value: T | undefined) =>
+  Object.fromEntries(
+    Object.entries(value ?? {}).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+
 export async function runtimeProviderBudgets(
   tx: DbTx,
   scope: Scope,
 ): Promise<Pick<OpenAiRuntimeConfig, "providerBudgets" | "models">> {
   const row = await configurationRow(tx, scope);
-  if (!row) return { providerBudgets: {}, models: {} };
+  // A provider the project sets no budget for inherits the organization's
+  // or the system's (phase 3.4); the project's own always wins.
+  const inherited = await centralProviderBudgets(tx, scope);
+  if (!row) return { providerBudgets: inherited, models: {} };
   const value = stored(row);
-  return { providerBudgets: value.providerBudgets, models: value.models };
+  return {
+    providerBudgets: { ...inherited, ...stripEmpty(value.providerBudgets) },
+    models: value.models,
+  };
 }
 
 export async function saveOpenAiConfiguration(

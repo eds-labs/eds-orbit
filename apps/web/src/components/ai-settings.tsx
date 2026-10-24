@@ -45,7 +45,7 @@ type ProviderFields = {
       note?: string;
     }
   >;
-  providerBudgets: { anthropic?: ProviderBudgetView };
+  providerBudgets: Partial<Record<ProviderId, ProviderBudgetView>>;
   fallback: { onProviderBudgetStop: "none" | "openai" };
   providers: Record<
     ProviderId,
@@ -74,8 +74,11 @@ type Rate = {
   verifiedAt: string;
 };
 type AiBudgetView = {
-  providers: {
-    anthropic: {
+  // OpenAI's budget is reported since phase 3.4; older servers omit it.
+  providers: Record<"anthropic", ProviderBudgetState> &
+    Partial<Record<"openai", ProviderBudgetState>>;
+};
+type ProviderBudgetState = {
       configured: boolean;
       budget: ProviderBudgetView | null;
       level: "ok" | "warn" | "warn2" | "stopped" | null;
@@ -89,8 +92,6 @@ type AiBudgetView = {
         periodEnd: string;
       } | null;
       creditSync: "manual";
-    };
-  };
 };
 /** One row of `/ai-cost`; `reservedMicros` includes reservations in flight. */
 type CostRow = {
@@ -401,16 +402,19 @@ function AnthropicConfiguration({
 
 /** The Anthropic credit budget: amounts, thresholds, billing period anchor and the verified credit note. */
 function ProviderBudgetForm({
+  provider,
   view,
   onSaved,
 }: {
+  provider: ProviderId;
   view: OpenAiConfigurationView & ProviderFields;
   onSaved: () => void;
 }) {
   const { project, locale } = useWorkspace();
   const de = locale === "de";
   const mutation = useMutation(onSaved);
-  const current = view.providerBudgets.anthropic;
+  const current = view.providerBudgets[provider];
+  const name = providerName[provider];
   const usdField = (
     name: string,
     label: string,
@@ -450,8 +454,8 @@ function ProviderBudgetForm({
       de ? "Interner Ausgabenstopp (USD)" : "Internal spending stop (USD)",
       current?.stopMicros ?? 95_000_000,
       de
-        ? "Ab diesem berechneten Verbrauch lehnt Orbit weitere Claude-Aufrufe ab; parallele Aufrufe werden nacheinander geprüft."
-        : "From this calculated spend Orbit refuses further Claude calls; parallel calls are checked one after the other.",
+        ? `Ab diesem berechneten Verbrauch lehnt Orbit weitere ${name}-Aufrufe ab; parallele Aufrufe werden nacheinander geprüft.`
+        : `From this calculated spend Orbit refuses further ${name} calls; parallel calls are checked one after the other.`,
     ),
     {
       name: "anchorDay",
@@ -465,23 +469,23 @@ function ProviderBudgetForm({
       value: current?.anchorDay ?? 1,
       required: true,
       hint: de
-        ? "Der Tag, an dem Anthropic das Guthaben erneuert, nicht automatisch der 1."
-        : "The day Anthropic renews the credit, not necessarily the 1st.",
+        ? `Der Tag, an dem ${name} das Guthaben erneuert, nicht automatisch der 1.`
+        : `The day ${name} renews the credit, not necessarily the 1st.`,
     },
     {
       name: "creditAmount",
       heading: de ? "Guthabenstand (manuell)" : "Credit balance (manual)",
       label: de
-        ? "Verbleibendes Guthaben laut Anthropic-Konsole (USD, leer = unbekannt)"
-        : "Remaining credit per the Anthropic console (USD, blank = unknown)",
+        ? `Verbleibendes Guthaben laut ${name}-Konsole (USD, leer = unbekannt)`
+        : `Remaining credit per the ${name} console (USD, blank = unknown)`,
       type: "number",
       min: 0,
       max: 100000,
       step: "0.01",
       value: current?.credit ? current.credit.amountMicros / 1_000_000 : "",
       hint: de
-        ? "Anthropic bietet für dieses Konto keine Abfrage des Guthabens. Orbit zeigt diesen Wert als manuell geprüft neben seinem eigenen berechneten Verbrauch."
-        : "Anthropic offers no credit lookup for this account. Orbit shows this value as manually verified next to its own calculated spend.",
+        ? "Orbit liest das Guthaben nicht beim Anbieter ab. Dieser Wert erscheint als manuell geprüft neben dem eigenen berechneten Verbrauch."
+        : "Orbit does not read the credit from the provider. This value is shown as manually verified next to its own calculated spend.",
     },
     {
       name: "creditNote",
@@ -492,11 +496,11 @@ function ProviderBudgetForm({
   ];
   return (
     <DataForm
-      key={view.updatedAt ?? "budget"}
+      key={`${provider}:${view.updatedAt ?? "budget"}`}
       fields={fields}
       pending={mutation.pending}
       error={mutation.error}
-      submitLabel={de ? "Claude-Budget speichern" : "Save Claude budget"}
+      submitLabel={de ? `${name}-Budget speichern` : `Save ${name} budget`}
       onSubmit={(values) =>
         mutation.run(() => {
           const micros = (key: string) =>
@@ -505,7 +509,8 @@ function ProviderBudgetForm({
           return action(project.id, "ai-provider-configure", {
             ...providerPayload(view),
             providerBudgets: {
-              anthropic: {
+              ...view.providerBudgets,
+              [provider]: {
                 monthlyMicros: micros("monthly"),
                 warnMicros: micros("warn"),
                 warn2Micros: micros("warn2"),
@@ -528,6 +533,91 @@ function ProviderBudgetForm({
         })
       }
     />
+  );
+}
+
+/**
+ * One provider's credit budget: spend, period, the manually verified credit
+ * and the form (phase 3.4: OpenAI as well as Claude).
+ */
+function ProviderBudgetPanel({
+  provider,
+  entry,
+  view,
+  onSaved,
+}: {
+  provider: ProviderId;
+  entry: ProviderBudgetState | undefined;
+  view: (OpenAiConfigurationView & ProviderFields) | null | undefined;
+  onSaved: () => void;
+}) {
+  const { locale } = useWorkspace();
+  const de = locale === "de";
+  const name = providerName[provider];
+  const level = entry?.level ?? null;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>{de ? `${name}: Budget` : `${name} budget`}</h2>
+          <p>
+            {de
+              ? "Das monatliche API-Guthaben, zwei Warnschwellen und der interne Ausgabenstopp. Gilt pro Projekt; ohne eigenes Budget gilt das der Organisation oder des Systems, sonst keins."
+              : "The monthly API credit, two warning thresholds and the internal spending stop. Per project; without one the organization's or the system's applies, else none."}
+          </p>
+        </div>
+        {level && (
+          <Status
+            value={
+              level === "ok"
+                ? "active"
+                : level === "stopped"
+                  ? "blocked"
+                  : "pending"
+            }
+          />
+        )}
+      </div>
+      {entry?.configured && entry.spend && entry.budget && (
+        <div className="metrics-strip metrics-four">
+          <Metric
+            icon={Gauge}
+            label={de ? "Verbraucht (berechnet)" : "Spent (calculated)"}
+            amount={usd(Number(entry.spend.spentMicros))}
+            detail={`${de ? "von" : "of"} ${usd(entry.budget.stopMicros)} ${de ? "Stopp" : "stop"} · ${usd(entry.budget.monthlyMicros)} ${de ? "Guthaben" : "credit"}`}
+          />
+          <Metric
+            icon={Coins}
+            label={de ? "Davon abgerechnet" : "Settled"}
+            amount={usd(Number(entry.spend.settledMicros))}
+            detail={`${de ? "offen" : "pending"} ${usd(Number(entry.spend.pendingMicros))} · ${de ? "unklar" : "unclear"} ${usd(Number(entry.spend.unknownMicros))}`}
+          />
+          <Metric
+            icon={Sparkles}
+            label={de ? "Abrechnungszeitraum" : "Billing period"}
+            amount={when(entry.spend.periodStart, locale).split(",")[0] ?? "—"}
+            detail={`${de ? "bis" : "until"} ${when(entry.spend.periodEnd, locale)}`}
+          />
+          <Metric
+            icon={Brain}
+            label={de ? "Guthaben laut Konsole" : "Credit per console"}
+            amount={
+              entry.budget.credit ? usd(entry.budget.credit.amountMicros) : "—"
+            }
+            detail={
+              entry.budget.credit
+                ? `${de ? "manuell geprüft" : "manually verified"} ${when(entry.budget.credit.verifiedAt, locale)}`
+                : de
+                  ? "nicht live synchronisiert"
+                  : "not synchronized live"
+            }
+          />
+        </div>
+      )}
+      {view && (
+        <ProviderBudgetForm provider={provider} view={view} onSaved={onSaved} />
+      )}
+    </section>
   );
 }
 
@@ -613,8 +703,6 @@ export function AiSettings() {
   const [openAi, setOpenAi] = useState(false);
   const [anthropic, setAnthropic] = useState(false);
   const view = configuration.data;
-  const anthropicBudget = budget.data?.providers.anthropic;
-  const level = anthropicBudget?.level ?? null;
   const models = useMemo(() => {
     if (!view) return [];
     const ids = new Set([
@@ -783,82 +871,18 @@ export function AiSettings() {
         )}
       </section>
 
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>{de ? "Claude-Budget" : "Claude budget"}</h2>
-            <p>
-              {de
-                ? "Das monatliche API-Guthaben, zwei Warnschwellen und der interne Ausgabenstopp. Gilt pro Projekt; bei mehreren Projekten mit demselben Key das Guthaben aufteilen."
-                : "The monthly API credit, two warning thresholds and the internal spending stop. Per project; split the credit when several projects share one key."}
-            </p>
-          </div>
-          {level && (
-            <Status
-              value={
-                level === "ok"
-                  ? "active"
-                  : level === "stopped"
-                    ? "blocked"
-                    : "pending"
-              }
-            />
-          )}
-        </div>
-        {anthropicBudget?.configured &&
-          anthropicBudget.spend &&
-          anthropicBudget.budget && (
-            <div className="metrics-strip metrics-four">
-              <Metric
-                icon={Gauge}
-                label={de ? "Verbraucht (berechnet)" : "Spent (calculated)"}
-                amount={usd(Number(anthropicBudget.spend.spentMicros))}
-                detail={`${de ? "von" : "of"} ${usd(anthropicBudget.budget.stopMicros)} ${de ? "Stopp" : "stop"} · ${usd(anthropicBudget.budget.monthlyMicros)} ${de ? "Guthaben" : "credit"}`}
-              />
-              <Metric
-                icon={Coins}
-                label={de ? "Davon abgerechnet" : "Settled"}
-                amount={usd(Number(anthropicBudget.spend.settledMicros))}
-                detail={`${de ? "offen" : "pending"} ${usd(Number(anthropicBudget.spend.pendingMicros))} · ${de ? "unklar" : "unclear"} ${usd(Number(anthropicBudget.spend.unknownMicros))}`}
-              />
-              <Metric
-                icon={Sparkles}
-                label={de ? "Abrechnungszeitraum" : "Billing period"}
-                amount={
-                  when(anthropicBudget.spend.periodStart, locale).split(
-                    ",",
-                  )[0] ?? "—"
-                }
-                detail={`${de ? "bis" : "until"} ${when(anthropicBudget.spend.periodEnd, locale)}`}
-              />
-              <Metric
-                icon={Brain}
-                label={de ? "Guthaben laut Konsole" : "Credit per console"}
-                amount={
-                  anthropicBudget.budget.credit
-                    ? usd(anthropicBudget.budget.credit.amountMicros)
-                    : "—"
-                }
-                detail={
-                  anthropicBudget.budget.credit
-                    ? `${de ? "manuell geprüft" : "manually verified"} ${when(anthropicBudget.budget.credit.verifiedAt, locale)}`
-                    : de
-                      ? "nicht live synchronisiert"
-                      : "not synchronized live"
-                }
-              />
-            </div>
-          )}
-        {view && (
-          <ProviderBudgetForm
-            view={view}
-            onSaved={() => {
-              configuration.refresh();
-              budget.refresh();
-            }}
-          />
-        )}
-      </section>
+      {(["anthropic", "openai"] as const).map((provider) => (
+        <ProviderBudgetPanel
+          key={provider}
+          provider={provider}
+          entry={budget.data?.providers[provider]}
+          view={view}
+          onSaved={() => {
+            configuration.refresh();
+            budget.refresh();
+          }}
+        />
+      ))}
 
       <section className="panel">
         <div className="panel-head">
