@@ -893,7 +893,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("button", { name: "Add member", exact: true }),
     ).toHaveCount(0);
-    await settingsSection(page, "Policy & budget");
+    await settingsSection(page, "Publishing rules");
     await expect(
       page.getByRole("heading", { name: "Versioned operating policy" }),
     ).toBeVisible();
@@ -1251,11 +1251,19 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
       .getByRole("navigation", { name: "Settings sections" })
       .locator('[aria-current="page"]'),
   ).toHaveText("Project");
-  await page.getByRole("button", { name: "Configure OpenAI" }).click();
-  const dialog = page.getByRole("dialog", { name: "OpenAI configuration" });
+  // Models and routes live under Settings -> AI & budget (plan phase 3.3).
+  await page.goto(`/p/${projectId}/settings?section=ai`);
+  await page
+    .locator(".data-row")
+    .filter({ has: page.getByText("OpenAI", { exact: true }) })
+    .getByRole("button", { name: "Configure" })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "Models, task routes and OpenAI keys",
+  });
   await expect(
     dialog.getByLabel(
-      "Current OpenAI rate card (JSON, USD micros per million tokens)",
+      "Current rate card of every verified model, OpenAI and Claude (JSON, USD micros per million tokens)",
     ),
   ).toHaveValue(JSON.stringify(rateCard, null, 2));
   await expect(dialog).toContainText(/Route version \d+/);
@@ -1322,12 +1330,11 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
       request.method() === "POST" &&
       request
         .url()
-        .endsWith(`/api/projects/${projectId}/actions/openai-configure`),
+        .endsWith(`/api/projects/${projectId}/actions/ai-configure`),
   );
-  await dialog
-    .getByRole("button", { name: "Save OpenAI configuration" })
-    .click();
-  const saved = (await saveRequest).postDataJSON();
+  await dialog.getByRole("button", { name: "Save models and routes" }).click();
+  // The one save path sends the model section (phase 3.2).
+  const saved = (await saveRequest).postDataJSON().models;
   expect(saved.taskRoutes).toEqual({
     chat_operator: {
       model: "gpt-5.6-terra",
@@ -1402,7 +1409,7 @@ test("settings open by ?section and the legacy path forwards", async ({
 
   // A module's section opens straight from its URL, in its own group.
   await page.goto(`${base}/settings?section=policy`);
-  await expect(current).toHaveText("Policy & budget");
+  await expect(current).toHaveText("Publishing rules");
   await expect(
     page.getByRole("heading", { name: "Versioned operating policy" }),
   ).toBeVisible();
@@ -1421,7 +1428,7 @@ test("settings open by ?section and the legacy path forwards", async ({
   await expect(page).toHaveURL(
     new RegExp(`${base}/settings\\?section=policy$`),
   );
-  await expect(current).toHaveText("Policy & budget");
+  await expect(current).toHaveText("Publishing rules");
 });
 
 test("the home shows the module cards and each leads to its overview", async ({

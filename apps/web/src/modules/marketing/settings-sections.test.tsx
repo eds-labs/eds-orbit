@@ -14,7 +14,7 @@ describe("marketing settings and connector contributions", () => {
         s.tab.label.en,
       ]),
     ).toEqual([
-      ["policy", 20, "Policy & budget"],
+      ["policy", 20, "Publishing rules"],
       ["brand", 30, "Brand"],
     ]);
   });

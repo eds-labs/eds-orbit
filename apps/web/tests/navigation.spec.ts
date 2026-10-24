@@ -253,7 +253,7 @@ test("module settings links open their section of the grouped settings", async (
   await expect(page).toHaveURL(
     new RegExp(`${base}/settings\\?section=policy$`),
   );
-  await expect(current).toHaveText("Policy & budget");
+  await expect(current).toHaveText("Publishing rules");
   await expect(
     page.getByRole("heading", { name: "Versioned operating policy" }),
   ).toBeVisible();
@@ -270,7 +270,7 @@ test("module settings links open their section of the grouped settings", async (
     "Project",
     "Members & roles",
     "Integrations",
-    "AI",
+    "AI & budget",
     "Retention",
     "Modules",
   ].entries())
@@ -279,7 +279,7 @@ test("module settings links open their section of the grouped settings", async (
   const marketingLinks = sections
     .getByRole("list", { name: "Marketing" })
     .getByRole("link");
-  await expect(marketingLinks.nth(0)).toHaveText("Policy & budget");
+  await expect(marketingLinks.nth(0)).toHaveText("Publishing rules");
   await expect(marketingLinks.nth(1)).toHaveText("Brand");
 
   // Picking a section replaces the URL in place: no new history entry.

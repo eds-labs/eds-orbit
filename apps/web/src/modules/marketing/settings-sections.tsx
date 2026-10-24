@@ -21,7 +21,7 @@ import { BrandApproval, MarketingProfileConfiguration } from "./advanced";
 
 const POLICY_TAB = {
   key: "policy",
-  label: { en: "Policy & budget", de: "Richtlinie & Budget" },
+  label: { en: "Publishing rules", de: "Veröffentlichungsregeln" },
   order: 20,
 };
 

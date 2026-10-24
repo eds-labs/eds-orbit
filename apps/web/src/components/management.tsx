@@ -26,7 +26,7 @@ import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
 import { UnclearAiCost } from "./unclear-ai-cost";
 import { blockerReason } from "@/lib/readiness-text";
-import { AiSettings, OpenAiConfiguration } from "./ai-settings";
+import { AiSettings } from "./ai-settings";
 import { SpendPolicySettings } from "./spend-policy";
 import { GoogleDriveSettings } from "./google-drive";
 import {
@@ -489,7 +489,6 @@ export function ProjectSettings() {
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
   );
-  const [openAi, setOpenAi] = useState(false);
   // The caller's connected MCP apps. The routes exist only while the OAuth
   // server is on (404 otherwise), and then the section is not offered.
   const grants = useResource<{ grants: McpGrant[] }>("/mcp-grants");
@@ -691,10 +690,13 @@ export function ProjectSettings() {
                   {setupLinks.map((Link, index) => (
                     <Link key={index} />
                   ))}
-                  <button onClick={() => setOpenAi(true)} disabled={!isOwner}>
-                    <Brain />
-                    {de ? "OpenAI konfigurieren" : "Configure OpenAI"}
-                  </button>
+                  {/* One place for AI settings (plan phase 3.3). */}
+                  {isOwner && (
+                    <AppLink href={sectionHref("ai")}>
+                      <Brain />
+                      {de ? "KI & Budget einrichten" : "Set up AI & budget"}
+                    </AppLink>
+                  )}
                 </div>
               </section>
             </div>
@@ -725,29 +727,28 @@ export function ProjectSettings() {
             </>
           )}
           {tab === "integrations" && <GoogleDriveSettings />}
-          {tab === "integrations" && (
+          {tab === "integrations" && isOwner && (
             <section className="panel">
               <div className="panel-head">
                 <div>
-                  <h2>OpenAI</h2>
+                  <h2>{de ? "KI-Anbieter" : "AI providers"}</h2>
                   <p>
                     {de
-                      ? "Zugangsdaten, verifizierte Modelle und aktuelle Preise. Budgets bleiben Teil der Richtlinie."
-                      : "Credentials, verified models and current prices. Budgets stay part of the policy."}
+                      ? "Keys, Modelle, Routen und Budgets von OpenAI und Claude sind unter KI & Budget."
+                      : "Keys, models, routes and budgets of OpenAI and Claude are under AI & budget."}
                   </p>
                 </div>
-                {isOwner && (
-                  <Button variant="outline" onClick={() => setOpenAi(true)}>
+                <Button asChild variant="outline">
+                  <AppLink href={sectionHref("ai")}>
                     <Brain data-icon="inline-start" />
-                    {de ? "Konfigurieren" : "Configure"}
-                  </Button>
-                )}
+                    {de ? "Öffnen" : "Open"}
+                  </AppLink>
+                </Button>
               </div>
             </section>
           )}
         </div>
       </div>
-      {openAi && <OpenAiConfiguration onClose={() => setOpenAi(false)} />}
     </>
   );
 }

@@ -329,8 +329,8 @@ function AnthropicConfiguration({
     {
       name: "fallback",
       label: de
-        ? "Wenn das Claude-Budget gestoppt ist"
-        : "When the Claude budget is stopped",
+        ? "Wenn das Claude-Budget gestoppt ist (auf OpenAI ausweichen)"
+        : "When the Claude budget is stopped (fall back to OpenAI)",
       type: "select",
       value: view.fallback.onProviderBudgetStop,
       options: [
@@ -1205,7 +1205,7 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
     },
     {
       name: "rateCard",
-      label: "Current OpenAI rate card (JSON, USD micros per million tokens)",
+      label: "Current rate card of every verified model, OpenAI and Claude (JSON, USD micros per million tokens)",
       type: "textarea",
       required: true,
       value: JSON.stringify(current?.rateCard ?? {}, null, 2),
@@ -1213,11 +1213,11 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
     },
   ];
   return (
-    <Modal title="OpenAI configuration and model routes" onClose={onClose}>
+    <Modal title="Models, task routes and OpenAI keys" onClose={onClose}>
       <p className="panel-note">
         {current?.configured
           ? `Configured through ${current.source}${current.updatedAt ? ` · updated ${when(current.updatedAt)}` : ""}.`
-          : "No application OpenAI configuration is saved yet."}
+          : "No AI configuration is saved for this project yet."}
         {current
           ? typeof current.routeVersion === "number"
             ? ` Route version ${current.routeVersion}.`
@@ -1239,7 +1239,7 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         fields={fields}
         pending={mutation.pending || configuration.loading}
         error={mutation.error || configuration.error?.message}
-        submitLabel="Save OpenAI configuration"
+        submitLabel="Save models and routes"
         onCancel={onClose}
         onSubmit={(values) =>
           mutation.run(() => {

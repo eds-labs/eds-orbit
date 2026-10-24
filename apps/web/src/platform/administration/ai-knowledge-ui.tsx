@@ -22,7 +22,9 @@ type Profile = {
     modelRoutes?: Record<"fast" | "standard" | "quality" | "escalation", string>;
     rateCard?: Record<string, unknown>;
     taskRoutes?: Record<string, unknown>;
-  };
+    anthropicTierRoutes?: Record<"fast" | "standard" | "quality", string>;
+    providerBudgets?: Record<string, unknown>;
+  } & Record<string, unknown>;
 };
 
 export function AiProfileEditor({
@@ -82,11 +84,39 @@ export function AiProfileEditor({
             { name: "standard", label: "Route standard", value: routes?.standard ?? "" },
             { name: "quality", label: "Route quality", value: routes?.quality ?? "" },
             { name: "escalation", label: "Route escalation", value: routes?.escalation ?? "" },
+            // Claude's tiers, used while Claude is the default provider (phase 3.3).
+            {
+              name: "claudeFast",
+              heading: "Claude",
+              label: de ? "Claude-Stufe fast" : "Claude tier fast",
+              value: d.anthropicTierRoutes?.fast ?? "",
+            },
+            {
+              name: "claudeStandard",
+              label: de ? "Claude-Stufe standard" : "Claude tier standard",
+              value: d.anthropicTierRoutes?.standard ?? "",
+            },
+            {
+              name: "claudeQuality",
+              label: de ? "Claude-Stufe quality" : "Claude tier quality",
+              value: d.anthropicTierRoutes?.quality ?? "",
+            },
             {
               name: "rateCard",
               label: de ? "Preise (JSON: Modell → USD-Micros je Mio. Tokens)" : "Rate card (JSON: model → USD micros per million tokens)",
               type: "textarea",
               value: d.rateCard ? JSON.stringify(d.rateCard, null, 2) : "",
+            },
+            {
+              name: "providerBudgets",
+              label: de
+                ? "Anbieter-Budgets (JSON: anthropic/openai → monthlyMicros, warnMicros, warn2Micros, stopMicros, anchorDay)"
+                : "Provider budgets (JSON: anthropic/openai → monthlyMicros, warnMicros, warn2Micros, stopMicros, anchorDay)",
+              type: "textarea",
+              value: d.providerBudgets ? JSON.stringify(d.providerBudgets, null, 2) : "",
+              hint: de
+                ? "Projekte ohne eigenes Budget übernehmen es."
+                : "Projects without their own budget inherit it.",
             },
           ]}
           pending={save.pending}
@@ -95,12 +125,33 @@ export function AiProfileEditor({
           onSubmit={(v) => {
             setJsonError(null);
             let rateCard: unknown;
+            let providerBudgets: unknown;
             try {
               rateCard = str(v, "rateCard") ? JSON.parse(str(v, "rateCard")) : undefined;
+              providerBudgets = str(v, "providerBudgets")
+                ? JSON.parse(str(v, "providerBudgets"))
+                : undefined;
             } catch {
-              setJsonError(de ? "Die Preise sind kein gültiges JSON." : "The rate card is not valid JSON.");
+              setJsonError(
+                de
+                  ? "Preise oder Budgets sind kein gültiges JSON."
+                  : "The rate card or the budgets are not valid JSON.",
+              );
               return;
             }
+            const tiers = ["claudeFast", "claudeStandard", "claudeQuality"].map((k) =>
+              str(v, k),
+            );
+            // Fields this form does not show are kept as they are.
+            const {
+              defaultProvider: _p,
+              verifiedModels: _v,
+              modelRoutes: _m,
+              rateCard: _r,
+              anthropicTierRoutes: _t,
+              providerBudgets: _b,
+              ...kept
+            } = d;
             const models = str(v, "verifiedModels")
               .split(",")
               .map((m) => m.trim())
@@ -108,6 +159,7 @@ export function AiProfileEditor({
             const route = ["fast", "standard", "quality", "escalation"].map((k) => str(v, k));
             void save.run(() =>
               put(path, {
+                ...kept,
                 ...(str(v, "defaultProvider") ? { defaultProvider: str(v, "defaultProvider") } : {}),
                 ...(models.length ? { verifiedModels: models } : {}),
                 ...(route.every(Boolean)
@@ -121,7 +173,16 @@ export function AiProfileEditor({
                     }
                   : {}),
                 ...(rateCard ? { rateCard } : {}),
-                ...(d.taskRoutes ? { taskRoutes: d.taskRoutes } : {}),
+                ...(tiers.every(Boolean)
+                  ? {
+                      anthropicTierRoutes: {
+                        fast: tiers[0],
+                        standard: tiers[1],
+                        quality: tiers[2],
+                      },
+                    }
+                  : {}),
+                ...(providerBudgets ? { providerBudgets } : {}),
               }),
             );
           }}

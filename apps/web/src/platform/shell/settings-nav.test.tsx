@@ -151,7 +151,7 @@ describe("platform sections", () => {
     );
     expect(groups.find((g) => g.id === "marketing")!.tabs[0]).toMatchObject({
       key: "policy",
-      label: { en: "Policy & budget", de: "Richtlinie & Budget" },
+      label: { en: "Publishing rules", de: "Veröffentlichungsregeln" },
     });
   });
 
