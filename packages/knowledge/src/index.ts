@@ -669,37 +669,36 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
     where: { ...where(s), kind: "facts" },
   });
   const facts: EvidenceFact[] = [];
-  for (const f of factRows) {
+  // Adds one fact under the source, rights, validity and size rules;
+  // `relevant` decides whether the query asks for it.
+  const consider = (
+    f: (typeof factRows)[number],
+    relevant: (d: FactData) => boolean,
+  ) => {
     const d = f.data as unknown as FactData;
+    if (facts.some((x) => x.id === f.id)) return;
     if (
       !allowed.has(d.sourceId) ||
       d.language !== language ||
       (d.market ?? "global") !== (input.market ?? "global") ||
       !validAt(d.validFrom, d.validUntil, at)
     )
-      continue;
-    const relevant = input.factKeys?.length
-      ? input.factKeys.includes(d.key)
-      : input.query.toLowerCase().includes(d.key.toLowerCase()) ||
-        d.key
-          .toLowerCase()
-          .split(/[._-]/)
-          .some((k) => k.length >= 3 && input.query.toLowerCase().includes(k));
-    if (!relevant) continue;
+      return;
+    if (!relevant(d)) return;
     if (
       d.sourceGeneration !== allowed.get(d.sourceId)!.generation ||
       (input.purpose === "public" && !d.publicUse) ||
       (forModel && !d.modelUse)
     )
-      continue;
+      return;
     if (d.status === "conflicting") {
       gaps.push("conflicting_fact:" + d.key);
-      continue;
+      return;
     }
-    if (d.status !== "verified") continue;
+    if (d.status !== "verified") return;
     if (tokenEstimate(JSON.stringify(facts)) + tokenEstimate(d.value) > 2000) {
       gaps.push("fact_context_limit");
-      continue;
+      return;
     }
     facts.push({
       id: f.id,
@@ -716,7 +715,17 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
       publicUse: d.publicUse,
       modelUse: d.modelUse,
     });
-  }
+  };
+  for (const f of factRows)
+    consider(f, (d) =>
+      input.factKeys?.length
+        ? input.factKeys.includes(d.key)
+        : input.query.toLowerCase().includes(d.key.toLowerCase()) ||
+          d.key
+            .toLowerCase()
+            .split(/[._-]/)
+            .some((k) => k.length >= 3 && input.query.toLowerCase().includes(k)),
+    );
   for (const key of input.factKeys ?? [])
     if (!facts.some((f) => f.key === key)) gaps.push("missing_fact:" + key);
   const versions = await tx.documentVersion.findMany({
@@ -811,6 +820,20 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
     fetchedAt: c.fetchedAt.toISOString(),
     validUntil: c.validUntil?.toISOString() ?? null,
   }));
+  // A verified-facts source (a reviewed knowledge proposal: one passage,
+  // its quote, and one fact) answers with its fact when the search finds
+  // its passage: such facts carry generated keys no query names. Not for
+  // an explicit factKeys request, which stays exact.
+  if (!input.factKeys?.length) {
+    const passageSources = new Set(
+      items
+        .map((item) => item.sourceId)
+        .filter((id) => allowed.get(id)?.type === "verified_facts"),
+    );
+    if (passageSources.size)
+      for (const f of factRows)
+        consider(f, (d) => passageSources.has(d.sourceId));
+  }
   if (!facts.length && !items.length) gaps.push("insufficient_evidence");
   const project = await tx.project.findFirstOrThrow({
     where: { workspaceId: s.workspaceId, id: s.projectId },
