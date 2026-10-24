@@ -1534,11 +1534,12 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     });
     const modelCalls = spans.filter((span) => span.type === "model_call");
     expect(modelCalls).toHaveLength(1);
+    // The span names what the provider refused; the run keeps the code.
     expect(modelCalls[0]).toMatchObject({
       status: "failed",
-      errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
       costMicros: 0n,
     });
+    expect(modelCalls[0]!.errorCode).toMatch(/^400 .*Unsupported value: 'reasoning\.effort'/);
   });
   it("records an unknown model span and the blocked run for an incomplete response", async () => {
     mocked.mode = "incomplete";

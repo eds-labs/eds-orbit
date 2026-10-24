@@ -11,6 +11,7 @@ import {
   computeCost,
   estimateCost,
   isRejectedRequest,
+  rejectionDetail,
   normalizeResponsesUsage,
   providerCallName,
   providerOfModel,
@@ -753,13 +754,16 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     });
     runChanged(scope, runId);
     // Telemetry only after the failure settlement committed.
+    // A refusal records what the provider said: the field it refused.
+    const detail = rejected ? rejectionDetail(error) : null;
     if (unsettled)
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: providerCallName(inFlight.provider, "stream"),
         model: inFlight.model,
         status: rejected ? "failed" : "unknown",
-        errorCode: code,
+        errorCode: detail?.code ?? code,
+        ...(detail?.requestId ? { providerResponseId: detail.requestId } : {}),
         startedAt: inFlight.startedAt,
         durationMs: Date.now() - inFlight.startedAt.valueOf(),
         ...(rejected ? { costMicros: 0 } : {}),
