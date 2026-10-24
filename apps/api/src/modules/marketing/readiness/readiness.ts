@@ -9,6 +9,7 @@ import {
 import {
   effectiveAiStatus,
   publicOpenAiConfiguration,
+  textModelReady,
 } from "../../../platform/ai/openai-configuration.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { actionReadiness } from "./action-readiness.ts";
@@ -45,6 +46,7 @@ async function aiStatus(tx: DbTx, scope: Scope) {
       imageKeyConfigured: own.imageKeyConfigured,
       anthropicKeyConfigured: own.providers.anthropic.keyConfigured,
       verifiedModels: own.verifiedModels,
+      effectiveRoutes: own.effectiveRoutes,
       imageGeneration: imageGenerationConfigurationSchema.parse(
         own.imageGeneration ?? {},
       ),
@@ -158,9 +160,7 @@ export async function readiness(tx: DbTx, scope: Scope) {
       policy && p.channels?.length && p.contentTypes?.length,
     ),
     marketingProfile: Boolean(await currentMarketingProfile(tx, scope)),
-    textModelVerified: Boolean(
-      openAi.textKeyConfigured && openAi.verifiedModels.length,
-    ),
+    textModelVerified: textModelReady(openAi),
     imageKeyConfigured: openAi.imageKeyConfigured,
     imagePricingCurrent: imagePriceConfigured(image),
     imageModelVerified: Boolean(

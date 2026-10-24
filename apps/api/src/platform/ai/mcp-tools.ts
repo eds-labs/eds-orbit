@@ -32,6 +32,7 @@ import {
   publicOpenAiConfiguration,
   saveAiProviderConfiguration,
   saveOpenAiConfiguration,
+  textModelReady,
 } from "./openai-configuration.ts";
 
 // AI models over MCP (docs/MCP_PROJECT_ADMINISTRATION.md). Providers, keys
@@ -78,9 +79,7 @@ function modelChecks(effective: Awaited<ReturnType<typeof effectiveAiStatus>>) {
   ];
   const image = effective.imageGeneration;
   return {
-    textModelVerified: Boolean(
-      effective.textKeyConfigured && effective.verifiedModels.length,
-    ),
+    textModelVerified: textModelReady(effective),
     unverifiedRoutedModels: [
       ...new Set(routed.filter((m) => !effective.verifiedModels.includes(m))),
     ],

@@ -499,6 +499,33 @@ export async function effectiveAiStatus(tx: DbTx, scope: Scope) {
   };
 }
 
+/** Task classes whose route decides whether chat and text drafting can run. */
+const TEXT_TASKS = ["chat_operator", "draft_social"] as const;
+
+/**
+ * Whether chat and text drafting can call a verified model now: an OpenAI
+ * text key with verified models (the rule before the Anthropic provider),
+ * or routes for chat and social drafts that resolve to a verified, priced
+ * model whose provider has a key, so a project on Claude counts too.
+ */
+export function textModelReady(status: {
+  textKeyConfigured: boolean;
+  anthropicKeyConfigured: boolean;
+  verifiedModels: string[];
+  effectiveRoutes?: Record<string, unknown>;
+}) {
+  if (status.textKeyConfigured && status.verifiedModels.length) return true;
+  return TEXT_TASKS.every((task) => {
+    const route = status.effectiveRoutes?.[task] as
+      | { error?: string; provider?: ProviderId; price?: string }
+      | undefined;
+    if (!route || route.error || route.price !== "current") return false;
+    return route.provider === "anthropic"
+      ? status.anthropicKeyConfigured
+      : status.textKeyConfigured;
+  });
+}
+
 /**
  * The provider budgets and model registry of the project, for the budget
  * check inside `reserve`: one row read, no key decrypted.
