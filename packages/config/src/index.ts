@@ -144,6 +144,10 @@ const baseConfigSchema = z.object({
   ORBIT_MCP_PROJECT_ADMINISTRATION: unset(
     z.enum(["false", "true"]).default("false"),
   ),
+  // AI key rule (plan decision E-1b): "true" uses an environment key only
+  // for a project without saved AI settings, for every provider. "false"
+  // keeps the rule of before (the Anthropic environment key always applies).
+  ORBIT_AI_KEY_RULE_V2: z.enum(["false", "true"]).default("false"),
   // Where the AI spending authority is read from (ADR 0015): "platform" uses
   // an active ai_spend_policies record and falls back to the budget fields
   // of the Marketing policy; "marketing" ignores the platform record (rollback).

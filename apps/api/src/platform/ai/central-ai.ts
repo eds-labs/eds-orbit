@@ -148,8 +148,9 @@ export async function centralRouteVersion(
  * project fields first, then the organization profile, the system profile
  * and the environment. `project` carries only the keys the project saved
  * itself. Keys: the project's own, else a granted connection, else the
- * environment rule of before (OpenAI only without a project row,
- * Anthropic always).
+ * environment: without a project row only, for every provider under key
+ * rule v2 (E-1b); otherwise the rule of before (OpenAI only without a
+ * project row, Anthropic always).
  */
 export async function withCentralAi(
   tx: DbTx,
@@ -157,6 +158,7 @@ export async function withCentralAi(
   project: OpenAiRuntimeConfig | null,
   environment: OpenAiRuntimeConfig,
   projectVersion: number | null,
+  keyRuleV2 = false,
 ): Promise<OpenAiRuntimeConfig | null> {
   const l = await layer(tx, scope);
   if (!l) return null;
@@ -205,7 +207,7 @@ export async function withCentralAi(
   merged.anthropicApiKey = await key(
     project?.anthropicApiKey,
     l.keys.anthropic,
-    environment.anthropicApiKey,
+    project && keyRuleV2 ? undefined : environment.anthropicApiKey,
     "anthropic",
   );
   merged.keySources = sources;

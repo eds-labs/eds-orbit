@@ -68,6 +68,9 @@ x-api-environment: &api-environment
   ORBIT_TELEGRAM: ${ORBIT_TELEGRAM:-}
   # Where the AI spending authority is read (ADR 0015): platform, or marketing to roll back.
   ORBIT_SPEND_POLICY_SOURCE: ${ORBIT_SPEND_POLICY_SOURCE:-platform}
+  # AI key rule v2 (E-1b): environment keys only for unsaved projects; run
+  # scripts/ai-key-rule-report.ts before turning it on.
+  ORBIT_AI_KEY_RULE_V2: ${ORBIT_AI_KEY_RULE_V2:-false}
   # Customer context from external products (ADR 0011); per-inbox binding.
   ORBIT_CUSTOMER_CONTEXT: ${ORBIT_CUSTOMER_CONTEXT:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.

@@ -269,7 +269,7 @@ export function anthropicSuggestions() {
  * follows the runtime's rule without central connections
  * (`runtimeOpenAiConfiguration`): once a configuration is saved, the
  * environment OpenAI key is no longer used, so it does not count here
- * either; the environment Anthropic key still does.
+ * either; the environment Anthropic key still does, until key rule v2.
  */
 function providerStatus(
   fallback: OpenAiRuntimeConfig,
@@ -278,18 +278,20 @@ function providerStatus(
   const source = (orbit: boolean, environment: boolean) =>
     orbit ? "orbit" : environment ? "environment" : "none";
   const environmentOpenAi = !value && Boolean(fallback.apiKey);
+  // Under key rule v2 the Anthropic environment key also ends with a save.
+  const environmentAnthropic =
+    (!value || !aiKeyRuleV2()) && Boolean(fallback.anthropicApiKey);
   return {
     openai: {
       keyConfigured: Boolean(value?.encryptedApiKey) || environmentOpenAi,
       source: source(Boolean(value?.encryptedApiKey), environmentOpenAi),
     },
     anthropic: {
-      keyConfigured: Boolean(
-        value?.encryptedAnthropicApiKey || fallback.anthropicApiKey,
-      ),
+      keyConfigured:
+        Boolean(value?.encryptedAnthropicApiKey) || environmentAnthropic,
       source: source(
         Boolean(value?.encryptedAnthropicApiKey),
-        Boolean(fallback.anthropicApiKey),
+        environmentAnthropic,
       ),
     },
   };
@@ -427,9 +429,14 @@ export async function openAiConfigurationVersion(
   return centralRouteVersion(tx, scope, row?.version ?? null);
 }
 
+/** Key rule v2 (E-1b): the environment is a bootstrap for unsaved projects only. */
+export const aiKeyRuleV2 = () => loadConfig().ORBIT_AI_KEY_RULE_V2 === "true";
+
 export async function runtimeOpenAiConfiguration(
   tx: DbTx,
   scope: Scope,
+  // The key rule to apply; the dry-run report compares both.
+  keyRuleV2 = aiKeyRuleV2(),
 ): Promise<OpenAiRuntimeConfig> {
   const row = await configurationRow(tx, scope);
   const environment = environmentRuntimeConfig();
@@ -466,13 +473,18 @@ export async function runtimeOpenAiConfiguration(
     project,
     environment,
     row?.version ?? null,
+    keyRuleV2,
   );
   if (central) return central;
   if (!project) return environment;
-  // The saved key wins; the environment Anthropic key is the bootstrap fallback.
+  // The saved key wins. Before key rule v2 the environment Anthropic key
+  // stays a fallback even after a save; with it, saved settings use only
+  // their own keys.
   return {
     ...project,
-    anthropicApiKey: project.anthropicApiKey ?? environment.anthropicApiKey,
+    anthropicApiKey:
+      project.anthropicApiKey ??
+      (keyRuleV2 ? undefined : environment.anthropicApiKey),
   };
 }
 
@@ -483,8 +495,12 @@ export async function runtimeOpenAiConfiguration(
  * model view use it, so a project served by central keys counts as
  * configured.
  */
-export async function effectiveAiStatus(tx: DbTx, scope: Scope) {
-  const runtime = await runtimeOpenAiConfiguration(tx, scope);
+export async function effectiveAiStatus(
+  tx: DbTx,
+  scope: Scope,
+  keyRuleV2 = aiKeyRuleV2(),
+) {
+  const runtime = await runtimeOpenAiConfiguration(tx, scope, keyRuleV2);
   const imageGeneration = imageGenerationConfigurationSchema.parse(
     runtime.imageGeneration ?? {},
   );
@@ -542,6 +558,14 @@ export async function effectiveAiStatus(tx: DbTx, scope: Scope) {
     }),
     routeVersion: runtime.routeVersion ?? null,
   };
+}
+
+/** Whether a granted central connection serves any of the project's keys. */
+async function grantedAnyKey(tx: DbTx, scope: Scope) {
+  const status = await effectiveAiStatus(tx, scope).catch(() => null);
+  return Boolean(
+    status && Object.values(status.keySources).includes("connection"),
+  );
 }
 
 /** Task classes whose route decides whether chat and text drafting can run. */
@@ -631,12 +655,15 @@ export async function saveOpenAiConfiguration(
   const input = openAiConfigurationInput.parse(raw);
   const current = await configurationRow(tx, scope);
   const currentValue = current ? stored(current) : null;
+  // A first save ends the environment fallback for OpenAI (and, under key
+  // rule v2, for Anthropic too): it needs a key the project keeps using.
   if (
     !current &&
     !input.apiKey &&
     !input.imageApiKey &&
     !options.grantedKey &&
-    !environmentRuntimeConfig().anthropicApiKey
+    (aiKeyRuleV2() || !environmentRuntimeConfig().anthropicApiKey) &&
+    !(await grantedAnyKey(tx, scope))
   )
     throw new DomainError("OPENAI_API_KEY_REQUIRED");
   // A model that leaves the verified list must not stay in a saved Anthropic tier.
@@ -722,8 +749,10 @@ export async function saveAiProviderConfiguration(
   if (
     !current &&
     !encryptedAnthropicApiKey &&
-    !environmentRuntimeConfig().anthropicApiKey &&
-    !environmentRuntimeConfig().apiKey
+    (aiKeyRuleV2()
+      ? !(await grantedAnyKey(tx, scope))
+      : !environmentRuntimeConfig().anthropicApiKey &&
+        !environmentRuntimeConfig().apiKey)
   )
     throw new DomainError("ANTHROPIC_API_KEY_REQUIRED");
   const base = currentValue ?? {
