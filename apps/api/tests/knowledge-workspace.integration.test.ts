@@ -561,6 +561,40 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     );
     expect(await proposals()).toHaveLength(0);
   });
+  it("keeps the proposals with exact quotes and drops the others", async () => {
+    const { job } = await paidSource();
+    const stored = async () =>
+      data(await run((tx) => entity(tx, s, "knowledge_runs", job.id)));
+    const snap = (await stored()).snapshot;
+    const line = String(snap.files[0].text).split("\n")[0];
+    const proposal = (quote: string, statement: string) => ({
+      statement,
+      topic: "features",
+      stage: "documented",
+      reason: "Claim",
+      evidence: { path: snap.files[0].path, startLine: 1, endLine: 1, quote },
+    });
+    vi.mocked(respond).mockResolvedValue({
+      output: [
+        {
+          type: "message",
+          content: [
+            {
+              type: "output_text",
+              text: JSON.stringify({
+                proposals: [proposal(line, "Exact"), proposal("not in the source", "Inexact")],
+              }),
+            },
+          ],
+        },
+      ],
+      usage: { model: "gpt-5.6-terra", inputTokens: 20, outputTokens: 20, costMicros: 50 },
+      responseId: "synthetic-response",
+    } as any);
+    expect((await runAnalysis(s, job.id)).errorCode).toBeNull();
+    expect((await proposals()).map((p: any) => data(p).statement)).toEqual(["Exact"]);
+    expect((await stored()).droppedProposals).toBe(1);
+  });
   it("reads only an unexpired preview for the unchanged draft", async () => {
     const draft = await saveDraft(s, manual());
     const preview = await previewDraft(s, { draftId: draft.id });
