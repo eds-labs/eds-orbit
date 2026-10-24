@@ -25,6 +25,8 @@
 | CI09 Central Postiz channels assigned to projects, each channel to exactly one project | `connections/channel-assignment.ts`, `assignedPostizChannels`, migration carries channels; `channel-assignment.integration.test.ts`, migration test | PASS_TEST (local; not live) |
 | PC01 Project configuration readable and changeable over MCP only with owner approval, version lock and idempotency | `platform/configuration/configuration.ts`, `marketing/brand/configuration-section.ts`; `project-configuration-mcp.integration.test.ts` | PASS_TEST (local; flags off) |
 | PC02 Presale fields required only where presale campaigns are enabled | `enabledCampaignTypes`, `marketingProfileRequirements` (`packages/schemas`), `assertCampaignContext`; MCP test, `profile-fields.test.tsx` | PASS_TEST (local) |
+| PA01 Marketing policy, AI models, integrations and RAG evaluation administrable over MCP only with exact owner approval, version lock and idempotency; no secrets, no publishing | `marketing/policy/policy-admin.ts`, `platform/ai/mcp-tools.ts`, `marketing/publishing/integrations-admin.ts`, `knowledge/evaluation-tools.ts`; `project-administration-mcp.integration.test.ts` | PASS_TEST (local; flag off) |
+| PA02 Readiness blockers structured with cause, fix and resolution; central AI keys and bound Postiz channels count | `marketing/readiness/readiness-admin.ts`, `readiness.ts`, `effectiveAiStatus`; same test | PASS_TEST (local) |
 
 ## Finance module phase 1 (2026-10-23)
 

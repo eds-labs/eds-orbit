@@ -432,6 +432,74 @@ export async function runtimeOpenAiConfiguration(
 }
 
 /**
+ * What the project's calls would use now, with the central profiles and
+ * granted keys applied (ADR 0014), as presence flags and models only: the
+ * keys are read and dropped here, never returned. Readiness and the MCP
+ * model view use it, so a project served by central keys counts as
+ * configured.
+ */
+export async function effectiveAiStatus(tx: DbTx, scope: Scope) {
+  const runtime = await runtimeOpenAiConfiguration(tx, scope);
+  const imageGeneration = imageGenerationConfigurationSchema.parse(
+    runtime.imageGeneration ?? {},
+  );
+  const row = await configurationRow(tx, scope);
+  const own = row ? stored(row) : null;
+  const source = (
+    key: "openai" | "image" | "anthropic",
+    present: boolean,
+    ownKey: boolean,
+  ) =>
+    !present
+      ? "none"
+      : ownKey
+        ? "project"
+        : runtime.keySources?.[key]
+          ? "connection"
+          : "environment";
+  return {
+    textKeyConfigured: Boolean(runtime.apiKey),
+    imageKeyConfigured: Boolean(runtime.imageApiKey || runtime.apiKey),
+    anthropicKeyConfigured: Boolean(runtime.anthropicApiKey),
+    keySources: {
+      openai: source("openai", Boolean(runtime.apiKey), Boolean(own?.encryptedApiKey)),
+      image: source(
+        "image",
+        Boolean(runtime.imageApiKey),
+        Boolean(own?.encryptedImageApiKey),
+      ),
+      anthropic: source(
+        "anthropic",
+        Boolean(runtime.anthropicApiKey),
+        Boolean(own?.encryptedAnthropicApiKey),
+      ),
+    },
+    // The granted connections the keys come from, by id (no secret).
+    keyConnections: runtime.keySources ?? {},
+    verifiedModels: runtime.verifiedModels ?? [],
+    rateCard: runtime.rateCard ?? {},
+    modelRoutes: runtime.modelRoutes ?? modelRoutes,
+    taskRoutes: runtime.taskRoutes ?? {},
+    anthropicTierRoutes: runtime.anthropicTierRoutes ?? null,
+    defaultProvider: runtime.defaultProvider ?? "openai",
+    models: runtime.models ?? {},
+    providerBudgets: runtime.providerBudgets ?? {},
+    fallback: runtime.fallback ?? { onProviderBudgetStop: "none" },
+    imageGeneration,
+    effectiveRoutes: effectiveRoutes({
+      verifiedModels: runtime.verifiedModels ?? [],
+      modelRoutes: runtime.modelRoutes ?? modelRoutes,
+      taskRoutes: runtime.taskRoutes,
+      rateCard: runtime.rateCard ?? {},
+      models: runtime.models,
+      defaultProvider: runtime.defaultProvider,
+      anthropicTierRoutes: runtime.anthropicTierRoutes,
+    }),
+    routeVersion: runtime.routeVersion ?? null,
+  };
+}
+
+/**
  * The provider budgets and model registry of the project, for the budget
  * check inside `reserve`: one row read, no key decrypted.
  */
@@ -449,6 +517,8 @@ export async function saveOpenAiConfiguration(
   tx: DbTx,
   scope: Scope,
   raw: unknown,
+  // A granted central connection supplies the key (ADR 0014); the caller checked it.
+  options: { grantedKey?: boolean } = {},
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = openAiConfigurationInput.parse(raw);
@@ -458,6 +528,7 @@ export async function saveOpenAiConfiguration(
     !current &&
     !input.apiKey &&
     !input.imageApiKey &&
+    !options.grantedKey &&
     !environmentRuntimeConfig().anthropicApiKey
   )
     throw new DomainError("OPENAI_API_KEY_REQUIRED");

@@ -33,7 +33,8 @@ export type ToolFeature =
   | "content_packages"
   | "agents"
   | "mcp_tasks"
-  | "project_configuration";
+  | "project_configuration"
+  | "project_administration";
 export type ToolContext = {
   scope: Scope;
   runId: string;

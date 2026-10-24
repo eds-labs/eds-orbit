@@ -216,11 +216,13 @@ describe.skipIf(!enabled)("Module activation enforcement", () => {
     // The knowledge services are the platform's: the assistant still searches.
     const on = await run((tx) => enabledModules(tx, scope));
     expect([...on!]).toEqual([]);
-    // The platform's own tools stay (the configuration tools are listed
-    // only with their feature flag); no module tool remains.
+    // The platform's own tools stay (the configuration and AI model tools
+    // are listed only with their feature flags); no module tool remains.
     expect(registeredTools(on).map((tool) => tool.name)).toEqual([
       "project_configuration_get",
       "project_configuration_update",
+      "ai_models_get",
+      "ai_models_update",
       "knowledge_search",
     ]);
     expect(registeredToolOwner("knowledge_search")).toBe("platform");

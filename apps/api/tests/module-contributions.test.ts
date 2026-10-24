@@ -56,7 +56,10 @@ describe("module contributions", () => {
       registeredTools()
         // Feature-gated MCP tools are off by default and not chat tools.
         .filter(
-          (t) => t.feature !== "mcp_tasks" && t.feature !== "project_configuration",
+          (t) =>
+            t.feature !== "mcp_tasks" &&
+            t.feature !== "project_configuration" &&
+            t.feature !== "project_administration",
         )
         .map((t) => t.name),
     ).toEqual(chatTools.map((t) => t.name));

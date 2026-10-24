@@ -98,11 +98,12 @@ export function isAssignedPostizChannel(
   );
 }
 
-export async function assertAssignedSocialChannels(
-  tx: DbTx,
-  scope: Scope,
-  integrationIds: string[],
-) {
+/**
+ * The Postiz channels the project may use now: assigned on a verified
+ * connection, and for a bound connection also held by the project's current
+ * grant. One entry per channel id.
+ */
+export async function assignedSocialChannels(tx: DbTx, scope: Scope) {
   const connectors = (await list(tx, scope, "connectors")).filter(
     (row) =>
       data(row).provider === "postiz" && connectionVerified(data(row).status),
@@ -111,19 +112,29 @@ export async function assertAssignedSocialChannels(
   const granted = connectors.some((row) => data(row).centralConnectionId)
     ? await grantedConnections(tx, scope, { provider: "postiz" })
     : [];
+  const channels = new Map<string, Record<string, any>>();
+  for (const row of connectors) {
+    const central = data(row).centralConnectionId;
+    const grant = central
+      ? granted.find((g) => g.connection.id === central)
+      : undefined;
+    const held = Array.isArray(grant?.grant.settings.channels)
+      ? (grant!.grant.settings.channels as string[])
+      : [];
+    for (const channel of assignedPostizChannels(data(row)))
+      if ((!central || held.includes(channel.id)) && !channels.has(channel.id))
+        channels.set(channel.id, channel);
+  }
+  return [...channels.values()];
+}
+
+export async function assertAssignedSocialChannels(
+  tx: DbTx,
+  scope: Scope,
+  integrationIds: string[],
+) {
   const assigned = new Set(
-    connectors.flatMap((row) => {
-      const central = data(row).centralConnectionId;
-      const grant = central
-        ? granted.find((g) => g.connection.id === central)
-        : undefined;
-      const held = Array.isArray(grant?.grant.settings.channels)
-        ? (grant!.grant.settings.channels as string[])
-        : [];
-      return assignedPostizChannels(data(row))
-        .map((channel: any) => channel.id)
-        .filter((id: string) => !central || held.includes(id));
-    }),
+    (await assignedSocialChannels(tx, scope)).map((channel) => channel.id),
   );
   if (integrationIds.some((id) => !assigned.has(id)))
     throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);

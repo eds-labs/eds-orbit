@@ -135,6 +135,12 @@ const baseConfigSchema = z.object({
   ORBIT_MCP_PROJECT_CONFIGURATION: unset(
     z.enum(["false", "true"]).default("false"),
   ),
+  // Project administration over MCP (docs/MCP_PROJECT_ADMINISTRATION.md):
+  // Marketing policy, AI models, integrations, knowledge evaluation and
+  // readiness; changes also need proposals and an owner's approval.
+  ORBIT_MCP_PROJECT_ADMINISTRATION: unset(
+    z.enum(["false", "true"]).default("false"),
+  ),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.

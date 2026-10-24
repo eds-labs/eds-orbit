@@ -1,3 +1,4 @@
+import { queueIndexBuild } from "./evaluation-tools.ts";
 import {
   saveProfile,
   saveDraft,
@@ -35,7 +36,7 @@ import {
   type ActionHandler,
 } from "../../platform/http/actions.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
-import { create, data, DomainError, entity } from "../../shared.ts";
+import { create, data, entity } from "../../shared.ts";
 import { retrieveHybrid } from "../../platform/knowledge/retrieval.ts";
 import {
   queueIndexEvaluation,
@@ -138,28 +139,9 @@ export const knowledgeActions: Record<string, ActionHandler> = {
   "begin-index": sharedTransaction((tx, { scope, input }) =>
     beginIndexBuild(tx, scope, z.string().max(200).parse(input.profile)),
   ),
-  "build-index": sharedTransaction(async (tx, { scope, input }) => {
-    const indexId = schemas.id.parse(input.indexId);
-    const index = await tx.knowledgeIndex.findFirst({
-      where: { id: indexId, projectId: scope.projectId },
-    });
-    if (!index || index.state !== "building")
-      throw new DomainError("INDEX_NOT_BUILDING");
-    const count = await tx.chunkEmbedding.count({
-      where: {
-        projectId: scope.projectId,
-        profile: index.profile,
-        indexGeneration: index.generation,
-      },
-    });
-    return enqueue(
-      tx,
-      scope,
-      "reindex",
-      index.id,
-      "reindex:" + index.id + ":" + count,
-    );
-  }),
+  "build-index": sharedTransaction((tx, { scope, input }) =>
+    queueIndexBuild(tx, scope, schemas.id.parse(input.indexId)),
+  ),
   "activate-index": sharedTransaction((tx, { scope, input }) =>
     activateIndexGeneration(tx, scope, schemas.id.parse(input.indexId)),
   ),

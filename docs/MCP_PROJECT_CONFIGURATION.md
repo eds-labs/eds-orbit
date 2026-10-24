@@ -1,6 +1,6 @@
 # Project configuration over MCP
 
-The plan and decisions are in `plans/project-configuration-mcp.md`.
+The plan and decisions are in `plans/project-configuration-mcp.md`. Marketing policy, AI models, integrations, knowledge evaluation and readiness over MCP are in [project administration over MCP](MCP_PROJECT_ADMINISTRATION.md).
 
 ## Tools
 

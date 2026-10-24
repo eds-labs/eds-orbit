@@ -1,5 +1,9 @@
 import { runAnalysis } from "./workspace.ts";
 import { knowledgeMcpTools, knowledgeMcpActions } from "./mcp-tools.ts";
+import {
+  knowledgeEvaluationActionTypes,
+  knowledgeEvaluationTools,
+} from "./evaluation-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { knowledgeActions } from "./actions.ts";
 import { knowledgeRoutes } from "./routes.ts";
@@ -22,8 +26,9 @@ export const knowledgeContributions: ModuleContributions = {
     },
   ],
   actions: knowledgeActions,
-  tools: knowledgeMcpTools,
-  actionTypes: knowledgeMcpActions,
+  // The live RAG evaluation over MCP (docs/MCP_PROJECT_ADMINISTRATION.md).
+  tools: [...knowledgeMcpTools, ...knowledgeEvaluationTools],
+  actionTypes: { ...knowledgeMcpActions, ...knowledgeEvaluationActionTypes },
   actionPermissions: knowledgeActionPermissions,
   routes: knowledgeRoutes,
   // Stale and expiring sources, conflicts and failed imports that need the

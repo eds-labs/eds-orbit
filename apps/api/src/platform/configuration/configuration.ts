@@ -26,6 +26,9 @@ import type { ConfigurationSection } from "./types.ts";
 
 export const projectConfigurationEnabled = () =>
   loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true";
+/** Project administration over MCP (docs/MCP_PROJECT_ADMINISTRATION.md). */
+export const projectAdministrationEnabled = () =>
+  loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true";
 
 async function sections(tx: DbTx, scope: Scope) {
   return registeredConfigurationSections(await enabledModules(tx, scope));

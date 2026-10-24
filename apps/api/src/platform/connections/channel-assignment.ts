@@ -298,3 +298,183 @@ async function mirror(
     return true;
   });
 }
+
+/**
+ * The connection actor a user is in an organization: a system
+ * administrator, else an owner of it; null for everyone else.
+ */
+export async function organizationActor(
+  userId: string,
+  workspaceId: string,
+): Promise<ConnectionActor | null> {
+  const user = await authDb.user.findFirst({
+    where: { id: userId, role: "admin", banned: false },
+    select: { id: true },
+  });
+  if (user) return { userId, role: "admin" };
+  const owner = await authDb.workspaceMember.findFirst({
+    where: { workspaceId, userId, role: "owner" },
+    select: { userId: true },
+  });
+  return owner ? { userId, role: "owner", workspaceId } : null;
+}
+
+/**
+ * The central channel connections an organization manager could give this
+ * project channels of, with each channel's holder: this project, another
+ * project (never offered), or free. Empty for other members.
+ */
+export async function projectChannelOptions(scope: Scope) {
+  const actor = await organizationActor(scope.userId, scope.workspaceId);
+  if (!actor) return [];
+  const candidates = await authDb.connection.findMany({
+    where: {
+      revokedAt: null,
+      OR: [
+        { scope: "workspace", workspaceId: scope.workspaceId },
+        {
+          scope: "system",
+          grants: {
+            some: { workspaceId: scope.workspaceId, projectId: null, revokedAt: null },
+          },
+        },
+      ],
+    },
+  });
+  const out = [];
+  for (const connection of candidates) {
+    if (!registeredConnectionProvider(connection.provider)?.channelAssignment) continue;
+    try {
+      await assignable(authDb, actor, connection.id, scope.workspaceId);
+    } catch {
+      continue;
+    }
+    const grants = await authDb.connectionGrant.findMany({
+      where: { connectionId: connection.id, projectId: { not: null }, revokedAt: null },
+      select: { projectId: true, settings: true },
+    });
+    const holder = new Map<string, string>();
+    for (const g of grants)
+      for (const id of grantChannels(g.settings)) holder.set(id, g.projectId!);
+    out.push({
+      connectionId: connection.id,
+      provider: connection.provider,
+      label: connection.label,
+      status: connection.status,
+      disabled: Boolean(connection.disabledAt),
+      cutover: cutoverEnabled(connection.provider),
+      channels: channelsOf(connection.health).map((c) => ({
+        id: c.id,
+        name: c.name,
+        platform: c.identifier,
+        disabled: c.disabled,
+        holder: !holder.has(c.id)
+          ? "free"
+          : holder.get(c.id) === scope.projectId
+            ? "this_project"
+            : "other_project",
+      })),
+    });
+  }
+  return out;
+}
+
+/**
+ * Gives the project more channels of a central connection from inside its
+ * own transaction (MCP administration): free channels or the project's own
+ * only, never another project's. The grant is widened first under the
+ * connection's lock, then the project's bound connection mirrors it, so a
+ * failure leaves the project with no more than it holds.
+ */
+export async function grantChannelsToProject(
+  tx: DbTx,
+  scope: Scope,
+  actor: ConnectionActor,
+  connectionId: string,
+  channelIds: string[],
+) {
+  const workspaceId = scope.workspaceId;
+  const { connection } = await assignable(authDb, actor, connectionId, workspaceId);
+  if (!cutoverEnabled(connection.provider))
+    throw new DomainError("CUTOVER_NOT_ENABLED", 409);
+  if (connection.disabledAt) throw new DomainError("CONNECTION_DISABLED", 409);
+  const catalog = channelsOf(connection.health);
+  const usable = new Set(catalog.filter((c) => !c.disabled).map((c) => c.id));
+  if (channelIds.some((id) => !usable.has(id)))
+    throw new DomainError("CHANNEL_UNKNOWN", 409);
+  let channels: string[] = [];
+  await authDb.$transaction(async (atx) => {
+    await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`channels:${connection.id}`}))`;
+    const { orgGrant } = await assignable(atx, actor, connection.id, workspaceId);
+    const grants = await atx.connectionGrant.findMany({
+      where: { connectionId: connection.id, projectId: { not: null }, revokedAt: null },
+    });
+    const own = grants.find(
+      (g) => g.workspaceId === workspaceId && g.projectId === scope.projectId,
+    );
+    const taken = new Set(
+      grants.filter((g) => g !== own).flatMap((g) => grantChannels(g.settings)),
+    );
+    if (channelIds.some((id) => taken.has(id)))
+      throw new DomainError("CHANNEL_ASSIGNED_ELSEWHERE", 409);
+    channels = [...new Set([...grantChannels(own?.settings), ...channelIds])].sort();
+    if (own)
+      await atx.connectionGrant.update({
+        where: { id: own.id },
+        data: { settings: { ...(own.settings as object), channels } },
+      });
+    else
+      await atx.connectionGrant.create({
+        data: {
+          connectionId: connection.id,
+          workspaceId,
+          projectId: scope.projectId,
+          parentGrantId: orgGrant?.id ?? null,
+          settings: { channels },
+          createdBy: actor.userId,
+        },
+      });
+    await systemAudit(
+      {
+        actorId: actor.userId,
+        action: "connection.channels_assigned",
+        targetType: "connection",
+        targetId: connection.id,
+        workspaceId,
+        metadata: { projects: 1, channels: channels.length, source: "mcp" },
+      },
+      atx,
+    );
+  });
+  const fields = {
+    channels: catalog.filter((c) => channels.includes(c.id)),
+    allowedChannelIds: channels,
+  };
+  const row = (await list(tx, scope, CONNECTION_KIND)).find(
+    (r) => data(r).centralConnectionId === connection.id,
+  );
+  if (row) {
+    await update(tx, scope, row, { ...data(row), ...fields });
+    await audit(tx, scope, "connector.channels_assigned", row.id, {
+      connectionId: connection.id,
+      channels,
+    });
+    return { connectorId: row.id, connectionId: connection.id, channels };
+  }
+  const def = registeredConnectionProvider(connection.provider)!;
+  await assertModuleEnabled(tx, scope, (def as { owner?: string }).owner ?? "");
+  const created = await create(tx, scope, CONNECTION_KIND, {
+    ...(connection.config as object),
+    provider: connection.provider,
+    centralConnectionId: connection.id,
+    status: connectionVerified(connection.status) ? "read_verified" : "configured",
+    capabilities: [],
+    ...fields,
+  });
+  await audit(tx, scope, "connector.attached", created.id, {
+    provider: connection.provider,
+    connectionId: connection.id,
+    channels,
+  });
+  return { connectorId: created.id, connectionId: connection.id, channels };
+}

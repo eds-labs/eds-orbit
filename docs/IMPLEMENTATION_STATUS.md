@@ -35,6 +35,22 @@ Risk: medium-high (retrieval eligibility of the MCP surface; evidence validation
 - Root and web typecheck, boundaries, Next build.
 
 Production: after deploy the owner sets the FamilyPlan source to `official` (freshness 8760 h); no migration.
+## Project administration over MCP (2026-10-24, local; not pushed, flag off)
+
+- **MCP tools** (see `docs/MCP_PROJECT_ADMINISTRATION.md`):
+  - Reads (`orbit:read`): `marketing_policy_get`, `ai_models_get`, `integrations_get`, `knowledge_evaluation_get`, `project_readiness_get`.
+  - Owner proposals (`orbit:propose`, executed only after approval in Orbit): `marketing_policy_update`, `ai_models_update`, `integrations_configure`, `knowledge_evaluate`.
+  - The owner-only read check `integration_verify`.
+- **Safety:**
+  - Every proposal stores and re-checks the exact settings it changes (`approvalContext.changes`), with a version lock and an idempotency key.
+  - Policies over MCP are `observe` or `assisted` (`human_each`), never autopilot.
+  - Only verified, catalogued or profile-priced models can be selected; no keys pass through MCP.
+  - Postiz write verification (a real post) stays in Orbit.
+- **Readiness fixes:** it now reads the effective AI configuration (central profiles and granted keys), so projects on central keys no longer report `VERIFIED_OPENAI_MODELS_REQUIRED` and image blockers wrongly. Bound Postiz connections count their organization-assigned channels.
+- **Shared services:** the policy save, connector attach/check and index build moved into functions shared by Orbit and MCP, unchanged.
+- **Flag:** `ORBIT_MCP_PROJECT_ADMINISTRATION` (default off); proposals also need `ORBIT_MCP_PROPOSALS`. No migration.
+- **Tests:** `project-administration-mcp.integration.test.ts` (9 cases, FamilyPlan-like project on central Postiz, Matomo and OpenAI connections).
+
 ## Project configuration over MCP, campaign-type fields (2026-10-23, local; not pushed, flags off)
 
 - **MCP tools:** `project_configuration_get` (`orbit:read`) and `project_configuration_update` (`orbit:propose`, owners, executed only after owner approval). See `docs/MCP_PROJECT_CONFIGURATION.md` and `plans/project-configuration-mcp.md`.

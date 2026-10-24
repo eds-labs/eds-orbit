@@ -455,6 +455,8 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
     if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
       features.push("project_configuration");
+    if (loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
+      features.push("project_administration");
     // Each tool is offered by the member's role in the tool's module.
     // Tools meant for outside clients only (exposure.assistant: false) never appear.
     let offered = registeredTools(enabled).filter((tool) => {

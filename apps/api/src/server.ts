@@ -112,7 +112,6 @@ import { clientIp, pinClientIpHeader } from "./client-ip.ts";
 import {
   data,
   create,
-  update,
   entity,
   list,
   publicEntity,
@@ -121,6 +120,7 @@ import {
   audit,
 } from "./shared.ts";
 import { activePolicy } from "./modules/policy.ts";
+import { savePolicy } from "./modules/marketing/policy/policy-admin.ts";
 import {
   assertCampaignContext,
   assertContentCampaignContext,
@@ -1323,23 +1323,10 @@ export async function buildServer(
         };
         await entity(tx, scope, "evidence", parsed.evidenceId);
         await assertContentCampaignContext(tx, scope, parsed);
-      } else if (collection === "policies") {
-        parsed = schemas.policy.parse(req.body);
-
-        for (const p of await list(tx, scope, "policies"))
-          if (data(p).active)
-            await update(tx, scope, p, { ...data(p), active: false });
-        parsed = {
-          ...parsed,
-          active: true,
-          activatedBy: scope.userId,
-          activatedAt: new Date().toISOString(),
-        };
-        await tx.project.update({
-          where: { id: projectId },
-          data: { mode: parsed.mode },
-        });
-      } else if (collection === "metrics") {
+      } else if (collection === "policies")
+        // The same save path as the MCP policy update.
+        return savePolicy(tx, scope, req.body);
+      else if (collection === "metrics") {
         parsed = schemas.metric.parse(req.body);
         const old = (await list(tx, scope, "metrics")).find(
           (x) =>
@@ -1358,18 +1345,6 @@ export async function buildServer(
           : null;
       const row = await create(tx, scope, collection, parsed);
       if (hold) await commitTopic(tx, scope, hold, row.id);
-      if (
-        collection === "policies" &&
-        parsed.mode === "autopilot" &&
-        config.EXECUTION_MODE === "live"
-      ) {
-        const state = await projectReadiness(tx, scope);
-        if (state.blockers.length)
-          throw new DomainError(
-            "LIVE_ACTIVATION_BLOCKED:" + state.blockers.join(","),
-            409,
-          );
-      }
       await audit(tx, scope, collection + ".create", row.id);
       return row;
     });

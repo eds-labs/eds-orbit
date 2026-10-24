@@ -1,5 +1,11 @@
 import { marketingConfigurationSection } from "./brand/configuration-section.ts";
 import { marketingMcpTools, marketingMcpActions } from "./mcp-tools.ts";
+import { policyAdminActionTypes, policyAdminTools } from "./policy/policy-admin.ts";
+import {
+  integrationAdminActionTypes,
+  integrationAdminTools,
+} from "./publishing/integrations-admin.ts";
+import { readinessAdminTools } from "./readiness/readiness-admin.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { chatTools } from "./tools/index.ts";
 import { marketingActionTypes } from "./action-types.ts";
@@ -32,8 +38,21 @@ import { marketingAttention, marketingAttentionStatus } from "./attention.ts";
  */
 export const marketingContributions: ModuleContributions = {
   // Every assistant tool Orbit has today, in the order the chat offered them.
-  tools: [...chatTools, ...marketingMcpTools],
-  actionTypes: {...marketingActionTypes, ...marketingMcpActions},
+  // Then the MCP tools, and the project administration over MCP
+  // (docs/MCP_PROJECT_ADMINISTRATION.md).
+  tools: [
+    ...chatTools,
+    ...marketingMcpTools,
+    ...policyAdminTools,
+    ...integrationAdminTools,
+    ...readinessAdminTools,
+  ],
+  actionTypes: {
+    ...marketingActionTypes,
+    ...marketingMcpActions,
+    ...policyAdminActionTypes,
+    ...integrationAdminActionTypes,
+  },
   jobs: marketingJobs,
   scheduler: marketingScheduler,
   hooks: marketingHooks,

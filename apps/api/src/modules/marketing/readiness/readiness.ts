@@ -2,17 +2,55 @@ import { validateActiveIndexEvaluation } from "../../../../../../packages/knowle
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
-import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
-import { publicOpenAiConfiguration } from "../../openai-configuration.ts";
+import {
+  assignedPostizChannels,
+  isAssignedPostizChannel,
+} from "../publishing/postiz-assignment.ts";
+import {
+  effectiveAiStatus,
+  publicOpenAiConfiguration,
+} from "../../../platform/ai/openai-configuration.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { actionReadiness } from "./action-readiness.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
-import { imagePriceConfigured } from "../../../../../../packages/ai/src/index.ts";
+import {
+  imageGenerationConfigurationSchema,
+  imagePriceConfigured,
+} from "../../../../../../packages/ai/src/index.ts";
 import {
   driveReconnectRequired,
   publishingUsesDriveAssets,
 } from "../brand/drive-readiness.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
+/**
+ * The effective AI status; when a stored key cannot be opened (after a key
+ * rotation, say), the project's own presence flags as before, so readiness
+ * still answers and reports the models missing instead of failing.
+ */
+async function aiStatus(tx: DbTx, scope: Scope) {
+  try {
+    return await effectiveAiStatus(tx, scope);
+  } catch {
+    const own = publicOpenAiConfiguration(
+      await tx.entity.findFirst({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind: "openai_configuration",
+        },
+      }),
+    );
+    return {
+      textKeyConfigured: own.textKeyConfigured,
+      imageKeyConfigured: own.imageKeyConfigured,
+      anthropicKeyConfigured: own.providers.anthropic.keyConfigured,
+      verifiedModels: own.verifiedModels,
+      imageGeneration: imageGenerationConfigurationSchema.parse(
+        own.imageGeneration ?? {},
+      ),
+    };
+  }
+}
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
@@ -50,16 +88,15 @@ export async function readiness(tx: DbTx, scope: Scope) {
       p.monthlyBudgetMicros > 0 &&
       p.perRunBudgetMicros > 0,
     );
-  const openAi = publicOpenAiConfiguration(
-      await tx.entity.findFirst({
-        where: {
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          kind: "openai_configuration",
-        },
-      }),
+  // What calls would use now, central profiles and granted keys included
+  // (ADR 0014); presence flags only.
+  const openAi = await aiStatus(tx, scope),
+    model = Boolean(
+      (openAi.textKeyConfigured ||
+        openAi.imageKeyConfigured ||
+        openAi.anthropicKeyConfigured) &&
+        openAi.verifiedModels.length,
     ),
-    model = Boolean(openAi.configured && openAi.verifiedModels.length),
     evaluation = await validateActiveIndexEvaluation(tx, scope),
     evals = evaluation.valid;
   const publisher = connectors.find(
@@ -101,13 +138,14 @@ export async function readiness(tx: DbTx, scope: Scope) {
     ...(drivePublishing ? ["GOOGLE_DRIVE_RECONNECT_REQUIRED"] : []),
     ...(project.paused ? ["PROJECT_PAUSED"] : []),
   ];
-  const image = openAi.imageGeneration ?? {};
+  const image = openAi.imageGeneration;
   const config = loadConfig();
   const postizConnector = connectors.find((c) => data(c).provider === "postiz");
   const postiz =
     postizConnector && connectionVerified(data(postizConnector).status);
-  const assignedChannels: string[] = postizConnector
-    ? (data(postizConnector).assignedIntegrationIds ?? [])
+  // A bound connection's channels are the ones its organization assigned.
+  const assignedChannels = postizConnector
+    ? assignedPostizChannels(data(postizConnector))
     : [];
   const actions = actionReadiness({
     paused: project.paused,
