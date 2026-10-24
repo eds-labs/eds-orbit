@@ -148,8 +148,9 @@ export const webRegistry: WebRegistry = {
       legacyPaths: ["/chat"],
     },
     {
-      // Transitional: today's inbox lists marketing items; WP2.3 makes it a
-      // platform inbox with items contributed by the modules.
+      // Marketing's content approvals. Approval requests of every module
+      // (ActionRequests) are the platform's "decisions" page below, which
+      // needs no module (checked for ADR 0015, plan step 2.9).
       key: "approvals",
       path: "approvals",
       component: ApprovalInbox,

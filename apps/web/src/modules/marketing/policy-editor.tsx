@@ -1,7 +1,20 @@
 "use client";
-// The versioned operating policy editor (WP2.3b), moved unchanged from components/management.tsx.
-import { collectionPath, post, useMutation, value } from "@/lib/api";
-import { Modal } from "@/components/ui/primitives";
+// The versioned operating policy editor (WP2.3b), moved from
+// components/management.tsx. Since ADR 0015 the AI budget is the platform's
+// spending authority (Settings → AI & budget): the editor no longer edits
+// it and saves the effective limits unchanged, so the policy's copy stays
+// in line with what calls are reserved against.
+import {
+  collectionPath,
+  post,
+  useMutation,
+  useResource,
+  usd,
+  value,
+  when,
+} from "@/lib/api";
+import { Alert, Modal } from "@/components/ui/primitives";
+import { AppLink } from "@/platform/ui/app-link";
 import {
   DataForm,
   csv,
@@ -13,12 +26,26 @@ import {
   type FormField,
 } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
+type SpendLimits = {
+  startAt: string;
+  endAt: string;
+  approvedPaidTests: boolean;
+  dailyBudgetMicros: number;
+  monthlyBudgetMicros: number;
+  perRunBudgetMicros: number;
+};
+
 export function PolicyEditor({ onClose }: { onClose: () => void }) {
   const { project, t, refresh } = useWorkspace();
   const mutation = useMutation(() => {
     refresh();
     onClose();
   });
+  const spend = useResource<{ effective: SpendLimits | null }>(
+    collectionPath(project.id, "ai-spend-policy"),
+  );
+  // Without a spending authority the policy grants no paid AI.
+  const limits = spend.data?.effective;
   const fields: FormField[] = [
     {
       name: "mode",
@@ -62,30 +89,6 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
       required: true,
     },
     {
-      name: "dailyBudget",
-      label: "Daily budget (USD)",
-      type: "number",
-      min: 0,
-      step: "0.01",
-      required: true,
-    },
-    {
-      name: "monthlyBudget",
-      label: "Monthly budget (USD)",
-      type: "number",
-      min: 0,
-      step: "0.01",
-      required: true,
-    },
-    {
-      name: "perRunBudget",
-      label: "Per-run budget (USD)",
-      type: "number",
-      min: 0,
-      step: "0.01",
-      required: true,
-    },
-    {
       name: "quietStart",
       label: "Quiet hours start (project hour 0–23)",
       type: "number",
@@ -100,14 +103,9 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
       max: 23,
     },
     {
-      name: "approvedPaidTests",
-      label: "Authorize paid test calls within these exact limits",
-      type: "checkbox",
-    },
-    {
       name: "confirm",
       label:
-        "I approve this exact version, its channels, dates and cost limits.",
+        "I approve this exact version, its channels and dates.",
       type: "checkbox",
       required: true,
     },
@@ -118,9 +116,18 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
       description="Only a verified capability can act under this mandate. Infrastructure, new spending permissions and unrelated channels remain outside its scope."
       onClose={onClose}
     >
+      <Alert>
+        AI budget:{" "}
+        {limits
+          ? `${usd(limits.dailyBudgetMicros)} per day, ${usd(limits.monthlyBudgetMicros)} per month, ${usd(limits.perRunBudgetMicros)} per run, until ${when(limits.endAt)}${limits.approvedPaidTests ? "" : " (paid use not allowed)"}. `
+          : "not set, so no paid AI runs. "}
+        It applies to every module and is set under{" "}
+        <AppLink href="/settings?section=ai">Settings → AI &amp; budget</AppLink>
+        ; this policy keeps it unchanged.
+      </Alert>
       <DataForm
         fields={fields}
-        pending={mutation.pending}
+        pending={mutation.pending || spend.loading}
         error={mutation.error}
         t={t}
         submitLabel="Save policy version"
@@ -137,16 +144,11 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
                 endAt: iso(v, "endAt"),
                 maxPerDay: num(v, "maxPerDay"),
                 minIntervalMinutes: num(v, "minIntervalMinutes"),
-                dailyBudgetMicros: Math.round(
-                  num(v, "dailyBudget") * 1_000_000,
-                ),
-                monthlyBudgetMicros: Math.round(
-                  num(v, "monthlyBudget") * 1_000_000,
-                ),
-                perRunBudgetMicros: Math.round(
-                  num(v, "perRunBudget") * 1_000_000,
-                ),
-                approvedPaidTests: v.approvedPaidTests === true,
+                // The effective spending authority, unchanged (ADR 0015).
+                dailyBudgetMicros: limits?.dailyBudgetMicros ?? 0,
+                monthlyBudgetMicros: limits?.monthlyBudgetMicros ?? 0,
+                perRunBudgetMicros: limits?.perRunBudgetMicros ?? 0,
+                approvedPaidTests: limits?.approvedPaidTests ?? false,
                 ...(str(v, "quietStart")
                   ? { quietStart: num(v, "quietStart") }
                   : {}),

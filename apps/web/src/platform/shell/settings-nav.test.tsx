@@ -186,6 +186,12 @@ describe("sectionFromSearch", () => {
     expect(sectionFromSearch("?section=agents", available)).toBe("project");
   });
 
+  it("an old policy link opens AI & budget when Marketing's policy is not offered", () => {
+    expect(sectionFromSearch("?section=policy", ["project", "ai"])).toBe("ai");
+    expect(sectionFromSearch("?section=policy", ["project"])).toBe("project");
+    expect(sectionFromSearch("?section=policy", [...available, "ai"])).toBe("policy");
+  });
+
   it("the Google Drive callback opens the integrations", () => {
     expect(sectionFromSearch("?googleDrive=ready", available)).toBe(
       "integrations",

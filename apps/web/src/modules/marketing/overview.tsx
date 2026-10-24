@@ -439,7 +439,8 @@ export function MarketingOverview() {
                         : t("notConfigured")
                     }
                     ready={d.budget.dailyLimitMicros !== null}
-                    href="/settings?section=policy"
+                    // The AI spending authority is the platform's (ADR 0015).
+                    href="/settings?section=ai"
                   />
                 </div>
                 {d.readiness.actions && (

@@ -27,6 +27,7 @@ import { AgentRuns } from "./agent-runs";
 import { UnclearAiCost } from "./unclear-ai-cost";
 import { blockerReason } from "@/lib/readiness-text";
 import { AiSettings, OpenAiConfiguration } from "./ai-settings";
+import { SpendPolicySettings } from "./spend-policy";
 import { GoogleDriveSettings } from "./google-drive";
 import {
   ConnectedApps,
@@ -245,7 +246,14 @@ export function Connectors() {
     </>
   );
 }
+/** Whether Marketing is on in the open project; true while unknown. */
+function useMarketingOn() {
+  const modules = useContext(ShellContext)?.modules;
+  return modules ? modules.some((m) => m.id === "marketing" && m.enabled) : true;
+}
+
 export function Operations() {
+  const marketingOn = useMarketingOn();
   const { t, locale, project, revision, isOwner, canEdit, refresh } =
     useWorkspace();
   const resource = useResource<Dashboard>(
@@ -321,7 +329,16 @@ export function Operations() {
             <div className="operations-band">
               <div>
                 <span>Project execution</span>
-                <Status value={d.project.paused ? "paused" : d.project.mode} />
+                {/* The mode is Marketing's (ADR 0015, E-6). */}
+                <Status
+                  value={
+                    d.project.paused
+                      ? "paused"
+                      : marketingOn
+                        ? d.project.mode
+                        : "active"
+                  }
+                />
               </div>
               <div>
                 <span>Readiness</span>
@@ -466,6 +483,7 @@ export function Operations() {
   );
 }
 export function ProjectSettings() {
+  const marketingOn = useMarketingOn();
   const { t, locale, project, revision, isOwner, identity, refresh } =
     useWorkspace();
   const dashboard = useResource<Dashboard>(
@@ -589,10 +607,15 @@ export function ProjectSettings() {
                     {identity.user.name}
                     <small>{identity.user.email}</small>
                   </dd>
-                  <dt>{pt("mode")}</dt>
-                  <dd>
-                    <Status value={d?.project.mode || project.mode} />
-                  </dd>
+                  {/* Marketing's autonomy mode, only while it is on (E-6). */}
+                  {marketingOn && (
+                    <>
+                      <dt>{pt("mode")}</dt>
+                      <dd>
+                        <Status value={d?.project.mode || project.mode} />
+                      </dd>
+                    </>
+                  )}
                 </dl>
                 <Button asChild variant="outline">
                   <a
@@ -695,7 +718,12 @@ export function ProjectSettings() {
           {tab === "retention" && <RetentionControl />}
           {tab === "modules" && <ModuleSettings />}
           {tab === "apps" && <ConnectedApps mine={grants} />}
-          {tab === "ai" && <AiSettings />}
+          {tab === "ai" && (
+            <>
+              <SpendPolicySettings />
+              <AiSettings />
+            </>
+          )}
           {tab === "integrations" && <GoogleDriveSettings />}
           {tab === "integrations" && (
             <section className="panel">

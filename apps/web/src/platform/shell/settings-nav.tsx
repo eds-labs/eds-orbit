@@ -112,6 +112,10 @@ export function groupSettings(
     .filter((group) => group.tabs.length > 0);
 }
 
+// Sections that moved: an old link opens the new place when the old one is
+// not offered. The AI budget left the Marketing policy (ADR 0015).
+const MOVED: Record<string, string> = { policy: "ai" };
+
 /**
  * The open section: `?section=` when it is offered, else "project". The
  * Google Drive callback (`?googleDrive=`, sent by the API) opens the
@@ -125,7 +129,9 @@ export function sectionFromSearch(
   const wanted =
     params.get("section") ??
     (params.has("googleDrive") ? "integrations" : null);
-  return wanted && available.includes(wanted) ? wanted : PROJECT;
+  if (wanted && available.includes(wanted)) return wanted;
+  const moved = wanted ? MOVED[wanted] : undefined;
+  return moved && available.includes(moved) ? moved : PROJECT;
 }
 
 /**
