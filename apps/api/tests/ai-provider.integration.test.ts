@@ -615,4 +615,36 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     expect(view.json().providers.openai.configured).toBe(true);
     await configureProvider({ anthropicApiKey: KEY, providerBudgets: {} });
   });
+
+  it("saves both sections in one request through ai-configure (phase 3.2)", async () => {
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${scope.projectId}/actions/ai-configure`,
+      headers: { cookie: ownerCookie, origin },
+      payload: {
+        providers: {
+          anthropicApiKey: KEY,
+          defaultProvider: "anthropic",
+          fallback: { onProviderBudgetStop: "none" },
+        },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ defaultProvider: "anthropic" });
+    expect(saved.body).not.toContain(KEY);
+    const empty = await app.inject({
+      method: "POST",
+      url: `/api/projects/${scope.projectId}/actions/ai-configure`,
+      headers: { cookie: ownerCookie, origin },
+      payload: {},
+    });
+    expect(empty.statusCode).toBe(400);
+    const auditEvent = await run((tx) =>
+      tx.auditEvent.findFirst({
+        where: { projectId: scope.projectId, action: "openai_configuration.update" },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
+    expect(auditEvent?.metadata).toMatchObject({ sections: ["providers"] });
+  });
 });

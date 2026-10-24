@@ -84,6 +84,7 @@ export function actionPermissions(
 export const platformActionPermissions = actionPermissions("platform", {
   owner: [
     "add-member",
+    "ai-configure",
     "ai-provider-configure",
     "ai-spend-policy",
     "connector",

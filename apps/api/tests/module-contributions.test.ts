@@ -224,6 +224,7 @@ describe("module contributions", () => {
       "activate-index",
       "adapt-content",
       "add-member",
+      "ai-configure",
       "ai-provider-configure",
       "ai-spend-policy",
       "analyze",
@@ -325,6 +326,7 @@ describe("module contributions", () => {
         .sort(),
     ).toEqual([
       "add-member",
+      "ai-configure",
       "ai-provider-configure",
       "ai-spend-policy",
       "connector-health",

@@ -102,6 +102,12 @@ type CostRow = {
   count: number;
 };
 
+// One save path for both sections of the AI settings (plan phase 3.2).
+const saveModels = (projectId: string, models: Record<string, unknown>) =>
+  action<void>(projectId, "ai-configure", { models });
+const saveProviders = (projectId: string, providers: Record<string, unknown>) =>
+  action<void>(projectId, "ai-configure", { providers });
+
 const providerName: Record<ProviderId, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic (Claude)",
@@ -377,7 +383,7 @@ function AnthropicConfiguration({
         onSubmit={(values) =>
           mutation.run(async () => {
             const apiKey = str(values, "anthropicApiKey");
-            return action(project.id, "ai-provider-configure", {
+            return saveProviders(project.id, {
               ...providerPayload(view),
               applyAnthropicCatalog: values.applyCatalog === true,
               ...(apiKey ? { anthropicApiKey: apiKey } : {}),
@@ -506,7 +512,7 @@ function ProviderBudgetForm({
           const micros = (key: string) =>
             Math.round(Number(values[key]) * 1_000_000);
           const creditAmount = str(values, "creditAmount");
-          return action(project.id, "ai-provider-configure", {
+          return saveProviders(project.id, {
             ...providerPayload(view),
             providerBudgets: {
               ...view.providerBudgets,
@@ -1245,7 +1251,7 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
             }
             const apiKey = String(values.apiKey).trim();
             const imageApiKey = String(values.imageApiKey).trim();
-            return action(project.id, "openai-configure", {
+            return saveModels(project.id, {
               ...(apiKey ? { apiKey } : {}),
               ...(imageApiKey ? { imageApiKey } : {}),
               verifiedModels: String(values.verifiedModels)

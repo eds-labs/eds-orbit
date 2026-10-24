@@ -250,7 +250,7 @@ describe.skipIf(!enabled)("Central connections (ADR 0014)", () => {
       ).statusCode,
     ).toBe(200);
     const budgets = await scoped(wsA, a1, (tx) => runtimeProviderBudgets(tx, scope(wsA, a1)));
-    expect(budgets.providerBudgets.openai).toMatchObject({ stopMicros: 45_000_000 });
+    expect(budgets.providerBudgets?.openai).toMatchObject({ stopMicros: 45_000_000 });
   });
 
   it("holds the organization budget across projects, also under concurrency", async () => {

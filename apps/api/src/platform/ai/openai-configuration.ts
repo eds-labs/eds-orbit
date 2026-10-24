@@ -688,6 +688,43 @@ export async function runtimeProviderBudgets(
   };
 }
 
+/**
+ * The one save path for a project's AI settings (plan phase 3.2): the model
+ * section (keys, verified models, rate card, routes, images) and the
+ * provider section (Anthropic key, default provider, tiers, registry,
+ * budgets, fallback) of the same configuration, in one transaction, models
+ * first so a first save creates the row with its key. The actions
+ * `openai-configure` and `ai-provider-configure` remain as aliases for one
+ * section each.
+ */
+export const aiConfigurationInput = z
+  .object({ models: z.unknown().optional(), providers: z.unknown().optional() })
+  .strict()
+  .refine((v) => v.models !== undefined || v.providers !== undefined, {
+    message: "AI_CONFIGURATION_SECTION_REQUIRED",
+  });
+
+export async function saveAiConfiguration(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  options: { grantedKey?: boolean } = {},
+) {
+  const input = aiConfigurationInput.parse(raw);
+  let result: ReturnType<typeof publicOpenAiConfiguration> | undefined;
+  if (input.models !== undefined)
+    result = await saveOpenAiConfiguration(tx, scope, input.models, options);
+  if (input.providers !== undefined)
+    result = await saveAiProviderConfiguration(tx, scope, input.providers);
+  return {
+    result: result!,
+    sections: [
+      ...(input.models !== undefined ? ["models"] : []),
+      ...(input.providers !== undefined ? ["providers"] : []),
+    ],
+  };
+}
+
 export async function saveOpenAiConfiguration(
   tx: DbTx,
   scope: Scope,

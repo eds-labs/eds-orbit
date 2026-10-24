@@ -13,6 +13,7 @@ import {
 } from "../shared.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
 import {
+  saveAiConfiguration,
   saveAiProviderConfiguration,
   saveOpenAiConfiguration,
 } from "../ai/openai-configuration.ts";
@@ -48,6 +49,29 @@ import {
 
 /** The platform's project actions (WP2.1f), moved unchanged from server.ts. */
 export const platformActions: Record<string, ActionHandler> = {
+  // The one save path (phase 3.2): { models?, providers? }, one audit entry.
+  "ai-configure": ownTransaction(({ scope, input }) =>
+    scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const { result, sections } = await saveAiConfiguration(tx, scope, input);
+      await audit(
+        tx,
+        scope,
+        "openai_configuration.update",
+        "openai_configuration",
+        {
+          sections,
+          configured: result.configured,
+          source: result.source,
+          modelCount: result.verifiedModels.length,
+          defaultProvider: result.defaultProvider,
+          anthropicKeyConfigured: result.providers.anthropic.keyConfigured,
+          fallback: result.fallback.onProviderBudgetStop,
+        },
+      );
+      return result;
+    }),
+  ),
+  // Aliases of one section each, kept for existing clients.
   "openai-configure": ownTransaction(({ scope, input }) =>
     scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const result = await saveOpenAiConfiguration(tx, scope, input);

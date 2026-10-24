@@ -31,8 +31,7 @@ import {
   effectiveAiStatus,
   openAiConfigurationInput,
   publicOpenAiConfiguration,
-  saveAiProviderConfiguration,
-  saveOpenAiConfiguration,
+  saveAiConfiguration,
   aiCapabilities,
   routesWithoutKey,
   textModelReady,
@@ -405,11 +404,16 @@ const update = approvedOperation({
     assertSameChanges(saved, (await proposedAi(tx, scope, args)).changes),
   run: async (tx, scope, args) => {
     const p = await proposedAi(tx, scope, args);
-    let result = await saveOpenAiConfiguration(tx, scope, p.modelInput, {
-      grantedKey: p.grantedKey,
-    });
-    if (p.providerChanged)
-      result = await saveAiProviderConfiguration(tx, scope, p.providerInput);
+    // The one save path (phase 3.2), with the provider section only when it changed.
+    const { result } = await saveAiConfiguration(
+      tx,
+      scope,
+      {
+        models: p.modelInput,
+        ...(p.providerChanged ? { providers: p.providerInput } : {}),
+      },
+      { grantedKey: p.grantedKey },
+    );
     await audit(tx, scope, "openai_configuration.update", "openai_configuration", {
       source: "mcp",
       modelCount: result.verifiedModels.length,
