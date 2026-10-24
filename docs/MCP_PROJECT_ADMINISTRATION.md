@@ -117,6 +117,7 @@ The tool never changes a check. A blocker clears only when its own check passes.
 - **Channel assignment.** `channel-assignment.ts` gains `organizationActor`, `projectChannelOptions` and `grantChannelsToProject`. The last widens one project's grant under the connection's lock and then mirrors it. The grant commits first, so a failure after it leaves the channels in the grant but not yet in the project; approving again completes it.
 - **Postiz channels.** `assignedSocialChannels` (Postiz) lists the channels a policy may use.
 - **Index build.** `queueIndexBuild` (knowledge) is shared by the `build-index` action and MCP.
+- **Claude tool limits.** The Anthropic adapter keeps tools strict only within Anthropic's per-request limits (20 strict tools, 24 optional and 16 union-typed parameters, the output format included); the others go without `strict`. A project on Claude whose assistant offers these tools is otherwise refused (`MODEL_REQUEST_NOT_ACCEPTED`).
 - **Key requirement.** `saveOpenAiConfiguration` accepts a project without its own key when a granted connection supplies it (`grantedKey`).
 
 ## Switches and rollout

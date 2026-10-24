@@ -17,6 +17,7 @@ vi.mock("@anthropic-ai/sdk", async (original) => ({
 import { APIError } from "@anthropic-ai/sdk";
 import {
   anthropicRequest,
+  ANTHROPIC_STRICT_LIMITS,
   anthropicStrictSchema,
   fromAnthropicMessage,
   normalizeAnthropicUsage,
@@ -729,5 +730,55 @@ describe("file and image input", () => {
         user({ type: "input_image", image_url: "https://example.com/a.png" }),
       ),
     ).toThrow("AI_INPUT_UNSUPPORTED");
+  });
+});
+
+// Anthropic refuses a request whose strict schemas exceed 20 tools, 24
+// optional or 16 union-typed parameters (MODEL_REQUEST_NOT_ACCEPTED on a
+// Claude project whose chat offered the administration tools).
+describe("strict tool budget", () => {
+  const fn = (name: string, nullable = 0) => ({
+    type: "function",
+    name,
+    parameters: {
+      type: "object",
+      properties: Object.fromEntries(
+        Array.from({ length: nullable }, (_, i) => [
+          `p${i}`,
+          { anyOf: [{ type: "string" }, { type: "null" }] },
+        ]),
+      ),
+      required: Array.from({ length: nullable }, (_, i) => `p${i}`),
+      additionalProperties: false,
+    },
+  });
+  const strictNames = (tools: unknown[]) =>
+    (tools as Array<{ name: string; strict?: boolean }>)
+      .filter((t) => t.strict)
+      .map((t) => t.name);
+
+  it("keeps at most 20 tools strict, in order", () => {
+    const tools = toAnthropicTools(
+      Array.from({ length: 25 }, (_, i) => fn(`t${i}`)),
+    );
+    expect(tools).toHaveLength(25);
+    expect(strictNames(tools)).toEqual(
+      Array.from({ length: ANTHROPIC_STRICT_LIMITS.tools }, (_, i) => `t${i}`),
+    );
+  });
+
+  it("stops strict tools at 16 union-typed parameters, counting the output format", () => {
+    expect(strictNames(toAnthropicTools([fn("a", 10), fn("b", 10), fn("c", 6)]))).toEqual([
+      "a",
+      "c",
+    ]);
+    const request = anthropicRequest({
+      route: { model: "claude-sonnet-5-5", maxOutputTokens: 1000 },
+      instructions: "x",
+      input: [],
+      tools: [fn("a", 10)],
+      outputSchema: fn("out", 10).parameters,
+    });
+    expect(strictNames(request.tools ?? [])).toEqual([]);
   });
 });
