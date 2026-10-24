@@ -6,6 +6,9 @@ describe("chat input limit", () => {
     // Production uLiquid, 2026-10-12: after the assignment tools grew
     // (shared posts, format, banner), a request to change an assignment
     // stopped with CHAT_CONTEXT_LIMIT before Orbit could answer.
-    expect(MAX_INPUT_BYTES - staticChatBytes()).toBeGreaterThanOrEqual(24_000);
+    // FamilyPlan, 2026-10-24: a Claude chat (every tool sent in full, with
+    // the MCP features on) stopped after three model calls. The worst case,
+    // every feature on, must leave room for tool results and the answer.
+    expect(MAX_INPUT_BYTES - staticChatBytes()).toBeGreaterThanOrEqual(48_000);
   });
 });

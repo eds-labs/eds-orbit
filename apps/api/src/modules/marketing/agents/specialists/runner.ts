@@ -93,8 +93,9 @@ const FINAL: AgentTaskStatus[] = [
   "canceled",
   "outcome_unknown",
 ];
-// Instructions, input, tools and schema of one call; larger contexts fail before any reservation.
-const MAX_INPUT_BYTES = 48_000;
+// Instructions, input, tools and schema of one call; larger contexts fail
+// before any reservation. Claude receives every tool in full.
+const MAX_INPUT_BYTES = 96_000;
 const MAX_TOOL_OUTPUT_CHARS = 12_000;
 export const ASSIGNMENT_BUDGET_EXHAUSTED = "ASSIGNMENT_BUDGET_EXHAUSTED";
 export const BASE_INSTRUCTIONS =

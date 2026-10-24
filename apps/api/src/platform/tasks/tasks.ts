@@ -1,3 +1,7 @@
+import {
+  CHAT_MAX_INPUT_BYTES,
+  CHAT_MAX_MODEL_CALLS,
+} from "../assistant/chat-limits.ts";
 import { registeredConversationSections } from "../modules/contributions.ts";
 import { visibleModules } from "../tenancy/module-roles.ts";
 import { enabledModules } from "../modules/enforcement.ts";
@@ -47,10 +51,15 @@ export function taskChatCeiling(runtime: OpenAiRuntimeConfig) {
   )
     routes.push(resolveRoute("chat_operator", runtime, { provider: "openai" }));
   return (
-    6 *
+    CHAT_MAX_MODEL_CALLS *
     Math.max(
       ...routes.map((route) =>
-        estimateCost(route.model, 64000, route.maxOutputTokens, runtime),
+        estimateCost(
+          route.model,
+          CHAT_MAX_INPUT_BYTES,
+          route.maxOutputTokens,
+          runtime,
+        ),
       ),
     )
   );
