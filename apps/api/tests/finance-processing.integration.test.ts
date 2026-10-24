@@ -14,13 +14,15 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { data, list } from "../src/shared.ts";
+import { data, list, update } from "../src/shared.ts";
 import { setObjectStoreForTests } from "../src/platform/files/files.ts";
 import type { ObjectStore } from "../src/platform/files/s3.ts";
 import { runFinanceExtraction } from "../src/modules/finance/extraction/extract.ts";
 import {
+  extractionJob,
   listProcessingErrors,
   processingStatus,
+  startExtraction,
 } from "../src/modules/finance/extraction/processing.ts";
 import { ingestDocument } from "../src/modules/finance/intake/documents.ts";
 import {
@@ -320,6 +322,75 @@ describe.skipIf(!enabled)("finance extraction processing", () => {
       ).toMatchObject({ blockedBy: "POLICY_REQUIRED", canStartExtraction: false });
     } finally {
       await setPolicyActive(true);
+      await setAi("off");
+    }
+  });
+
+  it("guards edited failed drafts, raw job errors, stale backlog rows and ceiling-only runs", async () => {
+    await run(async (tx) =>
+      tx.projectModule.updateMany({
+        where: { projectId: scope().projectId, moduleId: "finance" },
+        data: { settings: { aiExtraction: "on" } },
+      }),
+    );
+    try {
+      // A failed document a person edited is never overwritten.
+      const failed = await upload();
+      await run((tx) =>
+        tx.financeDocument.update({
+          where: { id: failed },
+          data: { status: "failed" },
+        }),
+      );
+      await run(async (tx) => {
+        const d = await tx.financeDocument.findUniqueOrThrow({ where: { id: failed } });
+        await updateDraft(tx, scope(), failed, d.version, { number: "HAND-2" });
+      });
+      expect(await code(() => run((tx) => retryExtraction(tx, scope(), failed)))).toBe(
+        "FINANCE_DRAFT_EDITED",
+      );
+
+      // A raw exception message on the job is shown as a fixed code only.
+      const stuck = await upload();
+      const row = await doc(stuck);
+      await run(async (tx) => {
+        const job = (await list(tx, scope(), "jobs")).find(
+          (j) => data(j).idempotencyKey === `finance-extract:${stuck}`,
+        )!;
+        await update(tx, scope(), job, {
+          ...data(job),
+          status: "failed",
+          error: "connect ECONNREFUSED 10.0.0.5:5432 user=orbit",
+        });
+      });
+      expect(
+        (await run((tx) => extractionJob(tx, scope(), row)))?.error,
+      ).toBe("JOB_FAILED");
+
+      // The backlog skips a row someone changed meanwhile instead of failing.
+      const stale = { ...row, version: row.version - 1 };
+      expect(
+        await run((tx) =>
+          startExtraction(tx, scope(), stale, "consent", { skipOnConflict: true }),
+        ),
+      ).toBeNull();
+
+      // A run stopped by the daily ceiling has a run id but no result.
+      const capped = await upload();
+      await run((tx) =>
+        tx.financeDocument.update({
+          where: { id: capped },
+          data: {
+            status: "needs_review",
+            flags: ["ai_ceiling"],
+            agentRunId: randomUUID(),
+          },
+        }),
+      );
+      expect(
+        await run((tx) => processingStatus(tx, scope(), capped, true)),
+      ).toMatchObject({ extracted: false, canStartExtraction: true });
+    } finally {
       await setAi("off");
     }
   });

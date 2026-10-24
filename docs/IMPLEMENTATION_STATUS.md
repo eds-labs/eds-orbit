@@ -1,5 +1,12 @@
 # Implementation status
 
+## Finance: AI extraction for documents received while AI was off (2026-10-24, branch `claude/finance-extraction-recovery`)
+
+- **Cause:** documents that arrived while `aiExtraction` was off were left in review with `ai_off`, and nothing could start their extraction later (switching AI on did not pick them up, Retry refused documents in review). EDS-Labs also has no active policy, so paid calls stop at `POLICY_REQUIRED`. Details: `docs/FINANCE.md`, "Incident 2026-10-24".
+- **Fix:** backlog queue when AI is switched on, manual start for documents without an AI result (consent, policy, no hand edits), processing status and error list (API, review page), failure codes on the document.
+- **MCP:** `finance_list_documents`, `finance_get_document`, `finance_get_processing_status`, `finance_list_processing_errors` (scope `orbit:finance.read`) and the owner-approved proposal `finance_retry_extraction` (scopes `orbit:propose` + `orbit:finance.extract`); MCP 2.0 tasks naming finance need `orbit:finance.read`.
+- **Verification:** see the commit and closing report (pending at the time of writing).
+
 ## Live: finance, global administration and central connections (2026-10-23)
 
 - **Deploy:** `main` at `d20b587`, Coolify deployment `pz2aqs8syjum7hlre5fl38ew`, finished 14:59:52 UTC.

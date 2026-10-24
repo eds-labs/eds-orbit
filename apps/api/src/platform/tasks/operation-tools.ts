@@ -234,8 +234,11 @@ export function approvedOperation(op: Operation) {
     costCeilingMicros: (p) => p.ceilingMicros,
     ...(op.summary
       ? {
-          summary: (p: z.infer<typeof payload>) =>
-            op.summary!(op.input.parse(p.args)),
+          // A stored request with unreadable args must not break the list.
+          summary: (p: z.infer<typeof payload>) => {
+            const args = op.input.safeParse(p.args);
+            return args.success ? op.summary!(args.data) : {};
+          },
         }
       : {}),
     async revalidate(tx, scope, p) {

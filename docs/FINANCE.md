@@ -119,9 +119,16 @@ What happens per document in `received`:
 5. A counterparty is matched and a category and cost-center split suggested from the history of confirmed bookings first, the AI suggestion second.
 6. The document ends in `needs_review` (or `failed`, with a Retry button). **The AI never books.** Reviewers get one notification (`finance_review_needed`).
 
+**Documents that arrived while AI was off.** With the consent off, intake puts a document straight into `needs_review` with the flag `ai_off`; it is not sent anywhere. Such documents (and those stopped by the daily ceiling or by an unusable answer) get their extraction later:
+
+- **Automatically**, when the owner switches `aiExtraction` from off to on: documents in review with `ai_off`, unedited and received in the last 30 days, are queued (at most 50, newest first, audited as `finance.extraction.backlog_queued`). Nothing is queued while the project has no active policy. The daily ceiling still bounds the spend.
+- **By a person** with **Run AI extraction** on the document (`POST …/documents/:id/retry`, `finance.write`), or over MCP with an owner-approved `finance_retry_extraction`. A start needs the consent (`FINANCE_AI_OFF`) and an active policy (`POLICY_REQUIRED`); it is refused for a hand-edited draft (`FINANCE_DRAFT_EDITED`, a new answer would overwrite it), a finished extraction (`FINANCE_EXTRACTION_DONE`), a too-long document (`FINANCE_DOCUMENT_TOO_LONG`) and a running job (`FINANCE_EXTRACTION_RUNNING`). Each start is a new attempt (`finance-extract:<id>:<n>`), so a document is never extracted twice at once.
+
+**Processing status.** The reason an extraction stopped is kept on the document as a fixed code (`extraction.processing`: `lastErrorCode`, `lastErrorAt`, `agentRunId`) and cleared by the next good answer. `GET …/documents/:id/processing` returns the state, the current job, the last error and whether (or why not) a start is possible; `GET …/processing-errors` lists documents without a usable AI result. The review page shows the reason and the button.
+
 **Untrusted documents.** The instructions state that everything in the user message is data; instructions inside a document are ignored. Because the model has no tools and its output is validated data, a hostile document can at most produce a wrong draft that a person reviews. Document content never reaches the assistant's context as instructions.
 
-**Outcomes.** An unknown outcome (transport error after sending, missing usage) settles the reservation as unknown and is never retried automatically; the document becomes `failed` (`FINANCE_CALL_UNKNOWN`) and a person decides. A provider refusal with a 4xx status is not billed (`FINANCE_CALL_NOT_ACCEPTED`). Invalid output is billed and ends in `failed` (`FINANCE_OUTPUT_NOT_VALID`). A retry uses a new idempotency key. If the AI route is saved during a run, the run stops before the call (`FINANCE_ROUTE_CHANGED`). A paused project does not extract.
+**Outcomes.** An unknown outcome (transport error after sending, missing usage) settles the reservation as unknown and is never retried automatically; the document becomes `failed` (`FINANCE_CALL_UNKNOWN`) and a person decides. A provider refusal with a 4xx status is not billed (`FINANCE_CALL_NOT_ACCEPTED`). Invalid output is billed and ends in `needs_review` with `extraction_failed` (`FINANCE_OUTPUT_NOT_VALID`). A retry uses a new idempotency key and, like any start, needs the AI consent and an active policy. If the AI route is saved during a run, the run stops before the call (`FINANCE_ROUTE_CHANGED`). A paused project does not extract.
 
 `store: false` is not zero data retention; the provider's retention terms apply (see `docs/MODEL_ROUTING.md`). Only the document, the project's category and cost center names and fixed instructions are sent.
 
@@ -171,7 +178,7 @@ Posted entries are never edited or deleted. Corrections are new entries:
 | **Void an invoice** (`POST invoices/:id/void`) | Reverses its posting (dated today, or the issue date when later). A receipt's payment goes with it. Refused while a live payment is allocated (409 `FINANCE_INVOICE_HAS_PAYMENTS`) or a live credit note credits it (409 `FINANCE_INVOICE_CREDITED`). The invoice's **document returns to `needs_review`**, so it can be corrected and booked again. A voided credit note gives its invoice's open amount back. |
 | **Credit-note settlement** | A credit note with `creditsInvoiceId` reduces the credited invoice's open amount and open base (derived, no allocation rows). When credits close an invoice and a base-currency residue remains (credits posted at other rates), a base-currency adjustment between the open-item account and `fx_gain_loss` zeroes it (source `invoice_close`) and the credit note counts as settled. Reopening the invoice reverses that closing entry. |
 
-Reasons are stored on the reversal only and never in the audit trail. A manual edit to a failed draft is replaced by a successful retry (the revision history keeps it).
+Reasons are stored on the reversal only and never in the audit trail. A draft a person edited is never sent to the AI again (`FINANCE_DRAFT_EDITED`); finish it by hand.
 
 ## Reports and exports
 
@@ -220,7 +227,7 @@ Every read answers `{ "available": false }` when finance is off for the project.
 
 **Approval flow of the retry.** The call stores a pending `finance.mcp.finance_retry_extraction` ActionRequest (owner decides, 24-hour TTL, `idempotencyKey` retries return the same request) and starts nothing. It is refused at once with the block code of `extractionBlock` (for example `FINANCE_AI_OFF`, `FINANCE_DRAFT_EDITED`, `FINANCE_EXTRACTION_RUNNING`, `FINANCE_EXTRACTION_DONE`). When an owner approves it in Orbit, the block is checked again with the current AI consent and a refusal carries its code; otherwise `startExtractionFor(…, "mcp")` queues the job `finance-extract:<id>:<n>` (audited with trigger `mcp`). The extraction then takes the normal paid path (spend mandate, finance daily ceiling, reservation, settlement). The request's cost ceiling is the project's `aiDailyCeilingMicros`, which bounds one extraction; a changed ceiling makes the approval fail with `COST_CEILING_CHANGED`. The approval card's summary is the document id only. Proposals need `ORBIT_MCP_PROPOSALS=true` and an active policy, like every MCP proposal, and an approval needs the proposing grant to still hold `orbit:propose` and `orbit:finance.extract`.
 
-**Never returned:** file bytes, file ids, file names, e-mail addresses, e-mail bodies, message ids, tax ids, rejection reasons, raw model output. Counterparty names, numbers and line descriptions come from documents: control and format characters are removed, whitespace is collapsed, length is capped, and tool descriptions label them untrusted data.
+**Never returned:** file bytes, file ids, file names, e-mail metadata and bodies (sender, recipients, message ids), tax ids, rejection reasons, raw model output, raw job error messages (a job error is shown as a fixed code or `JOB_FAILED`). Counterparty names, numbers and line descriptions come from documents: control and format characters are removed, whitespace is collapsed, length is capped, and tool descriptions label them untrusted data. They are not screened, so an e-mail address or IBAN printed on an invoice can appear in them.
 
 ## Attention items and notifications
 
@@ -313,6 +320,10 @@ No test calls a paid provider.
 2. Environment for API and web: `ORBIT_FINANCE=true ORBIT_FILES=true ORBIT_MODULES=true FILES_BACKEND=database`, a throwaway `FILES_ENCRYPTION_KEY` (64 hex characters), `APP_ORIGIN=http://localhost:4410`, `PORT=4411`, `ORBIT_API_ORIGIN=http://127.0.0.1:4411`. Leave `aiExtraction` off. No worker is needed.
 3. Start `node --import tsx apps/api/src/main.ts` and, in `apps/web`, `next dev --hostname 127.0.0.1 --port 4410`.
 4. Run `E2E_FINANCE=1 PLAYWRIGHT_BASE_URL=http://localhost:4410 ./node_modules/.bin/playwright test apps/web/tests/finance.spec.ts`. Without `E2E_FINANCE=1` the spec is skipped. The spec sets the FX source to manual, so no ECB request is made.
+
+## Incident 2026-10-24: invoices not read by the AI
+
+Three documents reached the EDS-Labs project on 24 October (09:54 and 15:35 UTC) while `aiExtraction` was still off; the owner switched it on at 15:36 UTC. Intake had marked them `ai_off` and nothing could start their extraction afterwards: switching AI on did not pick them up, and Retry refused documents in review. In addition the project had no active policy, so every paid call would have stopped at `POLICY_REQUIRED`. Fixed by the backlog on consent, the manual start for documents without an AI result, the upfront policy check and the recorded processing errors (above). To read the three documents: activate a policy with a spending mandate in EDS-Labs, then use **Run AI extraction** on each.
 
 ## Known limitations
 

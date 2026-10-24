@@ -71,7 +71,12 @@ export async function extractionJob(tx: DbTx, scope: Scope, doc: Doc) {
     id: job.id,
     status: String(d.status ?? "queued"),
     attempts: Number(d.attempts ?? 0),
-    error: d.error ? String(d.error).slice(0, 160) : null,
+    // Only a fixed code: the worker may store a raw exception message.
+    error: d.error
+      ? /^[A-Z][A-Z0-9_]{2,99}$/.test(String(d.error))
+        ? String(d.error)
+        : "JOB_FAILED"
+      : null,
   };
 }
 
@@ -104,11 +109,12 @@ export async function extractionBlock(
     if (doc.flags.includes("too_long")) return "FINANCE_DOCUMENT_TOO_LONG";
     if (!doc.flags.some((flag) => PENDING_AI_FLAGS.includes(flag)))
       return "FINANCE_EXTRACTION_DONE";
-    const edits = await tx.financeDocumentRevision.count({
-      where: { projectId: scope.projectId, documentId: doc.id },
-    });
-    if (edits) return "FINANCE_DRAFT_EDITED";
   } else if (doc.status !== "failed") return "FINANCE_EXTRACTION_NOT_POSSIBLE";
+  // A new answer replaces the draft: never after a person edited it.
+  const edits = await tx.financeDocumentRevision.count({
+    where: { projectId: scope.projectId, documentId: doc.id },
+  });
+  if (edits) return "FINANCE_DRAFT_EDITED";
   return paidCallBlock(tx, scope, aiOn);
 }
 
@@ -122,6 +128,7 @@ export async function startExtraction(
   scope: Scope,
   doc: Doc,
   trigger: "person" | "consent" | "mcp",
+  options: { skipOnConflict?: boolean } = {},
 ) {
   const next = attemptOf(doc) + 1;
   const moved = await tx.financeDocument.updateMany({
@@ -138,6 +145,9 @@ export async function startExtraction(
       version: { increment: 1 },
     },
   });
+  // The backlog skips a document someone changed meanwhile; a person's
+  // start reports the conflict.
+  if (moved.count !== 1 && options.skipOnConflict) return null;
   assertUpdated(moved.count);
   await enqueue(tx, scope, FINANCE_EXTRACT, doc.id, extractKey(doc.id, next));
   await audit(tx, scope, "finance.extraction.retried", doc.id, {
@@ -186,10 +196,13 @@ export async function queuePendingExtractions(tx: DbTx, scope: Scope) {
   });
   let queued = 0;
   for (const doc of candidates)
-    if (!(await extractionBlock(tx, scope, doc, true))) {
-      await startExtraction(tx, scope, doc, "consent");
+    if (
+      !(await extractionBlock(tx, scope, doc, true)) &&
+      (await startExtraction(tx, scope, doc, "consent", {
+        skipOnConflict: true,
+      })) !== null
+    )
       queued++;
-    }
   if (queued)
     await audit(tx, scope, "finance.extraction.backlog_queued", scope.projectId, {
       count: queued,
@@ -217,7 +230,8 @@ export async function processingStatus(
     status: doc.status,
     flags: doc.flags,
     attempt: attemptOf(doc),
-    extracted: Boolean(doc.agentRunId) && !doc.flags.includes("extraction_failed"),
+    // A stored model result carries its schema version (extract.ts).
+    extracted: typeof stored(doc).schemaVersion === "number",
     agentRunId: doc.agentRunId,
     lastError: processingOf(doc),
     job,
