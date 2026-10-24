@@ -387,7 +387,7 @@ const en = {
       FINANCE_AI_OFF:
         "AI extraction is off for this project. Turn it on in the finance settings first.",
       POLICY_REQUIRED:
-        "This project has no active AI policy (spending mandate). An owner activates one under Settings, Policy; until then nothing is sent to the AI.",
+        "This project has no active AI spending mandate. An owner activates it under Settings → Marketing → Policy & budget (for now this needs the Marketing module); until then nothing is sent to the AI.",
       FINANCE_DRAFT_EDITED:
         "This draft was edited by hand, so a new AI reading would overwrite it. Fill in the rest by hand.",
       FINANCE_EXTRACTION_DONE:
@@ -1195,7 +1195,7 @@ const de: typeof en = {
       FINANCE_AI_OFF:
         "Das KI-Auslesen ist für dieses Projekt aus. Schalte es zuerst in den Finanz-Einstellungen ein.",
       POLICY_REQUIRED:
-        "Dieses Projekt hat keine aktive KI-Richtlinie (Ausgabenmandat). Ein Owner aktiviert sie unter Einstellungen, Richtlinie; bis dahin wird nichts an die KI gesendet.",
+        "Dieses Projekt hat kein aktives KI-Ausgabenmandat. Ein Owner aktiviert es unter Einstellungen → Marketing → Richtlinie & Budget (vorerst nur mit eingeschaltetem Marketing-Modul); bis dahin wird nichts an die KI gesendet.",
       FINANCE_DRAFT_EDITED:
         "Dieser Entwurf wurde von Hand bearbeitet; ein neues KI-Auslesen würde ihn überschreiben. Ergänze den Rest von Hand.",
       FINANCE_EXTRACTION_DONE:

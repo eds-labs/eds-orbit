@@ -47,6 +47,9 @@
     "module:finance": [
       "apps/api/src/modules/finance/"
     ],
+    "module:support": [
+      "apps/api/src/modules/support/"
+    ],
     "worker": [
       "apps/worker/src/"
     ],
@@ -63,6 +66,9 @@
     ],
     "web-module:finance": [
       "apps/web/src/modules/finance/"
+    ],
+    "web-module:support": [
+      "apps/web/src/modules/support/"
     ],
     "package:ai": [
       "packages/ai/"

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   checkBoundaries,
   checkForbiddenLiterals,
@@ -94,6 +95,17 @@ describe("classify", () => {
     expect(classify("apps/web/src/components/knowledge.tsx", config.zones)).toBe("web-module:knowledge");
     expect(classify("apps/web/src/lib/api.ts", config.zones)).toBe("web-platform");
     expect(classify("scripts/dev.ts", config.zones)).toBeNull();
+  });
+});
+
+describe("repository zones", () => {
+  it("gives Support its own API and web zones, not marketing's or the platform's", () => {
+    const zones = JSON.parse(
+      readFileSync(new URL("./boundaries.json", import.meta.url), "utf8"),
+    ).zones;
+    expect(classify("apps/api/src/modules/support/ai.ts", zones)).toBe("module:support");
+    expect(classify("apps/web/src/modules/support/inbox.tsx", zones)).toBe("web-module:support");
+    expect(classify("apps/api/src/modules/workflow.ts", zones)).toBe("module:marketing");
   });
 });
 

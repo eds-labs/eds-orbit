@@ -679,8 +679,8 @@ export function WorkspaceError({
       ? "Dieser Eintrag wurde inzwischen geändert. Lade die Seite neu und prüfe den aktuellen Stand."
       : "This entry changed. Reload and review the current version.",
     POLICY_REQUIRED: de
-      ? "Für KI-Analysen fehlt eine Budgetfreigabe. Öffne Einstellungen → KI und Budgets und richte sie ein."
-      : "AI analysis needs a budget mandate. Configure it under Settings → AI and budgets.",
+      ? "Für KI-Analysen fehlt ein KI-Ausgabenmandat. Ein Owner aktiviert es unter Einstellungen → Marketing → Richtlinie & Budget (vorerst nur mit eingeschaltetem Marketing-Modul)."
+      : "AI analysis needs an AI spending mandate. An owner activates it under Settings → Marketing → Policy & budget (for now this needs the Marketing module).",
     MODEL_USE_FORBIDDEN: de
       ? "Bestätige die Weitergabe der ausgewählten Inhalte zur KI-Analyse."
       : "Confirm sending the selected content for AI analysis.",
