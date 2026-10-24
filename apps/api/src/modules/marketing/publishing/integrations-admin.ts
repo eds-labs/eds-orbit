@@ -348,6 +348,8 @@ const getTool = readOperation({
 
 const configure = approvedOperation({
   name: "integrations_configure",
+  // For outside clients (ChatGPT over MCP); the assistant reads only.
+  assistant: false,
   module: "marketing",
   feature: "project_administration",
   proposable: projectAdministrationEnabled,

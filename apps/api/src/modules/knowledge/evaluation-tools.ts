@@ -277,6 +277,8 @@ const getTool = readOperation({
 
 const evaluate = approvedOperation({
   name: "knowledge_evaluate",
+  // For outside clients (ChatGPT over MCP); the assistant reads only.
+  assistant: false,
   module: "knowledge",
   feature: "project_administration",
   proposable: projectAdministrationEnabled,

@@ -98,8 +98,14 @@ export function staticChatBytes() {
   const tools = availableTools(
     registeredTools(),
     "owner",
-    assistants.flatMap((a) => a.features({ toolSearch: true, all: true })),
-  );
+    [
+      ...assistants.flatMap((a) => a.features({ toolSearch: true, all: true })),
+      // The project configuration and administration tools it offers too
+      // when switched on (MCP work orders, mcp_tasks, roll out separately).
+      "project_configuration",
+      "project_administration",
+    ],
+  ).filter(exposedToAssistant);
   return Buffer.byteLength(
     JSON.stringify({
       instructions: [

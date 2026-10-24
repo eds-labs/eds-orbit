@@ -112,84 +112,29 @@ export function anthropicStrictSchema(schema: unknown): unknown {
 }
 
 /**
- * Anthropic's limits for strict schemas in one request, across all strict
- * tools and the output format: beyond them the request is refused (400)
- * before any model work.
- */
-export const ANTHROPIC_STRICT_LIMITS = {
-  tools: 20,
-  optionalParameters: 24,
-  unionParameters: 16,
-} as const;
-
-/** Optional and union-typed (anyOf, type array) parameters of a schema. */
-export function strictSchemaCost(schema: unknown): {
-  optional: number;
-  unions: number;
-} {
-  const cost = { optional: 0, unions: 0 };
-  const visit = (node: unknown) => {
-    if (!node || typeof node !== "object") return;
-    const s = node as Record<string, unknown>;
-    if (Array.isArray(s.anyOf) || Array.isArray(s.type)) cost.unions++;
-    const required = new Set(Array.isArray(s.required) ? s.required : []);
-    for (const [name, child] of Object.entries(
-      (s.properties as Record<string, unknown>) ?? {},
-    )) {
-      if (!required.has(name)) cost.optional++;
-      visit(child);
-    }
-    visit(s.items);
-    for (const branch of Array.isArray(s.anyOf) ? s.anyOf : []) visit(branch);
-  };
-  visit(schema);
-  return cost;
-}
-
-/**
  * Tool definitions of Orbit's internal (Responses) shape as Messages API
- * tools. Tools stay strict in their order while the request's strict
- * schemas fit Anthropic's limits (`reserved`: what the output format
- * already uses); the rest are sent without `strict`. Orbit validates every
- * tool input with the tool's own schema before running it either way.
+ * tools, sent without `strict`: Anthropic compiles strict tool schemas into
+ * one grammar per request and refuses Orbit's tool set as too large
+ * ("compiled grammar is too large"), even within its documented limits.
+ * Orbit validates every tool input with the tool's own schema before
+ * running it, so strict decoding adds no check Orbit relies on.
  */
 export function toAnthropicTools(
   tools: unknown[],
-  options: {
-    maxSearches?: number;
-    reserved?: { optional: number; unions: number };
-  } = {},
+  options: { maxSearches?: number } = {},
 ): ToolUnion[] {
-  const used = {
-    tools: 0,
-    optional: options.reserved?.optional ?? 0,
-    unions: options.reserved?.unions ?? 0,
-  };
   return tools.map((raw): ToolUnion => {
     const tool = raw as Record<string, unknown> | null;
-    if (tool?.type === "function" && typeof tool.name === "string") {
-      const input_schema = anthropicStrictSchema(
-        tool.parameters ?? { type: "object", properties: {} },
-      ) as { type: "object"; [key: string]: unknown };
-      const cost = strictSchemaCost(input_schema);
-      const strict =
-        used.tools + 1 <= ANTHROPIC_STRICT_LIMITS.tools &&
-        used.optional + cost.optional <= ANTHROPIC_STRICT_LIMITS.optionalParameters &&
-        used.unions + cost.unions <= ANTHROPIC_STRICT_LIMITS.unionParameters;
-      if (strict) {
-        used.tools++;
-        used.optional += cost.optional;
-        used.unions += cost.unions;
-      }
+    if (tool?.type === "function" && typeof tool.name === "string")
       return {
         name: tool.name,
         ...(typeof tool.description === "string"
           ? { description: tool.description }
           : {}),
-        input_schema,
-        ...(strict ? { strict: true } : {}),
+        input_schema: anthropicStrictSchema(
+          tool.parameters ?? { type: "object", properties: {} },
+        ) as { type: "object"; [key: string]: unknown },
       };
-    }
     if (tool?.type === "web_search" || tool?.type === "web_search_preview")
       return {
         type: "web_search_20260209",
@@ -521,19 +466,21 @@ export function anthropicRequest(
 ): MessageCreateParamsNonStreaming {
   const effort = params.route.reasoningEffort;
   if (effort === "none") throw new Error("ROUTE_EFFORT_UNSUPPORTED");
-  const outputSchema = params.outputSchema
-    ? (anthropicStrictSchema(params.outputSchema) as Record<string, unknown>)
-    : null;
   const tools = params.tools?.length
-    ? toAnthropicTools(params.tools, {
-        maxSearches: params.maxSearches,
-        ...(outputSchema ? { reserved: strictSchemaCost(outputSchema) } : {}),
-      })
+    ? toAnthropicTools(params.tools, { maxSearches: params.maxSearches })
     : [];
   const outputConfig = {
     ...(effort ? { effort } : {}),
-    ...(outputSchema
-      ? { format: { type: "json_schema" as const, schema: outputSchema } }
+    ...(params.outputSchema
+      ? {
+          format: {
+            type: "json_schema" as const,
+            schema: anthropicStrictSchema(params.outputSchema) as Record<
+              string,
+              unknown
+            >,
+          },
+        }
       : {}),
   };
   return {

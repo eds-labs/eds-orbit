@@ -46,6 +46,8 @@ type Operation = {
   feature?: ToolFeature;
   /** Whether MCP clients may propose it now; default with MCP 2.0 tasks. */
   proposable?: () => boolean;
+  /** False for a tool only outside clients use: the assistant never offers it. */
+  assistant?: boolean;
   /** False when the change spends nothing and needs no active policy. */
   policyRequired?: boolean;
   output?: z.ZodType;
@@ -165,7 +167,7 @@ export function readOperation(op: Operation) {
     parameters: modelParameters(op.input),
     risk: "R0_read",
     permission: op.permission,
-    exposure: { assistant: true, mcp: true },
+    exposure: { assistant: op.assistant ?? true, mcp: true },
     outputSchema: op.output ? envelope.extend({ result: op.output }) : envelope,
     deferLoading: true,
     feature: op.feature ?? "mcp_tasks",
@@ -290,7 +292,7 @@ export function approvedOperation(op: Operation) {
     permission: op.permission,
     feature: op.feature ?? "mcp_tasks",
     deferLoading: true,
-    exposure: { assistant: true, mcp: true },
+    exposure: { assistant: op.assistant ?? true, mcp: true },
     outputSchema: proposalOutput,
     ...(op.ownerMcpAutoApproval
       ? { openWorld: true as const, mcpDirectEffect: true as const }

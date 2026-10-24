@@ -17,7 +17,6 @@ vi.mock("@anthropic-ai/sdk", async (original) => ({
 import { APIError } from "@anthropic-ai/sdk";
 import {
   anthropicRequest,
-  ANTHROPIC_STRICT_LIMITS,
   anthropicStrictSchema,
   fromAnthropicMessage,
   normalizeAnthropicUsage,
@@ -317,7 +316,7 @@ describe("usage and schema conversion", () => {
       additionalProperties: false,
     });
   });
-  it("builds strict tools and a capped direct web search", () => {
+  it("builds tools without strict decoding and a capped direct web search", () => {
     expect(
       toAnthropicTools(
         [
@@ -348,7 +347,6 @@ describe("usage and schema conversion", () => {
           additionalProperties: false,
           required: [],
         },
-        strict: true,
       },
       {
         type: "web_search_20260209",
@@ -539,7 +537,7 @@ describe("routed calls through the Anthropic adapter", () => {
     });
     const [body] = sdk.create.mock.calls[0]!;
     expect(body.tools).toEqual([
-      expect.objectContaining({ name: "knowledge_search", strict: true }),
+      expect.objectContaining({ name: "knowledge_search" }),
       expect.objectContaining({ type: "web_search_20260209", max_uses: 1 }),
     ]);
     expect(sdk.options[0]).toMatchObject({ timeout: 60000 });
@@ -733,52 +731,18 @@ describe("file and image input", () => {
   });
 });
 
-// Anthropic refuses a request whose strict schemas exceed 20 tools, 24
-// optional or 16 union-typed parameters (MODEL_REQUEST_NOT_ACCEPTED on a
-// Claude project whose chat offered the administration tools).
-describe("strict tool budget", () => {
-  const fn = (name: string, nullable = 0) => ({
-    type: "function",
-    name,
-    parameters: {
-      type: "object",
-      properties: Object.fromEntries(
-        Array.from({ length: nullable }, (_, i) => [
-          `p${i}`,
-          { anyOf: [{ type: "string" }, { type: "null" }] },
-        ]),
-      ),
-      required: Array.from({ length: nullable }, (_, i) => `p${i}`),
-      additionalProperties: false,
-    },
-  });
-  const strictNames = (tools: unknown[]) =>
-    (tools as Array<{ name: string; strict?: boolean }>)
-      .filter((t) => t.strict)
-      .map((t) => t.name);
-
-  it("keeps at most 20 tools strict, in order", () => {
+// Anthropic refused Orbit's tool set in strict mode ("compiled grammar is
+// too large", FamilyPlan 2026-10-24): tools go without strict decoding.
+describe("tools without strict decoding", () => {
+  it("sends every function tool without strict", () => {
     const tools = toAnthropicTools(
-      Array.from({ length: 25 }, (_, i) => fn(`t${i}`)),
+      Array.from({ length: 25 }, (_, i) => ({
+        type: "function",
+        name: `t${i}`,
+        parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+      })),
     );
     expect(tools).toHaveLength(25);
-    expect(strictNames(tools)).toEqual(
-      Array.from({ length: ANTHROPIC_STRICT_LIMITS.tools }, (_, i) => `t${i}`),
-    );
-  });
-
-  it("stops strict tools at 16 union-typed parameters, counting the output format", () => {
-    expect(strictNames(toAnthropicTools([fn("a", 10), fn("b", 10), fn("c", 6)]))).toEqual([
-      "a",
-      "c",
-    ]);
-    const request = anthropicRequest({
-      route: { model: "claude-sonnet-5-5", maxOutputTokens: 1000 },
-      instructions: "x",
-      input: [],
-      tools: [fn("a", 10)],
-      outputSchema: fn("out", 10).parameters,
-    });
-    expect(strictNames(request.tools ?? [])).toEqual([]);
+    expect(tools.some((t) => "strict" in t)).toBe(false);
   });
 });

@@ -218,6 +218,8 @@ const getTool = readOperation({
 
 const updateTool = approvedOperation({
   name: "marketing_policy_update",
+  // For outside clients (ChatGPT over MCP); the assistant reads only.
+  assistant: false,
   module: "marketing",
   feature: "project_administration",
   proposable: projectAdministrationEnabled,

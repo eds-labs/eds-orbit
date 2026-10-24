@@ -235,7 +235,8 @@ describe.skipIf(!enabled)("Orbit Chat on a Claude route (mocked SDK)", () => {
     expect(first.tools.map((tool: any) => tool.name)).toContain(
       "project_status",
     );
-    expect(first.tools.every((tool: any) => tool.strict === true)).toBe(true);
+    // Without strict decoding: Anthropic refused the compiled grammar of the tool set.
+    expect(first.tools.some((tool: any) => "strict" in tool)).toBe(false);
     expect("tool_choice" in first).toBe(false);
     expect("thinking" in first).toBe(false);
     expect(first.messages).toEqual([

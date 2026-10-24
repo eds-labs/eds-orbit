@@ -379,6 +379,8 @@ const getTool = readOperation({
 
 const update = approvedOperation({
   name: "ai_models_update",
+  // For outside clients (ChatGPT over MCP); the assistant reads only.
+  assistant: false,
   module: "platform",
   feature: "project_administration",
   proposable: projectAdministrationEnabled,
