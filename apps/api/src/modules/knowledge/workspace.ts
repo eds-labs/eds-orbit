@@ -572,7 +572,7 @@ export async function completeAnalysis(
   tx: DbTx,
   s: Scope,
   runId: string,
-  proposals: KnowledgeProposal[],
+  found: KnowledgeProposal[],
 ) {
   await lockKnowledge(tx, s);
   const row = await entity(tx, s, "knowledge_runs", runId);
@@ -581,7 +581,21 @@ export async function completeAnalysis(
   if (r.status === "completed") return true;
   const snap = r.snapshot as KnowledgeSnapshot;
   const input = knowledgeDraft.parse(r.input);
-  for (const p of proposals) validateProposalEvidence(p, snap);
+  // Only proposals whose quote matches the source word for word are kept; a
+  // model's one inexact quote no longer discards the whole paid run. With
+  // no exact quote at all the run fails as before.
+  const proposals = found.filter((p) => {
+    try {
+      validateProposalEvidence(p, snap);
+      return true;
+    } catch (error) {
+      if (error instanceof DomainError && error.code === "KNOWLEDGE_EVIDENCE_INVALID")
+        return false;
+      throw error;
+    }
+  });
+  if (found.length && !proposals.length)
+    throw new DomainError("KNOWLEDGE_EVIDENCE_INVALID", 409);
   const old = await list(tx, s, "knowledge_proposals");
   await invalidateChangedKnowledge(tx, s, r.draftId, snap);
   for (const proposal of proposals) {
@@ -626,6 +640,7 @@ export async function completeAnalysis(
     status: "completed",
     processed: snap.files.length,
     proposalCount: proposals.length,
+    droppedProposals: found.length - proposals.length,
     completedAt: new Date().toISOString(),
   });
   await audit(tx, s, "knowledge.analysis.completed", runId, {

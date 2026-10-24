@@ -55,6 +55,8 @@ export type SourceData = {
    * keeps the source generation, so it never invalidates an index.
    */
   audiences?: string[];
+  /** The source kind; `verified_facts` holds reviewed facts and their quotes. */
+  type?: string;
 };
 export type FactInput = {
   id?: string;

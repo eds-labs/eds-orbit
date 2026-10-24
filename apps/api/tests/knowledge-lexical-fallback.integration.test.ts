@@ -2,7 +2,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { createPackageProject } from "./support/package-project.ts";
-import { retrieveHybrid } from "../src/platform/knowledge/retrieval.ts";
+import { getActiveIndex } from "../../../packages/knowledge/src/index.ts";
+import {
+  indexHasEmbeddings,
+  retrieveHybrid,
+} from "../src/platform/knowledge/retrieval.ts";
 import { data } from "../src/shared.ts";
 
 // A project whose active index holds no embedding (FamilyPlan before its
@@ -56,5 +60,15 @@ describe.skipIf(!enabled)("Knowledge search without embeddings", () => {
     // The job key is recorded: a retry returns the same evidence.
     const again = await retrieveHybrid(project.owner, request(), jobKey);
     expect(again.id).toBe(evidence.id);
+  });
+
+  it("tells cost estimates that this index buys no query embedding", async () => {
+    // Draft proposals price a query embedding only for an embedded index:
+    // FamilyPlan's drafts failed with CURRENT_PRICE_REQUIRED without one.
+    expect(
+      await run(async (tx) =>
+        indexHasEmbeddings(tx, project.owner, await getActiveIndex(tx, project.owner)),
+      ),
+    ).toBe(false);
   });
 });

@@ -22,6 +22,43 @@ import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
  * whether a call already reserved.
  */
 export const queryReservationKey = (queryKey: string) => "query:" + queryKey;
+
+/**
+ * Whether a search buys a query embedding: only when the active index
+ * holds embeddings. Without any, it searches full-text for free, so cost
+ * estimates must not count (or price) a query embedding either.
+ */
+export async function indexHasEmbeddings(
+  tx: DbTx,
+  scope: Scope,
+  index: { profile: string; generation: number },
+) {
+  return (
+    (await tx.chunkEmbedding.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        profile: index.profile,
+        indexGeneration: index.generation,
+      },
+    })) > 0
+  );
+}
+/**
+ * Whether a search buys a query embedding now: the index holds embeddings
+ * and the project has an embedding key (decision E-8; Anthropic has no
+ * embedding model). Retrieval and cost estimates use the same answer.
+ */
+export async function buysQueryEmbedding(
+  tx: DbTx,
+  scope: Scope,
+  index: { profile: string; generation: number },
+) {
+  return (
+    (await indexHasEmbeddings(tx, scope, index)) &&
+    Boolean((await runtimeOpenAiConfiguration(tx, scope)).apiKey)
+  );
+}
 /**
  * `trace` is set by a caller that owns an agent run (generation): the query
  * reservation and embedding span then join that run and no retrieval run is
@@ -89,16 +126,7 @@ export async function retrieveHybrid(
   // the paid hybrid path and its price and mandate checks.
   const lexical = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const index = await getActiveIndex(tx, scope);
-    const embedded = await tx.chunkEmbedding.count({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        profile: index.profile,
-        indexGeneration: index.generation,
-      },
-    });
-    if (embedded && (await runtimeOpenAiConfiguration(tx, scope)).apiKey)
-      return null;
+    if (await buysQueryEmbedding(tx, scope, index)) return null;
     const evidence = await retrieve(tx, scope, input);
     if (jobKey)
       await create(tx, scope, "retrieval_runs", {
