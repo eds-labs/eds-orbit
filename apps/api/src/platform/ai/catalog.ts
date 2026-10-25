@@ -16,6 +16,12 @@ import {
 // project's own rate card and verified list still win and stay as they are.
 
 export const aiCatalogEnabled = () => process.env.ORBIT_AI_CATALOG === "true";
+/**
+ * Organization standard models and project presets (phase B). They choose
+ * models from the catalog, so they apply only while the catalog is on too.
+ */
+export const aiDefaultsEnabled = () =>
+  process.env.ORBIT_AI_DEFAULTS === "true" && aiCatalogEnabled();
 
 type Override = {
   scope: string;

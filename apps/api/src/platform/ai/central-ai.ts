@@ -3,8 +3,11 @@ import { z } from "zod";
 import type { DbTx, Prisma } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
+  aiDefaultsSchema,
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
+  imageModelSchema,
+  presetRouting,
   providerBudgetsSchema,
   type OpenAiRuntimeConfig,
   type ProviderBudgets,
@@ -20,6 +23,7 @@ import {
   providerOfModel,
 } from "../../../../../packages/ai/src/provider.ts";
 import { DomainError } from "../shared.ts";
+import { aiDefaultsEnabled } from "./catalog.ts";
 import {
   connectionSecret,
   connectionsEnabled,
@@ -56,6 +60,9 @@ export const aiProfileInput = z
     imageGeneration: imageGenerationConfigurationSchema.optional(),
     // Provider budgets projects inherit where they set none (phase 3.4).
     providerBudgets: providerBudgetsSchema.optional(),
+    // Standard models (plans/ai-central-management.md, phase B): with
+    // ORBIT_AI_DEFAULTS on they replace the tiers and task routes above.
+    defaults: aiDefaultsSchema.optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -141,6 +148,63 @@ async function layer(tx: DbTx, scope: Scope): Promise<Layer | null> {
   };
 }
 
+/**
+ * The runtime fields of a profile: its standard models, while on, in place
+ * of its own default provider, tiers and task routes.
+ */
+function profileFields(profile: AiProfileData | undefined) {
+  if (!profile) return {};
+  const { defaults, ...fields } = profile;
+  if (!defaults || !aiDefaultsEnabled()) return stripUndefined(fields);
+  const image = imageGenerationConfigurationSchema.safeParse({
+    ...(fields.imageGeneration ?? {}),
+    model: defaults.imageModel,
+  });
+  return stripUndefined({
+    ...fields,
+    ...presetRouting(defaults.provider, defaults.level, fields.modelRoutes),
+    taskRoutes: defaults.taskRoutes,
+    ...(defaults.imageModel && image.success
+      ? { imageGeneration: image.data }
+      : {}),
+  });
+}
+
+/** The standard image model of the organization, else the system's, while on. */
+function defaultImageModel(l: Layer) {
+  if (!aiDefaultsEnabled()) return undefined;
+  return imageModelSchema.safeParse(
+    l.profiles.workspace?.defaults?.imageModel ??
+      l.profiles.system?.defaults?.imageModel,
+  ).data;
+}
+
+/**
+ * A project that uses the organization's standard (phase B) adds to it
+ * instead of replacing it: its own task routes are per-task deviations,
+ * its verified models, prices and registry entries add to the profile's,
+ * and its image switch keeps the standard image model.
+ */
+function inheritFrom(
+  base: OpenAiRuntimeConfig,
+  project: OpenAiRuntimeConfig,
+  imageModel: ReturnType<typeof defaultImageModel>,
+): OpenAiRuntimeConfig {
+  return {
+    ...base,
+    ...stripUndefined(project),
+    verifiedModels: [
+      ...new Set([...(base.verifiedModels ?? []), ...project.verifiedModels]),
+    ],
+    rateCard: { ...(base.rateCard ?? {}), ...project.rateCard },
+    models: { ...(base.models ?? {}), ...(project.models ?? {}) },
+    taskRoutes: { ...(base.taskRoutes ?? {}), ...(project.taskRoutes ?? {}) },
+    ...(project.imageGeneration && imageModel
+      ? { imageGeneration: { ...project.imageGeneration, model: imageModel } }
+      : {}),
+  };
+}
+
 /** A positive 31-bit number for a version string (route versions are ints). */
 function versionNumber(projectVersion: number | null, versions: string) {
   const digest = createHash("sha256")
@@ -179,6 +243,8 @@ export async function withCentralAi(
   environment: OpenAiRuntimeConfig,
   projectVersion: number | null,
   keyRuleV2 = false,
+  // The project uses the organization's standard models (phase B).
+  inherit = false,
 ): Promise<OpenAiRuntimeConfig | null> {
   const l = await layer(tx, scope);
   if (!l) return null;
@@ -186,12 +252,14 @@ export async function withCentralAi(
     environment;
   const base = {
     ...envFields,
-    ...stripUndefined(l.profiles.system ?? {}),
-    ...stripUndefined(l.profiles.workspace ?? {}),
+    ...profileFields(l.profiles.system),
+    ...profileFields(l.profiles.workspace),
   } as OpenAiRuntimeConfig;
-  const merged: OpenAiRuntimeConfig = project
-    ? { ...base, ...stripUndefined(project) }
-    : base;
+  const merged: OpenAiRuntimeConfig = !project
+    ? base
+    : inherit
+      ? inheritFrom(base, project, defaultImageModel(l))
+      : { ...base, ...stripUndefined(project) };
   const sources: NonNullable<OpenAiRuntimeConfig["keySources"]> = {};
   const key = async (
     own: string | undefined,

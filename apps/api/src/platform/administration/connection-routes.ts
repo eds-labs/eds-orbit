@@ -35,6 +35,7 @@ import {
   channelAssignments,
 } from "../connections/channel-assignment.ts";
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
+import { aiDefaults, clearAiDefaults, saveAiDefaults } from "./ai-defaults.ts";
 import {
   listModelPrices,
   resetModelPrice,
@@ -260,6 +261,35 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
       (await owner(req)).userId,
       { scope: "workspace", workspaceId: id(req, "workspaceId") },
       modelId(req),
+    ),
+  );
+  // "Standard-Modelle" (phase B): the system's (administrators) and an
+  // organization's (owners) provider and level, image model and task routes.
+  app.get("/api/admin/ai/defaults", async (req) => {
+    await admin(req);
+    return aiDefaults({ scope: "system" });
+  });
+  app.put("/api/admin/ai/defaults", async (req) =>
+    saveAiDefaults((await admin(req)).userId, { scope: "system" }, req.body),
+  );
+  app.delete("/api/admin/ai/defaults", async (req) =>
+    clearAiDefaults((await admin(req)).userId, { scope: "system" }),
+  );
+  app.get("/api/organizations/:workspaceId/ai/defaults", async (req) => {
+    await owner(req);
+    return aiDefaults({ scope: "workspace", workspaceId: id(req, "workspaceId") });
+  });
+  app.put("/api/organizations/:workspaceId/ai/defaults", async (req) =>
+    saveAiDefaults(
+      (await owner(req)).userId,
+      { scope: "workspace", workspaceId: id(req, "workspaceId") },
+      req.body,
+    ),
+  );
+  app.delete("/api/organizations/:workspaceId/ai/defaults", async (req) =>
+    clearAiDefaults(
+      (await owner(req)).userId,
+      { scope: "workspace", workspaceId: id(req, "workspaceId") },
     ),
   );
   // What the project may choose from; any member may see the names.

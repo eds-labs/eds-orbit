@@ -69,6 +69,15 @@ Settings → AI & budget (owners) holds the project's AI spending authority: the
 - **Images.** In a project, KI & Budget → OpenAI → "Bilder erzeugen" books the catalog amount per image.
 - **Rollback.** Set the flag back to `false`. The overrides stay stored and unused.
 
+## AI standard models
+
+`ORBIT_AI_DEFAULTS=true` (needs `ORBIT_AI_CATALOG=true`) turns on the standard models of phase B (docs/plans/ai-central-management.md).
+
+- **Organization standard.** An organization chooses a provider and a level (Günstig / Ausgewogen / Beste Qualität), an image model and, optionally, a model per task (Organization → Integrationen → Standard-Modelle). Administrators set the system's under Administration → KI & Wissen.
+- **Who uses it.** Projects without own AI settings use it right away. Projects with settings keep them until an owner picks "Organisationsstandard" or "Eigene Stufe" under KI & Budget → Modellwahl.
+- **Effect on runs.** A change to the standard changes the route version, so runs in progress stop before their next paid call, as after a project save.
+- **Rollback.** Set the flag back to `false`. Every project uses its saved tiers and task routes again; the stored standards and choices stay unused.
+
 ## Model routes and generation evals
 
 Routes per task class (`chat_operator`, `draft_social`, `draft_blog`) are set by the owner in the OpenAI configuration dialog; precedence, effort and ceilings are described in `MODEL_ROUTING.md`. Migration `202610010001_agent_run_route_version` adds the nullable `AgentRun.routeVersion` (the configuration's entity version); it is additive and deploys with the normal migration step. With no task route saved, behaviour is unchanged.

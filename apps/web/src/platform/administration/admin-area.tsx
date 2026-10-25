@@ -37,6 +37,7 @@ import { ConnectionsPanel } from "./connections-ui";
 import { McpAdmin } from "./admin-mcp";
 import { AiProfileEditor } from "./ai-knowledge-ui";
 import { ModelPricesPanel } from "./ai-catalog-ui";
+import { AiDefaultsPanel } from "./ai-defaults-ui";
 
 // The system administration (/admin, ADR 0013): installation-wide metadata
 // about users, organizations, projects and invitations, and the actions on
@@ -141,6 +142,11 @@ export function AdminArea({
                   ? "Systemweite KI-Standards. Anbieter-Schlüssel und ihre Budgets verwaltest du unter Integrationen; gemeinsames Wissen in den Organisationen."
                   : "System-wide AI defaults. Provider keys and their budgets live under Integrations; shared knowledge in the organizations."
               }
+            />
+            <AiDefaultsPanel
+              path="/admin/ai/defaults"
+              modelsPath="/admin/ai/models"
+              locale={locale}
             />
             <ModelPricesPanel path="/admin/ai/models" locale={locale} />
             <AiProfileEditor path="/admin/ai/profile" locale={locale} scopeLabel="System" />

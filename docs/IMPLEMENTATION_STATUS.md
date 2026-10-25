@@ -1,5 +1,27 @@
 # Implementation status
 
+## Central AI management phase B: standard models and guided setup (2026-10-25, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed, `ORBIT_AI_DEFAULTS` off)
+
+Plan: [plans/ai-central-management.md](plans/ai-central-management.md), section 7. Phase A (price catalog) is live since 2026-10-25 16:17 UTC (`f263dfea`, save fix `517a5030`).
+
+- **Model presets.** A provider plus a level (Günstig / Ausgewogen / Beste Qualität) chooses the models.
+- **Organization standard.** The organization's (and system's) standard is stored on the AI profile.
+- **Project model choice.** Organization standard, own level or own settings, with per-task deviations.
+- **Guided first setup.** Key, models, budget.
+- **New routes.** `/api/admin/ai/defaults` and `/api/organizations/:id/ai/defaults` (access matrix +6 rows), and section `routing` of `ai-configure`.
+- **No migration.**
+
+Verification (local, worktree database):
+- full suite 3,759 passed / 7 skipped / 0 failed;
+- new `ai-defaults.integration.test.ts` 7/7;
+- related AI, connection, RLS and paid suites 154/154;
+- access matrix regenerated with additions only;
+- web preset test 2/2;
+- root and web `tsc`, boundaries, source check, Coolify compose check;
+- OpenAPI client regenerated (two new paths).
+
+Not checked in a browser.
+
 ## Project management phase 1 (2026-10-25, deployed via `5f89cc00`; `ORBIT_WORK` off)
 
 Plan: [plans/project-management-phase-1.md](plans/project-management-phase-1.md); ADR: [adr/0016-project-management-links-events.md](adr/0016-project-management-links-events.md); guide: [WORK.md](WORK.md). Mario's decisions Q-P1-1 to Q-P1-5 of 2026-10-25 apply.

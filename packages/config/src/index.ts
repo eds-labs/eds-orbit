@@ -152,6 +152,9 @@ const baseConfigSchema = z.object({
   // active catalog model is verified and priced for every project, under the
   // project's own settings. Read directly from the environment by the API.
   ORBIT_AI_CATALOG: z.enum(["false", "true"]).default("false"),
+  // Organization standard models and project presets (phase B); apply only
+  // while the catalog is on too. Read directly from the environment.
+  ORBIT_AI_DEFAULTS: z.enum(["false", "true"]).default("false"),
   // Where the AI spending authority is read from (ADR 0015, plan 3.8):
   // "platform" only the platform record (no paid AI without one);
   // "fallback" the platform record, else the Marketing policy's budget
