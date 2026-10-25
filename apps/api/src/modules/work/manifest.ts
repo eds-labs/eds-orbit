@@ -13,6 +13,17 @@ export const workModule: ServerModule = {
   dependsOn: [],
   defaultEnabled: false,
   entityKinds: [],
-  tables: [],
+  tables: [
+    "WorkInitiative",
+    "WorkMilestone",
+    "WorkTaskCounter",
+    "WorkTask",
+    "WorkChecklistItem",
+    "WorkTaskDependency",
+    "WorkComment",
+    "WorkAttachment",
+    "WorkTaskWatcher",
+    "WorkEvent",
+  ],
   permissions: workPermissions,
 };

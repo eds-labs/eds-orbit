@@ -1609,3 +1609,193 @@ model WorkflowBinding {
 
   @@index([connectionId])
 }
+
+// Project management module (ADR 0016, plan §3.4). Relations live in SQL as
+// composite same-project foreign keys; the models declare none, like Support
+// and Finance. Triggers keep milestones inside their initiative and subtasks
+// one level deep.
+
+model WorkInitiative {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  key         String
+  title       String
+  description String?
+  status      String    @default("planned")
+  health      String    @default("unknown")
+  ownerUserId String?
+  startDate   DateTime? @db.Date
+  targetDate  DateTime? @db.Date
+  version     Int       @default(1)
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, key])
+}
+
+model WorkMilestone {
+  id           String    @id @db.Uuid
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  initiativeId String    @db.Uuid
+  title        String
+  description  String?
+  dueDate      DateTime? @db.Date
+  status       String    @default("open")
+  sortOrder    Int       @default(0)
+  version      Int       @default(1)
+  createdBy    String
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt   DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, initiativeId, dueDate])
+}
+
+/// The last task number per project; numbers are never reused.
+model WorkTaskCounter {
+  projectId   String @id @db.Uuid
+  workspaceId String @db.Uuid
+  lastNumber  Int    @default(0)
+}
+
+model WorkTask {
+  id               String                   @id @db.Uuid
+  workspaceId      String                   @db.Uuid
+  projectId        String                   @db.Uuid
+  number           Int
+  initiativeId     String?                  @db.Uuid
+  milestoneId      String?                  @db.Uuid
+  parentTaskId     String?                  @db.Uuid
+  title            String
+  description      String?
+  status           String
+  statusCategory   String
+  priority         String                   @default("none")
+  category         String?
+  labels           String[]                 @default([])
+  assigneeUserId   String?
+  assigneeAgentKey String?
+  teamKey          String?
+  startDate        DateTime?                @db.Date
+  dueDate          DateTime?                @db.Date
+  completedAt      DateTime?                @db.Timestamptz(3)
+  estimate         Int?
+  rank             String
+  source           String                   @default("manual")
+  searchVector     Unsupported("tsvector")?
+  version          Int                      @default(1)
+  createdBy        String
+  createdAt        DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime                 @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt       DateTime?                @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, number])
+  @@index([projectId, milestoneId])
+  @@index([projectId, parentTaskId])
+}
+
+model WorkChecklistItem {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  taskId      String    @db.Uuid
+  text        String
+  done        Boolean   @default(false)
+  doneBy      String?
+  doneAt      DateTime? @db.Timestamptz(3)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, taskId, sortOrder])
+}
+
+/// `taskId` waits for `dependsOnTaskId` (finish to start).
+model WorkTaskDependency {
+  id              String   @id @db.Uuid
+  workspaceId     String   @db.Uuid
+  projectId       String   @db.Uuid
+  taskId          String   @db.Uuid
+  dependsOnTaskId String   @db.Uuid
+  kind            String   @default("finish_to_start")
+  createdBy       String
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, taskId, dependsOnTaskId], map: "WorkTaskDependency_pair_key")
+  @@index([projectId, dependsOnTaskId])
+}
+
+model WorkComment {
+  id           String    @id @db.Uuid
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  taskId       String    @db.Uuid
+  authorKind   String
+  authorUserId String?
+  agentRunId   String?   @db.Uuid
+  bodyText     String
+  mentions     String[]  @default([])
+  editedAt     DateTime? @db.Timestamptz(3)
+  deletedAt    DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, taskId, createdAt])
+}
+
+model WorkAttachment {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  taskId      String   @db.Uuid
+  fileId      String   @db.Uuid
+  name        String
+  mime        String
+  size        Int
+  addedBy     String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, taskId, fileId], map: "WorkAttachment_task_file_key")
+  @@index([projectId, taskId])
+}
+
+model WorkTaskWatcher {
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  taskId      String   @db.Uuid
+  userId      String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([projectId, taskId, userId])
+}
+
+/// History of a task, initiative or milestone (exactly one is set): ids and
+/// field names only.
+model WorkEvent {
+  id           String   @id @db.Uuid
+  workspaceId  String   @db.Uuid
+  projectId    String   @db.Uuid
+  taskId       String?  @db.Uuid
+  initiativeId String?  @db.Uuid
+  milestoneId  String?  @db.Uuid
+  type         String
+  actorKind    String
+  actorId      String?
+  before       Json     @default("{}")
+  after        Json     @default("{}")
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, taskId, createdAt])
+  @@index([projectId, initiativeId, createdAt])
+  @@index([projectId, milestoneId, createdAt])
+}

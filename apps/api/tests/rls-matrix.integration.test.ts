@@ -69,6 +69,17 @@ const PROJECT_TABLES = [
   "FinancePayment",
   "FinancePaymentAllocation",
   "FinanceRecurring",
+  // Project management (ADR 0016).
+  "WorkAttachment",
+  "WorkChecklistItem",
+  "WorkComment",
+  "WorkEvent",
+  "WorkInitiative",
+  "WorkMilestone",
+  "WorkTask",
+  "WorkTaskCounter",
+  "WorkTaskDependency",
+  "WorkTaskWatcher",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -145,6 +156,8 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     // deleted only by retention.
     ObjectLink: [true, true, true, false],
     DomainEvent: [true, true, false, true],
+    // Task history is append-only; deleting a task still cascades.
+    WorkEvent: [true, true, false, false],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -187,6 +200,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   const mailboxes = new Map<string, string>();
   // A finance payment account per project, for the same-project key check.
   const financeAccounts = new Map<string, string>();
+  // A work initiative per project, for the same-project key check.
+  const workInitiatives = new Map<string, string>();
 
   const synthetic = async () => {
     const row = await authDb.user.create({
@@ -533,7 +548,62 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         },
       });
       await seedFinance(tx, s, mailbox.id, fileId);
+      await seedWork(tx, s, fileId);
       return inbox.id;
+    });
+  }
+
+  // One row in every project management table (ADR 0016).
+  async function seedWork(tx: DbTx, s: Scope, fileId: string) {
+    const row = () => ({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+    });
+    const initiative = await tx.workInitiative.create({
+      data: { ...row(), key: "RLS", title: "Synthetic RLS initiative", createdBy: s.userId },
+    });
+    workInitiatives.set(s.projectId, initiative.id);
+    const milestone = await tx.workMilestone.create({
+      data: { ...row(), initiativeId: initiative.id, title: "Synthetic milestone", createdBy: s.userId },
+    });
+    await tx.workTaskCounter.create({
+      data: { workspaceId: s.workspaceId, projectId: s.projectId, lastNumber: 2 },
+    });
+    const task = (number: number, parentTaskId?: string) =>
+      tx.workTask.create({
+        data: {
+          ...row(),
+          number,
+          initiativeId: initiative.id,
+          milestoneId: milestone.id,
+          parentTaskId,
+          title: "Synthetic RLS task",
+          status: "todo",
+          statusCategory: "todo",
+          rank: `a${number}`,
+          createdBy: s.userId,
+        },
+      });
+    const first = await task(1);
+    const second = await task(2, first.id);
+    await tx.workChecklistItem.create({
+      data: { ...row(), taskId: first.id, text: "Synthetic item" },
+    });
+    await tx.workTaskDependency.create({
+      data: { ...row(), taskId: first.id, dependsOnTaskId: second.id, createdBy: s.userId },
+    });
+    await tx.workComment.create({
+      data: { ...row(), taskId: first.id, authorKind: "user", authorUserId: s.userId, bodyText: "Synthetic comment" },
+    });
+    await tx.workAttachment.create({
+      data: { ...row(), taskId: first.id, fileId, name: "rls.txt", mime: "text/plain", size: 1, addedBy: s.userId },
+    });
+    await tx.workTaskWatcher.create({
+      data: { workspaceId: s.workspaceId, projectId: s.projectId, taskId: first.id, userId: s.userId },
+    });
+    await tx.workEvent.create({
+      data: { ...row(), taskId: first.id, type: "created", actorKind: "user", actorId: s.userId },
     });
   }
 
@@ -1045,13 +1115,30 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     expect(result.error ?? "inserted").toMatch(/foreign key/);
   });
 
+  it("keeps work references inside one project, even past RLS", async () => {
+    // A task of A cannot belong to B's initiative.
+    const result = await attempt(
+      a,
+      `INSERT INTO "WorkTask" (id, "workspaceId", "projectId", number, "initiativeId", title, status, "statusCategory", rank, "createdBy")
+       VALUES ($1::uuid, $2::uuid, $3::uuid, 99, $4::uuid, 'x', 'todo', 'todo', 'a', 'rls')`,
+      randomUUID(),
+      a.workspaceId,
+      a.projectId,
+      workInitiatives.get(b.projectId),
+    );
+    expect(result.error ?? "inserted").toMatch(/foreign key/);
+  });
+
   it("deletes a project together with its support and finance rows", async () => {
     const owner = await synthetic();
     const doomed = await project(await workspace(owner), owner);
     await seed(doomed);
     await authDb.project.delete({ where: { id: doomed.projectId } });
     for (const table of PROJECT_TABLES.filter(
-      (t) => t.startsWith("Support") || t.startsWith("Finance"),
+      (t) =>
+        t.startsWith("Support") ||
+        t.startsWith("Finance") ||
+        t.startsWith("Work"),
     ))
       expect({ table, rows: await visible(doomed, table, doomed) }).toEqual({
         table,

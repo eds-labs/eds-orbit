@@ -208,6 +208,16 @@ try {
     "FinanceMailbox",
     "FinanceRecurring",
     "FinanceFxRate",
+    // Project management (ADR 0016); its history is append-only below.
+    "WorkInitiative",
+    "WorkMilestone",
+    "WorkTaskCounter",
+    "WorkTask",
+    "WorkChecklistItem",
+    "WorkTaskDependency",
+    "WorkComment",
+    "WorkAttachment",
+    "WorkTaskWatcher",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
@@ -244,6 +254,8 @@ try {
   await migrator.query(
     'GRANT SELECT,INSERT,DELETE ON "DomainEvent" TO orbit_app',
   );
+  // Task history: append-only; deleting a task still cascades.
+  await migrator.query('GRANT SELECT,INSERT ON "WorkEvent" TO orbit_app');
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(
