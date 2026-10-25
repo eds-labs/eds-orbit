@@ -708,6 +708,8 @@ export function AiSettings() {
   );
   const [openAi, setOpenAi] = useState(false);
   const [anthropic, setAnthropic] = useState(false);
+  const [routes, setRoutes] = useState(false);
+  const [prices, setPrices] = useState(false);
   const view = configuration.data;
   const models = useMemo(() => {
     if (!view) return [];
@@ -829,9 +831,17 @@ export function AiSettings() {
             <h2>{de ? "KI-Modelle" : "AI models"}</h2>
             <p>
               {de
-                ? "Verifizierte Modelle mit Preisen und ihren Aufgaben. Routen und Preise bearbeitest du im OpenAI-Dialog; Claude-Vorschläge über „Claude konfigurieren“."
-                : "Verified models with prices and their task classes. Edit routes and prices in the OpenAI dialog; Claude suggestions via “Configure Claude”."}
+                ? "Geprüfte Modelle mit Preisen und den Aufgaben, die sie nutzen."
+                : "Verified models with prices and the tasks that use them."}
             </p>
+          </div>
+          <div className="page-actions">
+            <Button variant="outline" onClick={() => setRoutes(true)}>
+              {de ? "Aufgaben-Routen" : "Task routes"}
+            </Button>
+            <Button variant="outline" onClick={() => setPrices(true)}>
+              {de ? "Modelle & Preise" : "Models & prices"}
+            </Button>
           </div>
         </div>
         {models.length ? (
@@ -972,6 +982,22 @@ export function AiSettings() {
           }}
         />
       )}
+      {routes && (
+        <TaskRoutesConfiguration
+          onClose={() => {
+            setRoutes(false);
+            configuration.refresh();
+          }}
+        />
+      )}
+      {prices && (
+        <ModelsAndPricesConfiguration
+          onClose={() => {
+            setPrices(false);
+            configuration.refresh();
+          }}
+        />
+      )}
       {anthropic && view && (
         <AnthropicConfiguration
           view={view}
@@ -1076,11 +1102,314 @@ function describeEffectiveRoute(
       : "";
   return `Effective route: ${route.model}${route.provider ? ` (${route.provider})` : ""} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.${price}`;
 }
-export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
-  const { project, refresh } = useWorkspace();
-  const configuration = useResource<OpenAiConfigurationView>(
+/**
+ * The model section of the configuration as stored, so a dialog that shows
+ * only part of it saves the rest unchanged (the save path takes the whole
+ * section).
+ */
+function modelsPayload(view: OpenAiConfigurationView) {
+  const image = view.imageGeneration;
+  return {
+    verifiedModels: view.verifiedModels,
+    rateCard: view.rateCard,
+    modelRoutes: view.modelRoutes,
+    taskRoutes: view.taskRoutes ?? {},
+    imageGeneration: {
+      model: image?.model || "gpt-image-2.5-flare",
+      maxCostMicrosPerImage: image?.maxCostMicrosPerImage ?? 0,
+      ...(image?.pricingVerifiedAt
+        ? { pricingVerifiedAt: image.pricingVerifiedAt }
+        : {}),
+    },
+  };
+}
+
+/** Verified text models to choose from (no image or embedding models). */
+function textModelOptions(view: OpenAiConfigurationView, current?: string) {
+  const ids = view.verifiedModels.filter(
+    (id) => !/^(gpt-image|dall-e|text-embedding)/i.test(id),
+  );
+  if (current && !ids.includes(current)) ids.push(current);
+  return ids.map((id) => ({ value: id, label: id }));
+}
+
+/** Loads the configuration for a dialog; null while loading. */
+function useModelsView() {
+  const { project } = useWorkspace();
+  return useResource<OpenAiConfigurationView>(
     collectionPath(project.id, "openai-configuration"),
   );
+}
+
+/**
+ * OpenAI as simple as Claude: the keys, the three tier models and image
+ * generation. Task routes and the rate card have their own dialogs.
+ */
+export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const configuration = useModelsView();
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const current = configuration.data;
+  const tier = (key: "fast" | "standard" | "quality", label: string, heading?: string): FormField => ({
+    name: `model-${key}`,
+    ...(heading ? { heading } : {}),
+    label,
+    type: "select",
+    required: true,
+    value: current?.modelRoutes?.[key] ?? "",
+    options: current ? textModelOptions(current, current.modelRoutes?.[key]) : [],
+  });
+  const fields: FormField[] = [
+    {
+      name: "apiKey",
+      label: current?.textKeyConfigured
+        ? de
+          ? "OpenAI API-Key (leer lassen, um den gespeicherten zu behalten)"
+          : "OpenAI API key (leave blank to keep the current key)"
+        : "OpenAI API key",
+      type: "password",
+      min: 20,
+      max: 1000,
+      hint: de
+        ? "Serverseitig verschlüsselt, nie wieder angezeigt."
+        : "Encrypted server-side, never displayed again.",
+    },
+    {
+      name: "imageApiKey",
+      label: current?.dedicatedImageKeyConfigured
+        ? de
+          ? "Eigener Key nur für Bilder (leer lassen, um ihn zu behalten)"
+          : "Separate key for images only (leave blank to keep it)"
+        : de
+          ? "Eigener Key nur für Bilder (optional)"
+          : "Separate key for images only (optional)",
+      type: "password",
+      min: 20,
+      max: 1000,
+      hint: de
+        ? "Ohne eigenen Bild-Key nutzt die Bilderzeugung den OpenAI-Key oben."
+        : "Without one, image generation uses the OpenAI key above.",
+    },
+    tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
+    tier("standard", "Standard"),
+    tier("quality", de ? "Qualität (komplexe Analysen)" : "Quality (complex analysis)"),
+    {
+      name: "imageModel",
+      heading: de ? "Bilderzeugung" : "Image generation",
+      label: de ? "Bildmodell" : "Image model",
+      type: "select",
+      value: current?.imageGeneration?.model || "gpt-image-2.5-flare",
+      options: [
+        { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · " + (de ? "schnell" : "fast") },
+        { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst · " + (de ? "präzise Bearbeitung" : "precise editing") },
+        { value: "gpt-image-2.5-flare-2026-09-08", label: "Flare · 2026-09-08" },
+        { value: "gpt-image-2.5-sunburst-2026-09-08", label: "Sunburst · 2026-09-08" },
+      ],
+    },
+    {
+      name: "imageMaxCost",
+      label: de ? "Höchstbetrag pro Bild (USD, 0 = aus)" : "Maximum per image (USD, 0 = off)",
+      type: "number",
+      min: 0,
+      max: 10,
+      step: "0.001",
+      value: (current?.imageGeneration?.maxCostMicrosPerImage || 0) / 1_000_000,
+      required: true,
+    },
+    {
+      name: "imagePriceChecked",
+      label: current?.imageGeneration?.pricingVerifiedAt
+        ? de
+          ? `Preis heute geprüft (zuletzt ${when(current.imageGeneration.pricingVerifiedAt, locale)})`
+          : `Price checked today (last ${when(current.imageGeneration.pricingVerifiedAt, locale)})`
+        : de
+          ? "Preis heute geprüft"
+          : "Price checked today",
+      type: "checkbox",
+      value: !current?.imageGeneration?.pricingVerifiedAt,
+      hint: de
+        ? "Nötig, sobald der Höchstbetrag über 0 liegt. Bilder brauchen außerdem das Bildmodell unter „Modelle & Preise“."
+        : "Needed once the maximum is above 0. Images also need the image model under “Models & prices”.",
+    },
+  ];
+  return (
+    <Modal title={de ? "OpenAI konfigurieren" : "Configure OpenAI"} onClose={onClose}>
+      <p className="panel-note">
+        {current?.textKeyConfigured
+          ? de
+            ? "Key konfiguriert."
+            : "Key configured."
+          : de
+            ? "Noch kein OpenAI-Key für dieses Projekt."
+            : "No OpenAI key for this project yet."}
+        {current?.dedicatedImageKeyConfigured
+          ? de
+            ? " Ein eigener Bild-Key ist aktiv."
+            : " A separate image key is active."
+          : ""}
+      </p>
+      <Alert>
+        {de
+          ? "Jede Speicherung erhöht die Routen-Version: laufende Jobs stoppen vor ihrem nächsten bezahlten Aufruf und müssen neu gestartet werden."
+          : "Every save bumps the route version: runs in progress stop before their next paid call and must be started again."}
+      </Alert>
+      {!current ? (
+        <Loading />
+      ) : (
+        <DataForm
+          key={current.updatedAt ?? "openai"}
+          fields={fields}
+          pending={mutation.pending}
+          error={mutation.error}
+          submitLabel={de ? "OpenAI-Einstellungen speichern" : "Save OpenAI settings"}
+          onCancel={onClose}
+          onSubmit={(values) =>
+            mutation.run(() => {
+              const apiKey = str(values, "apiKey");
+              const imageApiKey = str(values, "imageApiKey");
+              const base = modelsPayload(current);
+              return saveModels(project.id, {
+                ...base,
+                ...(apiKey ? { apiKey } : {}),
+                ...(imageApiKey ? { imageApiKey } : {}),
+                modelRoutes: {
+                  ...base.modelRoutes,
+                  fast: str(values, "model-fast"),
+                  standard: str(values, "model-standard"),
+                  quality: str(values, "model-quality"),
+                },
+                imageGeneration: {
+                  model: str(values, "imageModel"),
+                  maxCostMicrosPerImage: Math.round(
+                    Number(values.imageMaxCost) * 1_000_000,
+                  ),
+                  ...(values.imagePriceChecked === true
+                    ? { pricingVerifiedAt: new Date().toISOString() }
+                    : base.imageGeneration.pricingVerifiedAt
+                      ? { pricingVerifiedAt: base.imageGeneration.pricingVerifiedAt }
+                      : {}),
+                },
+              });
+            })
+          }
+        />
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Which model each task uses, for both providers: a model chosen from the
+ * verified ones, or none (the provider's tier for the task applies).
+ */
+export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const configuration = useModelsView();
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const current = configuration.data;
+  const fields: FormField[] = current
+    ? taskClasses.flatMap(({ id, label, defaultTokens }): FormField[] => {
+        const stored = current.taskRoutes?.[id];
+        return [
+          {
+            name: `route-${id}-model`,
+            heading: `${label} route`,
+            label: `${label} model`,
+            type: "select",
+            value: stored?.model ?? "",
+            options: [
+              { value: "", label: de ? "Stufe des Standardanbieters" : "Default provider's tier" },
+              ...textModelOptions(current, stored?.model),
+            ],
+            hint: describeEffectiveRoute(current.effectiveRoutes?.[id]),
+          },
+          {
+            name: `route-${id}-effort`,
+            label: `${label} reasoning effort`,
+            type: "select",
+            value: stored?.reasoningEffort ?? "",
+            options: [
+              { value: "", label: "Default (not sent)" },
+              ...reasoningEffortValues.map((value) => ({ value, label: value })),
+            ],
+          },
+          {
+            name: `route-${id}-max-tokens`,
+            label: `${label} maximum output tokens`,
+            type: "number",
+            min: 256,
+            max: 16000,
+            step: "1",
+            value: stored?.maxOutputTokens ?? defaultTokens,
+          },
+        ];
+      })
+    : [];
+  return (
+    <Modal title={de ? "Aufgaben-Routen" : "Task routes"} onClose={onClose}>
+      <p className="panel-note">
+        {de
+          ? "Welches Modell jede Aufgabe nutzt, OpenAI oder Claude. Ohne Auswahl gilt die Stufe des Standardanbieters. Zur Auswahl stehen die Modelle unter „Modelle & Preise“."
+          : "Which model each task uses, OpenAI or Claude. Without a choice the default provider's tier applies. The choices are the models under “Models & prices”."}
+        {typeof current?.routeVersion === "number"
+          ? ` ${de ? "Routen-Version" : "Route version"} ${current.routeVersion}.`
+          : ""}
+      </p>
+      {!current ? (
+        <Loading />
+      ) : (
+        <DataForm
+          key={current.updatedAt ?? "routes"}
+          fields={fields}
+          pending={mutation.pending}
+          error={mutation.error}
+          submitLabel={de ? "Routen speichern" : "Save routes"}
+          onCancel={onClose}
+          onSubmit={(values) =>
+            mutation.run(() =>
+              saveModels(project.id, {
+                ...modelsPayload(current),
+                taskRoutes: Object.fromEntries(
+                  taskClasses.flatMap(({ id, defaultTokens }) => {
+                    const model = str(values, `route-${id}-model`);
+                    if (!model) return [];
+                    const effort = str(values, `route-${id}-effort`);
+                    const maxOutputTokens =
+                      Number(values[`route-${id}-max-tokens`]) || defaultTokens;
+                    return [
+                      [
+                        id,
+                        {
+                          model,
+                          ...(effort ? { reasoningEffort: effort } : {}),
+                          maxOutputTokens,
+                        },
+                      ],
+                    ];
+                  }),
+                ),
+              }),
+            )
+          }
+        />
+      )}
+    </Modal>
+  );
+}
+
+/** The verified models and their prices (advanced). */
+export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void }) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const configuration = useModelsView();
   const mutation = useMutation(() => {
     refresh();
     onClose();
@@ -1088,219 +1417,60 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
   const current = configuration.data;
   const fields: FormField[] = [
     {
-      name: "apiKey",
-      label:
-        current?.source === "orbit"
-          ? "OpenAI API key (leave blank to keep the current key)"
-          : "Shared OpenAI API key (optional when an image key is entered)",
-      type: "password",
-      min: 20,
-      max: 1000,
-      hint: "Encrypted server-side. It is never displayed after saving.",
-    },
-    {
-      name: "imageApiKey",
-      label: current?.dedicatedImageKeyConfigured
-        ? "Dedicated OpenAI image API key (leave blank to keep it)"
-        : "Dedicated OpenAI image API key (optional)",
-      type: "password",
-      min: 20,
-      max: 1000,
-      hint: "Encrypted server-side. When blank, image generation uses the shared OpenAI key. A separate project key makes provider-side cost tracking easier.",
-    },
-    {
       name: "verifiedModels",
-      label: "Verified model IDs (comma separated)",
+      label: de ? "Geprüfte Modelle (kommagetrennt)" : "Verified models (comma separated)",
       required: true,
       value: current?.verifiedModels.join(", ") ?? "",
-      placeholder: "gpt-5.6-terra, text-embedding-3-small",
-    },
-    ...taskClasses.flatMap(({ id, label, defaultTokens }): FormField[] => {
-      const stored = current?.taskRoutes?.[id];
-      return [
-        {
-          name: `route-${id}-model`,
-          heading: `${label} route`,
-          label: `${label} model`,
-          value: stored?.model ?? "",
-          placeholder: "Leave empty to use the fallback tier",
-          hint: describeEffectiveRoute(current?.effectiveRoutes?.[id]),
-        },
-        {
-          name: `route-${id}-effort`,
-          label: `${label} reasoning effort`,
-          type: "select",
-          value: stored?.reasoningEffort ?? "",
-          options: [
-            { value: "", label: "Default (not sent)" },
-            ...reasoningEffortValues.map((value) => ({ value, label: value })),
-          ],
-        },
-        {
-          name: `route-${id}-max-tokens`,
-          label: `${label} maximum output tokens`,
-          type: "number",
-          min: 256,
-          max: 16000,
-          step: "1",
-          value: stored?.maxOutputTokens ?? defaultTokens,
-          hint: "Used only when a model is entered (256 to 16000).",
-        },
-      ];
-    }),
-    ...(["fast", "standard", "quality", "escalation"] as const).map(
-      (route, index): FormField => ({
-        name: `model-${route}`,
-        heading: index === 0 ? "Fallback tier models" : undefined,
-        label: `${route.charAt(0).toUpperCase() + route.slice(1)} task model`,
-        required: true,
-        value: current?.modelRoutes?.[route] ?? "",
-        hint:
-          index === 0
-            ? "Used by every task class that has no model entered above."
-            : undefined,
-      }),
-    ),
-    {
-      name: "imageModel",
-      label: "GPT Image 2.5 model",
-      type: "select",
-      value: current?.imageGeneration?.model || "gpt-image-2.5-flare",
-      options: [
-        {
-          value: "gpt-image-2.5-flare",
-          label: "GPT Image 2.5 Flare · fast generation",
-        },
-        {
-          value: "gpt-image-2.5-sunburst",
-          label: "GPT Image 2.5 Sunburst · precise editing",
-        },
-        {
-          value: "gpt-image-2.5-flare-2026-09-08",
-          label: "Flare · pinned 2026-09-08",
-        },
-        {
-          value: "gpt-image-2.5-sunburst-2026-09-08",
-          label: "Sunburst · pinned 2026-09-08",
-        },
-      ],
-    },
-    {
-      name: "imageMaxCost",
-      label: "Maximum reserved cost per image (USD; 0 disables)",
-      type: "number",
-      min: 0,
-      max: 10,
-      step: "0.001",
-      value: (current?.imageGeneration?.maxCostMicrosPerImage || 0) / 1_000_000,
-      required: true,
-      hint: "This is a conservative per-image ceiling. Project daily, monthly and per-run budgets still apply.",
-    },
-    {
-      name: "imagePricingVerifiedAt",
-      label: "Image price ceiling verified at (ISO timestamp)",
-      value: current?.imageGeneration?.pricingVerifiedAt || "",
-      placeholder: "2026-09-19T12:00:00.000Z",
-      hint: "Required when the per-image ceiling is above zero. Update it when the price changes.",
+      placeholder: "gpt-5.6-terra, gpt-image-2.5-flare, claude-sonnet-5-5",
+      hint: de
+        ? "Nur geprüfte Modelle dürfen aufgerufen werden, auch Bild- und Embedding-Modelle."
+        : "Only verified models may be called, image and embedding models included.",
     },
     {
       name: "rateCard",
-      label: "Current rate card of every verified model, OpenAI and Claude (JSON, USD micros per million tokens)",
+      label: de
+        ? "Preisliste (JSON, USD-Micros pro Mio. Tokens)"
+        : "Rate card (JSON, USD micros per million tokens)",
       type: "textarea",
       required: true,
       value: JSON.stringify(current?.rateCard ?? {}, null, 2),
-      hint: "Each model needs inputMicrosPerMillion, outputMicrosPerMillion and an ISO verifiedAt date. Optional: cachedInputMicrosPerMillion and cacheWriteMicrosPerMillion (defaults: input rate and 1.25x input).",
+      hint: de
+        ? "Pro Modell inputMicrosPerMillion, outputMicrosPerMillion und verifiedAt (ISO-Datum); optional cachedInputMicrosPerMillion und cacheWriteMicrosPerMillion. Claude-Preise übernimmt auch „Claude konfigurieren“."
+        : "Per model inputMicrosPerMillion, outputMicrosPerMillion and verifiedAt (ISO date); optional cachedInputMicrosPerMillion and cacheWriteMicrosPerMillion. “Configure Claude” can add Claude's prices.",
     },
   ];
   return (
-    <Modal title="Models, task routes and OpenAI keys" onClose={onClose}>
-      <p className="panel-note">
-        {current?.configured
-          ? `Configured through ${current.source}${current.updatedAt ? ` · updated ${when(current.updatedAt)}` : ""}.`
-          : "No AI configuration is saved for this project yet."}
-        {current
-          ? typeof current.routeVersion === "number"
-            ? ` Route version ${current.routeVersion}.`
-            : " Environment configuration."
-          : ""}
-        {current?.dedicatedImageKeyConfigured
-          ? " A dedicated image key is active."
-          : current?.imageKeyConfigured
-            ? " Image generation uses the shared key."
-            : " Image generation has no usable key."}
-      </p>
-      <Alert>
-        A newly entered key replaces only its matching shared or image key for
-        new work. Blank key fields keep saved keys. Existing budget,
-        evidence-rights and policy checks still apply before any OpenAI call.
-      </Alert>
-      <DataForm
-        key={current?.updatedAt ?? "openai-configuration-loading"}
-        fields={fields}
-        pending={mutation.pending || configuration.loading}
-        error={mutation.error || configuration.error?.message}
-        submitLabel="Save models and routes"
-        onCancel={onClose}
-        onSubmit={(values) =>
-          mutation.run(() => {
-            let rateCard: unknown;
-            try {
-              rateCard = JSON.parse(String(values.rateCard));
-            } catch {
-              throw new Error("RATE_CARD_JSON_INVALID");
-            }
-            const apiKey = String(values.apiKey).trim();
-            const imageApiKey = String(values.imageApiKey).trim();
-            return saveModels(project.id, {
-              ...(apiKey ? { apiKey } : {}),
-              ...(imageApiKey ? { imageApiKey } : {}),
-              verifiedModels: String(values.verifiedModels)
-                .split(",")
-                .map((model) => model.trim())
-                .filter(Boolean),
-              rateCard,
-              taskRoutes: Object.fromEntries(
-                taskClasses.flatMap(({ id, defaultTokens }) => {
-                  const model = String(values[`route-${id}-model`]).trim();
-                  if (!model) return [];
-                  const effort = String(values[`route-${id}-effort`]);
-                  const maxOutputTokens =
-                    Number(values[`route-${id}-max-tokens`]) || defaultTokens;
-                  return [
-                    [
-                      id,
-                      {
-                        model,
-                        ...(effort ? { reasoningEffort: effort } : {}),
-                        maxOutputTokens,
-                      },
-                    ],
-                  ];
-                }),
-              ),
-              modelRoutes: {
-                fast: String(values["model-fast"]),
-                standard: String(values["model-standard"]),
-                quality: String(values["model-quality"]),
-                escalation: String(values["model-escalation"]),
-              },
-              imageGeneration: {
-                model: String(values.imageModel),
-                maxCostMicrosPerImage: Math.round(
-                  Number(values.imageMaxCost) * 1_000_000,
-                ),
-                ...(String(values.imagePricingVerifiedAt).trim()
-                  ? {
-                      pricingVerifiedAt: new Date(
-                        String(values.imagePricingVerifiedAt),
-                      ).toISOString(),
-                    }
-                  : {}),
-              },
-            });
-          })
-        }
-      />
+    <Modal title={de ? "Modelle & Preise" : "Models & prices"} onClose={onClose}>
+      {!current ? (
+        <Loading />
+      ) : (
+        <DataForm
+          key={current.updatedAt ?? "prices"}
+          fields={fields}
+          pending={mutation.pending}
+          error={mutation.error}
+          submitLabel={de ? "Modelle & Preise speichern" : "Save models & prices"}
+          onCancel={onClose}
+          onSubmit={(values) =>
+            mutation.run(() => {
+              let rateCard: unknown;
+              try {
+                rateCard = JSON.parse(str(values, "rateCard"));
+              } catch {
+                throw new Error("RATE_CARD_JSON_INVALID");
+              }
+              return saveModels(project.id, {
+                ...modelsPayload(current),
+                verifiedModels: str(values, "verifiedModels")
+                  .split(",")
+                  .map((model) => model.trim())
+                  .filter(Boolean),
+                rateCard: rateCard as Record<string, unknown>,
+              });
+            })
+          }
+        />
+      )}
     </Modal>
   );
 }
