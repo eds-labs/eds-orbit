@@ -1,3 +1,4 @@
+import type { ZodObject } from "zod";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { FetchLike } from "../../../../../packages/connectors/src/index.ts";
@@ -178,6 +179,24 @@ export type ModuleContributions = {
    * the full key is "<module>.<name>".
    */
   handoffs?: Readonly<Record<string, HandoffTarget>>;
+  /**
+   * Results a module accepts in the signed callback of an automation run
+   * (ADR 0017, WP2.9), by the run's event; the event must start with the
+   * module's own prefix or be a contract event the module owns.
+   */
+  automationResults?: Readonly<Record<string, AutomationResultHandler>>;
+};
+
+/** A strictly validated result of an automation callback and what it updates. */
+export type AutomationResultHandler = {
+  schema: ZodObject;
+  /** Runs in the callback's transaction; the run's status is the callback's. */
+  handle(
+    tx: DbTx,
+    scope: Scope,
+    run: { id: string; status: "running" | "completed" | "failed" },
+    result: unknown,
+  ): Promise<void>;
 };
 
 /** How a module uses the project's mailboxes (several mailboxes per project). */
@@ -321,6 +340,7 @@ type Registered = {
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
   handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
+  automationResults: ReadonlyMap<string, AutomationResultHandler & { owner: string }>;
   eventTypes: ReadonlyMap<string, string>;
   subscriptions: readonly (EventSubscription & { owner: string })[];
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
@@ -536,6 +556,16 @@ export function registerContributions(
         problems.push(`invalid handoff target ${owner}.${name}`);
       handoffs.set(`${owner}.${name}`, { ...def, owner });
     }
+  // Automation callback results (ADR 0017): one handler per event.
+  const automationResults = new Map<string, AutomationResultHandler & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [event, def] of Object.entries(c.automationResults ?? {})) {
+      if (!/^[a-z][a-z0-9_.]{1,63}$/.test(event))
+        problems.push(`invalid automation result event ${event}`);
+      if (automationResults.has(event))
+        problems.push(`automation result ${event} registered twice`);
+      automationResults.set(event, { ...def, owner });
+    }
   // Domain events (ADR 0016): a publisher declares its own types; every
   // subscription names declared types or prefixes of them.
   const eventTypes = new Map<string, string>();
@@ -587,6 +617,7 @@ export function registerContributions(
     publicRoutes,
     linkTypes,
     handoffs,
+    automationResults,
     eventTypes,
     subscriptions,
     owners,
@@ -613,6 +644,11 @@ export function registeredHandoff(key: string) {
 /** Every handoff target, by key. */
 export function registeredHandoffs() {
   return current().handoffs;
+}
+
+/** The result handler of an automation event, or undefined. */
+export function registeredAutomationResult(event: string) {
+  return current().automationResults.get(event);
 }
 
 /** The module that publishes an event type, or undefined when undeclared. */

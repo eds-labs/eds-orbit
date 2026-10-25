@@ -529,9 +529,16 @@ export async function cancelCodingRun(tx: DbTx, scope: Scope, id: string) {
   await requirePm(tx, scope);
   const row = await loadCodingRun(tx, scope, id);
   if (["canceled", "succeeded", "failed"].includes(row.status)) throw new DomainError("WORK_CODING_RUN_CLOSED", 409);
-  if (row.status === "dispatching" || (row.provider !== "manual" && [...OPEN_EXTERNAL].includes(row.status as never)))
-    // An automation run is canceled by its provider's callback (WP2.9).
-    throw new DomainError("WORK_CODING_CANCEL_EXTERNAL", 409);
+  if (row.status === "dispatching") throw new DomainError("WORK_CODING_CANCEL_EXTERNAL", 409);
+  if (row.provider !== "manual" && [...OPEN_EXTERNAL].includes(row.status as never)) {
+    // The workflow stops the agent; its callback (status canceled) ends the run.
+    await enqueue(tx, scope, PM_QUEUE, row.id, `work_pm:coding_cancel:${row.id}`, new Date(), { kind: "coding_cancel" });
+    await audit(tx, scope, "work.coding_run.cancel_requested", row.id, {});
+    return tx.workCodingRun.update({
+      where: { id: row.id },
+      data: { errorCode: "WORK_CODING_CANCEL_REQUESTED", version: { increment: 1 } },
+    });
+  }
   if (row.actionRequestId && row.status === "awaiting_approval")
     await cancelActionRequest(tx, scope, row.actionRequestId, "WORK_CODING_CANCELED", { pendingOnly: true });
   const updated = await tx.workCodingRun.update({

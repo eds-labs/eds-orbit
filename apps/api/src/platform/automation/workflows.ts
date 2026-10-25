@@ -15,6 +15,7 @@ import { create, data, DomainError, entity, list, update } from "../shared.ts";
 import type { ConnectionProvider } from "../connections/connections.ts";
 import { connectionSecret, grantedConnections } from "../connections/central.ts";
 import { liveSending } from "../email/connection.ts";
+import { moduleAvailable, registeredAutomationResult } from "../modules/contributions.ts";
 
 // An automation layer such as n8n as a central connection (ADR 0014,
 // WP3.7). Orbit triggers a bound workflow with a signed, product-neutral
@@ -250,9 +251,12 @@ export async function listRuns(scope: Scope) {
 
 const callbackBody = z
   .object({
-    status: z.enum(["completed", "failed"]),
+    // "running" reports progress; the run stays open (ADR 0017, WP2.9).
+    status: z.enum(["running", "completed", "failed"]),
     executionId: z.union([z.string().max(64), z.number()]).optional(),
     errorCode: z.string().regex(/^[A-Z0-9_]{1,64}$/).optional(),
+    /** Validated by the schema the event's module registered; else refused. */
+    result: z.unknown().optional(),
   })
   .strict();
 
@@ -303,16 +307,34 @@ export async function receiveCallback(
     } catch {
       throw new DomainError("VALIDATION_FAILED", 400);
     }
+    // A result only for events whose module registered its exact shape.
+    let result: unknown;
+    if (parsed.result !== undefined) {
+      const handler = registeredAutomationResult(String(d.event));
+      if (!handler || !moduleAvailable(handler.owner))
+        throw new DomainError("VALIDATION_FAILED", 400);
+      const checked = handler.schema.safeParse(parsed.result);
+      if (!checked.success) throw new DomainError("VALIDATION_FAILED", 400);
+      result = checked.data;
+    }
     // A finished run stays finished: replays change nothing.
     if (["completed", "failed"].includes(String(d.status)))
       return { accepted: true, unchanged: true };
+    const final = parsed.status !== "running";
     await update(tx, scope, run, {
       ...d,
       status: parsed.status,
       ...(parsed.executionId !== undefined ? { executionId: String(parsed.executionId) } : {}),
       ...(parsed.errorCode ? { errorCode: parsed.errorCode } : {}),
-      finishedAt: new Date().toISOString(),
+      ...(final ? { finishedAt: new Date().toISOString() } : {}),
     });
+    if (result !== undefined)
+      await registeredAutomationResult(String(d.event))!.handle(
+        tx,
+        scope,
+        { id: run.id, status: parsed.status },
+        result,
+      );
     return { accepted: true };
   });
 }

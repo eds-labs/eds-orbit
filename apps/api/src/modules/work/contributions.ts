@@ -12,6 +12,7 @@ import { pmDailyScan, pmMonitorSubscriber } from "./pm/monitor.ts";
 import { handoffActionTypes, handoffLinkType, handoffSyncSubscriber } from "./pm/handoffs.ts";
 import { pmHandoffTargets } from "./pm/research.ts";
 import { CODING_DISPATCH, codingDispatchAction, codingRunLinkType, codingTimeouts } from "./pm/coding.ts";
+import { CODING_EVENT, codingResultHandler } from "./pm/coding-dispatch.ts";
 
 /** The domain events the module publishes (ADR 0016): ids and keys only. */
 export const WORK_EVENTS = [
@@ -53,6 +54,8 @@ export const workContributions: ModuleContributions = {
   linkTypes: { ...workLinkTypes, handoff: handoffLinkType, coding_run: codingRunLinkType },
   // Research and analysis of a task by the AI project manager (ADR 0017).
   handoffs: pmHandoffTargets,
+  // Results of the coding agent workflow's callbacks (WP2.9).
+  automationResults: { [CODING_EVENT]: codingResultHandler },
   // The AI project manager's monitor wakes on task and milestone changes.
   events: { publishes: WORK_EVENTS, subscribes: [pmMonitorSubscriber, handoffSyncSubscriber] },
   userNotifications: workUserNotifications,
