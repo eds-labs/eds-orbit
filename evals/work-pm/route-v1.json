@@ -1,0 +1,4 @@
+{
+  "description": "Route of the paid AI project manager eval (WP2.11): pm_plan follows the quality tier without a saved task route, as resolveRoute does; prices come from evals/generation/candidates-v1.json.",
+  "plan": { "model": "gpt-6.1-sol", "maxOutputTokens": 12000 }
+}
