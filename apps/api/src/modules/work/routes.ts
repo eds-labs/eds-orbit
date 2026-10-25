@@ -52,6 +52,7 @@ import {
   taskDetail,
 } from "./queries.ts";
 import { readWorkSettings, saveWorkSettings } from "./settings.ts";
+import { pmRoutes } from "./pm/routes.ts";
 import {
   createTask,
   createTasks,
@@ -109,7 +110,10 @@ const initiativesQuery = z
 const milestonesQuery = z.object({ initiativeId: uuid.optional() }).strict();
 
 /** Project management routes (plan §4.4). */
-export const workRoutes: RoutesContribution = ({ app, auth }) => {
+export const workRoutes: RoutesContribution = (context) => {
+  const { app, auth } = context;
+  // The AI project manager (ADR 0017).
+  pmRoutes(context);
   app.get(`${BASE}/overview`, (req) =>
     inWork(auth, req, WORK_READ, (tx, scope) => overview(tx, scope)),
   );

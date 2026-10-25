@@ -1,0 +1,105 @@
+import { z } from "zod";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import type { PermissionDef } from "../../../../../../packages/module-contracts/src/index.ts";
+import type { RoutesContribution } from "../../../platform/http/routes.ts";
+import type { Auth } from "../../../platform/tenancy/auth.ts";
+import { scopeFor } from "../../../platform/tenancy/auth.ts";
+import { uuid } from "../common.ts";
+import { pmActive, requirePm, requireWork } from "../gate.ts";
+import {
+  WORK_PM_MANAGE,
+  WORK_PM_USE,
+  WORK_READ,
+} from "../permissions.ts";
+import { pmBudgetToday } from "./budget.ts";
+import {
+  discardPlan,
+  listProposals,
+  loadProposal,
+  proposalView,
+  requestPlan,
+  revisePlan,
+} from "./planner.ts";
+import { readPmSettings, savePmSettings } from "./settings.ts";
+import { getPmState, setPmState } from "./state.ts";
+
+// The AI project manager's HTTP API (plan §4.3), under the work module's
+// base path. Every route but `status` answers 404 WORK_PM_DISABLED while
+// ORBIT_WORK_PM is off or the module is off in the project.
+
+const BASE = "/api/projects/:projectId/work/pm";
+
+type Params = Record<string, string>;
+type Req = Parameters<typeof scopeFor>[1];
+
+async function inPm<T>(
+  auth: Auth,
+  req: Req,
+  required: PermissionDef,
+  work: (tx: DbTx, scope: Scope, params: Params) => Promise<T>,
+) {
+  const params = req.params as Params;
+  const scope = await scopeFor(auth, req, params.projectId!, required);
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    await requirePm(tx, scope);
+    return work(tx, scope, params);
+  });
+}
+
+const id = (p: Params, key = "id") => uuid.parse(p[key]);
+const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
+const plansQuery = z
+  .object({ initiativeId: uuid.optional(), open: z.enum(["true", "false"]).optional() })
+  .strict();
+
+export const pmRoutes: RoutesContribution = ({ app, auth }) => {
+  // Whether the PM is available here, for the web; also while it is off.
+  app.get(`${BASE}/status`, async (req) => {
+    const params = req.params as Params;
+    const scope = await scopeFor(auth, req, params.projectId!, WORK_READ);
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await requireWork(tx, scope);
+      if (!(await pmActive(tx, scope))) return { available: false };
+      return { available: true, budget: await pmBudgetToday(tx, scope) };
+    });
+  });
+  app.get(`${BASE}/settings`, (req) =>
+    inPm(auth, req, WORK_PM_USE, (tx, scope) => readPmSettings(tx, scope)),
+  );
+  app.put(`${BASE}/settings`, (req) =>
+    inPm(auth, req, WORK_PM_MANAGE, (tx, scope) => {
+      const { settings, version } = settingsInput.parse(req.body);
+      return savePmSettings(tx, scope, settings, version);
+    }),
+  );
+  app.get(`${BASE}/initiatives/:id/state`, (req) =>
+    inPm(auth, req, WORK_READ, (tx, scope, p) => getPmState(tx, scope, id(p))),
+  );
+  app.put(`${BASE}/initiatives/:id/state`, (req) =>
+    inPm(auth, req, WORK_PM_MANAGE, (tx, scope, p) => setPmState(tx, scope, id(p), req.body)),
+  );
+
+  // Plans.
+  app.post(`${BASE}/plans`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope) => {
+      const { proposal, deduplicated } = await requestPlan(tx, scope, req.body, "ui");
+      return { ...proposalView(proposal), deduplicated };
+    }),
+  );
+  app.get(`${BASE}/plans`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope) => {
+      const q = plansQuery.parse(req.query ?? {});
+      return { items: await listProposals(tx, scope, { initiativeId: q.initiativeId, open: q.open === "true" }) };
+    }),
+  );
+  app.get(`${BASE}/plans/:id`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope, p) => proposalView(await loadProposal(tx, scope, id(p)))),
+  );
+  app.post(`${BASE}/plans/:id/revisions`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => proposalView(await revisePlan(tx, scope, id(p), req.body))),
+  );
+  app.post(`${BASE}/plans/:id/discard`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => proposalView(await discardPlan(tx, scope, id(p)))),
+  );
+};

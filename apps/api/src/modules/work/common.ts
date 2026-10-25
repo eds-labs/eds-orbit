@@ -17,8 +17,16 @@ import { moduleRolesEnabled } from "../../platform/tenancy/module-roles.ts";
 
 export const MODULE = "work";
 
-/** Who changes work data: a member, the assistant, an MCP client or the system. */
-export type WorkActor = Actor & { kind: "user" | "agent" | "system" | "mcp" };
+/**
+ * Who changes work data: a member, the assistant, an MCP client or the
+ * system. `origin` names the writer in domain events when it is not the
+ * module itself, e.g. `work.pm.apply` for the AI project manager (ADR 0017),
+ * so the PM's own monitor can tell its writes apart.
+ */
+export type WorkActor = Actor & {
+  kind: "user" | "agent" | "system" | "mcp";
+  origin?: `work.${string}`;
+};
 export const userActor = (scope: Scope): WorkActor => ({
   kind: "user",
   id: scope.userId,
@@ -84,8 +92,8 @@ export function workDomainEvent(
   return publishEvent(tx, scope, {
     type,
     subject,
-    actor,
-    origin: MODULE,
+    actor: { kind: actor.kind, id: actor.id },
+    origin: actor.origin ?? MODULE,
     data,
   });
 }

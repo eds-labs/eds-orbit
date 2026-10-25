@@ -99,6 +99,7 @@ describe("module contributions", () => {
         "support_email_inbound",
         "support_triage",
         "telegram_notification",
+        "work_pm",
       ].sort(),
     );
     const jobs = registeredJobs();

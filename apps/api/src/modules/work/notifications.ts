@@ -28,6 +28,11 @@ export const workUserNotifications: Readonly<
     label: label("A task I watch changed", "Eine beobachtete Aufgabe hat sich geändert"),
     emailDefault: false,
   },
+  // AI project manager (ADR 0017).
+  work_pm_plan_ready: {
+    label: label("A plan I asked for is ready", "Ein angeforderter Plan ist fertig"),
+    emailDefault: false,
+  },
 };
 
 type TaskRef = { id: string; number: number; title: string };

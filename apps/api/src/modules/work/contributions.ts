@@ -5,6 +5,8 @@ import { workLinkTypes } from "./links.ts";
 import { workUserNotifications } from "./notifications.ts";
 import { workRoutes } from "./routes.ts";
 import { workActionTypes, workInstructions, workTools } from "./tools.ts";
+import { pmActionTypes } from "./pm/apply.ts";
+import { pmJobs } from "./pm/jobs.ts";
 
 /** The domain events the module publishes (ADR 0016): ids and keys only. */
 export const WORK_EVENTS = [
@@ -25,6 +27,8 @@ export const WORK_EVENTS = [
   "work.task.deleted",
   "work.task.dependency_changed",
   "work.task.commented",
+  // AI project manager (ADR 0017).
+  "work.pm.plan.applied",
 ] as const;
 
 /** What the project management module plugs into the platform. */
@@ -38,7 +42,9 @@ export const workContributions: ModuleContributions = {
   attention: workAttention,
   // Assistant and MCP reads and proposals (plan §6).
   tools: workTools,
-  actionTypes: workActionTypes,
+  actionTypes: { ...workActionTypes, ...pmActionTypes },
+  // The AI project manager's background work (ADR 0017).
+  jobs: pmJobs,
   assistant: {
     features: () => ["work"],
     instructions: () => workInstructions,

@@ -234,6 +234,27 @@ describe.skipIf(!enabled)("project management routes", () => {
     expect(back.events).toHaveLength(2);
   });
 
+  it("keeps the AI project manager's routes behind ORBIT_WORK_PM and its permissions", async () => {
+    // Off: only the status answers, and it says unavailable.
+    expect((await call("viewer", "GET", "/work/pm/status")).json()).toEqual({ available: false });
+    expect(code(await call("owner", "GET", "/work/pm/settings"))).toBe("WORK_PM_DISABLED");
+    process.env.ORBIT_WORK_PM = "true";
+    try {
+      expect((await call("viewer", "GET", "/work/pm/status")).json()).toMatchObject({
+        available: true,
+        budget: { spentMicros: 0, ceilingMicros: 2_000_000 },
+      });
+      expect((await call("viewer", "POST", "/work/pm/plans", { goal: "Plan the launch" })).statusCode).toBe(403);
+      expect((await call("viewer", "GET", "/work/pm/settings")).statusCode).toBe(403);
+      expect((await call("editor", "PUT", "/work/pm/settings", { settings: {}, version: 1 })).statusCode).toBe(403);
+      // The editor may ask; this project has no spend mandate, so nothing is queued.
+      expect(code(await call("editor", "POST", "/work/pm/plans", { goal: "Plan the launch" }))).toBe("POLICY_REQUIRED");
+      expect((await call("editor", "GET", "/work/pm/plans")).json()).toEqual({ items: [] });
+    } finally {
+      delete process.env.ORBIT_WORK_PM;
+    }
+  });
+
   it("serves my tasks and the members list", async () => {
     const members = await call("viewer", "GET", "/work/members");
     expect(members.json().items.map((m: { userId: string; role: string }) => [m.userId, m.role]).sort()).toEqual(
