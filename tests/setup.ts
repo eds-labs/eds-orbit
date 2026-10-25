@@ -24,6 +24,10 @@ if (process.env.TEST_DATABASE_URL) {
   process.env.AUTH_DATABASE_URL = process.env.TEST_AUTH_DATABASE_URL;
   process.env.MIGRATION_DATABASE_URL = process.env.TEST_MIGRATION_DATABASE_URL;
 }
+// Most suites seed a Marketing policy with a budget and no platform spending
+// authority; they run in the transition mode. Suites of the strict default
+// (ADR 0015, plan 3.8) set "platform" themselves.
+process.env.ORBIT_SPEND_POLICY_SOURCE ??= "fallback";
 // Keep test output quiet; logging tests opt back in via LOG_LEVEL.
 process.env.LOG_LEVEL ??= "silent";
 // The test process is a composition root like the API and the worker: every

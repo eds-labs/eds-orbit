@@ -679,5 +679,8 @@ Importers still use the old paths, so existing test mocks keep working.
   - Slack is used only for Marketing's approval digest.
   - Hiding these tools is correct when Marketing is off.
   - Drive stays open until decision Q-06.
-- **3.8 Removing the legacy fallback.** Only after the production backfill and evidence that no project reads the Marketing policy budget any more (separate approval).
+- **3.8 Legacy fallback: removed by default** (Mario, 2026-10-25, after the production backfill gave all three projects a platform record).
+  - `ORBIT_SPEND_POLICY_SOURCE` has three values: `platform` (default, strict), `fallback` (the transition behaviour, first rollback level) and `marketing`.
+  - In strict mode `reserve` also refuses a Marketing caller's own budget without a platform record.
+  - The suites run in `fallback` mode, set in `tests/setup.ts`; dedicated tests check the strict default.
 - **Marketing branches in `action-requests.ts`** (`content_packages` lookup, `assignment.confirm` payload, channel directories) stay until module hooks for request descriptions exist.

@@ -31,7 +31,7 @@ Plan and decisions: [plans/orbit-architecture-cleanup.md](plans/orbit-architectu
 - One AI settings place.
 - Platform files moved to `platform/`.
 
-3.7 closed on 2026-10-25: the integrations admin and Slack stay in Marketing, and Drive waits for Q-06 (see the plan). Open: 3.8 (legacy fallback removal). The backfill ran in production on 2026-10-25, and `ORBIT_AI_KEY_RULE_V2` has been on since 2026-10-25 09:01 UTC.
+3.7 closed on 2026-10-25: the integrations admin and Slack stay in Marketing, and Drive waits for Q-06 (see the plan). 3.8 is done locally on 2026-10-25: strict `platform` is the default, and `fallback` and `marketing` are the rollback levels. The backfill ran in production on 2026-10-25, and `ORBIT_AI_KEY_RULE_V2` has been on since 2026-10-25 09:01 UTC.
 
 **Not deployed.** Production needs the deploy approval and, separately:
 - the spending-authority backfill run;

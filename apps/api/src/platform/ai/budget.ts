@@ -1,7 +1,11 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError, create, update, data } from "../shared.ts";
-import { platformSpendLimits, type SpendLimits } from "./spend-mandate.ts";
+import {
+  passedLimitsAllowed,
+  platformSpendLimits,
+  type SpendLimits,
+} from "./spend-mandate.ts";
 import { assertProviderBudget } from "./provider-budget.ts";
 import { chargedGrant, reserveOnGrant, settleOnGrant } from "./central-ai.ts";
 import { runtimeProviderBudgets } from "./openai-configuration.ts";
@@ -30,8 +34,12 @@ export async function reserve(
   },
 ) {
   // The platform's spending authority wins over the limits a caller passed
-  // (ADR 0015): Marketing callers still pass their own policy's budget.
-  const policy = (await platformSpendLimits(tx, scope)) ?? passed;
+  // (ADR 0015): Marketing callers still pass their own policy's budget,
+  // which counts only in the rollback modes (plan 3.8).
+  const platform = await platformSpendLimits(tx, scope);
+  if (!platform && !passedLimitsAllowed())
+    throw new DomainError("POLICY_REQUIRED");
+  const policy = platform ?? passed;
   if (now < new Date(policy.startAt) || now >= new Date(policy.endAt))
     throw new DomainError("PAID_MANDATE_EXPIRED");
   if (!Number.isSafeInteger(amount) || amount <= 0)

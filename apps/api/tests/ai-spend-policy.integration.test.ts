@@ -109,7 +109,8 @@ describe.skipIf(!enabled)("AI spending authority (ADR 0015)", () => {
     };
   });
   afterEach(() => {
-    delete process.env.ORBIT_SPEND_POLICY_SOURCE;
+    // The test default (tests/setup.ts); strict tests set "platform".
+    process.env.ORBIT_SPEND_POLICY_SOURCE = "fallback";
     delete process.env.ORBIT_MODULES;
   });
   afterAll(async () => {
@@ -288,5 +289,53 @@ describe.skipIf(!enabled)("AI spending authority (ADR 0015)", () => {
       monthlyBudgetMicros: 50_000_000,
     });
     expect((await call("PUT", "/modules/marketing", { enabled: true })).statusCode).toBe(200);
+  });
+
+  it("authorizes paid AI only with the platform record in the strict default (plan 3.8)", async () => {
+    // A project with only a Marketing policy: nothing is authorized.
+    const other = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { origin, cookie, [CLIENT_IP_HEADER]: ip() },
+      payload: { name: "Synthetic strict", workspaceId: scope.workspaceId },
+    });
+    expect(other.statusCode).toBe(201);
+    const strict = { ...scope, projectId: other.json().id as string };
+    const inStrict = <T>(fn: Parameters<typeof scoped<T>>[2]) =>
+      scoped(strict.workspaceId, strict.projectId, fn);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: `/api/projects/${strict.projectId}/policies`,
+          headers: { origin, cookie, [CLIENT_IP_HEADER]: ip() },
+          payload: marketingPolicy(),
+        })
+      ).statusCode,
+    ).toBe(201);
+    process.env.ORBIT_SPEND_POLICY_SOURCE = "platform";
+    await expect(inStrict((tx) => requireSpendMandate(tx, strict))).rejects.toMatchObject({
+      code: "POLICY_REQUIRED",
+    });
+    expect(await inStrict((tx) => activeSpendMandateRef(tx, strict))).toBeNull();
+    // A Marketing caller passing its own policy budget is refused as well.
+    await expect(
+      inStrict((tx) =>
+        reserve(tx, strict, `spend-test:${randomUUID()}`, "test", 1, marketingPolicy()),
+      ),
+    ).rejects.toMatchObject({ code: "POLICY_REQUIRED" });
+    // With the platform record everything runs on it.
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${strict.projectId}/actions/ai-spend-policy`,
+      headers: { origin, cookie, [CLIENT_IP_HEADER]: ip() },
+      payload: { profile: "test" },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect((await inStrict((tx) => requireSpendMandate(tx, strict))).source).toBe("platform");
+    const reservation = await inStrict((tx) =>
+      reserve(tx, strict, `spend-test:${randomUUID()}`, "test", 100_000, marketingPolicy()),
+    );
+    expect(reservation.id).toBeTruthy();
   });
 });

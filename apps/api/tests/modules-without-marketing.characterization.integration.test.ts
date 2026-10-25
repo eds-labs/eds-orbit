@@ -122,6 +122,7 @@ describe.skipIf(!enabled)("Modules without Marketing (characterization)", () => 
     };
   });
   afterEach(async () => {
+    process.env.ORBIT_SPEND_POLICY_SOURCE = "fallback";
     delete process.env.ORBIT_MARKETING;
     delete process.env.ORBIT_TELEGRAM;
     process.env.ORBIT_MODULES = "true";
@@ -157,12 +158,19 @@ describe.skipIf(!enabled)("Modules without Marketing (characterization)", () => 
     );
   });
 
-  it("keeps authorizing paid AI with a policy saved before Marketing was turned off (F1)", async () => {
+  it("no longer authorizes paid AI with a Marketing policy alone (F1, plan 3.8)", async () => {
     process.env.ORBIT_MODULES = "true";
     const saved = await call("POST", "/policies", policy());
     expect(saved.statusCode).toBe(201);
     expect((await switchModule("marketing", false)).statusCode).toBe(200);
-    // The platform reads the Marketing record directly, whatever the module state.
+    // Strict default: the Marketing record authorizes nothing.
+    process.env.ORBIT_SPEND_POLICY_SOURCE = "platform";
+    await expect(run((tx) => requireSpendMandate(tx, scope))).rejects.toMatchObject({
+      code: "POLICY_REQUIRED",
+    });
+    // The transition mode (first rollback level) still reads it, whatever
+    // the module state.
+    process.env.ORBIT_SPEND_POLICY_SOURCE = "fallback";
     const mandate = await run((tx) => requireSpendMandate(tx, scope));
     expect(mandate.limits).toMatchObject({
       approvedPaidTests: true,

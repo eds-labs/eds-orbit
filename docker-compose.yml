@@ -66,7 +66,7 @@ x-api-environment: &api-environment
   ORBIT_MARKETING: ${ORBIT_MARKETING:-true}
   # The owner's Telegram bot (ADR 0015); empty follows ORBIT_AGENTS as before.
   ORBIT_TELEGRAM: ${ORBIT_TELEGRAM:-}
-  # Where the AI spending authority is read (ADR 0015): platform, or marketing to roll back.
+  # Where the AI spending authority is read (ADR 0015): platform (strict), fallback or marketing to roll back.
   ORBIT_SPEND_POLICY_SOURCE: ${ORBIT_SPEND_POLICY_SOURCE:-platform}
   # AI key rule v2 (E-1b): environment keys only for unsaved projects; run
   # scripts/ai-key-rule-report.ts before turning it on.

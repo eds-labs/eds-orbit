@@ -36,14 +36,19 @@ Settings → AI (owners) shows both providers, the verified models with their pr
 
 Settings → AI & budget (owners) holds the project's AI spending authority: the daily, monthly and per-run limits and the window that every paid model call of every module is reserved against. It is a platform record (`ai_spend_policies`), so it works with Marketing off. Read it with `GET /api/projects/:projectId/ai-spend-policy`; save it with the owner action `ai-spend-policy` (`{ "profile": "off" | "test" | "normal" }` or `custom` with the limits). Every save is a new version, audited as `ai_spend_policy.activated`.
 
-- **Transition.** Without a platform record, the budget fields of the active Marketing policy still apply (`source: "marketing_policy"`).
+- **Transition (ended).** Until plan step 3.8, a project without a platform record used the budget fields of its active Marketing policy (`source: "marketing_policy"`). Since then, that happens only with `ORBIT_SPEND_POLICY_SOURCE=fallback`.
 - **Backfill.** Inside the api container:
   - `node scripts/ai-spend-policy-backfill.ts` reports per project what it would do; it changes nothing.
   - `--apply` copies each active Marketing policy's budget into a platform record (audited as `ai_spend_policy.migrated`, with `sourcePolicyId`). It skips projects that already have one.
   - It never changes a Marketing policy, so package hashes and approvals stay valid.
   - Run it outside the assignment run (04:00) and the posting slots. A production run needs its own approval.
 - **Enforcement.** `reserve` enforces the platform record over the limits a caller passes. The Marketing editor no longer edits the budget.
-- **Rollback.** `ORBIT_SPEND_POLICY_SOURCE=marketing` ignores every platform record; nothing is deleted.
+- **Source (plan 3.8, since 2026-10-25).** `ORBIT_SPEND_POLICY_SOURCE` has three values:
+  - `platform` (default): only the platform record counts. A project without one runs no paid AI, and `reserve` refuses the budget a Marketing caller passes (`POLICY_REQUIRED`).
+  - `fallback`: the transition behaviour, where the Marketing policy's budget applies without a platform record. This is the first rollback level.
+  - `marketing`: only the Marketing policy, as before ADR 0015.
+
+  Nothing is deleted in any mode.
 - **Switches.**
   - `ORBIT_MARKETING=false` removes Marketing from the installation: routes, collections, actions, tools, jobs and navigation. Default `true`.
   - `ORBIT_TELEGRAM` turns the owner's bot on or off on its own. Empty follows `ORBIT_AGENTS`, as before.

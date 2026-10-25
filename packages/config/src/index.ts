@@ -148,10 +148,14 @@ const baseConfigSchema = z.object({
   // for a project without saved AI settings, for every provider. "false"
   // keeps the rule of before (the Anthropic environment key always applies).
   ORBIT_AI_KEY_RULE_V2: z.enum(["false", "true"]).default("false"),
-  // Where the AI spending authority is read from (ADR 0015): "platform" uses
-  // an active ai_spend_policies record and falls back to the budget fields
-  // of the Marketing policy; "marketing" ignores the platform record (rollback).
-  ORBIT_SPEND_POLICY_SOURCE: z.enum(["platform", "marketing"]).default("platform"),
+  // Where the AI spending authority is read from (ADR 0015, plan 3.8):
+  // "platform" only the platform record (no paid AI without one);
+  // "fallback" the platform record, else the Marketing policy's budget
+  // fields (the transition, first rollback level); "marketing" only the
+  // Marketing policy, as before ADR 0015.
+  ORBIT_SPEND_POLICY_SOURCE: z
+    .enum(["platform", "fallback", "marketing"])
+    .default("platform"),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.
