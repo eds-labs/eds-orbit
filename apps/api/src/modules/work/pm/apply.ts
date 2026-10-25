@@ -13,6 +13,7 @@ import { readWorkSettings } from "../settings.ts";
 import { createTask } from "../tasks.ts";
 import { workPlanSchema, type WorkPlan } from "./plan-schema.ts";
 import { loadProposal, planHash, pmActor, PLAN_APPLY } from "./planner.ts";
+import { BULK_UPDATE, bulkUpdateAction } from "./analyst.ts";
 
 // Applying an approved plan (plan §2.4): initiative (for a new plan),
 // milestones, tasks with their acceptance criteria as checklist items, and
@@ -248,4 +249,4 @@ export const planApplyAction: ActionDefinition<Payload> = {
   },
 };
 
-export const pmActionTypes = { [PLAN_APPLY]: planApplyAction };
+export const pmActionTypes = { [PLAN_APPLY]: planApplyAction, [BULK_UPDATE]: bulkUpdateAction };

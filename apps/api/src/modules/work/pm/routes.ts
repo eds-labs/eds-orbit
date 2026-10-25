@@ -24,6 +24,8 @@ import {
 } from "./planner.ts";
 import { readPmSettings, savePmSettings } from "./settings.ts";
 import { dismissFinding, listFindings } from "./monitor.ts";
+import { requestAnalysis } from "./analyst.ts";
+import { listReports, loadReport, requestReport } from "./reporter.ts";
 import { getPmState, setPmState } from "./state.ts";
 
 // The AI project manager's HTTP API (plan §4.3), under the work module's
@@ -54,6 +56,8 @@ const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) 
 const findingsQuery = z
   .object({ initiativeId: uuid.optional(), status: z.enum(["open", "resolved", "dismissed"]).optional() })
   .strict();
+const initiativeInput = z.object({ initiativeId: uuid }).strict();
+const reportsQuery = z.object({ initiativeId: uuid.optional() }).strict();
 const plansQuery = z
   .object({ initiativeId: uuid.optional(), open: z.enum(["true", "false"]).optional() })
   .strict();
@@ -93,6 +97,27 @@ export const pmRoutes: RoutesContribution = ({ app, auth }) => {
   );
   app.post(`${BASE}/findings/:id/dismiss`, (req) =>
     inPm(auth, req, WORK_WRITE, (tx, scope, p) => dismissFinding(tx, scope, id(p), req.body)),
+  );
+
+  // Reports and analyses.
+  app.post(`${BASE}/reports`, (req) =>
+    inPm(auth, req, WORK_PM_USE, (tx, scope) =>
+      requestReport(tx, scope, initiativeInput.parse(req.body).initiativeId),
+    ),
+  );
+  app.get(`${BASE}/reports`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope) => ({
+      items: await listReports(tx, scope, reportsQuery.parse(req.query ?? {}).initiativeId),
+    })),
+  );
+  app.get(`${BASE}/reports/:id`, (req) =>
+    inPm(auth, req, WORK_READ, (tx, scope, p) => loadReport(tx, scope, id(p))),
+  );
+  app.post(`${BASE}/analyses`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope) => {
+      const result = await requestAnalysis(tx, scope, initiativeInput.parse(req.body).initiativeId);
+      return { ...proposalView(result!.proposal), deduplicated: result!.deduplicated };
+    }),
   );
 
   // Plans.

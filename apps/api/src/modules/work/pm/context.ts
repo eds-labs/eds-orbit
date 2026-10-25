@@ -92,3 +92,92 @@ export async function planContext(
     existingInitiative: initiative,
   };
 }
+
+const MAX_CONTEXT_TASKS = 150;
+const CLOSED = ["done", "canceled"];
+
+/**
+ * An initiative's state for a report or an analysis: progress by
+ * category, milestones, open findings and the open tasks (titles, no
+ * descriptions or comments). Task numbers are the only references.
+ */
+export async function initiativeContext(
+  tx: DbTx,
+  scope: Scope,
+  initiativeId: string,
+  now = new Date(),
+) {
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+    select: { timezone: true, language: true },
+  });
+  const initiative = await tx.workInitiative.findFirstOrThrow({
+    where: { projectId: scope.projectId, id: initiativeId },
+  });
+  const [tasks, milestones, findings, members] = await Promise.all([
+    tx.workTask.findMany({
+      where: { projectId: scope.projectId, initiativeId, archivedAt: null },
+      orderBy: { number: "asc" },
+      take: 2000,
+    }),
+    tx.workMilestone.findMany({
+      where: { projectId: scope.projectId, initiativeId, archivedAt: null },
+      orderBy: [{ sortOrder: "asc" }, { dueDate: "asc" }],
+    }),
+    tx.workPmFinding.findMany({
+      where: { projectId: scope.projectId, initiativeId, status: "open" },
+    }),
+    workMembers(scope),
+  ]);
+  const numbers = new Map(tasks.map((t) => [t.id, t.number]));
+  const byCategory: Record<string, number> = {};
+  for (const t of tasks) byCategory[t.statusCategory] = (byCategory[t.statusCategory] ?? 0) + 1;
+  const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
+  const open = tasks.filter((t) => !CLOSED.includes(t.statusCategory));
+  return {
+    today: projectToday(project.timezone, now),
+    language: project.language,
+    initiative: {
+      key: initiative.key,
+      title: initiative.title,
+      status: initiative.status,
+      startDate: fromDate(initiative.startDate),
+      targetDate: fromDate(initiative.targetDate),
+    },
+    progress: {
+      total: tasks.length,
+      byCategory,
+      completedLast7Days: tasks.filter((t) => t.completedAt && t.completedAt >= weekAgo).length,
+      createdLast7Days: tasks.filter((t) => t.createdAt >= weekAgo).length,
+    },
+    milestones: milestones.map((m) => {
+      const own = tasks.filter((t) => t.milestoneId === m.id);
+      return {
+        title: m.title,
+        dueDate: fromDate(m.dueDate),
+        status: m.status,
+        openTasks: own.filter((t) => !CLOSED.includes(t.statusCategory)).length,
+        doneTasks: own.filter((t) => t.statusCategory === "done").length,
+      };
+    }),
+    findings: findings.map((f) => ({
+      rule: f.rule,
+      severity: f.severity,
+      tasks: f.taskIds.map((id) => numbers.get(id)).filter((n): n is number => n !== undefined),
+      data: f.data,
+    })),
+    openTasks: open.slice(0, MAX_CONTEXT_TASKS).map((t) => ({
+      number: t.number,
+      title: t.title,
+      statusCategory: t.statusCategory,
+      priority: t.priority,
+      dueDate: fromDate(t.dueDate),
+      assigneeUserId: t.assigneeUserId,
+      milestone: milestones.find((m) => m.id === t.milestoneId)?.title ?? null,
+    })),
+    openTasksOmitted: Math.max(0, open.length - MAX_CONTEXT_TASKS),
+    members: members
+      .filter((m) => m.role !== "viewer")
+      .map((m) => ({ userId: m.userId, name: m.name, role: m.role })),
+  };
+}

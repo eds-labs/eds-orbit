@@ -144,3 +144,22 @@ describe("AI project manager rules (ADR 0017 P-6)", () => {
     expect(stateHash(snapshot({ tasks: [a, { ...b, statusCategory: "done" }] }), [])).not.toBe(stateHash(one, []));
   });
 });
+
+describe("AI project manager report schedule (Q-P2-2)", () => {
+  it("reports weekly on Monday 08:00 and daily at 08:00 in the project's timezone", async () => {
+    const { nextReportAt, zonedTime } = await import("../src/modules/work/pm/reporter.ts");
+    // Berlin is UTC+1 in November and UTC+2 from the end of March.
+    expect(zonedTime("2026-11-23", 8, "Europe/Berlin").toISOString()).toBe("2026-11-23T07:00:00.000Z");
+    expect(zonedTime("2026-03-30", 8, "Europe/Berlin").toISOString()).toBe("2026-03-30T06:00:00.000Z");
+    expect(zonedTime("2026-11-23", 8, "America/New_York").toISOString()).toBe("2026-11-23T13:00:00.000Z");
+    const friday = new Date("2026-11-20T10:00:00Z");
+    expect(nextReportAt("weekly", "Europe/Berlin", friday)).toEqual({
+      at: new Date("2026-11-23T07:00:00.000Z"),
+      date: "2026-11-23",
+    });
+    expect(nextReportAt("daily", "Europe/Berlin", friday)?.date).toBe("2026-11-21");
+    // Monday after 08:00 waits for the next Monday.
+    expect(nextReportAt("weekly", "Europe/Berlin", new Date("2026-11-23T09:00:00Z"))?.date).toBe("2026-11-30");
+    expect(nextReportAt("off", "Europe/Berlin", friday)).toBeNull();
+  });
+});

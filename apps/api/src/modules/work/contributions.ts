@@ -32,6 +32,7 @@ export const WORK_EVENTS = [
   "work.pm.plan.applied",
   "work.pm.finding.opened",
   "work.pm.finding.resolved",
+  "work.pm.report.created",
 ] as const;
 
 /** What the project management module plugs into the platform. */

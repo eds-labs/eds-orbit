@@ -14,6 +14,8 @@ import { projectToday } from "./context.ts";
 import { PM_ORIGIN, PM_QUEUE, pmActor } from "./planner.ts";
 import { evaluateRules, stateHash, type RuleFinding, type Snapshot } from "./rules.ts";
 import { getPmState } from "./state.ts";
+import { requestAnalysis } from "./analyst.ts";
+import { scheduleReports } from "./reporter.ts";
 
 // Monitoring (ADR 0017 P-6, plan §2.5): rule scans of initiatives the PM
 // watches, woken by task, milestone and initiative events (at most one
@@ -234,6 +236,8 @@ export async function scanInitiative(
       rule: row.rule,
     });
   await escalate(tx, scope, initiativeId, nowCritical);
+  // A new critical finding asks the analyst, at most once per day.
+  if (nowCritical.length) await requestAnalysis(tx, scope, initiativeId, { automatic: true }, now);
   return { opened: opened.length, resolved: gone.length, critical: nowCritical, stateHash: hash, findings: found };
 }
 
@@ -335,6 +339,7 @@ export const pmDailyScan: PeriodicTask = {
         select: { initiativeId: true },
       });
       for (const state of states) await scanInitiative(tx, scope, state.initiativeId, now);
+      await scheduleReports(tx, scope, now);
       return states.length;
     });
     return { status: scanned ? `scanned ${scanned}` : "idle", wakeAt };

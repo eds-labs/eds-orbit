@@ -11,6 +11,7 @@ import { pmActive, workActive } from "./gate.ts";
 import { notifyTask } from "./notifications.ts";
 import { WORK_PM_APPLY, WORK_READ } from "./permissions.ts";
 import { readWorkSettings } from "./settings.ts";
+import { pmBudgetToday } from "./pm/budget.ts";
 
 // What needs a member's attention in the module, computed at read time and
 // never stored (UI restructure §4.1), and the daily due-date notices.
@@ -107,6 +108,17 @@ export const workAttention: AttentionContribution = async (tx, scope, now) => {
         severity: "critical",
         count: critical._count._all,
         since: critical._min.firstSeenAt?.toISOString(),
+        navKey: "work-initiatives",
+        link: "/work/initiatives",
+      });
+    // The PM's daily budget is spent: scheduled AI work waits for tomorrow.
+    const budget = await pmBudgetToday(tx, scope, now);
+    if (budget.ceilingMicros > 0 && budget.spentMicros >= budget.ceilingMicros)
+      items.push({
+        ...base,
+        id: "work:pm_budget",
+        kind: "work_pm_budget",
+        severity: "warning",
         navKey: "work-initiatives",
         link: "/work/initiatives",
       });

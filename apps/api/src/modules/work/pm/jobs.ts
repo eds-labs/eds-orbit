@@ -1,6 +1,8 @@
 import type { JobDef } from "../../../platform/jobs/types.ts";
 import { audit } from "../../../shared.ts";
+import { runAnalysisJob } from "./analyst.ts";
 import { runScanJob } from "./monitor.ts";
+import { runReportJob } from "./reporter.ts";
 import { PM_QUEUE, runPlanJob } from "./planner.ts";
 
 // The PM's queue (plan §4.4). One class for every PM job; `kind` says which.
@@ -18,13 +20,18 @@ export const pmJobs: readonly JobDef[] = [
         case "scan":
           await runScanJob(scope, job.resourceId);
           return;
+        case "report":
+          await runReportJob(scope, job.resourceId, { requestedBy: job.requestedBy });
+          return;
+        case "analyse":
+          return runAnalysisJob(scope, job.resourceId);
         default:
           throw new Error("WORK_PM_JOB_UNKNOWN");
       }
     },
     // A paused project stops planning; the request shows why.
     async onBlockedByPause(tx, job, scope) {
-      if (job.kind !== "plan") return;
+      if (job.kind !== "plan" && job.kind !== "analyse") return;
       const updated = await tx.workPlanProposal.updateMany({
         where: { projectId: scope.projectId, id: job.resourceId, status: { in: ["queued", "running"] } },
         data: { status: "failed", errorCode: "PROJECT_PAUSED", version: { increment: 1 } },
