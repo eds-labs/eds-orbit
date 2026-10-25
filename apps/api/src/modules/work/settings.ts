@@ -1,7 +1,11 @@
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { readModuleSettings } from "../../platform/modules/settings.ts";
+import {
+  readModuleSettings,
+  writeModuleSettings,
+} from "../../platform/modules/settings.ts";
+import { DomainError } from "../../shared.ts";
 
 /**
  * The fixed status categories (ADR 0016 D-5). Statuses are configurable
@@ -148,4 +152,45 @@ export function firstStatus(settings: WorkSettings, category: StatusCategory) {
   return [...settings.workflow.statuses]
     .filter((s) => s.category === category)
     .sort((a, b) => a.order - b.order)[0];
+}
+
+/**
+ * Saves the settings when `version` is the stored one. A status that tasks
+ * still use cannot be removed, team members must be members of the module,
+ * and a status moved to another category takes its tasks along.
+ */
+export async function saveWorkSettings(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  version: number,
+  members: ReadonlySet<string>,
+) {
+  const next = workSettingsSchema.parse(raw);
+  const current = (await readWorkSettings(tx, scope)).settings;
+  const keys = new Set(next.workflow.statuses.map((s) => s.key));
+  const removed = current.workflow.statuses.filter((s) => !keys.has(s.key));
+  if (removed.length) {
+    const used = await tx.workTask.count({
+      where: { projectId: scope.projectId, status: { in: removed.map((s) => s.key) } },
+    });
+    if (used) throw new DomainError("WORK_STATUS_IN_USE", 409);
+  }
+  for (const team of next.teams)
+    if (team.memberUserIds.some((u) => !members.has(u)))
+      throw new DomainError("WORK_TEAM_MEMBER_INVALID", 422);
+  const saved = await writeModuleSettings(tx, scope, "work", workSettingsSchema, next, version);
+  for (const status of next.workflow.statuses) {
+    const before = statusOf(current, status.key);
+    if (before && before.category !== status.category)
+      await tx.workTask.updateMany({
+        where: { projectId: scope.projectId, status: status.key },
+        data: {
+          statusCategory: status.category,
+          ...(status.category === "done" ? {} : { completedAt: null }),
+          version: { increment: 1 },
+        },
+      });
+  }
+  return saved;
 }

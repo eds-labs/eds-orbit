@@ -2,6 +2,7 @@ import type { ModuleContributions } from "../../platform/modules/contributions.t
 import { workSwitchedOn } from "./gate.ts";
 import { workLinkTypes } from "./links.ts";
 import { workUserNotifications } from "./notifications.ts";
+import { workRoutes } from "./routes.ts";
 
 /** The domain events the module publishes (ADR 0016): ids and keys only. */
 export const WORK_EVENTS = [
@@ -28,6 +29,7 @@ export const WORK_EVENTS = [
 export const workContributions: ModuleContributions = {
   available: workSwitchedOn,
   unavailableCode: "WORK_DISABLED",
+  routes: workRoutes,
   linkTypes: workLinkTypes,
   events: { publishes: WORK_EVENTS },
   userNotifications: workUserNotifications,

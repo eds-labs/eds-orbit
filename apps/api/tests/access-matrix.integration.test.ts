@@ -29,6 +29,8 @@ Object.assign(process.env, {
   ORBIT_SUPPORT: "true",
   // Finance: routes exist; the test project never enables the module.
   ORBIT_FINANCE: "true",
+  // Project management (ADR 0016): routes exist; the project never enables it.
+  ORBIT_WORK: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",

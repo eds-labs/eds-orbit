@@ -282,7 +282,8 @@ export async function taskDetail(tx: DbTx, scope: Scope, id: string) {
       : null,
   ]);
   const timeline = [
-    ...events.map((e) => ({
+    // A comment shows itself; its history row would repeat it.
+    ...events.filter((e) => e.type !== "comment_added").map((e) => ({
       kind: "event" as const,
       id: e.id,
       type: e.type,
