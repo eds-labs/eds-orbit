@@ -123,7 +123,7 @@ export const workRoutes: RoutesContribution = ({ app, auth }) => {
     inWork(auth, req, WORK_SETTINGS, async (tx, scope) => {
       const { settings, version } = settingsInput.parse(req.body);
       const members = new Set((await workMembers(scope)).map((m) => m.userId));
-      return saveWorkSettings(tx, scope, settings, version, members);
+      return saveWorkSettings(tx, scope, settings, version, members, userActor(scope));
     }),
   );
 
@@ -307,7 +307,8 @@ export const workRoutes: RoutesContribution = ({ app, auth }) => {
   }
   app.delete(`${BASE}/links/:id`, (req) =>
     inWork(auth, req, WORK_WRITE, async (tx, scope, p) => {
-      await removeLink(tx, scope, id(p), userActor(scope));
+      // Only links with a work object on a side (ADR 0016).
+      await removeLink(tx, scope, id(p), userActor(scope), "work");
       return { id: id(p), deleted: true };
     }),
   );

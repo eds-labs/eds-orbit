@@ -87,6 +87,12 @@ export type OrbitTool = {
   mcpProjectRequired?: boolean;
   /** May execute under an explicitly enabled owner standing authorization. */
   mcpDirectEffect?: true;
+  /**
+   * For a proposal tool: whether an outside client may propose its action
+   * now (the action type's `mcpProposable`). False hides it from MCP, so a
+   * listed proposal never fails as not proposable.
+   */
+  mcpProposable?: () => boolean;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 

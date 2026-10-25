@@ -328,6 +328,7 @@ export function approvedOperation(op: Operation) {
     risk: "P_proposal",
     permission: op.permission,
     feature: op.feature ?? "mcp_tasks",
+    mcpProposable: () => (op.proposable ?? mcp2Enabled)(),
     deferLoading: true,
     exposure: { assistant: op.assistant ?? true, mcp: true },
     outputSchema: proposalOutput,

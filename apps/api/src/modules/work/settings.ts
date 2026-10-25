@@ -6,6 +6,7 @@ import {
   writeModuleSettings,
 } from "../../platform/modules/settings.ts";
 import { DomainError } from "../../shared.ts";
+import { workDomainEvent, workEvent, type WorkActor } from "./common.ts";
 
 /**
  * The fixed status categories (ADR 0016 D-5). Statuses are configurable
@@ -165,6 +166,7 @@ export async function saveWorkSettings(
   raw: unknown,
   version: number,
   members: ReadonlySet<string>,
+  actor: WorkActor,
 ) {
   const next = workSettingsSchema.parse(raw);
   const current = (await readWorkSettings(tx, scope)).settings;
@@ -180,17 +182,34 @@ export async function saveWorkSettings(
     if (team.memberUserIds.some((u) => !members.has(u)))
       throw new DomainError("WORK_TEAM_MEMBER_INVALID", 422);
   const saved = await writeModuleSettings(tx, scope, "work", workSettingsSchema, next, version);
+  // A status moved to another category takes its tasks along, each with
+  // its history row, completion time and status event.
+  const now = new Date();
   for (const status of next.workflow.statuses) {
     const before = statusOf(current, status.key);
-    if (before && before.category !== status.category)
-      await tx.workTask.updateMany({
-        where: { projectId: scope.projectId, status: status.key },
+    if (!before || before.category === status.category) continue;
+    const tasks = await tx.workTask.findMany({
+      where: { projectId: scope.projectId, status: status.key },
+      select: { id: true, number: true, completedAt: true },
+    });
+    for (const task of tasks) {
+      await tx.workTask.update({
+        where: { id: task.id },
         data: {
           statusCategory: status.category,
-          ...(status.category === "done" ? {} : { completedAt: null }),
+          completedAt: status.category === "done" ? (task.completedAt ?? now) : null,
           version: { increment: 1 },
         },
       });
+      await workEvent(tx, scope, { taskId: task.id }, "status", actor, { statusCategory: before.category }, { statusCategory: status.category }, now);
+      await workDomainEvent(tx, scope, "work.task.status_changed", { type: "work.task", id: task.id }, actor, {
+        number: task.number,
+        from: status.key,
+        to: status.key,
+        fromCategory: before.category,
+        toCategory: status.category,
+      });
+    }
   }
   return saved;
 }

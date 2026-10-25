@@ -201,31 +201,45 @@ export async function listTasks(tx: DbTx, scope: Scope, raw: unknown) {
     and.push({ id: { in: ranked } });
   }
   if (and.length) where.AND = and;
-  const rows = (await tx.workTask.findMany({
-    where,
-    select: listSelect,
-    take: MAX_MATCHES,
-    orderBy: { rank: "asc" },
-  })) as ListRow[];
   const sort = q.sort ?? (ranked ? "relevance" : "rank");
-  const time = (d: Date | null) => (d ? d.getTime() : Number.MAX_SAFE_INTEGER);
-  if (sort === "relevance") {
-    const order = new Map(ranked!.map((id, i) => [id, i]));
-    rows.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
-  } else if (sort === "due") rows.sort((a, b) => time(a.dueDate) - time(b.dueDate) || a.number - b.number);
-  else if (sort === "priority")
-    rows.sort((a, b) => PRIORITY_ORDER[a.priority]! - PRIORITY_ORDER[b.priority]! || a.rank.localeCompare(b.rank));
-  else if (sort === "updated") rows.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  else if (sort === "created") rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  else if (sort === "number") rows.sort((a, b) => b.number - a.number);
   const offset = Number(q.cursor ?? 0);
   const limit = q.limit ?? 50;
-  const page = rows.slice(offset, offset + limit);
+  let page: ListRow[];
+  let total: number;
+  if (sort === "relevance" || sort === "priority") {
+    // Orders the database cannot express: within the capped matches.
+    const rows = (await tx.workTask.findMany({
+      where,
+      select: listSelect,
+      take: MAX_MATCHES,
+      orderBy: { rank: "asc" },
+    })) as ListRow[];
+    if (sort === "relevance") {
+      const order = new Map(ranked!.map((id, i) => [id, i]));
+      rows.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+    } else
+      rows.sort((a, b) => PRIORITY_ORDER[a.priority]! - PRIORITY_ORDER[b.priority]! || (a.rank < b.rank ? -1 : 1));
+    page = rows.slice(offset, offset + limit);
+    total = rows.length;
+  } else {
+    // One page in the database's order.
+    const orderBy = {
+      rank: [{ rank: "asc" }],
+      due: [{ dueDate: { sort: "asc", nulls: "last" } }, { number: "asc" }],
+      updated: [{ updatedAt: "desc" }, { number: "desc" }],
+      created: [{ createdAt: "desc" }, { number: "desc" }],
+      number: [{ number: "desc" }],
+    }[sort];
+    [page, total] = await Promise.all([
+      tx.workTask.findMany({ where, select: listSelect, orderBy: orderBy as never, skip: offset, take: limit }) as Promise<ListRow[]>,
+      tx.workTask.count({ where }),
+    ]);
+  }
   const counts = await listCounts(tx, scope, page.map((r) => r.id));
   return {
     items: page.map((r) => ({ ...listItem(r), counts: counts.get(r.id)! })),
-    total: rows.length,
-    nextCursor: offset + limit < rows.length ? String(offset + limit) : null,
+    total,
+    nextCursor: offset + limit < total ? String(offset + limit) : null,
   };
 }
 

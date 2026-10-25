@@ -128,6 +128,9 @@ async function allowedTools(
     .filter((tool) => {
       if (!exposedToMcp(tool)) return false;
       if (tool.risk === "P_proposal" && !proposals) return false;
+      // A proposal whose action type outside clients may not propose now.
+      if (tool.risk === "P_proposal" && tool.mcpProposable?.() === false)
+        return false;
       const owner = registeredToolOwner(tool.name);
       // A module restriction admits only the listed modules' tools.
       if (

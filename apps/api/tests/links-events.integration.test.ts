@@ -44,6 +44,11 @@ const ALPHA_READ: PermissionDef = {
   description: "Read alpha items",
   defaultRoles: ["owner", "editor", "viewer"],
 };
+const DELTA_WRITE: PermissionDef = {
+  key: "delta.write",
+  description: "Link delta items",
+  defaultRoles: ["owner", "editor"],
+};
 const BETA_SECRET: PermissionDef = {
   key: "beta.secret",
   description: "See beta items",
@@ -106,6 +111,9 @@ const beta: ModuleContributions = {
     ],
   },
 };
+const delta: ModuleContributions = {
+  linkTypes: { item: itemType("fixture_delta", DELTA_WRITE) },
+};
 const gamma: ModuleContributions = {
   events: {
     subscribes: [
@@ -123,13 +131,14 @@ registerTestModules([
   { module: manifest("alpha", [ALPHA_READ]), contributions: alpha },
   { module: manifest("beta", [BETA_SECRET]), contributions: beta },
   { module: manifest("gamma", [], false), contributions: gamma },
+  { module: manifest("delta", [DELTA_WRITE]), contributions: delta },
 ]);
 registerModules();
 
 describe.skipIf(!enabled)("object links and domain events (ADR 0016)", () => {
   const users: string[] = [];
   const workspaces: string[] = [];
-  let owner: Scope, editor: Scope, other: Scope;
+  let owner: Scope, editor: Scope, other: Scope, viewer: Scope;
   let a1: string, a2: string, b1: string, b2: string, foreign: string;
   const worker = (s: Scope): Scope => ({ ...s, userId: "worker", role: "owner" });
   const run = <T>(s: Scope, fn: (tx: DbTx) => Promise<T>) =>
@@ -163,6 +172,20 @@ describe.skipIf(!enabled)("object links and domain events (ADR 0016)", () => {
     b1 = await item(owner, "fixture_beta", "Beta one");
     b2 = await item(owner, "fixture_beta", "Beta two");
     foreign = await item(other, "fixture_alpha", "Alpha elsewhere");
+    // A project viewer who is an editor in alpha only (module roles).
+    const v = await authDb.user.create({
+      data: { id: randomUUID(), name: "Synthetic links viewer", email: `${randomUUID()}@example.invalid` },
+    });
+    users.push(v.id);
+    await authDb.workspaceMember.create({ data: { workspaceId: workspace.id, userId: v.id, role: "viewer" } });
+    await authDb.projectMember.create({ data: { workspaceId: workspace.id, projectId: p1.id, userId: v.id, role: "viewer" } });
+    await authDb.projectMemberModuleRole.createMany({
+      data: [
+        { workspaceId: workspace.id, projectId: p1.id, userId: v.id, moduleId: "alpha", role: "editor" },
+        { workspaceId: workspace.id, projectId: p1.id, userId: v.id, moduleId: "beta", role: "none" },
+      ],
+    });
+    viewer = { ...owner, userId: v.id, role: "viewer", moduleRoles: { alpha: "editor", beta: "none" } };
   });
   afterAll(async () => {
     await authDb.workspace.deleteMany({ where: { id: { in: workspaces } } });
@@ -226,12 +249,50 @@ describe.skipIf(!enabled)("object links and domain events (ADR 0016)", () => {
     const seen = await run(editor, (tx) => linksOf(tx, editor, ref("alpha", a1)));
     expect(seen[0]!.object).toEqual({ type: "beta.item", id: b1, label: { en: "fixture_beta", de: "fixture_beta" }, state: "restricted" });
     // A member without access to beta's module sees the object as missing.
-    const hidden = { ...editor, moduleRoles: { beta: "none" as const } };
-    const none = await run(hidden, (tx) => linksOf(tx, hidden, ref("alpha", a1)));
-    expect(none[0]!.object.state).toBe("missing");
-    expect(none[0]!.object.title).toBeUndefined();
+    process.env.ORBIT_MODULE_ROLES = "true";
+    try {
+      const none = await run(viewer, (tx) => linksOf(tx, viewer, ref("alpha", a1)));
+      expect(none[0]!.object.state).toBe("missing");
+      expect(none[0]!.object.title).toBeUndefined();
+    } finally {
+      delete process.env.ORBIT_MODULE_ROLES;
+    }
     expect(await run(editor, (tx) => linkTargets(tx, editor, "beta.item", "Beta"))).toEqual([]);
     expect(await run(owner, (tx) => linkTargets(tx, owner, "beta.item", "two"))).toEqual([{ id: b2, title: "Beta two" }]);
+  });
+
+  it("judges other modules by the project role, not the calling module's role", async () => {
+    process.env.ORBIT_MODULE_ROLES = "true";
+    try {
+      const a3 = await item(owner, "fixture_alpha", "Alpha three");
+      const d1 = await item(owner, "fixture_delta", "Delta one");
+      // The alpha route's scope carries the alpha role (editor) ...
+      const inAlpha = { ...viewer, role: "editor" as const };
+      // ... but delta's editor-level link permission needs the project role.
+      expect(
+        await failure(
+          run(inAlpha, (tx) =>
+            createLink(tx, inAlpha, { source: ref("alpha", a3), target: ref("delta", d1), relation: "relates_to" }, actor(inAlpha)),
+          ),
+        ),
+      ).toBe("FORBIDDEN");
+      // The project's owner may.
+      await run(owner, (tx) =>
+        createLink(tx, owner, { source: ref("alpha", a3), target: ref("delta", d1), relation: "relates_to" }, actor(owner)),
+      );
+      const seen = await run(inAlpha, (tx) => linksOf(tx, inAlpha, ref("alpha", a3)));
+      expect(seen.find((l) => l.object.type === "delta.item")!.object.state).toBe("restricted");
+    } finally {
+      delete process.env.ORBIT_MODULE_ROLES;
+    }
+  });
+
+  it("lets a module remove only links with one of its objects on a side", async () => {
+    const link = await run(owner, (tx) =>
+      createLink(tx, owner, { source: ref("beta", b1), target: ref("beta", b2), relation: "relates_to" }, actor(owner)),
+    );
+    expect(await failure(run(owner, (tx) => removeLink(tx, owner, link.id, actor(owner), "alpha")))).toBe("NOT_FOUND");
+    await run(owner, (tx) => removeLink(tx, owner, link.id, actor(owner), "beta"));
   });
 
   it("removes links softly and publishes both changes", async () => {

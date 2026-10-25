@@ -29,6 +29,7 @@ import {
   addComment,
   addDependency,
   deleteComment,
+  removeAttachment,
   setWatching,
   updateChecklistItem,
 } from "../src/modules/work/parts.ts";
@@ -64,6 +65,33 @@ describe.skipIf(!enabled)("project management services (WP1.5)", () => {
       () => "resolved",
       (e: Error) => e.message,
     );
+  /** A stored file of the module, as the files service leaves it. */
+  const workFile = async (name: string, retainUntil?: Date) => {
+    const id = randomUUID();
+    const key = `projects/${owner.projectId}/work/${id}`;
+    await run(owner, async (tx) => {
+      await tx.fileBlob.create({
+        data: { key, workspaceId: owner.workspaceId, projectId: owner.projectId, data: Buffer.from([1]) },
+      });
+      await tx.file.create({
+        data: {
+          id,
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          moduleId: "work",
+          key,
+          name,
+          mime: "text/plain",
+          size: 1,
+          sha256: "0".repeat(64),
+          encryption: "aes-256-gcm/v1",
+          createdBy: owner.userId,
+          retainUntil,
+        },
+      });
+    });
+    return id;
+  };
   const task = (s: Scope, body: Record<string, unknown>) =>
     run(s, (tx) => createTask(tx, s, body, as(s)));
 
@@ -315,27 +343,7 @@ describe.skipIf(!enabled)("project management services (WP1.5)", () => {
     expect(comment.mentions).toEqual([owner.userId]);
     const otherEditor = { ...editor, userId: viewer.userId };
     expect(await failure(run(otherEditor, (tx) => deleteComment(tx, otherEditor, comment.id, as(otherEditor))))).toBe("FORBIDDEN");
-    const fileId = randomUUID();
-    await run(owner, async (tx) => {
-      await tx.fileBlob.create({
-        data: { key: `projects/${owner.projectId}/work/${fileId}`, workspaceId: owner.workspaceId, projectId: owner.projectId, data: Buffer.from([1]) },
-      });
-      await tx.file.create({
-        data: {
-          id: fileId,
-          workspaceId: owner.workspaceId,
-          projectId: owner.projectId,
-          moduleId: "work",
-          key: `projects/${owner.projectId}/work/${fileId}`,
-          name: "spec.txt",
-          mime: "text/plain",
-          size: 1,
-          sha256: "0".repeat(64),
-          encryption: "aes-256-gcm/v1",
-          createdBy: owner.userId,
-        },
-      });
-    });
+    const fileId = await workFile("spec.txt");
     await run(owner, (tx) => addAttachment(tx, owner, t.id, { fileId }, as(owner)));
     expect(await failure(run(owner, (tx) => addAttachment(tx, owner, t.id, { fileId: randomUUID() }, as(owner))))).toBe(
       "ATTACHMENT_INVALID",
@@ -354,6 +362,25 @@ describe.skipIf(!enabled)("project management services (WP1.5)", () => {
     const after = await run(owner, (tx) => taskDetail(tx, owner, t.id));
     const deleted = after.timeline.find((e) => e.kind === "comment")!;
     expect(deleted).toMatchObject({ body: "", deletedAt: expect.any(String) });
+  });
+
+  it("releases a file once no task holds it any more", async () => {
+    const fileId = await workFile("shared.txt");
+    const kept = await workFile("kept.txt", new Date(Date.now() + 86_400_000));
+    const first = await task(owner, { title: "Holds a file" });
+    const second = await task(owner, { title: "Holds it too" });
+    const a = await run(owner, (tx) => addAttachment(tx, owner, first.id, { fileId }, as(owner)));
+    await run(owner, (tx) => addAttachment(tx, owner, second.id, { fileId }, as(owner)));
+    await run(owner, (tx) => addAttachment(tx, owner, second.id, { fileId: kept }, as(owner)));
+    const deletedAt = (id: string) =>
+      run(owner, (tx) => tx.file.findFirstOrThrow({ where: { id } })).then((f) => f.deletedAt);
+    // The second task still holds the file.
+    await run(owner, (tx) => removeAttachment(tx, owner, a.id, as(owner)));
+    expect(await deletedAt(fileId)).toBeNull();
+    // Deleting the task releases it; a file under a retention lock stays.
+    await run(owner, (tx) => deleteTask(tx, owner, second.id, false, as(owner)));
+    expect(await deletedAt(fileId)).toBeInstanceOf(Date);
+    expect(await deletedAt(kept)).toBeNull();
   });
 
   it("never copies titles, descriptions or comments into audits, history or events", async () => {

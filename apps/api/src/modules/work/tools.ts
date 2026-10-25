@@ -8,14 +8,26 @@ import {
 import type { RequestedBy } from "../action-requests.ts";
 import { WORK_SCOPE } from "../../platform/mcp/scopes.ts";
 import { DomainError } from "../../shared.ts";
-import { dateInput, type WorkActor } from "./common.ts";
-import { createInitiative, INITIATIVE_STATUSES, listInitiatives } from "./initiatives.ts";
+import { assignableIds, dateInput, type WorkActor } from "./common.ts";
+import {
+  createInitiative,
+  createInitiativeInput,
+  INITIATIVE_STATUSES,
+  listInitiatives,
+} from "./initiatives.ts";
 import { createMilestone } from "./milestones.ts";
 import { addComment } from "./parts.ts";
 import { WORK_READ, WORK_WRITE } from "./permissions.ts";
 import { listTasks, myTasks, overview, taskDetail } from "./queries.ts";
-import { createTasks, PRIORITIES, updateTask } from "./tasks.ts";
-import { STATUS_CATEGORIES } from "./settings.ts";
+import {
+  createTaskInput,
+  createTasks,
+  loadTask,
+  PRIORITIES,
+  updateTask,
+  updateTaskInput,
+} from "./tasks.ts";
+import { readWorkSettings, STATUS_CATEGORIES, statusOf } from "./settings.ts";
 
 // The module's assistant and MCP tools (plan §6): five reads and four
 // proposals. Proposals become exact approval requests an owner or editor
@@ -244,6 +256,27 @@ export const workProposeInitiative = approvedOperation({
   summary: (args) => ({
     operation: { kind: "initiative", title: args.title, milestones: (args.milestones ?? []).map((m: { title: string }) => m.title) },
   }),
+  // The service's own checks, before a member is asked to approve.
+  async validate(tx, scope, args) {
+    const fields = args as z.infer<typeof initiativeInput>;
+    createInitiativeInput.parse({
+      title: fields.title,
+      description: fields.description,
+      key: fields.key?.toUpperCase(),
+      startDate: fields.startDate,
+      targetDate: fields.targetDate,
+    });
+    if (fields.startDate && fields.targetDate && fields.targetDate < fields.startDate)
+      throw new DomainError("WORK_DATES_INVALID", 422);
+    if (
+      fields.key &&
+      (await tx.workInitiative.findFirst({
+        where: { projectId: scope.projectId, key: fields.key.toUpperCase() },
+        select: { id: true },
+      }))
+    )
+      throw new DomainError("WORK_KEY_TAKEN", 409);
+  },
   async run(tx, scope, args, requester) {
     const actor = actorOf(scope, requester);
     const { milestones, ...fields } = args as z.infer<typeof initiativeInput>;
@@ -275,8 +308,24 @@ export const workProposeTasks = approvedOperation({
       titles: args.tasks.map((t: { title: string }) => t.title),
     },
   }),
+  // Every task as the service would take it, before a member is asked.
   async validate(tx, scope, args) {
-    await initiativeByKey(tx, scope, args.initiativeKey);
+    const input = args as z.infer<typeof tasksInput>;
+    const initiativeId = await initiativeByKey(tx, scope, input.initiativeKey);
+    if (input.milestoneId) {
+      const milestone = await tx.workMilestone.findFirst({
+        where: { projectId: scope.projectId, id: input.milestoneId },
+        select: { initiativeId: true },
+      });
+      if (!milestone) throw new DomainError("WORK_MILESTONE_NOT_FOUND", 422);
+      if (milestone.initiativeId !== initiativeId) throw new DomainError("WORK_MILESTONE_MISMATCH", 409);
+    }
+    const assignable = await assignableIds(scope);
+    for (const task of input.tasks) {
+      createTaskInput.parse(task);
+      if (task.assigneeUserId && !assignable.has(task.assigneeUserId))
+        throw new DomainError("WORK_ASSIGNEE_INVALID", 422);
+    }
   },
   async run(tx, scope, args, requester) {
     const input = args as z.infer<typeof tasksInput>;
@@ -325,8 +374,25 @@ export const workProposeTaskUpdate = approvedOperation({
   summary: (args) => ({
     operation: { kind: "update", number: args.number, fields: Object.keys(args.changes ?? {}) },
   }),
+  // The change as the service would take it, against the task as it is now.
   async validate(tx, scope, args) {
-    await taskByNumber(tx, scope, args.number);
+    const input = args as z.infer<typeof updateInput>;
+    const task = await loadTask(tx, scope, await taskByNumber(tx, scope, input.number));
+    updateTaskInput.parse({ expectedVersion: input.expectedVersion, ...input.changes });
+    if (task.version !== input.expectedVersion) throw new DomainError("WORK_VERSION_CONFLICT", 409);
+    if (input.changes.status && input.changes.status !== task.status) {
+      const { settings } = await readWorkSettings(tx, scope);
+      if (!statusOf(settings, input.changes.status)) throw new DomainError("WORK_STATUS_UNKNOWN", 422);
+      const allowed = settings.workflow.transitions?.[task.status];
+      if (allowed && !allowed.includes(input.changes.status))
+        throw new DomainError("WORK_TRANSITION_NOT_ALLOWED", 409);
+    }
+    if (
+      input.changes.assigneeUserId &&
+      input.changes.assigneeUserId !== task.assigneeUserId &&
+      !(await assignableIds(scope)).has(input.changes.assigneeUserId)
+    )
+      throw new DomainError("WORK_ASSIGNEE_INVALID", 422);
   },
   async run(tx, scope, args, requester) {
     const input = args as z.infer<typeof updateInput>;

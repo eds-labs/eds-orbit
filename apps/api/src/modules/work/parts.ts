@@ -7,6 +7,7 @@ import { can } from "../../platform/tenancy/permissions.ts";
 import { effectiveRole } from "../../platform/tenancy/module-roles.ts";
 import {
   MODULE,
+  releaseFiles,
   uuid,
   workDomainEvent,
   workEvent,
@@ -374,6 +375,7 @@ export async function removeAttachment(
   });
   if (!row) throw new DomainError("NOT_FOUND", 404);
   await tx.workAttachment.delete({ where: { id: row.id } });
+  await releaseFiles(tx, scope, [row.fileId]);
   await workEvent(tx, scope, { taskId: row.taskId }, "attachment_removed", actor, { attachmentId: row.id });
   changed(tx, scope, { id: row.taskId });
 }

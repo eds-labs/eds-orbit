@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
+import { authDb, closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
@@ -198,6 +198,40 @@ describe.skipIf(!enabled)("project management routes", () => {
     const badTeam = { ...next, teams: [{ key: "dev", name: "Dev", memberUserIds: [randomUUID()] }] };
     const team = await call("owner", "PUT", "/work/settings", { settings: badTeam, version: saved.json().version });
     expect(code(team)).toBe("WORK_TEAM_MEMBER_INVALID");
+  });
+
+  it("moves a status's tasks along when its category changes", async () => {
+    const created = await call("editor", "POST", "/work/tasks", { title: "Waiting for review", status: "in_review" });
+    expect(created.statusCode).toBe(200);
+    const taskId: string = created.json().id;
+    const recategorize = async (category: string) => {
+      const { settings, version } = (await call("owner", "GET", "/work/settings")).json();
+      settings.workflow.statuses = settings.workflow.statuses.map((s: { key: string }) =>
+        s.key === "in_review" ? { ...s, category } : s,
+      );
+      expect((await call("owner", "PUT", "/work/settings", { settings, version })).statusCode).toBe(200);
+      return scoped(workspaceId, projectId, async (tx) => ({
+        task: await tx.workTask.findFirstOrThrow({ where: { id: taskId } }),
+        history: await tx.workEvent.findMany({ where: { taskId, type: "status" }, orderBy: { createdAt: "asc" } }),
+        events: await tx.domainEvent.findMany({
+          where: { subjectId: taskId, type: "work.task.status_changed" },
+          orderBy: { createdAt: "asc" },
+        }),
+      }));
+    };
+    const done = await recategorize("done");
+    expect(done.task).toMatchObject({ status: "in_review", statusCategory: "done", version: 2 });
+    expect(done.task.completedAt).toBeInstanceOf(Date);
+    expect(done.history.at(-1)).toMatchObject({
+      actorKind: "user",
+      actorId: ids.owner,
+      before: { statusCategory: "in_review" },
+      after: { statusCategory: "done" },
+    });
+    expect(done.events.at(-1)!.data).toMatchObject({ fromCategory: "in_review", toCategory: "done" });
+    const back = await recategorize("in_review");
+    expect(back.task).toMatchObject({ statusCategory: "in_review", completedAt: null, version: 3 });
+    expect(back.events).toHaveLength(2);
   });
 
   it("serves my tasks and the members list", async () => {

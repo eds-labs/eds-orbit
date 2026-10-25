@@ -655,6 +655,8 @@ function Timeline({
   const statusName = (key: unknown) => statuses.find((s) => s.key === key)?.label[locale] ?? String(key ?? "—");
   const eventText = (e: Extract<TimelineEntry, { kind: "event" }>) => {
     const base = t.event[e.type] ?? e.type;
+    if (e.type === "status" && e.before.statusCategory)
+      return `${base}: ${t.category[e.before.statusCategory as keyof WorkText["category"]] ?? "—"} → ${t.category[e.after.statusCategory as keyof WorkText["category"]] ?? "—"}`;
     if (e.type === "status") return `${base}: ${statusName(e.before.status)} → ${statusName(e.after.status)}`;
     return base;
   };

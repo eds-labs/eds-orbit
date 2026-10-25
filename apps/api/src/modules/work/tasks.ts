@@ -9,6 +9,7 @@ import { publishChange } from "../../platform/realtime/fanout.ts";
 import {
   assertVersion,
   assignableIds,
+  releaseFiles,
   dateInput,
   expectedVersion,
   fromDate,
@@ -597,7 +598,13 @@ export async function deleteTask(
     await removeLinksFor(tx, scope, subject(t.id), actor);
     await workDomainEvent(tx, scope, "work.task.deleted", subject(t.id), actor, { number: t.number });
   }
+  const attached = await tx.workAttachment.findMany({
+    where: { projectId: scope.projectId, taskId: { in: [row.id, ...children.map((c) => c.id)] } },
+    select: { fileId: true },
+  });
   await tx.workTask.delete({ where: { id: row.id } });
+  // The attachments went with the tasks; their files follow unless held elsewhere.
+  await releaseFiles(tx, scope, attached.map((a) => a.fileId));
   await audit(tx, scope, "work.task.deleted", row.id, {
     number: row.number,
     subtasks: children.length,

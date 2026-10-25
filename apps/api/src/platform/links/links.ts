@@ -21,6 +21,7 @@ import {
   visibleModules,
 } from "../tenancy/module-roles.ts";
 import { can } from "../tenancy/permissions.ts";
+import { actorScope } from "../tenancy/member-scope.ts";
 import { publishEvent } from "../events/events.ts";
 import type { PeriodicTask } from "../jobs/types.ts";
 import type { LinkTypeDef, ResolvedObject } from "./types.ts";
@@ -94,6 +95,20 @@ async function access(
   return { state: "ok", def, scope: moduleScope(scope, def.owner) };
 }
 
+/**
+ * The member as the project knows them. A module's route hands in its own
+ * module's scope, whose role is already the member's role there; rights on
+ * other modules' objects must start from the project role and the member's
+ * own module roles instead (the worker's scope is used as it is).
+ */
+async function memberOf(scope: Scope): Promise<Scope> {
+  if (scope.userId === "worker" || !Object.keys(scope.moduleRoles ?? {}).length)
+    return scope;
+  const member = await actorScope(scope.workspaceId, scope.projectId, scope.userId);
+  if (!member) throw new DomainError("NOT_FOUND", 404);
+  return member;
+}
+
 function memo<T>(load: () => Promise<T>) {
   let value: Promise<T> | undefined;
   return () => (value ??= load());
@@ -133,9 +148,10 @@ export async function createLink(
     input.source.id === input.target.id
   )
     throw new DomainError("LINK_SELF", 422);
-  const enabled = memo(() => enabledModules(tx, scope));
-  await requireObject(tx, scope, input.source, enabled);
-  await requireObject(tx, scope, input.target, enabled);
+  const member = await memberOf(scope);
+  const enabled = memo(() => enabledModules(tx, member));
+  await requireObject(tx, member, input.source, enabled);
+  await requireObject(tx, member, input.target, enabled);
   // The project lock serializes writers, so this check cannot race.
   const existing = await tx.objectLink.findFirst({
     where: {
@@ -196,22 +212,31 @@ async function linkEvent(
 
 /**
  * Removes a link softly. The member needs the link permission of every side
- * whose module is still reachable, and at least one such side.
+ * whose module is still reachable, and at least one such side. A module's
+ * route passes its id as `within`: it may remove only links with one of its
+ * own objects on a side.
  */
 export async function removeLink(
   tx: DbTx,
   scope: Scope,
   linkId: string,
   actor: Actor,
+  within?: string,
 ) {
   const row = await tx.objectLink.findFirst({
     where: { projectId: scope.projectId, id: z.uuid().parse(linkId), removedAt: null },
   });
-  if (!row) throw new DomainError("NOT_FOUND", 404);
-  const enabled = memo(() => enabledModules(tx, scope));
+  if (
+    !row ||
+    (within &&
+      ![row.sourceType, row.targetType].some((t) => t.startsWith(within + ".")))
+  )
+    throw new DomainError("NOT_FOUND", 404);
+  const member = await memberOf(scope);
+  const enabled = memo(() => enabledModules(tx, member));
   const sides = [
-    await access(tx, scope, row.sourceType, enabled),
-    await access(tx, scope, row.targetType, enabled),
+    await access(tx, member, row.sourceType, enabled),
+    await access(tx, member, row.targetType, enabled),
   ];
   if (sides.some((s) => s.state === "forbidden"))
     throw new DomainError("FORBIDDEN", 403);
@@ -277,7 +302,8 @@ export async function linksOf(
   ref: ObjectRef,
 ): Promise<LinkView[]> {
   const rows = await activeLinks(tx, scope, ref);
-  const enabled = memo(() => enabledModules(tx, scope));
+  const member = await memberOf(scope);
+  const enabled = memo(() => enabledModules(tx, member));
   const others = rows.map((row) =>
     sameRef(row, ref, "source")
       ? { row, direction: "outgoing" as const, type: row.targetType, id: row.targetId }
@@ -288,7 +314,7 @@ export async function linksOf(
     byType.set(o.type, [...(byType.get(o.type) ?? []), o.id]);
   const resolved = new Map<string, { access: Access; found: ReadonlyMap<string, ResolvedObject> }>();
   for (const [type, ids] of byType) {
-    const a = await access(tx, scope, type, enabled);
+    const a = await access(tx, member, type, enabled);
     const found =
       a.state === "ok"
         ? await a.def.resolve(tx, a.scope, [...new Set(ids)])
@@ -332,7 +358,8 @@ export async function linkTargets(
   query: string,
   limit = 20,
 ) {
-  const a = await access(tx, scope, type, memo(() => enabledModules(tx, scope)));
+  const member = await memberOf(scope);
+  const a = await access(tx, member, type, memo(() => enabledModules(tx, member)));
   if (a.state === "unknown") throw new DomainError("LINK_TYPE_UNKNOWN", 422);
   if (a.state !== "ok" || !a.def.search) return [];
   return a.def.search(tx, a.scope, query.trim().slice(0, 200), Math.min(limit, 50));

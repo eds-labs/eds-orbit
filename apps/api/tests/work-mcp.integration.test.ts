@@ -22,6 +22,7 @@ import { moduleScope } from "../src/platform/tenancy/module-roles.ts";
 import { registeredActionType, registeredTools } from "../src/platform/modules/contributions.ts";
 import { availableTools } from "../src/modules/agents/tools/registry.ts";
 import { createTask } from "../src/modules/work/tasks.ts";
+import { createInitiative } from "../src/modules/work/initiatives.ts";
 import { userActor } from "../src/modules/work/common.ts";
 import { createPackageProject } from "./support/package-project.ts";
 
@@ -158,6 +159,13 @@ describe.skipIf(!enabled)("work MCP tools (SQL, no model call)", () => {
     } finally {
       process.env.ORBIT_MCP_PROPOSALS = "true";
     }
+    // Without MCP 2.0 a client may not propose, so the proposals are not listed.
+    process.env.ORBIT_MCP_TASKS = "false";
+    try {
+      expect(await names(p)).toEqual(READS);
+    } finally {
+      process.env.ORBIT_MCP_TASKS = "true";
+    }
   });
 
   it("hides every tool while the module is off and from viewers' proposals", async () => {
@@ -210,6 +218,42 @@ describe.skipIf(!enabled)("work MCP tools (SQL, no model call)", () => {
     await run((tx) => tx.workTask.update({ where: { id: task.id }, data: { version: { increment: 1 } } }));
     await expect(decide(project.editor, proposal.actionRequestId)).rejects.toThrow("WORK_VERSION_CONFLICT");
     expect((await run((tx) => tx.workTask.findFirstOrThrow({ where: { id: task.id } }))).status).toBe("todo");
+  });
+
+  it("refuses a proposal the service would refuse before anyone is asked", async () => {
+    const code = (name: string, args: unknown) =>
+      op(name, args).then(
+        () => "resolved",
+        (e: { code?: string; message: string }) => e.code ?? e.message,
+      );
+    const requests = () => run((tx) => tx.entity.count({ where: { projectId: owner().projectId, kind: "action_requests" } }));
+    const before = await requests();
+    expect(
+      await code("work_propose_tasks", {
+        idempotencyKey: "invalid-assignee",
+        tasks: [{ title: "Viewer owns it", assigneeUserId: project.viewer.userId }],
+      }),
+    ).toBe("WORK_ASSIGNEE_INVALID");
+    const task = await run((tx) => createTask(tx, owner(), { title: "Checked early" }, userActor(owner())));
+    expect(
+      await code("work_propose_task_update", {
+        idempotencyKey: "stale",
+        number: task.number,
+        expectedVersion: task.version + 1,
+        changes: { priority: "high" },
+      }),
+    ).toBe("WORK_VERSION_CONFLICT");
+    expect(
+      await code("work_propose_task_update", {
+        idempotencyKey: "unknown-status",
+        number: task.number,
+        expectedVersion: task.version,
+        changes: { status: "nonexistent" },
+      }),
+    ).toBe("WORK_STATUS_UNKNOWN");
+    await run((tx) => createInitiative(tx, owner(), { title: "Taken", key: "TAKEN" }, userActor(owner())));
+    expect(await code("work_propose_initiative", { idempotencyKey: "taken", title: "Again", key: "taken" })).toBe("WORK_KEY_TAKEN");
+    expect(await requests()).toBe(before);
   });
 
   it("creates initiatives with milestones and comments after approval", async () => {

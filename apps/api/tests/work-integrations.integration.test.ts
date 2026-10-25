@@ -125,8 +125,17 @@ describe.skipIf(!enabled)("project management integrations", () => {
     expect(links[0]!.object).toMatchObject({ sensitive: true, href: `/p/${owner.projectId}/support/tickets?ticket=${ticketId}` });
     // Without access to support, the ticket is out of reach; its subject never shows.
     const noSupport = { ...editor, moduleRoles: { support: "none" as const } };
-    const hidden = await run(noSupport, (tx) => linksOf(tx, noSupport, { type: "work.task", id: task.id }));
-    expect(hidden[0]!.object).toEqual({ type: "support.ticket", id: ticketId, label: expect.any(Object), state: "missing" });
+    await authDb.projectMemberModuleRole.create({
+      data: { workspaceId: owner.workspaceId, projectId: owner.projectId, userId: editor.userId, moduleId: "support", role: "none" },
+    });
+    process.env.ORBIT_MODULE_ROLES = "true";
+    try {
+      const hidden = await run(noSupport, (tx) => linksOf(tx, noSupport, { type: "work.task", id: task.id }));
+      expect(hidden[0]!.object).toEqual({ type: "support.ticket", id: ticketId, label: expect.any(Object), state: "missing" });
+    } finally {
+      delete process.env.ORBIT_MODULE_ROLES;
+      await authDb.projectMemberModuleRole.deleteMany({ where: { projectId: owner.projectId, userId: editor.userId } });
+    }
     // The ticket side sees the task.
     const fromTicket = await run(owner, (tx) => linksOf(tx, owner, { type: "support.ticket", id: ticketId }));
     expect(fromTicket[0]).toMatchObject({ direction: "incoming", object: { type: "work.task", id: task.id } });

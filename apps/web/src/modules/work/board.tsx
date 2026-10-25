@@ -49,21 +49,37 @@ import { TaskForm } from "./tasks";
 // member saw. A conflict reloads the board with a notice.
 
 type Columns = Record<string, TaskItem[]>;
-const MAX_TASKS = 500;
+/** Open tasks the board shows at most; the list shows every task. */
+const MAX_OPEN = 500;
+/** Finished tasks per closed category: the most recently changed. */
+const RECENT_CLOSED = 25;
 
-/** All of the board's tasks, page by page, in board order. */
+/**
+ * The board's tasks: every open one (up to MAX_OPEN, page by page, in board
+ * order) and the most recently changed done and canceled ones. `truncated`
+ * says that open tasks were left out.
+ */
 async function loadTasks(projectId: string, initiative: string) {
+  const query = (params: Record<string, string>) => {
+    const q = new URLSearchParams(params);
+    if (initiative) q.set("initiative", initiative);
+    return workPath(projectId, `/tasks?${q}`);
+  };
   const items: TaskItem[] = [];
   let cursor: string | null = null;
   do {
-    const query = new URLSearchParams({ sort: "rank", limit: "100" });
-    if (initiative) query.set("initiative", initiative);
-    if (cursor) query.set("cursor", cursor);
-    const page: TaskPage = await api<TaskPage>(workPath(projectId, `/tasks?${query}`));
+    const page: TaskPage = await api<TaskPage>(
+      query({ open: "true", sort: "rank", limit: "100", ...(cursor ? { cursor } : {}) }),
+    );
     items.push(...page.items);
     cursor = page.nextCursor;
-  } while (cursor && items.length < MAX_TASKS);
-  return items;
+  } while (cursor && items.length < MAX_OPEN);
+  const truncated = Boolean(cursor);
+  for (const category of ["done", "canceled"]) {
+    const page = await api<TaskPage>(query({ category, sort: "updated", limit: String(RECENT_CLOSED) }));
+    items.push(...page.items.sort((a, b) => (a.rank < b.rank ? -1 : 1)));
+  }
+  return { items, truncated };
 }
 
 function columnsOf(statuses: WorkStatus[], tasks: TaskItem[]): Columns {
@@ -84,6 +100,7 @@ export function BoardView() {
   const initiatives = useResource<{ items: Initiative[] }>(workPath(project.id, "/initiatives"));
   const [initiative, setInitiative] = useState("");
   const [columns, setColumns] = useState<Columns | null>(null);
+  const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -95,7 +112,10 @@ export function BoardView() {
     if (!statuses.length) return;
     setError(null);
     loadTasks(project.id, initiative)
-      .then((tasks) => setColumns(columnsOf(statuses, tasks)))
+      .then(({ items, truncated }) => {
+        setColumns(columnsOf(statuses, items));
+        setTruncated(truncated);
+      })
       .catch(setError);
   }, [project.id, initiative, statuses]);
   useEffect(() => reload(), [reload]);
@@ -200,6 +220,7 @@ export function BoardView() {
         </select>
       </PageHead>
       {notice && <Alert kind="warning">{notice}</Alert>}
+      {truncated && <Alert>{t.boardTruncated(MAX_OPEN)}</Alert>}
       {lists.error && <ResourceError error={lists.error} retry={lists.refresh} />}
       {error && <ResourceError error={error} retry={reload} />}
       {!columns ? (

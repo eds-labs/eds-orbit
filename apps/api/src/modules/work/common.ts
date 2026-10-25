@@ -7,7 +7,7 @@ import {
 } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { Actor } from "../../../../../packages/module-contracts/src/index.ts";
-import { DomainError } from "../../shared.ts";
+import { audit, DomainError } from "../../shared.ts";
 import { publishEvent } from "../../platform/events/events.ts";
 import { moduleRolesEnabled } from "../../platform/tenancy/module-roles.ts";
 
@@ -140,6 +140,27 @@ export const taskPath = (projectId: string, taskId: string) =>
   `/p/${projectId}/work/tasks?task=${taskId}`;
 export const initiativePath = (projectId: string, initiativeId: string) =>
   `/p/${projectId}/work/initiatives?initiative=${initiativeId}`;
+
+/**
+ * Marks the module's files that no task holds any more as deleted, in the
+ * caller's transaction; the platform's hourly file cleanup removes their
+ * content. A file still attached elsewhere, or under a retention lock, stays.
+ */
+export async function releaseFiles(tx: DbTx, scope: Scope, fileIds: readonly string[]) {
+  for (const fileId of new Set(fileIds)) {
+    const held = await tx.workAttachment.count({
+      where: { projectId: scope.projectId, fileId },
+    });
+    if (held) continue;
+    const file = await tx.file.findFirst({
+      where: { projectId: scope.projectId, id: fileId, moduleId: MODULE, deletedAt: null },
+      select: { id: true, retainUntil: true },
+    });
+    if (!file || (file.retainUntil && file.retainUntil > new Date())) continue;
+    await tx.file.update({ where: { id: file.id }, data: { deletedAt: new Date() } });
+    await audit(tx, scope, "file.deleted", file.id, { moduleId: MODULE });
+  }
+}
 
 /** Maps a constraint error a trigger or check raised to a domain error. */
 export function domainFromDb(error: unknown): never {
