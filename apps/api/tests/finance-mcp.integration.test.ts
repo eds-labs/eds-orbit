@@ -289,14 +289,18 @@ describe.skipIf(!enabled)("finance MCP tools (SQL, no model call)", () => {
     expect(
       await names(withScopes(["orbit:read", "orbit:propose", "orbit:support"])),
     ).toEqual([]);
-    // Discovery assumes only orbit:support: finance stays hidden there too.
+    // Discovery lists the finance tools with their scopes, so a client
+    // (ChatGPT asks for the scopes its tools declare) can request them; a
+    // call still needs the granted scope.
     const discovered = (
       await visibleMcpToolsForDiscovery(
         withScopes(["orbit:read", "orbit:propose"]),
         owner().projectId,
       )
     ).map((t) => t.name);
-    expect(discovered.filter((n) => n.startsWith("finance_"))).toEqual([]);
+    expect(discovered.filter((n) => n.startsWith("finance_")).sort()).toEqual(
+      [...READS, RETRY].sort(),
+    );
     expect(
       await codeOf(() =>
         authorizeMcpCall(
