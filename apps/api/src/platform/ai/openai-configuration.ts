@@ -80,43 +80,55 @@ export const openAiConfigurationInput = z
       context.addIssue({ code: "custom", message: "DUPLICATE_MODEL" });
     if (Object.keys(value.rateCard).length > 40)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
-    // The OpenAI tiers are checked on save only where they are used
-    // (`assertTiersVerified`); `resolveRoute` repeats the capability gate at
-    // call time either way.
-    if (
-      value.verifiedModels.length &&
-      Object.values(value.taskRoutes).some(
-        (route) => !value.verifiedModels.includes(route.model),
-      )
-    )
-      context.addIssue({
-        code: "custom",
-        message: "ROUTED_MODEL_NOT_VERIFIED",
-      });
-    if (
-      value.imageGeneration.maxCostMicrosPerImage > 0 &&
-      !value.verifiedModels.includes(value.imageGeneration.model)
-    )
-      context.addIssue({ code: "custom", message: "IMAGE_MODEL_NOT_VERIFIED" });
+    // Which routed and image models count as verified depends on the
+    // project's default provider and the central catalog, so it is checked
+    // on save (`assertModelsVerified`); `resolveRoute` repeats the
+    // capability gate at call time either way.
   });
 
 /**
- * The OpenAI tiers (fast, standard, quality) must name verified models while
- * OpenAI is the default provider: only then do tasks without an own route
- * use them. A Claude-default project keeps the unused defaults without
- * having to verify and price OpenAI models it never calls.
+ * The models a saved model section names must be verified: the project's
+ * own list plus, with ORBIT_AI_CATALOG on, every active catalog model.
+ * - OpenAI tiers (fast, standard, quality): only while OpenAI is the
+ *   default provider, the only case in which they are used.
+ * - Task routes: always (none while nothing is verified at all, as before).
+ * - The image model: once images are on (a maximum per image above 0).
  */
-export function assertTiersVerified(
-  value: Pick<z.infer<typeof openAiConfigurationInput>, "verifiedModels" | "modelRoutes">,
+export function assertModelsVerified(
+  value: Pick<
+    z.infer<typeof openAiConfigurationInput>,
+    "verifiedModels" | "modelRoutes" | "taskRoutes" | "imageGeneration"
+  >,
   defaultProvider: ProviderId | undefined,
+  catalogModels: ReadonlySet<string> = new Set(),
 ) {
-  if (defaultProvider === "anthropic" || !value.verifiedModels.length) return;
+  const known = new Set([...value.verifiedModels, ...catalogModels]);
   if (
+    defaultProvider !== "anthropic" &&
+    value.verifiedModels.length &&
     [value.modelRoutes.fast, value.modelRoutes.standard, value.modelRoutes.quality].some(
-      (model) => !value.verifiedModels.includes(model),
+      (model) => !known.has(model),
     )
   )
     throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
+  if (
+    known.size &&
+    Object.values(value.taskRoutes).some((route) => !known.has(route!.model))
+  )
+    throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
+  if (
+    value.imageGeneration.maxCostMicrosPerImage > 0 &&
+    !known.has(value.imageGeneration.model)
+  )
+    throw new DomainError("IMAGE_MODEL_NOT_VERIFIED");
+}
+
+/** The active catalog models while ORBIT_AI_CATALOG is on; none otherwise. */
+export async function catalogModelIds(tx: DbTx, scope: Scope) {
+  if (!aiCatalogEnabled()) return new Set<string>();
+  return new Set(
+    (await projectCatalog(tx, scope)).filter((m) => m.active).map((m) => m.id),
+  );
 }
 
 /** The provider fields of `ai-provider-configure` (plan D-A4..D-A7). */
@@ -785,9 +797,10 @@ export async function saveOpenAiConfiguration(
     !(await grantedAnyKey(tx, scope))
   )
     throw new DomainError("OPENAI_API_KEY_REQUIRED");
-  assertTiersVerified(
+  assertModelsVerified(
     input,
     currentValue?.defaultProvider ?? environmentRuntimeConfig().defaultProvider,
+    await catalogModelIds(tx, scope),
   );
   // A model that leaves the verified list must not stay in a saved Anthropic tier.
   if (

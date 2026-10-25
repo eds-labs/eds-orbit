@@ -9,6 +9,7 @@ import {
 } from "../src/modules/image-generation.ts";
 import {
   openAiConfigurationInput,
+  assertModelsVerified,
   publicOpenAiConfiguration,
 } from "../src/modules/openai-configuration.ts";
 import { publicEntity } from "../src/shared.ts";
@@ -135,17 +136,23 @@ describe("OpenAI image generation gates", () => {
       },
     });
     expect(accepted.imageGeneration.model).toBe("gpt-image-2.5-flare");
+    // The image model must be verified on save: by the project's own list
+    // or, with the central catalog on, by the catalog (assertModelsVerified).
+    const unlisted = openAiConfigurationInput.parse({
+      verifiedModels: [],
+      rateCard: {},
+      imageGeneration: {
+        model: "gpt-image-2.5-flare",
+        maxCostMicrosPerImage: 250_000,
+        pricingVerifiedAt,
+      },
+    });
+    expect(() => assertModelsVerified(unlisted, "openai")).toThrow(
+      "IMAGE_MODEL_NOT_VERIFIED",
+    );
     expect(() =>
-      openAiConfigurationInput.parse({
-        verifiedModels: [],
-        rateCard: {},
-        imageGeneration: {
-          model: "gpt-image-2.5-flare",
-          maxCostMicrosPerImage: 250_000,
-          pricingVerifiedAt,
-        },
-      }),
-    ).toThrow("IMAGE_MODEL_NOT_VERIFIED");
+      assertModelsVerified(unlisted, "openai", new Set(["gpt-image-2.5-flare"])),
+    ).not.toThrow();
   });
 
   it("reports a dedicated image key without returning encrypted key material", () => {

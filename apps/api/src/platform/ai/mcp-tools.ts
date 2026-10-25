@@ -28,7 +28,8 @@ import { approvedOperation, readOperation } from "../tasks/operation-tools.ts";
 import { PROJECT_OWN, PROJECT_READ } from "../tenancy/permissions.ts";
 import {
   aiProviderConfigurationInput,
-  assertTiersVerified,
+  assertModelsVerified,
+  catalogModelIds,
   effectiveAiStatus,
   openAiConfigurationInput,
   publicOpenAiConfiguration,
@@ -353,7 +354,11 @@ async function proposedAi(tx: DbTx, scope: Scope, change: AiModelsChange) {
     throw new DomainError(`MODEL_PRICE_NOT_VERIFIED:${unpriced.join(",")}`, 409);
   // The forms' own validation: routed models verified, image model verified.
   const modelInput = openAiConfigurationInput.parse(pick(next, MODEL_FIELDS));
-  assertTiersVerified(modelInput, next.defaultProvider);
+  assertModelsVerified(
+    modelInput,
+    next.defaultProvider,
+    await catalogModelIds(tx, scope),
+  );
   const providerInput = aiProviderConfigurationInput.parse(
     Object.fromEntries(
       PROVIDER_FIELDS.filter((k) => next[k] != null).map((k) => [k, next[k]]),

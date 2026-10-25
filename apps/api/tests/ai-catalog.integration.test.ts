@@ -193,4 +193,49 @@ describe.skipIf(!enabled)("AI price catalog", () => {
     });
     expect(anonymous.statusCode).toBe(401);
   });
+
+  it("saves images on with the catalog's image model, which the project never listed", async () => {
+    process.env.ORBIT_AI_CATALOG = "true";
+    const view = await run((tx) => projectAiConfigurationView(tx, scope));
+    expect(view.verifiedModels).not.toContain("gpt-image-2.5-flare");
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${scope.projectId}/actions/ai-configure`,
+      headers: { origin, cookie },
+      payload: {
+        models: {
+          verifiedModels: view.verifiedModels,
+          rateCard: view.rateCard,
+          modelRoutes: view.modelRoutes,
+          taskRoutes: { support_triage: { model: "gpt-6-luna", maxOutputTokens: 800 } },
+          imageGeneration: {
+            model: "gpt-image-2.5-flare",
+            maxCostMicrosPerImage: 250_000,
+            pricingVerifiedAt: priceCatalog["gpt-image-2.5-flare"]!.verifiedAt,
+          },
+        },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    // Without the catalog the same save names its reason.
+    delete process.env.ORBIT_AI_CATALOG;
+    const refused = await app.inject({
+      method: "POST",
+      url: `/api/projects/${scope.projectId}/actions/ai-configure`,
+      headers: { origin, cookie },
+      payload: {
+        models: {
+          verifiedModels: view.verifiedModels,
+          rateCard: view.rateCard,
+          modelRoutes: view.modelRoutes,
+          imageGeneration: {
+            model: "gpt-image-2.5-flare",
+            maxCostMicrosPerImage: 250_000,
+            pricingVerifiedAt: priceCatalog["gpt-image-2.5-flare"]!.verifiedAt,
+          },
+        },
+      },
+    });
+    expect(refused.json().error.code).toBe("IMAGE_MODEL_NOT_VERIFIED");
+  });
 });
