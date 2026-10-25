@@ -79,20 +79,9 @@ export const openAiConfigurationInput = z
       context.addIssue({ code: "custom", message: "DUPLICATE_MODEL" });
     if (Object.keys(value.rateCard).length > 40)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
-    // Every tier, including the unused escalation tier, must name a verified model.
-    // `resolveRoute` repeats the capability gate at call time.
-    if (
-      value.verifiedModels.length &&
-      [
-        value.modelRoutes.fast,
-        value.modelRoutes.standard,
-        value.modelRoutes.quality,
-      ].some((model) => !value.verifiedModels.includes(model))
-    )
-      context.addIssue({
-        code: "custom",
-        message: "ROUTED_MODEL_NOT_VERIFIED",
-      });
+    // The OpenAI tiers are checked on save only where they are used
+    // (`assertTiersVerified`); `resolveRoute` repeats the capability gate at
+    // call time either way.
     if (
       value.verifiedModels.length &&
       Object.values(value.taskRoutes).some(
@@ -109,6 +98,25 @@ export const openAiConfigurationInput = z
     )
       context.addIssue({ code: "custom", message: "IMAGE_MODEL_NOT_VERIFIED" });
   });
+
+/**
+ * The OpenAI tiers (fast, standard, quality) must name verified models while
+ * OpenAI is the default provider: only then do tasks without an own route
+ * use them. A Claude-default project keeps the unused defaults without
+ * having to verify and price OpenAI models it never calls.
+ */
+export function assertTiersVerified(
+  value: Pick<z.infer<typeof openAiConfigurationInput>, "verifiedModels" | "modelRoutes">,
+  defaultProvider: ProviderId | undefined,
+) {
+  if (defaultProvider === "anthropic" || !value.verifiedModels.length) return;
+  if (
+    [value.modelRoutes.fast, value.modelRoutes.standard, value.modelRoutes.quality].some(
+      (model) => !value.verifiedModels.includes(model),
+    )
+  )
+    throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
+}
 
 /** The provider fields of `ai-provider-configure` (plan D-A4..D-A7). */
 export const aiProviderConfigurationInput = z
@@ -747,6 +755,10 @@ export async function saveOpenAiConfiguration(
     !(await grantedAnyKey(tx, scope))
   )
     throw new DomainError("OPENAI_API_KEY_REQUIRED");
+  assertTiersVerified(
+    input,
+    currentValue?.defaultProvider ?? environmentRuntimeConfig().defaultProvider,
+  );
   // A model that leaves the verified list must not stay in a saved Anthropic tier.
   if (
     currentValue?.anthropicTierRoutes &&

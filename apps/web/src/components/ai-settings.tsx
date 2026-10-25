@@ -1154,6 +1154,9 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
     onClose();
   });
   const current = configuration.data;
+  const claudeDefault =
+    (current as { defaultProvider?: ProviderId } | undefined)?.defaultProvider ===
+    "anthropic";
   const tier = (key: "fast" | "standard" | "quality", label: string, heading?: string): FormField => ({
     name: `model-${key}`,
     ...(heading ? { heading } : {}),
@@ -1194,7 +1197,17 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         ? "Ohne eigenen Bild-Key nutzt die Bilderzeugung den OpenAI-Key oben."
         : "Without one, image generation uses the OpenAI key above.",
     },
-    tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
+    {
+      ...tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
+      // Unused while Claude is the default provider; then they need no check.
+      ...(claudeDefault
+        ? {
+            hint: de
+              ? "Claude ist Standardanbieter: diese Stufen werden nicht genutzt und müssen nicht geprüft sein."
+              : "Claude is the default provider: these tiers are not used and need no verification.",
+          }
+        : {}),
+    },
     tier("standard", "Standard"),
     tier("quality", de ? "Qualität (komplexe Analysen)" : "Quality (complex analysis)"),
     {

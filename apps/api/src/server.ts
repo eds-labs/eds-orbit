@@ -214,6 +214,18 @@ import { passwordResetAvailable } from "./platform/account/service.ts";
 import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
 import { emailEnabled } from "./platform/email/connection.ts";
 const object = z.record(z.string(), z.unknown());
+/**
+ * A validation error's own code when a rule named one (custom issues carry
+ * constant codes such as ROUTED_MODEL_NOT_VERIFIED, never input values);
+ * VALIDATION_FAILED otherwise.
+ */
+function zodCode(error: z.ZodError) {
+  const custom = error.issues.find(
+    (issue) =>
+      issue.code === "custom" && /^[A-Z][A-Z0-9_]{2,80}$/.test(issue.message),
+  );
+  return custom?.message ?? "VALIDATION_FAILED";
+}
 // The owner's Telegram bot routes, by registered pattern (on with telegramEnabled()).
 const TELEGRAM_ROUTES = new Set([
   "/api/telegram/:projectId/:connectionId",
@@ -428,7 +440,7 @@ export async function buildServer(
         : error instanceof KnowledgeError
           ? error.code
           : error instanceof z.ZodError
-            ? "VALIDATION_FAILED"
+            ? zodCode(error)
             : status === 429
               ? "RATE_LIMITED"
               : "REQUEST_FAILED";
