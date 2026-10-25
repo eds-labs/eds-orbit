@@ -2,6 +2,7 @@ import type { ModuleContributions } from "../../platform/modules/contributions.t
 import { workAttention, workDueScan } from "./attention.ts";
 import { pmSwitchedOn, workSwitchedOn } from "./gate.ts";
 import { pmInstructions, pmTools } from "./pm/tools.ts";
+import { pmMcpActionTypes, pmMcpTools } from "./pm/mcp-tools.ts";
 import { workLinkTypes } from "./links.ts";
 import { workUserNotifications } from "./notifications.ts";
 import { workRoutes } from "./routes.ts";
@@ -61,12 +62,13 @@ export const workContributions: ModuleContributions = {
   userNotifications: workUserNotifications,
   attention: workAttention,
   // Assistant and MCP reads and proposals (plan §6).
-  tools: [...workTools, ...pmTools],
+  tools: [...workTools, ...pmTools, ...pmMcpTools],
   actionTypes: {
     ...workActionTypes,
     ...pmActionTypes,
     ...handoffActionTypes,
     [CODING_DISPATCH]: codingDispatchAction,
+    ...pmMcpActionTypes,
   },
   // The AI project manager's background work (ADR 0017).
   jobs: pmJobs,

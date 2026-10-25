@@ -219,6 +219,10 @@ export const labels = {
       "Propose a paid AI extraction retry for a finance document; an owner still approves it in Orbit",
     connectScopeWork:
       "Read initiatives, milestones and tasks, and propose changes to them; a member still approves each change in Orbit",
+    connectScopeWorkPm:
+      "Ask the AI project manager for plans and status reports; they spend the project's AI budget, and a member still approves each request in Orbit",
+    connectScopeWorkCoding:
+      "Propose coding work orders for external coding agents; the owner still approves every dispatch in Orbit",
     connectScopeOther: "Other permission",
     connectNoProjects:
       "This workspace has no project you can share. Ask an owner to add you to a project, or choose another workspace.",
@@ -513,6 +517,10 @@ export const labels = {
       "Eine kostenpflichtige KI-Extraktion für einen Finanzbeleg erneut vorschlagen; ein Owner gibt sie weiterhin in Orbit frei",
     connectScopeWork:
       "Vorhaben, Meilensteine und Aufgaben lesen und Änderungen vorschlagen; ein Mitglied gibt jede Änderung weiterhin in Orbit frei",
+    connectScopeWorkPm:
+      "Den KI-Projektleiter um Pläne und Statusberichte bitten; das kostet KI-Budget des Projekts, und ein Mitglied gibt jede Anfrage weiterhin in Orbit frei",
+    connectScopeWorkCoding:
+      "Coding-Aufträge für externe Coding-Agenten vorschlagen; der Owner gibt jede Übergabe weiterhin in Orbit frei",
     connectScopeOther: "Weitere Berechtigung",
     connectNoProjects:
       "Dieser Workspace hat kein Projekt, das du freigeben kannst. Bitte einen Owner, dich zu einem Projekt hinzuzufügen, oder wähle einen anderen Workspace.",

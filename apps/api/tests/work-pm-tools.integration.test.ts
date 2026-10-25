@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { registerModules } from "../src/modules/registry.ts";
-import { availableTools, exposedToMcp } from "../src/platform/agents/tools/registry.ts";
+import { availableTools, exposedToAssistant, exposedToMcp } from "../src/platform/agents/tools/registry.ts";
 import { registeredTools } from "../src/platform/modules/contributions.ts";
 import { workContributions } from "../src/modules/work/contributions.ts";
 import { createInitiative } from "../src/modules/work/initiatives.ts";
@@ -29,7 +29,8 @@ describe("AI project manager assistant tools (WP2.6)", () => {
   beforeAll(() => env.apply());
   afterAll(() => env.restore());
   const pm = (role: "owner" | "editor" | "viewer", features: Parameters<typeof availableTools>[2]) =>
-    availableTools(registeredTools(), role, features)
+    // The assistant's view: MCP-only proposals have their own tests.
+    availableTools(registeredTools().filter(exposedToAssistant), role, features)
       .map((t) => t.name)
       .filter((n) => n.startsWith("work_pm_"))
       .sort();

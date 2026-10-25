@@ -373,6 +373,53 @@ export async function markDispatched(tx: DbTx, scope: Scope, row: CodingRunRow, 
   return updated;
 }
 
+/** Links, marks and dispatches a run the owner approved. */
+async function dispatchApproved(tx: DbTx, scope: Scope, run: CodingRunRow, actorId: string) {
+  const task = await loadTask(tx, scope, run.taskId);
+  const member = await actorScope(scope.workspaceId, scope.projectId, actorId);
+  await createLink(
+    tx,
+    member ? moduleScope(member, "work") : scope,
+    { source: { type: "work.task", id: task.id }, target: { type: "work.coding_run", id: run.id }, relation: "delegated_to" },
+    { kind: "agent", id: pmActor.id },
+  );
+  await tx.workTask.update({
+    where: { id: task.id },
+    data: { assigneeAgentKey: "work.coding", version: { increment: 1 } },
+  });
+  await workEvent(tx, scope, { taskId: task.id }, "assignee_agent", pmActor, { assigneeAgentKey: task.assigneeAgentKey }, { assigneeAgentKey: "work.coding" });
+  if (run.provider === "manual") await markDispatched(tx, scope, run);
+  else {
+    // The transport runs after this transaction; the state is recorded first.
+    await tx.workCodingRun.update({ where: { id: run.id }, data: { status: "dispatching", version: { increment: 1 } } });
+    await enqueue(tx, scope, PM_QUEUE, run.id, `work_pm:coding_dispatch:${run.id}`, new Date(), { kind: "coding_dispatch" });
+  }
+  await audit(tx, scope, "work.coding_run.approved", run.id, { provider: run.provider, repository: run.repositoryKey });
+}
+
+/**
+ * Dispatches a draft the owner approved elsewhere (an MCP proposal whose
+ * approval showed the exact redacted brief, which counts as its review).
+ */
+export async function approveCodingDispatch(tx: DbTx, owner: Scope, runId: string, actorId: string, now = new Date()) {
+  if (!can(owner, WORK_CODING_DISPATCH)) throw new DomainError("OWNER_REQUIRED", 403);
+  const row = await loadCodingRun(tx, owner, runId);
+  if (row.status !== "draft") throw new DomainError("WORK_CODING_RUN_NOT_DRAFT", 409);
+  await openTask(tx, owner, row.taskId);
+  const active = await tx.workCodingRun.findFirst({
+    where: { projectId: owner.projectId, taskId: row.taskId, status: { in: [...ACTIVE] } },
+    select: { id: true },
+  });
+  if (active) throw new DomainError("WORK_CODING_RUN_ACTIVE", 409);
+  await assertDispatchable(tx, owner, row, now, true);
+  const reviewed = await tx.workCodingRun.update({
+    where: { id: row.id },
+    data: { personalDataReviewed: true, status: "awaiting_approval", version: { increment: 1 } },
+  });
+  await dispatchApproved(tx, owner, reviewed, actorId);
+  return loadCodingRun(tx, owner, row.id);
+}
+
 /** `work.coding.dispatch`: the owner approves each dispatch (risk C2). */
 export const codingDispatchAction: ActionDefinition<DispatchPayload> = {
   riskClass: "C2",
@@ -400,26 +447,7 @@ export const codingDispatchAction: ActionDefinition<DispatchPayload> = {
     // The deciding owner holds the sensitive dispatch permission.
     if (!can(scope, WORK_CODING_DISPATCH)) throw new DomainError("OWNER_REQUIRED", 403);
     const run = await stillDispatchable(tx, scope, p);
-    const task = await loadTask(tx, scope, run.taskId);
-    const member = await actorScope(scope.workspaceId, scope.projectId, p.actorId);
-    await createLink(
-      tx,
-      member ? moduleScope(member, "work") : scope,
-      { source: { type: "work.task", id: task.id }, target: { type: "work.coding_run", id: run.id }, relation: "delegated_to" },
-      { kind: "agent", id: pmActor.id },
-    );
-    await tx.workTask.update({
-      where: { id: task.id },
-      data: { assigneeAgentKey: "work.coding", version: { increment: 1 } },
-    });
-    await workEvent(tx, scope, { taskId: task.id }, "assignee_agent", pmActor, { assigneeAgentKey: task.assigneeAgentKey }, { assigneeAgentKey: "work.coding" });
-    if (run.provider === "manual") await markDispatched(tx, scope, run);
-    else {
-      // The transport runs after this transaction; the state is recorded first.
-      await tx.workCodingRun.update({ where: { id: run.id }, data: { status: "dispatching", version: { increment: 1 } } });
-      await enqueue(tx, scope, PM_QUEUE, run.id, `work_pm:coding_dispatch:${run.id}`, new Date(), { kind: "coding_dispatch" });
-    }
-    await audit(tx, scope, "work.coding_run.approved", run.id, { provider: run.provider, repository: run.repositoryKey });
+    await dispatchApproved(tx, scope, run, p.actorId);
     await update(tx, scope, row, {
       ...data(row),
       status: "consumed",

@@ -128,6 +128,8 @@ export const EXPLICIT_SCOPES = [
   "orbit:finance.read",
   "orbit:finance.extract",
   "orbit:work",
+  "orbit:work.pm",
+  "orbit:work.coding",
 ] as const;
 
 /** The scopes to accept: the requested ones in order, minus an unticked propose. */

@@ -111,6 +111,10 @@ export async function authorizeDelegatedTool(
   const p = await delegationPrincipal(scope, d);
   if (tool.name === "propose_campaign")
     throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
+  // A delegated order may read the AI project manager's state, but never
+  // spend its budget or dispatch coding work (ADR 0017).
+  if (tool.feature === "work_pm" && tool.risk !== "R0_read")
+    throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
   const current = await projectScope(p, scope.projectId);
   const owner = registeredToolOwner(tool.name);
   const effective = moduleScope(current, owner);
