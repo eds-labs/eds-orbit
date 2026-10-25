@@ -2,7 +2,7 @@
 
 The project management module manages initiatives ("Vorhaben"), milestones, tasks, subtasks and checklists inside one Orbit project. The decisions are in [ADR 0016](adr/0016-project-management-links-events.md), the plan in [`plans/project-management-phase-1.md`](plans/project-management-phase-1.md).
 
-**State (2026-10-25): Phase 1 implemented on the branch `claude/work-module-phase-1`, local only.** Nothing is merged or deployed, and `ORBIT_WORK` is off everywhere. Merging to `main` deploys production with two migrations and needs Mario's approval; switching `ORBIT_WORK` on is a separate approved step.
+**State (2026-10-25): Phase 1 is deployed to production (`5f89cc00`) with both migrations, and `ORBIT_WORK` is off.** Switching `ORBIT_WORK` on is a separate approved step.
 
 ## Terms
 
