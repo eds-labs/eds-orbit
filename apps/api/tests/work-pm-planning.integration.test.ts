@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { data, entity } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
-import { decideActionRequest } from "../src/platform/governance/action-requests.ts";
+import { decideActionRequest, listActionRequests } from "../src/platform/governance/action-requests.ts";
 import { registeredActionType } from "../src/platform/modules/contributions.ts";
 import { savePmSettings, readPmSettings } from "../src/modules/work/pm/settings.ts";
 import {
@@ -119,6 +119,13 @@ describe.skipIf(!enabled)("AI project manager planning", () => {
     const actionRequest = await p.run((tx) => entity(tx, p.owner, "action_requests", proposed.actionRequestId!));
     expect(data(actionRequest)).toMatchObject({ actionType: "work.plan.apply", status: "pending" });
     expect(registeredActionType("work.plan.apply")!.deciderRole).toBe("editor");
+    // Editors see what they may decide in the approvals list; viewers see nothing.
+    const listed = await p.run((tx) => listActionRequests(tx, p.editor));
+    expect(listed.find((r) => r.id === proposed.actionRequestId)).toMatchObject({
+      actionType: "work.plan.apply",
+      summary: { operation: { kind: "new_plan", tasks: 30, milestones: 3 } },
+    });
+    expect(await p.run((tx) => listActionRequests(tx, p.viewer))).toEqual([]);
     // A viewer cannot decide; the editor's approval applies the plan.
     expect(await failure(decide(p.viewer, proposed.actionRequestId!))).not.toBe("resolved");
     await decide(p.editor, proposed.actionRequestId!);

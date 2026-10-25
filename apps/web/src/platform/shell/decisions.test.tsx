@@ -11,6 +11,7 @@ vi.mock("@/components/workspace-context", () => ({
     locale: "de",
     project: { id: "p1" },
     isOwner: state.owner,
+    canEdit: state.owner,
   }),
 }));
 vi.mock("@/lib/api", async (original) => ({
@@ -46,7 +47,7 @@ describe("shared decisions page", () => {
     expect(html).toContain("Support-Nachrichten");
     state.items = [];
   });
-  it("shows loading, errors, empty and non-owner states", () => {
+  it("shows loading, errors, empty and non-member states", () => {
     state.loading = true;
     expect(renderToStaticMarkup(<Decisions />)).toContain(
       "Freigaben werden geladen",
@@ -61,7 +62,7 @@ describe("shared decisions page", () => {
       "Keine offenen App- oder Ticketfreigaben",
     );
     state.owner = false;
-    expect(renderToStaticMarkup(<Decisions />)).toContain("nur Inhaber");
+    expect(renderToStaticMarkup(<Decisions />)).toContain("nur Inhaber und Bearbeiter");
     state.owner = true;
   });
 });

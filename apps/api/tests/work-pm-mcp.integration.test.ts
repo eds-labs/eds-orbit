@@ -4,7 +4,7 @@ import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { data, entity } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
-import { decideActionRequest } from "../src/platform/governance/action-requests.ts";
+import { decideActionRequest, listActionRequests } from "../src/platform/governance/action-requests.ts";
 import { exposedToAssistant } from "../src/platform/agents/tools/registry.ts";
 import { authorizeMcpCall, visibleMcpTools, visibleMcpToolsForDiscovery } from "../src/platform/mcp/visibility.ts";
 import type { McpPrincipal } from "../src/platform/mcp/principal.ts";
@@ -183,6 +183,11 @@ describe.skipIf(!enabled)("AI project manager MCP tools", () => {
     const request = await p.run((tx) => entity(tx, p.owner, "action_requests", proposal.actionRequestId));
     const summary = registeredActionType("work.mcp.work_pm_propose_coding_run")!.summary!(data(request).payload);
     expect(JSON.stringify(summary)).not.toContain("1234567");
+    // The owner's list shows the module's redacted summary, editors do not see it at all.
+    const listed = (await p.run((tx) => listActionRequests(tx, p.owner))).find((r) => r.id === proposal.actionRequestId);
+    expect(listed!.summary.operation).toMatchObject({ kind: "coding_dispatch", repository: "orbit", task: task.number });
+    expect(JSON.stringify(listed)).not.toContain("1234567");
+    expect((await p.run((tx) => listActionRequests(tx, p.editor))).some((r) => r.id === proposal.actionRequestId)).toBe(false);
     expect(await failure(decide(p.editor, proposal.actionRequestId))).toBe("OWNER_REQUIRED");
     await decide(p.owner, proposal.actionRequestId);
     const runs = await p.run((tx) => tx.workCodingRun.findMany({ where: { taskId: task.id } }));

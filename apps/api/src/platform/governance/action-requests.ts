@@ -2,6 +2,7 @@ import { delegatedRequester } from "../tasks/delegation.ts";
 import { z } from "zod";
 import {
   authorize,
+  can,
   PROJECT_OWN,
   PROJECT_WRITE,
 } from "../tenancy/permissions.ts";
@@ -704,12 +705,41 @@ export async function openOwnerRequests(
 }
 
 /**
- * Owners' open decisions (`openOwnerRequests`) with what the owner must see
- * to decide.
+ * The open requests a member may decide: owner-decided types for owners,
+ * editor-decided types (project management, ADR 0016/0017) for members who
+ * write in the type's module, both with their role in that module (WP4.5).
+ */
+export async function openDecidableRequests(tx: DbTx, member: Scope, now = new Date()) {
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: member.workspaceId,
+      projectId: member.projectId,
+      kind: KIND,
+      data: { path: ["status"], equals: "pending" },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  return rows.filter((row) => {
+    const d = data(row);
+    const type = registeredActionType(String(d.actionType));
+    if (!type || Date.parse(d.expiresAt) <= now.getTime()) return false;
+    let scope: Scope;
+    try {
+      scope = moduleScope(member, registeredActionTypeOwner(String(d.actionType)));
+    } catch {
+      return false;
+    }
+    return can(scope, type.deciderRole === "owner" ? PROJECT_OWN : PROJECT_WRITE);
+  });
+}
+
+/**
+ * The open decisions of a member (`openDecidableRequests`) with what they
+ * must see to decide.
  */
 export async function listActionRequests(tx: DbTx, scope: Scope) {
-  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
-  const rows = await openOwnerRequests(tx, scope);
+  const rows = await openDecidableRequests(tx, scope);
   // A decision names the channel as the owner knows it, not by its ID.
   const channels = new Map<string, Record<string, unknown>>(
     (
@@ -780,6 +810,10 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
                 ...(d.payload.approvalContext === undefined
                   ? {}
                   : { approvalContext: d.payload.approvalContext }),
+                // The module's own summary wins (e.g. a redacted brief).
+                ...((registeredActionType(String(d.actionType))?.summary?.(d.payload)?.operation as
+                  | Record<string, unknown>
+                  | undefined) ?? {}),
               },
             }
           : {}),
