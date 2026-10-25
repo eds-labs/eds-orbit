@@ -79,6 +79,7 @@ describe("module contributions", () => {
         "agent",
         "analytics",
         "chat",
+        "domain_event",
         "email_archive",
         "email_send",
         "embedding",
@@ -194,11 +195,14 @@ describe("module contributions", () => {
   it("gives the worker its module tasks and start-up through the registry (WP2.1)", () => {
     // Same order as the worker ran them before: Matomo, the Postiz check,
     // then the Drive retry of generated images (a task since WP2.5d). The
-    // platform's ingress cleanup comes first (WP4.2 follow-up).
+    // platform's ingress cleanup comes first (WP4.2 follow-up); link pruning
+    // and event retention follow the platform's tasks (ADR 0016).
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
       "public-ingress-cleanup",
       "file-cleanup",
       "email-inbound",
+      "object-link-prune",
+      "domain-event-retention",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",

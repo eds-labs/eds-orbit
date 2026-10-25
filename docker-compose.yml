@@ -62,6 +62,8 @@ x-api-environment: &api-environment
   ORBIT_SUPPORT: ${ORBIT_SUPPORT:-false}
   # Finance module: off until its rollout is approved.
   ORBIT_FINANCE: ${ORBIT_FINANCE:-false}
+  # Project management module (ADR 0016): off until its rollout is approved.
+  ORBIT_WORK: ${ORBIT_WORK:-false}
   # Marketing module for the whole installation (ADR 0015): on by default.
   ORBIT_MARKETING: ${ORBIT_MARKETING:-true}
   # The owner's Telegram bot (ADR 0015); empty follows ORBIT_AGENTS as before.

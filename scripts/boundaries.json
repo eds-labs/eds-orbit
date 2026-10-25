@@ -50,6 +50,9 @@
     "module:support": [
       "apps/api/src/modules/support/"
     ],
+    "module:work": [
+      "apps/api/src/modules/work/"
+    ],
     "worker": [
       "apps/worker/src/"
     ],
@@ -69,6 +72,9 @@
     ],
     "web-module:support": [
       "apps/web/src/modules/support/"
+    ],
+    "web-module:work": [
+      "apps/web/src/modules/work/"
     ],
     "package:ai": [
       "packages/ai/"

@@ -10,6 +10,8 @@ import { supportModule } from "./support/manifest.ts";
 import { supportContributions } from "./support/contributions.ts";
 import { financeModule } from "./finance/manifest.ts";
 import { financeContributions } from "./finance/contributions.ts";
+import { workModule } from "./work/manifest.ts";
+import { workContributions } from "./work/contributions.ts";
 import { marketingContributions } from "./marketing/contributions.ts";
 import { knowledgeContributions } from "./knowledge/contributions.ts";
 import {
@@ -27,6 +29,7 @@ export const modules: readonly ServerModule[] = [
   marketingModule,
   supportModule,
   financeModule,
+  workModule,
 ];
 
 type ExtraModule = {
@@ -67,6 +70,7 @@ export function registerModules(): ValidatedRegistry {
     marketing: marketingContributions,
     support: supportContributions,
     finance: financeContributions,
+    work: workContributions,
     ...Object.fromEntries(
       testModules.map((m) => [m.module.id, m.contributions]),
     ),
