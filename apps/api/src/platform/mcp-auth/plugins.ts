@@ -38,6 +38,8 @@ export const MCP_SCOPES = [
   // orbit:support, explicit and unchecked on the consent screen.
   "orbit:finance.read",
   "orbit:finance.extract",
+  // Project management (ADR 0016): explicit and unchecked like the above.
+  "orbit:work",
 ] as const;
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */

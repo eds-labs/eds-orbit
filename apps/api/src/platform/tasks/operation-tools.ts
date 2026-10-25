@@ -50,6 +50,12 @@ type Operation = {
     args: any,
   ): Promise<{ inboxId: string; inboxVersion: number } | null>;
   mcpProjectRequired?: boolean;
+  /**
+   * Who decides the request; default the owner. Project management uses
+   * "editor", so a member may approve their own assistant's proposal
+   * (ADR 0016 D-7).
+   */
+  deciderRole?: "owner" | "editor";
   /** The feature that lists the tool; default the MCP 2.0 tasks feature. */
   feature?: ToolFeature;
   /** Whether MCP clients may propose it now; default with MCP 2.0 tasks. */
@@ -226,7 +232,7 @@ export function approvedOperation(op: Operation) {
   const action: ActionDefinition<z.infer<typeof payload>> = {
     riskClass: "W2",
     approvalMode: "approval_required",
-    deciderRole: "owner",
+    deciderRole: op.deciderRole ?? "owner",
     get mcpProposable() {
       return (op.proposable ?? mcp2Enabled)();
     },
@@ -315,7 +321,9 @@ export function approvedOperation(op: Operation) {
       op.description +
       (op.ownerMcpAutoApproval
         ? " Sends without another Orbit approval only when the owner has enabled direct MCP replies for the ticket inbox and makes the call personally through MCP; otherwise saves an owner approval request. Read requiresApproval/status and the delivery receipt; queued does not mean delivered. Retry with the same idempotencyKey."
-        : " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey."),
+        : op.deciderRole === "editor"
+          ? " Saves an exact approval request an owner or editor decides; executes only after approval in Orbit. Retry with the same idempotencyKey."
+          : " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey."),
     parameters: modelParameters(input),
     risk: "P_proposal",
     permission: op.permission,
@@ -449,7 +457,9 @@ export function approvedOperation(op: Operation) {
                     ? "Reply queued"
                     : "Action completed"
                   : state.status === "pending"
-                    ? "Owner approval required"
+                    ? op.deciderRole === "editor"
+                      ? "Approval required"
+                      : "Owner approval required"
                     : "Request closed",
               status:
                 state.status === "consumed"

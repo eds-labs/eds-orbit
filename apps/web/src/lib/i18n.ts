@@ -217,6 +217,8 @@ export const labels = {
       "Read finance documents (counterparty, number, amounts, extraction and processing state) through this external app; never files or e-mails",
     connectScopeFinanceExtract:
       "Propose a paid AI extraction retry for a finance document; an owner still approves it in Orbit",
+    connectScopeWork:
+      "Read initiatives, milestones and tasks, and propose changes to them; a member still approves each change in Orbit",
     connectScopeOther: "Other permission",
     connectNoProjects:
       "This workspace has no project you can share. Ask an owner to add you to a project, or choose another workspace.",
@@ -509,6 +511,8 @@ export const labels = {
       "Finanzbelege (Geschäftspartner, Nummer, Beträge, Extraktions- und Verarbeitungsstand) über diese externe App lesen; nie Dateien oder E-Mails",
     connectScopeFinanceExtract:
       "Eine kostenpflichtige KI-Extraktion für einen Finanzbeleg erneut vorschlagen; ein Owner gibt sie weiterhin in Orbit frei",
+    connectScopeWork:
+      "Vorhaben, Meilensteine und Aufgaben lesen und Änderungen vorschlagen; ein Mitglied gibt jede Änderung weiterhin in Orbit frei",
     connectScopeOther: "Weitere Berechtigung",
     connectNoProjects:
       "Dieser Workspace hat kein Projekt, das du freigeben kannst. Bitte einen Owner, dich zu einem Projekt hinzuzufügen, oder wähle einen anderen Workspace.",

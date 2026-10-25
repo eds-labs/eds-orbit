@@ -4,6 +4,7 @@ import { workSwitchedOn } from "./gate.ts";
 import { workLinkTypes } from "./links.ts";
 import { workUserNotifications } from "./notifications.ts";
 import { workRoutes } from "./routes.ts";
+import { workActionTypes, workInstructions, workTools } from "./tools.ts";
 
 /** The domain events the module publishes (ADR 0016): ids and keys only. */
 export const WORK_EVENTS = [
@@ -35,6 +36,13 @@ export const workContributions: ModuleContributions = {
   events: { publishes: WORK_EVENTS },
   userNotifications: workUserNotifications,
   attention: workAttention,
+  // Assistant and MCP reads and proposals (plan §6).
+  tools: workTools,
+  actionTypes: workActionTypes,
+  assistant: {
+    features: () => ["work"],
+    instructions: () => workInstructions,
+  },
   // Due-date notices once a day per project (plan §4.6).
   periodic: [workDueScan],
 };

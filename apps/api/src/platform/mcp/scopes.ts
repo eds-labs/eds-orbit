@@ -12,6 +12,8 @@ export const SUPPORT_SCOPE = "orbit:support";
 export const FINANCE_READ_SCOPE = "orbit:finance.read";
 /** Proposing a paid finance extraction retry (with `orbit:propose`). */
 export const FINANCE_EXTRACT_SCOPE = "orbit:finance.extract";
+/** Project management: initiatives, milestones and tasks (ADR 0016). */
+export const WORK_SCOPE = "orbit:work";
 
 /**
  * The content scope a delegated work order (MCP 2.0 task) needs for a
@@ -21,6 +23,7 @@ export const FINANCE_EXTRACT_SCOPE = "orbit:finance.extract";
 export const MODULE_CONTENT_SCOPES: Readonly<Record<string, string>> = {
   support: SUPPORT_SCOPE,
   finance: FINANCE_READ_SCOPE,
+  work: WORK_SCOPE,
 };
 
 /** True when a task's modules need a content scope the principal lacks. */

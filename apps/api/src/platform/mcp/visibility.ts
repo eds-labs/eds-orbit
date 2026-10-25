@@ -29,6 +29,7 @@ import { effectiveRole, visibleModules } from "../tenancy/module-roles.ts";
 import { projectScope, type McpPrincipal } from "./principal.ts";
 import {
   FINANCE_EXTRACT_SCOPE,
+  WORK_SCOPE,
   FINANCE_READ_SCOPE,
   SUPPORT_SCOPE,
 } from "./scopes.ts";
@@ -220,6 +221,7 @@ export async function visibleMcpToolsForDiscovery(
         SUPPORT_SCOPE,
         FINANCE_READ_SCOPE,
         FINANCE_EXTRACT_SCOPE,
+        WORK_SCOPE,
       ]),
     },
     await projectScope(principal, projectId),

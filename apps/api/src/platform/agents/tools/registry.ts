@@ -34,7 +34,9 @@ export type ToolFeature =
   | "agents"
   | "mcp_tasks"
   | "project_configuration"
-  | "project_administration";
+  | "project_administration"
+  // Project management tools (ADR 0016), offered while the module is on.
+  | "work";
 export type ToolContext = {
   scope: Scope;
   runId: string;

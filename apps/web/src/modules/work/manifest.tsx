@@ -7,6 +7,7 @@ import {
   UserRoundCheck,
 } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
+import { workActionRequests } from "./action-requests";
 import { workAttention } from "./attention";
 import { BoardView } from "./board";
 import { InitiativesView } from "./initiatives";
@@ -41,6 +42,7 @@ export const workWeb: WebModule = {
   groupOrder: 15,
   settings: workSettings,
   attention: workAttention,
+  actionRequests: workActionRequests,
   views: [
     {
       key: "work",
