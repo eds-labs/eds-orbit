@@ -1089,6 +1089,8 @@ const taskClasses = [
   { id: "support_triage", label: "Support triage", defaultTokens: 800 },
   { id: "support_draft", label: "Support draft reply", defaultTokens: 1800 },
   { id: "finance_extraction", label: "Finance extraction", defaultTokens: 4000 },
+  { id: "pm_plan", label: "Project manager plans", defaultTokens: 12000 },
+  { id: "pm_analysis", label: "Project manager reports", defaultTokens: 3000 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
 const reasoningEffortValues = [

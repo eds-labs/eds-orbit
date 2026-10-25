@@ -17,6 +17,9 @@ export const taskClasses = [
   "support_draft",
   // Finance module: structured extraction from receipt PDFs and images.
   "finance_extraction",
+  // AI project manager (ADR 0017): plans and coding briefs; reports and analyses.
+  "pm_plan",
+  "pm_analysis",
 ] as const;
 export type TaskClass = (typeof taskClasses)[number];
 export const reasoningEfforts = [
@@ -47,6 +50,8 @@ export const taskRoutesSchema = z
     support_triage: modelRouteSchema.optional(),
     support_draft: modelRouteSchema.optional(),
     finance_extraction: modelRouteSchema.optional(),
+    pm_plan: modelRouteSchema.optional(),
+    pm_analysis: modelRouteSchema.optional(),
   })
   .strict();
 /** The tier models of a second provider (Anthropic); the OpenAI tiers stay `modelRoutes`. */
@@ -69,6 +74,9 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   support_triage: 800,
   support_draft: 1800,
   finance_extraction: 4000,
+  // A plan of up to 80 tasks with criteria and dependencies.
+  pm_plan: 12000,
+  pm_analysis: 3000,
 };
 // Tier used when no explicit task route is configured.
 export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
@@ -82,6 +90,8 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   support_triage: "standard",
   support_draft: "quality",
   finance_extraction: "standard",
+  pm_plan: "quality",
+  pm_analysis: "standard",
 };
 
 // Blog drafts use the blog route; every other content type uses the social route.

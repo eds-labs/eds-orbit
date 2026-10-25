@@ -96,6 +96,8 @@ describe("resolveRoute", () => {
       "support_triage",
       "support_draft",
       "finance_extraction",
+      "pm_plan",
+      "pm_analysis",
     ]);
   });
   it("rejects unverified models", () => {
@@ -108,6 +110,23 @@ describe("resolveRoute", () => {
         taskRoutes: { draft_social: { model: "x", maxOutputTokens: 1000 } },
       }),
     ).toThrow("MODEL_CAPABILITY_NOT_VERIFIED");
+  });
+});
+
+describe("project manager task classes", () => {
+  it("routes pm_plan and pm_analysis", () => {
+    expect(
+      taskRoutesSchema.parse({
+        pm_plan: { model: "m", maxOutputTokens: 12000 },
+        pm_analysis: { model: "n", maxOutputTokens: 3000 },
+      }),
+    ).toEqual({
+      pm_plan: { model: "m", maxOutputTokens: 12000 },
+      pm_analysis: { model: "n", maxOutputTokens: 3000 },
+    });
+    expect(defaultOutputTokens.pm_plan).toBe(12000);
+    expect(legacyTier.pm_plan).toBe("quality");
+    expect(legacyTier.pm_analysis).toBe("standard");
   });
 });
 

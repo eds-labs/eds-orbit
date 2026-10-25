@@ -18,7 +18,9 @@ export type RunKind =
   // A tool call from an outside MCP client through the gateway (Track M).
   | "mcp"
   // Finance extraction of a receipt document.
-  | "finance";
+  | "finance"
+  // A run of the AI project manager (ADR 0017).
+  | "work_pm";
 /** What a run or span needs from a scope: where it belongs. */
 export type RunScope = Pick<Scope, "workspaceId" | "projectId">;
 export type SpanInput = {

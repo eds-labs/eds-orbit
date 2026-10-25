@@ -140,6 +140,8 @@ export const anthropicCatalog = {
     support_triage: "claude-haiku-5-5",
     support_draft: "claude-sonnet-5-5",
     finance_extraction: "claude-sonnet-5-5",
+    pm_plan: "claude-sonnet-5-5",
+    pm_analysis: "claude-haiku-5-5",
   },
   tiers: {
     fast: "claude-haiku-5-5",
