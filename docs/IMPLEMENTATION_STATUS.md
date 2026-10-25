@@ -1,6 +1,6 @@
 # Implementation status
 
-## Project management phase 1 (2026-10-25, branch `claude/work-module-phase-1`, local; not pushed)
+## Project management phase 1 (2026-10-25, deployed via `5f89cc00`; `ORBIT_WORK` off)
 
 Plan: [plans/project-management-phase-1.md](plans/project-management-phase-1.md); ADR: [adr/0016-project-management-links-events.md](adr/0016-project-management-links-events.md); guide: [WORK.md](WORK.md). Mario's decisions Q-P1-1 to Q-P1-5 of 2026-10-25 apply.
 
@@ -12,7 +12,11 @@ Plan: [plans/project-management-phase-1.md](plans/project-management-phase-1.md)
 
 Verification (local, worktree database): final full suite 3,717 passed / 7 skipped / 18 failed in 8 files; those 8 files failed only because a dev-stack env file in the worktree switched `ORBIT_WORK`, `ORBIT_SUPPORT` and `ORBIT_MODULES` on for the test process, and pass without it (101/101); web tests 574 passed; root and web `tsc`, boundaries, `next build`, Coolify compose check; Playwright `work.spec.ts` 2/2 on a local stack. Four other e2e tests (`navigation`, `workspace`) fail on this stack for reasons outside this branch (the settings label "AI" from `8a3295d9`, rate limits after repeated sign-ins, fixture state).
 
-**Not deployed. `ORBIT_WORK` off.** Merge (deploys both migrations) and enabling the flag each need Mario's approval.
+Code review before delivery (security, RLS, permissions, MCP): eight findings, all fixed with regression tests in `15ee8c21`. Link checks start from the project role and the member's own module roles. A module's route removes only links with one of its objects on a side. Released attachments and deleted tasks free their files. Proposals are checked at proposal time, and MCP hides those clients may not propose. A status's category change records history, completion time and events. Task pages are sorted and paged in the database, and the board says when it truncates.
+
+After merging `origin/main` (migrations renumbered after `202610250002_ai_model_prices`): full suite 3,748 passed / 7 skipped / 0 failed on a reset worktree database; root and web `tsc`, source check, boundaries, Coolify compose check, `next build`; OpenAPI client regenerated without changes. E2e was not rerun after the merge.
+
+**Deployed 2026-10-25 16:32 UTC** (Mario's approval; push `f263dfea..5f89cc00`, Coolify deployment `iuj3cmcs4jl19th18jssgpkb`): application healthy, `/api/health/ready` reports database and worker ready, MCP metadata lists `orbit:work`, work routes answer 404 with the module off. The deploy log was not read (token lacks `read:sensitive`). **`ORBIT_WORK` stays off;** enabling it needs Mario's separate approval.
 
 ## Architecture clean-up phases 1 and 2: AI spending authority on the platform (2026-10-24, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed)
 

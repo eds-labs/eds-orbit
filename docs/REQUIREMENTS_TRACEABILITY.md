@@ -4,16 +4,16 @@
 
 | Requirement | Evidence | State |
 | --- | --- | --- |
-| PM01 Opt-in module `work` behind `ORBIT_WORK` and a project row; activation, module roles and installation switch on every entry point | `modules/work/{manifest,gate,contributions}.ts`; `work-module.test.ts`, `work-routes.integration.test.ts`, access matrix | PASS_TEST (local; flag off) |
+| PM01 Opt-in module `work` behind `ORBIT_WORK` and a project row; activation, module roles and installation switch on every entry point | `modules/work/{manifest,gate,contributions}.ts`; `work-module.test.ts`, `work-routes.integration.test.ts`, access matrix | PASS_TEST (deployed `5f89cc00`; flag off) |
 | PM02 Initiatives, milestones, tasks with subtasks (one level), checklists, dependencies without cycles, comments, attachments, watchers | migration `202610250005_work_core`; `work-services.integration.test.ts`; RLS matrix | PASS_TEST |
 | PM03 Configurable statuses in fixed categories, allowed transitions, statuses in use protected | `modules/work/settings.ts`; services and routes tests | PASS_TEST |
 | PM04 History, audits and domain events content-free; version conflicts refused | `common.ts`; canary test in `work-services.integration.test.ts` | PASS_TEST |
 | PM05 Filters, prefix full-text search and #number, sort, my tasks, overview | `queries.ts`; services and routes tests, `work.test.tsx` | PASS_TEST |
 | PM06 Platform object links with module resolvers, permission redaction, soft removal and prune | `platform/links/`; `links-events.integration.test.ts`, `work-integrations.integration.test.ts` | PASS_TEST |
 | PM07 Platform domain events with declared types, one job per subscriber, origin filter, depth limit 5, retention | `platform/events/`; `links-events.integration.test.ts`, queue-dispatch test | PASS_TEST |
-| PM08 Web: overview, initiatives, board with drag and drop and Move menu, list, detail, milestones, my tasks, settings, home card | `apps/web/src/modules/work/`; `work.test.tsx`, `work.spec.ts` (local stack) | PASS_TEST (local) |
-| PM09 Assistant and MCP reads and editor-decided proposals with scope `orbit:work` | `modules/work/tools.ts`; `work-mcp.integration.test.ts`, MCP gateway and proposals contract tests | PASS_TEST (local; flags off) |
-| PM10 Production activation (merge with migrations, `ORBIT_WORK`) | `docs/WORK.md` configuration guide | NOT_STARTED (needs approval) |
+| PM08 Web: overview, initiatives, board with drag and drop and Move menu, list, detail, milestones, my tasks, settings, home card | `apps/web/src/modules/work/`; `work.test.tsx`, `work.spec.ts` (local stack) | PASS_TEST (local stack) |
+| PM09 Assistant and MCP reads and editor-decided proposals with scope `orbit:work` | `modules/work/tools.ts`; `work-mcp.integration.test.ts`, MCP gateway and proposals contract tests | PASS_TEST (deployed `5f89cc00`; flags off) |
+| PM10 Production activation (merge with migrations, `ORBIT_WORK`) | `docs/WORK.md` configuration guide; deployment `iuj3cmcs4jl19th18jssgpkb` | PARTIAL (deployed 2026-10-25 with migrations; `ORBIT_WORK` off, needs approval) |
 
 ## Global administration (ADR 0013, 2026-10-23)
 
