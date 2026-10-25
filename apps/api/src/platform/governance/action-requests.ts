@@ -83,6 +83,13 @@ export type ActionDefinition<P> = {
   approvalMode: "approval_required";
   deciderRole: "owner" | "editor";
   /**
+   * `editors`: an editor-decided type the approvals list shows to the
+   * members who may decide it (project management). Owner-decided types
+   * are always listed for owners; other editor types are decided where
+   * they were proposed (e.g. a package in chat).
+   */
+  inbox?: "editors";
+  /**
    * An MCP client may only propose types that set this (WP-M4); hard floors
    * and unreviewed types never do. The decision stays with the decider role.
    */
@@ -706,8 +713,9 @@ export async function openOwnerRequests(
 
 /**
  * The open requests a member may decide: owner-decided types for owners,
- * editor-decided types (project management, ADR 0016/0017) for members who
- * write in the type's module, both with their role in that module (WP4.5).
+ * editor-decided types listed for editors (`inbox: "editors"`, project
+ * management, ADR 0016/0017) for members who write in the type's module,
+ * both with their role in that module (WP4.5).
  */
 export async function openDecidableRequests(tx: DbTx, member: Scope, now = new Date()) {
   const rows = await tx.entity.findMany({
@@ -724,6 +732,7 @@ export async function openDecidableRequests(tx: DbTx, member: Scope, now = new D
     const d = data(row);
     const type = registeredActionType(String(d.actionType));
     if (!type || Date.parse(d.expiresAt) <= now.getTime()) return false;
+    if (type.deciderRole === "editor" && type.inbox !== "editors") return false;
     let scope: Scope;
     try {
       scope = moduleScope(member, registeredActionTypeOwner(String(d.actionType)));

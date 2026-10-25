@@ -217,6 +217,7 @@ export const planApplyAction: ActionDefinition<Payload> = {
   riskClass: "W0_internal",
   approvalMode: "approval_required",
   deciderRole: "editor",
+  inbox: "editors",
   // Spends nothing: no spend mandate is needed to decide it.
   policyRequired: false,
   ttlMs: 7 * 24 * 3600000,

@@ -84,6 +84,76 @@ Reads: `work_search_tasks`, `work_get_task`, `work_list_initiatives`, `work_prog
 - MCP needs the explicit content scope **`orbit:work`** (unchecked on the consent screen) plus `orbit:read` or `orbit:propose`. MCP proposals also need `ORBIT_MCP_PROPOSALS` and, like Support and Finance, `ORBIT_MCP_TASKS`.
 - `work_get_task` leaves out titles of sensitive linked objects.
 
+## AI project manager (Phase 2, ADR 0017)
+
+**State (2026-10-25): implemented locally on the branch `claude/ai-pm-phase-2`; not merged or deployed. `ORBIT_WORK_PM` is off; no paid call was made.** The plan is [`plans/ai-project-manager-phase-2.md`](plans/ai-project-manager-phase-2.md).
+
+The PM is part of this module. It is one implementation that loads one initiative at a time; it has no instance, process or memory of its own, and its state is rows in the database (`WorkPmState`, `WorkPlanProposal`, `WorkPmFinding`, `WorkPmReport`, `WorkHandoff`, `WorkCodingRun`; migrations `202610250006_work_pm_run_kind`, `202610250007_work_pm`, `202610250008_work_handoffs`). It never chats. It runs as background jobs (queue `work_pm`), and members reach it in the initiative view, the task view, the assistant and MCP.
+
+**Switching it on.** `ORBIT_WORK_PM=true` on top of `ORBIT_WORK` and the module in the project. While off, every PM route but `status` answers 404 `WORK_PM_DISABLED`, and its tools, jobs, subscribers and attention items stay quiet. Per initiative, an owner switches monitoring on (Projektmanagement → Vorhaben → KI-Projektleiter). A plan the PM created starts watched; status reports stay off until switched on (Q-P2-2).
+
+**Permissions.**
+
+| Key | Roles | Covers |
+|---|---|---|
+| `work.pm.use` | owner, editor | ask for plans, reports, analyses, handoffs; draft and submit coding briefs |
+| `work.pm.apply` | owner, editor | decide plan and task-change approvals |
+| `work.pm.manage` | owner | PM settings, budgets, autonomy, repositories, monitoring per initiative |
+| `work.coding.dispatch` | owner (sensitive) | approve every coding dispatch |
+
+**Governance levels** (P-5):
+
+- L0, read: rule scans and findings. Automatic and free.
+- L1, prepare: AI reports, plan drafts and re-prioritization drafts. Automatic within the daily budget; they change nothing.
+- L2, change work data: applying plans and bulk task changes. Each is an approval decided by an editor.
+- L3, external agents: coding dispatch and paid handoffs. The owner approves each one.
+- L4, critical actions (deployments, migrations, secrets, billing): the PM has none of them.
+
+Autonomy is `propose` by default (Q-P2-3). `comment_only` is a setting only an owner can switch on.
+
+**Planning.** "Plan with AI" (or the assistant tool `work_pm_request_plan`) queues one structured run (task class `pm_plan`) over a deterministic context. That context holds the request, today's date in the project's timezone, the members who may own work and, when extending, the initiative's tasks. The run reads with read tools only and searches knowledge unless the initiative's research mode is `off`. Web search is used only in mode `web`, which is off by default (Q-P2-5). The answer is checked deterministically:
+
+- refs resolve and are unique;
+- the dependencies have no cycle;
+- subtasks are one level deep;
+- dates fit;
+- invented or viewer assignees are dropped (`assignee_dropped:<ref>`).
+
+A valid plan gets one `work.plan.apply` approval, decided by an editor in Approvals. Applying creates the initiative (for a new plan), milestones, tasks with their acceptance criteria as checklist items, and dependencies. This happens once, in one transaction, as the PM (`source: pm_agent`, origin `work.pm`). Edits in the plan review make a new revision and withdraw the previous approval.
+
+**Monitoring.** Nine rules run on status categories and dates only, with no AI: `overdue`, `due_soon_unstarted`, `blocked_long`, `dependency_late`, `dependency_canceled`, `stale_in_progress`, `milestone_at_risk`, `unassigned_priority` and `scope_creep`. Findings have stable fingerprints: they update, resolve when the condition clears, and come back after a dismissal ends. A scan runs after task, milestone or initiative events, at most once per initiative and five minutes and never because of the PM's own writes, and once a day. A newly critical finding notifies the initiative owner and the escalation list (`work_pm_escalation`, e-mail on), shows as attention and asks the analyst at most once a day.
+
+**Reports and analyses** (task class `pm_analysis`). Reports run on request or on the schedule: weekly on Monday 08:00 or daily at 08:00, in the project's timezone. They are skipped when the state hash is unchanged. An analysis proposes priority, due date and assignee changes to open tasks, bound to their versions, as one `work.tasks.bulk_update` approval for an editor. Reports are labelled as AI-generated.
+
+**Budget.** Every PM call needs the project's spend mandate (ADR 0015) and fits the PM's daily ceiling, which defaults to USD 2 per UTC day (Q-P2-1, Settings → Projektmanagement). When the ceiling is reached, requests are refused (`WORK_PM_BUDGET_EXHAUSTED`), queued AI work stops before any call, and members see an attention item. A call whose outcome is unclear is never resent.
+
+**Handoffs.** A task can be handed to work another target owns: the PM's research and analysis, or targets that other modules register. An editor approves internal targets; the owner approves paid or external ones. The task links to the target with `delegated_to` and gets the target as its agent assignee. When the target reports progress (`platform.handoff.status_changed`), the task moves to *in progress* when the work starts and to *in review* when it finishes, never to *done*. Research and analysis answer with an agent comment. Research URLs are kept only when a web search of that run returned them.
+
+**Coding work orders.** Orbit never runs code. A draft brief per task (written by a member or drafted by the PM) is redacted by `platform/privacy/redact.ts`: e-mails, phone numbers, credentials, wallet addresses and transaction hashes are removed, and only counts are kept. A person confirms that the brief holds no personal data, and the owner approves every dispatch (`work.coding.dispatch`). With the manual provider, a developer takes the brief and reports branch, pull request, commit and tests. The automation provider sends the brief to the repository's n8n workflow and follows its signed callback (contract: [`integrations/coding-agent.md`](integrations/coding-agent.md)). A finished run moves the task to *in review*, and a person closes it. The limits are one active run per task, a concurrency limit, a monthly coding budget for paid providers, and a timeout that sets the run to `outcome_unknown` with an attention item. A task with runs is archived, not deleted.
+
+**MCP.** Reads (`work_pm_status`, `work_pm_findings`, `work_pm_get_report`, `work_pm_get_plan`) need `orbit:work`. The proposals are:
+
+- `work_pm_propose_plan` and `work_pm_propose_report`: need `orbit:work.pm`; an editor decides; a plan then needs its own second approval;
+- `work_pm_propose_changes`: needs `orbit:work`;
+- `work_pm_propose_coding_run`: needs `orbit:work.coding`; the owner approves the exact redacted brief, and that approval is the dispatch.
+
+Delegated MCP 2.0 work orders may read the PM's state, but never spend its budget or dispatch coding.
+
+**Approvals for editors.** The approvals list (Approvals, `GET /action-requests`) now shows every pending request the member may decide. That includes the editor-decided project management requests, which were listed nowhere before.
+
+**Evaluation.** `evals/work-pm/` scores plans structurally (see its README). Passing it is a condition for switching `ORBIT_WORK_PM` on. A live run needs Mario's approval of its budget (proposal: at most USD 2).
+
+**Rollout (each step a separate approval).**
+
+1. Merge and deploy; this runs the three additive migrations.
+2. Verify and price routes for `pm_plan` and `pm_analysis` (Settings → AI).
+3. Run the live evaluation within the approved budget, and pass it.
+4. Set `ORBIT_WORK_PM=true` and redeploy.
+5. An owner sets the PM budget and repositories, and switches monitoring on per initiative.
+6. Optional: an n8n coding workflow, with its own approval of workflow, repository and GitHub rights.
+
+**Rollback.** `ORBIT_WORK_PM=false` and redeploy: the PM disappears and its data stays. The migrations are additive.
+
 ## Configuration guide (when approved)
 
 1. Merge and deploy (Mario's approval; runs both migrations).

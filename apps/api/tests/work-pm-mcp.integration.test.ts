@@ -195,6 +195,25 @@ describe.skipIf(!enabled)("AI project manager MCP tools", () => {
     expect(JSON.stringify(runs[0]!.brief)).not.toContain("1234567");
   });
 
+  it("dispatches an editor's coding proposal once the owner approves it", async () => {
+    const editor = await grantFor(p.editor, ALL);
+    const task = await p.run((tx) => createTask(tx, p.owner, { title: "Editor's fix" }, p.as(p.owner)));
+    const proposal = await op(editor, "work_pm_propose_coding_run", {
+      idempotencyKey: "coding-editor",
+      number: task.number,
+      repositoryKey: "orbit",
+      goal: "Fix the listing filter",
+      acceptanceCriteria: ["Filter works"],
+    });
+    await decide(p.owner, proposal.actionRequestId);
+    const runs = await p.run((tx) => tx.workCodingRun.findMany({ where: { taskId: task.id } }));
+    expect(runs.map((r) => [r.status, r.createdBy])).toEqual([["dispatched", p.editor.userId]]);
+    // Editor-decided MCP proposals are listed for editors; owner ones are not.
+    const plan = await op(editor, "work_pm_propose_plan", { idempotencyKey: "plan-editor", goal: "Plan the fixes" });
+    const listed = (await p.run((tx) => listActionRequests(tx, p.editor))).map((r) => r.id);
+    expect(listed).toContain(plan.actionRequestId);
+  });
+
   it("lets delegated work orders read the PM's state but never spend or dispatch", async () => {
     const delegation: Delegation = {
       taskId: randomUUID(),

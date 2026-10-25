@@ -401,8 +401,17 @@ async function dispatchApproved(tx: DbTx, scope: Scope, run: CodingRunRow, actor
  * Dispatches a draft the owner approved elsewhere (an MCP proposal whose
  * approval showed the exact redacted brief, which counts as its review).
  */
-export async function approveCodingDispatch(tx: DbTx, owner: Scope, runId: string, actorId: string, now = new Date()) {
-  if (!can(owner, WORK_CODING_DISPATCH)) throw new DomainError("OWNER_REQUIRED", 403);
+export async function approveCodingDispatch(
+  tx: DbTx,
+  owner: Scope,
+  runId: string,
+  actorId: string,
+  options: { ownerDecided?: boolean } = {},
+  now = new Date(),
+) {
+  // An approval request the owner decided (deciderRole "owner") stands for
+  // the owner here; otherwise the caller must hold the dispatch permission.
+  if (!options.ownerDecided && !can(owner, WORK_CODING_DISPATCH)) throw new DomainError("OWNER_REQUIRED", 403);
   const row = await loadCodingRun(tx, owner, runId);
   if (row.status !== "draft") throw new DomainError("WORK_CODING_RUN_NOT_DRAFT", 409);
   await openTask(tx, owner, row.taskId);

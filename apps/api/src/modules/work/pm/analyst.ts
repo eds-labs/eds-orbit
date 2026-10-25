@@ -333,6 +333,7 @@ export const bulkUpdateAction: ActionDefinition<BulkPayload> = {
   riskClass: "W0_internal",
   approvalMode: "approval_required",
   deciderRole: "editor",
+  inbox: "editors",
   policyRequired: false,
   ttlMs: 3 * 24 * 3600000,
   payload: bulkPayload,

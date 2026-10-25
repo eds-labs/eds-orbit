@@ -60,6 +60,17 @@ endpoint. Repeating an approval returns the recorded result.
   (ADR 0016): the five work reads (with `orbit:read`) and the four work
   proposals (with `orbit:propose`), which an owner or editor approves. See
   [Project management](WORK.md#assistant-and-mcp).
+- `orbit:work.pm` and `orbit:work.coding` (ADR 0017, local; `ORBIT_WORK_PM`
+  off): explicit, unchecked consents of the AI project manager. With
+  `orbit:work` and `orbit:propose`, `orbit:work.pm` offers
+  `work_pm_propose_plan` and `work_pm_propose_report` (paid from the PM
+  budget; an owner or editor approves), and `orbit:work.coding` offers
+  `work_pm_propose_coding_run` (the owner approves the exact redacted brief,
+  which dispatches it). The PM reads (`work_pm_status`, `work_pm_findings`,
+  `work_pm_get_report`, `work_pm_get_plan`) and `work_pm_propose_changes`
+  need `orbit:work`. Delegated work orders may read the PM's state but are
+  refused every PM tool that spends or dispatches. See
+  [AI project manager](WORK.md#ai-project-manager-phase-2-adr-0017).
 - Module roles, installation switches and project activation still apply.
   Support also needs `ORBIT_SUPPORT` and explicit per-project activation.
 - Text generation needs the existing spend mandate, priced/verified model and

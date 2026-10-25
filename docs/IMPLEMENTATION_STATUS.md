@@ -1,5 +1,37 @@
 # Implementation status
 
+## AI project manager phase 2 (2026-10-25, branch `claude/ai-pm-phase-2`, local; not pushed)
+
+Plan: [plans/ai-project-manager-phase-2.md](plans/ai-project-manager-phase-2.md); ADR: [adr/0017-ai-project-manager.md](adr/0017-ai-project-manager.md); guide: [WORK.md](WORK.md#ai-project-manager-phase-2-adr-0017). Mario's decisions Q-P2-1 to Q-P2-6 of 2026-10-25 apply.
+
+- **Platform:**
+  - `runStructured` for bounded, schema-validated agent runs (read tools only, per-call reservation, unclear calls never resent);
+  - task classes `pm_plan` and `pm_analysis` and run kind `work_pm`;
+  - the handoff registry with the event `platform.handoff.status_changed`;
+  - `platform/privacy/redact.ts`;
+  - strictly validated automation callback results per event;
+  - MCP scopes `orbit:work.pm` and `orbit:work.coding`.
+- **Work module:** `ORBIT_WORK_PM` (default off); PM settings (budget USD 2 per day, propose-only autonomy, coding budget, repositories); per-initiative state; planning with an editor-approved apply; nine monitoring rules without AI; reports and re-prioritization proposals; research and analysis handoffs; coding work orders (manual provider, and the automation provider tested against a fake endpoint); four assistant reads, two in-app requests and four MCP proposals; 26 routes.
+- **Web:** PM panel per initiative, plan review, handoffs and coding runs per task, PM settings, renderers for every PM approval type, attention texts.
+- **Migrations (additive):** `202610250006_work_pm_run_kind`, `202610250007_work_pm`, `202610250008_work_handoffs`.
+- **Eval:** `evals/work-pm/`, with a dry-run worst case of USD 0.91 for 6 goals under a USD 2 ceiling. No live run.
+
+**Also fixed (affects Phase 1, which is live):** the approvals list (`GET /action-requests`) showed only owner-decided requests and only to owners. Work proposals that an editor decides therefore appeared nowhere, so MCP work proposals could not be approved in the UI. It now also lists editor-decided types that opt in (`inbox: "editors"`: the work types) to members who write in the module. For MCP types, the module's summary now wins over the raw arguments, so the work renderers match. Access matrix: editor `GET /action-requests` 403 → 200; viewers still 403.
+
+**Deviations from the plan:**
+
+- A `WorkHandoff` table records handoffs; the plan had no handoff record.
+- The MCP request tools are named `work_pm_propose_plan` and `work_pm_propose_report`, and their action types are `work.mcp.*`, not `work.pm.run`. The in-app tools keep the names `work_pm_request_*`.
+- The MCP coding proposal's owner approval is the dispatch; there is no second approval.
+- The monitor debounces in five-minute buckets instead of ten.
+- Prompt texts are versioned constants in `pm/instructions.ts`, not `.md` files.
+- No Playwright spec `work-pm.spec.ts`: there is no server-side test transport for the model. The views were checked in the browser on a local stack with seeded data: initiative panel, plan review, approval in the inbox, the applied plan, the redacted coding brief, PM settings, and no overflow at phone width.
+
+Verification (local, worktree database): full suite 3,812 passed / 7 skipped / 0 failed (no paid call; models scripted); root and web `tsc`, source check, boundaries, Coolify compose check, `next build`; OpenAPI regenerated (26 new PM routes, nothing removed or changed); access matrix reviewed (26 new routes, all 404 while the module is off; editor `GET /action-requests` 403 → 200); eval dry run. A self-review found two problems, both fixed with tests: an editor's MCP coding proposal failed at the owner's approval, and the opened approvals list would have shown Marketing's chat confirmations. E2e was not run (see above).
+
+**Not deployed. `ORBIT_WORK_PM` off; no paid call was made.** Merging deploys the three migrations and needs Mario's approval. Each further rollout step (routes, live evaluation within its budget, the flag, budgets, an n8n coding workflow) needs its own approval.
+
+
 ## Project management phase 1 (2026-10-25, deployed via `5f89cc00`; `ORBIT_WORK` off)
 
 Plan: [plans/project-management-phase-1.md](plans/project-management-phase-1.md); ADR: [adr/0016-project-management-links-events.md](adr/0016-project-management-links-events.md); guide: [WORK.md](WORK.md). Mario's decisions Q-P1-1 to Q-P1-5 of 2026-10-25 apply.

@@ -130,6 +130,8 @@ Project management (`docs/WORK.md`, ADR 0016) follows the Finance pattern: `defa
 
 Switching it off deletes nothing; links to its objects stay and show as unavailable.
 
+**AI project manager (ADR 0017, local; flag off).** A second installation switch, `ORBIT_WORK_PM` (default `false`), works on top of `ORBIT_WORK` and the project row. While it is off, every PM route except `GET /work/pm/status` answers 404 `WORK_PM_DISABLED`. The tool feature `work_pm`, the PM jobs, the monitor subscriber, the daily scan and the coding timeouts, and the PM attention items all stay quiet. Per initiative an owner switches monitoring on (`WorkPmState`). The permissions `work.pm.use`, `work.pm.apply`, `work.pm.manage` and `work.coding.dispatch` (owner, sensitive) follow the module role like the others.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

@@ -167,6 +167,7 @@ function action(deciderRole: "owner" | "editor"): ActionDefinition<Payload> {
     riskClass: deciderRole === "owner" ? "C2" : "W0_internal",
     approvalMode: "approval_required",
     deciderRole,
+    ...(deciderRole === "editor" ? { inbox: "editors" as const } : {}),
     // A target's own spending takes its own paid path.
     policyRequired: false,
     ttlMs: 3 * 24 * 3600000,

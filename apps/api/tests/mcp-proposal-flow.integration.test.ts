@@ -506,7 +506,10 @@ describe.skipIf(!enabled)(
       });
       for (const word of ["grantId", "argsHash", "agentRunId"])
         expect(JSON.stringify(exportedRequest)).not.toContain(word);
-      expect((await inbox("editor")).statusCode).toBe(403);
+      // An editor's list holds only what editors decide: not this owner request.
+      const editorInbox = await inbox("editor");
+      expect(editorInbox.statusCode).toBe(200);
+      expect(editorInbox.json().items.map((x: Json) => x.id)).not.toContain(item.id);
 
       const approved = await decide("owner", item.id, {
         version: item.version,

@@ -5,11 +5,10 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { approvedOperation } from "../../../platform/tasks/operation-tools.ts";
 import { WORK_CODING_SCOPE, WORK_PM_SCOPE, WORK_SCOPE } from "../../../platform/mcp/scopes.ts";
 import { redactText } from "../../../platform/privacy/redact.ts";
-import { can } from "../../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../../shared.ts";
 import { assignableIds, dateInput } from "../common.ts";
 import { requirePm } from "../gate.ts";
-import { WORK_CODING_DISPATCH, WORK_PM_USE, WORK_WRITE } from "../permissions.ts";
+import { WORK_PM_USE, WORK_WRITE } from "../permissions.ts";
 import { loadTask, PRIORITIES, updateTask } from "../tasks.ts";
 import { assertPmBudget } from "./budget.ts";
 import { approveCodingDispatch, codingBriefInput, createCodingRun } from "./coding.ts";
@@ -219,9 +218,8 @@ export const workPmProposeCodingRun = approvedOperation({
     if (!settings.repositories.some((r) => r.key === args.repositoryKey))
       throw new DomainError("WORK_CODING_REPOSITORY_UNKNOWN", 422);
   },
+  // The owner decides (deciderRole); the run acts as the proposing member.
   async run(tx, scope, args) {
-    // The decider is the owner; the dispatch permission is checked again.
-    if (!can(scope, WORK_CODING_DISPATCH)) throw new DomainError("OWNER_REQUIRED", 403);
     const { number, repositoryKey, ceilingMicros, ...brief } = args as z.infer<typeof codingInput>;
     const task = await tx.workTask.findFirstOrThrow({
       where: { projectId: scope.projectId, number },
@@ -233,7 +231,7 @@ export const workPmProposeCodingRun = approvedOperation({
       brief,
       ...(ceilingMicros !== undefined ? { ceilingMicros } : {}),
     });
-    const run = await approveCodingDispatch(tx, scope, draft.id, scope.userId);
+    const run = await approveCodingDispatch(tx, scope, draft.id, scope.userId, { ownerDecided: true });
     return { codingRunId: run.id, status: run.status };
   },
 });
