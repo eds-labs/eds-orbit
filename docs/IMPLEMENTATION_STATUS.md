@@ -8,7 +8,7 @@ Plan: [plans/project-management-phase-1.md](plans/project-management-phase-1.md)
 - **Module `work`:** opt-in behind `ORBIT_WORK`; initiatives, milestones, tasks, subtasks, checklists, dependencies, comments, attachments, watchers, history; 43 routes; attention, notifications, daily due scan; link types also in Support (tickets), Marketing (campaigns, assignments) and Knowledge (documents).
 - **Web:** overview, initiatives, board (`@dnd-kit` 6.3.1/10.0.0/3.2.2, approved), list, detail, milestones, my tasks, settings, home card, decisions renderer.
 - **Assistant/MCP:** five reads, four proposals decided by owners or editors.
-- **Migrations (additive):** `202610250002_platform_links_events`, `202610250003_work_core`.
+- **Migrations (additive):** `202610250004_platform_links_events`, `202610250005_work_core`.
 
 Verification (local, worktree database): final full suite 3,717 passed / 7 skipped / 18 failed in 8 files; those 8 files failed only because a dev-stack env file in the worktree switched `ORBIT_WORK`, `ORBIT_SUPPORT` and `ORBIT_MODULES` on for the test process, and pass without it (101/101); web tests 574 passed; root and web `tsc`, boundaries, `next build`, Coolify compose check; Playwright `work.spec.ts` 2/2 on a local stack. Four other e2e tests (`navigation`, `workspace`) fail on this stack for reasons outside this branch (the settings label "AI" from `8a3295d9`, rate limits after repeated sign-ins, fixture state).
 

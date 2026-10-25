@@ -37,9 +37,9 @@ Viewers read only and do not comment (Mario, Q-P1-3). Module roles (`ORBIT_MODUL
 
 ## Data
 
-Ten tables with forced row-level security and composite same-project keys (migration `202610250003_work_core`): `WorkInitiative`, `WorkMilestone`, `WorkTaskCounter`, `WorkTask`, `WorkChecklistItem`, `WorkTaskDependency`, `WorkComment`, `WorkAttachment`, `WorkTaskWatcher` and the append-only history `WorkEvent`. Triggers keep a milestone inside its task's initiative and subtasks one level deep. Task numbers are per project and never reused.
+Ten tables with forced row-level security and composite same-project keys (migration `202610250005_work_core`): `WorkInitiative`, `WorkMilestone`, `WorkTaskCounter`, `WorkTask`, `WorkChecklistItem`, `WorkTaskDependency`, `WorkComment`, `WorkAttachment`, `WorkTaskWatcher` and the append-only history `WorkEvent`. Triggers keep a milestone inside its task's initiative and subtasks one level deep. Task numbers are per project and never reused.
 
-The platform tables `ObjectLink` and `DomainEvent` (migration `202610250002_platform_links_events`) hold links between objects of any module and content-free domain events.
+The platform tables `ObjectLink` and `DomainEvent` (migration `202610250004_platform_links_events`) hold links between objects of any module and content-free domain events.
 
 **Content-free records.** History rows, audits and domain events carry ids, field names and keys only; title and description changes are recorded as `{"changed": true}`. A test checks that no title, description or comment text reaches them.
 

@@ -5,7 +5,7 @@
 | Requirement | Evidence | State |
 | --- | --- | --- |
 | PM01 Opt-in module `work` behind `ORBIT_WORK` and a project row; activation, module roles and installation switch on every entry point | `modules/work/{manifest,gate,contributions}.ts`; `work-module.test.ts`, `work-routes.integration.test.ts`, access matrix | PASS_TEST (local; flag off) |
-| PM02 Initiatives, milestones, tasks with subtasks (one level), checklists, dependencies without cycles, comments, attachments, watchers | migration `202610250003_work_core`; `work-services.integration.test.ts`; RLS matrix | PASS_TEST |
+| PM02 Initiatives, milestones, tasks with subtasks (one level), checklists, dependencies without cycles, comments, attachments, watchers | migration `202610250005_work_core`; `work-services.integration.test.ts`; RLS matrix | PASS_TEST |
 | PM03 Configurable statuses in fixed categories, allowed transitions, statuses in use protected | `modules/work/settings.ts`; services and routes tests | PASS_TEST |
 | PM04 History, audits and domain events content-free; version conflicts refused | `common.ts`; canary test in `work-services.integration.test.ts` | PASS_TEST |
 | PM05 Filters, prefix full-text search and #number, sort, my tasks, overview | `queries.ts`; services and routes tests, `work.test.tsx` | PASS_TEST |
