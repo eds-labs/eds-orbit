@@ -35,6 +35,11 @@ import {
   channelAssignments,
 } from "../connections/channel-assignment.ts";
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
+import {
+  listModelPrices,
+  resetModelPrice,
+  setModelPrice,
+} from "./ai-catalog.ts";
 
 // Central connections (ADR 0014): system connections for administrators,
 // organization connections for that organization's owners, and the list a
@@ -219,6 +224,42 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
       (await owner(req)).userId,
       { scope: "workspace", workspaceId: id(req, "workspaceId") },
       req.body,
+    ),
+  );
+  // "Modelle & Preise" (plans/ai-central-management.md, phase A): the
+  // system's catalog overrides (administrators) and an organization's (owners).
+  const modelId = (req: FastifyRequest) =>
+    z
+      .string()
+      .regex(/^[A-Za-z0-9._:-]{1,120}$/)
+      .parse((req.params as Record<string, string>).modelId);
+  app.get("/api/admin/ai/models", async (req) => {
+    await admin(req);
+    return listModelPrices({ scope: "system" });
+  });
+  app.put("/api/admin/ai/models/:modelId", async (req) =>
+    setModelPrice((await admin(req)).userId, { scope: "system" }, modelId(req), req.body),
+  );
+  app.delete("/api/admin/ai/models/:modelId", async (req) =>
+    resetModelPrice((await admin(req)).userId, { scope: "system" }, modelId(req)),
+  );
+  app.get("/api/organizations/:workspaceId/ai/models", async (req) => {
+    await owner(req);
+    return listModelPrices({ scope: "workspace", workspaceId: id(req, "workspaceId") });
+  });
+  app.put("/api/organizations/:workspaceId/ai/models/:modelId", async (req) =>
+    setModelPrice(
+      (await owner(req)).userId,
+      { scope: "workspace", workspaceId: id(req, "workspaceId") },
+      modelId(req),
+      req.body,
+    ),
+  );
+  app.delete("/api/organizations/:workspaceId/ai/models/:modelId", async (req) =>
+    resetModelPrice(
+      (await owner(req)).userId,
+      { scope: "workspace", workspaceId: id(req, "workspaceId") },
+      modelId(req),
     ),
   );
   // What the project may choose from; any member may see the names.

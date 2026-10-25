@@ -36,6 +36,7 @@ import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
 import { ConnectionsPanel } from "./connections-ui";
 import { McpAdmin } from "./admin-mcp";
 import { AiProfileEditor } from "./ai-knowledge-ui";
+import { ModelPricesPanel } from "./ai-catalog-ui";
 
 // The system administration (/admin, ADR 0013): installation-wide metadata
 // about users, organizations, projects and invitations, and the actions on
@@ -141,6 +142,7 @@ export function AdminArea({
                   : "System-wide AI defaults. Provider keys and their budgets live under Integrations; shared knowledge in the organizations."
               }
             />
+            <ModelPricesPanel path="/admin/ai/models" locale={locale} />
             <AiProfileEditor path="/admin/ai/profile" locale={locale} scopeLabel="System" />
           </>
         )}

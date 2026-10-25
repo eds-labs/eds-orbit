@@ -106,6 +106,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "ConnectionGrant",
     "SpendCounter",
     "AiProfile",
+    "AiModelPrice",
     "KnowledgeShare",
     "WorkflowBinding",
     "Workspace",

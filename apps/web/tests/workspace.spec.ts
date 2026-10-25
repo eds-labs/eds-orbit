@@ -1253,25 +1253,33 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
   ).toHaveText("Project");
   // Models and routes live under Settings -> AI & budget (plan phase 3.3).
   await page.goto(`/p/${projectId}/settings?section=ai`);
+  // The rate card has its own dialog (Models & prices).
+  await page.getByRole("button", { name: "Models & prices" }).click();
+  const prices = page.getByRole("dialog", { name: "Models & prices" });
+  await expect(
+    prices.getByLabel("Rate card (JSON, USD micros per million tokens)"),
+  ).toHaveValue(JSON.stringify(rateCard, null, 2));
+  await prices.getByRole("button", { name: "Cancel" }).click();
+  // The OpenAI dialog holds keys, tiers and images only.
   await page
     .locator(".data-row")
     .filter({ has: page.getByText("OpenAI", { exact: true }) })
     .getByRole("button", { name: "Configure" })
     .click();
-  const dialog = page.getByRole("dialog", {
-    name: "Models, task routes and OpenAI keys",
-  });
+  const openAi = page.getByRole("dialog", { name: "Configure OpenAI" });
   await expect(
-    dialog.getByLabel(
-      "Current rate card of every verified model, OpenAI and Claude (JSON, USD micros per million tokens)",
-    ),
-  ).toHaveValue(JSON.stringify(rateCard, null, 2));
+    openAi.getByRole("heading", {
+      name: "OpenAI tiers (fallback without a task route)",
+    }),
+  ).toBeVisible();
+  await expect(openAi.getByLabel("Chat operator model")).toHaveCount(0);
+  await openAi.getByRole("button", { name: "Cancel" }).click();
+  // Task routes for both providers have their own dialog.
+  await page.getByRole("button", { name: "Task routes" }).click();
+  const dialog = page.getByRole("dialog", { name: "Task routes" });
   await expect(dialog).toContainText(/Route version \d+/);
 
   // One route group per task class; the stored chat route is loaded.
-  await expect(
-    dialog.getByRole("heading", { name: "Fallback tier models" }),
-  ).toBeVisible();
   for (const label of ["Chat operator", "Social drafts", "Blog drafts"]) {
     await expect(
       dialog.getByRole("heading", { name: `${label} route` }),
@@ -1318,7 +1326,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
   // Save a Blog drafts route; the untouched groups keep their stored/empty state.
   await dialog
     .getByLabel("Blog drafts model", { exact: true })
-    .fill("gpt-5.6-terra");
+    .selectOption("gpt-5.6-terra");
   await dialog
     .getByLabel("Blog drafts reasoning effort", { exact: true })
     .selectOption("low");
@@ -1332,7 +1340,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
         .url()
         .endsWith(`/api/projects/${projectId}/actions/ai-configure`),
   );
-  await dialog.getByRole("button", { name: "Save models and routes" }).click();
+  await dialog.getByRole("button", { name: "Save routes" }).click();
   // The one save path sends the model section (phase 3.2).
   const saved = (await saveRequest).postDataJSON().models;
   expect(saved.taskRoutes).toEqual({

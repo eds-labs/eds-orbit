@@ -124,6 +124,7 @@ const SYSTEM_TABLES = ["_prisma_migrations"];
 // Control plane with forced row-level security that the business role may
 // read where a project grant allows it (ADR 0014); written by orbit_auth.
 const GRANTED_READ_TABLES = [
+  "AiModelPrice",
   "AiProfile",
   "Connection",
   "ConnectionGrant",

@@ -1,3 +1,4 @@
+import { aiCatalogEnabled, projectCatalog, withCatalog } from "./catalog.ts";
 import {
   centralProviderBudgets,
   centralRouteVersion,
@@ -79,20 +80,9 @@ export const openAiConfigurationInput = z
       context.addIssue({ code: "custom", message: "DUPLICATE_MODEL" });
     if (Object.keys(value.rateCard).length > 40)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
-    // Every tier, including the unused escalation tier, must name a verified model.
-    // `resolveRoute` repeats the capability gate at call time.
-    if (
-      value.verifiedModels.length &&
-      [
-        value.modelRoutes.fast,
-        value.modelRoutes.standard,
-        value.modelRoutes.quality,
-      ].some((model) => !value.verifiedModels.includes(model))
-    )
-      context.addIssue({
-        code: "custom",
-        message: "ROUTED_MODEL_NOT_VERIFIED",
-      });
+    // The OpenAI tiers are checked on save only where they are used
+    // (`assertTiersVerified`); `resolveRoute` repeats the capability gate at
+    // call time either way.
     if (
       value.verifiedModels.length &&
       Object.values(value.taskRoutes).some(
@@ -109,6 +99,25 @@ export const openAiConfigurationInput = z
     )
       context.addIssue({ code: "custom", message: "IMAGE_MODEL_NOT_VERIFIED" });
   });
+
+/**
+ * The OpenAI tiers (fast, standard, quality) must name verified models while
+ * OpenAI is the default provider: only then do tasks without an own route
+ * use them. A Claude-default project keeps the unused defaults without
+ * having to verify and price OpenAI models it never calls.
+ */
+export function assertTiersVerified(
+  value: Pick<z.infer<typeof openAiConfigurationInput>, "verifiedModels" | "modelRoutes">,
+  defaultProvider: ProviderId | undefined,
+) {
+  if (defaultProvider === "anthropic" || !value.verifiedModels.length) return;
+  if (
+    [value.modelRoutes.fast, value.modelRoutes.standard, value.modelRoutes.quality].some(
+      (model) => !value.verifiedModels.includes(model),
+    )
+  )
+    throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
+}
 
 /** The provider fields of `ai-provider-configure` (plan D-A4..D-A7). */
 export const aiProviderConfigurationInput = z
@@ -339,14 +348,30 @@ export function aiCapabilities(status: {
 
 export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   const view = publicOpenAiConfiguration(await configurationRow(tx, scope));
+  // The central price catalog the project draws on (phase A), when on.
+  const catalog = aiCatalogEnabled()
+    ? (await projectCatalog(tx, scope)).map((m) => ({
+        id: m.id,
+        provider: m.provider,
+        purpose: m.purpose,
+        displayName: m.displayName,
+        rate: m.rate ?? null,
+        perImageMicros: m.perImageMicros ?? null,
+        verifiedAt: m.verifiedAt,
+        priceSource: m.priceSource,
+        active: m.active,
+        needsReview: m.needsReview,
+      }))
+    : null;
   let status: Awaited<ReturnType<typeof effectiveAiStatus>>;
   try {
     status = await effectiveAiStatus(tx, scope);
   } catch {
-    return view;
+    return { ...view, catalog };
   }
   return {
     ...view,
+    catalog,
     capabilities: aiCapabilities(status),
     routesWithoutKey: routesWithoutKey(status),
     textKeyConfigured: status.textKeyConfigured,
@@ -470,6 +495,19 @@ export async function runtimeOpenAiConfiguration(
   scope: Scope,
   // The key rule to apply; the dry-run report compares both.
   keyRuleV2 = aiKeyRuleV2(),
+): Promise<OpenAiRuntimeConfig> {
+  const runtime = await configuredRuntime(tx, scope, keyRuleV2);
+  // The central price catalog (phase A) under the project's own settings.
+  return aiCatalogEnabled()
+    ? withCatalog(runtime, await projectCatalog(tx, scope))
+    : runtime;
+}
+
+/** The project's, profiles' and environment's settings, without the catalog. */
+async function configuredRuntime(
+  tx: DbTx,
+  scope: Scope,
+  keyRuleV2: boolean,
 ): Promise<OpenAiRuntimeConfig> {
   const row = await configurationRow(tx, scope);
   const environment = environmentRuntimeConfig();
@@ -747,6 +785,10 @@ export async function saveOpenAiConfiguration(
     !(await grantedAnyKey(tx, scope))
   )
     throw new DomainError("OPENAI_API_KEY_REQUIRED");
+  assertTiersVerified(
+    input,
+    currentValue?.defaultProvider ?? environmentRuntimeConfig().defaultProvider,
+  );
   // A model that leaves the verified list must not stay in a saved Anthropic tier.
   if (
     currentValue?.anthropicTierRoutes &&

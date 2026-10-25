@@ -161,6 +161,7 @@ try {
     "ConnectionGrant",
     "SpendCounter",
     "AiProfile",
+    "AiModelPrice",
     "KnowledgeShare",
     "WorkflowBinding",
   ];
@@ -259,7 +260,7 @@ try {
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(
-    'GRANT SELECT ON "Connection","ConnectionSecret","ConnectionGrant","AiProfile","KnowledgeShare","WorkflowBinding" TO orbit_app',
+    'GRANT SELECT ON "Connection","ConnectionSecret","ConnectionGrant","AiProfile","AiModelPrice","KnowledgeShare","WorkflowBinding" TO orbit_app',
   );
   await migrator.query(
     'GRANT SELECT,INSERT,UPDATE ON "SpendCounter" TO orbit_app',

@@ -11,6 +11,7 @@ import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { estimateCost } from "../../../packages/ai/src/index.ts";
 import { create, data, DomainError } from "../src/shared.ts";
 import {
+  projectAiConfigurationView,
   publicOpenAiConfiguration,
   runtimeOpenAiConfiguration,
   saveAiProviderConfiguration,
@@ -646,5 +647,62 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
       }),
     );
     expect(auditEvent?.metadata).toMatchObject({ sections: ["providers"] });
+  });
+
+  it("saves the model section of a Claude-default project without verified OpenAI tiers, and names the reason of a refusal", async () => {
+    const project = await authDb.project.create({
+      data: { workspaceId: scope.workspaceId, name: "Claude-default tiers" },
+    });
+    const fresh = { ...scope, projectId: project.id };
+    await scoped(scope.workspaceId, project.id, (tx) =>
+      saveAiProviderConfiguration(tx, fresh, {
+        anthropicApiKey: KEY,
+        applyAnthropicCatalog: true,
+        defaultProvider: "anthropic",
+        anthropicTierRoutes: {
+          fast: "claude-haiku-5-5",
+          standard: CLAUDE,
+          quality: "claude-opus-5-5",
+        },
+      }),
+    );
+    const view = await scoped(scope.workspaceId, project.id, (tx) =>
+      projectAiConfigurationView(tx, fresh),
+    );
+    // The untouched default OpenAI tiers are not verified here.
+    expect(view.verifiedModels).not.toContain(view.modelRoutes.standard);
+    const saved = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/actions/ai-configure`,
+      headers: { cookie: ownerCookie, origin },
+      payload: {
+        models: {
+          verifiedModels: [...view.verifiedModels, "gpt-image-2.5-flare"],
+          rateCard: view.rateCard,
+          modelRoutes: view.modelRoutes,
+          taskRoutes: view.taskRoutes,
+          imageGeneration: {
+            model: "gpt-image-2.5-flare",
+            maxCostMicrosPerImage: 80_000,
+            pricingVerifiedAt: new Date().toISOString(),
+          },
+        },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    // A rule's own code reaches the client instead of VALIDATION_FAILED.
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/actions/ai-configure`,
+      headers: { cookie: ownerCookie, origin },
+      payload: {
+        models: {
+          verifiedModels: [CLAUDE, CLAUDE],
+          rateCard: view.rateCard,
+        },
+      },
+    });
+    expect(duplicate.statusCode).toBe(400);
+    expect(duplicate.json().error.code).toBe("DUPLICATE_MODEL");
   });
 });

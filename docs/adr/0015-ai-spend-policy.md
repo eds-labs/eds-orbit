@@ -57,7 +57,8 @@ The coupling has three consequences (findings F1, F2 and F7 of the plan):
 - There are two possible sources until the legacy fallback is removed (phase 3.8, only after evidence and a separate approval).
 - Removing the fallback requires every project to have a platform record.
 - Marketing heuristics that read their own policy's budget (for example batch sizing) can differ from the platform record until the next Marketing save. Enforcement is unaffected, because `reserve` uses the platform record.
-- Rollback: delete nothing, and set `ORBIT_SPEND_POLICY_SOURCE=marketing`. The platform record is then ignored and the Marketing projection applies again.
+- Rollback: delete nothing. Set `ORBIT_SPEND_POLICY_SOURCE=fallback`, so the Marketing budget applies without a platform record, or `marketing`, so the platform record is ignored.
+- **Fallback removed by default (plan 3.8, Mario 2026-10-25).** After the production backfill gave every project a platform record, the default `platform` reads only the platform record. `reserve` also refuses a caller's own Marketing budget without one. The test suite runs in `fallback` mode (`tests/setup.ts`) because most suites seed only a Marketing policy; dedicated tests cover the strict default.
 
 ## Alternatives considered
 

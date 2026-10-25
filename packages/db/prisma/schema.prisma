@@ -98,6 +98,7 @@ model Workspace {
   connections Connection[]
   connectionGrants ConnectionGrant[]
   aiProfile   AiProfile?
+  aiModelPrices AiModelPrice[]
 }
 
 model WorkspaceMember {
@@ -1572,6 +1573,23 @@ model AiProfile {
   updatedBy   String
   updatedAt   DateTime   @default(now()) @db.Timestamptz(3)
   workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// A price override or on/off switch of one catalog model, for the system or
+/// one organization (plans/ai-central-management.md, phase A).
+model AiModelPrice {
+  id             String     @id @default(uuid()) @db.Uuid
+  scope          String
+  workspaceId    String?    @db.Uuid
+  modelId        String
+  active         Boolean    @default(true)
+  rate           Json?
+  perImageMicros Int?
+  verifiedAt     DateTime?  @db.Timestamptz(3)
+  version        Int        @default(1)
+  updatedBy      String
+  updatedAt      DateTime   @default(now()) @db.Timestamptz(3)
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 /// A consumer project's permission to search an organization library.

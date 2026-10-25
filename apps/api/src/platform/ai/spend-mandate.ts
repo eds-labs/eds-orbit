@@ -9,11 +9,11 @@ import { DomainError, data } from "../shared.ts";
 
 /**
  * The AI spend mandate: the limits a paid model call is reserved against.
- * Since ADR 0015 it is the platform's active `ai_spend_policies` record;
- * without one, the budget fields of the active Marketing policy
- * (`policies`, ADR 0009 AD-10 step 1) still apply until every project has a
- * platform record. Platform services such as retrieval, embedding,
- * reindexing and the assistant read only this projection.
+ * Since ADR 0015 it is the platform's active `ai_spend_policies` record.
+ * The budget fields of the active Marketing policy (`policies`, ADR 0009
+ * AD-10 step 1) apply only in the rollback modes of ORBIT_SPEND_POLICY_SOURCE
+ * (plan 3.8). Platform services such as retrieval, embedding, reindexing and
+ * the assistant read only this projection.
  */
 export type SpendLimits = {
   startAt: string;
@@ -65,12 +65,15 @@ export async function activePolicyRecord(tx: DbTx, scope: Scope) {
   return activeRecord(tx, scope, "policies");
 }
 
+/** Where the mandate is read from (ORBIT_SPEND_POLICY_SOURCE, plan 3.8). */
+const spendSource = () => loadConfig().ORBIT_SPEND_POLICY_SOURCE;
+
 /**
  * The active platform spending authority (ADR 0015), or null; always null
  * while ORBIT_SPEND_POLICY_SOURCE is "marketing" (rollback).
  */
 export async function activeSpendPolicyRecord(tx: DbTx, scope: Scope) {
-  if (loadConfig().ORBIT_SPEND_POLICY_SOURCE === "marketing") return null;
+  if (spendSource() === "marketing") return null;
   return activeRecord(tx, scope, "ai_spend_policies");
 }
 
@@ -86,15 +89,24 @@ const legacyLimits = z.object({
 });
 
 /**
- * The record the mandate comes from: the platform's spending authority,
- * else the active Marketing policy; null without either.
+ * The record the mandate comes from: the platform's spending authority; the
+ * active Marketing policy only in the "fallback" (without a platform record)
+ * and "marketing" rollback modes; null otherwise.
  */
 async function mandateRecord(tx: DbTx, scope: Scope) {
   const platform = await activeSpendPolicyRecord(tx, scope);
   if (platform) return { row: platform, source: "platform" as const };
+  if (spendSource() === "platform") return null;
   const legacy = await activePolicyRecord(tx, scope);
   return legacy ? { row: legacy, source: "marketing_policy" as const } : null;
 }
+
+/**
+ * Whether `reserve` may use the limits its caller passed when the project
+ * has no platform record: only in the rollback modes. In "platform" mode a
+ * Marketing caller's own policy budget no longer authorizes anything.
+ */
+export const passedLimitsAllowed = () => spendSource() !== "platform";
 
 /**
  * The limits a mandate record grants, validated: the platform schema for a
