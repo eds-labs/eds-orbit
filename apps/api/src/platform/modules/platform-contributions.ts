@@ -75,7 +75,10 @@ export const platformContributions: ModuleContributions = {
   // Links to deleted objects weekly and events after 30 days (ADR 0016).
   periodic: [ingressCleanup, fileCleanup, emailInbound, linkPrune, eventRetention],
   // Object links publish their changes (ADR 0016).
-  events: { publishes: ["platform.link.created", "platform.link.removed"] },
+  // Handoff targets report progress through one event (ADR 0017).
+  events: {
+    publishes: ["platform.link.created", "platform.link.removed", "platform.handoff.status_changed"],
+  },
   // The project's mailbox over SMTP and IMAP (WP4.7), and customer context
   // provider endpoints (ADR 0011).
   connections: {

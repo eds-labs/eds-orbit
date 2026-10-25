@@ -1575,6 +1575,86 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "GET /api/projects/{projectId}/work/pm/findings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/handoff-targets": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/initiatives/{id}/state": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/plans": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/plans/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/reports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/reports/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/work/pm/tasks/{id}/handoffs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/work/settings": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3663,6 +3743,62 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "POST /api/projects/{projectId}/work/pm/analyses": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/work/pm/findings/{id}/dismiss": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/work/pm/plans": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/work/pm/plans/{id}/discard": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/work/pm/plans/{id}/revisions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/work/pm/reports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/work/pm/tasks/{id}/handoffs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/work/tasks": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3976,6 +4112,22 @@
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/support/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PUT /api/projects/{projectId}/work/pm/initiatives/{id}/state": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PUT /api/projects/{projectId}/work/pm/settings": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",

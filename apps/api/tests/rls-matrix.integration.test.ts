@@ -82,6 +82,7 @@ const PROJECT_TABLES = [
   "WorkTaskWatcher",
   // AI project manager (ADR 0017).
   "WorkCodingRun",
+  "WorkHandoff",
   "WorkPlanProposal",
   "WorkPmFinding",
   "WorkPmReport",
@@ -168,6 +169,7 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     // ADR 0017: applied plans and coding work orders are kept.
     WorkPlanProposal: [true, true, true, false],
     WorkCodingRun: [true, true, true, false],
+    WorkHandoff: [true, true, true, false],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -627,6 +629,9 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     });
     await tx.workPmReport.create({
       data: { ...row(), initiativeId: initiative.id, kind: "status_report", stateHash: "0".repeat(64), body: "Synthetic report" },
+    });
+    await tx.workHandoff.create({
+      data: { ...row(), taskId: first.id, targetKey: "work.research", input: {}, inputHash: "0".repeat(64), createdBy: s.userId },
     });
     await tx.workCodingRun.create({
       data: { ...row(), taskId: first.id, repositoryKey: "orbit", provider: "manual", brief: {}, briefHash: "0".repeat(64), createdBy: s.userId },

@@ -48,6 +48,7 @@ import type {
   ConfigurationSection,
 } from "../configuration/types.ts";
 import type { LinkTypeDef } from "../links/types.ts";
+import type { HandoffTarget } from "../handoffs/types.ts";
 import type { EventSubscription, EventsContribution } from "../events/types.ts";
 import { EVENT_TYPE } from "../../../../../packages/module-contracts/src/index.ts";
 
@@ -172,6 +173,11 @@ export type ModuleContributions = {
   linkTypes?: Readonly<Record<string, LinkTypeDef>>;
   /** Domain events the module publishes and subscribes to (ADR 0016). */
   events?: EventsContribution;
+  /**
+   * Work the module takes over from a task (ADR 0017 P-3), by local name;
+   * the full key is "<module>.<name>".
+   */
+  handoffs?: Readonly<Record<string, HandoffTarget>>;
 };
 
 /** How a module uses the project's mailboxes (several mailboxes per project). */
@@ -314,6 +320,7 @@ type Registered = {
   >;
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
+  handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
   eventTypes: ReadonlyMap<string, string>;
   subscriptions: readonly (EventSubscription & { owner: string })[];
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
@@ -521,6 +528,14 @@ export function registerContributions(
         problems.push(`invalid link type ${owner}.${local}`);
       linkTypes.set(`${owner}.${local}`, { ...def, owner });
     }
+  // Handoff targets (ADR 0017): "<owner>.<name>", unique by construction.
+  const handoffs = new Map<string, HandoffTarget & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [name, def] of Object.entries(c.handoffs ?? {})) {
+      if (!/^[a-z][a-z0-9_]{1,40}$/.test(name))
+        problems.push(`invalid handoff target ${owner}.${name}`);
+      handoffs.set(`${owner}.${name}`, { ...def, owner });
+    }
   // Domain events (ADR 0016): a publisher declares its own types; every
   // subscription names declared types or prefixes of them.
   const eventTypes = new Map<string, string>();
@@ -571,6 +586,7 @@ export function registerContributions(
     userNotifications,
     publicRoutes,
     linkTypes,
+    handoffs,
     eventTypes,
     subscriptions,
     owners,
@@ -587,6 +603,16 @@ export function eventMatches(pattern: string, type: string) {
 /** A link type by full type ("work.task"), with its owner. */
 export function registeredLinkType(type: string) {
   return current().linkTypes.get(type);
+}
+
+/** A handoff target by "<module>.<name>", or undefined. */
+export function registeredHandoff(key: string) {
+  return current().handoffs.get(key);
+}
+
+/** Every handoff target, by key. */
+export function registeredHandoffs() {
+  return current().handoffs;
 }
 
 /** The module that publishes an event type, or undefined when undeclared. */

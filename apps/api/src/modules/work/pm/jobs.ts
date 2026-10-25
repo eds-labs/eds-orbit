@@ -3,6 +3,7 @@ import { audit } from "../../../shared.ts";
 import { runAnalysisJob } from "./analyst.ts";
 import { runScanJob } from "./monitor.ts";
 import { runReportJob } from "./reporter.ts";
+import { runHandoffJob } from "./research.ts";
 import { PM_QUEUE, runPlanJob } from "./planner.ts";
 
 // The PM's queue (plan §4.4). One class for every PM job; `kind` says which.
@@ -25,6 +26,9 @@ export const pmJobs: readonly JobDef[] = [
           return;
         case "analyse":
           return runAnalysisJob(scope, job.resourceId);
+        case "research":
+        case "handoff_analysis":
+          return runHandoffJob(scope, job.resourceId, job.kind);
         default:
           throw new Error("WORK_PM_JOB_UNKNOWN");
       }

@@ -1917,6 +1917,32 @@ model WorkPmReport {
   @@index([projectId, initiativeId, createdAt])
 }
 
+model WorkHandoff {
+  id              String   @id @db.Uuid
+  workspaceId     String   @db.Uuid
+  projectId       String   @db.Uuid
+  taskId          String   @db.Uuid
+  targetKey       String
+  status          String   @default("awaiting_approval")
+  input           Json
+  inputHash       String
+  targetType      String?
+  targetId        String?  @db.Uuid
+  actionRequestId String?  @db.Uuid
+  ceilingMicros   BigInt   @default(0)
+  costMicros      BigInt   @default(0)
+  result          Json     @default("{}")
+  errorCode       String?
+  createdBy       String
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, targetType, targetId])
+  @@index([projectId, taskId])
+}
+
 model WorkCodingRun {
   id                   String    @id @db.Uuid
   workspaceId          String    @db.Uuid

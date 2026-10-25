@@ -29,6 +29,7 @@ export const workModule: ServerModule = {
     "WorkPmFinding",
     "WorkPmReport",
     "WorkCodingRun",
+    "WorkHandoff",
   ],
   permissions: workPermissions,
 };

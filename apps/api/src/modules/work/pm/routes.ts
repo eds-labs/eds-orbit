@@ -26,6 +26,8 @@ import { readPmSettings, savePmSettings } from "./settings.ts";
 import { dismissFinding, listFindings } from "./monitor.ts";
 import { requestAnalysis } from "./analyst.ts";
 import { listReports, loadReport, requestReport } from "./reporter.ts";
+import { handoffView, listHandoffs, proposeHandoff } from "./handoffs.ts";
+import { availableHandoffs } from "../../../platform/handoffs/handoffs.ts";
 import { getPmState, setPmState } from "./state.ts";
 
 // The AI project manager's HTTP API (plan §4.3), under the work module's
@@ -118,6 +120,17 @@ export const pmRoutes: RoutesContribution = ({ app, auth }) => {
       const result = await requestAnalysis(tx, scope, initiativeInput.parse(req.body).initiativeId);
       return { ...proposalView(result!.proposal), deduplicated: result!.deduplicated };
     }),
+  );
+
+  // Handoffs of tasks (ADR 0017 P-3).
+  app.get(`${BASE}/handoff-targets`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope) => ({ items: await availableHandoffs(tx, scope) })),
+  );
+  app.get(`${BASE}/tasks/:id/handoffs`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope, p) => ({ items: await listHandoffs(tx, scope, id(p)) })),
+  );
+  app.post(`${BASE}/tasks/:id/handoffs`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => handoffView(await proposeHandoff(tx, scope, id(p), req.body))),
   );
 
   // Plans.

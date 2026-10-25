@@ -262,10 +262,11 @@ try {
   );
   // Task history: append-only; deleting a task still cascades.
   await migrator.query('GRANT SELECT,INSERT ON "WorkEvent" TO orbit_app');
-  // ADR 0017: applied plans and coding work orders stay as the record of
-  // what the PM proposed and dispatched; project deletion still cascades.
+  // ADR 0017: applied plans, handoffs and coding work orders stay as the
+  // record of what the PM proposed and dispatched; project deletion still
+  // cascades.
   await migrator.query(
-    'GRANT SELECT,INSERT,UPDATE ON "WorkPlanProposal","WorkCodingRun" TO orbit_app',
+    'GRANT SELECT,INSERT,UPDATE ON "WorkPlanProposal","WorkCodingRun","WorkHandoff" TO orbit_app',
   );
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
