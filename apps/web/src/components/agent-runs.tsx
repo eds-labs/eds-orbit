@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, collectionPath, useResource, when } from "@/lib/api";
+import { budgetRefusalText } from "@/lib/budget-refusals";
 import { Alert, Button, Status } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 
@@ -177,7 +178,9 @@ export function AgentRuns() {
               {when(run.startedAt, locale, project.timezone)} · {run.modelCalls}{" "}
               {de ? "Modellaufrufe" : "model calls"} · {run.toolCalls} Tools ·{" "}
               {exactUsd(run.costMicros)}
-              {run.errorCode ? ` · ${run.errorCode}` : ""}
+              {run.errorCode
+                ? ` · ${budgetRefusalText(run.errorCode, de) ?? run.errorCode}`
+                : ""}
             </p>
             {open === run.id && steps[run.id] && (
               <RunStepList de={de} steps={steps[run.id]!} />

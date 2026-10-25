@@ -155,6 +155,9 @@ const baseConfigSchema = z.object({
   // Organization standard models and project presets (phase B); apply only
   // while the catalog is on too. Read directly from the environment.
   ORBIT_AI_DEFAULTS: z.enum(["false", "true"]).default("false"),
+  // Organization AI budget and provider caps (phase C): every reservation
+  // adds to the organization's month counters, checked against its budget.
+  ORBIT_AI_ORG_BUDGET: z.enum(["false", "true"]).default("false"),
   // Where the AI spending authority is read from (ADR 0015, plan 3.8):
   // "platform" only the platform record (no paid AI without one);
   // "fallback" the platform record, else the Marketing policy's budget

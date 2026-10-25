@@ -78,6 +78,19 @@ Settings → AI & budget (owners) holds the project's AI spending authority: the
 - **Effect on runs.** A change to the standard changes the route version, so runs in progress stop before their next paid call, as after a project save.
 - **Rollback.** Set the flag back to `false`. Every project uses its saved tiers and task routes again; the stored standards and choices stay unused.
 
+## Organization AI budget
+
+Migration `202610250006_ai_organization_budget` adds two tables and the nullable column `BudgetReservation.orgProvider`; it is additive. `ORBIT_AI_ORG_BUDGET=true` turns on the organization budget of phase C (docs/plans/ai-central-management.md):
+- every project's paid AI call adds to its organization's month counters;
+- a call that would pass the organization's monthly budget or a provider cap is refused before it is sent.
+
+- **Turning it on.**
+  1. Set the flag and redeploy.
+  2. In the API container, run `tsx scripts/ai-org-budget-seed.ts` (dry run), then `--apply`. This adds the month's earlier reservations to the counters once.
+  3. Choose a quiet moment: a call settled while its project is seeded may stay counted as reserved until the month ends.
+- **Setting it.** Organization owners set the budget under Organisation → Integrationen → KI-Budget. "Vorschlag übernehmen" fills in the sum of the projects' own provider budgets as provider caps.
+- **Rollback.** Set the flag to `false`. Nothing is counted or checked any more; the stored budgets and counters stay unused.
+
 ## Model routes and generation evals
 
 Routes per task class (`chat_operator`, `draft_social`, `draft_blog`) are set by the owner in the OpenAI configuration dialog; precedence, effort and ceilings are described in `MODEL_ROUTING.md`. Migration `202610010001_agent_run_route_version` adds the nullable `AgentRun.routeVersion` (the configuration's entity version); it is additive and deploys with the normal migration step. With no task route saved, behaviour is unchanged.

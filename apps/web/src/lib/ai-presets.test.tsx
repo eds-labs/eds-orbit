@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { aiErrorText, presetName, taskRoutesFrom } from "./ai-presets";
+import { budgetRefusalText } from "./budget-refusals";
 
 describe("taskRoutesFrom", () => {
   it("keeps chosen tasks only, with the previous route or the task's default tokens", () => {
@@ -42,5 +43,15 @@ describe("AI preset wording", () => {
     expect(aiErrorText("PRESET MODEL INACTIVE", "en")).toMatch(/switched off/);
     expect(aiErrorText("SOMETHING_ELSE", "de")).toBe("SOMETHING_ELSE");
     expect(aiErrorText(null, "de")).toBeNull();
+  });
+});
+
+describe("budget refusals", () => {
+  it("names the layer that stopped a call", () => {
+    expect(budgetRefusalText("ORG_AI_BUDGET_EXCEEDED", true)).toMatch(/Organisation/);
+    expect(budgetRefusalText("BUDGET EXCEEDED", false)).toMatch(/project's AI budget/);
+    expect(budgetRefusalText("MODEL_OUTPUT_NOT_VALID", true)).toBeNull();
+    // The AI settings fall back to the refusal texts.
+    expect(aiErrorText("ORG_PROVIDER_BUDGET_EXCEEDED", "en")).toMatch(/cap for this provider/);
   });
 });

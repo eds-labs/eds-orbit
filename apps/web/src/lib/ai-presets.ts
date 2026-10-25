@@ -1,4 +1,5 @@
 import type { Locale } from "./i18n";
+import { budgetRefusalText } from "./budget-refusals";
 
 // Shared wording for the organization's standard models and the project's
 // model choice (plans/ai-central-management.md, phase B).
@@ -132,5 +133,9 @@ const errors: Record<string, { en: string; de: string }> = {
 /** A readable message for an AI settings error code; the code otherwise. */
 export function aiErrorText(message: string | null | undefined, locale: Locale) {
   if (!message) return null;
-  return errors[message.replaceAll(" ", "_")]?.[locale === "de" ? "de" : "en"] ?? message;
+  return (
+    errors[message.replaceAll(" ", "_")]?.[locale === "de" ? "de" : "en"] ??
+    budgetRefusalText(message, locale === "de") ??
+    message
+  );
 }

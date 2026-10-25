@@ -37,6 +37,11 @@ import {
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
 import { aiDefaults, clearAiDefaults, saveAiDefaults } from "./ai-defaults.ts";
 import {
+  organizationAiBudgetView,
+  organizationAiUsage,
+  saveOrganizationAiBudget,
+} from "./ai-budget.ts";
+import {
   listModelPrices,
   resetModelPrice,
   setModelPrice,
@@ -292,6 +297,23 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
       { scope: "workspace", workspaceId: id(req, "workspaceId") },
     ),
   );
+  // "Budget" and "Verbrauch" (phase C): the organization's monthly AI
+  // budget and provider caps, and its spend across projects (owners, D-6).
+  app.get("/api/organizations/:workspaceId/ai/budget", async (req) => {
+    await owner(req);
+    return organizationAiBudgetView(id(req, "workspaceId"));
+  });
+  app.put("/api/organizations/:workspaceId/ai/budget", async (req) =>
+    saveOrganizationAiBudget(
+      (await owner(req)).userId,
+      id(req, "workspaceId"),
+      req.body,
+    ),
+  );
+  app.get("/api/organizations/:workspaceId/ai/usage", async (req) => {
+    await owner(req);
+    return organizationAiUsage(id(req, "workspaceId"));
+  });
   // What the project may choose from; any member may see the names.
   app.get("/api/projects/:projectId/connections", async (req) => {
     enabled();

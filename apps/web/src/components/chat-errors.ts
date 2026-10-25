@@ -1,3 +1,5 @@
+import { budgetRefusalText } from "@/lib/budget-refusals";
+
 const texts: Record<string, [string, string]> = {
   PROJECT_PAUSED: [
     "The project is paused; Orbit answers again once it is resumed under Operations.",
@@ -8,5 +10,5 @@ const texts: Record<string, [string, string]> = {
 // Codes the user can act on read as a sentence; others stay as codes.
 export function chatErrorText(code: string | null, de: boolean) {
   if (!code) return "—";
-  return texts[code]?.[de ? 1 : 0] ?? code;
+  return texts[code]?.[de ? 1 : 0] ?? budgetRefusalText(code, de) ?? code;
 }

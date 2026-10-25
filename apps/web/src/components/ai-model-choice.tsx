@@ -89,8 +89,8 @@ const text = {
     budget: "Budget for paid AI",
     budgets: {
       off: "Off: no paid AI for now",
-      test: "Test: USD 1 per day, 10 per month, for 14 days",
-      normal: "Normal: USD 5 per day, 50 per month, for one year",
+      "10": "USD 10 per month (up to 1 per day)",
+      "50": "USD 50 per month (up to 5 per day)",
     },
     budgetHint: "You can change limits any time under “AI spending authority”.",
     finish: "Finish",
@@ -131,10 +131,10 @@ const text = {
     budget: "Budget für bezahlte KI",
     budgets: {
       off: "Aus: vorerst keine bezahlte KI",
-      test: "Test: 1 USD pro Tag, 10 pro Monat, 14 Tage lang",
-      normal: "Normal: 5 USD pro Tag, 50 pro Monat, ein Jahr lang",
+      "10": "10 USD pro Monat (bis 1 pro Tag)",
+      "50": "50 USD pro Monat (bis 5 pro Tag)",
     },
-    budgetHint: "Grenzen änderst du jederzeit unter „KI-Ausgabefreigabe“.",
+    budgetHint: "Grenzen änderst du jederzeit unter „KI-Ausgabenfreigabe“.",
     finish: "Fertig",
   },
 } as const;
@@ -503,8 +503,8 @@ function SetupWizard({
                 name: "profile",
                 label: t.budget,
                 type: "select",
-                value: "test",
-                options: (["off", "test", "normal"] as const).map((p) => ({
+                value: "10",
+                options: (["off", "10", "50"] as const).map((p) => ({
                   value: p,
                   label: t.budgets[p],
                 })),
@@ -517,7 +517,16 @@ function SetupWizard({
             onSubmit={(values) =>
               save(
                 () =>
-                  action(project.id, "ai-spend-policy", { profile: str(values, "profile") }),
+                  action(
+                    project.id,
+                    "ai-spend-policy",
+                    str(values, "profile") === "off"
+                      ? { profile: "off" }
+                      : {
+                          profile: "monthly",
+                          monthlyBudgetMicros: Number(str(values, "profile")) * 1_000_000,
+                        },
+                  ),
                 onClose,
               )
             }

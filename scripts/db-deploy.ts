@@ -164,6 +164,9 @@ try {
     "AiModelPrice",
     "KnowledgeShare",
     "WorkflowBinding",
+    // Central AI budget (plans/ai-central-management.md, phase C).
+    "OrganizationAiBudget",
+    "OrganizationSpendCounter",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,
@@ -260,10 +263,10 @@ try {
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(
-    'GRANT SELECT ON "Connection","ConnectionSecret","ConnectionGrant","AiProfile","AiModelPrice","KnowledgeShare","WorkflowBinding" TO orbit_app',
+    'GRANT SELECT ON "Connection","ConnectionSecret","ConnectionGrant","AiProfile","AiModelPrice","KnowledgeShare","WorkflowBinding","OrganizationAiBudget" TO orbit_app',
   );
   await migrator.query(
-    'GRANT SELECT,INSERT,UPDATE ON "SpendCounter" TO orbit_app',
+    'GRANT SELECT,INSERT,UPDATE ON "SpendCounter","OrganizationSpendCounter" TO orbit_app',
   );
   // System audit (ADR 0013): append-only, auth role only.
   await migrator.query('GRANT SELECT,INSERT ON "SystemAuditEvent" TO orbit_auth');

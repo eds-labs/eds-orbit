@@ -9,7 +9,7 @@ import {
   usd,
   when,
 } from "@/lib/api";
-import { Alert, Button, Loading, Modal, Status } from "./ui/primitives";
+import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
@@ -27,7 +27,10 @@ type Limits = {
   monthlyBudgetMicros: number;
   perRunBudgetMicros: number;
 };
-type Profile = "off" | "test" | "normal" | "custom";
+type Profile = "off" | "test" | "normal" | "monthly" | "custom";
+// The form's choices: monthly amounts (D-4) besides the profiles.
+type Choice = "off" | "monthly-10" | "monthly-50" | "monthly" | "test" | "custom";
+type OrgLevel = "ok" | "warn" | "warn2" | "stopped" | null;
 type SpendPolicyView = {
   record: ({ id: string; version: number; profile?: Profile } & Record<
     string,
@@ -38,6 +41,16 @@ type SpendPolicyView = {
   active: boolean;
   problem: string | null;
   usage: { monthMicros: number; todayMicros: number };
+  // The organization's budget the project draws on (phase C), while on.
+  organization?: {
+    monthlyMicros: number | null;
+    spentMicros: number;
+    level: OrgLevel;
+    providers: Record<
+      "openai" | "anthropic",
+      { capMicros: number | null; spentMicros: number; level: OrgLevel }
+    >;
+  } | null;
 };
 
 const text = {
@@ -62,12 +75,18 @@ const text = {
     profile: "Profile",
     profiles: {
       off: "Off: no paid AI",
+      "monthly-10": "USD 10 per month",
+      "monthly-50": "USD 50 per month",
+      monthly: "Own monthly amount",
       test: "Test: USD 1 per day, 10 per month, 0.50 per run, 14 days",
-      normal: "Normal: USD 5 per day, 50 per month, 2 per run, one year",
-      custom: "Custom values",
+      custom: "Advanced: every limit and the validity",
     },
     profileHint:
-      "A profile sets every limit and the validity from now on. Module limits (Support, Finance) and provider budgets still apply on top.",
+      "A monthly amount applies for a year: a day may use a tenth of it, one run at most a day's share and never more than USD 2. Module limits (Support, Finance) and the organization's budget apply on top.",
+    amount: "Per month (USD)",
+    organization: "Organization budget this month",
+    orgNone: "no monthly limit",
+    orgLevels: { ok: "", warn: "75 % reached", warn2: "90 % reached", stopped: "used up" },
     startAt: "Valid from",
     endAt: "Valid until",
     approved: "Allow paid AI use",
@@ -100,12 +119,18 @@ const text = {
     profile: "Profil",
     profiles: {
       off: "Aus: keine bezahlte KI",
+      "monthly-10": "10 USD pro Monat",
+      "monthly-50": "50 USD pro Monat",
+      monthly: "Eigener Monatsbetrag",
       test: "Test: 1 USD pro Tag, 10 pro Monat, 0,50 pro Lauf, 14 Tage",
-      normal: "Normal: 5 USD pro Tag, 50 pro Monat, 2 pro Lauf, ein Jahr",
-      custom: "Eigene Werte",
+      custom: "Erweitert: alle Limits und die Gültigkeit",
     },
     profileHint:
-      "Ein Profil setzt alle Limits und die Gültigkeit ab jetzt. Modul-Limits (Support, Finanzen) und Anbieter-Budgets gelten zusätzlich.",
+      "Ein Monatsbetrag gilt ein Jahr: pro Tag ein Zehntel davon, pro Lauf höchstens ein Tagesanteil und nie mehr als 2 USD. Modul-Limits (Support, Finanzen) und das Budget der Organisation gelten zusätzlich.",
+    amount: "Pro Monat (USD)",
+    organization: "Budget der Organisation diesen Monat",
+    orgNone: "kein Monatslimit",
+    orgLevels: { ok: "", warn: "75 % erreicht", warn2: "90 % erreicht", stopped: "aufgebraucht" },
     startAt: "Gültig ab",
     endAt: "Gültig bis",
     approved: "Bezahlte KI-Nutzung erlauben",
@@ -159,6 +184,7 @@ export function SpendPolicySettings() {
             <Status value={data.active ? "ready" : "not_configured"} />
           </div>
           {data.problem && <Alert kind="warning">{data.problem}</Alert>}
+          {data.organization && <OrganizationRow org={data.organization} t={t} />}
           <div className="metrics-strip">
             <Metric
               icon={Coins}
@@ -203,6 +229,59 @@ export function SpendPolicySettings() {
   );
 }
 
+/** The organization's month: total and per provider, with its level. */
+function OrganizationRow({
+  org,
+  t,
+}: {
+  org: NonNullable<SpendPolicyView["organization"]>;
+  t: (typeof text)["en"] | (typeof text)["de"];
+}) {
+  const part = (spent: number, limit: number | null, level: OrgLevel) =>
+    `${usd(spent)} / ${limit === null ? t.orgNone : usd(limit)}${level && t.orgLevels[level] ? ` (${t.orgLevels[level]})` : ""}`;
+  const capped = (["anthropic", "openai"] as const).filter(
+    (p) => org.providers[p].capMicros !== null,
+  );
+  const worst = [org.level, ...capped.map((p) => org.providers[p].level)];
+  return (
+    <div className="data-row">
+      <div>
+        <strong>{t.organization}</strong>
+        <p>
+          {part(org.spentMicros, org.monthlyMicros, org.level)}
+          {capped
+            .map(
+              (p) =>
+                ` · ${p === "anthropic" ? "Claude" : "OpenAI"} ${part(org.providers[p].spentMicros, org.providers[p].capMicros, org.providers[p].level)}`,
+            )
+            .join("")}
+        </p>
+      </div>
+      {worst.includes("stopped") ? (
+        <Badge tone="danger">{t.orgLevels.stopped}</Badge>
+      ) : worst.includes("warn2") ? (
+        <Badge tone="warning">{t.orgLevels.warn2}</Badge>
+      ) : worst.includes("warn") ? (
+        <Badge tone="warning">{t.orgLevels.warn}</Badge>
+      ) : null}
+    </div>
+  );
+}
+
+/** The form's choice for a saved record. */
+function choiceOf(view: SpendPolicyView): Choice {
+  const record = view.record as
+    | { profile?: Profile; monthlyBudgetMicros?: number }
+    | null;
+  const profile = record?.profile;
+  if (!profile) return "monthly-10";
+  if (profile === "normal") return "monthly-50";
+  if (profile !== "monthly") return profile;
+  if (record?.monthlyBudgetMicros === 10_000_000) return "monthly-10";
+  if (record?.monthlyBudgetMicros === 50_000_000) return "monthly-50";
+  return "monthly";
+}
+
 function SpendPolicyForm({
   view,
   t,
@@ -224,12 +303,23 @@ function SpendPolicyForm({
       name: "profile",
       label: t.profile,
       type: "select",
-      value: (view.record?.profile as Profile | undefined) ?? "test",
-      options: (["off", "test", "normal", "custom"] as const).map((p) => ({
+      value: choiceOf(view),
+      options: (
+        ["off", "monthly-10", "monthly-50", "monthly", "test", "custom"] as const
+      ).map((p) => ({
         value: p,
         label: t.profiles[p],
       })),
       hint: t.profileHint,
+    },
+    {
+      name: "amount",
+      label: t.amount,
+      type: "number",
+      step: "0.01",
+      min: 0,
+      value: dollars(current?.monthlyBudgetMicros ?? 20_000_000),
+      showWhen: { name: "profile", values: ["monthly"] },
     },
     {
       name: "startAt",
@@ -295,13 +385,20 @@ function SpendPolicyForm({
         onCancel={onClose}
         onSubmit={(values) =>
           mutation.run(() => {
-            const profile = str(values, "profile") as Profile;
+            const choice = str(values, "profile") as Choice;
+            const monthly = {
+              "monthly-10": 10_000_000,
+              "monthly-50": 50_000_000,
+              monthly: micros(str(values, "amount")),
+            } as Partial<Record<Choice, number>>;
             return action(
               project.id,
               "ai-spend-policy",
-              profile === "custom"
+              monthly[choice] !== undefined
+                ? { profile: "monthly", monthlyBudgetMicros: monthly[choice] }
+                : choice === "custom"
                 ? {
-                    profile,
+                    profile: choice,
                     startAt: new Date(str(values, "startAt")).toISOString(),
                     endAt: new Date(str(values, "endAt")).toISOString(),
                     approvedPaidUse: values.approvedPaidUse === true,
@@ -309,7 +406,7 @@ function SpendPolicyForm({
                     monthlyBudgetMicros: micros(str(values, "monthly")),
                     perRunBudgetMicros: micros(str(values, "perRun")),
                   }
-                : { profile },
+                : { profile: choice },
             );
           })
         }

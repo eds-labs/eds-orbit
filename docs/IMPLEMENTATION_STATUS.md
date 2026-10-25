@@ -1,5 +1,26 @@
 # Implementation status
 
+## Central AI management phase C: organization budget, monthly project budget, usage (2026-10-25, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed, `ORBIT_AI_ORG_BUDGET` off)
+
+Plan: [plans/ai-central-management.md](plans/ai-central-management.md), section 7. Phase B is live since 2026-10-25 18:24 UTC (`d8871fa7`).
+
+- **Organization budget and provider caps.** New table `OrganizationAiBudget`; routes `/api/organizations/:id/ai/budget`.
+- **Organization month counters.** Table `OrganizationSpendCounter`, enforced in `reserve` and moved on settle. Seed script: `scripts/ai-org-budget-seed.ts`.
+- **Spending authority profile `monthly`.** Derived day and run limits (D-4).
+- **Organization usage across projects.** Route `/api/organizations/:id/ai/usage`.
+- **Refusal codes as sentences.**
+- **Migration** `202610250006_ai_organization_budget` (additive). Access matrix +3 rows.
+
+Verification (local, worktree database, migration applied with `scripts/test-db-for-worktree.ts`):
+- full suite 3,767 passed / 7 skipped / 0 failed;
+- new `ai-org-budget.integration.test.ts` 6/6;
+- access matrix regenerated with additions only;
+- RLS matrix with both new tables classified;
+- root and web `tsc`, boundaries, source check, Coolify compose check;
+- OpenAPI client regenerated (two new paths).
+
+Not checked in a browser.
+
 ## Central AI management phase B: standard models and guided setup (2026-10-25, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed, `ORBIT_AI_DEFAULTS` off)
 
 Plan: [plans/ai-central-management.md](plans/ai-central-management.md), section 7. Phase A (price catalog) is live since 2026-10-25 16:17 UTC (`f263dfea`, save fix `517a5030`).

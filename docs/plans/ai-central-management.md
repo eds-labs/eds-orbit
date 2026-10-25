@@ -1,6 +1,6 @@
 # Central AI management: prices, models and budgets in one place
 
-Status: **phase A live, phase B implemented locally** (2026-10-25). Decisions D-1, D-3, D-4, D-5 and D-6 were taken by Mario on 2026-10-25 (section 6). Requested by Mario after the phase 3 rollout: *"Prices should be maintained once per organization instead of as JSON per project. AI is still confusing for new users; billing and budgets must be simpler and centrally managed."* Builds on ADR 0014 (central connections, AI profiles) and ADR 0015 (AI spending authority). Every decision marked **D-n** below is open.
+Status: **phases A and B live, phase C implemented locally** (2026-10-25). Decisions D-1, D-3, D-4, D-5 and D-6 were taken by Mario on 2026-10-25 (section 6). Requested by Mario after the phase 3 rollout: *"Prices should be maintained once per organization instead of as JSON per project. AI is still confusing for new users; billing and budgets must be simpler and centrally managed."* Builds on ADR 0014 (central connections, AI profiles) and ADR 0015 (AI spending authority). Every decision marked **D-n** below is open.
 
 ## 1. Where we are (production, 2026-10-25)
 
@@ -244,3 +244,32 @@ Still open, recommendations stand unless Mario says otherwise:
   - phase C budgets: derived day and run limits, organization budget;
   - removing the old fields from the project page (phase D);
   - the MCP administration tools do not know `routing` yet.
+
+### Phase C (2026-10-25, local; flag `ORBIT_AI_ORG_BUDGET`, default off; migration `202610250006_ai_organization_budget`)
+
+- **Organization budget** (table `OrganizationAiBudget`, decision D-2). The organization's owners set it under Organisation → Integrationen → KI-Budget:
+  - a monthly amount for all projects;
+  - an optional cap per provider;
+  - the provider balances as last read (manual, dated).
+
+  Routes `GET|PUT /api/organizations/:id/ai/budget`, audited as `ai_budget.updated`.
+- **Counters** (table `OrganizationSpendCounter`, total and per provider per UTC month).
+  - While the flag is on, every reservation of every project adds to them inside `reserve`, after the grant counters, with the same row locks. The organization budget and caps are checked there (`ORG_AI_BUDGET_EXCEEDED`, `ORG_PROVIDER_BUDGET_EXCEEDED`).
+  - `BudgetReservation.orgProvider` records the counter used, so `settle` and "settle unclear" move the same amount. Unclear outcomes stay reserved.
+- **Seed.** `scripts/ai-org-budget-seed.ts` (dry run, `--apply`) adds the month's reservations made before the flag to the counters, once.
+- **Provider caps proposal (D-5).** The budget view sums the projects' own provider stops per provider. The owner takes them over with "Vorschlag übernehmen". Project provider budgets still apply until phase E.
+- **Project budget (D-4).** New spending-authority profile `monthly`: one amount for a year, with derived limits (day = month / 10, run = min(day, USD 2)); the API takes explicit day and run values as well. The form offers:
+  - Aus;
+  - 10 or 50 USD per month;
+  - an own monthly amount;
+  - Test;
+  - Erweitert (every limit).
+
+  The guided setup offers Aus, 10 and 50 USD. The project page shows the organization's month and caps.
+- **Usage.** `GET /api/organizations/:id/ai/usage` returns the month across projects (per project, provider, model and task), read project by project inside each project's own transaction. Unclear amounts are pointed to the project's settle action. Access matrix: three new rows.
+- **Refusals in plain words.** Every budget code (project, run, provider, grant, connection, organization, Support cap) is shown as a sentence that names the layer, in chat, agent runs and the AI settings.
+- **Not yet:**
+  - removing per-project provider budgets and the old fields (phase E);
+  - the project page rebuild (phase D);
+  - attention items for organization warnings.
+
