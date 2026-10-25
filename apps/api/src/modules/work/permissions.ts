@@ -24,9 +24,39 @@ export const WORK_SETTINGS = permission(
   ["owner"],
 );
 
+// AI project manager (ADR 0017, plan §4.2).
+export const WORK_PM_USE = permission(
+  "work.pm.use",
+  "Ask the AI project manager for plans, reports, analyses and handoffs",
+  ["owner", "editor"],
+);
+export const WORK_PM_APPLY = permission(
+  "work.pm.apply",
+  "Decide the AI project manager's plans and task changes",
+  ["owner", "editor"],
+);
+export const WORK_PM_MANAGE = permission(
+  "work.pm.manage",
+  "Manage the AI project manager's settings, budgets and repositories",
+  ["owner"],
+);
+// Owner-only: a dispatch sends a brief to an external coding system.
+export const WORK_CODING_DISPATCH = {
+  ...permission(
+    "work.coding.dispatch",
+    "Approve dispatching coding work orders to external coding agents",
+    ["owner"],
+  ),
+  sensitive: true,
+};
+
 export const workPermissions = [
   WORK_READ,
   WORK_WRITE,
   WORK_DELETE,
   WORK_SETTINGS,
+  WORK_PM_USE,
+  WORK_PM_APPLY,
+  WORK_PM_MANAGE,
+  WORK_CODING_DISPATCH,
 ];

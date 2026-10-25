@@ -24,6 +24,11 @@ export const workModule: ServerModule = {
     "WorkAttachment",
     "WorkTaskWatcher",
     "WorkEvent",
+    "WorkPmState",
+    "WorkPlanProposal",
+    "WorkPmFinding",
+    "WorkPmReport",
+    "WorkCodingRun",
   ],
   permissions: workPermissions,
 };

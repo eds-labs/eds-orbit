@@ -1817,3 +1817,141 @@ model WorkEvent {
   @@index([projectId, initiativeId, createdAt])
   @@index([projectId, milestoneId, createdAt])
 }
+
+// AI project manager (ADR 0017, plan §3). Relations live in SQL like the
+// other work tables; partial unique indexes (one open finding per
+// fingerprint, one active coding run per task) are SQL only.
+
+model WorkPmState {
+  id             String    @id @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  initiativeId   String    @db.Uuid
+  enabled        Boolean   @default(false)
+  settings       Json      @default("{}")
+  lastScanAt     DateTime? @db.Timestamptz(3)
+  lastScanHash   String?
+  lastReportAt   DateTime? @db.Timestamptz(3)
+  lastReportHash String?
+  lastAnalysisAt DateTime? @db.Timestamptz(3)
+  version        Int       @default(1)
+  updatedBy      String
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, initiativeId])
+}
+
+model WorkPlanProposal {
+  id             String    @id @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  initiativeId   String?   @db.Uuid
+  kind           String
+  status         String
+  requestText    String?
+  requestedBy    String
+  requestedVia   String
+  idempotencyKey String?
+  revision       Int       @default(1)
+  supersedesId   String?   @db.Uuid
+  plan           Json?
+  validation     Json      @default("{}")
+  planHash       String?
+  agentRunId     String?   @db.Uuid
+  actionRequestId String?  @db.Uuid
+  appliedAt      DateTime? @db.Timestamptz(3)
+  appliedTaskIds String[]  @default([]) @db.Uuid
+  costMicros     BigInt    @default(0)
+  errorCode      String?
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, initiativeId, status])
+  @@index([projectId, requestedBy, createdAt])
+}
+
+model WorkPmFinding {
+  id             String    @id @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  initiativeId   String    @db.Uuid
+  rule           String
+  severity       String
+  fingerprint    String
+  taskIds        String[]  @default([]) @db.Uuid
+  milestoneId    String?   @db.Uuid
+  status         String    @default("open")
+  dismissedBy    String?
+  dismissedUntil DateTime? @db.Timestamptz(3)
+  firstSeenAt    DateTime  @default(now()) @db.Timestamptz(3)
+  lastSeenAt     DateTime  @default(now()) @db.Timestamptz(3)
+  resolvedAt     DateTime? @db.Timestamptz(3)
+  data           Json      @default("{}")
+
+  @@unique([projectId, id])
+  @@index([projectId, initiativeId, status, severity])
+}
+
+model WorkPmReport {
+  id           String   @id @db.Uuid
+  workspaceId  String   @db.Uuid
+  projectId    String   @db.Uuid
+  initiativeId String   @db.Uuid
+  kind         String
+  stateHash    String
+  body         String
+  data         Json     @default("{}")
+  findingIds   String[] @default([]) @db.Uuid
+  agentRunId   String?  @db.Uuid
+  costMicros   BigInt   @default(0)
+  requestedBy  String?
+  publishedTo  String[] @default([])
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, initiativeId, createdAt])
+}
+
+model WorkCodingRun {
+  id                   String    @id @db.Uuid
+  workspaceId          String    @db.Uuid
+  projectId            String    @db.Uuid
+  taskId               String    @db.Uuid
+  repositoryKey        String
+  provider             String
+  status               String    @default("draft")
+  briefRevision        Int       @default(1)
+  brief                Json
+  briefHash            String
+  sanitization         Json      @default("{}")
+  personalDataReviewed Boolean   @default(false)
+  ceilingMicros        BigInt    @default(0)
+  reportedCostMicros   BigInt?
+  actionRequestId      String?   @db.Uuid
+  automationRunId      String?   @db.Uuid
+  externalRef          String?
+  branch               String?
+  prUrl                String?
+  prNumber             Int?
+  commitSha            String?
+  tests                Json?
+  summary              String?
+  errorCode            String?
+  dispatchedAt         DateTime? @db.Timestamptz(3)
+  startedAt            DateTime? @db.Timestamptz(3)
+  finishedAt           DateTime? @db.Timestamptz(3)
+  timeoutAt            DateTime? @db.Timestamptz(3)
+  createdBy            String
+  version              Int       @default(1)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, status, timeoutAt])
+  @@index([projectId, taskId])
+}

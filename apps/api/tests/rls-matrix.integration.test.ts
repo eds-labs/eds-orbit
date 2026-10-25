@@ -80,6 +80,12 @@ const PROJECT_TABLES = [
   "WorkTaskCounter",
   "WorkTaskDependency",
   "WorkTaskWatcher",
+  // AI project manager (ADR 0017).
+  "WorkCodingRun",
+  "WorkPlanProposal",
+  "WorkPmFinding",
+  "WorkPmReport",
+  "WorkPmState",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -159,6 +165,9 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     DomainEvent: [true, true, false, true],
     // Task history is append-only; deleting a task still cascades.
     WorkEvent: [true, true, false, false],
+    // ADR 0017: applied plans and coding work orders are kept.
+    WorkPlanProposal: [true, true, true, false],
+    WorkCodingRun: [true, true, true, false],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -605,6 +614,22 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     });
     await tx.workEvent.create({
       data: { ...row(), taskId: first.id, type: "created", actorKind: "user", actorId: s.userId },
+    });
+    // AI project manager (ADR 0017).
+    await tx.workPmState.create({
+      data: { ...row(), initiativeId: initiative.id, enabled: true, updatedBy: s.userId },
+    });
+    await tx.workPlanProposal.create({
+      data: { ...row(), initiativeId: initiative.id, kind: "new_plan", status: "draft", requestedBy: s.userId, requestedVia: "ui" },
+    });
+    await tx.workPmFinding.create({
+      data: { ...row(), initiativeId: initiative.id, rule: "overdue", severity: "warning", fingerprint: `overdue:${first.id}`, taskIds: [first.id] },
+    });
+    await tx.workPmReport.create({
+      data: { ...row(), initiativeId: initiative.id, kind: "status_report", stateHash: "0".repeat(64), body: "Synthetic report" },
+    });
+    await tx.workCodingRun.create({
+      data: { ...row(), taskId: first.id, repositoryKey: "orbit", provider: "manual", brief: {}, briefHash: "0".repeat(64), createdBy: s.userId },
     });
   }
 

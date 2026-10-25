@@ -219,6 +219,11 @@ try {
     "WorkComment",
     "WorkAttachment",
     "WorkTaskWatcher",
+    // AI project manager (ADR 0017); plan proposals and coding runs are
+    // kept below.
+    "WorkPmState",
+    "WorkPmFinding",
+    "WorkPmReport",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
@@ -257,6 +262,11 @@ try {
   );
   // Task history: append-only; deleting a task still cascades.
   await migrator.query('GRANT SELECT,INSERT ON "WorkEvent" TO orbit_app');
+  // ADR 0017: applied plans and coding work orders stay as the record of
+  // what the PM proposed and dispatched; project deletion still cascades.
+  await migrator.query(
+    'GRANT SELECT,INSERT,UPDATE ON "WorkPlanProposal","WorkCodingRun" TO orbit_app',
+  );
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(

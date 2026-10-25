@@ -34,7 +34,13 @@ describe("project management module skeleton (ADR 0016)", () => {
       ["work.write", ["owner", "editor"]],
       ["work.delete", ["owner"]],
       ["work.settings", ["owner"]],
+      ["work.pm.use", ["owner", "editor"]],
+      ["work.pm.apply", ["owner", "editor"]],
+      ["work.pm.manage", ["owner"]],
+      ["work.coding.dispatch", ["owner"]],
     ]);
+    // Dispatching to an external coding agent is owner-only and sensitive.
+    expect(workModule.permissions.find((p) => p.key === "work.coding.dispatch")?.sensitive).toBe(true);
   });
 
   it("is unavailable while ORBIT_WORK is off", () => {

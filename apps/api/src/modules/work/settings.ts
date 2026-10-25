@@ -7,6 +7,10 @@ import {
 } from "../../platform/modules/settings.ts";
 import { DomainError } from "../../shared.ts";
 import { workDomainEvent, workEvent, type WorkActor } from "./common.ts";
+import {
+  defaultPmSettings,
+  pmSettingsSchema,
+} from "./pm/settings-schema.ts";
 
 /**
  * The fixed status categories (ADR 0016 D-5). Statuses are configurable
@@ -109,6 +113,8 @@ export const workSettingsSchema = z
     notifications: z
       .object({ dueSoonDays: z.int().min(0).max(14) })
       .strict(),
+    /** The AI project manager's project settings (ADR 0017); see savePmSettings. */
+    pm: pmSettingsSchema.default(defaultPmSettings),
   })
   .strict();
 export type WorkSettings = z.infer<typeof workSettingsSchema>;
@@ -138,6 +144,7 @@ export const defaultWorkSettings = (): WorkSettings => ({
   teams: [],
   wipLimits: {},
   notifications: { dueSoonDays: 2 },
+  pm: defaultPmSettings(),
 });
 
 export function readWorkSettings(tx: DbTx, scope: Scope) {
@@ -168,8 +175,9 @@ export async function saveWorkSettings(
   members: ReadonlySet<string>,
   actor: WorkActor,
 ) {
-  const next = workSettingsSchema.parse(raw);
   const current = (await readWorkSettings(tx, scope)).settings;
+  // The PM part has its own owner route and permission (work.pm.manage).
+  const next = { ...workSettingsSchema.parse(raw), pm: current.pm };
   const keys = new Set(next.workflow.statuses.map((s) => s.key));
   const removed = current.workflow.statuses.filter((s) => !keys.has(s.key));
   if (removed.length) {

@@ -25,6 +25,21 @@ export async function workActive(tx: DbTx, scope: Scope) {
   return row?.enabled === true;
 }
 
+/** True while the AI project manager is switched on (ORBIT_WORK_PM, ADR 0017). */
+export const pmSwitchedOn = () =>
+  workSwitchedOn() && loadConfig().ORBIT_WORK_PM === "true";
+
+/** True when the AI project manager may run in the project. */
+export async function pmActive(tx: DbTx, scope: Scope) {
+  return pmSwitchedOn() && (await workActive(tx, scope));
+}
+
+/** Throws 404 WORK_PM_DISABLED unless the AI project manager may run. */
+export async function requirePm(tx: DbTx, scope: Scope) {
+  if (!(await pmActive(tx, scope)))
+    throw new DomainError("WORK_PM_DISABLED", 404);
+}
+
 /** Throws 404 WORK_DISABLED unless the module may run in the project. */
 export async function requireWork(tx: DbTx, scope: Scope) {
   if (!(await workActive(tx, scope)))
