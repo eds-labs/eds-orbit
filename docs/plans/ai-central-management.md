@@ -1,6 +1,6 @@
 # Central AI management: prices, models and budgets in one place
 
-Status: **plan, not implemented** (2026-10-25). Requested by Mario after the phase 3 rollout: *"Prices should be maintained once per organization instead of as JSON per project. AI is still confusing for new users; billing and budgets must be simpler and centrally managed."* Builds on ADR 0014 (central connections, AI profiles) and ADR 0015 (AI spending authority). Every decision marked **D-n** below is open.
+Status: **plan, not implemented** (2026-10-25). Decisions D-1, D-3, D-4, D-5 and D-6 were taken by Mario on 2026-10-25 (section 6). Requested by Mario after the phase 3 rollout: *"Prices should be maintained once per organization instead of as JSON per project. AI is still confusing for new users; billing and budgets must be simpler and centrally managed."* Builds on ADR 0014 (central connections, AI profiles) and ADR 0015 (AI spending authority). Every decision marked **D-n** below is open.
 
 ## 1. Where we are (production, 2026-10-25)
 
@@ -99,7 +99,7 @@ Principle: **the organization decides what AI exists and what it costs; a projec
    - Module caps (Support, Finance) and assignment budgets stay where they are, shown read-only with links.
 3. **Modelle** (optional). "Use organization defaults" (default), or deviations per task chosen from the organization catalog.
 4. **Images.** On/off, using the catalog's image price. No separate maximum, no "checked" tick.
-5. **No keys, no prices, no JSON** on the project page. Project-owned keys (today: uLiquid) stay readable and usable until migrated (**D-1**).
+5. **No prices and no JSON** on the project page. Keys come from the organization by default. A project may still keep its own key (D-1: both allowed), for example a customer with their own OpenAI account; it is set under "Erweitert: eigener Key" and shown with its source.
 
 ### 2.3 Budget layers after the change
 
@@ -133,7 +133,7 @@ The `reserve` order stays the same: authority → module → provider → grant/
   1. Collect every project's rate card. Prices that agree go into the organization overrides; conflicts are listed for the owner.
   2. Project task routes equal to the new organization defaults are dropped; differing ones stay as overrides.
   3. Project provider budgets become the organization provider cap.
-  4. Project keys are reported. Moving them to an organization connection is a separate step with the owner (**D-1**).
+  4. Project keys stay as they are (D-1: both allowed). The report only lists which projects use their own key.
 - **Rollback.** Every phase sits behind a flag. The project's own fields are never deleted until a later, separately approved clean-up.
 
 ## 4. Phases
@@ -165,12 +165,18 @@ Each phase:
   - Rollback restores the old behaviour.
 - **Production check after each phase.** uLiquid's 04:00 assignment run, FamilyPlan Support drafts and EDS-Labs Finance extraction run unchanged.
 
-## 6. Open decisions
+## 6. Decisions
 
-- **D-1 Project keys.** Allow them in future, or only organization connections (with project keys migrated by the owner)? *Recommendation:* organization connections only; existing project keys stay usable until migrated.
-- **D-2 Storage.** Catalog and organization budget as fields on `AiProfile`, or as their own tables? *Recommendation:* own tables (`AiModelPrice`, `OrganizationAiBudget`). They need per-row history and per-model audit, and JSON blobs are what made editing hard.
-- **D-3 Price maintenance.** Who keeps prices current, and what happens when they are old? *Recommendation:* Orbit ships dated catalog prices; administrators may override; prices older than 90 days are flagged, not blocked.
-- **D-4 Day and run limits.** Derived automatically with an advanced override, or kept as visible fields? *Recommendation:* derived (day = month / 10, run = min(day, USD 2)), override under "Erweitert".
-- **D-5 Provider budgets.** One organization cap per provider replacing the per-project ones? How should differing project values migrate? *Recommendation:* yes; the migration proposes the sum and the owner confirms.
-- **D-6 Who manages the organization AI area.** Organization owners, administrators, or both? *Recommendation:* organization owners for their organization; administrators for the system catalog and system connections.
-- **D-7 Order.** *Recommendation:* phase A first (it removes today's blocker and the JSON), then B, C, D, E.
+Mario decided on 2026-10-25:
+
+| ID | Decision |
+|---|---|
+| D-1 | **Both allowed.** Keys come from organization connections by default; a project may keep its own key (under "Erweitert"). |
+| D-3 | **Orbit catalog plus override.** Orbit ships dated prices for OpenAI and Claude, image and embedding models included. Administrators and organizations may override them in a form. Prices older than 90 days are flagged, not blocked. |
+| D-4 | **Derived limits.** The project sets a monthly budget. Day = month / 10 and run = min(day, USD 2), each overridable under "Erweitert". |
+| D-5 | **Central provider budgets.** One monthly budget and one cap per provider per organization. Per-project provider budgets are migrated; the migration proposes the sum and the owner confirms. |
+| D-6 | **Organization owners** manage their organization's AI area. Administrators manage the system catalog and system connections. |
+
+Still open, recommendations stand unless Mario says otherwise:
+- **D-2 Storage.** Own tables (`AiModelPrice`, `OrganizationAiBudget`) rather than JSON fields on `AiProfile`.
+- **D-7 Order.** Phase A first, then B, C, D, E.
