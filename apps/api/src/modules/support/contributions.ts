@@ -1,6 +1,7 @@
 import { supportConversationResults } from "./assistant-results.ts";
 import { supportMcpTools, supportMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
+import { supportLinkTypes } from "./links.ts";
 import { supportSwitchedOn } from "./gate.ts";
 import { supportRoutes } from "./routes.ts";
 import { supportRetentionTask } from "./privacy.ts";
@@ -68,4 +69,6 @@ export const supportContributions: ModuleContributions = {
   scheduler: supportScheduler,
   // Attention items: SLA breaches and unassigned tickets.
   attention: supportAttention,
+  // Tickets as link targets of other modules (ADR 0016).
+  linkTypes: supportLinkTypes,
 };

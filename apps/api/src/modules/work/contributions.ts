@@ -1,4 +1,5 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
+import { workAttention, workDueScan } from "./attention.ts";
 import { workSwitchedOn } from "./gate.ts";
 import { workLinkTypes } from "./links.ts";
 import { workUserNotifications } from "./notifications.ts";
@@ -33,4 +34,7 @@ export const workContributions: ModuleContributions = {
   linkTypes: workLinkTypes,
   events: { publishes: WORK_EVENTS },
   userNotifications: workUserNotifications,
+  attention: workAttention,
+  // Due-date notices once a day per project (plan §4.6).
+  periodic: [workDueScan],
 };

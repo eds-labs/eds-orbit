@@ -5,6 +5,7 @@ import {
   knowledgeEvaluationTools,
 } from "./evaluation-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
+import { knowledgeLinkTypes } from "./links.ts";
 import { knowledgeActions } from "./actions.ts";
 import { knowledgeRoutes } from "./routes.ts";
 import { knowledgeActionPermissions } from "./permissions.ts";
@@ -34,4 +35,6 @@ export const knowledgeContributions: ModuleContributions = {
   // Stale and expiring sources, conflicts and failed imports that need the
   // member (UI restructure §4.2).
   attention: knowledgeAttention,
+  // Documents as link targets of other modules (ADR 0016).
+  linkTypes: knowledgeLinkTypes,
 };

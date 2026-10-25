@@ -8,6 +8,7 @@ import {
 } from "./publishing/integrations-admin.ts";
 import { readinessAdminTools } from "./readiness/readiness-admin.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
+import { marketingLinkTypes } from "./links.ts";
 import { chatTools } from "./tools/index.ts";
 import { marketingActionTypes } from "./action-types.ts";
 import { marketingJobs } from "./jobs.ts";
@@ -105,4 +106,6 @@ export const marketingContributions: ModuleContributions = {
       };
     },
   },
+  // Campaigns and assignments as link targets of other modules (ADR 0016).
+  linkTypes: marketingLinkTypes,
 };
