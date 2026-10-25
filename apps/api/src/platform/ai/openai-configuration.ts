@@ -1,3 +1,4 @@
+import { aiCatalogEnabled, projectCatalog, withCatalog } from "./catalog.ts";
 import {
   centralProviderBudgets,
   centralRouteVersion,
@@ -347,14 +348,30 @@ export function aiCapabilities(status: {
 
 export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   const view = publicOpenAiConfiguration(await configurationRow(tx, scope));
+  // The central price catalog the project draws on (phase A), when on.
+  const catalog = aiCatalogEnabled()
+    ? (await projectCatalog(tx, scope)).map((m) => ({
+        id: m.id,
+        provider: m.provider,
+        purpose: m.purpose,
+        displayName: m.displayName,
+        rate: m.rate ?? null,
+        perImageMicros: m.perImageMicros ?? null,
+        verifiedAt: m.verifiedAt,
+        priceSource: m.priceSource,
+        active: m.active,
+        needsReview: m.needsReview,
+      }))
+    : null;
   let status: Awaited<ReturnType<typeof effectiveAiStatus>>;
   try {
     status = await effectiveAiStatus(tx, scope);
   } catch {
-    return view;
+    return { ...view, catalog };
   }
   return {
     ...view,
+    catalog,
     capabilities: aiCapabilities(status),
     routesWithoutKey: routesWithoutKey(status),
     textKeyConfigured: status.textKeyConfigured,
@@ -478,6 +495,19 @@ export async function runtimeOpenAiConfiguration(
   scope: Scope,
   // The key rule to apply; the dry-run report compares both.
   keyRuleV2 = aiKeyRuleV2(),
+): Promise<OpenAiRuntimeConfig> {
+  const runtime = await configuredRuntime(tx, scope, keyRuleV2);
+  // The central price catalog (phase A) under the project's own settings.
+  return aiCatalogEnabled()
+    ? withCatalog(runtime, await projectCatalog(tx, scope))
+    : runtime;
+}
+
+/** The project's, profiles' and environment's settings, without the catalog. */
+async function configuredRuntime(
+  tx: DbTx,
+  scope: Scope,
+  keyRuleV2: boolean,
 ): Promise<OpenAiRuntimeConfig> {
   const row = await configurationRow(tx, scope);
   const environment = environmentRuntimeConfig();

@@ -61,6 +61,14 @@ Settings → AI & budget (owners) holds the project's AI spending authority: the
 3. Turn the flag on. Route versions do not change. A running job of a project that loses a key fails at its next paid call with `PAID_CALL_NOT_AUTHORIZED`, before anything is sent.
 4. Rollback: set the flag to `false`.
 
+## AI price catalog
+
+`ORBIT_AI_CATALOG=true` turns on Orbit's central price catalog (`packages/ai/src/catalog.ts`, docs/plans/ai-central-management.md phase A). Every project of every organization then verifies and prices the active catalog models; a project's own models and prices still win.
+
+- **Prices.** Administrators change the system price under Administration → KI & Wissen → Modelle & Preise, and organization owners change their organization's under Organization → Integrationen. Every change is audited (`ai_model_price.updated`, `ai_model_price.reset`). "Zurücksetzen" returns to the next level: organization → system → Orbit.
+- **Images.** In a project, KI & Budget → OpenAI → "Bilder erzeugen" books the catalog amount per image.
+- **Rollback.** Set the flag back to `false`. The overrides stay stored and unused.
+
 ## Model routes and generation evals
 
 Routes per task class (`chat_operator`, `draft_social`, `draft_blog`) are set by the owner in the OpenAI configuration dialog; precedence, effort and ceilings are described in `MODEL_ROUTING.md`. Migration `202610010001_agent_run_route_version` adds the nullable `AgentRun.routeVersion` (the configuration's entity version); it is additive and deploys with the normal migration step. With no task route saved, behaviour is unchanged.

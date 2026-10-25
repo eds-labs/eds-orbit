@@ -7,6 +7,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/admin/ai/models/{modelId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:MODEL_NOT_IN_CATALOG",
+    "owner": "not_found"
+  },
   "DELETE /api/admin/connection-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -46,6 +54,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "DELETE /api/organizations/{workspaceId}/ai/models/{modelId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODEL_NOT_IN_CATALOG"
   },
   "DELETE /api/organizations/{workspaceId}/connection-grants/{grantId}": {
     "anonymous": "unauthenticated",
@@ -198,6 +214,14 @@
     "editor": "allowed:200",
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
+  },
+  "GET /api/admin/ai/models": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
   },
   "GET /api/admin/ai/profile": {
     "anonymous": "unauthenticated",
@@ -373,6 +397,14 @@
     "viewer": "not_found",
     "editor": "not_found",
     "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}/ai/models": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/organizations/{workspaceId}/ai/profile": {
@@ -3471,6 +3503,14 @@
     "sysadmin": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
+  "PUT /api/admin/ai/models/{modelId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:MODEL_NOT_IN_CATALOG",
+    "owner": "not_found"
+  },
   "PUT /api/admin/ai/profile": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3494,6 +3534,14 @@
     "editor": "not_found",
     "sysadmin": "allowed:400",
     "owner": "not_found"
+  },
+  "PUT /api/organizations/{workspaceId}/ai/models/{modelId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODEL_NOT_IN_CATALOG"
   },
   "PUT /api/organizations/{workspaceId}/ai/profile": {
     "anonymous": "unauthenticated",

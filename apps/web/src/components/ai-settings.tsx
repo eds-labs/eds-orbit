@@ -1016,6 +1016,22 @@ export type OpenAiConfigurationView = {
   configured: boolean;
   // Task classes routed to a provider without a usable key (effective view).
   routesWithoutKey?: string[];
+  // The central price catalog (phase A), null while ORBIT_AI_CATALOG is off.
+  catalog?: Array<{
+    id: string;
+    provider: ProviderId;
+    purpose: "text" | "image" | "embedding";
+    displayName: string;
+    rate: {
+      inputMicrosPerMillion: number;
+      outputMicrosPerMillion: number;
+    } | null;
+    perImageMicros: number | null;
+    verifiedAt: string;
+    priceSource: "orbit" | "system" | "organization";
+    active: boolean;
+    needsReview: boolean;
+  }> | null;
   // What the project can do with its keys now (decisions E-8, E-9).
   capabilities?: {
     text: boolean;
@@ -1157,6 +1173,13 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
   const claudeDefault =
     (current as { defaultProvider?: ProviderId } | undefined)?.defaultProvider ===
     "anthropic";
+  // The catalog's image price for the stored image model, when the catalog is on.
+  const catalogImage = current?.catalog?.find(
+    (m) =>
+      m.id === (current.imageGeneration?.model || "gpt-image-2.5-flare") &&
+      m.active &&
+      m.perImageMicros,
+  ) as { perImageMicros: number; verifiedAt: string } | undefined;
   const tier = (key: "fast" | "standard" | "quality", label: string, heading?: string): FormField => ({
     name: `model-${key}`,
     ...(heading ? { heading } : {}),
@@ -1223,31 +1246,49 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         { value: "gpt-image-2.5-sunburst-2026-09-08", label: "Sunburst · 2026-09-08" },
       ],
     },
-    {
-      name: "imageMaxCost",
-      label: de ? "Höchstbetrag pro Bild (USD, 0 = aus)" : "Maximum per image (USD, 0 = off)",
-      type: "number",
-      min: 0,
-      max: 10,
-      step: "0.001",
-      value: (current?.imageGeneration?.maxCostMicrosPerImage || 0) / 1_000_000,
-      required: true,
-    },
-    {
-      name: "imagePriceChecked",
-      label: current?.imageGeneration?.pricingVerifiedAt
-        ? de
-          ? `Preis heute geprüft (zuletzt ${when(current.imageGeneration.pricingVerifiedAt, locale)})`
-          : `Price checked today (last ${when(current.imageGeneration.pricingVerifiedAt, locale)})`
-        : de
-          ? "Preis heute geprüft"
-          : "Price checked today",
-      type: "checkbox",
-      value: !current?.imageGeneration?.pricingVerifiedAt,
-      hint: de
-        ? "Nötig, sobald der Höchstbetrag über 0 liegt. Bilder brauchen außerdem das Bildmodell unter „Modelle & Preise“."
-        : "Needed once the maximum is above 0. Images also need the image model under “Models & prices”.",
-    },
+    // With the central catalog the image price comes from there: images are
+    // simply on or off. Without it, the per-image maximum and its date.
+    ...(catalogImage
+      ? [
+          {
+            name: "imagesOn",
+            label: de
+              ? `Bilder erzeugen (gebucht pro Bild: $${(catalogImage.perImageMicros / 1_000_000).toFixed(3)} laut Organisation)`
+              : `Generate images (booked per image: $${(catalogImage.perImageMicros / 1_000_000).toFixed(3)} per the organization)`,
+            type: "checkbox" as const,
+            value: (current?.imageGeneration?.maxCostMicrosPerImage ?? 0) > 0,
+            hint: de
+              ? "Den Betrag pflegt die Organisation unter „Modelle & Preise“."
+              : "The organization maintains the amount under “Models & prices”.",
+          },
+        ]
+      : [
+        {
+          name: "imageMaxCost",
+          label: de ? "Höchstbetrag pro Bild (USD, 0 = aus)" : "Maximum per image (USD, 0 = off)",
+          type: "number" as const,
+          min: 0,
+          max: 10,
+          step: "0.001",
+          value: (current?.imageGeneration?.maxCostMicrosPerImage || 0) / 1_000_000,
+          required: true,
+        },
+        {
+          name: "imagePriceChecked",
+          label: current?.imageGeneration?.pricingVerifiedAt
+            ? de
+              ? `Preis heute geprüft (zuletzt ${when(current.imageGeneration.pricingVerifiedAt, locale)})`
+              : `Price checked today (last ${when(current.imageGeneration.pricingVerifiedAt, locale)})`
+            : de
+              ? "Preis heute geprüft"
+              : "Price checked today",
+          type: "checkbox" as const,
+          value: !current?.imageGeneration?.pricingVerifiedAt,
+          hint: de
+            ? "Nötig, sobald der Höchstbetrag über 0 liegt. Bilder brauchen außerdem das Bildmodell unter „Modelle & Preise“."
+            : "Needed once the maximum is above 0. Images also need the image model under “Models & prices”.",
+        },
+        ]),
   ];
   return (
     <Modal title={de ? "OpenAI konfigurieren" : "Configure OpenAI"} onClose={onClose}>
@@ -1295,17 +1336,32 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                   standard: str(values, "model-standard"),
                   quality: str(values, "model-quality"),
                 },
-                imageGeneration: {
-                  model: str(values, "imageModel"),
-                  maxCostMicrosPerImage: Math.round(
-                    Number(values.imageMaxCost) * 1_000_000,
-                  ),
-                  ...(values.imagePriceChecked === true
-                    ? { pricingVerifiedAt: new Date().toISOString() }
-                    : base.imageGeneration.pricingVerifiedAt
-                      ? { pricingVerifiedAt: base.imageGeneration.pricingVerifiedAt }
-                      : {}),
-                },
+                imageGeneration: (() => {
+                  const model = str(values, "imageModel");
+                  const fromCatalog = current.catalog?.find(
+                    (m) => m.id === model && m.active && m.perImageMicros,
+                  );
+                  // Catalog: on books the catalog amount, dated like it.
+                  if (catalogImage && fromCatalog)
+                    return values.imagesOn === true
+                      ? {
+                          model,
+                          maxCostMicrosPerImage: fromCatalog.perImageMicros!,
+                          pricingVerifiedAt: fromCatalog.verifiedAt,
+                        }
+                      : { model, maxCostMicrosPerImage: 0 };
+                  return {
+                    model,
+                    maxCostMicrosPerImage: Math.round(
+                      Number(values.imageMaxCost ?? 0) * 1_000_000,
+                    ),
+                    ...(values.imagePriceChecked === true
+                      ? { pricingVerifiedAt: new Date().toISOString() }
+                      : base.imageGeneration.pricingVerifiedAt
+                        ? { pricingVerifiedAt: base.imageGeneration.pricingVerifiedAt }
+                        : {}),
+                  };
+                })(),
               });
             })
           }
@@ -1431,7 +1487,20 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
   const fields: FormField[] = [
     {
       name: "verifiedModels",
-      label: de ? "Geprüfte Modelle (kommagetrennt)" : "Verified models (comma separated)",
+      ...(current?.catalog
+        ? {
+            heading: de
+              ? "Erweitert: Modelle und Preise nur dieses Projekts"
+              : "Advanced: models and prices of this project only",
+          }
+        : {}),
+      label: current?.catalog
+        ? de
+          ? "Zusätzliche geprüfte Modelle (kommagetrennt)"
+          : "Additional verified models (comma separated)"
+        : de
+          ? "Geprüfte Modelle (kommagetrennt)"
+          : "Verified models (comma separated)",
       required: true,
       value: current?.verifiedModels.join(", ") ?? "",
       placeholder: "gpt-5.6-terra, gpt-image-2.5-flare, claude-sonnet-5-5",
@@ -1454,6 +1523,37 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
   ];
   return (
     <Modal title={de ? "Modelle & Preise" : "Models & prices"} onClose={onClose}>
+      {current?.catalog && (
+        <>
+          <p className="panel-note">
+            {de
+              ? "Diese Modelle und Preise gelten für alle Projekte der Organisation. Ändern kannst du sie in der Organisation unter „Modelle & Preise“. Eigene Angaben unten brauchst du nur für Ausnahmen."
+              : "These models and prices apply to every project of the organization; change them in the organization under “Models & prices”. The fields below are only for exceptions."}
+          </p>
+          <div className="capability-readiness">
+            {current.catalog
+              .filter((m) => m.active)
+              .map((m) => (
+                <div className="data-row" key={m.id}>
+                  <div>
+                    <strong>{m.displayName}</strong>
+                    <p>
+                      {providerName[m.provider]} ·{" "}
+                      {m.perImageMicros
+                        ? `$${(m.perImageMicros / 1_000_000).toFixed(3)} ${de ? "pro Bild" : "per image"}`
+                        : m.rate
+                          ? `${perMillion(m.rate.inputMicrosPerMillion)} / ${perMillion(m.rate.outputMicrosPerMillion)} ${de ? "pro 1 Mio. Tokens" : "per 1M tokens"}`
+                          : "—"}
+                    </p>
+                  </div>
+                  {m.needsReview && (
+                    <Badge tone="warning">{de ? "bitte prüfen" : "please check"}</Badge>
+                  )}
+                </div>
+              ))}
+          </div>
+        </>
+      )}
       {!current ? (
         <Loading />
       ) : (

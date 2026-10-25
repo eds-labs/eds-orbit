@@ -19,6 +19,7 @@ export type SystemAuditInput = {
     | "connection"
     | "grant"
     | "ai_profile"
+    | "ai_model_price"
     | "knowledge_share";
   targetId: string;
   workspaceId?: string | null;

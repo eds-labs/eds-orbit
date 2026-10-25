@@ -57,6 +57,7 @@ for (const key of [
   "ORBIT_TELEGRAM",
   "ORBIT_SPEND_POLICY_SOURCE",
   "ORBIT_AI_KEY_RULE_V2",
+  "ORBIT_AI_CATALOG",
   "ORBIT_CUSTOMER_CONTEXT",
   "ORBIT_FILES",
   "ORBIT_EMAIL",
@@ -244,6 +245,7 @@ for (const name of apiLike) {
   assert.equal(services[name].environment.ORBIT_TELEGRAM, "");
   assert.equal(services[name].environment.ORBIT_SPEND_POLICY_SOURCE, "platform");
   assert.equal(services[name].environment.ORBIT_AI_KEY_RULE_V2, "false");
+  assert.equal(services[name].environment.ORBIT_AI_CATALOG, "false");
 }
 
 // The MCP OAuth server (Track M WP-M1) is off by default, its resource falls

@@ -180,3 +180,32 @@ Mario decided on 2026-10-25:
 Still open, recommendations stand unless Mario says otherwise:
 - **D-2 Storage.** Own tables (`AiModelPrice`, `OrganizationAiBudget`) rather than JSON fields on `AiProfile`.
 - **D-7 Order.** Phase A first, then B, C, D, E.
+
+## 7. Implementation status
+
+### Phase A (2026-10-25, local; flag `ORBIT_AI_CATALOG`, default off)
+
+- **Code catalog** `packages/ai/src/catalog.ts`:
+  - OpenAI text models (GPT-6 Astra/Sol/Luna, GPT-6.1 Sol, GPT-5.6 Sol/Terra/Luna), embeddings and image models, with prices from the official pricing page on 2026-10-25.
+  - The Claude models from the reviewed Claude catalog (2026-10-19).
+  - Image models carry a booked amount of USD 0.25 per image, labelled as a conservative ceiling. OpenAI publishes only token prices for GPT Image 2.5, and Orbit settles an image at this amount.
+  - Prices older than 90 days are flagged.
+- **Table `AiModelPrice`** (migration `202610250002_ai_model_prices`):
+  - Overrides of price or on/off per model, for the system or one organization.
+  - Control plane with forced RLS like `AiProfile`, readable inside project transactions.
+  - Audited as `ai_model_price.updated` and `ai_model_price.reset`.
+- **Routes**:
+  - `GET /api/admin/ai/models`, `PUT|DELETE /api/admin/ai/models/:modelId` for administrators;
+  - the same under `/api/organizations/:id/ai/models` for organization owners.
+  - Access matrix: six new rows, no existing row changed.
+- **Runtime.** With the flag on, `runtimeOpenAiConfiguration` adds every active catalog model to the verified models and its price to the rate card. The project's own verified models and rate card win.
+- **UI**:
+  - "Modelle & Preise" table with price forms in USD for administrators (KI & Wissen) and organizations (Integrationen).
+  - In the project:
+    - the OpenAI dialog offers images as a switch using the catalog amount;
+    - "Modelle & Preise" shows the organization's list and keeps the project's own fields under "Erweitert".
+- **Not yet:**
+  - adding models that are not in the catalog;
+  - an automatic catalog update;
+  - organization defaults (phase B);
+  - budgets (phase C).

@@ -148,6 +148,10 @@ const baseConfigSchema = z.object({
   // for a project without saved AI settings, for every provider. "false"
   // keeps the rule of before (the Anthropic environment key always applies).
   ORBIT_AI_KEY_RULE_V2: z.enum(["false", "true"]).default("false"),
+  // Central AI price catalog (plans/ai-central-management.md, phase A): every
+  // active catalog model is verified and priced for every project, under the
+  // project's own settings. Read directly from the environment by the API.
+  ORBIT_AI_CATALOG: z.enum(["false", "true"]).default("false"),
   // Where the AI spending authority is read from (ADR 0015, plan 3.8):
   // "platform" only the platform record (no paid AI without one);
   // "fallback" the platform record, else the Marketing policy's budget
