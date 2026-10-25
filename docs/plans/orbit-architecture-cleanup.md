@@ -673,9 +673,11 @@ ADR 0015.
 Importers still use the old paths, so existing test mocks keep working.
 
 **Not done, on purpose:**
-- **3.7 Integrations admin, Slack transport and Drive.**
-  - Moving `integrations_*` from Marketing to the platform changes MCP tool namespaces that connected clients use.
-  - Drive and assets wait for decision Q-06.
-  - Both need their own decision.
+- **3.7 Integrations admin, Slack transport and Drive: closed, stays in Marketing** (Mario, 2026-10-25). The code contradicts the plan's assumption:
+  - `integrations_get/configure/verify` manage Postiz (channels, posting times, write verification) and Matomo (site). Both are Marketing's own providers, which Marketing already contributes to the platform (`marketingConnections`).
+  - Moving the tools would make the platform know Postiz details, which the import rules forbid. A clean version would need a generic platform tool collecting module-contributed views and actions, and it would rename the tools for MCP clients.
+  - Slack is used only for Marketing's approval digest.
+  - Hiding these tools is correct when Marketing is off.
+  - Drive stays open until decision Q-06.
 - **3.8 Removing the legacy fallback.** Only after the production backfill and evidence that no project reads the Marketing policy budget any more (separate approval).
 - **Marketing branches in `action-requests.ts`** (`content_packages` lookup, `assignment.confirm` payload, channel directories) stay until module hooks for request descriptions exist.
