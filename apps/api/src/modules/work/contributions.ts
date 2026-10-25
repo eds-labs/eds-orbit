@@ -1,6 +1,7 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { workAttention, workDueScan } from "./attention.ts";
-import { workSwitchedOn } from "./gate.ts";
+import { pmSwitchedOn, workSwitchedOn } from "./gate.ts";
+import { pmInstructions, pmTools } from "./pm/tools.ts";
 import { workLinkTypes } from "./links.ts";
 import { workUserNotifications } from "./notifications.ts";
 import { workRoutes } from "./routes.ts";
@@ -46,13 +47,13 @@ export const workContributions: ModuleContributions = {
   userNotifications: workUserNotifications,
   attention: workAttention,
   // Assistant and MCP reads and proposals (plan §6).
-  tools: workTools,
+  tools: [...workTools, ...pmTools],
   actionTypes: { ...workActionTypes, ...pmActionTypes },
   // The AI project manager's background work (ADR 0017).
   jobs: pmJobs,
   assistant: {
-    features: () => ["work"],
-    instructions: () => workInstructions,
+    features: ({ all }) => ["work", ...(all || pmSwitchedOn() ? (["work_pm"] as const) : [])],
+    instructions: ({ all }) => [...workInstructions, ...(all || pmSwitchedOn() ? pmInstructions : [])],
   },
   // Due-date notices once a day per project (plan §4.6).
   periodic: [workDueScan, pmDailyScan],

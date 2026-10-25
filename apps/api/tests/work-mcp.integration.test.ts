@@ -46,7 +46,8 @@ describe("work tool contracts (ADR 0016)", () => {
     delete process.env.ORBIT_WORK;
   });
   it("registers five reads and four editor-decided proposals with the work scope", () => {
-    const tools = registeredTools().filter((t) => t.namespace === "work");
+    // The AI project manager's tools (ADR 0017) have their own tests.
+    const tools = registeredTools().filter((t) => t.namespace === "work" && !t.name.startsWith("work_pm_"));
     expect(tools.map((t) => t.name).sort()).toEqual([...READS, ...PROPOSALS].sort());
     for (const tool of tools) {
       expect(tool.mcpScopes).toEqual(["orbit:work"]);
