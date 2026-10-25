@@ -28,6 +28,7 @@ import {
 } from "./api";
 import { workText, type WorkText } from "./labels";
 import { memberName, PriorityBadge, StatusBadge, TaskRow, useWorkAccess, useWorkLists } from "./shared";
+import { TaskAgents } from "./pm-task";
 
 // One task with everything that hangs on it (plan §5.2): fields, subtasks,
 // checklist, dependencies, links, attachments, comments and history. Every
@@ -192,6 +193,8 @@ export function TaskDetailView({
       </div>
       <LabelsEditor task={task} t={t} disabled={!access.write || mutation.pending} onSave={(labels) => patchTask({ labels })} />
       <DescriptionEditor task={task} t={t} disabled={!access.write || mutation.pending} onSave={(description) => patchTask({ description })} />
+
+      <TaskAgents taskId={task.id} onChanged={changed} />
 
       <section className="work-section" aria-labelledby="work-subtasks">
         <h3 id="work-subtasks">{t.subtasks}</h3>

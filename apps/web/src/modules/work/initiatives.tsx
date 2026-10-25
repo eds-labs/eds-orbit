@@ -22,6 +22,7 @@ import {
 import { workText, type WorkText } from "./labels";
 import { memberName, ProgressBar, TaskRow, useWorkAccess, useWorkLists } from "./shared";
 import { TaskForm } from "./tasks";
+import { NewPlans, PlanReview, PlanWithAiButton, PmPanel } from "./pm";
 
 // Initiatives ("Vorhaben", plan §5.1): the list with progress, and one
 // initiative (?initiative=<id>) with its fields, milestones and tasks.
@@ -31,27 +32,39 @@ export function InitiativesView() {
   const t = workText(locale);
   const access = useWorkAccess();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [planId, setPlanId] = useState<string | null>(null);
   const [archived, setArchived] = useState(false);
   const [creating, setCreating] = useState(false);
-  useEffect(() => setOpenId(readParam("initiative")), []);
+  useEffect(() => {
+    setOpenId(readParam("initiative"));
+    setPlanId(readParam("plan"));
+  }, []);
   const open = (id: string | null) => {
     setOpenId(id);
     writeParam("initiative", id);
   };
+  // A plan of the AI project manager (ADR 0017), reviewed by ?plan=<id>.
+  const openPlan = (id: string | null) => {
+    setPlanId(id);
+    writeParam("plan", id);
+  };
   const list = useResource<{ items: Initiative[] }>(workPath(project.id, `/initiatives${archived ? "?archived=true" : ""}`));
-  if (openId) return <InitiativeDetail id={openId} onBack={() => { open(null); list.refresh(); }} />;
+  if (planId) return <PlanReview key={planId} planId={planId} onOpen={openPlan} onClose={() => { openPlan(null); list.refresh(); }} />;
+  if (openId) return <InitiativeDetail id={openId} onOpenPlan={openPlan} onBack={() => { open(null); list.refresh(); }} />;
   return (
     <div className="support-page">
       <PageHead title={t.nav.initiatives} description={t.intro}>
         <label className="support-check">
           <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /> {t.showArchived}
         </label>
+        <PlanWithAiButton />
         {access.write && (
           <Button onClick={() => setCreating(true)}>
             <Plus aria-hidden /> {t.newInitiative}
           </Button>
         )}
       </PageHead>
+      <NewPlans onOpen={openPlan} />
       {creating && (
         <InitiativeForm
           onClose={() => setCreating(false)}
@@ -105,7 +118,7 @@ export function InitiativeCard({ initiative: i, t, onOpen }: { initiative: Initi
   );
 }
 
-function InitiativeDetail({ id, onBack }: { id: string; onBack: () => void }) {
+function InitiativeDetail({ id, onBack, onOpenPlan }: { id: string; onBack: () => void; onOpenPlan: (id: string) => void }) {
   const { project, locale } = useWorkspace();
   const t = workText(locale);
   const access = useWorkAccess();
@@ -177,6 +190,7 @@ function InitiativeDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
       </dl>
       <ProgressBar percent={percentDone(i.progress)} label={t.progress} />
+      <PmPanel initiativeId={i.id} onChanged={refresh} onOpenPlan={onOpenPlan} />
       <section className="work-section" aria-labelledby="work-milestones-head">
         <h2 id="work-milestones-head">{t.nav.milestones}</h2>
         <MilestoneList milestones={milestones} t={t} write={access.write} />

@@ -9,6 +9,7 @@ import { ResourceError } from "@/platform/ui/collection";
 import { STATUS_CATEGORIES, send, workPath, type StatusCategory, type WorkSettings } from "./api";
 import { workText, type WorkText } from "./labels";
 import { useWorkAccess, useWorkLists } from "./shared";
+import { usePmSettingsSection } from "./pm-settings";
 
 // The module's settings section (plan §5.4): workflow statuses, task
 // categories, teams and the due-date notice. Owners edit; others read.
@@ -226,5 +227,11 @@ export const workSettings: readonly SettingsSection[] = [
     tab: { key: "work", label: { en: "Project management", de: "Projektmanagement" }, order: 30 },
     order: 10,
     useSection: useWorkSection,
+  },
+  // The AI project manager (ADR 0017), while it runs here.
+  {
+    tab: { key: "work", label: { en: "Project management", de: "Projektmanagement" }, order: 30 },
+    order: 20,
+    useSection: usePmSettingsSection,
   },
 ];

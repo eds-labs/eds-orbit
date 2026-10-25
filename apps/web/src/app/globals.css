@@ -6944,6 +6944,64 @@ a.support-row {
   flex: 1 1 120px;
   min-width: 0;
 }
+/* AI project manager (ADR 0017). */
+.work-pm h2,
+.work-pm h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.work-pm-state,
+.work-pm-run {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.work-pm-run {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.work-pm-findings,
+.work-plan-tasks {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.work-pm-findings li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.work-pm-report {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.work-pm-brief,
+.work-pm-adjustment {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.work-plan-task {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.work-plan-task > .input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.work-plan-subtask {
+  padding-left: 18px;
+}
 @media (max-width: 760px) {
   .work-board {
     grid-auto-flow: row;
