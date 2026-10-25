@@ -47,6 +47,9 @@ import type {
   ConfigurationContribution,
   ConfigurationSection,
 } from "../configuration/types.ts";
+import type { LinkTypeDef } from "../links/types.ts";
+import type { EventSubscription, EventsContribution } from "../events/types.ts";
+import { EVENT_TYPE } from "../../../../../packages/module-contracts/src/index.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -162,6 +165,13 @@ export type ModuleContributions = {
    * marketing mode; read under the same conditions as `attention`.
    */
   attentionStatus?: AttentionStatusContribution;
+  /**
+   * Objects of the module others may link to (ADR 0016), by local type; the
+   * full type is "<module>.<local type>".
+   */
+  linkTypes?: Readonly<Record<string, LinkTypeDef>>;
+  /** Domain events the module publishes and subscribes to (ADR 0016). */
+  events?: EventsContribution;
 };
 
 /** How a module uses the project's mailboxes (several mailboxes per project). */
@@ -303,6 +313,9 @@ type Registered = {
     UserNotificationKind & { owner: string; kind: string }
   >;
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
+  linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
+  eventTypes: ReadonlyMap<string, string>;
+  subscriptions: readonly (EventSubscription & { owner: string })[];
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -500,6 +513,44 @@ export function registerContributions(
         problems.push(`notification kind ${kind} registered twice`);
       userNotifications.set(kind, { ...def, owner, kind });
     }
+  // Link types (ADR 0016): "<owner>.<local type>", unique by construction.
+  const linkTypes = new Map<string, LinkTypeDef & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [local, def] of Object.entries(c.linkTypes ?? {})) {
+      if (!/^[a-z][a-z0-9_]{1,40}$/.test(local))
+        problems.push(`invalid link type ${owner}.${local}`);
+      linkTypes.set(`${owner}.${local}`, { ...def, owner });
+    }
+  // Domain events (ADR 0016): a publisher declares its own types; every
+  // subscription names declared types or prefixes of them.
+  const eventTypes = new Map<string, string>();
+  for (const [owner, c] of ordered)
+    for (const type of c.events?.publishes ?? []) {
+      if (!EVENT_TYPE.test(type) || !type.startsWith(owner + "."))
+        problems.push(`${owner} publishes invalid event type ${type}`);
+      if (eventTypes.has(type))
+        problems.push(`event type ${type} published twice`);
+      eventTypes.set(type, owner);
+    }
+  const subscriptions: (EventSubscription & { owner: string })[] = [];
+  for (const [owner, c] of ordered)
+    for (const sub of c.events?.subscribes ?? []) {
+      if (
+        !/^[a-z][a-z0-9_]{1,30}(\.[a-z][a-z0-9_]{1,40})+$/.test(sub.name) ||
+        !sub.name.startsWith(owner + ".")
+      )
+        problems.push(`${owner} has invalid event subscriber ${sub.name}`);
+      if (subscriptions.some((s) => s.name === sub.name))
+        problems.push(`event subscriber ${sub.name} registered twice`);
+      if (!sub.types.length)
+        problems.push(`event subscriber ${sub.name} subscribes to nothing`);
+      for (const type of sub.types)
+        if (![...eventTypes.keys()].some((t) => eventMatches(type, t)))
+          problems.push(
+            `event subscriber ${sub.name} subscribes to undeclared ${type}`,
+          );
+      subscriptions.push({ ...sub, owner });
+    }
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -519,8 +570,40 @@ export function registerContributions(
     emailInbound,
     userNotifications,
     publicRoutes,
+    linkTypes,
+    eventTypes,
+    subscriptions,
     owners,
   };
+}
+
+/** True when a subscription pattern (exact, or a prefix ending ".*") covers the type. */
+export function eventMatches(pattern: string, type: string) {
+  return pattern.endsWith(".*")
+    ? type.startsWith(pattern.slice(0, -1))
+    : pattern === type;
+}
+
+/** A link type by full type ("work.task"), with its owner. */
+export function registeredLinkType(type: string) {
+  return current().linkTypes.get(type);
+}
+
+/** The module that publishes an event type, or undefined when undeclared. */
+export function registeredEventPublisher(type: string) {
+  return current().eventTypes.get(type);
+}
+
+/** Every subscriber of an event type, with its owner. */
+export function registeredSubscribers(type: string) {
+  return current().subscriptions.filter((s) =>
+    s.types.some((pattern) => eventMatches(pattern, type)),
+  );
+}
+
+/** A subscriber by name. */
+export function registeredSubscriber(name: string) {
+  return current().subscriptions.find((s) => s.name === name);
 }
 
 function current(): Registered {

@@ -122,6 +122,9 @@ export const platformDeclaration: PlatformDeclaration = {
     "Entity",
     "EntityVersion",
     "Outbox",
+    // Object links and domain events (ADR 0016).
+    "ObjectLink",
+    "DomainEvent",
     "BudgetReservation",
     "AuditEvent",
     "AgentRun",

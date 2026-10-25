@@ -236,6 +236,14 @@ try {
     'GRANT SELECT,INSERT,UPDATE ON "ProjectModule" TO orbit_app',
   );
   await migrator.query('GRANT SELECT,INSERT ON "AuditEvent" TO orbit_app');
+  // ADR 0016: links are removed softly, so no DELETE; events are
+  // append-only and only deleted by retention.
+  await migrator.query(
+    'GRANT SELECT,INSERT,UPDATE ON "ObjectLink" TO orbit_app',
+  );
+  await migrator.query(
+    'GRANT SELECT,INSERT,DELETE ON "DomainEvent" TO orbit_app',
+  );
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(

@@ -926,6 +926,54 @@ model Outbox {
   @@index([workspaceId, projectId, dispatchedAt, availableAt])
 }
 
+/// A reference between two objects of any module in one project (ADR 0016).
+/// The objects are resolved by their modules, so there are no foreign keys
+/// to them; removal is soft. Partial unique index and checks live in SQL.
+model ObjectLink {
+  id            String    @id @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String    @db.Uuid
+  sourceType    String
+  sourceId      String    @db.Uuid
+  targetType    String
+  targetId      String    @db.Uuid
+  relation      String
+  createdByKind String
+  createdById   String?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  removedAt     DateTime? @db.Timestamptz(3)
+  removedById   String?
+
+  @@unique([projectId, id])
+  @@index([projectId, sourceType, sourceId])
+  @@index([projectId, targetType, targetId])
+}
+
+/// A content-free domain event (ADR 0016): ids, field names and status keys
+/// only. Subscribers get one job each; depth and origin stop loops.
+model DomainEvent {
+  id            String   @id @db.Uuid
+  workspaceId   String   @db.Uuid
+  projectId     String   @db.Uuid
+  type          String
+  version       Int      @default(1)
+  subjectType   String
+  subjectId     String   @db.Uuid
+  actorKind     String
+  actorId       String?
+  origin        String
+  causationId   String?  @db.Uuid
+  correlationId String   @db.Uuid
+  depth         Int      @default(0)
+  data          Json     @default("{}")
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, type, createdAt])
+  @@index([projectId, subjectType, subjectId, createdAt])
+  @@index([projectId, correlationId])
+}
+
 model BudgetReservation {
   id            String   @id @default(uuid()) @db.Uuid
   workspaceId   String   @db.Uuid

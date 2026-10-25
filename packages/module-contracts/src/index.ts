@@ -33,6 +33,39 @@ export type PermissionDef = {
   sensitive?: boolean;
 };
 
+/**
+ * An object of a module, addressed across modules (ADR 0016): the type is
+ * "<module>.<local type>", such as "work.task" or "support.ticket"; the id
+ * is a uuid in the same project.
+ */
+export const OBJECT_TYPE = /^[a-z][a-z0-9_]{1,30}\.[a-z][a-z0-9_]{1,40}$/;
+export type ObjectRef = { type: string; id: string };
+
+/** How two linked objects relate (ADR 0016); a closed list. */
+export const LINK_RELATIONS = [
+  "relates_to",
+  "implements",
+  "reported_in",
+  "duplicates",
+  "delegated_to",
+  "documents",
+] as const;
+export type LinkRelation = (typeof LINK_RELATIONS)[number];
+
+/** Who caused a link or an event. */
+export const ACTOR_KINDS = [
+  "user",
+  "agent",
+  "system",
+  "mcp",
+  "integration",
+] as const;
+export type ActorKind = (typeof ACTOR_KINDS)[number];
+export type Actor = { kind: ActorKind; id: string | null };
+
+/** "<module>.<object>.<verb>", such as "work.task.status_changed". */
+export const EVENT_TYPE = /^[a-z][a-z0-9_]{1,30}(\.[a-z][a-z0-9_]{1,40}){2,3}$/;
+
 /** The server side of a module, as registered in the static module registry. */
 export type ServerModule = {
   id: ModuleId;

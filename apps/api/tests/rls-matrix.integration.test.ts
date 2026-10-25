@@ -29,6 +29,7 @@ const PROJECT_TABLES = [
   "BudgetReservation",
   "ChunkEmbedding",
   "DocumentVersion",
+  "DomainEvent",
   "Entity",
   "EntityVersion",
   "File",
@@ -36,6 +37,7 @@ const PROJECT_TABLES = [
   "KnowledgeChunk",
   "KnowledgeDocument",
   "KnowledgeIndex",
+  "ObjectLink",
   "Outbox",
   "ProjectMarketingProfile",
   "ProjectMarketingProfileVersion",
@@ -139,6 +141,10 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     AuditEvent: [true, true, false, false],
     // Disabling a module keeps its row (WP1.4).
     ProjectModule: [true, true, true, false],
+    // ADR 0016: links are removed softly; events are append-only and
+    // deleted only by retention.
+    ObjectLink: [true, true, true, false],
+    DomainEvent: [true, true, false, true],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -306,6 +312,34 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       );
       await audit(tx, s, "rls.seed", source.id);
       await enqueue(tx, s, "ingestion", source.id, `rls:${randomUUID()}`);
+      // Object links and domain events (ADR 0016).
+      await tx.objectLink.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          sourceType: "work.task",
+          sourceId: randomUUID(),
+          targetType: "support.ticket",
+          targetId: randomUUID(),
+          relation: "relates_to",
+          createdByKind: "system",
+        },
+      });
+      const eventId = randomUUID();
+      await tx.domainEvent.create({
+        data: {
+          id: eventId,
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          type: "platform.link.created",
+          subjectType: "platform.link",
+          subjectId: randomUUID(),
+          actorKind: "system",
+          origin: "platform",
+          correlationId: eventId,
+        },
+      });
       await tx.budgetReservation.create({
         data: {
           workspaceId: s.workspaceId,

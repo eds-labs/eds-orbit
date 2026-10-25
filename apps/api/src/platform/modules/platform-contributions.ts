@@ -39,6 +39,8 @@ import {
 } from "../email/send.ts";
 import { emailInbound } from "../email/inbound.ts";
 import { ARCHIVE_QUEUE, archiveInboundEmail } from "../email/archive.ts";
+import { eventJob, eventRetention } from "../events/events.ts";
+import { linkPrune } from "../links/links.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
@@ -70,7 +72,10 @@ export const platformContributions: ModuleContributions = {
   },
   // Files whose removal failed are retried hourly (WP4.6).
   // Inbound e-mail every two minutes per project with a mailbox (WP4.7).
-  periodic: [ingressCleanup, fileCleanup, emailInbound],
+  // Links to deleted objects weekly and events after 30 days (ADR 0016).
+  periodic: [ingressCleanup, fileCleanup, emailInbound, linkPrune, eventRetention],
+  // Object links publish their changes (ADR 0016).
+  events: { publishes: ["platform.link.created", "platform.link.removed"] },
   // The project's mailbox over SMTP and IMAP (WP4.7), and customer context
   // provider endpoints (ADR 0011).
   connections: {
@@ -142,5 +147,7 @@ export const platformContributions: ModuleContributions = {
       handler: ({ scope, job, jobId }) =>
         runIndexEvaluation(scope, job.resourceId, jobId).then(() => undefined),
     },
+    // One domain event for one subscriber (ADR 0016).
+    eventJob,
   ],
 };
