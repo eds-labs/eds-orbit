@@ -33,6 +33,10 @@ export const workUserNotifications: Readonly<
     label: label("A plan I asked for is ready", "Ein angeforderter Plan ist fertig"),
     emailDefault: false,
   },
+  work_pm_escalation: {
+    label: label("Critical finding in an initiative I lead", "Kritischer Befund in einem meiner Vorhaben"),
+    emailDefault: true,
+  },
 };
 
 type TaskRef = { id: string; number: number; title: string };

@@ -1,5 +1,6 @@
 import type { JobDef } from "../../../platform/jobs/types.ts";
 import { audit } from "../../../shared.ts";
+import { runScanJob } from "./monitor.ts";
 import { PM_QUEUE, runPlanJob } from "./planner.ts";
 
 // The PM's queue (plan §4.4). One class for every PM job; `kind` says which.
@@ -14,6 +15,9 @@ export const pmJobs: readonly JobDef[] = [
       switch (job.kind) {
         case "plan":
           return runPlanJob(scope, job.resourceId);
+        case "scan":
+          await runScanJob(scope, job.resourceId);
+          return;
         default:
           throw new Error("WORK_PM_JOB_UNKNOWN");
       }

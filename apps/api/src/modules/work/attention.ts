@@ -7,9 +7,9 @@ import type {
 import type { PeriodicTask } from "../../platform/jobs/types.ts";
 import { can } from "../../platform/tenancy/permissions.ts";
 import { audit } from "../../shared.ts";
-import { workActive } from "./gate.ts";
+import { pmActive, workActive } from "./gate.ts";
 import { notifyTask } from "./notifications.ts";
-import { WORK_READ } from "./permissions.ts";
+import { WORK_PM_APPLY, WORK_READ } from "./permissions.ts";
 import { readWorkSettings } from "./settings.ts";
 
 // What needs a member's attention in the module, computed at read time and
@@ -90,6 +90,41 @@ export const workAttention: AttentionContribution = async (tx, scope, now) => {
         navKey: "work-milestones",
         link: "/work/milestones",
       });
+  }
+
+  // AI project manager (ADR 0017): critical findings and plans to decide.
+  if (await pmActive(tx, scope)) {
+    const critical = await tx.workPmFinding.aggregate({
+      where: { projectId: scope.projectId, status: "open", severity: "critical" },
+      _count: { _all: true },
+      _min: { firstSeenAt: true },
+    });
+    if (critical._count._all > 0)
+      items.push({
+        ...base,
+        id: "work:pm_critical",
+        kind: "work_pm_critical",
+        severity: "critical",
+        count: critical._count._all,
+        since: critical._min.firstSeenAt?.toISOString(),
+        navKey: "work-initiatives",
+        link: "/work/initiatives",
+      });
+    if (can(scope, WORK_PM_APPLY)) {
+      const plans = await tx.workPlanProposal.count({
+        where: { projectId: scope.projectId, status: "proposed" },
+      });
+      if (plans > 0)
+        items.push({
+          ...base,
+          id: "work:pm_plan_ready",
+          kind: "work_pm_plan_ready",
+          severity: "info",
+          count: plans,
+          navKey: "work-initiatives",
+          link: "/work/initiatives",
+        });
+    }
   }
   return items;
 };

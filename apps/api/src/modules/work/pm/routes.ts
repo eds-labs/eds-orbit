@@ -11,6 +11,7 @@ import {
   WORK_PM_MANAGE,
   WORK_PM_USE,
   WORK_READ,
+  WORK_WRITE,
 } from "../permissions.ts";
 import { pmBudgetToday } from "./budget.ts";
 import {
@@ -22,6 +23,7 @@ import {
   revisePlan,
 } from "./planner.ts";
 import { readPmSettings, savePmSettings } from "./settings.ts";
+import { dismissFinding, listFindings } from "./monitor.ts";
 import { getPmState, setPmState } from "./state.ts";
 
 // The AI project manager's HTTP API (plan §4.3), under the work module's
@@ -49,6 +51,9 @@ async function inPm<T>(
 
 const id = (p: Params, key = "id") => uuid.parse(p[key]);
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
+const findingsQuery = z
+  .object({ initiativeId: uuid.optional(), status: z.enum(["open", "resolved", "dismissed"]).optional() })
+  .strict();
 const plansQuery = z
   .object({ initiativeId: uuid.optional(), open: z.enum(["true", "false"]).optional() })
   .strict();
@@ -78,6 +83,16 @@ export const pmRoutes: RoutesContribution = ({ app, auth }) => {
   );
   app.put(`${BASE}/initiatives/:id/state`, (req) =>
     inPm(auth, req, WORK_PM_MANAGE, (tx, scope, p) => setPmState(tx, scope, id(p), req.body)),
+  );
+
+  // Findings of the monitor.
+  app.get(`${BASE}/findings`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope) => ({
+      items: await listFindings(tx, scope, findingsQuery.parse(req.query ?? {})),
+    })),
+  );
+  app.post(`${BASE}/findings/:id/dismiss`, (req) =>
+    inPm(auth, req, WORK_WRITE, (tx, scope, p) => dismissFinding(tx, scope, id(p), req.body)),
   );
 
   // Plans.
