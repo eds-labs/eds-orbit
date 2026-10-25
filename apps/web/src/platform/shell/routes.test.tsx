@@ -107,7 +107,9 @@ describe("Web route registry", () => {
       "approvals",
       "marketing-plans",
       "content",
+      "work-my",
       "knowledge",
+      "work-board",
     ]);
     expect(webRegistry.modules.map((m) => [m.id, m.groupOrder])).toEqual(
       expect.arrayContaining([

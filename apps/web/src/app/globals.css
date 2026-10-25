@@ -6716,3 +6716,239 @@ a.support-row {
   font-size: 12px;
   word-break: break-all;
 }
+
+/* Project management (ADR 0016): lists reuse the support row styles. */
+.work-task-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.work-stack {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.work-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.work-inline > .input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.work-grow {
+  display: grid;
+  gap: 4px;
+  flex: 1 1 240px;
+  font-size: 13px;
+}
+.work-section {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.work-section h3,
+.work-section h4 {
+  margin: 0;
+}
+.work-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.work-checklist {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.work-checklist > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.work-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.work-done {
+  text-decoration: line-through;
+  color: var(--muted-foreground);
+}
+.work-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.work-file {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.support-row-meta [data-tone="critical"],
+.work-section > h2[data-tone="critical"] {
+  color: var(--danger);
+}
+.work-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--muted);
+  overflow: hidden;
+}
+.work-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+.work-initiatives {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+.work-initiative {
+  gap: 6px;
+}
+.work-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.work-facts dt {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.work-facts dd {
+  margin: 2px 0 0;
+  font-weight: 600;
+}
+.work-columns-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 16px;
+}
+.work-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(240px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.work-column {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--muted);
+}
+.work-column-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.work-column-head h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+}
+.work-column-cards {
+  list-style: none;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 48px;
+  margin: 0;
+  padding: 0;
+}
+.work-card {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  touch-action: manipulation;
+}
+.work-card[data-dragging] {
+  opacity: 0.6;
+  box-shadow: var(--shadow);
+}
+.work-card-top {
+  display: flex;
+  align-items: start;
+  gap: 4px;
+}
+.work-card-handle {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: grab;
+  touch-action: none;
+}
+.work-card-handle:focus-visible,
+.work-card-title:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+.work-card-title {
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.work-card-move {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.work-card-move select {
+  flex: 1;
+  min-width: 0;
+}
+.work-settings-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.work-settings-row > .input {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .work-board {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    overflow-x: visible;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .work-card {
+    transition: none;
+  }
+}

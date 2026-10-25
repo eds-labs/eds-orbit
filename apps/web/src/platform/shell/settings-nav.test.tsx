@@ -51,6 +51,7 @@ describe("groupSettings", () => {
       // Spec §5.4: policy & budget, then brand (the assignments are a
       // Marketing page since 2026-10-19).
       ["marketing", ["policy", "brand"]],
+      ["work", ["work"]],
       ["support", ["support"]],
       [
         "finance",
@@ -66,6 +67,7 @@ describe("groupSettings", () => {
     expect(groups.map((g) => g.label.de)).toEqual([
       "Projekt",
       "Marketing",
+      "Projektmanagement",
       "Support",
       "Finanzen",
     ]);
@@ -112,6 +114,7 @@ describe("groupSettings", () => {
     expect(groups.map((g) => g.id)).toEqual([
       "project",
       "marketing",
+      "work",
       "finance",
     ]);
     expect(groups.flatMap((g) => g.tabs.map((t) => t.key))).not.toContain(
@@ -260,6 +263,7 @@ describe("module settings links in the sidebar", () => {
       ["marketing", "policy"],
       ["support", "support"],
       ["finance", "finance-mailboxes"],
+      ["work", "work"],
     ]);
   });
 

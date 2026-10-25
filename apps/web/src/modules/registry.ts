@@ -33,6 +33,7 @@ import { knowledgeWeb } from "./knowledge/manifest";
 import { marketingWeb } from "./marketing/manifest";
 import { supportWeb } from "./support/manifest";
 import { financeWeb } from "./finance/manifest";
+import { workWeb } from "./work/manifest";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
 // both the platform pages and every module, like apps/api/src/modules/registry.ts
@@ -261,5 +262,5 @@ export const webRegistry: WebRegistry = {
     },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).
-  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb],
+  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb, workWeb],
 };
