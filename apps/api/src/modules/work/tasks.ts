@@ -594,6 +594,14 @@ export async function deleteTask(
   });
   if (children.length && !includeSubtasks)
     throw new DomainError("WORK_HAS_SUBTASKS", 409);
+  // Coding work orders stay as the record of what was dispatched (ADR 0017):
+  // such a task is archived, not deleted.
+  if (
+    await tx.workCodingRun.count({
+      where: { projectId: scope.projectId, taskId: { in: [row.id, ...children.map((c) => c.id)] } },
+    })
+  )
+    throw new DomainError("WORK_TASK_HAS_CODING_RUNS", 409);
   for (const t of [...children, row]) {
     await removeLinksFor(tx, scope, subject(t.id), actor);
     await workDomainEvent(tx, scope, "work.task.deleted", subject(t.id), actor, { number: t.number });

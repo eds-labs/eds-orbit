@@ -27,6 +27,16 @@ import { dismissFinding, listFindings } from "./monitor.ts";
 import { requestAnalysis } from "./analyst.ts";
 import { listReports, loadReport, requestReport } from "./reporter.ts";
 import { handoffView, listHandoffs, proposeHandoff } from "./handoffs.ts";
+import {
+  cancelCodingRun,
+  codingRunView,
+  createCodingRun,
+  editCodingBrief,
+  listCodingRuns,
+  loadCodingRun,
+  reportManualRun,
+  submitCodingRun,
+} from "./coding.ts";
 import { availableHandoffs } from "../../../platform/handoffs/handoffs.ts";
 import { getPmState, setPmState } from "./state.ts";
 
@@ -60,6 +70,7 @@ const findingsQuery = z
   .strict();
 const initiativeInput = z.object({ initiativeId: uuid }).strict();
 const reportsQuery = z.object({ initiativeId: uuid.optional() }).strict();
+const codingQuery = z.object({ taskId: uuid.optional() }).strict();
 const plansQuery = z
   .object({ initiativeId: uuid.optional(), open: z.enum(["true", "false"]).optional() })
   .strict();
@@ -131,6 +142,31 @@ export const pmRoutes: RoutesContribution = ({ app, auth }) => {
   );
   app.post(`${BASE}/tasks/:id/handoffs`, (req) =>
     inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => handoffView(await proposeHandoff(tx, scope, id(p), req.body))),
+  );
+
+  // Coding work orders (ADR 0017 P-4).
+  app.post(`${BASE}/tasks/:id/coding-runs`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => codingRunView(await createCodingRun(tx, scope, id(p), req.body))),
+  );
+  app.get(`${BASE}/coding-runs`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope) => ({
+      items: await listCodingRuns(tx, scope, codingQuery.parse(req.query ?? {}).taskId),
+    })),
+  );
+  app.get(`${BASE}/coding-runs/:id`, (req) =>
+    inPm(auth, req, WORK_READ, async (tx, scope, p) => codingRunView(await loadCodingRun(tx, scope, id(p)))),
+  );
+  app.patch(`${BASE}/coding-runs/:id`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => codingRunView(await editCodingBrief(tx, scope, id(p), req.body))),
+  );
+  app.post(`${BASE}/coding-runs/:id/submit`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => codingRunView(await submitCodingRun(tx, scope, id(p), req.body))),
+  );
+  app.post(`${BASE}/coding-runs/:id/cancel`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => codingRunView(await cancelCodingRun(tx, scope, id(p)))),
+  );
+  app.patch(`${BASE}/coding-runs/:id/manual`, (req) =>
+    inPm(auth, req, WORK_WRITE, async (tx, scope, p) => codingRunView(await reportManualRun(tx, scope, id(p), req.body))),
   );
 
   // Plans.

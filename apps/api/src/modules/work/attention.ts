@@ -122,6 +122,20 @@ export const workAttention: AttentionContribution = async (tx, scope, now) => {
         navKey: "work-initiatives",
         link: "/work/initiatives",
       });
+    // Coding runs whose outcome is unknown need a person (no automatic retry).
+    const unknown = await tx.workCodingRun.count({
+      where: { projectId: scope.projectId, status: "outcome_unknown" },
+    });
+    if (unknown > 0)
+      items.push({
+        ...base,
+        id: "work:coding_unknown",
+        kind: "work_coding_unknown",
+        severity: "warning",
+        count: unknown,
+        navKey: "work-board",
+        link: "/work/tasks",
+      });
     if (can(scope, WORK_PM_APPLY)) {
       const plans = await tx.workPlanProposal.count({
         where: { projectId: scope.projectId, status: "proposed" },

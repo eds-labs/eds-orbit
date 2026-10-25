@@ -231,7 +231,7 @@ export const handoffActionTypes = {
 };
 
 /** Moves a task's status forward to the first status of `category`, if allowed. */
-async function moveForward(
+export async function moveForward(
   tx: DbTx,
   scope: Scope,
   taskId: string,

@@ -11,6 +11,7 @@ import { pmJobs } from "./pm/jobs.ts";
 import { pmDailyScan, pmMonitorSubscriber } from "./pm/monitor.ts";
 import { handoffActionTypes, handoffLinkType, handoffSyncSubscriber } from "./pm/handoffs.ts";
 import { pmHandoffTargets } from "./pm/research.ts";
+import { CODING_DISPATCH, codingDispatchAction, codingRunLinkType, codingTimeouts } from "./pm/coding.ts";
 
 /** The domain events the module publishes (ADR 0016): ids and keys only. */
 export const WORK_EVENTS = [
@@ -36,6 +37,12 @@ export const WORK_EVENTS = [
   "work.pm.finding.opened",
   "work.pm.finding.resolved",
   "work.pm.report.created",
+  "work.coding_run.dispatched",
+  "work.coding_run.started",
+  "work.coding_run.succeeded",
+  "work.coding_run.failed",
+  "work.coding_run.outcome_unknown",
+  "work.coding_run.canceled",
 ] as const;
 
 /** What the project management module plugs into the platform. */
@@ -43,7 +50,7 @@ export const workContributions: ModuleContributions = {
   available: workSwitchedOn,
   unavailableCode: "WORK_DISABLED",
   routes: workRoutes,
-  linkTypes: { ...workLinkTypes, handoff: handoffLinkType },
+  linkTypes: { ...workLinkTypes, handoff: handoffLinkType, coding_run: codingRunLinkType },
   // Research and analysis of a task by the AI project manager (ADR 0017).
   handoffs: pmHandoffTargets,
   // The AI project manager's monitor wakes on task and milestone changes.
@@ -52,7 +59,12 @@ export const workContributions: ModuleContributions = {
   attention: workAttention,
   // Assistant and MCP reads and proposals (plan §6).
   tools: [...workTools, ...pmTools],
-  actionTypes: { ...workActionTypes, ...pmActionTypes, ...handoffActionTypes },
+  actionTypes: {
+    ...workActionTypes,
+    ...pmActionTypes,
+    ...handoffActionTypes,
+    [CODING_DISPATCH]: codingDispatchAction,
+  },
   // The AI project manager's background work (ADR 0017).
   jobs: pmJobs,
   assistant: {
@@ -60,5 +72,5 @@ export const workContributions: ModuleContributions = {
     instructions: ({ all }) => [...workInstructions, ...(all || pmSwitchedOn() ? pmInstructions : [])],
   },
   // Due-date notices once a day per project (plan §4.6).
-  periodic: [workDueScan, pmDailyScan],
+  periodic: [workDueScan, pmDailyScan, codingTimeouts],
 };

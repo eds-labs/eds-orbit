@@ -85,7 +85,10 @@ export function workDomainEvent(
   tx: DbTx,
   scope: Scope,
   type: string,
-  subject: { type: "work.task" | "work.initiative" | "work.milestone"; id: string },
+  subject: {
+    type: "work.task" | "work.initiative" | "work.milestone" | "work.coding_run";
+    id: string;
+  },
   actor: WorkActor,
   data: Record<string, unknown> = {},
 ) {
