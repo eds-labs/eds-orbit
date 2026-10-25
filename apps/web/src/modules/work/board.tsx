@@ -244,7 +244,7 @@ export function BoardView() {
         />
       )}
       {open && (
-        <Modal title={t.nav.tasks} onClose={() => openTask(null)} wide>
+        <Modal title={t.task} onClose={() => openTask(null)} wide>
           <TaskDetailView key={open} taskId={open} onBack={() => openTask(null)} onChanged={reload} onOpen={openTask} />
         </Modal>
       )}

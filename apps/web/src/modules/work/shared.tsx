@@ -1,4 +1,5 @@
 "use client";
+import { useMemo } from "react";
 import { useResource } from "@/lib/api";
 import { Badge } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
@@ -35,19 +36,24 @@ export function useWorkAccess() {
 export function useWorkLists() {
   const { project } = useWorkspace();
   const settings = useResource<{ settings: WorkSettings; version: number }>(workPath(project.id, "/settings"));
-  const members = useResource<{ items: Member[] }>(workPath(project.id, "/members"));
-  const statuses = [...(settings.data?.settings.workflow.statuses ?? [])].sort((a, b) => a.order - b.order);
+  const membersResource = useResource<{ items: Member[] }>(workPath(project.id, "/members"));
+  // Stable while the settings are unchanged, so effects may depend on it.
+  const statuses = useMemo(
+    () => [...(settings.data?.settings.workflow.statuses ?? [])].sort((a, b) => a.order - b.order),
+    [settings.data],
+  );
+  const members = useMemo(() => membersResource.data?.items ?? [], [membersResource.data]);
   return {
     settings: settings.data?.settings ?? null,
     version: settings.data?.version ?? 1,
     statuses,
-    members: members.data?.items ?? [],
+    members,
     refresh: () => {
       settings.refresh();
-      members.refresh();
+      membersResource.refresh();
     },
-    loading: settings.loading || members.loading,
-    error: settings.error ?? members.error,
+    loading: settings.loading || membersResource.loading,
+    error: settings.error ?? membersResource.error,
   };
 }
 

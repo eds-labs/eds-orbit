@@ -117,6 +117,19 @@ Finance (`docs/FINANCE.md`) follows the Support pattern: `defaultEnabled: false`
 
 Switching finance off deletes nothing. A mailbox bound to finance keeps its owner claim, so its mail waits unprocessed until the module is on again or the mailbox is unbound.
 
+## Project management (opt-in, 2026-10-25, local; flag off)
+
+Project management (`docs/WORK.md`, ADR 0016) follows the Finance pattern: `defaultEnabled: false`, the installation switch `ORBIT_WORK` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_WORK=true` (default `false`). While off, the module is unavailable: routes answer 404 `WORK_DISABLED`, tools, attention, notifications and the due scan are gone. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `work.read` (all roles), `work.write` (owner, editor), `work.delete` and `work.settings` (owner); module roles may narrow them (`none` hides the module). |
+| Jobs, tools, attention | The `work-due-scan` periodic task, the nine tools (feature `work`) and the attention items are contributions and obey the same activation. |
+
+Switching it off deletes nothing; links to its objects stay and show as unavailable.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

@@ -6846,10 +6846,14 @@ a.support-row {
   grid-auto-flow: column;
   grid-auto-columns: minmax(240px, 1fr);
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   padding-bottom: 8px;
 }
 .work-column {
+  /* Keeps the visually hidden labels inside the scrolling board. */
+  position: relative;
   display: grid;
   grid-template-rows: auto 1fr;
   gap: 8px;

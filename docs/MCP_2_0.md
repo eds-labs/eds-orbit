@@ -56,6 +56,10 @@ endpoint. Repeating an approval returns the recorded result.
   owner-approved `finance_retry_extraction` proposal. Every scope in a tool's
   `mcpScopes` is required (all-of). Finance tools stay hidden, also from
   discovery, without their scope. See [Finance](FINANCE.md#mcp).
+- `orbit:work`: explicit, initially unchecked consent for project management
+  (ADR 0016): the five work reads (with `orbit:read`) and the four work
+  proposals (with `orbit:propose`), which an owner or editor approves. See
+  [Project management](WORK.md#assistant-and-mcp).
 - Module roles, installation switches and project activation still apply.
   Support also needs `ORBIT_SUPPORT` and explicit per-project activation.
 - Text generation needs the existing spend mandate, priced/verified model and
