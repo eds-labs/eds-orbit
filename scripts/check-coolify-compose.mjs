@@ -60,6 +60,8 @@ for (const key of [
   "ORBIT_SPEND_POLICY_SOURCE",
   "ORBIT_AI_KEY_RULE_V2",
   "ORBIT_AI_CATALOG",
+  "ORBIT_AI_DEFAULTS",
+  "ORBIT_AI_ORG_BUDGET",
   "ORBIT_CUSTOMER_CONTEXT",
   "ORBIT_FILES",
   "ORBIT_EMAIL",
@@ -253,6 +255,8 @@ for (const name of apiLike) {
   assert.equal(services[name].environment.ORBIT_SPEND_POLICY_SOURCE, "platform");
   assert.equal(services[name].environment.ORBIT_AI_KEY_RULE_V2, "false");
   assert.equal(services[name].environment.ORBIT_AI_CATALOG, "false");
+  assert.equal(services[name].environment.ORBIT_AI_DEFAULTS, "false");
+  assert.equal(services[name].environment.ORBIT_AI_ORG_BUDGET, "false");
 }
 
 // The MCP OAuth server (Track M WP-M1) is off by default, its resource falls

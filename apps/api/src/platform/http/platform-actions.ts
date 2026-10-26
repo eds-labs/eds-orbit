@@ -18,6 +18,7 @@ import {
   saveOpenAiConfiguration,
 } from "../ai/openai-configuration.ts";
 import { settleOnGrant } from "../ai/central-ai.ts";
+import { settleOnOrganization } from "../ai/org-budget.ts";
 import { saveSpendPolicy } from "../ai/spend-policy.ts";
 import {
   CONNECTION_KIND,
@@ -207,6 +208,7 @@ export const platformActions: Record<string, ActionHandler> = {
     let micros = 0n;
     for (const row of rows) {
       await settleOnGrant(tx, row, row.amountMicros);
+      await settleOnOrganization(tx, row, row.amountMicros);
       await tx.budgetReservation.update({
         where: { id: row.id },
         data: { state: "settled", settledMicros: row.amountMicros },

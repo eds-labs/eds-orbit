@@ -9,6 +9,8 @@ import {
 import { assertProviderBudget } from "./provider-budget.ts";
 import { chargedGrant, reserveOnGrant, settleOnGrant } from "./central-ai.ts";
 import { runtimeProviderBudgets } from "./openai-configuration.ts";
+import { providerOfModel } from "../../../../../packages/ai/src/index.ts";
+import { reserveOnOrganization, settleOnOrganization } from "./org-budget.ts";
 /**
  * Start of the budget month that contains `at`: the first of the month at
  * 00:00 UTC. Project, assignment and reported month totals all count from it.
@@ -108,15 +110,22 @@ export async function reserve(
     await assertProviderBudget(tx, scope, attribution.model, amount, now);
   // A key from a granted central connection (ADR 0014) is also charged to
   // the grant's, the organization's and the connection's monthly budgets.
+  const registry = attribution?.model
+    ? (await runtimeProviderBudgets(tx, scope)).models
+    : undefined;
   const granted = attribution?.model
-    ? await chargedGrant(
-        tx,
-        scope,
-        attribution.model,
-        (await runtimeProviderBudgets(tx, scope)).models as never,
-      )
+    ? await chargedGrant(tx, scope, attribution.model, registry as never)
     : null;
   if (granted) await reserveOnGrant(tx, scope, granted, amount, month);
+  // The organization's month budget and provider cap (phase C), after the
+  // grant counters so every reservation locks counters in the same order.
+  const orgProvider = await reserveOnOrganization(
+    tx,
+    scope,
+    attribution?.model ? providerOfModel(attribution.model, registry) : "none",
+    amount,
+    month,
+  );
   const reservation = await tx.budgetReservation.create({
     data: {
       workspaceId: scope.workspaceId,
@@ -129,6 +138,7 @@ export async function reserve(
       taskClass: attribution?.taskClass ?? null,
       model: attribution?.model ?? null,
       missionId: attribution?.missionId ?? null,
+      orgProvider,
       ...(granted
         ? {
             connectionId: granted.connection.id,
@@ -163,7 +173,10 @@ export async function settle(
   if (row.state === "settled") return row;
   if (actual !== null && (!Number.isSafeInteger(actual) || actual < 0))
     throw new DomainError("INVALID_USAGE");
-  if (actual !== null) await settleOnGrant(tx, row, BigInt(actual));
+  if (actual !== null) {
+    await settleOnGrant(tx, row, BigInt(actual));
+    await settleOnOrganization(tx, row, BigInt(actual));
+  }
   return tx.budgetReservation.update({
     where: { id },
     data: {

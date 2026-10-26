@@ -35,6 +35,12 @@ import {
   channelAssignments,
 } from "../connections/channel-assignment.ts";
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
+import { aiDefaults, clearAiDefaults, saveAiDefaults } from "./ai-defaults.ts";
+import {
+  organizationAiBudgetView,
+  organizationAiUsage,
+  saveOrganizationAiBudget,
+} from "./ai-budget.ts";
 import {
   listModelPrices,
   resetModelPrice,
@@ -262,6 +268,52 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
       modelId(req),
     ),
   );
+  // "Standard-Modelle" (phase B): the system's (administrators) and an
+  // organization's (owners) provider and level, image model and task routes.
+  app.get("/api/admin/ai/defaults", async (req) => {
+    await admin(req);
+    return aiDefaults({ scope: "system" });
+  });
+  app.put("/api/admin/ai/defaults", async (req) =>
+    saveAiDefaults((await admin(req)).userId, { scope: "system" }, req.body),
+  );
+  app.delete("/api/admin/ai/defaults", async (req) =>
+    clearAiDefaults((await admin(req)).userId, { scope: "system" }),
+  );
+  app.get("/api/organizations/:workspaceId/ai/defaults", async (req) => {
+    await owner(req);
+    return aiDefaults({ scope: "workspace", workspaceId: id(req, "workspaceId") });
+  });
+  app.put("/api/organizations/:workspaceId/ai/defaults", async (req) =>
+    saveAiDefaults(
+      (await owner(req)).userId,
+      { scope: "workspace", workspaceId: id(req, "workspaceId") },
+      req.body,
+    ),
+  );
+  app.delete("/api/organizations/:workspaceId/ai/defaults", async (req) =>
+    clearAiDefaults(
+      (await owner(req)).userId,
+      { scope: "workspace", workspaceId: id(req, "workspaceId") },
+    ),
+  );
+  // "Budget" and "Verbrauch" (phase C): the organization's monthly AI
+  // budget and provider caps, and its spend across projects (owners, D-6).
+  app.get("/api/organizations/:workspaceId/ai/budget", async (req) => {
+    await owner(req);
+    return organizationAiBudgetView(id(req, "workspaceId"));
+  });
+  app.put("/api/organizations/:workspaceId/ai/budget", async (req) =>
+    saveOrganizationAiBudget(
+      (await owner(req)).userId,
+      id(req, "workspaceId"),
+      req.body,
+    ),
+  );
+  app.get("/api/organizations/:workspaceId/ai/usage", async (req) => {
+    await owner(req);
+    return organizationAiUsage(id(req, "workspaceId"));
+  });
   // What the project may choose from; any member may see the names.
   app.get("/api/projects/:projectId/connections", async (req) => {
     enabled();

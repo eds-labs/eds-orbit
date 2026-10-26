@@ -1,4 +1,9 @@
-import { aiCatalogEnabled, projectCatalog, withCatalog } from "./catalog.ts";
+import {
+  aiCatalogEnabled,
+  aiDefaultsEnabled,
+  projectCatalog,
+  withCatalog,
+} from "./catalog.ts";
 import {
   centralProviderBudgets,
   centralRouteVersion,
@@ -9,6 +14,7 @@ import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
+  aiDefaultsSchema,
   anthropicCatalog,
   anthropicCatalogRateCard,
   anthropicCatalogRegistry,
@@ -16,7 +22,11 @@ import {
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
   imagePriceConfigured,
+  modelPresets,
   modelRegistrySchema,
+  presetModels,
+  presetRouting,
+  projectRoutingSchema,
   providerBudgetsSchema,
   providerIdSchema,
   providerOfModel,
@@ -28,6 +38,7 @@ import {
   taskRoutesSchema,
   type ModelRoute,
   type OpenAiRuntimeConfig,
+  type ProjectRouting,
   type ProviderId,
   type TaskClass,
 } from "../../../../../packages/ai/src/index.ts";
@@ -166,6 +177,8 @@ type StoredConfiguration = Omit<
     encryptedApiKey?: string;
     encryptedImageApiKey?: string;
     encryptedAnthropicApiKey?: string;
+    /** Organization standard or an own preset (phase B); absent: custom. */
+    routing?: ProjectRouting;
     updatedBy: string;
     updatedAt: string;
   };
@@ -217,6 +230,9 @@ function stored(row: { data: unknown }): StoredConfiguration {
     models: providerFields.models,
     providerBudgets: providerFields.providerBudgets,
     fallback: providerFields.fallback,
+    routing: value.routing
+      ? projectRoutingSchema.parse(value.routing)
+      : undefined,
     updatedBy: z.string().parse(value.updatedBy),
     updatedAt: z.iso.datetime().parse(value.updatedAt),
   };
@@ -375,15 +391,27 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
         needsReview: m.needsReview,
       }))
     : null;
+  const defaults = aiDefaultsEnabled()
+    ? { standard: await standardModels(tx, scope), presets: modelPresets }
+    : null;
   let status: Awaited<ReturnType<typeof effectiveAiStatus>>;
   try {
     status = await effectiveAiStatus(tx, scope);
   } catch {
-    return { ...view, catalog };
+    return { ...view, catalog, defaults };
   }
+  // A project on a preset or the standard shows what its calls use.
+  const routed = defaults && view.routing;
   return {
     ...view,
     catalog,
+    defaults,
+    ...(routed
+      ? {
+          effectiveRoutes: status.effectiveRoutes,
+          defaultProvider: status.defaultProvider,
+        }
+      : {}),
     capabilities: aiCapabilities(status),
     routesWithoutKey: routesWithoutKey(status),
     textKeyConfigured: status.textKeyConfigured,
@@ -399,6 +427,28 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
       },
     },
   };
+}
+
+/**
+ * The standard models a project on "organization" uses: the organization's,
+ * else the system's, with where they come from; null when neither set one.
+ */
+async function standardModels(tx: DbTx, scope: Scope) {
+  const profiles = await tx.aiProfile.findMany({
+    where: { OR: [{ scope: "system" }, { workspaceId: scope.workspaceId }] },
+  });
+  for (const level of ["workspace", "system"] as const) {
+    const parsed = aiDefaultsSchema.safeParse(
+      (profiles.find((p) => p.scope === level)?.data as { defaults?: unknown })
+        ?.defaults,
+    );
+    if (parsed.success)
+      return {
+        source: level === "workspace" ? "organization" : "system",
+        ...parsed.data,
+      };
+  }
+  return null;
 }
 
 export function publicOpenAiConfiguration(
@@ -437,6 +487,7 @@ export function publicOpenAiConfiguration(
       models: providerFields.models,
       providerBudgets: providerFields.providerBudgets,
       fallback: providerFields.fallback,
+      routing: null,
       suggestions: { anthropic: anthropicSuggestions() },
     };
   }
@@ -462,6 +513,7 @@ export function publicOpenAiConfiguration(
     models: value.models,
     providerBudgets: value.providerBudgets,
     fallback: value.fallback,
+    routing: value.routing ?? null,
     suggestions: { anthropic: anthropicSuggestions() },
     updatedAt: value.updatedAt,
     version: row.version,
@@ -525,6 +577,7 @@ async function configuredRuntime(
   const environment = environmentRuntimeConfig();
   const credentialKey = loadConfig().CREDENTIAL_KEY;
   const value = row ? stored(row) : null;
+  const routing = aiDefaultsEnabled() ? value?.routing : undefined;
   // Only what the project saved itself, keys included (no fallback here).
   const project: OpenAiRuntimeConfig | null = value
     ? {
@@ -548,6 +601,7 @@ async function configuredRuntime(
         fallback: value.fallback,
         routeVersion: row!.version,
         imageGeneration: value.imageGeneration,
+        ...(routing ? routedFields(routing, value.modelRoutes) : {}),
       }
     : null;
   const central = await withCentralAi(
@@ -557,6 +611,7 @@ async function configuredRuntime(
     environment,
     row?.version ?? null,
     keyRuleV2,
+    routing?.source === "organization",
   );
   if (central) return central;
   if (!project) return environment;
@@ -568,6 +623,30 @@ async function configuredRuntime(
     anthropicApiKey:
       project.anthropicApiKey ??
       (keyRuleV2 ? undefined : environment.anthropicApiKey),
+  };
+}
+
+/**
+ * The routing fields of a project that chose its models by preset or from
+ * the organization (phase B), in place of its saved tiers and task routes,
+ * which stay stored for a return to custom settings. The organization's
+ * standard comes from the central layer (`withCentralAi`).
+ */
+function routedFields(
+  routing: ProjectRouting,
+  savedOpenAiTiers: StoredConfiguration["modelRoutes"],
+): Partial<OpenAiRuntimeConfig> {
+  if (routing.source === "preset")
+    return {
+      anthropicTierRoutes: undefined,
+      ...presetRouting(routing.provider, routing.level, savedOpenAiTiers),
+      taskRoutes: routing.overrides,
+    };
+  return {
+    defaultProvider: undefined,
+    modelRoutes: undefined,
+    anthropicTierRoutes: undefined,
+    taskRoutes: routing.overrides,
   };
 }
 
@@ -748,11 +827,20 @@ export async function runtimeProviderBudgets(
  * section each.
  */
 export const aiConfigurationInput = z
-  .object({ models: z.unknown().optional(), providers: z.unknown().optional() })
+  .object({
+    models: z.unknown().optional(),
+    providers: z.unknown().optional(),
+    // Phase B: organization standard, an own preset or custom settings.
+    routing: z.unknown().optional(),
+  })
   .strict()
-  .refine((v) => v.models !== undefined || v.providers !== undefined, {
-    message: "AI_CONFIGURATION_SECTION_REQUIRED",
-  });
+  .refine(
+    (v) =>
+      v.models !== undefined ||
+      v.providers !== undefined ||
+      v.routing !== undefined,
+    { message: "AI_CONFIGURATION_SECTION_REQUIRED" },
+  );
 
 export async function saveAiConfiguration(
   tx: DbTx,
@@ -766,13 +854,86 @@ export async function saveAiConfiguration(
     result = await saveOpenAiConfiguration(tx, scope, input.models, options);
   if (input.providers !== undefined)
     result = await saveAiProviderConfiguration(tx, scope, input.providers);
+  if (input.routing !== undefined)
+    result = await saveAiRouting(tx, scope, input.routing);
   return {
     result: result!,
     sections: [
       ...(input.models !== undefined ? ["models"] : []),
       ...(input.providers !== undefined ? ["providers"] : []),
+      ...(input.routing !== undefined ? ["routing"] : []),
     ],
   };
+}
+
+/** The routing section: `custom` returns to the project's own settings. */
+export const aiRoutingInput = z.union([
+  projectRoutingSchema,
+  z.object({ source: z.literal("custom") }).strict(),
+]);
+
+/**
+ * Saves how the project chooses its models (phase B). The preset's models
+ * and every deviation must be active in the catalog (or verified by the
+ * project); a Claude deviation may not use the effort `none`. The saved
+ * tiers and task routes stay as they are, so "custom" restores them, and
+ * a first save needs a key the project keeps using, as every first save.
+ */
+export async function saveAiRouting(tx: DbTx, scope: Scope, raw: unknown) {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  if (!aiDefaultsEnabled()) throw new DomainError("AI_DEFAULTS_DISABLED", 409);
+  const input = aiRoutingInput.parse(raw);
+  const current = await configurationRow(tx, scope);
+  const currentValue = current ? stored(current) : null;
+  if (input.source === "custom") {
+    if (!current || !currentValue?.routing)
+      return publicOpenAiConfiguration(current);
+    const { routing: _r, ...rest } = currentValue;
+    const row = await update(tx, scope, current, {
+      ...rest,
+      updatedBy: scope.userId,
+      updatedAt: new Date().toISOString(),
+    });
+    return publicOpenAiConfiguration(row);
+  }
+  const known = new Set([
+    ...(currentValue?.verifiedModels ?? []),
+    ...(await catalogModelIds(tx, scope)),
+  ]);
+  if (
+    input.source === "preset" &&
+    presetModels(input.provider, input.level).some((model) => !known.has(model))
+  )
+    throw new DomainError("PRESET_MODEL_INACTIVE");
+  for (const route of Object.values(input.overrides)) {
+    if (!known.has(route!.model))
+      throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
+    if (
+      route!.reasoningEffort === "none" &&
+      providerOfModel(route!.model, currentValue?.models) === "anthropic"
+    )
+      throw new DomainError("ROUTE_EFFORT_UNSUPPORTED");
+  }
+  if (!current && !(await grantedAnyKey(tx, scope)))
+    throw new DomainError("AI_KEY_REQUIRED");
+  const base = currentValue ?? {
+    ...defaultProviderFields(),
+    verifiedModels: [],
+    rateCard: {},
+    modelRoutes,
+    taskRoutes: {},
+    imageGeneration: imageGenerationConfigurationSchema.parse({}),
+  };
+  const next = {
+    ...base,
+    routing: input,
+    updatedBy: scope.userId,
+    updatedAt: new Date().toISOString(),
+  };
+  const row = current
+    ? await update(tx, scope, current, next)
+    : await create(tx, scope, "openai_configuration", next);
+  return publicOpenAiConfiguration(row);
 }
 
 export async function saveOpenAiConfiguration(

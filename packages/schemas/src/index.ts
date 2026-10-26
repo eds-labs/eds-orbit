@@ -185,7 +185,9 @@ export const policy = z
  */
 export const aiSpendPolicy = z
   .object({
-    profile: z.enum(["off", "test", "normal", "custom"]).default("custom"),
+    profile: z
+      .enum(["off", "test", "normal", "monthly", "custom"])
+      .default("custom"),
     startAt: z.iso.datetime(),
     endAt: z.iso.datetime(),
     approvedPaidUse: z.boolean().default(false),

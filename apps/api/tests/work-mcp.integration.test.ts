@@ -9,7 +9,7 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { data, entity } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
-import { decideActionRequest } from "../src/modules/action-requests.ts";
+import { decideActionRequest, listActionRequests } from "../src/modules/action-requests.ts";
 import {
   authorizeMcpCall,
   visibleMcpTools,
@@ -191,6 +191,14 @@ describe.skipIf(!enabled)("work MCP tools (SQL, no model call)", () => {
     });
     expect(again).toMatchObject({ actionRequestId: proposal.actionRequestId, deduplicated: true });
     expect(await run((tx) => tx.workTask.count({ where: { projectId: owner().projectId } }))).toBe(0);
+    // The editor finds it in the approvals list, with the module's summary
+    // (so the work renderer shows it); a viewer's list stays empty.
+    const listed = (await run((tx) => listActionRequests(tx, project.editor))).find((r) => r.id === proposal.actionRequestId);
+    expect(listed).toMatchObject({
+      actionType: "work.mcp.work_propose_tasks",
+      summary: { operation: { kind: "tasks", titles: ["Write the launch post", "Check the order flow"] } },
+    });
+    expect(await run((tx) => listActionRequests(tx, project.viewer))).toEqual([]);
     await decide(project.editor, proposal.actionRequestId);
     const tasks = await run((tx) => tx.workTask.findMany({ where: { projectId: owner().projectId }, orderBy: { number: "asc" } }));
     expect(tasks.map((t) => [t.title, t.source])).toEqual([

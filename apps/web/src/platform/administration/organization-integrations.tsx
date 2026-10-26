@@ -4,6 +4,8 @@ import type { Locale } from "@/lib/i18n";
 import { ConnectionsPanel } from "./connections-ui";
 import { AiProfileEditor, KnowledgeSharesPanel } from "./ai-knowledge-ui";
 import { ModelPricesPanel } from "./ai-catalog-ui";
+import { AiDefaultsPanel } from "./ai-defaults-ui";
+import { AiBudgetPanel, AiUsagePanel } from "./ai-budget-ui";
 
 /**
  * The organization's connections, AI profile and shared knowledge (ADR
@@ -37,6 +39,13 @@ export function OrganizationIntegrations({
             locale={locale}
             targets={projects}
           />
+          <AiDefaultsPanel
+            path={`${base}/ai/defaults`}
+            modelsPath={`${base}/ai/models`}
+            locale={locale}
+          />
+          <AiBudgetPanel base={base} locale={locale} />
+          <AiUsagePanel base={base} locale={locale} />
           <ModelPricesPanel path={`${base}/ai/models`} locale={locale} />
           <AiProfileEditor
             path={`${base}/ai/profile`}

@@ -99,6 +99,8 @@ model Workspace {
   connectionGrants ConnectionGrant[]
   aiProfile   AiProfile?
   aiModelPrices AiModelPrice[]
+  aiBudget    OrganizationAiBudget?
+  aiSpendCounters OrganizationSpendCounter[]
 }
 
 model WorkspaceMember {
@@ -993,6 +995,8 @@ model BudgetReservation {
   connectionId  String?  @db.Uuid
   grantId       String?  @db.Uuid
   parentGrantId String?  @db.Uuid
+  /// The organization provider counter it was added to (phase C): openai, anthropic or none; null when not counted.
+  orgProvider   String?
   project       Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, createdAt])
@@ -1590,6 +1594,32 @@ model AiModelPrice {
   updatedBy      String
   updatedAt      DateTime   @default(now()) @db.Timestamptz(3)
   workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// An organization's AI budget (plans/ai-central-management.md, phase C):
+/// one monthly amount and caps per provider, set by its owners.
+model OrganizationAiBudget {
+  id            String    @id @default(uuid()) @db.Uuid
+  workspaceId   String    @unique @db.Uuid
+  monthlyMicros BigInt?
+  providerCaps  Json      @default("{}")
+  credits       Json      @default("{}")
+  version       Int       @default(1)
+  updatedBy     String
+  updatedAt     DateTime  @default(now()) @db.Timestamptz(3)
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// An organization's AI spend of one UTC month, in total or per provider.
+model OrganizationSpendCounter {
+  workspaceId    String    @db.Uuid
+  scopeKey       String
+  periodStart    DateTime  @db.Timestamptz(3)
+  reservedMicros BigInt    @default(0)
+  settledMicros  BigInt    @default(0)
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, scopeKey, periodStart])
 }
 
 /// A consumer project's permission to search an organization library.

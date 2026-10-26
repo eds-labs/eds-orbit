@@ -16,7 +16,7 @@ Plan: [plans/ai-project-manager-phase-2.md](plans/ai-project-manager-phase-2.md)
 - **Migrations (additive):** `202610250006_work_pm_run_kind`, `202610250007_work_pm`, `202610250008_work_handoffs`.
 - **Eval:** `evals/work-pm/`, with a dry-run worst case of USD 0.91 for 6 goals under a USD 2 ceiling. No live run.
 
-**Also fixed (affects Phase 1, which is live):** the approvals list (`GET /action-requests`) showed only owner-decided requests and only to owners. Work proposals that an editor decides therefore appeared nowhere, so MCP work proposals could not be approved in the UI. It now also lists editor-decided types that opt in (`inbox: "editors"`: the work types) to members who write in the module. For MCP types, the module's summary now wins over the raw arguments, so the work renderers match. Access matrix: editor `GET /action-requests` 403 → 200; viewers still 403.
+**Also fixed (affects Phase 1; shipped separately to main as `17baf6a9`, live 2026-10-26 04:22 UTC, see the entry below):** the approvals list (`GET /action-requests`) showed only owner-decided requests and only to owners. Work proposals that an editor decides therefore appeared nowhere, so MCP work proposals could not be approved in the UI. It now also lists editor-decided types that opt in (`inbox: "editors"`: the work types) to members who write in the module. For MCP types, the module's summary now wins over the raw arguments, so the work renderers match. Access matrix: editor `GET /action-requests` 403 → 200; viewers still 403.
 
 **Deviations from the plan:**
 
@@ -31,6 +31,59 @@ Verification (local, worktree database): full suite 3,812 passed / 7 skipped / 0
 
 **Not deployed. `ORBIT_WORK_PM` off; no paid call was made.** Merging deploys the three migrations and needs Mario's approval. Each further rollout step (routes, live evaluation within its budget, the flag, budgets, an n8n coding workflow) needs its own approval.
 
+
+## Approvals list for editors (2026-10-25, fix for project management phase 1)
+
+The approvals list (`GET /api/projects/:id/action-requests`, Approvals page) showed only owner-decided requests, and only to owners. Project management proposals, which an owner **or editor** decides (ADR 0016 D-7), therefore appeared nowhere in the UI. That includes MCP work proposals, whose approve link points to this page. It now lists every pending request the member may decide, with their role in the type's module:
+
+- owner-decided types: for owners;
+- editor-decided types that opt in with `inbox: "editors"` (every editor-decided `approvedOperation`, today the work proposals): for members who write in the module.
+
+Marketing's editor-decided package confirmations stay in chat, as before. For MCP action types the module's summary now wins over the raw arguments, so the work renderer matches. Access matrix: editor `GET /action-requests` 403 → 200 (filtered per type); viewers stay 403. Tests: `work-mcp`, `content-packages`, `mcp-proposal-flow`, `decisions.test.tsx`, access matrix.
+
+
+## Central AI management phase C: organization budget, monthly project budget, usage (2026-10-25, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed, `ORBIT_AI_ORG_BUDGET` off)
+
+Plan: [plans/ai-central-management.md](plans/ai-central-management.md), section 7. Phase B is live since 2026-10-25 18:24 UTC (`d8871fa7`).
+
+- **Organization budget and provider caps.** New table `OrganizationAiBudget`; routes `/api/organizations/:id/ai/budget`.
+- **Organization month counters.** Table `OrganizationSpendCounter`, enforced in `reserve` and moved on settle. Seed script: `scripts/ai-org-budget-seed.ts`.
+- **Spending authority profile `monthly`.** Derived day and run limits (D-4).
+- **Organization usage across projects.** Route `/api/organizations/:id/ai/usage`.
+- **Refusal codes as sentences.**
+- **Migration** `202610250006_ai_organization_budget` (additive). Access matrix +3 rows.
+
+Verification (local, worktree database, migration applied with `scripts/test-db-for-worktree.ts`):
+- full suite 3,767 passed / 7 skipped / 0 failed;
+- new `ai-org-budget.integration.test.ts` 6/6;
+- access matrix regenerated with additions only;
+- RLS matrix with both new tables classified;
+- root and web `tsc`, boundaries, source check, Coolify compose check;
+- OpenAPI client regenerated (two new paths).
+
+Not checked in a browser.
+
+## Central AI management phase B: standard models and guided setup (2026-10-25, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed, `ORBIT_AI_DEFAULTS` off)
+
+Plan: [plans/ai-central-management.md](plans/ai-central-management.md), section 7. Phase A (price catalog) is live since 2026-10-25 16:17 UTC (`f263dfea`, save fix `517a5030`).
+
+- **Model presets.** A provider plus a level (Günstig / Ausgewogen / Beste Qualität) chooses the models.
+- **Organization standard.** The organization's (and system's) standard is stored on the AI profile.
+- **Project model choice.** Organization standard, own level or own settings, with per-task deviations.
+- **Guided first setup.** Key, models, budget.
+- **New routes.** `/api/admin/ai/defaults` and `/api/organizations/:id/ai/defaults` (access matrix +6 rows), and section `routing` of `ai-configure`.
+- **No migration.**
+
+Verification (local, worktree database):
+- full suite 3,759 passed / 7 skipped / 0 failed;
+- new `ai-defaults.integration.test.ts` 7/7;
+- related AI, connection, RLS and paid suites 154/154;
+- access matrix regenerated with additions only;
+- web preset test 2/2;
+- root and web `tsc`, boundaries, source check, Coolify compose check;
+- OpenAPI client regenerated (two new paths).
+
+Not checked in a browser.
 
 ## Project management phase 1 (2026-10-25, deployed via `5f89cc00`; `ORBIT_WORK` off)
 

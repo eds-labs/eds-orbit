@@ -77,6 +77,10 @@ x-api-environment: &api-environment
   ORBIT_AI_KEY_RULE_V2: ${ORBIT_AI_KEY_RULE_V2:-false}
   # Central AI price catalog (phase A of plans/ai-central-management.md).
   ORBIT_AI_CATALOG: ${ORBIT_AI_CATALOG:-false}
+  # Organization standard models and project presets (phase B); needs the catalog.
+  ORBIT_AI_DEFAULTS: ${ORBIT_AI_DEFAULTS:-false}
+  # Organization AI budget and provider caps (phase C); seed the month first.
+  ORBIT_AI_ORG_BUDGET: ${ORBIT_AI_ORG_BUDGET:-false}
   # Customer context from external products (ADR 0011); per-inbox binding.
   ORBIT_CUSTOMER_CONTEXT: ${ORBIT_CUSTOMER_CONTEXT:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.

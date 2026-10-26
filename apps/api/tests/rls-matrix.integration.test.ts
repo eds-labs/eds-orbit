@@ -137,9 +137,10 @@ const GRANTED_READ_TABLES = [
   "ConnectionGrant",
   "ConnectionSecret",
   "KnowledgeShare",
+  "OrganizationAiBudget",
   "WorkflowBinding",
 ];
-const COUNTER_TABLES = ["SpendCounter"];
+const COUNTER_TABLES = ["OrganizationSpendCounter", "SpendCounter"];
 // Tenancy tables the business role must not touch at all.
 const NO_APP_ACCESS = [
   "ProjectMember",
@@ -926,10 +927,12 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         { name, grants: [true, false, false, false] },
       );
     }
-    const counter = tables.find((x) => x.relname === "SpendCounter")!;
-    expect([counter.select, counter.insert, counter.update, counter.delete]).toEqual(
-      [true, true, true, false],
-    );
+    for (const name of COUNTER_TABLES) {
+      const counter = tables.find((x) => x.relname === name)!;
+      expect({ name, grants: [counter.select, counter.insert, counter.update, counter.delete] }).toEqual(
+        { name, grants: [true, true, true, false] },
+      );
+    }
   });
 
   it("keeps the system audit log append-only for the auth role", async () => {

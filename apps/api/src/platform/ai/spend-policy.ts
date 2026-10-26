@@ -8,6 +8,7 @@ import { audit, create, data, DomainError, list, update } from "../shared.ts";
 import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import { budgetMonthStart } from "./budget.ts";
 import { activeSpendPolicyRecord, requireSpendMandate } from "./spend-mandate.ts";
+import { organizationBudgetForProject } from "./org-budget.ts";
 
 // The project's AI spending authority (ADR 0015): one active, versioned
 // record of kind `ai_spend_policies`, owner-only, audited. It never writes
@@ -45,8 +46,30 @@ export const spendProfiles = {
   },
 } as const;
 
+/**
+ * Limits derived from a monthly amount (decision D-4): a day may use a
+ * tenth of it, a run at most a day's share and never more than USD 2.
+ */
+export function derivedLimits(monthlyBudgetMicros: number) {
+  const dailyBudgetMicros = Math.floor(monthlyBudgetMicros / 10);
+  return {
+    dailyBudgetMicros,
+    perRunBudgetMicros: Math.min(dailyBudgetMicros, 2 * USD),
+  };
+}
+
 export const spendPolicyInput = z.discriminatedUnion("profile", [
   z.object({ profile: z.enum(["off", "test", "normal"]) }).strict(),
+  // A monthly amount for a year; day and run are derived unless given (D-4).
+  // Nullable as well as optional: the assistant's strict tool schema needs it.
+  z
+    .object({
+      profile: z.literal("monthly"),
+      monthlyBudgetMicros: z.number().int().min(0).max(10000000000),
+      dailyBudgetMicros: z.number().int().min(0).max(1000000000).nullable().optional(),
+      perRunBudgetMicros: z.number().int().min(0).max(100000000).nullable().optional(),
+    })
+    .strict(),
   z
     .object({
       profile: z.literal("custom"),
@@ -67,6 +90,18 @@ export function spendPolicyFields(
 ): z.infer<typeof aiSpendPolicy> {
   const input = spendPolicyInput.parse(raw);
   if (input.profile === "custom") return aiSpendPolicy.parse(input);
+  if (input.profile === "monthly") {
+    const derived = derivedLimits(input.monthlyBudgetMicros);
+    return aiSpendPolicy.parse({
+      profile: "monthly",
+      startAt: now.toISOString(),
+      endAt: new Date(now.getTime() + 365 * DAY).toISOString(),
+      approvedPaidUse: input.monthlyBudgetMicros > 0,
+      monthlyBudgetMicros: input.monthlyBudgetMicros,
+      dailyBudgetMicros: input.dailyBudgetMicros ?? derived.dailyBudgetMicros,
+      perRunBudgetMicros: input.perRunBudgetMicros ?? derived.perRunBudgetMicros,
+    });
+  }
   const { days, ...limits } = spendProfiles[input.profile];
   return aiSpendPolicy.parse({
     profile: input.profile,
@@ -176,6 +211,8 @@ export async function readSpendPolicy(tx: DbTx, scope: Scope, now = new Date()) 
         .reduce((n, x) => n + cost(x), 0),
     },
     profiles: spendProfiles,
+    // The organization's budget the project draws on (phase C), while on.
+    organization: await organizationBudgetForProject(tx, scope, now),
   };
 }
 

@@ -13,6 +13,11 @@ import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
+import {
+  AiSetupPanel,
+  ModelChoicePanel,
+  type ModelChoiceView,
+} from "./ai-model-choice";
 
 // Settings → AI (plan D-A9): the project's AI providers, the models they
 // serve, the Anthropic credit budget and the usage and costs. The OpenAI
@@ -736,6 +741,20 @@ export function AiSettings() {
       };
     });
   }, [view]);
+  const refreshAll = () => {
+    configuration.refresh();
+    budget.refresh();
+  };
+  // The guided setup's key step: an own key through the usual sections.
+  const saveKey = (provider: ProviderId, key: string) =>
+    provider === "openai"
+      ? saveModels(project.id, { ...modelsPayload(view!), apiKey: key })
+      : saveProviders(project.id, {
+          ...providerPayload(view!),
+          anthropicApiKey: key,
+          // Without the central catalog the project needs Claude's prices itself.
+          applyAnthropicCatalog: !view?.catalog,
+        });
   if (!isOwner)
     return (
       <section className="panel">
@@ -751,6 +770,9 @@ export function AiSettings() {
     );
   return (
     <>
+      {view && (
+        <AiSetupPanel view={view} saveKey={saveKey} onChanged={refreshAll} />
+      )}
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -824,6 +846,8 @@ export function AiSettings() {
           <p className="panel-note">{configuration.error?.message ?? "—"}</p>
         )}
       </section>
+
+      {view && <ModelChoicePanel view={view} onChanged={refreshAll} />}
 
       <section className="panel">
         <div className="panel-head">
@@ -1014,6 +1038,9 @@ export function AiSettings() {
 
 export type OpenAiConfigurationView = {
   configured: boolean;
+  // Phase B: the project's model choice and the standard it may follow.
+  routing?: ModelChoiceView["routing"];
+  defaults?: ModelChoiceView["defaults"];
   // Task classes routed to a provider without a usable key (effective view).
   routesWithoutKey?: string[];
   // The central price catalog (phase A), null while ORBIT_AI_CATALOG is off.
