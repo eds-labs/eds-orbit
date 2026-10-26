@@ -307,7 +307,7 @@ Verification on the merged tree:
 - full suite: 3,532 passed, 7 skipped, 0 failed (325 files);
 - web tests: 537;
 - root/web typecheck, lint, import boundaries, Next production build, Compose check, secrets scan;
-- `git diff --check` is clean, except trailing whitespace already present in the finance plan document (`docs/superpowers/plans/2026-10-23-finance-module.md:347`).
+- `git diff --check` is clean, except trailing whitespace already present in the finance plan document (`docs/superpowers/plans/2026-10-23-finance-module.md`, line 347).
 
 A push to `main` deploys production and applies the three additive migrations `202610240001`–`202610240003`. All new flags stay off.
 

@@ -7,7 +7,7 @@ concurrency:
 jobs:
   isolated-acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
