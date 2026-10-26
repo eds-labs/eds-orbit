@@ -85,6 +85,19 @@ export type CompositionOutcome = {
   verdict: "pass" | "corrected" | "needs_owner";
 };
 
+/** One composition of a format and the state it was composed in. */
+type Attempt = {
+  result: ComposeResult;
+  checks: CreativeCheck[];
+  failed: CreativeCheck["code"][];
+  variant: VariantId;
+  textScale: TextScale;
+  scrimBoost: number;
+  logoRole?: LogoRole;
+  scrimOpacity: number;
+  scrimMax: number;
+};
+
 const tagged = (checks: CreativeCheck[], format: FormatId) =>
   checks.map((check) => ({
     ...check,
@@ -157,8 +170,8 @@ export async function composeRenditions(
       artIsOrbitGenerated: input.artState.orbitGenerated,
     };
     const drawnRoles = new Set<LogoRole>();
-    let composed: ComposeResult | null = null;
-    let checks: CreativeCheck[] = [];
+    // The attempt with the fewest failed blockers (the earlier one on a tie).
+    let best: Attempt | null = null;
     let failed: CompositionOutcome["failed"] = [];
     for (let corrections = 0; ; corrections++) {
       const options = {
@@ -169,6 +182,7 @@ export async function composeRenditions(
         ...options,
         logoRole: state.logoRole,
       });
+      let composed: ComposeResult | null = null;
       try {
         composed = await compose({
           template: state.template,
@@ -185,21 +199,38 @@ export async function composeRenditions(
       } catch (error) {
         if (!(error instanceof CreativeError) || error.code !== "TEXT_OVERFLOW")
           throw error;
-        composed = null;
       }
       if (composed) {
-        checks = [
+        const checks = [
           ...checkComposition(composed, approved),
           ...(await judgeArt(layout)),
         ];
-        failed = failedBlockers(checks);
+        const blockers = failedBlockers(checks);
+        failed = blockers;
         drawnRoles.add(composed.logoRole);
         state.scrimOpacity = composed.scrimOpacity;
         state.scrimMax = layout.scrim?.max ?? 0;
-      } else {
-        checks = [];
-        failed = ["TEXT_OVERFLOW"];
-      }
+        if (!best || blockers.length < best.failed.length)
+          best = {
+            result: composed,
+            checks,
+            failed: blockers,
+            variant: state.variant,
+            textScale: state.textScale,
+            scrimBoost: state.scrimBoost,
+            logoRole: state.logoRole,
+            scrimOpacity: state.scrimOpacity,
+            scrimMax: state.scrimMax,
+          };
+      } else if (best) {
+        // A correction whose copy does not fit failed: go on from the best
+        // attempt; its variant stays tried, and no smaller text is needed.
+        const { variant, textScale, scrimBoost, logoRole } = best;
+        Object.assign(state, { variant, textScale, scrimBoost, logoRole });
+        state.scrimOpacity = best.scrimOpacity;
+        state.scrimMax = best.scrimMax;
+        failed = best.failed;
+      } else failed = ["TEXT_OVERFLOW"];
       if (!failed.length || corrections >= MAX_FREE_CORRECTIONS) break;
       state.logoRoles = roles.filter((role) => !drawnRoles.has(role));
       const correction = planCorrection(state, failed);
@@ -224,17 +255,21 @@ export async function composeRenditions(
         ...(value !== undefined && { value }),
       });
     }
-    if (composed)
+    // Overflow only when no attempt fit at all.
+    if (best) {
+      const checks = tagged(best.checks, format);
       outcome.renditions.push({
         format,
-        variant: state.variant,
-        textScale: state.textScale,
-        result: composed,
-        checks: tagged(checks, format),
+        variant: best.variant,
+        textScale: best.textScale,
+        result: best.result,
+        checks,
       });
-    else outcome.overflow.push(format);
-    outcome.checks.push(...tagged(checks, format));
-    outcome.failed = [...new Set([...outcome.failed, ...failed])];
+      outcome.checks.push(...checks);
+    } else outcome.overflow.push(format);
+    outcome.failed = [
+      ...new Set([...outcome.failed, ...(best?.failed ?? ["TEXT_OVERFLOW"])]),
+    ];
   }
   outcome.verdict = outcome.failed.length
     ? "needs_owner"

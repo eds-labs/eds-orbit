@@ -7,6 +7,7 @@ import {
 import {
   demoBrand,
   fixtureArt,
+  fixtureScreenshot,
 } from "../../../../../../packages/creative/fixtures/demo-brands.ts";
 import { composeRenditions, type RenditionInput } from "./renditions.ts";
 
@@ -131,6 +132,68 @@ describe("composeRenditions", () => {
       verdict: "needs_owner",
       failed: ["TEXT_OVERFLOW"],
     });
+  });
+
+  it("keeps the composition that fit when a correction overflows (review 1)", async () => {
+    // product_showcase on landscape: the first variants compose and fail an
+    // art check; text_top does not fit the copy.
+    const calls: Array<[string, string]> = [];
+    const compose = async (request: ComposeInput) => {
+      calls.push([request.variant, request.options.textScale]);
+      if (request.variant === "text_top")
+        throw new CreativeError("TEXT_OVERFLOW");
+      return composeCreative(request);
+    };
+    const outcome = await composeRenditions(
+      await input({
+        brief: {
+          template: "product_showcase",
+          variant: "product_right",
+          formats: ["landscape"],
+        },
+        art: await fixtureArt("flat", "lumora"),
+        products: [await fixtureScreenshot("lumora")],
+      }),
+      { compose },
+    );
+    // The failed variant is not answered with the small text scale.
+    expect(calls).toEqual([
+      ["product_right", "m"],
+      ["product_left", "m"],
+      ["text_top", "m"],
+    ]);
+    expect(outcome.overflow).toEqual([]);
+    expect(outcome.renditions).toHaveLength(1);
+    expect(["product_right", "product_left"]).toContain(
+      outcome.renditions[0]!.variant,
+    );
+    expect(outcome.failed).not.toContain("TEXT_OVERFLOW");
+    expect(outcome.verdict).toBe("needs_owner");
+  });
+
+  it("returns the best attempt, not the last one", async () => {
+    // text_bottom fails an art check; text_top composes worse (a render
+    // fault on top); text_side does not fit.
+    const calls: string[] = [];
+    const compose = async (request: ComposeInput) => {
+      calls.push(request.variant);
+      if (request.variant === "text_side")
+        throw new CreativeError("TEXT_OVERFLOW");
+      const result = await composeCreative(request);
+      return request.variant === "text_top" ? { ...result, width: 1 } : result;
+    };
+    const outcome = await composeRenditions(
+      await input({ art: await fixtureArt("flat", "lumora") }),
+      { compose },
+    );
+    expect(calls).toEqual(["text_bottom", "text_top", "text_side"]);
+    expect(outcome.renditions.map((r) => [r.variant, r.textScale])).toEqual([
+      ["text_bottom", "m"],
+    ]);
+    expect(outcome.failed).toContain("EMPTY_AREA_EXCESSIVE");
+    expect(outcome.failed).not.toContain("CREATIVE_DIMENSIONS");
+    // The checks are those of the rendition returned.
+    expect(outcome.checks).toEqual(outcome.renditions[0]!.checks);
   });
 
   it("keeps a person's variant and leaves weak art to the owner", async () => {
