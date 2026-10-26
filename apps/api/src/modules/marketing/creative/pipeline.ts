@@ -1,13 +1,9 @@
-import { z } from "zod";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   composeCreative,
   CreativeError,
-  failedBlockers,
   formatsForChannel,
-  TEMPLATE_COPY_LIMITS,
   TEMPLATE_NEEDS,
-  type CreativeCheck,
   type CreativeCopy,
   type ImageKind,
   type LogoPlacement,
@@ -18,43 +14,38 @@ import {
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   authorize,
-  PROJECT_OWN,
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
-import {
-  audit,
-  create,
-  data,
-  DomainError,
-  entity,
-  list,
-  update,
-} from "../../../shared.ts";
-import { currentMarketingProfile } from "../brand/marketing-profile.ts";
-import { invalidateContent } from "../pipeline/content-invalidation.ts";
-import { reviewContent } from "../pipeline/workflow.ts";
-import {
-  channelLimitExceeded,
-  resolveChannelRules,
-} from "../publishing/channel-rules.ts";
+import { audit, create, data, DomainError, update } from "../../../shared.ts";
+import { resolveChannelRules } from "../publishing/channel-rules.ts";
+import { attachCreativeInTx } from "./attach.ts";
 import {
   loadCreativeBrand,
   resolveBrandKit,
-  type BrandKitPlan,
   type EntityRow,
 } from "./brand-kit.ts";
 import { resolveCreativeBrief, type ResolvedBrief } from "./brief.ts";
 import {
   artAsset,
-  assetSha,
   componentBytes,
   isOrbitArt,
+  keptAssets,
   outdateRendition,
   productAsset,
   projectAssets,
   projectRow,
 } from "./components.ts";
+import { parsedCreativeCopy, storedCreativeCopy } from "./copy-checks.ts";
 import { creativeStudioEnabled } from "./flag.ts";
+import {
+  assertContentHolds,
+  assertSourcesHold,
+  composedFields,
+  saveRenditions,
+  sourceRows,
+  type ComposedCreative,
+  type CreativePlan,
+} from "./persist.ts";
 import { assertRights, refusal, rightsCheck } from "./quality.ts";
 import { composeRenditions, type CompositionOutcome } from "./renditions.ts";
 import {
@@ -69,7 +60,8 @@ import {
 // post from approved assets, recompose it for free and attach it to the post.
 // Producing and recomposing run in three steps: plan in one transaction,
 // read bytes and compose outside any transaction, save in a second
-// transaction only while the profile and every component are unchanged.
+// transaction only while the profile, every component and the post's
+// channel are unchanged.
 
 /** A person's request for a creative of one post (the Creative Studio). */
 export type ProduceRequest = {
@@ -100,8 +92,6 @@ export type RecomposeChanges = {
 };
 
 const SHOWS_PRODUCT: readonly ImageKind[] = ["product", "combined"];
-// Publications in these states no longer hold the post.
-const INACTIVE_PUBLICATION = ["canceled", "failed", "blocked_dependency"];
 /** Engine refusals that are bad input or a render fault; the others are conflicts (409). */
 const ENGINE_STATUS: Readonly<Record<string, number>> = {
   INVALID_TEMPLATE_INPUT: 400,
@@ -113,32 +103,22 @@ const ENGINE_STATUS: Readonly<Record<string, number>> = {
   RASTER_OUTPUT_INVALID: 500,
 };
 
-type CopyField = keyof CreativeCopy;
-/** A field's longest copy over all templates; the layout decides what fits. */
-const longest = (field: CopyField) =>
-  Math.max(
-    ...Object.values(TEMPLATE_COPY_LIMITS).map((limits) => limits[field]),
-  );
-const copyField = (field: CopyField) =>
-  z.string().trim().max(longest(field)).optional();
-const creativeCopyInput = z
-  .object({
-    eyebrow: copyField("eyebrow"),
-    headline: copyField("headline"),
-    subline: copyField("subline"),
-    cta: copyField("cta"),
-  })
-  .strict();
-
-/** The copy without empty layers; `CREATIVE_COPY_REQUIRED` without a headline. */
+/**
+ * The image copy in the stored shape of `content.creativeCopy` (R37, Task
+ * 12's parser): the headline and only the non-empty other layers.
+ * `CREATIVE_COPY_REQUIRED` when it is missing, malformed or without a
+ * headline.
+ */
 function creativeCopyOf(raw: unknown): CreativeCopy {
-  if (raw === undefined || raw === null)
+  const copy = parsedCreativeCopy(raw);
+  if (!copy?.headline.trim())
     throw new DomainError("CREATIVE_COPY_REQUIRED", 409);
-  const parsed = creativeCopyInput.parse(raw);
-  if (!parsed.headline) throw new DomainError("CREATIVE_COPY_REQUIRED", 409);
-  return Object.fromEntries(
-    Object.entries(parsed).filter(([, text]) => text),
-  ) as CreativeCopy;
+  return storedCreativeCopy({
+    eyebrow: copy.eyebrow?.trim() ?? "",
+    headline: copy.headline.trim(),
+    subline: copy.subline?.trim() ?? "",
+    cta: copy.cta?.trim() ?? "",
+  });
 }
 
 /** Off, the studio does not exist (CS-D6); otherwise a writer's action. */
@@ -168,25 +148,8 @@ function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
     : [];
 }
 
-/** What a creative is composed from, planned in one transaction. */
-type Plan = {
-  kit: BrandKitPlan;
-  content: EntityRow;
-  brief: ResolvedBrief;
-  copy: CreativeCopy;
-  options: { logoPlacement: LogoPlacement; textScale: TextScale };
-  variantFixed: boolean;
-  art: EntityRow | null;
-  products: EntityRow[];
-  rights: CreativeCheck;
-};
-
-/** Every component whose state the save depends on: all brand kit logos, art, products. */
-const sourceRows = (plan: Omit<Plan, "rights">) => [
-  ...Object.values(plan.kit.logos).filter((row): row is EntityRow => !!row),
-  ...(plan.art ? [plan.art] : []),
-  ...plan.products,
-];
+/** A creative plan of one post. */
+type Plan = CreativePlan & { content: EntityRow };
 
 /** Completes a plan with the rights of its components; a refusal throws (R22). */
 async function checkedPlan(
@@ -207,7 +170,7 @@ async function composePlan(
   plan: Plan,
   artAttempts: number,
   deps: PipelineDeps,
-) {
+): Promise<ComposedCreative> {
   const brand = await loadCreativeBrand(scope, plan.kit);
   const art = plan.art ? await componentBytes(scope, plan.art) : undefined;
   const products = await Promise.all(
@@ -238,132 +201,24 @@ async function composePlan(
   await deps.afterCompose?.();
   return { outcome, art, products };
 }
-type Composed = Awaited<ReturnType<typeof composePlan>>;
 
-/**
- * The save's re-check (Review Focus 5): the profile version and every
- * component's version and SHA-256 are as planned, else
- * `MARKETING_PROFILE_CHANGED` / `BRAND_ASSET_CHANGED` (409) and nothing is
- * stored.
- */
-async function assertSourcesHold(tx: DbTx, scope: Scope, plan: Plan) {
-  const profile = await currentMarketingProfile(tx, scope);
-  if (!profile || profile.version !== plan.kit.profileVersion)
-    throw new DomainError("MARKETING_PROFILE_CHANGED", 409);
-  const rows = sourceRows(plan);
-  const current = await projectAssets(
-    tx,
-    scope,
-    rows.map((row) => row.id),
-  );
-  for (const row of rows) {
-    const now = current.get(row.id);
-    if (!now || now.version !== row.version || assetSha(now) !== assetSha(row))
-      throw new DomainError("BRAND_ASSET_CHANGED", 409);
-  }
-}
-
-/**
- * Stores each rendition as an approved `generated_artwork` asset bound to
- * its creative and post (kept out of the library and pickers), whose rights
- * source records every drawn component's id, version and SHA-256.
- */
-async function saveRenditions(
+/** The renditions of a plan, saved for a creative of its post by the person asking. */
+const renditionsOf = (
   tx: DbTx,
   scope: Scope,
   creativeId: string,
   plan: Plan,
-  composed: Composed,
-): Promise<CreativeRecord["renditions"]> {
-  const content = data(plan.content);
-  const component = (role: string, row: EntityRow, sha256: string) => ({
-    role,
-    assetId: row.id,
-    version: row.version,
-    sha256,
+  composed: ComposedCreative,
+) =>
+  saveRenditions(tx, scope, {
+    creativeId,
+    contentId: plan.content.id,
+    channel: data(plan.content).channel,
+    title: String(data(plan.content).title ?? ""),
+    plan,
+    composed,
+    approvedBy: scope.userId,
   });
-  const renditions: CreativeRecord["renditions"] = [];
-  for (const { format, variant, result } of composed.outcome.renditions) {
-    const drawn = (kind: string) => result.layers.some((l) => l.kind === kind);
-    const logo = plan.kit.logos[result.logoRole]!;
-    const components = [
-      component("logo", logo, assetSha(logo)),
-      ...(plan.art && composed.art && drawn("art")
-        ? [component("art", plan.art, composed.art.sha256)]
-        : []),
-      ...(drawn("product")
-        ? plan.products.map((row, i) =>
-            component("product", row, composed.products[i]!.sha256),
-          )
-        : []),
-    ];
-    const asset = await create(tx, scope, "assets", {
-      name: `Creative ${format}: ${content.title ?? ""}`.slice(0, 160),
-      type: "generated_artwork",
-      mime: "image/png",
-      filename: `creative-${plan.brief.template}-${format}.png`,
-      base64: result.png.toString("base64"),
-      sha256: result.sha256,
-      width: result.width,
-      height: result.height,
-      bytes: result.png.length,
-      source: "template",
-      sourceType: "TEMPLATE_GENERATED",
-      usageApproved: true,
-      assetStatus: "approved",
-      approvedBy: scope.userId,
-      license:
-        "Composed by Orbit from approved brand assets; rights follow its components",
-      rightsSource: { profileVersion: plan.kit.profileVersion, components },
-      // Bound to its creative and post: not in the asset library or pickers.
-      boundTo: { creativeId, contentId: plan.content.id },
-      creativeFormat: format,
-      creativeVariant: variant,
-      profileVersion: plan.kit.profileVersion,
-      renderer: result.renderer,
-      channel: "Social",
-      validUses: ["social"],
-      driveSyncStatus: "LOCAL_ONLY",
-    });
-    renditions.push({
-      format,
-      channel: content.channel,
-      assetId: asset.id,
-      width: result.width,
-      height: result.height,
-      bytes: result.png.length,
-      sha256: result.sha256,
-    });
-  }
-  return renditions;
-}
-
-/** The composition part of a creative record. */
-function composedFields(
-  plan: Plan,
-  composed: Composed,
-): Omit<CreativeRecord, "contentId" | "renditions" | "corrections" | "cost"> {
-  const { outcome } = composed;
-  const logo = plan.kit.logos[outcome.renditions[0]!.result.logoRole]!;
-  return {
-    profileVersion: plan.kit.profileVersion,
-    brief: plan.brief,
-    template: plan.brief.template,
-    variant: plan.brief.variant,
-    options: plan.options,
-    copy: plan.copy,
-    components: {
-      ...(plan.art && { artAssetId: plan.art.id }),
-      logo: { assetId: logo.id, sha256: assetSha(logo) },
-      products: plan.products.map((row, i) => ({
-        assetId: row.id,
-        sha256: composed.products[i]!.sha256,
-      })),
-    },
-    qa: { checks: [plan.rights, ...outcome.checks], verdict: outcome.verdict },
-    status: outcome.failed.length ? "needs_owner" : "composed",
-  };
-}
 
 /** Content-free audit facts of a composition. */
 const auditFacts = (record: CreativeRecord, outcome: CompositionOutcome) => ({
@@ -381,12 +236,13 @@ const auditFacts = (record: CreativeRecord, outcome: CompositionOutcome) => ({
  * brief and approved components (`ASSET_RIGHTS` refuses, R22), composes one
  * rendition per channel format with free corrections and art checks, and
  * stores the creative with its bound renditions under the re-check of
- * profile and components. `composed` when no failed blocker remains, else
- * `needs_owner` with the findings. Free: no model call.
+ * profile, components and post. `composed` when no failed blocker remains,
+ * else `needs_owner` with the findings. Free: no model call.
  * Errors: `EDITOR_REQUIRED` (403), `NOT_FOUND` (404),
  * `CREATIVE_SOCIAL_ONLY`, `CREATIVE_COPY_REQUIRED`, `ART_REQUIRED`,
- * `TEXT_OVERFLOW`, `MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED` (409),
- * besides the brand kit's and brief's own.
+ * `TEXT_OVERFLOW`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`,
+ * `MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED`, `CONTENT_CHANGED`
+ * (409), besides the brand kit's and brief's own.
  */
 export async function produceCreative(
   scope: Scope,
@@ -454,8 +310,7 @@ export async function produceCreative(
   const composed = await composePlan(scope, plan, 0, deps);
   const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await assertSourcesHold(tx, scope, plan);
-    // The post may have been removed meanwhile.
-    await entity(tx, scope, "content", plan.content.id);
+    await assertContentHolds(tx, scope, plan.content);
     const record: CreativeRecord = {
       contentId: plan.content.id,
       ...composedFields(plan, composed),
@@ -465,7 +320,7 @@ export async function produceCreative(
     };
     // The renditions are bound to the creative, so it is created first.
     const creative = await create(tx, scope, CREATIVES, record);
-    record.renditions = await saveRenditions(
+    record.renditions = await renditionsOf(
       tx,
       scope,
       creative.id,
@@ -485,31 +340,15 @@ export async function produceCreative(
   return creativeView(row, scope);
 }
 
-/** A component the creative keeps; gone or with other bytes, it is `BRAND_ASSET_CHANGED`. */
-async function keptComponents(
-  tx: DbTx,
-  scope: Scope,
-  components: Array<{ assetId: string; sha256?: string }>,
-) {
-  const current = await projectAssets(
-    tx,
-    scope,
-    components.map((c) => c.assetId),
-  );
-  return components.map(({ assetId, sha256 }) => {
-    const row = current.get(assetId);
-    if (!row || (sha256 && assetSha(row) && assetSha(row) !== sha256))
-      throw new DomainError("BRAND_ASSET_CHANGED", 409);
-    return row;
-  });
-}
-
 /**
  * Recomposes a creative for free (spec §8): another template, variant, logo
- * placement, text scale or copy over the same art and products, with the
- * current brand kit. The new renditions replace the old ones, which become
- * `outdated`, except the one the post carries: an attached creative stays on
- * its post until the next attach (R5). Errors as `produceCreative`.
+ * placement, text scale or copy over exactly the same art and products (the
+ * bytes it was composed from, else `BRAND_ASSET_CHANGED`), with the current
+ * brand kit. A variant a person chose stays fixed until a new template
+ * without a variant is chosen. The new renditions replace the old ones,
+ * which become `outdated`, except the one the post carries: an attached
+ * creative stays on its post until the next attach (R5). Errors as
+ * `produceCreative`.
  */
 export async function recomposeCreative(
   scope: Scope,
@@ -525,15 +364,13 @@ export async function recomposeCreative(
       const row = await findCreative(tx, scope, creativeId);
       const record = data(row) as CreativeRecord;
       const content = await projectRow(tx, scope, "content", record.contentId);
-      const { artAssetId } = record.components;
+      const { artAssetId, artSha256 } = record.components;
       const [art = null] = artAssetId
-        ? await keptComponents(tx, scope, [{ assetId: artAssetId }])
+        ? await keptAssets(tx, scope, [
+            { assetId: artAssetId, sha256: artSha256 },
+          ])
         : [];
-      const products = await keptComponents(
-        tx,
-        scope,
-        record.components.products,
-      );
+      const products = await keptAssets(tx, scope, record.components.products);
       const kit = await resolveBrandKit(tx, scope);
       let brief = record.brief;
       if (changes.template !== undefined || changes.variant !== undefined) {
@@ -549,7 +386,7 @@ export async function recomposeCreative(
           // A new template without a variant gets its default one.
           variant:
             changes.variant ??
-            (changes.template === undefined ? record.variant : undefined),
+            (changes.template === undefined ? record.brief.variant : undefined),
         });
         // The layout changes; what the brief says about the image stays.
         const { template, variant, imageKind, reservedZones, fallbackReason } =
@@ -569,7 +406,10 @@ export async function recomposeCreative(
         brief,
         copy: changes.copy ? creativeCopyOf(changes.copy) : record.copy,
         options: { ...record.options, ...changes.options },
-        variantFixed: changes.variant !== undefined,
+        // A person's variant stays theirs until a new template replaces it.
+        variantFixed:
+          changes.variant !== undefined ||
+          (changes.template === undefined && record.variantFixed === true),
         art,
         products: shownProducts(brief, products),
       });
@@ -581,7 +421,7 @@ export async function recomposeCreative(
   const saved = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await assertSourcesHold(tx, scope, plan);
     const carried = data(
-      await entity(tx, scope, "content", plan.content.id),
+      await assertContentHolds(tx, scope, plan.content),
     ).assetId;
     // The post keeps its attached rendition until the next attach (R5).
     const old = await projectAssets(
@@ -596,7 +436,7 @@ export async function recomposeCreative(
     const next: CreativeRecord = {
       ...record,
       ...composedFields(plan, composed),
-      renditions: await saveRenditions(tx, scope, row.id, plan, composed),
+      renditions: await renditionsOf(tx, scope, row.id, plan, composed),
       // Corrections are history: art regenerations count against the limit.
       corrections: [...record.corrections, ...composed.outcome.corrections],
     };
@@ -614,83 +454,8 @@ export async function recomposeCreative(
 }
 
 /**
- * The rendition still stands: it is this creative's approved rendition with
- * its bytes (`CREATIVE_NOT_ATTACHABLE`), and every component in its rights
- * source still has its bytes (`BRAND_ASSET_CHANGED`) and its rights
- * (`ASSET_RIGHTS`).
- */
-async function assertRenditionHolds(
-  tx: DbTx,
-  scope: Scope,
-  creativeId: string,
-  rendition: CreativeRecord["renditions"][number],
-) {
-  const asset = (await projectAssets(tx, scope, [rendition.assetId])).get(
-    rendition.assetId,
-  );
-  const d = data(asset);
-  if (
-    !asset ||
-    d.assetStatus !== "approved" ||
-    d.usageApproved !== true ||
-    d.boundTo?.creativeId !== creativeId ||
-    assetSha(asset) !== rendition.sha256
-  )
-    throw new DomainError("CREATIVE_NOT_ATTACHABLE", 409);
-  const components = (d.rightsSource?.components ?? []) as Array<{
-    assetId: string;
-    sha256: string;
-  }>;
-  const rows = await keptComponents(tx, scope, components);
-  assertRights(await rightsCheck(tx, scope, rows, "social"));
-}
-
-/**
- * What the post carried before an attach: a rendition of one of its
- * creatives becomes `outdated`, another creative of the post `superseded`.
- */
-async function retirePrevious(
-  tx: DbTx,
-  scope: Scope,
-  before: Record<string, any>,
-  attached: { contentId: string; creativeId: string; assetId: string },
-) {
-  if (before.assetId && before.assetId !== attached.assetId) {
-    const previous = (
-      await projectAssets(tx, scope, [String(before.assetId)])
-    ).get(String(before.assetId));
-    const bound = data(previous).boundTo;
-    if (bound?.creativeId && bound.contentId === attached.contentId)
-      await outdateRendition(tx, scope, previous);
-  }
-  if (before.creativeId && before.creativeId !== attached.creativeId) {
-    const replaced = await findCreative(
-      tx,
-      scope,
-      String(before.creativeId),
-    ).catch((error) => {
-      if (error instanceof DomainError) return null;
-      throw error;
-    });
-    if (replaced && data(replaced).status !== "superseded")
-      await update(tx, scope, replaced, {
-        ...data(replaced),
-        status: "superseded",
-      });
-  }
-}
-
-/**
- * Attaches a creative to its post (spec §11, like `attachPackageImage`): the
- * rendition of the creative's first format (the channel's) becomes the
- * post's image, the post goes back to `draft` without its review, approvals
- * and publications of the old version are blocked, and the review runs
- * again. Only a `composed` creative is attached; one that `needs_owner` only
- * when the owner accepts the findings (audited `creative.qa_override`). The
- * creative becomes `attached` (R5); repeating the attach changes nothing.
- * Errors: `CREATIVE_QA_FAILED`, `CREATIVE_NOT_ATTACHABLE`,
- * `DRAFT_SUPERSEDED`, `ALREADY_SCHEDULED`, `CAPTION_TOO_LONG`,
- * `BRAND_ASSET_CHANGED`, `ASSET_RIGHTS` (409), `OWNER_REQUIRED` (403).
+ * Attaches a creative to its post (spec §11): the studio's entry to
+ * `attachCreativeInTx`, behind the flag and the writer role.
  */
 export async function attachCreative(
   scope: Scope,
@@ -698,73 +463,7 @@ export async function attachCreative(
   input: { acceptQaFindings?: true } = {},
 ): Promise<{ contentId: string; assetId: string }> {
   assertStudio(scope);
-  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const row = await findCreative(tx, scope, creativeId);
-    const record = data(row) as CreativeRecord;
-    const content = await projectRow(tx, scope, "content", record.contentId);
-    const v = data(content);
-    const rendition =
-      record.renditions.find((r) => r.format === record.brief.formats[0]) ??
-      record.renditions[0];
-    if (!rendition) throw new DomainError("CREATIVE_NOT_ATTACHABLE", 409);
-    const result = { contentId: content.id, assetId: rendition.assetId };
-    if (
-      record.status === "attached" &&
-      v.assetId === rendition.assetId &&
-      v.creativeId === row.id
-    )
-      return result;
-    const failed = [...new Set(failedBlockers(record.qa.checks))];
-    // Integrity and rights findings are refusals no one accepts (R34).
-    const refused = refusal(failed);
-    if (refused) throw new DomainError(refused, 409);
-    const override = record.status === "needs_owner";
-    if (override) {
-      if (input.acceptQaFindings !== true)
-        throw new DomainError("CREATIVE_QA_FAILED", 409);
-      authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
-    } else if (record.status !== "composed")
-      throw new DomainError("CREATIVE_NOT_ATTACHABLE", 409);
-    if (v.supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
-    await assertRenditionHolds(tx, scope, row.id, rendition);
-    if (
-      (await list(tx, scope, "publications")).some(
-        (publication) =>
-          data(publication).contentId === content.id &&
-          !INACTIVE_PUBLICATION.includes(data(publication).status),
-      )
-    )
-      throw new DomainError("ALREADY_SCHEDULED", 409);
-    // Telegram sends text with media as a caption with a smaller limit.
-    if (
-      channelLimitExceeded(
-        String(v.body ?? ""),
-        v.targetUrl,
-        await resolveChannelRules(tx, scope, v.channel, v.type, true),
-      )
-    )
-      throw new DomainError("CAPTION_TOO_LONG", 409);
-    const { review: _review, ...rest } = v;
-    const attached = await update(tx, scope, content, {
-      ...rest,
-      assetId: rendition.assetId,
-      creativeId: row.id,
-      status: "draft",
-    });
-    await invalidateContent(tx, scope, content.id);
-    await reviewContent(tx, scope, attached.id, attached.version);
-    await retirePrevious(tx, scope, v, { ...result, creativeId: row.id });
-    await update(tx, scope, row, { ...record, status: "attached" });
-    if (override)
-      await audit(tx, scope, "creative.qa_override", row.id, {
-        contentId: content.id,
-        failed,
-      });
-    await audit(tx, scope, "creative.attached", row.id, {
-      contentId: content.id,
-      assetId: rendition.assetId,
-      format: rendition.format,
-    });
-    return result;
-  });
+  return scoped(scope.workspaceId, scope.projectId, (tx) =>
+    attachCreativeInTx(tx, scope, creativeId, input),
+  );
 }

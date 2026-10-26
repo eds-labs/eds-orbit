@@ -37,17 +37,24 @@ export type CreativeRecord = {
   /** The resolved creative brief the creative was made from. */
   brief: ResolvedBrief;
   template: TemplateId;
+  /** The variant drawn in the first format; the brief keeps the one asked for. */
   variant: VariantId;
+  /** A person chose the variant: corrections never switch it (R31). */
+  variantFixed?: boolean;
   options: { logoPlacement: LogoPlacement; textScale: TextScale };
   copy: CreativeCopy;
   /** The exact approved components the renditions were composed from. */
   components: {
     artAssetId?: string;
+    /** The art's bytes as composed; a recompose keeps exactly these. */
+    artSha256?: string;
     logo: { assetId: string; sha256: string };
     products: Array<{ assetId: string; sha256: string }>;
   };
   renditions: Array<{
     format: FormatId;
+    /** The variant this format was drawn in (R1 and free corrections). */
+    variant?: VariantId;
     channel?: string;
     assetId: string;
     width: number;

@@ -1,0 +1,237 @@
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type {
+  CreativeCheck,
+  CreativeCopy,
+  LogoPlacement,
+  RasterSource,
+  TextScale,
+} from "../../../../../../packages/creative/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, DomainError, entity } from "../../../shared.ts";
+import { currentMarketingProfile } from "../brand/marketing-profile.ts";
+import type { BrandKitPlan, EntityRow } from "./brand-kit.ts";
+import type { ResolvedBrief } from "./brief.ts";
+import { assetSha, projectAssets } from "./components.ts";
+import type { CompositionOutcome } from "./renditions.ts";
+import type { CreativeRecord } from "./store.ts";
+
+// Saving a creative (R35): the re-check of its sources, the rendition assets
+// and the record's composition fields, shared by the manual studio,
+// assignment runs and content packages, so every flow stores one shape.
+
+/** What a creative is composed from, as planned in one transaction. */
+export type CreativePlan = {
+  kit: BrandKitPlan;
+  brief: ResolvedBrief;
+  copy: CreativeCopy;
+  options: { logoPlacement: LogoPlacement; textScale: TextScale };
+  /** A person chose the variant: corrections never switch it (R31). */
+  variantFixed: boolean;
+  art: EntityRow | null;
+  /** The product shown (at most one), or none. */
+  products: EntityRow[];
+  /** The passed `ASSET_RIGHTS` check of the components. */
+  rights: CreativeCheck;
+};
+
+/** The composition of a plan and the component bytes it was drawn from. */
+export type ComposedCreative = {
+  outcome: CompositionOutcome;
+  art?: RasterSource;
+  products: RasterSource[];
+};
+
+/** Every component whose state the save depends on: all brand kit logos, art, products. */
+export const sourceRows = (
+  plan: Pick<CreativePlan, "kit" | "art" | "products">,
+): EntityRow[] => [
+  ...Object.values(plan.kit.logos).filter((row): row is EntityRow => !!row),
+  ...(plan.art ? [plan.art] : []),
+  ...plan.products,
+];
+
+/**
+ * The save's re-check (Review Focus 5), in the save transaction: the
+ * profile version and every component's version and SHA-256 are as planned,
+ * else `MARKETING_PROFILE_CHANGED` / `BRAND_ASSET_CHANGED` (409) and nothing
+ * is stored.
+ */
+export async function assertSourcesHold(
+  tx: DbTx,
+  scope: Scope,
+  plan: Pick<CreativePlan, "kit" | "art" | "products">,
+): Promise<void> {
+  const profile = await currentMarketingProfile(tx, scope);
+  if (!profile || profile.version !== plan.kit.profileVersion)
+    throw new DomainError("MARKETING_PROFILE_CHANGED", 409);
+  const rows = sourceRows(plan);
+  const current = await projectAssets(
+    tx,
+    scope,
+    rows.map((row) => row.id),
+  );
+  for (const row of rows) {
+    const now = current.get(row.id);
+    if (!now || now.version !== row.version || assetSha(now) !== assetSha(row))
+      throw new DomainError("BRAND_ASSET_CHANGED", 409);
+  }
+}
+
+/**
+ * The post as stored now, still with the channel and type the formats were
+ * planned for (`CONTENT_CHANGED`, 409); a removed post is `NOT_FOUND`.
+ */
+export async function assertContentHolds(
+  tx: DbTx,
+  scope: Scope,
+  planned: EntityRow,
+): Promise<EntityRow> {
+  const content = await entity(tx, scope, "content", planned.id);
+  const [now, then] = [data(content), data(planned)];
+  if (now.channel !== then.channel || now.type !== then.type)
+    throw new DomainError("CONTENT_CHANGED", 409);
+  return content;
+}
+
+/**
+ * Stores each rendition as an approved `generated_artwork` asset bound to
+ * its creative and post (kept out of the library and pickers), whose rights
+ * source records every drawn component's id, version and SHA-256 (the logo
+ * with the role it was drawn as). `boundTo` and `rightsSource` take a flow's
+ * own fields (an assignment run, a consent) next to Orbit's, which win.
+ */
+export async function saveRenditions(
+  tx: DbTx,
+  scope: Scope,
+  input: {
+    creativeId: string;
+    contentId: string;
+    /** The post's channel (integration id) the renditions are for. */
+    channel?: string;
+    /** The post's title, for the assets' names. */
+    title: string;
+    plan: CreativePlan;
+    composed: ComposedCreative;
+    /** Who stands for the rights decision: the person, or the consenting owner. */
+    approvedBy: string;
+    boundTo?: Record<string, string>;
+    rightsSource?: Record<string, unknown>;
+  },
+): Promise<CreativeRecord["renditions"]> {
+  const { plan, composed } = input;
+  const component = (
+    role: string,
+    row: EntityRow,
+    sha256: string,
+    extra: Record<string, string> = {},
+  ) => ({ role, ...extra, assetId: row.id, version: row.version, sha256 });
+  const renditions: CreativeRecord["renditions"] = [];
+  for (const { format, variant, result } of composed.outcome.renditions) {
+    const drawn = (kind: string) => result.layers.some((l) => l.kind === kind);
+    const logo = plan.kit.logos[result.logoRole]!;
+    const components = [
+      component("logo", logo, assetSha(logo), { logoRole: result.logoRole }),
+      ...(plan.art && composed.art && drawn("art")
+        ? [component("art", plan.art, composed.art.sha256)]
+        : []),
+      ...(drawn("product")
+        ? plan.products.map((row, i) =>
+            component("product", row, composed.products[i]!.sha256),
+          )
+        : []),
+    ];
+    const asset = await create(tx, scope, "assets", {
+      name: `Creative ${format}: ${input.title}`.slice(0, 160),
+      type: "generated_artwork",
+      mime: "image/png",
+      filename: `creative-${plan.brief.template}-${format}.png`,
+      base64: result.png.toString("base64"),
+      sha256: result.sha256,
+      width: result.width,
+      height: result.height,
+      bytes: result.png.length,
+      source: "template",
+      sourceType: "TEMPLATE_GENERATED",
+      usageApproved: true,
+      assetStatus: "approved",
+      approvedBy: input.approvedBy,
+      license:
+        "Composed by Orbit from approved brand assets; rights follow its components",
+      rightsSource: {
+        ...input.rightsSource,
+        profileVersion: plan.kit.profileVersion,
+        components,
+      },
+      // Bound to its creative and post: not in the asset library or pickers.
+      boundTo: {
+        ...input.boundTo,
+        creativeId: input.creativeId,
+        contentId: input.contentId,
+      },
+      creativeFormat: format,
+      creativeVariant: variant,
+      profileVersion: plan.kit.profileVersion,
+      renderer: result.renderer,
+      channel: "Social",
+      validUses: ["social"],
+      driveSyncStatus: "LOCAL_ONLY",
+    });
+    renditions.push({
+      format,
+      variant,
+      ...(input.channel !== undefined && { channel: input.channel }),
+      assetId: asset.id,
+      width: result.width,
+      height: result.height,
+      bytes: result.png.length,
+      sha256: result.sha256,
+    });
+  }
+  return renditions;
+}
+
+/**
+ * The composition part of a creative record: the brief, the variant drawn in
+ * the first format (the brief keeps the one asked for), whether a person
+ * fixed it, the components with their bytes and the QA. `composed` without
+ * a failed blocker, else `needs_owner`.
+ */
+export function composedFields(
+  plan: CreativePlan,
+  composed: ComposedCreative,
+): Omit<
+  CreativeRecord,
+  | "contentId"
+  | "assignmentRunId"
+  | "packageId"
+  | "renditions"
+  | "corrections"
+  | "cost"
+> {
+  const { outcome } = composed;
+  const first = outcome.renditions[0]!;
+  const logo = plan.kit.logos[first.result.logoRole]!;
+  return {
+    profileVersion: plan.kit.profileVersion,
+    brief: plan.brief,
+    template: plan.brief.template,
+    variant: first.variant,
+    variantFixed: plan.variantFixed,
+    options: plan.options,
+    copy: plan.copy,
+    components: {
+      ...(plan.art &&
+        composed.art && {
+          artAssetId: plan.art.id,
+          artSha256: composed.art.sha256,
+        }),
+      logo: { assetId: logo.id, sha256: assetSha(logo) },
+      products: plan.products.map((row, i) => ({
+        assetId: row.id,
+        sha256: composed.products[i]!.sha256,
+      })),
+    },
+    qa: { checks: [plan.rights, ...outcome.checks], verdict: outcome.verdict },
+    status: outcome.failed.length ? "needs_owner" : "composed",
+  };
+}

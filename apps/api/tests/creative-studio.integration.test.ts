@@ -8,6 +8,7 @@ import {
 } from "../../../packages/db/src/index.ts";
 import {
   composeCreative,
+  CreativeError,
   encodeWebp,
   type ComposeInput,
 } from "../../../packages/creative/src/index.ts";
@@ -360,6 +361,7 @@ describe.skipIf(!enabled)(
         expect.arrayContaining([
           {
             role: "logo",
+            logoRole: "primary",
             assetId: assets.lumoraLogo.id,
             version: assets.lumoraLogo.version,
             sha256: assets.lumoraLogo.sha256,
@@ -753,8 +755,10 @@ describe.skipIf(!enabled)(
           artAssetId: assets.goodArt.id,
         }),
       ).rejects.toMatchObject({ code: "CREATIVE_COPY_REQUIRED", status: 409 });
-      // The copywriter's creative copy on the post is used when none is sent.
-      const written = await newContent(a, { creativeCopy: COPY });
+      // The copywriter's creative copy on the post is used when none is sent,
+      // stored with its non-empty layers only (R37).
+      const stored = { headline: COPY.headline, cta: COPY.cta };
+      const written = await newContent(a, { creativeCopy: stored });
       expect(
         (
           await produceCreative(a.editor, {
@@ -763,7 +767,226 @@ describe.skipIf(!enabled)(
             artAssetId: assets.goodArt.id,
           })
         ).copy,
-      ).toEqual(COPY);
+      ).toEqual(stored);
+      // Empty layers of a sent copy are left out; a blank headline is no copy.
+      expect(
+        (
+          await produceCreative(a.editor, {
+            contentId: written.id,
+            template: "lifestyle",
+            copy: { ...COPY, eyebrow: "", subline: "" },
+            artAssetId: assets.goodArt.id,
+          })
+        ).copy,
+      ).toEqual({ headline: COPY.headline, cta: COPY.cta });
+      await expect(
+        produceCreative(a.editor, {
+          contentId: written.id,
+          copy: { headline: "  " },
+          artAssetId: assets.goodArt.id,
+        }),
+      ).rejects.toMatchObject({ code: "CREATIVE_COPY_REQUIRED", status: 409 });
+    });
+
+    it("stores the variant drawn and keeps a person's variant fixed", async () => {
+      const content = await newContent(a);
+      const overflowOn = (variant: string) => async (request: ComposeInput) => {
+        if (request.variant === variant)
+          throw new CreativeError("TEXT_OVERFLOW");
+        return composeCreative(request);
+      };
+      // The starting variant does not fit: a free correction draws text_top.
+      const corrected = await produceCreative(
+        a.editor,
+        {
+          contentId: content.id,
+          template: "lifestyle",
+          copy: COPY,
+          artAssetId: assets.goodArt.id,
+        },
+        { compose: overflowOn("text_bottom") },
+      );
+      expect(corrected).toMatchObject({
+        variant: "text_top",
+        brief: { variant: "text_bottom" },
+        variantFixed: false,
+      });
+      expect(corrected.renditions[0]).toMatchObject({ variant: "text_top" });
+      // A person's variant is never switched, also on a later recompose.
+      const chosen = await produceCreative(a.editor, {
+        contentId: content.id,
+        template: "lifestyle",
+        variant: "text_top",
+        copy: COPY,
+        artAssetId: assets.goodArt.id,
+      });
+      expect(chosen).toMatchObject({ variant: "text_top", variantFixed: true });
+      await expect(
+        recomposeCreative(
+          a.editor,
+          chosen.id,
+          { options: { logoPlacement: "top_right" } },
+          { compose: overflowOn("text_top") },
+        ),
+      ).rejects.toMatchObject({ code: "TEXT_OVERFLOW", status: 409 });
+      // A new template without a variant is the studio's choice again.
+      expect(
+        await recomposeCreative(a.editor, chosen.id, { template: "tips" }),
+      ).toMatchObject({ template: "tips", variantFixed: false });
+    });
+
+    it("re-checks the kept art and refuses art without its SHA-256", async () => {
+      const own = await setStatus(
+        a,
+        await upload(a, "photo", await art("good", "lumora"), "image/webp"),
+        "approved",
+      );
+      const content = await newContent(a);
+      const creative = await produceCreative(a.editor, {
+        contentId: content.id,
+        template: "lifestyle",
+        copy: COPY,
+        artAssetId: own.id,
+      });
+      expect(creative.components.artSha256).toBe(own.sha256);
+      // The art's bytes are replaced meanwhile (as a re-import would).
+      const flat = await assetData(a, assets.flatArt.id);
+      await runIn(a, async (tx) => {
+        const row = await entity(tx, a.owner, "assets", own.id);
+        await update(tx, a.owner, row, {
+          ...data(row),
+          base64: flat.base64,
+          sha256: flat.sha256,
+        });
+      });
+      await expect(
+        recomposeCreative(a.editor, creative.id, { variant: "text_top" }),
+      ).rejects.toMatchObject({ code: "BRAND_ASSET_CHANGED", status: 409 });
+      // An approved art whose bytes carry no SHA-256 is never drawn.
+      const { sha256: _sha256, ...good } = await assetData(
+        a,
+        assets.goodArt.id,
+      );
+      const unhashed = await runIn(a, (tx) =>
+        create(tx, a.owner, "assets", good),
+      );
+      await expect(
+        produceCreative(a.editor, {
+          contentId: content.id,
+          template: "lifestyle",
+          copy: COPY,
+          artAssetId: unhashed.id,
+        }),
+      ).rejects.toMatchObject({
+        code: "ASSET_RIGHTS",
+        status: 409,
+        detail: { assetIds: unhashed.id, reasons: "no_sha256" },
+      });
+    });
+
+    it("attaches only for the current brand and an unchanged post", async () => {
+      const content = await newContent(a);
+      const before = await stored(a);
+      // The post moves to another channel while the renditions are composed.
+      await expect(
+        produceCreative(
+          a.editor,
+          {
+            contentId: content.id,
+            template: "lifestyle",
+            copy: COPY,
+            artAssetId: assets.goodArt.id,
+          },
+          {
+            afterCompose: async () => {
+              await runIn(a, async (tx) => {
+                const row = await entity(tx, a.owner, "content", content.id);
+                await update(tx, a.owner, row, {
+                  ...data(row),
+                  channel: "x-int",
+                });
+              });
+            },
+          },
+        ),
+      ).rejects.toMatchObject({ code: "CONTENT_CHANGED", status: 409 });
+      expect(await stored(a)).toEqual(before);
+      // The profile's logo is replaced after the creative was made.
+      const other = await newContent(a);
+      const creative = await produceGood(a.editor, other.id);
+      const lumora = await demoBrand("lumora");
+      const newLogo = await setStatus(
+        a,
+        await upload(a, "logo", lumora.logos[1]!.bytes, "image/png"),
+        "approved",
+      );
+      await saveProfile(
+        a,
+        "Lumora Home",
+        lumoraIdentity({ logoAssetId: newLogo.id }),
+      );
+      try {
+        await expect(
+          attachCreative(a.editor, creative.id, {}),
+        ).rejects.toMatchObject({ code: "BRAND_ASSET_CHANGED", status: 409 });
+      } finally {
+        await saveProfile(a, "Lumora Home", lumoraIdentity());
+      }
+      // Back to the logo it was made with, it attaches.
+      expect(await attachCreative(a.editor, creative.id, {})).toMatchObject({
+        contentId: other.id,
+      });
+    });
+
+    it("refuses an attach whose component lost its rights, or whose post or creative was replaced", async () => {
+      const own = await setStatus(
+        a,
+        await upload(a, "photo", await art("good", "lumora"), "image/webp"),
+        "approved",
+      );
+      const content = await newContent(a);
+      const revoked = await produceCreative(a.editor, {
+        contentId: content.id,
+        template: "lifestyle",
+        copy: COPY,
+        artAssetId: own.id,
+      });
+      await setStatus(a, own, "reference");
+      await expect(
+        attachCreative(a.editor, revoked.id, {}),
+      ).rejects.toMatchObject({
+        code: "ASSET_RIGHTS",
+        status: 409,
+        detail: { assetIds: own.id, reasons: "not_approved" },
+      });
+      // A creative another one replaced on the post cannot come back.
+      const first = await produceGood(a.editor, content.id);
+      const second = await produceGood(a.editor, content.id);
+      await attachCreative(a.editor, first.id, {});
+      await attachCreative(a.editor, second.id, {});
+      const replaced = await runIn(a, async (tx) =>
+        data(await findCreative(tx, a.owner, first.id)),
+      );
+      expect(replaced.status).toBe("superseded");
+      expect(await assetData(a, first.renditions[0]!.assetId)).toMatchObject({
+        assetStatus: "outdated",
+      });
+      await expect(
+        attachCreative(a.editor, first.id, {}),
+      ).rejects.toMatchObject({ code: "CREATIVE_NOT_ATTACHABLE", status: 409 });
+      // A post replaced by a newer version takes no image.
+      const old = await newContent(a);
+      const creative = await produceGood(a.editor, old.id);
+      await runIn(a, async (tx) => {
+        const row = await entity(tx, a.owner, "content", old.id);
+        await update(tx, a.owner, row, {
+          ...data(row),
+          supersededBy: randomUUID(),
+        });
+      });
+      await expect(
+        attachCreative(a.editor, creative.id, {}),
+      ).rejects.toMatchObject({ code: "DRAFT_SUPERSEDED", status: 409 });
     });
 
     it("viewer cannot produce", async () => {
