@@ -231,21 +231,77 @@ describe("layoutFor", () => {
     }
   });
 
-  it("picks an automatic corner that needs no shrinking of the text", () => {
+  it("lets auto take the first corner, in a fixed order, that shrinks nothing", () => {
+    // Independent of ids.ts: the order the brief fixes.
+    const order = [
+      "top_left",
+      "top_right",
+      "bottom_left",
+      "bottom_right",
+    ] as const;
+    const area = (box: Box | null) => (box ? box.w * box.h : 0);
     for (const { template, variant, format } of allCases()) {
+      const label = `${template}/${variant}/${format}`;
       const auto = layoutFor(template, variant, format, options());
-      const same = layoutFor(
-        template,
-        variant,
-        format,
-        options(auto.logo.corner),
+      const explicit = order.map((corner) =>
+        layoutFor(template, variant, format, options(corner)),
       );
-      expect(same.textBox, `${template}/${variant}/${format}`).toEqual(
-        auto.textBox,
-      );
-      expect(same.product).toEqual(auto.product);
-      expect(same.logo).toEqual(auto.logo);
+      // A box is shrunk when it is smaller than in the best corner for it.
+      const roomText = Math.max(...explicit.map((l) => area(l.textBox)));
+      const roomProduct = Math.max(...explicit.map((l) => area(l.product)));
+      const shrinks = (l: LayoutSpec) =>
+        area(l.textBox) < roomText || area(l.product) < roomProduct;
+      const firstFree = order.find((_, i) => !shrinks(explicit[i]!));
+      // Every layout leaves at least one corner that needs no shrinking.
+      expect(firstFree, label).toBeDefined();
+      expect(auto.logo.corner, label).toBe(firstFree);
+      expect(area(auto.textBox), label).toBe(roomText);
+      expect(area(auto.product), label).toBe(roomProduct);
     }
+  });
+
+  it("picks the expected automatic corner where earlier corners are blocked", () => {
+    const corner = (t: TemplateId, v: VariantId, f: FormatId) =>
+      layoutFor(t, v, f, options()).logo.corner;
+    expect(corner("lifestyle", "text_bottom", "square")).toBe("top_left");
+    // The product column blocks top_left; the band above the text is free.
+    expect(corner("feature_highlight", "product_left", "landscape")).toBe(
+      "top_right",
+    );
+    expect(corner("feature_highlight", "product_left", "square")).toBe(
+      "top_right",
+    );
+    // Text at the top blocks both top corners.
+    expect(corner("lifestyle", "text_top", "feed_portrait")).toBe(
+      "bottom_left",
+    );
+    // A full-height text column and a product at the top leave the corner under the product.
+    expect(corner("product_showcase", "product_right", "landscape")).toBe(
+      "bottom_right",
+    );
+    expect(corner("product_showcase", "product_left", "landscape")).toBe(
+      "bottom_left",
+    );
+  });
+
+  it("gives the default landscape layout of every template room for four text layers", () => {
+    // R12/R14: on landscape the first side variant is the default, else the first variant.
+    const side = new Set<VariantId>(SIDE_VARIANTS);
+    for (const template of CREATIVE_TEMPLATE_IDS) {
+      const offered = variantsFor(template, "landscape");
+      const chosen = offered.find((v) => side.has(v)) ?? offered[0]!;
+      const layout = layoutFor(template, chosen, "landscape", options());
+      // Eyebrow, headline, subline and CTA at minimum size measure about 342 px.
+      expect(layout.textBox.h, `${template}/${chosen}`).toBeGreaterThanOrEqual(
+        342,
+      );
+    }
+    // Both stacked variants of problem_solution are roomy enough too.
+    for (const variant of TEMPLATE_VARIANTS.problem_solution)
+      expect(
+        layoutFor("problem_solution", variant, "landscape", options()).textBox
+          .h,
+      ).toBeGreaterThanOrEqual(342);
   });
 
   it("refuses side variants on portrait formats", () => {

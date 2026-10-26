@@ -237,7 +237,14 @@ const TEMPLATES: Readonly<Record<TemplateId, TemplateSpec>> = {
   problem_solution: {
     background: "art",
     scrim: { base: 0.5, max: 0.85 },
-    regions: { text_top: TEXT_OVER_PRODUCT, text_bottom: PRODUCT_OVER_TEXT },
+    regions: {
+      // On landscape the text gets the room four layers need (R14); the optional product is a strip below.
+      text_top: {
+        tall: TEXT_OVER_PRODUCT.tall,
+        wide: { text: [0, 0, 0.8, 0.66], product: [0.1, 0.7, 0.8, 0.3] },
+      },
+      text_bottom: PRODUCT_OVER_TEXT,
+    },
   },
   // Full-bleed scene, text on a gradient scrim at one side.
   lifestyle: {
