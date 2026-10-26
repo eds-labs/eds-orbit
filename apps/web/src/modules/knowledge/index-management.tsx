@@ -161,6 +161,8 @@ const TEXT = {
       INDEX_CORPUS_CHANGED:
         "The knowledge changed in the meantime. Prepare a new generation.",
       AGENT_OUTPUT_INVALID: "The AI's answer could not be used. Try again.",
+      AGENT_OUTPUT_LIMIT:
+        "The AI's answer was cut off at its output limit. Raise “Knowledge test questions” in the AI settings.",
       MODEL_CAPABILITY_NOT_VERIFIED:
         "No model is set up for “Knowledge test questions” in the AI settings.",
       EMBEDDING_KEY_REQUIRED: "The project has no OpenAI key for embeddings.",
@@ -277,6 +279,8 @@ const TEXT = {
         "Das Wissen hat sich inzwischen geändert. Bereite eine neue Generation vor.",
       AGENT_OUTPUT_INVALID:
         "Die Antwort der KI war nicht verwendbar. Versuche es erneut.",
+      AGENT_OUTPUT_LIMIT:
+        "Die Antwort der KI wurde an ihrem Ausgabelimit abgeschnitten. Erhöhe „Wissensprüfung: Testfragen“ in den KI-Einstellungen.",
       MODEL_CAPABILITY_NOT_VERIFIED:
         "In den KI-Einstellungen ist kein Modell für „Wissensprüfung: Testfragen“ eingerichtet.",
       EMBEDDING_KEY_REQUIRED:

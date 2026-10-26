@@ -1,5 +1,9 @@
 # Implementation status
 
+## Claude specialist calls: streaming and named cut-offs (2026-10-26)
+
+Claude calls through `respond` (structured runs, marketing specialists, Support AI, finance extraction, knowledge workspace) and draft `generate` now stream to the final message, so the 45/60-second client timeout no longer limits a long answer. A cut-off answer is named: `AGENT_OUTPUT_LIMIT` for structured runs and specialists, `MODEL_OUTPUT_LIMIT` for drafts, each with its cost settled. Found while preparing the FamilyPlan end-to-end test (`docs/plans/familyplan-p4-e2e-test.md`): FamilyPlan's Claude routes had 1,800–3,000 output tokens. No migration, no flag, no API change.
+
 ## Issue center phase 3 (2026-10-26, pushed to main with Mario's approval; `ORBIT_ISSUES` off)
 
 Plan: [plans/issue-center-phase-3.md](plans/issue-center-phase-3.md); ADR: [adr/0018-issue-center.md](adr/0018-issue-center.md); guide: [ISSUES.md](ISSUES.md); privacy assessment in [SECURITY_REVIEW.md](SECURITY_REVIEW.md#issue-center-adr-0018-prepared-2026-10-26-local-only). Mario's decisions Q-P3-1 to Q-P3-6 of 2026-10-25 apply. Scope: the plan's MVP (WP3.0–WP3.9, WP3.11 with manual records, WP3.12, WP3.13, WP3.15). The GitHub App (WP3.10) and Sentry/monitoring (WP3.14) are not built.

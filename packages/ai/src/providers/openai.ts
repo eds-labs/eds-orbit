@@ -125,5 +125,8 @@ export async function openAiRespond(params: {
     output: response.output as unknown[],
     usage: normalizeResponsesUsage(response.usage),
     responseId: response.id ?? null,
+    truncated:
+      response.status === "incomplete" &&
+      response.incomplete_details?.reason === "max_output_tokens",
   };
 }

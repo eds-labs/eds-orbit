@@ -66,6 +66,13 @@ const message = (content: unknown[], extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+// A non-streaming call as the SDK's stream helper answers it: no text deltas
+// needed, the final message carries everything.
+const streamed = (final: unknown) => ({
+  async *[Symbol.asyncIterator]() {},
+  finalMessage: async () => final,
+});
+
 describe("Orbit items as Messages API messages", () => {
   it("joins consecutive items of one side and sends assistant blocks back verbatim", () => {
     const providerContent = [
@@ -414,14 +421,16 @@ describe("routed calls through the Anthropic adapter", () => {
     sdk.options.length = 0;
   });
   it("generate prices the draft with the Anthropic usage and never retries", async () => {
-    sdk.create.mockResolvedValue(
-      message([
-        {
-          type: "text",
-          text: JSON.stringify({ title: "t", body: "b", claims: [] }),
-          citations: null,
-        },
-      ]),
+    sdk.stream.mockReturnValue(
+      streamed(
+        message([
+          {
+            type: "text",
+            text: JSON.stringify({ title: "t", body: "b", claims: [] }),
+            citations: null,
+          },
+        ]),
+      ),
     );
     const result = await generate({
       task: "draft",
@@ -436,7 +445,9 @@ describe("routed calls through the Anthropic adapter", () => {
       maxRetries: 0,
       timeout: 45000,
     });
-    const [body] = sdk.create.mock.calls[0]!;
+    // Streamed, so the timeout limits the connection, not a long answer.
+    expect(sdk.create).not.toHaveBeenCalled();
+    const [body] = sdk.stream.mock.calls[0]!;
     expect(body).toMatchObject({
       model: route.model,
       max_tokens: 1800,
@@ -463,11 +474,17 @@ describe("routed calls through the Anthropic adapter", () => {
     expect(result.output.body).toBe("b");
   });
   it("generate reports a refusal as a billed, non-retryable outcome", async () => {
-    sdk.create.mockResolvedValue(
-      message([], {
-        stop_reason: "refusal",
-        stop_details: { type: "refusal", category: "cyber", explanation: null },
-      }),
+    sdk.stream.mockReturnValue(
+      streamed(
+        message([], {
+          stop_reason: "refusal",
+          stop_details: {
+            type: "refusal",
+            category: "cyber",
+            explanation: null,
+          },
+        }),
+      ),
     );
     const error = await generate({
       task: "draft",
@@ -480,6 +497,28 @@ describe("routed calls through the Anthropic adapter", () => {
     expect(error).toBeInstanceOf(GenerationOutputError);
     expect(error).toMatchObject({ code: "MODEL_REFUSAL", costMicros: 1300 });
   });
+  it("generate names a draft cut off at max_tokens, with its cost", async () => {
+    sdk.stream.mockReturnValue(
+      streamed(
+        message([{ type: "text", text: '{"title":"t","bo', citations: null }], {
+          stop_reason: "max_tokens",
+        }),
+      ),
+    );
+    const error = await generate({
+      task: "draft",
+      goal: "g",
+      evidence: {},
+      route,
+      reservationId: "r",
+      runtime,
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(GenerationOutputError);
+    expect(error).toMatchObject({
+      code: "MODEL_OUTPUT_LIMIT",
+      costMicros: 1300,
+    });
+  });
   it("generate refuses without an Anthropic key", async () => {
     await expect(
       generate({
@@ -491,20 +530,22 @@ describe("routed calls through the Anthropic adapter", () => {
         runtime: { ...runtime, anthropicApiKey: undefined, apiKey: "openai" },
       }),
     ).rejects.toThrow("PAID_CALL_NOT_AUTHORIZED");
-    expect(sdk.create).not.toHaveBeenCalled();
+    expect(sdk.stream).not.toHaveBeenCalled();
   });
   it("respond converts tools, caps searches and returns Orbit items", async () => {
-    sdk.create.mockResolvedValue(
-      message([
-        { type: "text", text: '{"ok":true}', citations: null },
-        {
-          type: "tool_use",
-          id: "c1",
-          name: "knowledge_search",
-          input: { query: "q" },
-          caller: { type: "direct" },
-        },
-      ]),
+    sdk.stream.mockReturnValue(
+      streamed(
+        message([
+          { type: "text", text: '{"ok":true}', citations: null },
+          {
+            type: "tool_use",
+            id: "c1",
+            name: "knowledge_search",
+            input: { query: "q" },
+            caller: { type: "direct" },
+          },
+        ]),
+      ),
     );
     const result = await respond({
       route,
@@ -535,7 +576,8 @@ describe("routed calls through the Anthropic adapter", () => {
       reservationId: "r",
       runtime,
     });
-    const [body] = sdk.create.mock.calls[0]!;
+    expect(sdk.create).not.toHaveBeenCalled();
+    const [body] = sdk.stream.mock.calls[0]!;
     expect(body.tools).toEqual([
       expect.objectContaining({ name: "knowledge_search" }),
       expect.objectContaining({ type: "web_search_20260209", max_uses: 1 }),
@@ -551,6 +593,26 @@ describe("routed calls through the Anthropic adapter", () => {
         arguments: '{"query":"q"}',
       },
     ]);
+    expect(result.usage.costMicros).toBe(1300);
+    expect(result.truncated).toBe(false);
+  });
+  it("respond reports an answer cut off at max_tokens as truncated", async () => {
+    sdk.stream.mockReturnValue(
+      streamed(
+        message([{ type: "text", text: '{"summary":"par', citations: null }], {
+          stop_reason: "max_tokens",
+        }),
+      ),
+    );
+    const result = await respond({
+      route,
+      instructions: "i",
+      input: [{ role: "user", content: "x" }],
+      tools: [],
+      reservationId: "r",
+      runtime,
+    });
+    expect(result.truncated).toBe(true);
     expect(result.usage.costMicros).toBe(1300);
   });
   it("streamChat yields the chat runner's events with the usage in Responses shape", async () => {
@@ -739,7 +801,12 @@ describe("tools without strict decoding", () => {
       Array.from({ length: 25 }, (_, i) => ({
         type: "function",
         name: `t${i}`,
-        parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+        parameters: {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
+        },
       })),
     );
     expect(tools).toHaveLength(25);
@@ -755,7 +822,11 @@ describe("tool schemas for Claude", () => {
       required: ["limit"],
       additionalProperties: false,
     };
-    const [tool] = toAnthropicTools([{ type: "function", name: "knowledge_facts", parameters }]);
-    expect((tool as { input_schema: unknown }).input_schema).toEqual(parameters);
+    const [tool] = toAnthropicTools([
+      { type: "function", name: "knowledge_facts", parameters },
+    ]);
+    expect((tool as { input_schema: unknown }).input_schema).toEqual(
+      parameters,
+    );
   });
 });

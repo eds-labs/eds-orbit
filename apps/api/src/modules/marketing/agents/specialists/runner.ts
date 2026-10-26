@@ -542,6 +542,8 @@ export async function runSpecialist(
   let modelCalls = 0;
   let webSearches = 0;
   let lastOutput: unknown[] = [];
+  // The last answer stopped at the route's output limit (thinking included).
+  let lastTruncated = false;
   // Every URL the task's searches returned or cited, over all turns.
   const sources = new Set<string>();
 
@@ -698,6 +700,7 @@ export async function runSpecialist(
       if (webSearches > specialist.limits.maxWebSearches)
         throw new DomainError("AGENT_LIMIT");
       lastOutput = result.output;
+      lastTruncated = result.truncated;
       return {
         output: result.output,
         toolCalls: result.output
@@ -777,17 +780,21 @@ export async function runSpecialist(
     try {
       parsed = specialist.outputSchema.parse(JSON.parse(answer));
     } catch {
+      // A cut-off answer needs a larger output limit, not another try.
+      const code = lastTruncated
+        ? "AGENT_OUTPUT_LIMIT"
+        : "AGENT_OUTPUT_INVALID";
       // The cost of the last call is already settled. The span names where
       // the answer failed, so the cause can be found without its content.
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: "output_validation",
         status: "failed",
-        errorCode: `AGENT_OUTPUT_INVALID ${outputIssues(answer, specialist.outputSchema)}`,
+        errorCode: `${code} ${outputIssues(answer, specialist.outputSchema)}`,
         startedAt: new Date(),
         durationMs: 0,
       });
-      throw new DomainError("AGENT_OUTPUT_INVALID");
+      throw new DomainError(code);
     }
     const stored = specialist.finalize
       ? specialist.finalize(parsed, sources, prepared.context ?? input)

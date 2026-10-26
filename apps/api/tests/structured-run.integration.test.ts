@@ -20,6 +20,8 @@ registerModules();
 const mocked = vi.hoisted(() => ({
   replies: [] as Array<unknown[] | Error>,
   requests: [] as any[],
+  // The next answer stops at the output limit.
+  truncated: false,
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
@@ -40,6 +42,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
         costMicros: 7,
       },
       responseId: `resp_${randomUUID()}`,
+      truncated: mocked.truncated,
     };
   }),
 }));
@@ -113,6 +116,7 @@ describe.skipIf(!enabled)("structured runs", () => {
   beforeEach(() => {
     mocked.replies.length = 0;
     mocked.requests.length = 0;
+    mocked.truncated = false;
   });
   afterAll(async () => {
     await project?.cleanup();
@@ -149,6 +153,14 @@ describe.skipIf(!enabled)("structured runs", () => {
     mocked.replies.push(message({ summary: "no count" }));
     expect(await runStructured(scope(), s)).toMatchObject({ status: "failed", code: "AGENT_OUTPUT_INVALID", costMicros: 7 });
     expect(mocked.requests).toHaveLength(1);
+    expect((await reservations(s.budget.callKey)).map((r) => r.state)).toEqual(["settled"]);
+  });
+
+  it("names an answer cut off at the output limit, with its cost settled", async () => {
+    const s = spec();
+    mocked.truncated = true;
+    mocked.replies.push(message('{"summary":"cut'));
+    expect(await runStructured(scope(), s)).toMatchObject({ status: "failed", code: "AGENT_OUTPUT_LIMIT", costMicros: 7 });
     expect((await reservations(s.budget.callKey)).map((r) => r.state)).toEqual(["settled"]);
   });
 
