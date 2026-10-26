@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import type { BrandPalette } from "./brand.ts";
+import { CreativeError } from "./errors.ts";
+export * from "./brand.ts";
+export * from "./errors.ts";
+export * from "./formats.ts";
+export * from "./ids.ts";
 const logo = readFileSync(
   new URL("../assets/logo-layer-stack-mark.svg", import.meta.url),
 );
@@ -17,16 +23,6 @@ export const templateFormats = {
   // 16:9, the format of the brand banner (R78).
   wide: [1600, 900],
 } as const;
-export type BrandPalette = {
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  backgroundColor: string;
-  surfaceColor: string;
-  textColor: string;
-  headingFont: "Inter" | "DejaVu Sans" | "Arial" | "system-ui";
-  bodyFont: "Inter" | "DejaVu Sans" | "Arial" | "system-ui";
-};
 export type TemplateInput = {
   format: keyof typeof templateFormats;
   title: string;
@@ -40,12 +36,6 @@ export type TemplateInput = {
   visualHash?: string;
   palette?: BrandPalette;
 };
-export class CreativeError extends Error {
-  constructor(public code: string) {
-    super(code);
-    this.name = "CreativeError";
-  }
-}
 const escape = (text: string) =>
   text.replace(
     /[&<>"']/g,
