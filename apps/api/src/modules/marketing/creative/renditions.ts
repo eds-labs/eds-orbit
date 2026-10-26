@@ -21,7 +21,7 @@ import {
 } from "../../../../../../packages/creative/src/index.ts";
 import type { ArtCorrection } from "./art-direction.ts";
 import { variantForFormat, type ResolvedBrief } from "./brief.ts";
-import { planCorrection, type CorrectionState } from "./quality.ts";
+import { planCorrection, refusal, type CorrectionState } from "./quality.ts";
 import type { CreativeRecord } from "./store.ts";
 
 // The composition core (R6): one rendition per format with free corrections
@@ -98,6 +98,10 @@ type Attempt = {
   scrimMax: number;
 };
 
+/** Fewer failed blockers is better; an attempt with a refusal is worse than any other (R34). */
+const weight = (failed: readonly string[]) =>
+  (refusal(failed) ? 1000 : 0) + failed.length;
+
 const tagged = (checks: CreativeCheck[], format: FormatId) =>
   checks.map((check) => ({
     ...check,
@@ -170,7 +174,8 @@ export async function composeRenditions(
       artIsOrbitGenerated: input.artState.orbitGenerated,
     };
     const drawnRoles = new Set<LogoRole>();
-    // The attempt with the fewest failed blockers (the earlier one on a tie).
+    // The attempt with the fewest failed blockers (the earlier one on a tie),
+    // one without a refusal before any with one.
     let best: Attempt | null = null;
     let failed: CompositionOutcome["failed"] = [];
     for (let corrections = 0; ; corrections++) {
@@ -210,7 +215,7 @@ export async function composeRenditions(
         drawnRoles.add(composed.logoRole);
         state.scrimOpacity = composed.scrimOpacity;
         state.scrimMax = layout.scrim?.max ?? 0;
-        if (!best || blockers.length < best.failed.length)
+        if (!best || weight(blockers) < weight(best.failed))
           best = {
             result: composed,
             checks,

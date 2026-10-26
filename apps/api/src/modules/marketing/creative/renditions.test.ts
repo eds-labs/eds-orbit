@@ -196,6 +196,48 @@ describe("composeRenditions", () => {
     expect(outcome.checks).toEqual(outcome.renditions[0]!.checks);
   });
 
+  it("ranks an attempt with a refusal below every other (R34)", async () => {
+    // text_bottom reads badly (two blockers); text_top carries bytes that
+    // are not the approved logo (one blocker, but a refusal).
+    const calls: string[] = [];
+    const compose = async (request: ComposeInput) => {
+      calls.push(request.variant);
+      const result = await composeCreative(request);
+      if (request.variant === "text_top")
+        return {
+          ...result,
+          layers: result.layers.map((layer) =>
+            layer.kind === "logo"
+              ? { ...layer, sourceSha256: "0".repeat(64) }
+              : layer,
+          ),
+        };
+      return {
+        ...result,
+        // At the layout's maximum: a variant is the next correction.
+        scrimOpacity: 1,
+        layers: result.layers.map((layer) =>
+          layer.color && layer.kind !== "logo"
+            ? { ...layer, color: "#777777" }
+            : layer,
+        ),
+        backdrops: Object.fromEntries(
+          Object.entries(result.backdrops).map(([kind, backdrop]) => [
+            kind,
+            kind === "logo" ? backdrop : { p10: 0.5, p90: 0.5, busy: 1 },
+          ]),
+        ),
+      };
+    };
+    const outcome = await composeRenditions(await input(), { compose });
+    expect(calls).toEqual(["text_bottom", "text_top"]);
+    expect(outcome.renditions[0]!.variant).toBe("text_bottom");
+    expect(outcome.failed).toEqual(
+      expect.arrayContaining(["TEXT_CONTRAST_LOW", "TEXT_BACKDROP_BUSY"]),
+    );
+    expect(outcome.failed).not.toContain("LOGO_INTEGRITY");
+  });
+
   it("keeps a person's variant and leaves weak art to the owner", async () => {
     const outcome = await composeRenditions(
       await input({

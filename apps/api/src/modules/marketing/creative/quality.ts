@@ -78,6 +78,25 @@ export function assertRights(check: CreativeCheck): void {
 }
 
 /**
+ * Findings that refuse a creative (R34, spec §9 "refuse"): never corrected,
+ * never accepted by the owner, and nothing is stored with them.
+ */
+export const REFUSALS = [
+  "ASSET_RIGHTS",
+  "LOGO_INTEGRITY",
+  "SCREENSHOT_INTEGRITY",
+] as const;
+export type Refusal = (typeof REFUSALS)[number];
+
+/** The first failed code that refuses the creative, or null. */
+export function refusal(failed: readonly string[]): Refusal | null {
+  return (
+    (failed.find((code) => (REFUSALS as readonly string[]).includes(code)) as
+      Refusal | undefined) ?? null
+  );
+}
+
+/**
  * One free correction (spec §9), or the paid art regeneration the findings
  * call for, which only the caller may start.
  */
@@ -135,14 +154,14 @@ function nextVariant(state: CorrectionState): Correction | null {
  * - overflow: another variant, then the small text scale;
  * - subject or empty area: new art for Orbit's own art with attempts left,
  *   else another variant.
- * Missing rights (`ASSET_RIGHTS`) are a refusal and are never corrected;
- * render faults stay for the owner.
+ * Beside a refusal (`REFUSALS`, R34) nothing is corrected; render faults
+ * stay for the owner.
  */
 export function planCorrection(
   state: CorrectionState,
   failed: Array<CreativeCheck["code"] | "TEXT_OVERFLOW">,
 ): Correction | null {
-  if (failed.includes("ASSET_RIGHTS")) return null;
+  if (refusal(failed)) return null;
   const has = (...codes: Array<CreativeCheck["code"] | "TEXT_OVERFLOW">) =>
     codes.some((code) => failed.includes(code));
   const categories: Array<() => Correction | null> = [

@@ -6,7 +6,11 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { encodeWebp } from "../../../packages/creative/src/index.ts";
+import {
+  composeCreative,
+  encodeWebp,
+  type ComposeInput,
+} from "../../../packages/creative/src/index.ts";
 import {
   demoBrand,
   fixtureArt,
@@ -14,7 +18,7 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { buildServer } from "../src/server.ts";
-import { create, data, entity, list } from "../src/shared.ts";
+import { create, data, entity, list, update } from "../src/shared.ts";
 import {
   attachCreative,
   produceCreative,
@@ -560,6 +564,71 @@ describe.skipIf(!enabled)(
         ),
       ).rejects.toMatchObject({ code: "BRAND_ASSET_CHANGED", status: 409 });
       expect(await stored(a)).toEqual(before);
+    });
+
+    it("refuses a logo that is not its approved bytes, even for the owner (R34)", async () => {
+      // A composer whose logo layer carries other bytes than the approved ones.
+      const tampered = async (request: ComposeInput) => {
+        const result = await composeCreative(request);
+        return {
+          ...result,
+          layers: result.layers.map((layer) =>
+            layer.kind === "logo"
+              ? { ...layer, sourceSha256: "0".repeat(64) }
+              : layer,
+          ),
+        };
+      };
+      const content = await newContent(a);
+      const before = await stored(a);
+      await expect(
+        produceCreative(
+          a.editor,
+          {
+            contentId: content.id,
+            template: "lifestyle",
+            copy: COPY,
+            artAssetId: assets.goodArt.id,
+          },
+          { compose: tampered },
+        ),
+      ).rejects.toMatchObject({ code: "LOGO_INTEGRITY", status: 409 });
+      expect(await stored(a)).toEqual(before);
+      const creative = await produceGood(a.editor, content.id);
+      await expect(
+        recomposeCreative(
+          a.editor,
+          creative.id,
+          { variant: "text_top" },
+          { compose: tampered },
+        ),
+      ).rejects.toMatchObject({ code: "LOGO_INTEGRITY", status: 409 });
+      // A stored creative with such a finding is never accepted.
+      await runIn(a, async (tx) => {
+        const row = await findCreative(tx, a.owner, creative.id);
+        await update(tx, a.owner, row, {
+          ...data(row),
+          status: "needs_owner",
+          qa: {
+            verdict: "needs_owner",
+            checks: [
+              ...data(row).qa.checks,
+              {
+                code: "SCREENSHOT_INTEGRITY",
+                passed: false,
+                severity: "blocker",
+              },
+            ],
+          },
+        });
+      });
+      await expect(
+        attachCreative(a.owner, creative.id, { acceptQaFindings: true }),
+      ).rejects.toMatchObject({ code: "SCREENSHOT_INTEGRITY", status: 409 });
+      expect(
+        data(await runIn(a, (tx) => entity(tx, a.owner, "content", content.id)))
+          .assetId,
+      ).toBeUndefined();
     });
 
     it("attaches and resets review", async () => {

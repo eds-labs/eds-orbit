@@ -55,7 +55,7 @@ import {
   projectRow,
 } from "./components.ts";
 import { creativeStudioEnabled } from "./flag.ts";
-import { assertRights, rightsCheck } from "./quality.ts";
+import { assertRights, refusal, rightsCheck } from "./quality.ts";
 import { composeRenditions, type CompositionOutcome } from "./renditions.ts";
 import {
   CREATIVES,
@@ -230,6 +230,9 @@ async function composePlan(
     },
     { compose: deps.compose },
   ).catch(engineError);
+  // A logo or screenshot that is not its approved bytes is refused (R34).
+  const refused = refusal(outcome.failed);
+  if (refused) throw new DomainError(refused, 409);
   // Copy that does not fit is the person's to shorten; nothing is saved.
   if (outcome.overflow.length) throw new DomainError("TEXT_OVERFLOW", 409);
   await deps.afterCompose?.();
@@ -711,6 +714,10 @@ export async function attachCreative(
       v.creativeId === row.id
     )
       return result;
+    const failed = [...new Set(failedBlockers(record.qa.checks))];
+    // Integrity and rights findings are refusals no one accepts (R34).
+    const refused = refusal(failed);
+    if (refused) throw new DomainError(refused, 409);
     const override = record.status === "needs_owner";
     if (override) {
       if (input.acceptQaFindings !== true)
@@ -751,7 +758,7 @@ export async function attachCreative(
     if (override)
       await audit(tx, scope, "creative.qa_override", row.id, {
         contentId: content.id,
-        failed: [...new Set(failedBlockers(record.qa.checks))],
+        failed,
       });
     await audit(tx, scope, "creative.attached", row.id, {
       contentId: content.id,

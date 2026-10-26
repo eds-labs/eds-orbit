@@ -5,6 +5,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { EntityRow } from "./brand-kit.ts";
 import {
   planCorrection,
+  refusal,
   rightsCheck,
   type CorrectionState,
 } from "./quality.ts";
@@ -137,11 +138,24 @@ describe("planCorrection", () => {
     for (const code of [
       "LAYER_OVERLAP",
       "SAFE_AREA_VIOLATION",
-      "LOGO_INTEGRITY",
-      "SCREENSHOT_INTEGRITY",
       "CREATIVE_DIMENSIONS",
     ] as const)
       expect(planCorrection(state(), [code])).toBeNull();
+  });
+
+  it("corrects nothing beside a refusal (R34)", () => {
+    for (const code of [
+      "ASSET_RIGHTS",
+      "LOGO_INTEGRITY",
+      "SCREENSHOT_INTEGRITY",
+    ] as const)
+      expect(
+        planCorrection(state({ logoRoles: ["onDark"] }), [
+          "TEXT_CONTRAST_LOW",
+          "LOGO_CONTRAST_LOW",
+          code,
+        ]),
+      ).toBeNull();
   });
 
   it("takes the first category with a correction left", () => {
@@ -155,6 +169,19 @@ describe("planCorrection", () => {
         ["TEXT_CONTRAST_LOW", "LOGO_CONTRAST_LOW"],
       ),
     ).toEqual({ kind: "logo_variant", role: "onLight" });
+  });
+});
+
+describe("refusal", () => {
+  it("names the first failure that refuses a creative (R34)", () => {
+    expect(refusal(["TEXT_CONTRAST_LOW", "LOGO_INTEGRITY"])).toBe(
+      "LOGO_INTEGRITY",
+    );
+    expect(refusal(["SCREENSHOT_INTEGRITY"])).toBe("SCREENSHOT_INTEGRITY");
+    expect(refusal(["ASSET_RIGHTS", "TEXT_OVERFLOW"])).toBe("ASSET_RIGHTS");
+    expect(
+      refusal(["TEXT_OVERFLOW", "EMPTY_AREA_EXCESSIVE", "LAYER_OVERLAP"]),
+    ).toBeNull();
   });
 });
 
