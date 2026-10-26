@@ -26,6 +26,7 @@ import {
   openAiRespond,
   openAiStream,
 } from "./providers/openai.ts";
+import type { ImageSize } from "./image-models.ts";
 export * from "./cost.ts";
 export * from "./routing.ts";
 export * from "./rejection.ts";
@@ -33,6 +34,7 @@ export * from "./provider.ts";
 export * from "./provider-budget.ts";
 export * from "./catalog.ts";
 export * from "./presets.ts";
+export * from "./image-models.ts";
 const structuredOutput = z.object({
   title: z.string().max(200),
   body: z.string().max(40000),
@@ -572,7 +574,7 @@ export async function embed(
 
 type ImageParams = {
   prompt: string;
-  size: "1024x1024" | "1536x1024" | "1024x1536";
+  size: ImageSize;
   quality: "low" | "medium" | "high";
   background: "opaque" | "transparent";
   reservationId: string;

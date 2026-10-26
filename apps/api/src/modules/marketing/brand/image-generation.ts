@@ -9,8 +9,10 @@ import {
   generateImage,
   generateImageWithReferences,
   imageGenerationConfigurationSchema,
+  IMAGE_SIZES,
   imagePriceConfigured,
   type ImageReference,
+  type ImageSize,
 } from "../../../../../../packages/ai/src/index.ts";
 import {
   marketingProfile,
@@ -32,7 +34,7 @@ export const imageGenerationInput = z
     requestId: z.uuid(),
     name: z.string().trim().min(1).max(160),
     prompt: z.string().trim().min(10).max(4000),
-    size: z.enum(["1024x1024", "1536x1024", "1024x1536"]),
+    size: z.enum(IMAGE_SIZES),
     quality: z.enum(["low", "medium", "high"]),
     background: z.enum(["opaque", "transparent"]),
     validUses: z
@@ -182,7 +184,7 @@ export async function generateAssignmentImage(
     userId: string;
     assetFields: Record<string, unknown>;
     // Landscape for a banner background (R78); square otherwise.
-    size?: "1024x1024" | "1536x1024";
+    size?: ImageSize;
   },
   options: {
     authorize: (tx: DbTx) => Promise<void>;
