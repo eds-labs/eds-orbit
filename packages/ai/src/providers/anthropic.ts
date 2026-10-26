@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, { APIError } from "@anthropic-ai/sdk";
 import type {
   ContentBlock,
   ContentBlockParam,
@@ -506,6 +506,22 @@ export function anthropicRequest(
   };
 }
 
+/** Anthropic's refusal of an output schema whose compiled grammar is too large. */
+export function isGrammarTooLarge(error: unknown) {
+  const e = error as { status?: number; message?: unknown; error?: { error?: { message?: unknown } } };
+  const message = String(e?.error?.error?.message ?? e?.message ?? "");
+  return error instanceof APIError && e.status === 400 && /compiled grammar is too large/i.test(message);
+}
+
+/** The request without a decoding grammar: the schema goes into the instructions. */
+export function schemaInInstructions(request: AnthropicRequestInput): AnthropicRequestInput {
+  const { outputSchema, ...rest } = request;
+  return {
+    ...rest,
+    instructions: `${request.instructions}\n\nAnswer with exactly one JSON object that matches this JSON schema, with no other text before or after it:\n${JSON.stringify(anthropicStrictSchema(outputSchema))}`,
+  };
+}
+
 /** The joined text of the response's text blocks. */
 export function anthropicText(message: Pick<Message, "content">) {
   return (message.content as ContentBlock[])
@@ -528,9 +544,20 @@ export async function anthropicComplete(params: {
   signal?: AbortSignal;
 }) {
   const client = anthropicClient(params.apiKey, params.timeout);
-  const message = await client.messages
-    .stream(anthropicRequest(params.request), { signal: params.signal })
-    .finalMessage();
+  const send = (request: AnthropicRequestInput) =>
+    client.messages.stream(anthropicRequest(request), { signal: params.signal }).finalMessage();
+  let message: Message;
+  try {
+    message = await send(params.request);
+  } catch (error) {
+    // Anthropic refuses an output schema whose decoding grammar it finds
+    // too large (the plan schema of the AI project manager, 2026-10-26).
+    // The refused request ran nothing and cost nothing, so it is sent
+    // once more with the schema in the instructions instead; the caller
+    // validates the answer against its own schema either way.
+    if (!params.request.outputSchema || !isGrammarTooLarge(error)) throw error;
+    message = await send(schemaInInstructions(params.request));
+  }
   return {
     message,
     text: anthropicText(message),

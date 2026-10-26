@@ -1,6 +1,6 @@
 # Incident: AI project manager plan refused (EOP, 2026-10-26)
 
-Status: fix implemented locally on the branch `claude/pm-plan-rejection`; not pushed or deployed. No paid call was made for the analysis.
+Status: diagnosis and retry live since 2026-10-26 (`91e4ba43`, `cad3aa2e`); the cause was confirmed by the first retry, and its fix is on the branch `claude/pm-plan-grammar` (local). No paid call was made for the analysis; the refused retries cost nothing.
 
 ## What happened
 
@@ -29,7 +29,21 @@ An MCP client (ChatGPT) proposed a plan for the initiative EOP in the project ED
    The stored data cannot tell these apart. **This gap is the defect that kept the cause unproven, and it is fixed.**
 5. **A failed plan could not be planned again.** `requestPlan` maps a repeated request with the same idempotency key, which an MCP client always sends for the same arguments, to the existing proposal. It returned the failed proposal unchanged. Revisions were allowed only for draft, proposed or invalid plans.
 
-## Changes
+## Confirmed cause (after the diagnosis went live)
+
+Mario's two retries (runs `a2967a76…` at 15:36 and `f36bdd31…` at 15:38 UTC, plan revision r2) recorded the provider's answer:
+
+> `MODEL_REQUEST_INVALID 400 invalid_request_error: The compiled grammar is too large, which would cause performance issues`
+
+Anthropic compiles a strict output schema into a decoding grammar per request. It refuses the AI project manager's plan schema as too large. The plan schema has nested arrays of workstreams, milestones and tasks with 13 required fields per task, nullable references and patterns. This is the same refusal Orbit already met with strict tool schemas, which are therefore sent without `strict`. It does not depend on the model: Sonnet would have refused the same schema. Small schemas (knowledge test questions, report, triage, finance extraction) compile and keep working.
+
+**Fix (`claude/pm-plan-grammar`):**
+- `anthropicComplete` sends a request that Anthropic refuses with exactly this error **once more**, without the decoding grammar and with the schema in the instructions. The refused request ran nothing and was not billed, so the resend cannot double-charge or double-apply.
+- `runStructured` takes the JSON object out of a code fence or a sentence if the model wraps it.
+- The answer is still checked in full against Orbit's own schema. Plan validation, the approval and "apply once" are unchanged.
+- Any other refusal is never resent.
+
+## Changes (diagnosis and retry, live)
 
 | Component | Change |
 |---|---|
@@ -56,6 +70,8 @@ Further tests:
 - The existing planning tests (success, approval, apply once, budget, unclear outcome) are unchanged and green.
 
 ## Recommended production configuration
+
+After the grammar fix, the route choice does not decide whether planning works.
 
 - Save an explicit route for **`pm_plan` = `claude-sonnet-5-5`** in Settings → AI ("Project manager plans"), with 12,000 output tokens. This is what the catalogue suggests and the model proven with this key. Opus 5.5 stays possible, but only after one approved test plan has shown it works with this key.
 - Keep `pm_analysis` on Sonnet (already effective) and the PM budget at USD 2 per day. A Sonnet plan costs at most about USD 0.2 per call, so the USD 1 per-run ceiling holds.

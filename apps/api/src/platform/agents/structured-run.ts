@@ -138,6 +138,22 @@ function finalText(output: unknown[]) {
     .join("");
 }
 
+/**
+ * The JSON object of an answer. An answer decoded with the schema is the
+ * object itself; one that only had the schema in its instructions may wrap
+ * it in a code fence or a sentence, which is taken off here. The schema
+ * check that follows is the same either way.
+ */
+export function jsonOf(answer: string) {
+  const text = answer.trim();
+  if (text.startsWith("{")) return text;
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1]?.trim();
+  if (fenced?.startsWith("{")) return fenced;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
+}
+
 /** Where an answer fails its schema: paths, issue codes and lengths, never its text. */
 export function outputIssues(answer: string, schema: z.ZodType) {
   let value: unknown;
@@ -400,7 +416,7 @@ export async function runStructured<O>(
     const answer = finalText(lastOutput);
     let output: O;
     try {
-      output = spec.outputSchema.parse(JSON.parse(answer));
+      output = spec.outputSchema.parse(JSON.parse(jsonOf(answer)));
     } catch {
       // A cut-off answer needs a larger output limit, not another try.
       const code = lastTruncated ? "AGENT_OUTPUT_LIMIT" : "AGENT_OUTPUT_INVALID";
