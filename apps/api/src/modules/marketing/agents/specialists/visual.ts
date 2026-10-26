@@ -27,6 +27,7 @@ import {
   generateAssignmentImage,
 } from "../../brand/image-generation.ts";
 import { mayTransmitToProvider } from "../../brand/provider-use.ts";
+import { assetContent } from "../../creative/asset-content.ts";
 import { renderRasterBanner } from "../../../../../../../packages/creative/src/index.ts";
 import { assignmentHash } from "../assignments.ts";
 import {
@@ -718,15 +719,7 @@ async function attach(scope: Scope, task: AgentTask) {
 
 /** An approved image's bytes, from the stored copy or Drive. */
 async function imageBytes(scope: Scope, d: Record<string, any>) {
-  const content =
-    d.driveFileId && !d.base64
-      ? await driveContent(scope, d.driveFileId, {
-          md5Checksum: d.md5Checksum,
-          modifiedTime: d.driveModifiedTime,
-        })
-      : assetBytes(d);
-  if (!["image/png", "image/jpeg", "image/webp"].includes(content.mime))
-    throw new DomainError("BRAND_IMAGE_FORMAT_UNSUPPORTED", 415);
+  const content = await assetContent(scope, d);
   return `data:${content.mime};base64,${content.bytes.toString("base64")}`;
 }
 

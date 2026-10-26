@@ -762,6 +762,7 @@ export async function buildServer(
         knowledgeWorkspace: config.ORBIT_KNOWLEDGE_WORKSPACE === "true",
         agents: agentsEnabled(),
         customerContext: config.ORBIT_CUSTOMER_CONTEXT === "true",
+        creativeStudio: config.ORBIT_CREATIVE_STUDIO === "true",
       },
       switchable: moduleSwitchingEnabled(),
       // The requesting member's role per module (WP4.5): "none" hides it.
