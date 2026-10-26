@@ -13,3 +13,8 @@ export const CHAT_MAX_TOOL_CALLS = 16;
  * results arrived (FamilyPlan, 2026-10-24).
  */
 export const CHAT_MAX_INPUT_BYTES = 128_000;
+/**
+ * Visible answer characters per turn (CHAT_OUTPUT_LIMIT); a failed turn keeps
+ * up to this much as its partial result, and work order results return it.
+ */
+export const CHAT_MAX_OUTPUT_CHARS = 8000;

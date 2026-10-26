@@ -13,6 +13,11 @@ export type ModelStep = {
   output: unknown[];
   toolCalls: ToolCallRequest[];
   toolSearches: ToolSearchRequest[];
+  /**
+   * The response hit its output limit; `output` holds its visible text and
+   * the host's request to continue, and the turn needs another model call.
+   */
+  truncated?: boolean;
 };
 
 /** Orbit-owned: reserves, transmits, settles and records exactly one model request. Never retries. */

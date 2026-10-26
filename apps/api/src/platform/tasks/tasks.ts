@@ -1,6 +1,7 @@
 import {
   CHAT_MAX_INPUT_BYTES,
   CHAT_MAX_MODEL_CALLS,
+  CHAT_MAX_OUTPUT_CHARS,
 } from "../assistant/chat-limits.ts";
 import { registeredConversationSections } from "../modules/contributions.ts";
 import { visibleModules } from "../tenancy/module-roles.ts";
@@ -466,7 +467,7 @@ async function taskSnapshot(
     ].includes(status)
       ? (d.canceledAt ?? (run?.updatedAt ?? row.updatedAt).toISOString())
       : null,
-    result: run?.partialText?.slice(0, 4000) ?? null,
+    result: run?.partialText?.slice(0, CHAT_MAX_OUTPUT_CHARS) ?? null,
     resourceUri: `orbit://tasks/${scope.projectId}/${row.id}`,
     url: `${new URL(loadConfig().APP_ORIGIN).origin}/p/${scope.projectId}/assistant?conversation=${d.conversationId}`,
   };

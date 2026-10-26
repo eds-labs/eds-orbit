@@ -6,7 +6,7 @@ import {
   sourceExpiry,
   tracksFreshness,
 } from "../../../../../packages/knowledge/src/freshness.ts";
-import { listIndexGenerations } from "../../../../../packages/knowledge/src/index.ts";
+import { describeIndexGenerations } from "../../../../../packages/knowledge/src/index.ts";
 import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
@@ -131,7 +131,7 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, async (tx) => ({
-      items: await listIndexGenerations(tx, scope),
+      items: await describeIndexGenerations(tx, scope),
     }));
   });
 };

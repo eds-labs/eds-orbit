@@ -1,5 +1,13 @@
 # Implementation status
 
+## FamilyPlan work orders and index status (2026-10-26, local branch `claude/eds-orbit-familyplan-errors-dcacbc`, not deployed)
+
+Analysis and plan: [plans/familyplan-marketing-knowledge-fixes.md](plans/familyplan-marketing-knowledge-fixes.md).
+
+- **`CHAT_MODEL_OUTPUT_LIMIT`:** a chat or work-order call cut off by the route's output limit is settled with the reported usage (no unclear outcome), recorded with its tokens, and continued in the next model call (at most two continuations per turn). A turn that still ends blocked keeps its full text as the work-order result; `orbit_get_task_result` returns up to the turn's 8,000 characters (was 4,000). Work orders are told to keep the final answer under about 1,000 words.
+- **Index generations:** `knowledge_evaluation_get` and `GET /indexes` report a phase per generation (`embedding`, `ready_for_evaluation`, `evaluation_failed`, `evaluated`, `active`, `retired`, `corpus_changed`) and the next step; the web view shows embedded/total chunks and only that step. The `evaluate` proposal names dataset chunk ids outside the generation's corpus before approval (`EVALUATION_CHUNKS_NOT_IN_INDEX:<ids>`).
+- No migration, no API contract change (the routes are untyped), no flag. Production configuration (the FamilyPlan `chat_operator` route), the paid index steps and the knowledge clean-up are open owner steps.
+
 ## AI project manager phase 2 (2026-10-26, merged to main with Mario's approval; `ORBIT_WORK_PM` off)
 
 Plan: [plans/ai-project-manager-phase-2.md](plans/ai-project-manager-phase-2.md); ADR: [adr/0017-ai-project-manager.md](adr/0017-ai-project-manager.md); guide: [WORK.md](WORK.md#ai-project-manager-phase-2-adr-0017). Mario's decisions Q-P2-1 to Q-P2-6 of 2026-10-25 apply.

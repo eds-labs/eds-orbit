@@ -28,6 +28,19 @@ export type IndexGeneration = {
   evaluation?: Record<string, unknown> | null;
   createdAt: string;
   activatedAt?: string | null;
+  /** Embedded corpus chunks and where the generation stands (`building` covers several phases). */
+  chunks?: number;
+  embeddedChunks?: number;
+  phase?: string;
+};
+const PHASE_HINT: Record<string, string> = {
+  embedding: "Embeddings are missing; build the next batch.",
+  ready_for_evaluation:
+    "All chunks are embedded. Run the live evaluation next.",
+  evaluation_failed:
+    "The last evaluation did not pass; see its record, then evaluate again.",
+  corpus_changed:
+    "The knowledge changed after this generation was prepared. Prepare a new generation.",
 };
 export function IndexManagement() {
   const { project, revision, isOwner, refresh } = useWorkspace();
@@ -75,20 +88,28 @@ export function IndexManagement() {
               <strong>Generation {i.generation}</strong>
               <p>{i.profile}</p>
               <small>
-                {Array.isArray(i.manifest) ? i.manifest.length : 0} corpus
-                chunks
+                {i.embeddedChunks !== undefined
+                  ? `${i.embeddedChunks} of ${i.chunks ?? 0} corpus chunks embedded`
+                  : `${Array.isArray(i.manifest) ? i.manifest.length : 0} corpus chunks`}
               </small>
+              {i.phase && PHASE_HINT[i.phase] && <p>{PHASE_HINT[i.phase]}</p>}
             </div>
-            <Status value={i.state} />
+            <Status value={i.phase ?? i.state} />
             {isOwner && (
               <div className="form-actions">
-                {(i.state === "building"
-                  ? (["build", "evaluate"] as const)
-                  : i.state === "evaluated"
-                    ? (["activate"] as const)
-                    : i.state === "retired"
-                      ? (["rollback"] as const)
-                      : []
+                {(i.phase === "corpus_changed"
+                  ? []
+                  : i.state === "building"
+                    ? i.phase === "embedding"
+                      ? (["build"] as const)
+                      : i.phase
+                        ? (["evaluate"] as const)
+                        : (["build", "evaluate"] as const)
+                    : i.state === "evaluated"
+                      ? (["activate"] as const)
+                      : i.state === "retired"
+                        ? (["rollback"] as const)
+                        : []
                 ).map((m) => (
                   <Button
                     key={m}
