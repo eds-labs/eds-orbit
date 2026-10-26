@@ -53,6 +53,7 @@ describe("groupSettings", () => {
       ["marketing", ["policy", "brand"]],
       ["work", ["work"]],
       ["support", ["support"]],
+      ["issues", ["issues"]],
       [
         "finance",
         [
@@ -69,6 +70,7 @@ describe("groupSettings", () => {
       "Marketing",
       "Projektmanagement",
       "Support",
+      "Issues",
       "Finanzen",
     ]);
   });
@@ -115,6 +117,7 @@ describe("groupSettings", () => {
       "project",
       "marketing",
       "work",
+      "issues",
       "finance",
     ]);
     expect(groups.flatMap((g) => g.tabs.map((t) => t.key))).not.toContain(
@@ -264,6 +267,7 @@ describe("module settings links in the sidebar", () => {
       ["support", "support"],
       ["finance", "finance-mailboxes"],
       ["work", "work"],
+      ["issues", "issues"],
     ]);
   });
 

@@ -1,5 +1,26 @@
 # Requirements traceability
 
+## Issue center phase 3 (ADR 0018, 2026-10-26, local; flag off)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| IC-01 Own opt-in module `issues` behind `ORBIT_ISSUES`, project row and module roles | `modules/issues/{manifest,permissions,gate,contributions,settings}.ts`; `issues-module.test.ts`, `issues-routes.integration.test.ts`, access matrix | PASS_TEST (local; flag off) |
+| IC-02 Tables with FORCE RLS, composite keys, idempotent external report key, merge check, search vector, append-only history and deliveries | migration `202610260001_issues_core`, `db-deploy.ts`; RLS matrix, `issues-schema.integration.test.ts` | PASS_TEST (local) |
+| IC-03 Platform redaction with IBAN, Luhn cards, IP, JWT, credential URLs, names; strict and standard profiles | `platform/privacy/redact.ts`, `tests/fixtures/redaction-cases.json`; `privacy-redact.test.ts` | PASS_TEST (one documented false positive) |
+| IC-04 Status machine; forward-only automation; merges keep every report, link and ticket; content-free history and events | `issues/{status,issues,reports,merge}.ts`, `platform/links/links.ts` `moveLinks`; `issues-services.integration.test.ts` | PASS_TEST (local) |
+| IC-05 One intake for every source: cap, redaction, external reference and fingerprint matching; no raw payload kept | `issues/intake.ts`, `sources/{manual,webhook}.ts`, `jobs.ts`, `platform/http/webhooks.ts` `scrubWebhookBody`; `issues-routes.integration.test.ts` | PASS_TEST (local) |
+| IC-06 Signed webhook / n8n contract `issues.report.v1`; forged, stale and replayed deliveries refused; secret shown once | `sources/webhook.ts`, `sources.ts`, `docs/integrations/issues-report-v1.md`; `issues-routes.integration.test.ts` | PASS_TEST (local; `ORBIT_PUBLIC_INGRESS` off in prod) |
+| IC-07 Support hand-in without customer identity; sensitive tickets need an acknowledgement; ticket unchanged | `support/issues-handoff.ts`, `issues/handoffs.ts`, `platform/handoffs/handoffs.ts` `handOff`; `issues-support.integration.test.ts` (privacy canary) | PASS_TEST (local) |
+| IC-08 Release → internal note and attention on reported tickets, never a customer message; erasure clears derived texts | `support/issues-handoff.ts`, `support/attention.ts`, `issues/handoffs.ts`; `issues-support.integration.test.ts`, `issues-sync.integration.test.ts` | PASS_TEST (local) |
+| IC-09 Duplicate stages 1–3; never an automatic merge; rejected pairs remembered | `issues/{intake,duplicates}.ts`; `evals/issues-dedupe` (recall@5 1.0, optimistic, see README), static no-auto-merge test in `issues-module.test.ts` | PASS_TEST (offline eval) |
+| IC-10 AI triage `issue_triage`: suggestions only, configured components, redacted, own daily ceiling | `issues/triage.ts`, `packages/ai/src/routing.ts`; `issues-triage.integration.test.ts` | PASS_TEST (scripted model; no live run) |
+| IC-11 Task from issue (`work.task_from_issue`) and sync rules S1–S7, loop-free | `work/issue-handoff.ts`, `issues/{tasks,sync,attention}.ts`; `issues-sync.integration.test.ts` (rule table, chain, replay, storm, S6, S7) | PASS_TEST (local) |
+| IC-12 Delivery records: merged ≠ released; production deployment of a ready fix releases; verification by a person | `issues/deliveries.ts`; `issues-sync.integration.test.ts` | PASS_TEST (manual records only) |
+| IC-13 Web: dashboard, list with detail, triage, releases, settings with sources; Support action and chips | `apps/web/src/modules/issues/`, `support/issue-report.tsx`; `issues.test.tsx`, shell tests | PASS_TEST (unit); e2e spec not run |
+| IC-14 Assistant and MCP tools with `orbit:issues`; diagnostics never in tool output; `support_report_issue` needs both scopes | `issues/tools.ts`, `support/issues-handoff.ts`, `platform/mcp/scopes.ts`; `issues-mcp.integration.test.ts`, gateway test | PASS_TEST (local; flags off) |
+| IC-15 Retention 36 months for closed issues, 12 for diagnostics | `issues/retention.ts`; `issues-retention.integration.test.ts` | PASS_TEST (local) |
+| IC-16 GitHub App, Sentry and monitoring sources, vector and AI judge stages | — | NOT_BUILT (after the MVP, separate approvals) |
+
 ## AI project manager phase 2 (ADR 0017, 2026-10-25)
 
 | Requirement | Evidence | State |

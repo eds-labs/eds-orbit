@@ -185,6 +185,9 @@ const baseConfigSchema = z.object({
   // AI project manager (ADR 0017): off until its rollout is approved; needs
   // ORBIT_WORK and the module in the project as well.
   ORBIT_WORK_PM: z.enum(["false", "true"]).default("false"),
+  // Issue center (ADR 0018): off until its rollout is approved. Even when
+  // "true", it works only in projects whose owner enabled the module.
+  ORBIT_ISSUES: z.enum(["false", "true"]).default("false"),
   // Universal customer context (ADR 0011): live, read-only account facts
   // from external products for Support. Off until a provider passed its
   // integration test; each inbox must still be bound by its owner.

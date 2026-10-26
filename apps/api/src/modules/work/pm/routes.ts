@@ -135,7 +135,7 @@ export const pmRoutes: RoutesContribution = ({ app, auth }) => {
 
   // Handoffs of tasks (ADR 0017 P-3).
   app.get(`${BASE}/handoff-targets`, (req) =>
-    inPm(auth, req, WORK_PM_USE, async (tx, scope) => ({ items: await availableHandoffs(tx, scope) })),
+    inPm(auth, req, WORK_PM_USE, async (tx, scope) => ({ items: await availableHandoffs(tx, scope, "work.task") })),
   );
   app.get(`${BASE}/tasks/:id/handoffs`, (req) =>
     inPm(auth, req, WORK_READ, async (tx, scope, p) => ({ items: await listHandoffs(tx, scope, id(p)) })),

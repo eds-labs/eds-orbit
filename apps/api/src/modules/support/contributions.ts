@@ -2,6 +2,7 @@ import { supportConversationResults } from "./assistant-results.ts";
 import { supportMcpTools, supportMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { supportLinkTypes } from "./links.ts";
+import { issueReleasedSubscriber } from "./issues-handoff.ts";
 import { supportSwitchedOn } from "./gate.ts";
 import { supportRoutes } from "./routes.ts";
 import { supportRetentionTask } from "./privacy.ts";
@@ -71,4 +72,10 @@ export const supportContributions: ModuleContributions = {
   attention: supportAttention,
   // Tickets as link targets of other modules (ADR 0016).
   linkTypes: supportLinkTypes,
+  // Erasure tells other modules which tickets went (content-free); a
+  // released product issue leaves a note on its tickets (ADR 0018).
+  events: {
+    publishes: ["support.contact.erased"],
+    subscribes: [issueReleasedSubscriber],
+  },
 };

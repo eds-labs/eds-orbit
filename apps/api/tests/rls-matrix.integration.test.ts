@@ -87,6 +87,15 @@ const PROJECT_TABLES = [
   "WorkPmFinding",
   "WorkPmReport",
   "WorkPmState",
+  // Issue center (ADR 0018).
+  "Issue",
+  "IssueAttachment",
+  "IssueCounter",
+  "IssueDelivery",
+  "IssueDuplicateCandidate",
+  "IssueEvent",
+  "IssueExternalRef",
+  "IssueReport",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -171,6 +180,11 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     WorkPlanProposal: [true, true, true, false],
     WorkCodingRun: [true, true, true, false],
     WorkHandoff: [true, true, true, false],
+    // ADR 0018: reports go only with their issue; history and deliveries
+    // are append-only.
+    IssueReport: [true, true, true, false],
+    IssueEvent: [true, true, false, false],
+    IssueDelivery: [true, true, false, false],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -215,6 +229,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   const financeAccounts = new Map<string, string>();
   // A work initiative per project, for the same-project key check.
   const workInitiatives = new Map<string, string>();
+  // An issue per project, for the same-project key check.
+  const issueRows = new Map<string, string>();
 
   const synthetic = async () => {
     const row = await authDb.user.create({
@@ -562,6 +578,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       });
       await seedFinance(tx, s, mailbox.id, fileId);
       await seedWork(tx, s, fileId);
+      await seedIssues(tx, s, fileId);
       return inbox.id;
     });
   }
@@ -636,6 +653,52 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     });
     await tx.workCodingRun.create({
       data: { ...row(), taskId: first.id, repositoryKey: "orbit", provider: "manual", brief: {}, briefHash: "0".repeat(64), createdBy: s.userId },
+    });
+  }
+
+  // One row in every issue center table (ADR 0018).
+  async function seedIssues(tx: DbTx, s: Scope, fileId: string) {
+    const row = () => ({
+      id: randomUUID(),
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+    });
+    await tx.issueCounter.create({
+      data: { workspaceId: s.workspaceId, projectId: s.projectId, lastNumber: 2 },
+    });
+    const issue = (number: number) =>
+      tx.issue.create({
+        data: { ...row(), number, title: "Synthetic RLS issue", createdBy: s.userId },
+      });
+    const first = await issue(1);
+    const second = await issue(2);
+    issueRows.set(s.projectId, first.id);
+    await tx.issueReport.create({
+      data: {
+        ...row(),
+        issueId: first.id,
+        sourceKind: "manual",
+        title: "Synthetic report",
+        symptoms: "Synthetic symptoms",
+        occurredAt: new Date(),
+        reportedByKind: "user",
+        reportedById: s.userId,
+      },
+    });
+    await tx.issueEvent.create({
+      data: { ...row(), issueId: first.id, type: "created", actorKind: "user", actorId: s.userId },
+    });
+    await tx.issueAttachment.create({
+      data: { ...row(), issueId: first.id, fileId, name: "rls.txt", mime: "text/plain", size: 1, addedBy: s.userId },
+    });
+    await tx.issueDuplicateCandidate.create({
+      data: { ...row(), issueId: second.id, candidateIssueId: first.id, method: "lexical", score: 0.5 },
+    });
+    await tx.issueExternalRef.create({
+      data: { ...row(), issueId: first.id, system: "github", externalId: "eds-labs/orbit#1", createdBy: s.userId },
+    });
+    await tx.issueDelivery.create({
+      data: { ...row(), issueId: first.id, kind: "pr_merged", source: "manual", observedAt: new Date(), recordedBy: s.userId },
     });
   }
 
@@ -1163,6 +1226,20 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     expect(result.error ?? "inserted").toMatch(/foreign key/);
   });
 
+  it("keeps issue references inside one project, even past RLS", async () => {
+    // A report of A cannot be attached to B's issue.
+    const result = await attempt(
+      a,
+      `INSERT INTO "IssueReport" (id, "workspaceId", "projectId", "issueId", "sourceKind", title, symptoms, "occurredAt", "reportedByKind")
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'manual', 'x', 'x', now(), 'user')`,
+      randomUUID(),
+      a.workspaceId,
+      a.projectId,
+      issueRows.get(b.projectId),
+    );
+    expect(result.error ?? "inserted").toMatch(/foreign key/);
+  });
+
   it("deletes a project together with its support and finance rows", async () => {
     const owner = await synthetic();
     const doomed = await project(await workspace(owner), owner);
@@ -1172,7 +1249,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       (t) =>
         t.startsWith("Support") ||
         t.startsWith("Finance") ||
-        t.startsWith("Work"),
+        t.startsWith("Work") ||
+        t.startsWith("Issue"),
     ))
       expect({ table, rows: await visible(doomed, table, doomed) }).toEqual({
         table,

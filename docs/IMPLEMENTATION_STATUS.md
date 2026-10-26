@@ -1,5 +1,48 @@
 # Implementation status
 
+## Issue center phase 3 (2026-10-26, pushed to main with Mario's approval; `ORBIT_ISSUES` off)
+
+Plan: [plans/issue-center-phase-3.md](plans/issue-center-phase-3.md); ADR: [adr/0018-issue-center.md](adr/0018-issue-center.md); guide: [ISSUES.md](ISSUES.md); privacy assessment in [SECURITY_REVIEW.md](SECURITY_REVIEW.md#issue-center-adr-0018-prepared-2026-10-26-local-only). Mario's decisions Q-P3-1 to Q-P3-6 of 2026-10-25 apply. Scope: the plan's MVP (WP3.0–WP3.9, WP3.11 with manual records, WP3.12, WP3.13, WP3.15). The GitHub App (WP3.10) and Sentry/monitoring (WP3.14) are not built.
+
+- **Platform:**
+  - redaction profiles (`strict`, `standard`) with IBAN, Luhn card, IP, JWT, credential-URL and name detectors;
+  - `moveLinks` for merges;
+  - `scrubWebhookBody`, which drops a processed webhook's raw body;
+  - handoff targets that name the object types they take, and `handOff` for internal targets;
+  - task class `issue_triage` and run kind `issues`;
+  - MCP scope `orbit:issues`.
+- **Issues module:** `ORBIT_ISSUES` (default off); six permissions (diagnostics and GitHub sensitive); settings with Mario's defaults (36/12 months, `autoFixReady` on, AI triage off).
+  - The status machine, intake with a daily cap, manual and signed webhook/n8n sources (contract `issues.report.v1`), stage 1–3 duplicates and person-only merges.
+  - AI triage suggestions, `work.task_from_issue` and loop-free sync rules S1–S7, manual delivery records, a releases view, attention items and retention.
+  - Four reads and four proposals for the assistant and MCP; 26 routes, and three Support routes for the hand-in.
+- **Support:** report a ticket as an issue (redaction preview, sensitive acknowledgement, ticket unchanged), issue chips, an internal note and attention on release, `support.contact.erased` on erasure, and `support_report_issue` over MCP (both scopes).
+- **Web:** dashboard, list with issue detail, triage queue, releases, settings with inbound sources (secret shown once), home card, attention texts, approval renderers; the Support ticket action.
+- **Migration (additive):** `202610260001_issues_core` (eight tables, and `AgentRun_kind_check` widened by `issues`).
+- **Eval:** `evals/issues-dedupe/` v1, 62 labelled queries: recall@5 1.0, top-1 1.0, and no suggestion for the 14 unrelated reports. The numbers are optimistic: the glossary was extended on the misses of the first run (0.792).
+
+**Deviations from the plan:**
+
+- `IssueDelivery` ships in the core migration, because the MVP needs manual records; there is no `0002_issues_github` yet.
+- `pg_trgm` is not used: duplicate search is full-text and Dice scoring only (R-P3-11).
+- The AI suggestion is stored in `Issue.aiTriage`; history rows keep keys only.
+- The work module's PM subscriber for issue recommendations is not built; the triage suggests whether to create a task instead.
+- The `issue_dedupe` task class, the vector stage and the AI judge are not built.
+- S6 shows an attention item instead of an ActionRequest; the issue center never changes a task.
+- Tasks need a confirmed issue.
+- One report per Support ticket (a second hand-in returns the existing report).
+- No attachment routes.
+- The e2e spec covers the UI flow without the Support hand-in, which needs an inbox; the integration test `issues-sync` covers the full chain including the Support note.
+
+Verification (local, worktree database): 
+- Full suite: 3,888 passed / 2 failed / 7 skipped, with no paid call (models scripted). The two failures were expected registration lists (module order; scopes of the new `support_report_issue`); both were fixed and the two files rerun green.
+- Root and web `tsc`, the source check, boundaries (0 violations), the Coolify compose check, `next build` and `git diff --check` pass.
+- OpenAPI regenerated: 29 new operations, none removed.
+- Access matrix reviewed: only additions; every new route answers 404 while the module is off.
+- RLS matrix with the eight new tables.
+- The e2e spec `apps/web/tests/issues.spec.ts` was not run, because it needs a stack with the flags on.
+
+**Pushed to main on 2026-10-26 with Mario's approval.** The push deploys the additive migration `202610260001_issues_core`. Before the push, `origin/main` (`925b6798`, `bd26490b`: the task class `knowledge_evaluation` next to `issue_triage`) was merged in and everything was checked again. The full suite passed with 3,908 tests, 7 skipped and 0 failed. Root and web `tsc`, the source check, boundaries, the Coolify compose check and `next build` were green, and OpenAPI was unchanged after the merge. `ORBIT_ISSUES` stays off; nothing was enabled and no paid call was made. Further rollout steps (`ORBIT_ISSUES`, `ORBIT_MODULE_ROLES`, enabling it in projects, AI triage routes and the first live run, an n8n source with `ORBIT_PUBLIC_INGRESS`, GitHub App, Sentry) each need their own approval ([ISSUES.md](ISSUES.md#rollout-runbook-each-step-needs-marios-approval)).
+
 ## Index check without JSON (2026-10-26, local)
 
 Knowledge → search index: a fully embedded generation offers "Check" (German UI: "Prüfen"). Orbit writes the test questions itself (task class `knowledge_evaluation`, one batch of 15 passages per `index_evaluation_set` job, paid within the AI budget, estimate shown first), builds the control questions without a model, shows everything for review (untick questions), and starts the normal live evaluation (`start-evaluation-set`). The panel shows phase, progress and the result in words and is translated (en/de); the JSON field is gone. New owner actions `generate-evaluation-set` and `start-evaluation-set` (access matrix reviewed: owner only, editors and viewers forbidden). No migration, no flag, OpenAPI unchanged. The questions are model-written from the passages, not independently labeled (Mario's decision, 2026-10-26).

@@ -41,6 +41,7 @@ import {
   supportTaxonomyTools,
   supportTaxonomyActions,
 } from "./mcp-taxonomy.ts";
+import { supportReportIssue } from "./issues-handoff.ts";
 
 const ticket = z.object({ ticketId: z.uuid() }).strict();
 const shared = { module: "support", sensitive: true };
@@ -425,8 +426,11 @@ export const supportMcpTools = [
   aliasTool(replyOperations[0]!, "support_reply_ticket", "message"),
   aliasTool(noteOperations[0]!, "support_add_internal_note", "content"),
   ...writes.map((w) => w.tool),
+  // The hand-in to the issue center (ADR 0018).
+  supportReportIssue.tool,
 ];
 export const supportMcpActions = {
   ...supportTaxonomyActions,
   ...Object.fromEntries(writes.map((w) => [w.actionType, w.action])),
+  [supportReportIssue.actionType]: supportReportIssue.action,
 };

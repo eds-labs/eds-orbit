@@ -43,6 +43,8 @@ export const MCP_SCOPES = [
   // The AI project manager's paid requests and coding work orders (ADR 0017).
   "orbit:work.pm",
   "orbit:work.coding",
+  // The issue center (ADR 0018): explicit and unchecked like the above.
+  "orbit:issues",
 ] as const;
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */

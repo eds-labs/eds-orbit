@@ -199,6 +199,22 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/projects/{projectId}/issues/links/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/issues/sources/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "DELETE /api/projects/{projectId}/members/{userId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1175,6 +1191,78 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/issues/issues/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/issues/{id}/links": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/link-targets": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/list": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/members": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/overview": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/releases": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/issues/sources": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/jobs": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1536,6 +1624,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/tickets/{ticketId}/customer-context": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/tickets/{ticketId}/issues": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -1936,6 +2032,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/finance/recurring/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/issues/issues/{id}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -3519,6 +3623,110 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "POST /api/projects/{projectId}/issues/duplicates/{id}/confirm": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/duplicates/{id}/reject": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/deliveries": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/links": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/merge": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/reports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/share-review": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/tasks": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/triage": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/triage/apply": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/sources": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/jobs": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3744,6 +3952,22 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/tickets/{ticketId}/ai-draft": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/tickets/{ticketId}/issue-report": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/tickets/{ticketId}/issue-report/preview": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -4206,6 +4430,14 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/issues/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "PUT /api/projects/{projectId}/marketing-plans/{id}": {
     "anonymous": "unauthenticated",

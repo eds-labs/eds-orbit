@@ -275,6 +275,69 @@ export async function removeLinksFor(
   return rows.length;
 }
 
+/**
+ * Moves every link of `from` to `to` when its module merges two of its
+ * objects (ADR 0018: a merged issue's tickets and tasks stay linked to the
+ * surviving issue). Each link is removed softly and created again on `to`;
+ * a link `to` already has, or one that would point at `to` itself, is only
+ * removed. Runs in the merging transaction; the module has checked rights.
+ */
+export async function moveLinks(
+  tx: DbTx,
+  scope: Scope,
+  from: ObjectRef,
+  to: ObjectRef,
+  actor: Actor,
+) {
+  const rows = await activeLinks(tx, scope, from);
+  let moved = 0;
+  for (const row of rows) {
+    await tx.objectLink.update({
+      where: { id: row.id },
+      data: { removedAt: new Date(), removedById: actor.id },
+    });
+    await linkEvent(tx, scope, "platform.link.removed", row, actor);
+    const source = sameRef(row, from, "source") ? to : { type: row.sourceType, id: row.sourceId };
+    const target = sameRef(row, from, "target") ? to : { type: row.targetType, id: row.targetId };
+    if (source.type === target.type && source.id === target.id) continue;
+    const exists = await tx.objectLink.findFirst({
+      where: {
+        projectId: scope.projectId,
+        sourceType: source.type,
+        sourceId: source.id,
+        relation: row.relation,
+        targetType: target.type,
+        targetId: target.id,
+        removedAt: null,
+      },
+    });
+    if (exists) continue;
+    const created = await tx.objectLink.create({
+      data: {
+        id: randomUUID(),
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        sourceType: source.type,
+        sourceId: source.id,
+        targetType: target.type,
+        targetId: target.id,
+        relation: row.relation,
+        createdByKind: actor.kind,
+        createdById: actor.id,
+      },
+    });
+    await audit(tx, scope, "platform.link.moved", created.id, {
+      fromLinkId: row.id,
+      sourceType: created.sourceType,
+      targetType: created.targetType,
+      relation: created.relation,
+    });
+    await linkEvent(tx, scope, "platform.link.created", created, actor);
+    moved++;
+  }
+  return moved;
+}
+
 /** The active links of an object, in either direction, oldest first. */
 export function activeLinks(tx: DbTx, scope: Scope, ref: ObjectRef) {
   return tx.objectLink.findMany({

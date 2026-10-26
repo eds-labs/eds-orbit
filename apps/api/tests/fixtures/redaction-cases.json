@@ -1,0 +1,55 @@
+{
+  "$comment": "Synthetic PII fixtures for platform/privacy/redact.ts (ADR 0018 WP3.3). Every value is invented or a published test value (test IBANs, card test numbers, documentation IP ranges). `remove` must disappear, `keep` must stay; `counts` is the exact strict result.",
+  "cases": [
+    {
+      "name": "German support message",
+      "text": "Hallo, ich bin Anna Schmidt (anna.schmidt@example.org, Tel. +49 170 1234567). Meine IBAN ist DE89 3704 0044 0532 0130 00 und die Zahlung über 49,90 € am 25.10.2026 kam nicht an.",
+      "names": ["Anna Schmidt"],
+      "remove": ["Anna", "Schmidt", "anna.schmidt@example.org", "1234567", "DE89 3704 0044 0532 0130 00"],
+      "keep": ["49,90 €", "25.10.2026", "Hallo, ich bin"],
+      "counts": { "email": 1, "phone": 1, "iban": 1, "name": 1 }
+    },
+    {
+      "name": "English report with a card and an IP",
+      "text": "Customer paid with 4111 1111 1111 1111 from 203.0.113.42 and got error E_PAY_402 in checkout v2.10.3 on 2026-10-25.",
+      "remove": ["4111 1111 1111 1111", "203.0.113.42"],
+      "keep": ["E_PAY_402", "v2.10.3", "2026-10-25"],
+      "counts": { "card": 1, "ip": 1 }
+    },
+    {
+      "name": "uLiquid wallet and transaction",
+      "text": "Deposit from 0x52908400098527886E0F7030069857D2E4169EE7 is stuck, tx 0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060 shows pending since block 18234567.",
+      "remove": ["0x52908400098527886E0F7030069857D2E4169EE7", "0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060"],
+      "keep": ["block 18234567", "is stuck"],
+      "counts": { "wallet": 1, "tx_hash": 1 }
+    },
+    {
+      "name": "Tokens in a pasted log",
+      "text": "Authorization: Bearer abcdefghijklmnop1234567890 jwt=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U GET https://api.example.com/v1/orders?id=42&token=s3cr3tT0ken&page=2 db=postgres://orbit:hunter22@db.internal:5432/orbit",
+      "remove": ["abcdefghijklmnop1234567890", "eyJhbGciOiJIUzI1NiJ9", "s3cr3tT0ken", "hunter22"],
+      "keep": ["id=42", "page=2", "db.internal:5432/orbit", "https://api.example.com/v1/orders"],
+      "counts": { "secret": 2, "credential_url": 2 }
+    },
+    {
+      "name": "Mixed German and English with an IPv6 address and a UK IBAN",
+      "text": "Login von 2001:db8::8a2e:370:7334 fehlgeschlagen; refund to GB82WEST12345698765432 please. Zeit 08:21:57, Ticket #1234.",
+      "remove": ["2001:db8::8a2e:370:7334", "GB82WEST12345698765432"],
+      "keep": ["08:21:57", "Ticket #1234"],
+      "counts": { "ip": 1, "iban": 1 }
+    },
+    {
+      "name": "Amex and Mastercard test numbers, timestamps stay",
+      "text": "Cards 378282246310005 and 5500-0000-0000-0004 failed at 1729940000000 ms (order 100000000000001).",
+      "remove": ["378282246310005", "5500-0000-0000-0004"],
+      "keep": ["1729940000000", "100000000000001"],
+      "counts": { "card": 2 }
+    }
+  ],
+  "falsePositives": [
+    {
+      "$comment": "Documented: a four-part version number looks like an IPv4 address.",
+      "text": "Build 1.2.3.4 is affected.",
+      "counts": { "ip": 1 }
+    }
+  ]
+}

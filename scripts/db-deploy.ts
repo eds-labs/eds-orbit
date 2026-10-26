@@ -227,6 +227,13 @@ try {
     "WorkPmState",
     "WorkPmFinding",
     "WorkPmReport",
+    // Issue center (ADR 0018); reports, history and deliveries are kept
+    // below.
+    "IssueCounter",
+    "Issue",
+    "IssueAttachment",
+    "IssueDuplicateCandidate",
+    "IssueExternalRef",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
@@ -270,6 +277,13 @@ try {
   // cascades.
   await migrator.query(
     'GRANT SELECT,INSERT,UPDATE ON "WorkPlanProposal","WorkCodingRun","WorkHandoff" TO orbit_app',
+  );
+  // ADR 0018: reports move on a merge and are re-redacted on erasure, but
+  // are deleted only with their issue; history and delivery records are
+  // append-only. Retention deletes the issue, which cascades.
+  await migrator.query('GRANT SELECT,INSERT,UPDATE ON "IssueReport" TO orbit_app');
+  await migrator.query(
+    'GRANT SELECT,INSERT ON "IssueEvent","IssueDelivery" TO orbit_app',
   );
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.

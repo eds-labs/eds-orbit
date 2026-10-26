@@ -38,7 +38,9 @@ export type ToolFeature =
   // Project management tools (ADR 0016), offered while the module is on.
   | "work"
   // The AI project manager's tools (ADR 0017), while ORBIT_WORK_PM is on.
-  | "work_pm";
+  | "work_pm"
+  // Issue center tools (ADR 0018), offered while the module is on.
+  | "issues";
 export type ToolContext = {
   scope: Scope;
   runId: string;

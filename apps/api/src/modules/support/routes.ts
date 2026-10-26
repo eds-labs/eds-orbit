@@ -35,6 +35,7 @@ import {
 import { supportAgents } from "./agents.ts";
 import { statsCsv, supportStats } from "./stats.ts";
 import { eraseContact, exportContact } from "./privacy.ts";
+import { previewIssueReport, reportTicketAsIssue, ticketIssues } from "./issues-handoff.ts";
 import { enableWidgetKey } from "./widget.ts";
 import {
   contactDetail,
@@ -123,6 +124,23 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
     inSupport(auth, req, SUPPORT_TICKETS_REPLY, (tx, scope, p) =>
       replyToTicket(tx, scope, ticket(p), req.body),
     ),
+  );
+  // Reporting the ticket as a product issue (ADR 0018); the issue center's
+  // own permission is checked by the handoff.
+  app.post(`${BASE}/tickets/:ticketId/issue-report/preview`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope, p) =>
+      previewIssueReport(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.post(`${BASE}/tickets/:ticketId/issue-report`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope, p) =>
+      reportTicketAsIssue(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.get(`${BASE}/tickets/:ticketId/issues`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, async (tx, scope, p) => ({
+      items: await ticketIssues(tx, scope, ticket(p)),
+    })),
   );
   app.post(`${BASE}/tickets/:ticketId/notes`, (req) =>
     inSupport(auth, req, SUPPORT_NOTES_WRITE, (tx, scope, p) =>

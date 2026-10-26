@@ -90,6 +90,8 @@ describe("module contributions", () => {
         "index_evaluation",
         "index_evaluation_set",
         "ingestion",
+        "issues_ai",
+        "issues_intake",
         "knowledge_analysis",
         "postiz_draft",
         "publishing",
@@ -410,6 +412,8 @@ describe("module contributions", () => {
       "openai",
       "anthropic",
       "n8n",
+      // The issue center's inbound report sources (ADR 0018).
+      "issues_webhook",
       "postiz",
       "matomo",
       "slack",
@@ -418,7 +422,8 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("customer_context")?.owner).toBe(
       "platform",
     );
-    for (const id of registeredConnectionProviderIds().slice(5))
+    expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
+    for (const id of registeredConnectionProviderIds().slice(6))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

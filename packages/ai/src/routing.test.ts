@@ -99,6 +99,7 @@ describe("resolveRoute", () => {
       "pm_plan",
       "pm_analysis",
       "knowledge_evaluation",
+      "issue_triage",
     ]);
   });
   it("rejects unverified models", () => {

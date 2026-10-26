@@ -14,6 +14,11 @@ import type {
  */
 export type HandoffTarget = {
   label: { en: string; de: string };
+  /**
+   * The object types the target takes, such as ["support.ticket"]; absent,
+   * it takes any (the work module's task handoffs).
+   */
+  accepts?: readonly string[];
   /** What the member must be allowed in the target's module; checked again at approval. */
   permission: PermissionDef;
   /**

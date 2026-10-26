@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { scoped } from "../../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { FetchLike } from "../../../../../packages/connectors/src/index.ts";
@@ -237,5 +237,30 @@ export async function registerWebhookRoutes(
           .send({ error: { code, message: code.replaceAll("_", " ") } });
       },
     );
+  });
+}
+
+/**
+ * Drops the body of a stored webhook once its module processed it, from the
+ * row and its versions, and records the outcome (ADR 0018 I-5: no raw
+ * payloads kept). The row itself stays for the duplicate check until the
+ * ingress retention removes it.
+ */
+export async function scrubWebhookBody(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  id: string,
+  outcome: { status: "processed" | "rejected" | "skipped"; code?: string },
+) {
+  const row = await tx.entity.findFirst({
+    where: { id, kind: WEBHOOK_KIND, workspaceId: scope.workspaceId, projectId: scope.projectId },
+  });
+  if (!row) return;
+  const { body: _body, ...rest } = data(row);
+  const value = { ...rest, body: null, ...outcome, processedAt: new Date().toISOString() };
+  await tx.entity.update({ where: { id: row.id }, data: { data: value } });
+  await tx.entityVersion.updateMany({
+    where: { entityId: row.id, projectId: scope.projectId },
+    data: { data: value },
   });
 }

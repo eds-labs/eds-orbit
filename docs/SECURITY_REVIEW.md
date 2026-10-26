@@ -499,6 +499,29 @@ Residual and open:
 - the legacy project connections are still read as before until each provider's cutover (3.4);
 - independent review pending.
 
+## Issue center (ADR 0018, prepared 2026-10-26; local only)
+
+Scope: `modules/issues/`, `platform/privacy/redact.ts`, the Support hand-in and released-issue subscriber, the `work.task_from_issue` handoff, the `issues_webhook` connection provider and webhook provider, migration `issues_core`. Threat model: customer personal data reaching developers, outside systems or AI providers; abuse of a public webhook; status changes that loop between tickets, issues and tasks.
+
+**Data-protection assessment.**
+- *What enters:* text that a Support agent writes or confirms when handing a ticket in. Customer messages pass Support's placeholders first and then strict redaction. It also includes the normalized fields of signed webhooks and manual entries.
+- *What does not:* the customer's identity (contact id, e-mail address, name), raw webhook bodies, attachments of outside systems.
+- *Where it is linked:* the ticket stays in Support, and the issue links to it with `reported_in`. Only members with Support permissions see the ticket's subject; for everyone else the link shows as restricted.
+- *Legal basis:* as for Support (Q-12a, option B, 2026-10-17). Processing is internal product support and quality work on the same project's data; the same AI safeguards apply to triage.
+- *Retention (Q-P3-5):* closed issues and their reports 36 months, diagnostics 12 months. The Support contact erasure also re-redacts reports from that contact's tickets.
+
+**Controls (to verify in the review):**
+- **Redaction before storage.** Every report and issue text passes `redactText` with profile `strict` before any write. Removed spans are replaced; only counts by kind are stored. Wallet addresses and transaction hashes count as personal data (Q-P3-4). A canary test checks that a customer's e-mail, name and wallet from a ticket appear in no issue row, event, audit or domain event.
+- **Signed intake only.** Webhooks need the platform's public ingress (`ORBIT_PUBLIC_INGRESS`), a per-project connection with an HMAC secret, a fresh signature (±300 s) and the platform's body and rate limits. On top come a daily report cap per project and strict normalization: unknown fields are dropped and the raw body is not kept by the module. URLs from payloads are never fetched.
+- **No automatic merge.** Only an exact fingerprint or external reference may attach a report; issue merges need a person.
+- **Loop-free sync.** Writes carry the origin `issues.sync`, automatic moves are forward-only, and issues never change tasks directly, only through proposals. A static test checks the rule table.
+- **AI on redacted text only,** with no tools, a daily ceiling and scripted tests. Suggestions are never applied automatically.
+- **Permissions.** `issues.read`, `issues.report`, `issues.triage`, `issues.diagnostics.read` (sensitive) and `issues.settings`; MCP never returns diagnostics. Separating Support staff and developers relies on `ORBIT_MODULE_ROLES` (Q-P3-1), whose production switch is its own approved step after this review.
+
+Residual and open:
+- the redaction is pattern-based and cannot recognise every free-text name or address, so human hand-in review stays the first control;
+- independent review pending.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

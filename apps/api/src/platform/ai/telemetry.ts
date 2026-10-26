@@ -20,7 +20,9 @@ export type RunKind =
   // Finance extraction of a receipt document.
   | "finance"
   // A run of the AI project manager (ADR 0017).
-  | "work_pm";
+  | "work_pm"
+  // AI triage of an issue (ADR 0018).
+  | "issues";
 /** What a run or span needs from a scope: where it belongs. */
 export type RunScope = Pick<Scope, "workspaceId" | "projectId">;
 export type SpanInput = {

@@ -2011,3 +2011,177 @@ model WorkCodingRun {
   @@index([projectId, status, timeoutAt])
   @@index([projectId, taskId])
 }
+
+// Issue center (ADR 0018, plan §3). Relations live in SQL as composite
+// same-project foreign keys, like the other module tables; the partial
+// unique key on external reports and the search trigger are SQL only.
+
+model IssueCounter {
+  workspaceId String @db.Uuid
+  projectId   String @id @db.Uuid
+  lastNumber  Int    @default(0)
+}
+
+model Issue {
+  id                 String                   @id @db.Uuid
+  workspaceId        String                   @db.Uuid
+  projectId          String                   @db.Uuid
+  number             Int
+  type               String                   @default("bug")
+  title              String
+  summary            String?
+  status             String                   @default("new")
+  severity           String?
+  priority           String?
+  category           String?
+  components         String[]                 @default([])
+  assigneeUserId     String?
+  fingerprint        String?
+  environment        String?
+  firstSeenAt        DateTime                 @default(now()) @db.Timestamptz(3)
+  lastSeenAt         DateTime                 @default(now()) @db.Timestamptz(3)
+  reportCount        Int                      @default(0)
+  ticketCount        Int                      @default(0)
+  mergedIntoIssueId  String?                  @db.Uuid
+  acceptanceCriteria String[]                 @default([])
+  shareReviewedAt    DateTime?                @db.Timestamptz(3)
+  shareReviewedBy    String?
+  aiTriage           Json                     @default("{}")
+  searchVector       Unsupported("tsvector")?
+  version            Int                      @default(1)
+  createdBy          String
+  createdAt          DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                 @default(now()) @updatedAt @db.Timestamptz(3)
+  closedAt           DateTime?                @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, number])
+  @@index([projectId, status, severity])
+  @@index([projectId, assigneeUserId, status])
+  @@index([projectId, lastSeenAt])
+  @@index([projectId, mergedIntoIssueId])
+}
+
+/// One inbound signal, stored redacted; raw payloads are never stored.
+model IssueReport {
+  id                 String    @id @db.Uuid
+  workspaceId        String    @db.Uuid
+  projectId          String    @db.Uuid
+  issueId            String    @db.Uuid
+  sourceKind         String
+  sourceConnectionId String?   @db.Uuid
+  externalSystem     String?
+  externalId         String?
+  externalUrl        String?
+  fingerprint        String?
+  title              String
+  symptoms           String
+  diagnostics        Json      @default("{}")
+  redaction          Json      @default("{}")
+  severityHint       String?
+  typeHint           String?
+  componentHints     String[]  @default([])
+  environment        String?
+  release            String?
+  occurredAt         DateTime  @db.Timestamptz(3)
+  receivedAt         DateTime  @default(now()) @db.Timestamptz(3)
+  reportedByKind     String
+  reportedById       String?
+  erasedAt           DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, issueId, receivedAt])
+  @@index([projectId, receivedAt])
+}
+
+model IssueEvent {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  issueId     String   @db.Uuid
+  type        String
+  actorKind   String
+  actorId     String?
+  before      Json     @default("{}")
+  after       Json     @default("{}")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, issueId, createdAt])
+  @@index([projectId, type, createdAt])
+}
+
+model IssueAttachment {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  issueId     String   @db.Uuid
+  fileId      String   @db.Uuid
+  name        String
+  mime        String
+  size        Int
+  addedBy     String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, issueId, fileId], map: "IssueAttachment_issue_file_key")
+  @@index([projectId, issueId])
+}
+
+model IssueDuplicateCandidate {
+  id               String    @id @db.Uuid
+  workspaceId      String    @db.Uuid
+  projectId        String    @db.Uuid
+  issueId          String    @db.Uuid
+  candidateIssueId String    @db.Uuid
+  method           String
+  score            Decimal   @db.Decimal(5, 4)
+  reasons          String[]  @default([])
+  status           String    @default("pending")
+  decidedBy        String?
+  decidedAt        DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, issueId, candidateIssueId], map: "IssueDuplicateCandidate_pair_key")
+  @@index([projectId, status])
+  @@index([projectId, candidateIssueId])
+}
+
+model IssueExternalRef {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  issueId     String    @db.Uuid
+  system      String
+  externalId  String
+  url         String?
+  state       String?
+  syncedAt    DateTime? @db.Timestamptz(3)
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, system, externalId], map: "IssueExternalRef_external_key")
+  @@index([projectId, issueId])
+}
+
+model IssueDelivery {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  issueId     String   @db.Uuid
+  kind        String
+  repository  String?
+  prNumber    Int?
+  commitSha   String?
+  environment String?
+  source      String
+  status      String?
+  observedAt  DateTime @db.Timestamptz(3)
+  recordedBy  String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, issueId, observedAt])
+}

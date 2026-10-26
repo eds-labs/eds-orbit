@@ -64,6 +64,7 @@ function startJob(kind: "research" | "handoff_analysis"): HandoffTarget["create"
 export const pmHandoffTargets: Record<string, HandoffTarget> = {
   research: {
     label: { en: "AI research", de: "KI-Recherche" },
+    accepts: ["work.task"],
     permission: WORK_PM_USE,
     risk: "W0_internal",
     input: researchInput,
@@ -71,6 +72,7 @@ export const pmHandoffTargets: Record<string, HandoffTarget> = {
   },
   analysis: {
     label: { en: "AI analysis", de: "KI-Analyse" },
+    accepts: ["work.task"],
     permission: WORK_PM_USE,
     risk: "W0_internal",
     input: analysisInput,

@@ -53,6 +53,9 @@
     "module:work": [
       "apps/api/src/modules/work/"
     ],
+    "module:issues": [
+      "apps/api/src/modules/issues/"
+    ],
     "worker": [
       "apps/worker/src/"
     ],
@@ -75,6 +78,9 @@
     ],
     "web-module:work": [
       "apps/web/src/modules/work/"
+    ],
+    "web-module:issues": [
+      "apps/web/src/modules/issues/"
     ],
     "package:ai": [
       "packages/ai/"

@@ -134,7 +134,7 @@ describe.skipIf(!enabled)("AI project manager handoffs", () => {
 
   it("lists the targets a member may hand off to", async () => {
     expect(registeredHandoff("work.research")?.risk).toBe("W0_internal");
-    const keys = async (who: Scope) => (await p.run((tx) => availableHandoffs(tx, who))).map((t) => t.key).sort();
+    const keys = async (who: Scope) => (await p.run((tx) => availableHandoffs(tx, who, "work.task"))).map((t) => t.key).sort();
     expect(await keys(p.editor)).toEqual(["fixturepay.drafts", "work.analysis", "work.research"]);
     expect(await keys(p.viewer)).toEqual([]);
   });

@@ -8,7 +8,7 @@ import {
   type ActionDefinition,
   type RequestedBy,
 } from "../../../platform/governance/action-requests.ts";
-import { HANDOFF_EVENT } from "../../../platform/handoffs/handoffs.ts";
+import { HANDOFF_EVENT, handoffAccepts } from "../../../platform/handoffs/handoffs.ts";
 import { createLink } from "../../../platform/links/links.ts";
 import type { LinkTypeDef } from "../../../platform/links/types.ts";
 import { registeredHandoff } from "../../../platform/modules/contributions.ts";
@@ -71,7 +71,7 @@ export function handoffView(row: HandoffRow) {
 /** The target, available in the project and allowed for the member. */
 async function allowedTarget(tx: DbTx, member: Scope, key: string) {
   const def = registeredHandoff(key);
-  if (!def) throw new DomainError("WORK_HANDOFF_UNKNOWN", 422);
+  if (!def || !handoffAccepts(def, "work.task")) throw new DomainError("WORK_HANDOFF_UNKNOWN", 422);
   const enabled = await enabledModules(tx, member);
   if (enabled && !enabled.has(def.owner)) throw new DomainError("WORK_HANDOFF_UNAVAILABLE", 409);
   const role = effectiveRole(member, def.owner);
