@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import type { BrandPalette } from "./brand.ts";
 import { CreativeError } from "./errors.ts";
 export * from "./brand.ts";
+export * from "./color.ts";
+export * from "./compose.ts";
 export * from "./errors.ts";
 export * from "./formats.ts";
 export * from "./ids.ts";
