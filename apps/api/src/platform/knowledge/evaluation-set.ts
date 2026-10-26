@@ -526,13 +526,11 @@ export async function latestEvaluations(tx: DbTx, s: Scope) {
         ? {
             passed: evaluation.passed === true,
             answered: evaluation.answered,
+            // Answered questions that found their passage; control questions
+            // have no rank and are not counted.
+            found: Math.round(evaluation.recallAt10 * evaluation.answered),
             recallAt10: evaluation.recallAt10,
             forbiddenHits: evaluation.forbiddenHits,
-            missed: Array.isArray(evaluation.results)
-              ? evaluation.results.filter(
-                  (x: any) => x.rank === 0 && x.forbiddenHits === 0,
-                ).length
-              : null,
           }
         : null,
     };

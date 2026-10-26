@@ -115,7 +115,7 @@ describe("IndexManagement", () => {
             answered: 56,
             recallAt10: 54 / 56,
             forbiddenHits: 0,
-            missed: 2,
+            found: 54,
           },
         }),
         state: "evaluated",
