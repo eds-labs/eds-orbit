@@ -4,10 +4,9 @@ import {
   verifyBrand,
   type BrandPalette,
   type CreativeBrand,
-  type CreativeLogo,
   type RasterSource,
 } from "./brand.ts";
-import { LINEAR_CHANNEL, contrastRatio, relativeLuminance } from "./color.ts";
+import { relativeLuminance } from "./color.ts";
 import { CreativeError } from "./errors.ts";
 import {
   LOGO_ROLES,
@@ -25,7 +24,19 @@ import {
   type LayoutSpec,
   type TextLayerKind,
 } from "./templates.ts";
-import { fitText, type FittedText, type TextStyle } from "./text.ts";
+import { placeLogo } from "./logo.ts";
+import {
+  flatten,
+  luminanceStats,
+  openRaster,
+  svgImage,
+  worstContrast,
+  type Backdrop,
+  type Raw,
+  type Sharp,
+} from "./raster.ts";
+import { textStack, type Block } from "./stack.ts";
+import { fitText } from "./text.ts";
 
 /** Copy of one creative; optional layers without text are left out. */
 export type CreativeCopy = {
@@ -66,9 +77,6 @@ export type LayerRecord = {
   role?: LogoRole;
 };
 
-/** Relative luminance percentiles of what lies behind a layer, measured before it is drawn. */
-export type Backdrop = { p10: number; p90: number };
-
 export type ComposeResult = {
   png: Buffer;
   sha256: string;
@@ -87,81 +95,21 @@ export type ComposeResult = {
   renderer: { sharp: string; vips: string };
 };
 
-type Sharp = Awaited<typeof import("sharp")>["default"];
-/** An opaque RGBA canvas in sharp's raw layout. */
-type Raw = { data: Buffer; width: number; height: number };
-
-const MAX_INPUT_PIXELS = 40_000_000;
 /** Art whose aspect differs from its region by more than this factor is contained, not cropped. */
 const ART_ASPECT_TOLERANCE = 1.35;
 /** Share of contained art (along its open sides) that fades into the blurred copy. */
 const ART_FEATHER = 0.12;
 const SCRIM_BOOST_STEP = 0.12;
 const SCRIM_RAISE_STEP = 0.1;
-/** QA's contrast requirements (spec §9): body text, large text from 32 px, logos. */
+/** QA's contrast requirements for text (spec §9): body text, large text from 32 px. */
 const BODY_CONTRAST = 4.5;
 const LARGE_CONTRAST = 3;
 const LARGE_TEXT_PX = 32;
-const LOGO_CONTRAST = 2;
-/** Mean luminance below which the logo backdrop counts as dark. */
-const DARK_BACKDROP = 0.4;
-const PLATE_OPACITY = 0.9;
-/** The headline should be at least this much larger than the subline when there is room. */
-const HIERARCHY = 1.5;
-/** Shares of their size range the eyebrow, subline and CTA may use, tried until the headline fits well. */
-const SUPPORT_STEPS = [1, 2 / 3, 1 / 3, 0];
-/** A last line shorter than this share of its block is rebalanced. */
-const SHORT_LAST_LINE = 0.5;
-/** Text is first fitted in this colour; colours are chosen once the backdrop is known. */
-const FIT_COLOR = "#000000";
 const PNG_OPTIONS = {
   compressionLevel: 9,
   adaptiveFiltering: false,
   palette: false,
 } as const;
-const AUTO_ROLES: readonly LogoRole[] = ["onDark", "onLight", "primary"];
-
-// ---------------------------------------------------------------------------
-// Pixels and colours
-// ---------------------------------------------------------------------------
-
-const toHex = (rgb: readonly number[]) =>
-  "#" +
-  rgb
-    .map((v) => Math.round(v).toString(16).padStart(2, "0"))
-    .join("")
-    .toUpperCase();
-
-/** Mean and p10/p90 of the relative luminance of the canvas pixels inside `box`. */
-function luminanceStats(canvas: Raw, box: Box) {
-  const x0 = Math.max(0, box.x);
-  const y0 = Math.max(0, box.y);
-  const x1 = Math.min(canvas.width, box.x + box.w);
-  const y1 = Math.min(canvas.height, box.y + box.h);
-  const values = new Float64Array(Math.max(1, (x1 - x0) * (y1 - y0)));
-  let n = 0;
-  let sum = 0;
-  for (let y = y0; y < y1; y++)
-    for (let x = x0; x < x1; x++) {
-      const i = (y * canvas.width + x) * 4;
-      const l =
-        0.2126 * LINEAR_CHANNEL[canvas.data[i]!]! +
-        0.7152 * LINEAR_CHANNEL[canvas.data[i + 1]!]! +
-        0.0722 * LINEAR_CHANNEL[canvas.data[i + 2]!]!;
-      values[n++] = l;
-      sum += l;
-    }
-  values.sort();
-  const at = (p: number) => values[Math.max(0, Math.floor(p * (n - 1)))]!;
-  return { mean: sum / Math.max(1, n), p10: at(0.1), p90: at(0.9) };
-}
-
-/** Contrast of a colour against the darker and the lighter end of a backdrop. */
-const worstContrast = (color: string, backdrop: Backdrop) =>
-  Math.min(
-    contrastRatio(color, backdrop.p10),
-    contrastRatio(color, backdrop.p90),
-  );
 
 /** The candidate with the best worst-case contrast; the first one wins a tie. */
 function mostReadable(candidates: string[], backdrop: Backdrop) {
@@ -186,34 +134,6 @@ function textColors(palette: BrandPalette) {
   return [palette.textColor, light];
 }
 
-async function flatten(
-  sharp: Sharp,
-  base: Raw,
-  overlays: OverlayOptions[],
-): Promise<Raw> {
-  const image = sharp(base.data, {
-    raw: { width: base.width, height: base.height, channels: 4 },
-  });
-  const { data, info } = await (
-    overlays.length ? image.composite(overlays) : image
-  )
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  return { data, width: info.width, height: info.height };
-}
-
-const svg = (width: number, height: number, body: string) =>
-  Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${body}</svg>`,
-  );
-
-const open = (sharp: Sharp, bytes: Buffer) =>
-  sharp(bytes, {
-    limitInputPixels: MAX_INPUT_PIXELS,
-    failOn: "warning",
-    animated: false,
-  });
-
 // ---------------------------------------------------------------------------
 // Art and products: approved bytes, only scaled
 // ---------------------------------------------------------------------------
@@ -223,7 +143,10 @@ const open = (sharp: Sharp, bytes: Buffer) =>
  * aspect is too far off is contained over a blurred cover copy of itself.
  */
 async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
-  const { width = 0, height = 0 } = await open(sharp, art.bytes).metadata();
+  const { width = 0, height = 0 } = await openRaster(
+    sharp,
+    art.bytes,
+  ).metadata();
   const ratio = width / height / (box.w / box.h);
   const record = {
     kind: "art" as const,
@@ -232,7 +155,7 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
     sourceSize: { width, height },
   };
   if (Math.max(ratio, 1 / ratio) <= ART_ASPECT_TOLERANCE) {
-    const input = await open(sharp, art.bytes)
+    const input = await openRaster(sharp, art.bytes)
       .resize(box.w, box.h, {
         fit: "cover",
         position: sharp.strategy.attention,
@@ -244,12 +167,12 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
       record: { ...record, scale: Math.max(box.w / width, box.h / height) },
     };
   }
-  const backdrop = await open(sharp, art.bytes)
+  const backdrop = await openRaster(sharp, art.bytes)
     .resize(box.w, box.h, { fit: "cover" })
     .blur(Math.max(8, 0.04 * Math.max(box.w, box.h)))
     .png()
     .toBuffer();
-  const contained = await open(sharp, art.bytes)
+  const contained = await openRaster(sharp, art.bytes)
     .resize(box.w, box.h, { fit: "inside" })
     .png()
     .toBuffer({ resolveWithObject: true });
@@ -257,7 +180,7 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
   // Feather the open sides into the blurred copy, so no hard seam shows.
   const across = w < box.w;
   const feather = Math.round(ART_FEATHER * (across ? w : h)) / (across ? w : h);
-  const mask = svg(
+  const mask = svgImage(
     w,
     h,
     `<defs><linearGradient id="f" x1="0" y1="0" x2="${across ? 1 : 0}" y2="${across ? 0 : 1}">
@@ -301,8 +224,11 @@ async function productLayers(
     Math.ceil(radius * (1 - Math.SQRT1_2)) + 2,
     Math.round(0.012 * W),
   );
-  const { width = 0, height = 0 } = await open(sharp, product.bytes).metadata();
-  const scaled = await open(sharp, product.bytes)
+  const { width = 0, height = 0 } = await openRaster(
+    sharp,
+    product.bytes,
+  ).metadata();
+  const scaled = await openRaster(sharp, product.bytes)
     .resize(box.w - 2 * pad, box.h - 2 * pad, { fit: "inside" })
     .png()
     .toBuffer({ resolveWithObject: true });
@@ -312,7 +238,7 @@ async function productLayers(
   const y = box.y + Math.round((box.h - h) / 2);
   const card = { x: x - pad, y: y - pad, w: w + 2 * pad, h: h + 2 * pad };
   const blur = Math.round(0.018 * W);
-  const frame = svg(
+  const frame = svgImage(
     W,
     format.height,
     `<defs><filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="${blur}"/></filter></defs>
@@ -332,307 +258,6 @@ async function productLayers(
       scale: w / width,
     },
   };
-}
-
-// ---------------------------------------------------------------------------
-// Text stack
-// ---------------------------------------------------------------------------
-
-type Block = {
-  kind: TextLayerKind;
-  text: string;
-  /** The box and style the text was fitted with; re-rendered in its final colour later. */
-  fit: { box: { width: number; height: number }; style: TextStyle };
-  fitted: FittedText;
-  /** Where the block (for the CTA: the button) sits on the canvas. */
-  frame: Box;
-  /** CTA only: offset of the label inside the button. */
-  label?: { x: number; y: number };
-};
-type StyleBase = Omit<TextStyle, "color" | "maxSize" | "minSize">;
-
-function textStyles(
-  brand: CreativeBrand,
-  align: "left" | "center",
-): Record<TextLayerKind, StyleBase> {
-  const { palette, typography } = brand;
-  return {
-    eyebrow: {
-      font: palette.bodyFont,
-      weight: 700,
-      lineHeight: 1.25,
-      align,
-      uppercase: true,
-      maxLines: 2,
-    },
-    headline: {
-      font: palette.headingFont,
-      weight: typography.headingWeight,
-      lineHeight: 1.08,
-      align,
-      uppercase: typography.headingCase === "upper",
-      maxLines: 4,
-    },
-    subline: {
-      font: palette.bodyFont,
-      weight: 400,
-      lineHeight: 1.35,
-      align,
-      uppercase: false,
-      maxLines: 4,
-    },
-    cta: {
-      font: palette.bodyFont,
-      weight: 700,
-      lineHeight: 1.1,
-      align: "left",
-      uppercase: false,
-      maxLines: 1,
-    },
-  };
-}
-
-/** Button geometry for a CTA label of the given size. */
-const ctaPadX = (size: number) => Math.round(0.95 * size);
-const ctaHeight = (size: number) => Math.round(2 * size);
-
-/** Vertical gap between two neighbouring layers, from the fitted sizes. */
-function gapBetween(
-  above: TextLayerKind,
-  below: TextLayerKind,
-  size: (kind: TextLayerKind) => number,
-) {
-  if (above === "eyebrow") return Math.round(0.7 * size("eyebrow"));
-  if (above === "headline")
-    return Math.round((below === "cta" ? 0.55 : 0.38) * size("headline"));
-  return Math.round(1.0 * size("subline"));
-}
-
-/**
- * Fits the stack into the text box. The headline gets the room the other
- * layers leave; those start at their maximum and step down their size range
- * until the headline fits at least `HIERARCHY` times the subline size.
- */
-async function fitStack(
-  copy: Partial<Record<TextLayerKind, string>>,
-  layout: LayoutSpec,
-  styles: Record<TextLayerKind, StyleBase>,
-) {
-  const kinds = layout.stack.filter((kind) => copy[kind] !== undefined);
-  const { textBox } = layout;
-  const fit = async (
-    kind: TextLayerKind,
-    box: { width: number; height: number },
-    share: number,
-  ) => {
-    const { max, min } = layout.sizes[kind];
-    const style: TextStyle = {
-      ...styles[kind],
-      color: FIT_COLOR,
-      maxSize: min + share * (max - min),
-      minSize: min,
-    };
-    return {
-      kind,
-      text: copy[kind]!,
-      fit: { box, style },
-      fitted: await fitText(copy[kind]!, box, style),
-    };
-  };
-
-  let best: Omit<Block, "frame" | "label">[] | null = null;
-  for (const share of SUPPORT_STEPS) {
-    const support = await Promise.all(
-      kinds
-        .filter((kind) => kind !== "headline")
-        .map((kind) =>
-          fit(
-            kind,
-            {
-              width:
-                kind === "cta"
-                  ? textBox.w - 2 * ctaPadX(layout.sizes.cta.max)
-                  : textBox.w,
-              height: textBox.h,
-            },
-            share,
-          ),
-        ),
-    );
-    const sizeOf = (kind: TextLayerKind) =>
-      kind === "headline"
-        ? layout.sizes.headline.max
-        : support.find((b) => b.kind === kind)!.fitted.size;
-    let used = 0;
-    for (const block of support)
-      used +=
-        block.kind === "cta"
-          ? ctaHeight(block.fitted.size)
-          : block.fitted.height;
-    for (let i = 1; i < kinds.length; i++)
-      used += gapBetween(kinds[i - 1]!, kinds[i]!, sizeOf);
-    const room = textBox.h - used;
-    if (room < layout.sizes.headline.min) continue;
-    let headline;
-    try {
-      headline = await fit("headline", { width: textBox.w, height: room }, 1);
-    } catch (error) {
-      if (error instanceof CreativeError && error.code === "TEXT_OVERFLOW")
-        continue;
-      throw error;
-    }
-    const blocks = kinds.map((kind) =>
-      kind === "headline" ? headline : support.find((b) => b.kind === kind)!,
-    );
-    const subline = support.find((b) => b.kind === "subline");
-    if (
-      !subline ||
-      headline.fitted.size >= HIERARCHY * subline.fitted.size ||
-      headline.fitted.size >= layout.sizes.headline.max
-    )
-      return blocks;
-    // No clear hierarchy yet: remember the largest headline in case no step gives one.
-    if (
-      !best ||
-      headline.fitted.size >
-        best.find((b) => b.kind === "headline")!.fitted.size
-    )
-      best = blocks;
-  }
-  if (!best) throw new CreativeError("TEXT_OVERFLOW");
-  return best;
-}
-
-/** Width of the inked part of a text block's last line, from the bottom rows of its PNG. */
-async function lastLineWidth(sharp: Sharp, fitted: FittedText) {
-  const { data, info } = await sharp(fitted.png)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  // Lines are at least 1.08 em apart and descenders reach about 0.25 em, so the
-  // bottom 0.6 em hold only the last line.
-  const top = Math.max(0, info.height - Math.round(0.6 * fitted.size));
-  let left = info.width;
-  let right = -1;
-  for (let y = top; y < info.height; y++)
-    for (let x = 0; x < info.width; x++)
-      if (data[(y * info.width + x) * 4 + 3]! > 128) {
-        left = Math.min(left, x);
-        right = Math.max(right, x);
-      }
-  return right - left + 1;
-}
-
-/**
- * When a wrapped block ends in a short last line (a lone word or two), narrows
- * it to the smallest width that keeps its size and does not grow its height
- * (so no line is added), which evens out the lines. Other blocks come back
- * unchanged.
- */
-async function balance(
-  sharp: Sharp,
-  block: Omit<Block, "frame" | "label">,
-): Promise<Omit<Block, "frame" | "label">> {
-  if (
-    block.kind === "cta" ||
-    (await lastLineWidth(sharp, block.fitted)) >=
-      SHORT_LAST_LINE * block.fitted.width
-  )
-    return block;
-  const { box, style } = block.fit;
-  const size = block.fitted.size;
-  const fixed = { ...style, maxSize: size, minSize: size };
-  const at = async (width: number) => {
-    try {
-      const fitted = await fitText(
-        block.text,
-        { width, height: box.height },
-        fixed,
-      );
-      return fitted.height <= block.fitted.height ? fitted : null;
-    } catch (error) {
-      if (error instanceof CreativeError && error.code === "TEXT_OVERFLOW")
-        return null;
-      throw error;
-    }
-  };
-  // Greedy wrapping only adds lines as the width shrinks; a balanced block of
-  // two or more lines is never narrower than half the widest line.
-  let fits = { width: block.fitted.width, fitted: block.fitted };
-  let low = Math.floor(block.fitted.width / 2);
-  while (fits.width - low > 4) {
-    const mid = Math.floor((low + fits.width) / 2);
-    const fitted = await at(mid);
-    if (fitted) fits = { width: mid, fitted };
-    else low = mid;
-  }
-  if (fits.width === block.fitted.width) return block;
-  return {
-    ...block,
-    fit: { box: { width: fits.width, height: box.height }, style },
-    fitted: fits.fitted,
-  };
-}
-
-/** Where the stack hugs its box: at the scrim's solid edge (R13), else by variant. */
-function stackAnchor(layout: LayoutSpec, variant: VariantId) {
-  const direction = layout.scrim?.direction;
-  if (direction === "down" || (!direction && variant === "text_top"))
-    return "top";
-  if (direction === "up" || (!direction && variant === "text_bottom"))
-    return "bottom";
-  return "middle";
-}
-
-/** Places the fitted blocks top to bottom inside the text box. */
-function placeStack(
-  blocks: Omit<Block, "frame" | "label">[],
-  layout: LayoutSpec,
-  variant: VariantId,
-): Block[] {
-  const { textBox, textAlign } = layout;
-  const sizeOf = (kind: TextLayerKind) =>
-    blocks.find((b) => b.kind === kind)?.fitted.size ?? 0;
-  const dims = blocks.map((b) =>
-    b.kind === "cta"
-      ? {
-          w: b.fitted.width + 2 * ctaPadX(b.fitted.size),
-          h: ctaHeight(b.fitted.size),
-        }
-      : { w: b.fitted.width, h: b.fitted.height },
-  );
-  const gaps = blocks.map((b, i) =>
-    i === 0 ? 0 : gapBetween(blocks[i - 1]!.kind, b.kind, sizeOf),
-  );
-  const total =
-    dims.reduce((sum, d) => sum + d.h, 0) + gaps.reduce((a, b) => a + b, 0);
-  const anchor = stackAnchor(layout, variant);
-  let y =
-    anchor === "top"
-      ? textBox.y
-      : anchor === "bottom"
-        ? textBox.y + textBox.h - total
-        : textBox.y + Math.round((textBox.h - total) / 2);
-  return blocks.map((block, i) => {
-    const { w, h } = dims[i]!;
-    y += gaps[i]!;
-    const x =
-      textAlign === "center"
-        ? textBox.x + Math.round((textBox.w - w) / 2)
-        : textBox.x;
-    const frame = { x, y, w, h };
-    y += h;
-    return block.kind === "cta"
-      ? {
-          ...block,
-          frame,
-          label: {
-            x: ctaPadX(block.fitted.size),
-            y: Math.round((h - block.fitted.height) / 2),
-          },
-        }
-      : { ...block, frame };
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -660,7 +285,7 @@ function scrimSvg(
   const { width: W, height: H } = layout.format;
   const { box, direction } = scrim;
   if (direction === "full")
-    return svg(
+    return svgImage(
       W,
       H,
       `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" fill="${color}" fill-opacity="${opacity}"/>`,
@@ -688,7 +313,7 @@ function scrimSvg(
     );
   }
   const [x1, y1, x2, y2] = GRADIENT_VECTORS[direction];
-  return svg(
+  return svgImage(
     W,
     H,
     `<defs><linearGradient id="scrim" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops.join("")}</linearGradient></defs>
@@ -730,166 +355,6 @@ function colourStack(
     if (contrast < required) readable = false;
   }
   return { backdrops, colors, readable };
-}
-
-// ---------------------------------------------------------------------------
-// Logo
-// ---------------------------------------------------------------------------
-
-type PlacedLogo = {
-  logo: CreativeLogo;
-  png: Buffer;
-  box: Box;
-  color: string;
-  sourceSize: { width: number; height: number };
-};
-
-/** Scales a logo into the anchor box (less `inset` per side), aligned to the anchor's corner. */
-async function fitLogo(
-  sharp: Sharp,
-  logo: CreativeLogo,
-  layout: LayoutSpec,
-  inset: number,
-): Promise<PlacedLogo> {
-  const { box: anchor, corner } = layout.logo;
-  const { width = 0, height = 0 } = await open(sharp, logo.bytes).metadata();
-  const scaled = await open(sharp, logo.bytes)
-    .resize(anchor.w - 2 * inset, anchor.h - 2 * inset, { fit: "inside" })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const { width: w, height: h } = scaled.info;
-  const png = await sharp(scaled.data, {
-    raw: { width: w, height: h, channels: 4 },
-  })
-    .png()
-    .toBuffer();
-  return {
-    logo,
-    png,
-    box: {
-      x: corner.endsWith("left")
-        ? anchor.x + inset
-        : anchor.x + anchor.w - inset - w,
-      y: corner.startsWith("top")
-        ? anchor.y + inset
-        : anchor.y + anchor.h - inset - h,
-      w,
-      h,
-    },
-    color: inkColor(scaled.data),
-    sourceSize: { width, height },
-  };
-}
-
-/**
- * The logo's representative ink: the pixel at the alpha-weighted median
- * luminance. Half the logo is at least as light and half at least as dark, so
- * its contrast stands for most of the logo, not for one bright detail.
- */
-function inkColor(rgba: Buffer) {
-  const pixels: { l: number; a: number; i: number }[] = [];
-  let total = 0;
-  for (let i = 0; i < rgba.length; i += 4) {
-    const a = rgba[i + 3]!;
-    if (!a) continue;
-    pixels.push({
-      l: relativeLuminance([rgba[i]!, rgba[i + 1]!, rgba[i + 2]!]),
-      a,
-      i,
-    });
-    total += a;
-  }
-  pixels.sort((p, q) => p.l - q.l || p.i - q.i);
-  let seen = 0;
-  for (const { a, i } of pixels) {
-    seen += a;
-    if (seen >= total / 2) return toHex([rgba[i]!, rgba[i + 1]!, rgba[i + 2]!]);
-  }
-  return "#000000";
-}
-
-/**
- * Chooses the logo variant by the luminance behind the anchor (or the forced
- * role) and keeps it visible: another variant when that reads better, else a
- * surface-coloured plate behind the unchanged logo.
- */
-async function placeLogo(
-  sharp: Sharp,
-  canvas: Raw,
-  layout: LayoutSpec,
-  brand: CreativeBrand,
-  forced: LogoRole | undefined,
-) {
-  const byRole = new Map<LogoRole, CreativeLogo>();
-  for (const logo of brand.logos)
-    if (!byRole.has(logo.role)) byRole.set(logo.role, logo);
-  const contrastOf = (placed: PlacedLogo, on: Raw) => {
-    const { p10, p90 } = luminanceStats(on, placed.box);
-    return {
-      backdrop: { p10, p90 },
-      contrast: worstContrast(placed.color, { p10, p90 }),
-    };
-  };
-
-  const dark = luminanceStats(canvas, layout.logo.box).mean < DARK_BACKDROP;
-  const preference: LogoRole[] = forced
-    ? [forced]
-    : [dark ? "onDark" : "onLight", "primary", ...AUTO_ROLES];
-  const roles = [...new Set(preference)].filter((role) => byRole.has(role));
-  const options = await Promise.all(
-    roles.map((role) => fitLogo(sharp, byRole.get(role)!, layout, 0)),
-  );
-  const scored = options.map((placed) => ({
-    placed,
-    ...contrastOf(placed, canvas),
-  }));
-  const choice =
-    scored[0]!.contrast >= LOGO_CONTRAST
-      ? scored[0]!
-      : scored.reduce((a, b) => (b.contrast > a.contrast ? b : a));
-  if (choice.contrast >= LOGO_CONTRAST)
-    return {
-      placed: choice.placed,
-      backdrop: choice.backdrop,
-      canvas,
-      plate: null,
-    };
-
-  // No variant reads on this backdrop: put the variant that reads best on the surface on a plate.
-  const surface = brand.palette.surfaceColor;
-  const inset = Math.round(0.012 * layout.format.width);
-  const onSurface = options.reduce((a, b) =>
-    contrastRatio(b.color, surface) > contrastRatio(a.color, surface) ? b : a,
-  );
-  const placed = await fitLogo(sharp, onSurface.logo, layout, inset);
-  const plate = {
-    x: placed.box.x - inset,
-    y: placed.box.y - inset,
-    w: placed.box.w + 2 * inset,
-    h: placed.box.h + 2 * inset,
-  };
-  const radius = Math.min(
-    Math.round(plate.h / 2),
-    Math.round(0.015 * layout.format.width),
-  );
-  const plated = await flatten(sharp, canvas, [
-    {
-      input: svg(
-        layout.format.width,
-        layout.format.height,
-        `<rect x="${plate.x}" y="${plate.y}" width="${plate.w}" height="${plate.h}" rx="${radius}" fill="${surface}" fill-opacity="${PLATE_OPACITY}"/>`,
-      ),
-      left: 0,
-      top: 0,
-    },
-  ]);
-  return {
-    placed,
-    backdrop: contrastOf(placed, plated).backdrop,
-    canvas: plated,
-    plate,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -957,7 +422,7 @@ export async function composeCreative(
       layout.background === "brand_gradient"
         ? [
             {
-              input: svg(
+              input: svgImage(
                 W,
                 H,
                 `<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${palette.primaryColor}"/><stop offset="1" stop-color="${palette.secondaryColor}"/></linearGradient></defs><rect width="${W}" height="${H}" fill="url(#bg)"/>`,
@@ -986,16 +451,7 @@ export async function composeCreative(
     const base: Raw = { data, width: info.width, height: info.height };
 
     // 2. Text stack geometry (colours come later).
-    const fitted = await fitStack(
-      copy,
-      layout,
-      textStyles(brand, layout.textAlign),
-    );
-    const blocks = placeStack(
-      await Promise.all(fitted.map((block) => balance(sharp, block))),
-      layout,
-      variant,
-    );
+    const blocks = await textStack(sharp, copy, layout, brand, variant);
     const cta = blocks.find((b) => b.kind === "cta");
     let pill: { color: string; label: string } | null = null;
     if (cta && brand.ctaStyle === "pill") {
@@ -1078,7 +534,7 @@ export async function composeCreative(
             ? palette.accentColor
             : color;
         textOverlays.push({
-          input: svg(
+          input: svgImage(
             W,
             H,
             pill

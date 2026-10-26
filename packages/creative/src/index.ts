@@ -8,6 +8,7 @@ export * from "./compose.ts";
 export * from "./errors.ts";
 export * from "./formats.ts";
 export * from "./ids.ts";
+export * from "./raster.ts";
 export * from "./templates.ts";
 export * from "./text.ts";
 const logo = readFileSync(
