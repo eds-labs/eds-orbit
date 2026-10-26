@@ -4,6 +4,7 @@ import { erasureSubscriber, issuesHandoffTargets } from "./handoffs.ts";
 import { triageQueueSubscriber } from "./triage.ts";
 import { syncSubscriber } from "./sync.ts";
 import { issuesAttention } from "./attention.ts";
+import { issuesActionTypes, issuesInstructions, issuesTools } from "./tools.ts";
 import { issuesJobs } from "./jobs.ts";
 import { issuesLinkTypes } from "./links.ts";
 import { issuesRoutes } from "./routes.ts";
@@ -41,4 +42,11 @@ export const issuesContributions: ModuleContributions = {
   webhooks: { [ISSUES_HOOK]: issuesWebhook },
   jobs: issuesJobs,
   attention: issuesAttention,
+  // Assistant and MCP reads and proposals (plan §6).
+  tools: issuesTools,
+  actionTypes: issuesActionTypes,
+  assistant: {
+    features: () => ["issues"],
+    instructions: () => issuesInstructions,
+  },
 };

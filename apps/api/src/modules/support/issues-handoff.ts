@@ -11,6 +11,9 @@ import { withPlaceholders } from "./ai.ts";
 import { ticketEvent } from "./common.ts";
 import { supportActive } from "./gate.ts";
 import { screenCustomerText } from "./hard-rules.ts";
+import { approvedOperation } from "../../platform/tasks/operation-tools.ts";
+import { ISSUES_SCOPE } from "../../platform/mcp/scopes.ts";
+import { SUPPORT_TICKETS_READ } from "./permissions.ts";
 
 // Reporting a ticket as a product issue (ADR 0018, WP3.6) and hearing back
 // when its fix is released. Support hands the ticket to the issue center's
@@ -170,3 +173,36 @@ export const issueReleasedSubscriber: EventSubscription = {
     }
   },
 };
+
+/**
+ * `support_report_issue` (ADR 0018 plan §6): an MCP client proposes the
+ * hand-in; the owner approves it like every Support proposal. It needs
+ * orbit:support and orbit:issues, and the issues permission at approval.
+ */
+export const supportReportIssue = approvedOperation({
+  module: "support",
+  sensitive: true,
+  mcpScopes: [ISSUES_SCOPE],
+  name: "support_report_issue",
+  description:
+    "Propose reporting a ticket as a product issue: a short title and the symptoms in your own words, without the customer's name or addresses (Orbit removes them anyway). Optionally attach it to an existing issue by id. Sensitive tickets need acknowledgeSensitive.",
+  permission: SUPPORT_TICKETS_READ,
+  requires: [],
+  input: z
+    .object({
+      ticketId: z.uuid(),
+      title: z.string().trim().min(1).max(200),
+      symptoms: z.string().trim().max(4000).optional(),
+      issueId: z.uuid().optional(),
+      acknowledgeSensitive: z.boolean().optional(),
+    })
+    .strict(),
+  summary: (args) => ({ operation: { kind: "support_issue_report", ticketId: args.ticketId, title: args.title } }),
+  async validate(tx, scope, args) {
+    await ticketWithContact(tx, scope, args.ticketId);
+  },
+  async run(tx, scope, args) {
+    const { ticketId, ...input } = args as { ticketId: string } & Record<string, unknown>;
+    return reportTicketAsIssue(tx, scope, ticketId, input);
+  },
+});

@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import { platformDeclaration } from "../src/platform/modules/platform-declaration.ts";
@@ -69,5 +71,31 @@ describe("issue center module skeleton (ADR 0018)", () => {
         retention: { closedIssueMonths: 6, diagnosticsMonths: 12 },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("no automatic merge (ADR 0018 I-3)", () => {
+  // Merging two issues is a person's act: a route, a confirmed duplicate
+  // candidate or an approved proposal. Intake, jobs and sync rules must
+  // never reach it.
+  it("calls mergeIssue only from the merge service, person-driven routes and approved proposals", () => {
+    const files = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+        e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : [],
+      );
+    const callers = files("apps/api/src")
+      .filter((f) => /\bmergeIssue\(/.test(readFileSync(f, "utf8")))
+      .map((f) => f.replace(/\\/g, "/"))
+      .sort();
+    expect(callers).toEqual([
+      "apps/api/src/modules/issues/duplicates.ts",
+      "apps/api/src/modules/issues/merge.ts",
+      "apps/api/src/modules/issues/routes.ts",
+      "apps/api/src/modules/issues/tools.ts",
+    ]);
+    const confirm = readFileSync("apps/api/src/modules/issues/duplicates.ts", "utf8");
+    // The only caller there is a person's confirmation.
+    expect(confirm.match(/mergeIssue\(/g)).toHaveLength(1);
+    expect(confirm).toMatch(/export async function confirmCandidate[\s\S]*mergeIssue\(/);
   });
 });
