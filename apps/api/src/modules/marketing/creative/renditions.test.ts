@@ -264,7 +264,7 @@ describe("composeRenditions", () => {
     expect(outcome.artCorrection).toBeNull();
   });
 
-  it("names the art correction for Orbit's own art instead of paying for it", async () => {
+  it("tries free variants for Orbit's own art, then names the art correction (R35)", async () => {
     const outcome = await composeRenditions(
       await input({
         art: await fixtureArt("flat", "lumora"),
@@ -272,10 +272,42 @@ describe("composeRenditions", () => {
       }),
     );
     expect(outcome.verdict).toBe("needs_owner");
-    expect(outcome.corrections).toEqual([]);
+    expect(outcome.corrections.map((c) => c.kind)).toEqual([
+      "variant",
+      "variant",
+    ]);
     expect(outcome.artCorrection).toMatchObject({
       kind: expect.stringMatching(/^(subject_larger|more_detail)$/),
     });
+  });
+
+  it("names the art correction when the free corrections run out (R35)", async () => {
+    // A person's variant: no free correction for the art, the art is next.
+    const fixed = await composeRenditions(
+      await input({
+        art: await fixtureArt("flat", "lumora"),
+        variantFixed: true,
+        artState: { orbitGenerated: true, attempts: 0, maxCorrections: 2 },
+      }),
+    );
+    expect(fixed.corrections).toEqual([]);
+    expect(fixed.artCorrection).not.toBeNull();
+    // Without attempts left, or for uploaded art, there is none.
+    for (const artState of [
+      { orbitGenerated: true, attempts: 1, maxCorrections: 1 },
+      { orbitGenerated: false, attempts: 0, maxCorrections: 1 },
+    ])
+      expect(
+        (
+          await composeRenditions(
+            await input({
+              art: await fixtureArt("flat", "lumora"),
+              variantFixed: true,
+              artState,
+            }),
+          )
+        ).artCorrection,
+      ).toBeNull();
   });
 
   it("passes engine refusals other than overflow to the caller", async () => {

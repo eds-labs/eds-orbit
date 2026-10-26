@@ -42,6 +42,29 @@ export async function projectAssets(
 export const assetSha = (row: { data: unknown } | null | undefined) =>
   String(data(row).sha256 ?? "").toLowerCase();
 
+/**
+ * The components a creative keeps, as stored now: each must still exist in
+ * this project with the bytes it was composed from, else
+ * `BRAND_ASSET_CHANGED` (409).
+ */
+export async function keptAssets(
+  tx: DbTx,
+  scope: Scope,
+  components: Array<{ assetId: string; sha256?: string }>,
+): Promise<EntityRow[]> {
+  const current = await projectAssets(
+    tx,
+    scope,
+    components.map((c) => c.assetId),
+  );
+  return components.map(({ assetId, sha256 }) => {
+    const row = current.get(assetId);
+    if (!row || !sha256 || assetSha(row) !== sha256.toLowerCase())
+      throw new DomainError("BRAND_ASSET_CHANGED", 409);
+    return row;
+  });
+}
+
 /** A requested art: a raster picture of this project, never a logo or screenshot. */
 export async function artAsset(tx: DbTx, scope: Scope, id: string) {
   const row = await projectRow(tx, scope, "assets", id);

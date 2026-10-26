@@ -21,7 +21,12 @@ import {
 } from "../../../../../../packages/creative/src/index.ts";
 import type { ArtCorrection } from "./art-direction.ts";
 import { variantForFormat, type ResolvedBrief } from "./brief.ts";
-import { planCorrection, refusal, type CorrectionState } from "./quality.ts";
+import {
+  artCorrectionFor,
+  planCorrection,
+  refusal,
+  type CorrectionState,
+} from "./quality.ts";
 import type { CreativeRecord } from "./store.ts";
 
 // The composition core (R6): one rendition per format with free corrections
@@ -77,8 +82,9 @@ export type CompositionOutcome = {
   failed: Array<CreativeCheck["code"] | "TEXT_OVERFLOW">;
   corrections: RenditionCorrection[];
   /**
-   * The art regeneration the findings call for (Orbit's own art with attempts
-   * left); it costs money, so only the caller may start it.
+   * The art regeneration the findings left after the free corrections call
+   * for (Orbit's own art with attempts left, R35); it costs money, so only
+   * the caller may start it.
    */
   artCorrection: ArtCorrection | null;
   /** `pass` without corrections, `corrected` after free ones, else `needs_owner`. */
@@ -240,10 +246,8 @@ export async function composeRenditions(
       state.logoRoles = roles.filter((role) => !drawnRoles.has(role));
       const correction = planCorrection(state, failed);
       if (!correction) break;
-      if (correction.kind === "art") {
-        outcome.artCorrection ??= correction.correction;
-        break;
-      }
+      // New art costs money: the caller decides (`artCorrection` below).
+      if (correction.kind === "art") break;
       let value: string | undefined;
       if (correction.kind === "scrim") state.scrimBoost += 1;
       else if (correction.kind === "variant") {
@@ -260,6 +264,8 @@ export async function composeRenditions(
         ...(value !== undefined && { value }),
       });
     }
+    // Weak Orbit art left after the free corrections calls for new art (R35).
+    if (best) outcome.artCorrection ??= artCorrectionFor(state, best.failed);
     // Overflow only when no attempt fit at all.
     if (best) {
       const checks = tagged(best.checks, format);

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { VariantId } from "../../../../../../packages/creative/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { EntityRow } from "./brand-kit.ts";
 import {
@@ -114,20 +115,39 @@ describe("planCorrection", () => {
     ).toBeNull();
   });
 
-  it("asks for new art only for Orbit's own art with attempts left, else a variant", () => {
+  it("tries the free variants first, then new art for Orbit's own art (R35)", () => {
     const generated = state({ artIsOrbitGenerated: true });
     expect(planCorrection(generated, ["SUBJECT_TOO_SMALL"])).toEqual({
+      kind: "variant",
+      variant: "text_top",
+    });
+    const switched = {
+      ...generated,
+      tried: ["text_bottom", "text_top", "text_side"] as VariantId[],
+    };
+    expect(planCorrection(switched, ["SUBJECT_TOO_SMALL"])).toEqual({
       kind: "art",
       correction: { kind: "subject_larger" },
     });
-    expect(planCorrection(generated, ["EMPTY_AREA_EXCESSIVE"])).toEqual({
+    expect(planCorrection(switched, ["EMPTY_AREA_EXCESSIVE"])).toEqual({
       kind: "art",
       correction: { kind: "more_detail" },
     });
+    // A person's variant: straight to the art.
     expect(
-      planCorrection({ ...generated, artAttempts: 1 }, ["SUBJECT_TOO_SMALL"]),
-    ).toEqual({ kind: "variant", variant: "text_top" });
-    // An uploaded art is the owner's: never regenerated.
+      planCorrection({ ...generated, variantFixed: true }, [
+        "SUBJECT_TOO_SMALL",
+      ]),
+    ).toEqual({ kind: "art", correction: { kind: "subject_larger" } });
+    // No attempts left, or an uploaded art (the owner's, never regenerated).
+    expect(
+      planCorrection({ ...switched, artAttempts: 1 }, ["SUBJECT_TOO_SMALL"]),
+    ).toBeNull();
+    expect(
+      planCorrection({ ...switched, artIsOrbitGenerated: false }, [
+        "EMPTY_AREA_EXCESSIVE",
+      ]),
+    ).toBeNull();
     expect(planCorrection(state(), ["EMPTY_AREA_EXCESSIVE"])).toEqual({
       kind: "variant",
       variant: "text_top",
@@ -209,6 +229,7 @@ describe("rightsCheck", () => {
         usageApproved: true,
         assetStatus: "approved",
         validUses: ["brand", "social"],
+        sha256: "a".repeat(64),
         ...data,
       },
     }) as unknown as EntityRow;
@@ -282,5 +303,21 @@ describe("rightsCheck", () => {
     expect(
       (await rightsCheck(txWith(rows).tx, scope, rows, "social")).passed,
     ).toBe(false);
+  });
+
+  it("refuses a component whose bytes carry no SHA-256", async () => {
+    const rows = [
+      asset("unhashed", { sha256: undefined }),
+      asset("short", { sha256: "abc" }),
+    ];
+    expect(
+      await rightsCheck(txWith(rows).tx, scope, rows, "social"),
+    ).toMatchObject({
+      passed: false,
+      detail: {
+        assetIds: ["unhashed", "short"].map(idOf).join(","),
+        reasons: "no_sha256,no_sha256",
+      },
+    });
   });
 });
