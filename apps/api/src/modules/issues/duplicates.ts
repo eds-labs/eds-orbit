@@ -18,7 +18,7 @@ const DAY = 86_400_000;
 const MAX_CANDIDATES = 10;
 // Short words and common words in English and German carry no signal.
 const STOP = new Set(
-  "the and for with when not but are was from that this have has can cannot after into does doesn dont der die das und mit bei nicht ist ein eine einen beim auf von wenn kein keine wird werden nach oder auch noch aber sich".split(" "),
+  "the and for with when not but are was from that this have has can cannot after into does doesn dont very der die das und mit bei nicht ist ein eine einen beim auf von wenn kein keine wird werden nach oder auch noch aber sich seit sehr".split(" "),
 );
 // The same product terms in German and English (a small, fixed glossary).
 const GLOSSARY: Record<string, string> = {
@@ -34,15 +34,28 @@ const GLOSSARY: Record<string, string> = {
   benachrichtigung: "notification", notification: "notification", email: "email", mail: "email",
   hochladen: "upload", upload: "upload", herunterladen: "download", download: "download", export: "export", exportieren: "export",
   suche: "search", search: "search", warenkorb: "cart", cart: "cart", kasse: "checkout", checkout: "checkout",
+  zurücksetzen: "reset", zurück: "reset", reset: "reset", resets: "reset", lädt: "load",
+  gutgeschrieben: "credit", credited: "credit", kontostand: "balance", guthaben: "balance",
+  ergebnisse: "result", ergebnis: "result", results: "result", tage: "day", tagen: "day", days: "day",
+  doppelt: "double", twice: "double", sprache: "language", englisch: "english", deutsch: "german",
 };
+
+/** A light English stemmer, so "charged", "charges" and "charge" meet. */
+function stem(word: string) {
+  let w = word;
+  if (w.length > 5 && w.endsWith("ing")) w = w.slice(0, -3);
+  else if (w.length > 4 && (w.endsWith("ed") || w.endsWith("ly"))) w = w.slice(0, -2);
+  else if (w.length > 3 && w.endsWith("s") && !w.endsWith("ss")) w = w.slice(0, -1);
+  return w.length > 4 && w.endsWith("e") ? w.slice(0, -1) : w;
+}
 
 /** Normalized content words: lower case, glossary terms, no stop words or redaction masks. */
 export function tokens(text: string): Set<string> {
   const out = new Set<string>();
   const plain = text.replace(/\[[a-zA-Z -]+ removed\]/g, " ").toLowerCase();
   for (const raw of plain.match(/[\p{L}\p{N}]+/gu) ?? []) {
-    const word = GLOSSARY[raw] ?? raw;
-    if (word.length >= 3 && !STOP.has(word) && !/^\d+$/.test(word)) out.add(word);
+    if (raw.length < 3 || STOP.has(raw) || /^\d+$/.test(raw)) continue;
+    out.add(stem(GLOSSARY[raw] ?? raw));
   }
   return out;
 }
