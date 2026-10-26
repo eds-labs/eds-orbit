@@ -595,7 +595,7 @@
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
-    "editor": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },

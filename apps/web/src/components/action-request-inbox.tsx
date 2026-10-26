@@ -107,14 +107,17 @@ export function decisionErrorText(cause: unknown, de: boolean) {
       : "Decision failed";
 }
 
-/** Owners decide open action requests here, for example an editor's package image. */
+/**
+ * Open action requests the member may decide: an owner's (for example an
+ * editor's package image) and those editors decide (project management).
+ */
 export function ActionRequestInbox({
   showEmpty = false,
 }: { showEmpty?: boolean } = {}) {
-  const { locale, project, isOwner } = useWorkspace();
+  const { locale, project, canEdit } = useWorkspace();
   const de = locale === "de";
   const requests = useResource<{ items: ActionRequestItem[] }>(
-    isOwner ? collectionPath(project.id, "action-requests") : null,
+    canEdit ? collectionPath(project.id, "action-requests") : null,
   );
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
@@ -138,12 +141,12 @@ export function ActionRequestInbox({
     }
   }
   const items = requests.data?.items ?? [];
-  if (!isOwner)
+  if (!canEdit)
     return showEmpty ? (
       <Alert kind="info">
         {de
-          ? "Freigaben können nur Inhaber bearbeiten."
-          : "Only owners can manage approvals."}
+          ? "Freigaben können nur Inhaber und Bearbeiter bearbeiten."
+          : "Only owners and editors can manage approvals."}
       </Alert>
     ) : null;
   if (showEmpty && requests.error)

@@ -1270,10 +1270,13 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId);
     return cancelRun(scope, z.uuid().parse(id));
   });
-  // Owners' open decisions (image requests from editors' packages and others).
+  // The member's open decisions: owners' requests (image requests from
+  // editors' packages and others) and requests editors decide (ADR 0016).
   app.get("/api/projects/:projectId/action-requests", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const scope = await scopeFor(auth, req, projectId);
+    // Writers only, in at least one module; each type's rule filters the list.
+    authorize({ role: highestRole(scope) }, PROJECT_WRITE);
     return {
       items: await scoped(scope.workspaceId, projectId, (tx) =>
         listActionRequests(tx, scope),

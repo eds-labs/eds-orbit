@@ -233,6 +233,9 @@ export function approvedOperation(op: Operation) {
     riskClass: "W2",
     approvalMode: "approval_required",
     deciderRole: op.deciderRole ?? "owner",
+    // Editor-decided operations come from outside clients or the assistant:
+    // the approvals list shows them to the members who may decide.
+    ...(op.deciderRole === "editor" ? { inbox: "editors" as const } : {}),
     get mcpProposable() {
       return (op.proposable ?? mcp2Enabled)();
     },

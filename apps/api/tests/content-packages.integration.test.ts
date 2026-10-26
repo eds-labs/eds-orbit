@@ -493,7 +493,8 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       expect((await snapshot(pkg.id)).image).toMatchObject({
         status: "awaiting_approval",
       });
-      await expect(inbox(editor)).rejects.toThrow("OWNER_REQUIRED");
+      // An editor's list never holds an owner's decision (or chat confirmations).
+      expect(await inbox(editor)).toEqual([]);
       const pending = (await inbox(owner)).find(
         (item) => item.id === imageRequestId,
       )!;

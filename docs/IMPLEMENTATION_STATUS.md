@@ -1,5 +1,15 @@
 # Implementation status
 
+## Approvals list for editors (2026-10-25, fix for project management phase 1)
+
+The approvals list (`GET /api/projects/:id/action-requests`, Approvals page) showed only owner-decided requests, and only to owners. Project management proposals, which an owner **or editor** decides (ADR 0016 D-7), therefore appeared nowhere in the UI. That includes MCP work proposals, whose approve link points to this page. It now lists every pending request the member may decide, with their role in the type's module:
+
+- owner-decided types: for owners;
+- editor-decided types that opt in with `inbox: "editors"` (every editor-decided `approvedOperation`, today the work proposals): for members who write in the module.
+
+Marketing's editor-decided package confirmations stay in chat, as before. For MCP action types the module's summary now wins over the raw arguments, so the work renderer matches. Access matrix: editor `GET /action-requests` 403 → 200 (filtered per type); viewers stay 403. Tests: `work-mcp`, `content-packages`, `mcp-proposal-flow`, `decisions.test.tsx`, access matrix.
+
+
 ## Central AI management phase C: organization budget, monthly project budget, usage (2026-10-25, branch `claude/eds-orbit-architecture-audit-00cc6b`, local; not pushed, `ORBIT_AI_ORG_BUDGET` off)
 
 Plan: [plans/ai-central-management.md](plans/ai-central-management.md), section 7. Phase B is live since 2026-10-25 18:24 UTC (`d8871fa7`).
