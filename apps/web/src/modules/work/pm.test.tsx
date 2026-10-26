@@ -195,6 +195,27 @@ describe("AI project manager views (ADR 0017)", () => {
     expect(html).toContain("Dispatch a coding work order");
     expect(html).toContain("Spends at most $1.50");
     expect(workActionRequests["work.plan.apply"]!.accepts({ summary: { operation: { kind: "new_plan" } } })).toBe(true);
+    // An MCP plan request carries the raw arguments: constraints are a text,
+    // not a list (production crash of 2026-10-26).
+    const plan = workActionRequests["work.mcp.work_pm_propose_plan"]!;
+    const request = {
+      costCeilingMicros: 1_000_000,
+      summary: {
+        operation: {
+          kind: "pm_plan",
+          goal: "Plan the EOP initiative",
+          constraints: "No deploys. Keep the core generic.",
+          initiativeKey: "EOP",
+          extra: { nested: true },
+        },
+      },
+    };
+    expect(plan.accepts(request)).toBe(true);
+    const Plan = plan.component;
+    const planHtml = render(<Plan item={request} de={true} pending={false} decide={() => {}} />);
+    expect(planHtml).toContain("KI-Projektleiter planen lassen");
+    expect(planHtml).toContain("No deploys. Keep the core generic.");
+    expect(planHtml).toContain("Kostet höchstens $1.00");
     expect(workAttention.work_pm_critical!({ count: 2 } as never, "en").title).toBe("2 critical findings in initiatives");
     expect(workAttention.work_coding_unknown!({ count: 1 } as never, "de").title).toBe("1 Coding-Auftrag mit unklarem Ausgang");
   });
