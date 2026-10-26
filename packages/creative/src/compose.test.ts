@@ -5,7 +5,7 @@ import {
   fixtureScreenshot,
   opaqueLogo,
 } from "../fixtures/demo-brands.ts";
-import type { CreativeBrand, RasterSource } from "./brand.ts";
+import { sha256Hex, type CreativeBrand, type RasterSource } from "./brand.ts";
 import { contrastRatio, relativeLuminance } from "./color.ts";
 import {
   composeCreative,
@@ -60,6 +60,32 @@ function backdropContrast(result: ComposeResult, record: LayerRecord) {
     contrastRatio(record.color, backdrop.p10),
     contrastRatio(record.color, backdrop.p90),
   );
+}
+
+/** Logo contrast as QA computes it (Task 5): the logo layer's colour against its recorded backdrop. */
+function logoContrast(result: ComposeResult) {
+  const logo = layer(result, "logo");
+  const backdrop = result.backdrops.logo!;
+  return Math.min(
+    contrastRatio(logo.color!, backdrop.p10),
+    contrastRatio(logo.color!, backdrop.p90),
+  );
+}
+
+/** A transparent logo drawn only in white: invisible on white, readable on dark. */
+async function whiteLogo(): Promise<RasterSource> {
+  const { default: sharp } = await import("sharp");
+  const bytes = await sharp(
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="160">
+        <circle cx="80" cy="80" r="64" fill="#FFFFFF"/>
+        <rect x="176" y="48" width="280" height="64" rx="18" fill="#FFFFFF"/>
+      </svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
 }
 
 /** QA's requirement for one text layer (spec §9, ruling R2); the subline is body text. */
@@ -222,23 +248,45 @@ describe("composeCreative", () => {
     );
   });
 
-  it("keeps an opaque logo visible", async () => {
+  it.each(["lumora", "kestrel"] as const)(
+    "keeps an opaque logo visible on its own background (%s)",
+    async (brandName) => {
+      const input = await lifestyleInput(brandName, "bright");
+      const logo = await opaqueLogo();
+      const result = await composeCreative({
+        ...input,
+        brand: { ...input.brand, logos: [{ ...logo, role: "primary" }] },
+      });
+      const drawn = layer(result, "logo");
+      expect(drawn.sourceSha256).toBe(logo.sha256);
+      expectAspectKept(drawn);
+      // The white square is the logo's own backdrop: it is never plated, and
+      // its contrast is the dark mark against that square.
+      expect(result.layers.some((l) => l.kind === "logo_plate")).toBe(false);
+      expect(result.backdrops.logo).toEqual({ p10: 1, p90: 1 });
+      expect(relativeLuminance(drawn.color!)).toBeLessThan(0.1);
+      expect(logoContrast(result)).toBeGreaterThanOrEqual(2);
+    },
+  );
+
+  it("plates a white logo on a white surface in a colour it reads on", async () => {
     const input = await lifestyleInput("lumora", "bright");
-    const logo = await opaqueLogo();
+    const logo = await whiteLogo();
     const result = await composeCreative({
       ...input,
-      brand: { ...input.brand, logos: [{ ...logo, role: "primary" }] },
+      brand: {
+        ...input.brand,
+        palette: { ...input.brand.palette, surfaceColor: "#FFFFFF" },
+        logos: [{ ...logo, role: "primary" }],
+      },
     });
     const drawn = layer(result, "logo");
+    const plate = layer(result, "logo_plate");
     expect(drawn.sourceSha256).toBe(logo.sha256);
     expectAspectKept(drawn);
-    const plate = result.layers.find((l) => l.kind === "logo_plate");
-    const contrast = Math.min(
-      contrastRatio(drawn.color!, result.backdrops.logo!.p10),
-      contrastRatio(drawn.color!, result.backdrops.logo!.p90),
-    );
-    expect(plate !== undefined || contrast >= 2).toBe(true);
-    if (plate) expect(inside(drawn.box, plate.box)).toBe(true);
+    expect(inside(drawn.box, plate.box)).toBe(true);
+    expect(plate.color).not.toBe("#FFFFFF");
+    expect(logoContrast(result)).toBeGreaterThanOrEqual(2);
   });
 
   it("puts a plate behind a dark transparent logo on dark art", async () => {
@@ -264,12 +312,8 @@ describe("composeCreative", () => {
           .box,
       ),
     ).toBe(true);
-    expect(
-      Math.min(
-        contrastRatio(logo.color!, result.backdrops.logo!.p10),
-        contrastRatio(logo.color!, result.backdrops.logo!.p90),
-      ),
-    ).toBeGreaterThanOrEqual(2);
+    expect(plate.color).toBe(kestrel.palette.surfaceColor);
+    expect(logoContrast(result)).toBeGreaterThanOrEqual(2);
   });
 
   it("refuses a missing required art or product", async () => {
@@ -478,6 +522,12 @@ describe("composeCreative", () => {
                 overlaps(a.box, b.box),
                 `${template} ${a.kind}/${b.kind}`,
               ).toBe(false);
+          const plate = result.layers.find((l) => l.kind === "logo_plate");
+          if (plate) expect(inside(plate.box, safeBox)).toBe(true);
+          expect(
+            logoContrast(result),
+            `${brandName} ${template} logo`,
+          ).toBeGreaterThanOrEqual(2);
         }
       }
     }, 120_000);

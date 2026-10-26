@@ -1,5 +1,5 @@
 import type { CreativeBrand, CreativeLogo } from "./brand.ts";
-import { contrastRatio, relativeLuminance } from "./color.ts";
+import { contrastRatio, parseHex, relativeLuminance } from "./color.ts";
 import type { LogoRole } from "./ids.ts";
 import {
   flatten,
@@ -8,6 +8,7 @@ import {
   svgImage,
   toHex,
   worstContrast,
+  type Backdrop,
   type Raw,
   type Sharp,
 } from "./raster.ts";
@@ -22,12 +23,32 @@ const DARK_BACKDROP = 0.4;
 const PLATE_OPACITY = 0.9;
 const AUTO_ROLES: readonly LogoRole[] = ["onDark", "onLight", "primary"];
 
+/** Alpha from which an edge pixel counts as opaque. */
+const OPAQUE_ALPHA = 250;
+/** Largest channel difference at which a pixel still counts as the logo's own background. */
+const BACKING_TOLERANCE = 48;
+
 type PlacedLogo = {
   logo: CreativeLogo;
   png: Buffer;
   box: Box;
+  /** Representative ink colour (see `inkColor`). */
   color: string;
+  /**
+   * The colour of the logo's own opaque background (every edge pixel opaque,
+   * e.g. a mark on a white square), or `null` for a transparent logo. Such a
+   * logo is its own backdrop: it is never plated.
+   */
+  backing: string | null;
   sourceSize: { width: number; height: number };
+};
+
+/** Where the logo ended up, what lies behind it, and the plate drawn for it (if any). */
+type LogoLayers = {
+  placed: PlacedLogo;
+  backdrop: Backdrop;
+  canvas: Raw;
+  plate: { box: Box; color: string } | null;
 };
 
 /** Scales a logo into the anchor box (less `inset` per side), aligned to the anchor's corner. */
@@ -66,22 +87,53 @@ async function fitLogo(
       w,
       h,
     },
-    color: inkColor(scaled.data),
+    ...inked(scaled.data, w, h),
     sourceSize: { width, height },
   };
 }
 
+/** The logo's own background colour (per-channel median of its edge), or `null` when any edge pixel is see-through. */
+function backingColor(rgba: Buffer, w: number, h: number) {
+  const edge: number[][] = [[], [], []];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      if (y !== 0 && y !== h - 1 && x !== 0 && x !== w - 1) continue;
+      const i = (y * w + x) * 4;
+      if (rgba[i + 3]! < OPAQUE_ALPHA) return null;
+      for (let c = 0; c < 3; c++) edge[c]!.push(rgba[i + c]!);
+    }
+  return toHex(
+    edge.map((values) => values.sort((a, b) => a - b)[values.length >> 1]!),
+  );
+}
+
+/** Ink and backing of a scaled logo; on an opaque logo the ink is taken from the mark only. */
+function inked(rgba: Buffer, w: number, h: number) {
+  const backing = backingColor(rgba, w, h);
+  if (!backing)
+    return { color: inkColor(rgba, () => true) ?? "#000000", backing };
+  const [r, g, b] = parseHex(backing);
+  const mark = (i: number) =>
+    Math.max(
+      Math.abs(rgba[i]! - r),
+      Math.abs(rgba[i + 1]! - g),
+      Math.abs(rgba[i + 2]! - b),
+    ) > BACKING_TOLERANCE;
+  return { color: inkColor(rgba, mark) ?? backing, backing };
+}
+
 /**
- * The logo's representative ink: the pixel at the alpha-weighted median
- * luminance. Half the logo is at least as light and half at least as dark, so
- * its contrast stands for most of the logo, not for one bright detail.
+ * The logo's representative ink: among the pixels `counts` accepts, the one at
+ * the alpha-weighted median luminance. Half the logo is at least as light and
+ * half at least as dark, so its contrast stands for most of the logo, not for
+ * one bright detail. `null` when no pixel counts.
  */
-function inkColor(rgba: Buffer) {
+function inkColor(rgba: Buffer, counts: (index: number) => boolean) {
   const pixels: { l: number; a: number; i: number }[] = [];
   let total = 0;
   for (let i = 0; i < rgba.length; i += 4) {
     const a = rgba[i + 3]!;
-    if (!a) continue;
+    if (!a || !counts(i)) continue;
     pixels.push({
       l: relativeLuminance([rgba[i]!, rgba[i + 1]!, rgba[i + 2]!]),
       a,
@@ -95,13 +147,16 @@ function inkColor(rgba: Buffer) {
     seen += a;
     if (seen >= total / 2) return toHex([rgba[i]!, rgba[i + 1]!, rgba[i + 2]!]);
   }
-  return "#000000";
+  return null;
 }
 
 /**
  * Chooses the logo variant by the luminance behind the anchor (or the forced
  * role) and keeps it visible: another variant when that reads better, else a
- * surface-coloured plate behind the unchanged logo.
+ * plate behind the unchanged logo. A logo with its own opaque background is
+ * its own backdrop and is never plated. The plate is surface-coloured first;
+ * when the logo still does not reach `LOGO_CONTRAST` on it, the text colour,
+ * white and black are tried, and the best plate is kept.
  */
 export async function placeLogo(
   sharp: Sharp,
@@ -109,11 +164,18 @@ export async function placeLogo(
   layout: LayoutSpec,
   brand: CreativeBrand,
   forced: LogoRole | undefined,
-) {
+): Promise<LogoLayers> {
   const byRole = new Map<LogoRole, CreativeLogo>();
   for (const logo of brand.logos)
     if (!byRole.has(logo.role)) byRole.set(logo.role, logo);
   const contrastOf = (placed: PlacedLogo, on: Raw) => {
+    if (placed.backing) {
+      const l = relativeLuminance(placed.backing);
+      return {
+        backdrop: { p10: l, p90: l },
+        contrast: contrastRatio(placed.color, placed.backing),
+      };
+    }
     const { p10, p90 } = luminanceStats(on, placed.box);
     return {
       backdrop: { p10, p90 },
@@ -137,7 +199,8 @@ export async function placeLogo(
     scored[0]!.contrast >= LOGO_CONTRAST
       ? scored[0]!
       : scored.reduce((a, b) => (b.contrast > a.contrast ? b : a));
-  if (choice.contrast >= LOGO_CONTRAST)
+  const plateable = options.filter((placed) => !placed.backing);
+  if (choice.contrast >= LOGO_CONTRAST || !plateable.length)
     return {
       placed: choice.placed,
       backdrop: choice.backdrop,
@@ -145,38 +208,58 @@ export async function placeLogo(
       plate: null,
     };
 
-  // No variant reads on this backdrop: put the variant that reads best on the surface on a plate.
-  const surface = brand.palette.surfaceColor;
+  // No variant reads on this backdrop: put the variant that reads best on the plate on a plate.
   const inset = Math.round(0.012 * layout.format.width);
-  const onSurface = options.reduce((a, b) =>
-    contrastRatio(b.color, surface) > contrastRatio(a.color, surface) ? b : a,
-  );
-  const placed = await fitLogo(sharp, onSurface.logo, layout, inset);
-  const plate = {
-    x: placed.box.x - inset,
-    y: placed.box.y - inset,
-    w: placed.box.w + 2 * inset,
-    h: placed.box.h + 2 * inset,
-  };
-  const radius = Math.min(
-    Math.round(plate.h / 2),
-    Math.round(0.015 * layout.format.width),
-  );
-  const plated = await flatten(sharp, canvas, [
-    {
-      input: svgImage(
-        layout.format.width,
-        layout.format.height,
-        `<rect x="${plate.x}" y="${plate.y}" width="${plate.w}" height="${plate.h}" rx="${radius}" fill="${surface}" fill-opacity="${PLATE_OPACITY}"/>`,
-      ),
-      left: 0,
-      top: 0,
-    },
-  ]);
-  return {
-    placed,
-    backdrop: contrastOf(placed, plated).backdrop,
-    canvas: plated,
-    plate,
-  };
+  const insetLogos = new Map<CreativeLogo, Promise<PlacedLogo>>();
+  const colors = [
+    brand.palette.surfaceColor,
+    brand.palette.textColor,
+    "#FFFFFF",
+    "#000000",
+  ];
+  let best: (LogoLayers & { contrast: number }) | null = null;
+  for (const [index, color] of colors.entries()) {
+    if (
+      colors
+        .slice(0, index)
+        .some((c) => c.toUpperCase() === color.toUpperCase())
+    )
+      continue;
+    const option = plateable.reduce((a, b) =>
+      contrastRatio(b.color, color) > contrastRatio(a.color, color) ? b : a,
+    );
+    if (!insetLogos.has(option.logo))
+      insetLogos.set(option.logo, fitLogo(sharp, option.logo, layout, inset));
+    const placed = await insetLogos.get(option.logo)!;
+    const box = {
+      x: placed.box.x - inset,
+      y: placed.box.y - inset,
+      w: placed.box.w + 2 * inset,
+      h: placed.box.h + 2 * inset,
+    };
+    const radius = Math.min(
+      Math.round(box.h / 2),
+      Math.round(0.015 * layout.format.width),
+    );
+    const plated = await flatten(sharp, canvas, [
+      {
+        input: svgImage(
+          layout.format.width,
+          layout.format.height,
+          `<rect x="${box.x}" y="${box.y}" width="${box.w}" height="${box.h}" rx="${radius}" fill="${color}" fill-opacity="${PLATE_OPACITY}"/>`,
+        ),
+        left: 0,
+        top: 0,
+      },
+    ]);
+    const attempt = {
+      placed,
+      ...contrastOf(placed, plated),
+      canvas: plated,
+      plate: { box, color },
+    };
+    if (attempt.contrast >= LOGO_CONTRAST) return attempt;
+    if (!best || attempt.contrast > best.contrast) best = attempt;
+  }
+  return best!;
 }

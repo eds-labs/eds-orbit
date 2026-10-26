@@ -72,7 +72,11 @@ export type LayerRecord = {
   /** Drawn width divided by source width. */
   scale?: number;
   fontSize?: number;
-  /** Text or CTA label colour; for the logo its alpha-weighted mean colour; for the plate its fill. */
+  /**
+   * Text or CTA label colour; for the logo its ink (the pixel at the
+   * alpha-weighted median luminance, of the mark only when the logo brings its
+   * own opaque background); for the plate its fill.
+   */
   color?: string;
   role?: LogoRole;
 };
@@ -86,7 +90,10 @@ export type ComposeResult = {
   template: TemplateId;
   variant: VariantId;
   layers: LayerRecord[];
-  /** For a pill CTA the backdrop is the pill colour; for a plated logo, the plate. */
+  /**
+   * For a pill CTA the backdrop is the pill colour; for a plated logo, the
+   * plate; for a logo with its own opaque background, that background.
+   */
   backdrops: Partial<Record<TextLayerKind | "logo", Backdrop>>;
   scrimOpacity: number;
   logoRole: LogoRole;
@@ -559,8 +566,8 @@ export async function composeCreative(
     if (logo.plate)
       layers.push({
         kind: "logo_plate",
-        box: logo.plate,
-        color: palette.surfaceColor,
+        box: logo.plate.box,
+        color: logo.plate.color,
       });
     layers.push({
       kind: "logo",
