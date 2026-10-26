@@ -15,6 +15,7 @@ import {
   TEMPLATE_COPY_LIMITS,
   TEMPLATE_NEEDS,
   TEMPLATE_VARIANTS,
+  artZones,
   layoutFor,
   variantsFor,
   type Box,
@@ -606,5 +607,70 @@ describe("layoutFor", () => {
     expect(layoutFor("announcement", "centered", "story", options())).toEqual(
       b,
     );
+  });
+});
+
+describe("artZones", () => {
+  it("gives the reserved zones in the frame of the drawn art (R21)", () => {
+    for (const { template, variant, format: formatId } of allCases()) {
+      const layout = layoutFor(template, variant, formatId, options());
+      const { width: W, height: H } = layout.format;
+      const art = layout.art!;
+      const label = `${template}/${variant}/${formatId}`;
+      // Every canvas zone, clipped to the art box, in pixels.
+      const expected = layout.reservedZones.flatMap((zone) => {
+        const x0 = Math.max(zone.x * W, art.x);
+        const y0 = Math.max(zone.y * H, art.y);
+        const x1 = Math.min((zone.x + zone.w) * W, art.x + art.w);
+        const y1 = Math.min((zone.y + zone.h) * H, art.y + art.h);
+        return x1 > x0 && y1 > y0 ? [{ x0, y0, x1, y1 }] : [];
+      });
+      const zones = artZones(layout);
+      expect(zones.length, label).toBe(expected.length);
+      zones.forEach((zone, i) => {
+        expect(zone.x, label).toBeGreaterThanOrEqual(0);
+        expect(zone.y, label).toBeGreaterThanOrEqual(0);
+        expect(zone.x + zone.w, label).toBeLessThanOrEqual(1 + 1e-9);
+        expect(zone.y + zone.h, label).toBeLessThanOrEqual(1 + 1e-9);
+        // Back on the canvas, the zone is the clipped one.
+        expect(art.x + zone.x * art.w, label).toBeCloseTo(expected[i]!.x0, 6);
+        expect(art.y + zone.y * art.h, label).toBeCloseTo(expected[i]!.y0, 6);
+        expect(art.x + (zone.x + zone.w) * art.w, label).toBeCloseTo(
+          expected[i]!.x1,
+          6,
+        );
+        expect(art.y + (zone.y + zone.h) * art.h, label).toBeCloseTo(
+          expected[i]!.y1,
+          6,
+        );
+      });
+    }
+  });
+
+  it("maps full-canvas art one to one and drops zones beside an art strip", () => {
+    const full = layoutFor(
+      "lifestyle",
+      "text_bottom",
+      "feed_portrait",
+      options(),
+    );
+    expect(artZones(full)).toEqual(full.reservedZones);
+    // feature_highlight: the art is a strip at the bottom, behind the product;
+    // the text and logo above it are not part of the art.
+    const strip = layoutFor(
+      "feature_highlight",
+      "text_top",
+      "feed_portrait",
+      options(),
+    );
+    expect(strip.art!.y).toBeGreaterThan(0);
+    const zones = artZones(strip);
+    expect(zones).toHaveLength(1);
+    const product = strip.product!;
+    expect(zones[0]!.y).toBeCloseTo(
+      (product.y - strip.art!.y) / strip.art!.h,
+      6,
+    );
+    expect(zones[0]!.x).toBeCloseTo(product.x / strip.art!.w, 6);
   });
 });

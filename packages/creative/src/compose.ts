@@ -153,6 +153,7 @@ function textColors(palette: BrandPalette) {
 /**
  * Cover-fits the art into its region around the salient subject; art whose
  * aspect is too far off is contained over a blurred cover copy of itself.
+ * Overlay positions are relative to the box's top-left corner.
  */
 async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
   const { width = 0, height = 0 } = await openRaster(
@@ -175,7 +176,7 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
       .png()
       .toBuffer();
     return {
-      overlays: [{ input, left: box.x, top: box.y }],
+      overlays: [{ input, left: 0, top: 0 }],
       record: { ...record, scale: Math.max(box.w / width, box.h / height) },
     };
   }
@@ -207,15 +208,47 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
     .toBuffer();
   return {
     overlays: [
-      { input: backdrop, left: box.x, top: box.y },
+      { input: backdrop, left: 0, top: 0 },
       {
         input: front,
-        left: box.x + Math.round((box.w - w) / 2),
-        top: box.y + Math.round((box.h - h) / 2),
+        left: Math.round((box.w - w) / 2),
+        top: Math.round((box.h - h) / 2),
       },
     ],
     record: { ...record, scale: w / width },
   };
+}
+
+/**
+ * The art exactly as compose draws it into the layout's art box (same cover
+ * or contain fit, same code), as a PNG of the box's size. Art checks run on
+ * it, with `artZones(layout)` as their reserved zones (R21). Throws
+ * `BRAND_ASSET_INTEGRITY_FAILED` for bytes that are not the approved ones.
+ */
+export async function drawnArt(
+  art: RasterSource,
+  layout: LayoutSpec,
+): Promise<Buffer> {
+  const box = layout.art;
+  if (!box) throw new CreativeError("INVALID_TEMPLATE_INPUT");
+  assertIntact(art);
+  const { default: sharp } = await import("sharp");
+  try {
+    const { overlays } = await artLayers(sharp, art, box);
+    return await sharp({
+      create: {
+        width: box.w,
+        height: box.h,
+        channels: 4,
+        background: "#000000",
+      },
+    })
+      .composite(overlays)
+      .png()
+      .toBuffer();
+  } catch {
+    throw new CreativeError("RASTER_RENDER_FAILED");
+  }
 }
 
 /**
@@ -453,7 +486,14 @@ export async function composeCreative(
         : [];
     if (art && layout.art) {
       const placed = await artLayers(sharp, art, layout.art);
-      background.push(...placed.overlays);
+      const { x, y } = layout.art;
+      background.push(
+        ...placed.overlays.map((o) => ({
+          ...o,
+          left: o.left + x,
+          top: o.top + y,
+        })),
+      );
       layers.push(placed.record);
     }
     const { data, info } = await sharp({

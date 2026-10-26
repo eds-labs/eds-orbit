@@ -10,6 +10,7 @@ import { CREATIVE_THRESHOLDS } from "./analysis.ts";
 import { contrastRatio, relativeLuminance } from "./color.ts";
 import {
   composeCreative,
+  drawnArt,
   type ComposeInput,
   type ComposeResult,
   type LayerRecord,
@@ -296,6 +297,50 @@ describe("composeCreative", () => {
     // The pill is a flat backdrop of its own.
     expect(result.backdrops.cta!.busy).toBe(0);
   });
+
+  it.each([
+    ["lifestyle", "text_bottom", { x: 300, y: 200, w: 600, h: 300 }],
+    // The art strip behind the screenshot is contained over a blurred copy; left of the card.
+    ["feature_highlight", "text_top", { x: 0, y: 730, w: 90, h: 560 }],
+  ] as const)(
+    "draws exactly the art drawnArt returns (%s, R21)",
+    async (template, variant, region) => {
+      const input = await lifestyleInput("kestrel");
+      const products =
+        template === "feature_highlight"
+          ? [await fixtureScreenshot("kestrel")]
+          : undefined;
+      const result = await composeCreative({
+        ...input,
+        template,
+        variant,
+        products,
+      });
+      const layout = layoutFor(template, variant, "feed_portrait", OPTIONS);
+      const art = layout.art!;
+      const drawn = await drawnArt(input.art!, layout);
+      const { default: sharp } = await import("sharp");
+      const meta = await sharp(drawn).metadata();
+      expect([meta.width, meta.height]).toEqual([art.w, art.h]);
+      // Where nothing is drawn over the art, the creative shows these pixels.
+      const pixels = async (png: Buffer, left: number, top: number) =>
+        sharp(png)
+          .extract({ left, top, width: region.w, height: region.h })
+          .removeAlpha()
+          .raw()
+          .toBuffer();
+      const composed = await pixels(result.png, region.x, region.y);
+      const fromDrawn = await pixels(drawn, region.x - art.x, region.y - art.y);
+      let diff = 0;
+      for (let i = 0; i < composed.length; i++)
+        diff += Math.abs(composed[i]! - fromDrawn[i]!);
+      expect(diff / composed.length).toBeLessThan(0.5);
+      // Bytes that are not the approved ones are refused here too.
+      await expect(
+        drawnArt({ ...input.art!, sha256: "0".repeat(64) }, layout),
+      ).rejects.toMatchObject({ code: "BRAND_ASSET_INTEGRITY_FAILED" });
+    },
+  );
 
   it.each(["lumora", "kestrel"] as const)(
     "keeps an opaque logo visible on its own background (%s)",

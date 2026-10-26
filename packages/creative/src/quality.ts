@@ -255,7 +255,11 @@ export function checkComposition(
   ];
 }
 
-/** Subject size and empty area of an art; `reserved` are the layout's zones (fractions). */
+/**
+ * Subject size and empty area of an art, judged in the frame it is drawn in
+ * (R21): `png` is `drawnArt(art, layout)` and `reserved` is
+ * `artZones(layout)` (fractions of the drawn art).
+ */
 export async function checkArt(
   png: Buffer,
   reserved: RelBox[],

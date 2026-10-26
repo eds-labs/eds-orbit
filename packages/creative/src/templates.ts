@@ -531,6 +531,34 @@ function scrimFor(
 }
 
 /**
+ * The reserved zones in the frame of the drawn art (R21): each canvas zone
+ * clipped to the art box, as fractions of that box; zones beside the art are
+ * left out. Pass a layout without the product zone when no product is drawn
+ * (R15).
+ */
+export function artZones(layout: LayoutSpec): RelBox[] {
+  const art = layout.art;
+  if (!art) return [];
+  const { width: W, height: H } = layout.format;
+  return layout.reservedZones.flatMap((zone) => {
+    const x0 = Math.max(zone.x * W, art.x);
+    const y0 = Math.max(zone.y * H, art.y);
+    const x1 = Math.min((zone.x + zone.w) * W, art.x + art.w);
+    const y1 = Math.min((zone.y + zone.h) * H, art.y + art.h);
+    return x1 > x0 && y1 > y0
+      ? [
+          {
+            x: (x0 - art.x) / art.w,
+            y: (y0 - art.y) / art.h,
+            w: (x1 - x0) / art.w,
+            h: (y1 - y0) / art.h,
+          },
+        ]
+      : [];
+  });
+}
+
+/**
  * Pixel layout of one template variant on one format. Throws
  * `INVALID_TEMPLATE_VARIANT` for a variant the template or format does not
  * offer and `INVALID_TEMPLATE_INPUT` for unknown ids or options.
