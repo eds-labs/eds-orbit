@@ -1119,6 +1119,37 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     );
   });
 
+  it("keeps screenshots and product images away from the image provider unless the owner allowed it", async () => {
+    process.env.ORBIT_IMAGE_REFERENCES = "true";
+    const reference = (type: string, changes: Record<string, unknown> = {}) =>
+      run((tx) =>
+        create(tx, project.owner, "assets", {
+          name: `Approved ${type}`,
+          type,
+          mime: "image/png",
+          base64: png.toString("base64"),
+          sha256: createHash("sha256").update(png).digest("hex"),
+          usageApproved: true,
+          assetStatus: "approved",
+          ...changes,
+        }),
+      );
+    const unflagged = await reference("screenshot");
+    const refused = await reference("product", { providerUse: false });
+    const allowed = await reference("screenshot", { providerUse: true });
+    const photo = await reference("photo");
+    await makeAssignment({
+      styleAssetIds: [unflagged.id, refused.id, allowed.id, photo.id],
+    });
+    await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
+    await runAgentTask(worker(), (await task("visual")).id);
+    expect(provider.generateImageWithReferences).toHaveBeenCalledTimes(1);
+    // The photo (as before) and the screenshot the owner allowed.
+    expect(
+      provider.generateImageWithReferences.mock.calls[0]![0].references,
+    ).toHaveLength(2);
+  });
+
   it("uses no reference images by default", async () => {
     const banner = await run((tx) =>
       create(tx, project.owner, "assets", {

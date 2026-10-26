@@ -130,6 +130,7 @@ import {
   testDriveConnection,
 } from "./google-drive.ts";
 import {
+  importDriveFile,
   markSyncFailed,
   saveDraftDocument,
   saveGeneratedAsset,
@@ -508,6 +509,36 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
       state.fetchCalls.filter((url) => url.includes("upload/drive/v3/files"))
         .length,
     ).toBe(2);
+  });
+  it("imports a Drive image as a screenshot or product asset, outside approval", async () => {
+    add("drive_connection", {
+      encryptedRefreshToken: encrypt("synthetic-refresh", "a".repeat(64)),
+    });
+    add("drive_storage", { rootFolderId: root, enabled: true });
+    for (const type of ["screenshot", "product"] as const) {
+      const imported = await importDriveFile(scope, logo, type);
+      expect(data(imported)).toMatchObject({
+        type,
+        driveFileId: logo,
+        assetStatus: "reference",
+        usageApproved: false,
+      });
+      expect(data(imported).providerUse ?? false).toBe(false);
+    }
+    // One asset per Drive file: the second import changed the type.
+    expect(state.rows.filter((r) => r.kind === "assets")).toHaveLength(1);
+    state.driveFiles.notAnImage = {
+      id: "notAnImage",
+      name: "notes.pdf",
+      mimeType: "application/pdf",
+      parents: [root],
+    };
+    await expect(
+      importDriveFile(scope, "notAnImage", "screenshot"),
+    ).rejects.toMatchObject({
+      code: "GOOGLE_DRIVE_IMAGE_REQUIRED",
+      status: 415,
+    });
   });
   it("checks an approved file version before returning bytes", async () => {
     add("drive_connection", {

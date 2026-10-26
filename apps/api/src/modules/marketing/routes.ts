@@ -402,6 +402,8 @@ export const marketingRoutes: RoutesContribution = (context) => {
               "background",
               "banner",
               "icon",
+              "screenshot",
+              "product",
               "document",
               "other",
             ])

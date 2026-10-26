@@ -8,6 +8,7 @@ import {
   type ActionHandler,
 } from "../../platform/http/actions.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
+import { authorize, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import {
   audit,
   create,
@@ -279,19 +280,35 @@ export const marketingActions: Record<string, ActionHandler> = {
         version: z.number().int().positive(),
         assetStatus: z.enum(["approved", "reference", "outdated"]),
         confirmUsageRights: z.boolean().optional(),
+        // Whether the asset may be sent to an AI provider (default false).
+        providerUse: z.boolean().optional(),
       })
       .strict()
       .parse(input);
+    // Sending an asset to a provider is the owner's decision, whoever else
+    // may change an asset's status.
+    if (i.providerUse !== undefined)
+      authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
     const asset = await entity(tx, scope, "assets", i.assetId);
     if (asset.version !== i.version)
       throw new DomainError("VERSION_CONFLICT", 409);
     if (i.assetStatus === "approved" && i.confirmUsageRights !== true)
       throw new DomainError("ASSET_RIGHTS_CONFIRMATION_REQUIRED", 409);
+    if (i.providerUse === true && i.assetStatus !== "approved")
+      throw new DomainError("ASSET_NOT_APPROVED", 409);
+    const providerUseBefore = data(asset).providerUse === true;
+    // Provider use exists only while the asset is approved: outdating it or
+    // taking its approval back ends it, and approving again starts without.
+    const providerUse =
+      i.assetStatus === "approved"
+        ? (i.providerUse ?? providerUseBefore)
+        : false;
     const updated = await update(tx, scope, asset, {
       ...data(asset),
       assetStatus: i.assetStatus,
       usageApproved:
         i.assetStatus === "approved" ? i.confirmUsageRights === true : false,
+      providerUse,
       assetStatusUpdatedBy: scope.userId,
       assetStatusUpdatedAt: new Date().toISOString(),
     });
@@ -300,6 +317,11 @@ export const marketingActions: Record<string, ActionHandler> = {
       to: i.assetStatus,
       usageApproved: data(updated).usageApproved,
     });
+    if (providerUse !== providerUseBefore)
+      await audit(tx, scope, "asset.provider_use_update", asset.id, {
+        from: providerUseBefore,
+        to: providerUse,
+      });
     return publicEntity(updated);
   }),
   reconcile: sharedTransaction(async (tx, { scope, input }) => {

@@ -10,7 +10,15 @@ const MAX_PIXELS = 16_000_000;
 export const brandAssetUploadInput = z
   .object({
     name: z.string().trim().min(1).max(160),
-    type: z.enum(["logo", "photo", "background", "banner", "icon"]),
+    type: z.enum([
+      "logo",
+      "photo",
+      "background",
+      "banner",
+      "icon",
+      "screenshot",
+      "product",
+    ]),
     mime: z.enum(["image/png", "image/jpeg", "image/webp"]),
     base64: z.string().min(4).max(1_400_000),
     source: z.string().trim().min(1).max(500),

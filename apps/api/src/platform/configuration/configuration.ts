@@ -55,14 +55,22 @@ export async function readConfiguration(tx: DbTx, scope: Scope) {
 
 // The editable sections' fields, each optional: MCP clients need a fixed,
 // strict schema. The Marketing profile's comes from the shared schema, so
-// both stay the same; the section validates the merged whole.
+// both stay the same; the section validates the merged whole. The creative
+// settings hold maps (template choices, formats per channel) that a strict
+// tool schema cannot express, and a change replaces a visual identity field
+// as a whole, so they stay out of reach here: a partial change never
+// touches them (Creative Studio brand kit, Review Focus 1).
 const marketingChanges = z
   .object(
     Object.fromEntries(
       Object.entries(marketingProfile.shape).map(([key, field]) => [
         key,
         key === "visualIdentity"
-          ? visualIdentity.partial().strict().optional()
+          ? visualIdentity
+              .omit({ creative: true })
+              .partial()
+              .strict()
+              .optional()
           : (field as z.ZodType).optional(),
       ]),
     ) as z.ZodRawShape,

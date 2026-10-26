@@ -37,6 +37,8 @@ export async function importDriveFile(
     | "background"
     | "banner"
     | "icon"
+    | "screenshot"
+    | "product"
     | "document"
     | "other" = "photo",
 ) {
@@ -48,7 +50,15 @@ export async function importDriveFile(
   if (meta.mimeType === folderMime)
     throw new DomainError("GOOGLE_DRIVE_FILE_REQUIRED");
   if (
-    ["logo", "photo", "background", "banner", "icon"].includes(type) &&
+    [
+      "logo",
+      "photo",
+      "background",
+      "banner",
+      "icon",
+      "screenshot",
+      "product",
+    ].includes(type) &&
     !meta.mimeType.startsWith("image/")
   )
     throw new DomainError("GOOGLE_DRIVE_IMAGE_REQUIRED", 415);

@@ -100,6 +100,45 @@ export async function assertProfileReferences(
     )
       throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
   }
+  await assertBrandKitAssets(tx, scope, profile.visualIdentity);
+}
+
+const RASTER_MIMES = ["image/png", "image/jpeg", "image/webp"];
+/** Asset types a project's product images may have (the brand kit's `productAssetIds`). */
+const PRODUCT_ASSET_TYPES = ["screenshot", "product", "photo"];
+
+/**
+ * The brand kit's asset references: every id must belong to this project
+ * (another project's id is `NOT_FOUND`), and be approved by the owner. Logos
+ * are drawn from their exact bytes, so they must also carry the SHA-256 of
+ * a raster file; a Drive reference without bytes cannot be one.
+ */
+async function assertBrandKitAssets(
+  tx: DbTx,
+  scope: Scope,
+  identity: MarketingProfile["visualIdentity"],
+) {
+  const approved = (asset: Record<string, any>) =>
+    asset.usageApproved === true && asset.assetStatus === "approved";
+  const logoIds = Object.values(identity.logos ?? {}).filter(
+    (logoId): logoId is string => typeof logoId === "string",
+  );
+  for (const logoId of new Set(logoIds)) {
+    const asset = data(await entity(tx, scope, "assets", logoId));
+    if (
+      asset.type !== "logo" ||
+      !approved(asset) ||
+      typeof asset.sha256 !== "string" ||
+      !asset.sha256 ||
+      !RASTER_MIMES.includes(asset.mime)
+    )
+      throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
+  }
+  for (const productId of new Set(identity.productAssetIds ?? [])) {
+    const asset = data(await entity(tx, scope, "assets", productId));
+    if (!PRODUCT_ASSET_TYPES.includes(asset.type) || !approved(asset))
+      throw new DomainError("APPROVED_PRODUCT_ASSET_REQUIRED", 409);
+  }
 }
 
 /**

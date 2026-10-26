@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+  CREATIVE_FORMAT_IDS,
+  CREATIVE_TEMPLATE_IDS,
+  CREATIVE_VARIANT_IDS,
+  LOGO_PLACEMENTS,
+} from "../../creative/src/ids.ts";
+import { TEMPLATE_VARIANTS } from "../../creative/src/templates.ts";
 import { AGENT_CONTENT_LANGUAGES, languageCode } from "./project-settings.js";
 export const id = z.uuid();
 export const role = z.enum(["owner", "editor", "viewer"]);
@@ -224,6 +231,79 @@ export const preference = z
   })
   .strict();
 const brandColor = z.string().regex(/^#[0-9A-F]{6}$/i);
+const brandLogos = z
+  .object({
+    secondary: id.optional(),
+    onDark: id.optional(),
+    onLight: id.optional(),
+    mark: id.optional(),
+  })
+  .strict();
+const brandImagery = z
+  .object({
+    kind: z.enum(["photo", "illustration", "3d", "flat", "mixed"]),
+    mood: z.string().max(300),
+    subjects: z.string().max(500).default(""),
+    avoid: z.array(z.string().min(1).max(200)).max(20).default([]),
+  })
+  .strict();
+const brandTypography = z
+  .object({
+    headingWeight: z.union([z.literal(600), z.literal(700), z.literal(800)]),
+    headingCase: z.enum(["none", "upper"]),
+  })
+  .strict();
+/**
+ * Per-template choices. The variant has to be one the template has; whether
+ * a format can draw it is the studio's decision at composition time, so the
+ * schema also accepts the side variants that only some formats offer.
+ */
+const templateChoice = z
+  .object({
+    enabled: z.boolean(),
+    variant: z.enum(CREATIVE_VARIANT_IDS).optional(),
+  })
+  .strict();
+const creativeSettings = z
+  .object({
+    templates: z
+      .partialRecord(z.enum(CREATIVE_TEMPLATE_IDS), templateChoice)
+      .superRefine((templates, ctx) => {
+        for (const template of CREATIVE_TEMPLATE_IDS) {
+          const variant = templates[template]?.variant;
+          if (variant && !TEMPLATE_VARIANTS[template].includes(variant))
+            ctx.addIssue({
+              code: "custom",
+              path: [template, "variant"],
+              message: `Template ${template} has no variant ${variant}`,
+            });
+        }
+      })
+      .optional(),
+    // Provider identifier (as Postiz names it) to the formats rendered for it.
+    formatsByChannel: z
+      .record(
+        z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/),
+        z
+          .array(z.enum(CREATIVE_FORMAT_IDS))
+          .min(1)
+          .max(CREATIVE_FORMAT_IDS.length)
+          .refine((formats) => new Set(formats).size === formats.length, {
+            message: "Duplicate format",
+          }),
+      )
+      .refine((channels) => Object.keys(channels).length <= 10, {
+        message: "At most 10 channels",
+      })
+      .optional(),
+    logoPlacement: z.enum(LOGO_PLACEMENTS).optional(),
+    ctaStyle: z.enum(["pill", "outline", "none"]).optional(),
+    maxArtCorrections: z
+      .union([z.literal(0), z.literal(1), z.literal(2)])
+      .optional(),
+    visualReview: z.boolean().optional(),
+  })
+  .strict();
 export const visualIdentity = z
   .object({
     primaryColor: brandColor.default("#0969FF"),
@@ -243,6 +323,17 @@ export const visualIdentity = z
       .array(z.string().min(1).max(300))
       .max(20)
       .default(["Preserve the approved logo unchanged."]),
+    // The brand kit of the Creative Studio; every field is optional, so a
+    // profile saved before it stays valid and unchanged. `logos` are approved
+    // logo assets for other backgrounds (`logoAssetId` stays the primary one),
+    // `productAssetIds` approved screenshots, product images or photos.
+    logos: brandLogos.optional(),
+    productAssetIds: z.array(id).max(20).optional(),
+    imagery: brandImagery.optional(),
+    typography: brandTypography.optional(),
+    // Layout and design variants the studio must not use.
+    forbiddenDesigns: z.array(z.string().min(1).max(300)).max(20).optional(),
+    creative: creativeSettings.optional(),
   })
   .strict();
 /** Campaign types a project can run; presale only where it is enabled. */

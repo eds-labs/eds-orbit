@@ -444,7 +444,9 @@ function describeStyle(rows: Array<{ data: unknown }>) {
 
 /**
  * The approved style references of an assignment (R6: uploaded or Orbit
- * generated assets with approved usage, raster images only).
+ * generated assets with approved usage, raster images only). Screenshots and
+ * product images are the project's own material: they leave Orbit as a
+ * reference only when the owner set `providerUse` on them.
  */
 async function styleAssets(tx: DbTx, scope: Scope, ids: string[]) {
   if (!ids.length) return [];
@@ -464,6 +466,7 @@ async function styleAssets(tx: DbTx, scope: Scope, ids: string[]) {
       d.assetStatus === "approved" &&
       // A composed banner is bound to its post (R78), never a style reference.
       !d.boundTo &&
+      (!["screenshot", "product"].includes(d.type) || d.providerUse === true) &&
       ["image/png", "image/jpeg", "image/webp"].includes(d.mime)
       ? [row]
       : [];
