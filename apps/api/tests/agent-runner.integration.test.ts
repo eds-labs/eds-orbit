@@ -40,7 +40,7 @@ import {
 import type { Specialist } from "../src/modules/agents/specialists/types.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 
-type Reply = { output: unknown[]; costMicros?: number };
+type Reply = { output: unknown[]; costMicros?: number; truncated?: boolean };
 const mocked = vi.hoisted(() => ({
   requests: [] as any[],
   replies: [] as Array<(request: any) => Promise<Reply> | Reply>,
@@ -64,6 +64,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
         costMicros: reply.costMicros ?? 7,
       },
       responseId: `resp_${mocked.requests.length}`,
+      truncated: reply.truncated ?? false,
     };
   }),
 }));
@@ -709,6 +710,30 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     expect(spans).toHaveLength(1);
     expect(spans[0]).toMatchObject({ type: "model_call", status: "failed" });
     expect(spans[0]!.errorCode).toMatch(/^AGENT_OUTPUT_INVALID \S+:/);
+  });
+
+  it("names an answer cut off at the output limit AGENT_OUTPUT_LIMIT (cost settled)", async () => {
+    const research = await task("research");
+    mocked.replies.push(() => ({
+      output: [message('{"findings":[{"claim":"cut')],
+      truncated: true,
+    }));
+    await runAgentTask(worker(), research.id);
+    expect(await task("research")).toMatchObject({
+      status: "failed",
+      errorCode: "AGENT_OUTPUT_LIMIT",
+      costMicros: 7,
+    });
+    const spans = await run((tx) =>
+      tx.agentSpan.findMany({
+        where: {
+          projectId: project.owner.projectId,
+          name: "output_validation",
+          errorCode: { startsWith: "AGENT_OUTPUT_LIMIT" },
+        },
+      }),
+    );
+    expect(spans).toHaveLength(1);
   });
 
   it("refuses a task of an assignment that is not active and cancels its runs (I3a)", async () => {

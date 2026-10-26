@@ -208,6 +208,8 @@ export async function runStructured<O>(
   let webSearches = 0;
   let costMicros = 0;
   let lastOutput: unknown[] = [];
+  // The last answer stopped at the route's output limit (thinking included).
+  let lastTruncated = false;
   const sources = new Set<string>();
 
   const model: BudgetedModel = {
@@ -328,6 +330,7 @@ export async function runStructured<O>(
       if (webSearches > spec.limits.maxWebSearches)
         throw new DomainError("AGENT_LIMIT");
       lastOutput = result.output;
+      lastTruncated = result.truncated;
       return {
         output: result.output,
         toolCalls: result.output
@@ -397,17 +400,19 @@ export async function runStructured<O>(
     try {
       output = spec.outputSchema.parse(JSON.parse(answer));
     } catch {
+      // A cut-off answer needs a larger output limit, not another try.
+      const code = lastTruncated ? "AGENT_OUTPUT_LIMIT" : "AGENT_OUTPUT_INVALID";
       // The last call is settled; the span says where the answer failed.
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: "output_validation",
         status: "failed",
-        errorCode: `AGENT_OUTPUT_INVALID ${outputIssues(answer, spec.outputSchema)}`,
+        errorCode: `${code} ${outputIssues(answer, spec.outputSchema)}`,
         startedAt: new Date(),
         durationMs: 0,
       });
-      await finishRun(scope, agentRunId, "failed", "AGENT_OUTPUT_INVALID");
-      return { status: "failed", code: "AGENT_OUTPUT_INVALID", agentRunId, costMicros };
+      await finishRun(scope, agentRunId, "failed", code);
+      return { status: "failed", code, agentRunId, costMicros };
     }
     await finishRun(scope, agentRunId, "succeeded");
     return { status: "ok", output, agentRunId, costMicros, sources: [...sources] };

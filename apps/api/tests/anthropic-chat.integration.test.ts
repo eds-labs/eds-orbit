@@ -304,6 +304,40 @@ describe.skipIf(!enabled)("Orbit Chat on a Claude route (mocked SDK)", () => {
     });
   });
 
+  it("offers the assignment tools to Claude in full, without tool search", async () => {
+    const saved = process.env.ORBIT_AGENTS;
+    process.env.ORBIT_AGENTS = "true";
+    try {
+      sdk.requests = [];
+      sdk.replies.push(() =>
+        message([{ type: "text", text: "Gern.", citations: null }], "msg_a"),
+      );
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Bitte schlage ein tägliches Assignment vor.",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const [request] = sdk.requests;
+      const names = request.tools.map((tool: any) => tool.name);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          "assignment_intake",
+          "assignment_propose",
+          "assignment_change",
+        ]),
+      );
+      // Claude has no tool search: nothing is deferred or announced as such.
+      expect(names).not.toContain("tool_search");
+      const system = request.system[0].text as string;
+      expect(system).toContain("call assignment_intake first");
+      expect(system).not.toContain("not available in this setup");
+      expect(system).not.toContain("with tool search");
+    } finally {
+      if (saved === undefined) delete process.env.ORBIT_AGENTS;
+      else process.env.ORBIT_AGENTS = saved;
+    }
+  });
   it("continues a Claude answer cut off at max_tokens and settles both calls", async () => {
     sdk.requests = [];
     sdk.replies.push(

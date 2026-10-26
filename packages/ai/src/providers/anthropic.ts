@@ -514,7 +514,13 @@ export function anthropicText(message: Pick<Message, "content">) {
     .join("");
 }
 
-/** One non-streaming request. Nothing is retried; the caller settles the cost. */
+/**
+ * One request whose complete answer the caller needs. It is streamed and
+ * read to its final message: the timeout then bounds the time to the
+ * response, not the length of the answer (Claude thinks before it answers,
+ * and a long answer took longer than a whole-request timeout). Nothing is
+ * retried; the caller settles the cost.
+ */
 export async function anthropicComplete(params: {
   apiKey: string;
   timeout: number;
@@ -522,10 +528,9 @@ export async function anthropicComplete(params: {
   signal?: AbortSignal;
 }) {
   const client = anthropicClient(params.apiKey, params.timeout);
-  const message = await client.messages.create(
-    anthropicRequest(params.request),
-    { signal: params.signal },
-  );
+  const message = await client.messages
+    .stream(anthropicRequest(params.request), { signal: params.signal })
+    .finalMessage();
   return {
     message,
     text: anthropicText(message),

@@ -128,7 +128,9 @@ export class GenerationOutputError extends Error {
       | "MODEL_OUTPUT_NOT_VALID"
       | "MODEL_EVIDENCE_ABSTENTION"
       // The provider's safety classifier declined the request (billed, never retried).
-      | "MODEL_REFUSAL",
+      | "MODEL_REFUSAL"
+      // The draft stopped at the route's output limit (billed, never retried).
+      | "MODEL_OUTPUT_LIMIT",
     readonly usage: Usage,
     readonly responseId: string | null,
   ) {
@@ -353,6 +355,13 @@ export async function generate(params: {
       usage,
       completed.responseId,
     );
+  // Cut off at the route's output limit: a larger limit is the remedy.
+  if (completed.stop === "max_tokens")
+    throw new GenerationOutputError(
+      "MODEL_OUTPUT_LIMIT",
+      usage,
+      completed.responseId,
+    );
   let output: z.infer<typeof structuredOutput>;
   try {
     const raw = JSON.parse(completed.text);
@@ -450,7 +459,13 @@ export async function respond(params: {
   reservationId: string;
   runtime: OpenAiRuntimeConfig;
   signal?: AbortSignal;
-}): Promise<{ output: unknown[]; usage: Usage; responseId: string | null }> {
+}): Promise<{
+  output: unknown[];
+  usage: Usage;
+  responseId: string | null;
+  /** The answer stopped at the route's output limit (thinking included). */
+  truncated: boolean;
+}> {
   const { provider, apiKey } = providerKey(
     params.route,
     params.runtime,
@@ -486,6 +501,10 @@ export async function respond(params: {
     output: completed.output,
     usage: pricedUsage(params.route.model, completed.usage, params.runtime),
     responseId: completed.responseId,
+    truncated:
+      "stop" in completed
+        ? completed.stop === "max_tokens"
+        : completed.truncated,
   };
 }
 

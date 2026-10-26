@@ -50,25 +50,44 @@ const assignmentInstructions = [
   "assignment_propose prepares one bounded assignment for owner confirmation; nothing runs before that. New work uses human_each: every post, including its image and time, needs exact human approval before publication OR a Postiz draft handoff. Confirmation never approves unseen posts. delegated_review is only for an explicit owner request.",
   "Report actual run IDs, output IDs, costs, blockers and outcomes only from assignment_list/run_status and saved cards. Handed over or Postiz draft is not published. Workers continue with the saved mandate when chat closes; never claim pause/resume recovery is verified without evidence. Status cards link to existing review and assignment management.",
 ].join(" ");
+// The same guidance for a model that receives the assignment tools in full (Claude).
+const assignmentInstructionsInline = assignmentInstructions
+  .replace(
+    "find marketing_plan_context through tool search before proposing",
+    "call marketing_plan_context before proposing",
+  )
+  .replace(
+    "find assignment_intake with tool search first",
+    "call assignment_intake first",
+  );
 // Orbit Agents are on, but the assignment tools are deferred and need tool search.
 const assignmentsUnavailable =
   "Standing assignments (for example posts every day) are not available in this setup because they need tool search; say so when asked and do not simulate them.";
 /** Marketing's part of the assistant (WP2.2). */
 export const marketingAssistant: AssistantContribution = {
-  features({ toolSearch, all }) {
+  features({ toolSearch, fullTools, all }) {
     if (all) return ["content_packages", "agents"];
     return [
       ...(contentPackagesEnabled() ? ["content_packages" as const] : []),
-      ...(agentsEnabled() && toolSearch ? ["agents" as const] : []),
+      // Deferred assignment tools: through tool search, or in full for Claude.
+      ...(agentsEnabled() && (toolSearch || fullTools)
+        ? ["agents" as const]
+        : []),
     ];
   },
-  instructions({ toolSearch, all }) {
+  instructions({ toolSearch, fullTools, all }) {
     if (all) return [instructions, packageInstructions, assignmentInstructions];
     return [
       instructions,
       ...(contentPackagesEnabled() ? [packageInstructions] : []),
       ...(agentsEnabled()
-        ? [toolSearch ? assignmentInstructions : assignmentsUnavailable]
+        ? [
+            toolSearch
+              ? assignmentInstructions
+              : fullTools
+                ? assignmentInstructionsInline
+                : assignmentsUnavailable,
+          ]
         : []),
     ];
   },
