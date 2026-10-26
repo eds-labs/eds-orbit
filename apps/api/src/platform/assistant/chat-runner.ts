@@ -455,20 +455,26 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     // Offered tools follow the caller's role; execution checks the same set.
     // Tool search (ADR 0007): deferred tools load on request, client-executed,
     // and only from the role's offered set. The loaded set never changes in a run.
+    // Which tools the chat model can take. An unusable route is refused
+    // later, at the model call, with its own code and after the policy.
+    const chatModel = await chatScoped(scope, async (tx) => {
+      const runtime = await runtimeOpenAiConfiguration(tx, scope);
+      try {
+        const model = resolveRoute("chat_operator", runtime).model;
+        return { model, provider: providerOfModel(model, runtime.models) };
+      } catch {
+        return null;
+      }
+    });
     const toolSearch =
       loadConfig().ORBIT_TOOL_SEARCH === "true" &&
-      supportsToolSearch(
-        await chatScoped(
-          scope,
-          async (tx) =>
-            resolveRoute(
-              "chat_operator",
-              await runtimeOpenAiConfiguration(tx, scope),
-            ).model,
-        ),
-      );
+      chatModel !== null &&
+      supportsToolSearch(chatModel.model);
+    // Claude has no tool search and receives every offered tool in full.
+    const fullTools = chatModel?.provider === "anthropic";
     // Modules turn tool features on (assignment tools exist only as
-    // deferred tools, so marketing offers them only with tool search).
+    // deferred tools: marketing offers them with tool search, or in full
+    // to Claude).
     // A disabled module offers no tools and no prompt fragments (WP2.4).
     // A module the member has no access to counts as disabled (WP4.5).
     const enabled = visibleModules(
@@ -480,7 +486,9 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     const assistants = registeredAssistants(
       state.delegation ? new Set(state.delegation.modules) : enabled,
     );
-    const features = assistants.flatMap((a) => a.features({ toolSearch }));
+    const features = assistants.flatMap((a) =>
+      a.features({ toolSearch, fullTools }),
+    );
     // Module operations are for delegated MCP work orders; the in-app chat
     // has its own tools for the same work, and the ~22 KB of operation
     // schemas left a Claude chat too little room (CHAT_CONTEXT_LIMIT).
@@ -517,7 +525,9 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       ? offered.filter((tool) => tool.deferLoading)
       : [];
     // Module fragments in registry order, then the platform's tool search line.
-    const fragments = assistants.flatMap((a) => a.instructions({ toolSearch }));
+    const fragments = assistants.flatMap((a) =>
+      a.instructions({ toolSearch, fullTools }),
+    );
     const runInstructions = [
       ...(state.delegation
         ? [

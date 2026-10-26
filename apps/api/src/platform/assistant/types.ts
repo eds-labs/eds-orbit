@@ -8,10 +8,22 @@ import type { ToolFeature } from "../../modules/agents/tools/registry.ts";
  * the prompt; modules contribute fragments, features and proposal checks.
  */
 export type AssistantContribution = {
-  /** Tool features the module turns on for a run; `all` for the size bound. */
-  features(ctx: { toolSearch: boolean; all?: boolean }): ToolFeature[];
+  /**
+   * Tool features the module turns on for a run; `all` for the size bound.
+   * `fullTools`: the model receives every offered tool in full (Claude has
+   * no tool search), so deferred tools are usable without it.
+   */
+  features(ctx: {
+    toolSearch: boolean;
+    fullTools?: boolean;
+    all?: boolean;
+  }): ToolFeature[];
   /** Prompt fragments for a run, in order; `all` gives every fragment. */
-  instructions(ctx: { toolSearch: boolean; all?: boolean }): string[];
+  instructions(ctx: {
+    toolSearch: boolean;
+    fullTools?: boolean;
+    all?: boolean;
+  }): string[];
   /** Proposal tools whose invalid input returns to the model with its fields. */
   validationCodes?: Readonly<Record<string, string>>;
 };
