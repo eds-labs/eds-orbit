@@ -220,6 +220,7 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
   });
   afterEach(async () => {
     delete process.env.ORBIT_AGENTS;
+    vi.unstubAllEnvs();
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
@@ -393,6 +394,101 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     expect(input.inputs.analytics).toBeNull();
     // Research may inspire, never become a claim.
     expect(request.instructions).toMatch(/never become claims/i);
+  });
+
+  // CS-D6: while the flag is off, the prompt and the answer schema do not change.
+  it("keeps the prompt and the answer schema while the Creative Studio is off", async () => {
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "false");
+    const [first, second] = await slots();
+    mocked.replies.push(() => ({
+      output: [message({ briefs: [brief(first!), brief(second!)] })],
+    }));
+    await runAgentTask(worker(), (await strategyTask()).id);
+
+    const [request] = mocked.requests;
+    expect(request.instructions).not.toMatch(/creative/i);
+    const item = request.outputSchema.properties.briefs.items;
+    expect(Object.keys(item.properties)).not.toContain("creative");
+    expect(item.required).not.toContain("creative");
+    expect(await task("strategy")).toMatchObject({
+      status: "done",
+      output: { briefs: [brief(first!), brief(second!)] },
+    });
+    expect((await task("strategy")).output.briefs[0]).not.toHaveProperty(
+      "creative",
+    );
+  });
+
+  it("plans the art of a post with the Creative Studio on", async () => {
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+    const [first, second] = await slots();
+    const creative = {
+      keyMessage: "Teams get started on day one",
+      imageKind: "scene",
+      motif: "Two colleagues around one laptop, smiling at the screen",
+      setting: "Open office, bright afternoon light",
+      template: "lifestyle",
+      mood: "welcoming and relaxed",
+    };
+    const briefs = [
+      brief(first!, { creative: null }),
+      brief(second!, { creative }),
+    ];
+    mocked.replies.push(() => ({ output: [message({ briefs })] }));
+    await runAgentTask(worker(), (await strategyTask()).id);
+
+    const [request] = mocked.requests;
+    expect(request.instructions).toContain("If assignment.creative is set");
+    const item = request.outputSchema.properties.briefs.items;
+    expect(item.required).toContain("creative");
+    expect(
+      item.properties.creative.anyOf.map((variant: any) => variant.type).sort(),
+    ).toEqual(["null", "object"]);
+    expect(await task("strategy")).toMatchObject({
+      status: "done",
+      output: { briefs, dropped: [], uncovered: [] },
+    });
+  });
+
+  it("limits the creative template to the assignment's templates", async () => {
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+    const [first, second] = await slots();
+    const prepared = await run((tx) =>
+      strategySpecialist.prepareInput!(tx, project.owner, {
+        assignment: {
+          channels: [X],
+          creative: { templates: ["tips", "not_a_template", "announcement"] },
+        },
+        run: { slots: [first, second] },
+      }),
+    );
+    const creative = (template: string) => ({
+      keyMessage: "Teams get started on day one",
+      imageKind: "graphic",
+      motif: "Three simple geometric shapes forming a path",
+      setting: "Plain studio backdrop, even light",
+      template,
+      mood: "clear and friendly",
+    });
+    const result = strategySpecialist.finalize!(
+      {
+        briefs: [
+          brief(first!, { creative: creative("lifestyle") }),
+          brief(second!, { creative: creative("announcement") }),
+        ],
+      },
+      new Set(),
+      prepared.context,
+    );
+    const { briefs, dropped } = result as {
+      briefs: any[];
+      dropped: unknown[];
+    };
+    expect(dropped).toEqual([]);
+    expect(briefs.map((b) => b.creative.template)).toEqual([
+      "tips",
+      "announcement",
+    ]);
   });
 
   it("drops a brief with an unknown fact key", async () => {
