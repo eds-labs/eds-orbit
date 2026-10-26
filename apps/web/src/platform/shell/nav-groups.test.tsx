@@ -21,6 +21,7 @@ describe("buildNavGroups", () => {
       "marketing",
       "work",
       "support",
+      "issues",
       "knowledge",
       "finance",
       "project",

@@ -72,6 +72,17 @@ export const supportAttention: Readonly<Record<string, AttentionRenderer>> = {
     en: `${n} more ticket${n === 1 ? "" : "s"} with SLA at risk`,
     de: `${n} ${n === 1 ? "weiteres Ticket" : "weitere Tickets"} mit gefährdetem SLA`,
   })),
+  // A reported product issue was released (ADR 0018): the agent tells the customer.
+  support_issue_released: (item, locale) => {
+    const n = item.count ?? 1;
+    return {
+      title:
+        locale === "de"
+          ? `Fix freigegeben: ${n} ${n === 1 ? "Ticket" : "Tickets"} informieren`
+          : `Fix released: inform ${n} ticket${n === 1 ? "" : "s"}`,
+      action: SHOW_TICKETS,
+    };
+  },
   support_unassigned: (item, locale) => {
     const n = item.count ?? 1;
     // Unassigned tickets with an SLA item are listed above it.

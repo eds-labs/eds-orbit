@@ -29,6 +29,7 @@ import { supportText, type SupportText } from "./labels";
 import { TagPicker, useSupportLists } from "./tags";
 import { CustomerAccountCard } from "./customer-context";
 import { useShell } from "@/platform/shell/shell-context";
+import { ReportIssueButton, TicketIssues } from "./issue-report";
 
 export const SLA_TONE = {
   ok: "success",
@@ -64,6 +65,8 @@ export function TicketView({
   // An AI draft taken over into the composer; n remounts it with the text.
   const [prefill, setPrefill] = useState({ text: "", n: 0 });
   const draftRequest = useMutation();
+  // Remounts the linked issues after a hand-in (ADR 0018).
+  const [reported, setReported] = useState(0);
   if (detail.loading) return <Loading />;
   if (detail.error || !detail.data)
     return <Alert kind="error">{detail.error?.message ?? "—"}</Alert>;
@@ -114,7 +117,16 @@ export function TicketView({
               {t.generateDraft}
             </Button>
           )}
+          {canEdit && (
+            <ReportIssueButton
+              ticketId={ticketId}
+              subject={ticket.subject}
+              entries={timelineEntries(detail.data.timeline)}
+              onReported={() => setReported((n) => n + 1)}
+            />
+          )}
         </div>
+        <TicketIssues key={reported} ticketId={ticketId} />
         {draftRequest.success && <Alert kind="info">{t.draftQueued}</Alert>}
         {draftRequest.error && <Alert kind="error">{draftRequest.error}</Alert>}
         {canEdit && (
