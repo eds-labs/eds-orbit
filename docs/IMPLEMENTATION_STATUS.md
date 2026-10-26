@@ -1,5 +1,9 @@
 # Implementation status
 
+## Index check without JSON (2026-10-26, local)
+
+Knowledge → search index: a fully embedded generation offers "Check" (German UI: "Prüfen"). Orbit writes the test questions itself (task class `knowledge_evaluation`, one batch of 15 passages per `index_evaluation_set` job, paid within the AI budget, estimate shown first), builds the control questions without a model, shows everything for review (untick questions), and starts the normal live evaluation (`start-evaluation-set`). The panel shows phase, progress and the result in words and is translated (en/de); the JSON field is gone. New owner actions `generate-evaluation-set` and `start-evaluation-set` (access matrix reviewed: owner only, editors and viewers forbidden). No migration, no flag, OpenAPI unchanged. The questions are model-written from the passages, not independently labeled (Mario's decision, 2026-10-26).
+
 ## FamilyPlan work orders and index status (2026-10-26, local branch `claude/eds-orbit-familyplan-errors-dcacbc`, not deployed)
 
 Analysis and plan: [plans/familyplan-marketing-knowledge-fixes.md](plans/familyplan-marketing-knowledge-fixes.md).

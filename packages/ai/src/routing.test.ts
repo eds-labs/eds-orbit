@@ -98,6 +98,7 @@ describe("resolveRoute", () => {
       "finance_extraction",
       "pm_plan",
       "pm_analysis",
+      "knowledge_evaluation",
     ]);
   });
   it("rejects unverified models", () => {

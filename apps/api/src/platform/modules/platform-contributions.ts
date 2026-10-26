@@ -23,6 +23,10 @@ import { stopChatRunForPause } from "../../modules/chat.ts";
 import { embedDocument, syncSource } from "../knowledge/ingestion.ts";
 import { buildIndexBatch } from "../knowledge/reindex.ts";
 import { runIndexEvaluation } from "../knowledge/index-evaluation.ts";
+import {
+  EVALUATION_SET_QUEUE,
+  generateEvaluationSet,
+} from "../knowledge/evaluation-set.ts";
 import { pauseCallback, telegramWebhook } from "../connections/telegram.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
@@ -149,6 +153,13 @@ export const platformContributions: ModuleContributions = {
       queueClass: "index_evaluation",
       handler: ({ scope, job, jobId }) =>
         runIndexEvaluation(scope, job.resourceId, jobId).then(() => undefined),
+    },
+    {
+      // One batch of generated test questions per job (one model call).
+      queueClass: EVALUATION_SET_QUEUE,
+      leaseMs: 180000,
+      handler: ({ scope, job, jobId }) =>
+        generateEvaluationSet(scope, job.resourceId, jobId),
     },
     // One domain event for one subscriber (ADR 0016).
     eventJob,

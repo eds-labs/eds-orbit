@@ -89,6 +89,8 @@ Dataset `evals/knowledge/familyplan-knowledge-2026-10-24.v1.json` (70 cases: 56 
 
 Each paid step is its own owner approval.
 
+Update 2026-10-26 (Mario's decision): the evaluation no longer needs a dataset. In Knowledge → search index, "Prüfen" lets Orbit write the questions (estimate shown, paid), the owner reviews them and starts the check. The prepared dataset stays usable over MCP.
+
 ---
 
 ## 4. P2: knowledge clean-up (owner work, no code)

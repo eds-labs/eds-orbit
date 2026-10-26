@@ -23,6 +23,7 @@ const QUEUES = [
   "embedding",
   "reindex",
   "index_evaluation",
+  "index_evaluation_set",
   "analytics",
   "reconciliation",
   "slack_notification",
@@ -138,6 +139,11 @@ describe.skipIf(!enabled)(
           attempts: 3,
         },
         index_evaluation: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
+        },
+        index_evaluation_set: {
           status: "blocked_dependency",
           error: "NOT_FOUND",
           attempts: 1,

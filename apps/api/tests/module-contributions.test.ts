@@ -88,6 +88,7 @@ describe("module contributions", () => {
         "generation",
         "image",
         "index_evaluation",
+        "index_evaluation_set",
         "ingestion",
         "knowledge_analysis",
         "postiz_draft",
@@ -257,6 +258,7 @@ describe("module contributions", () => {
       "embed-document",
       "evaluate-experiment",
       "evaluate-index",
+      "generate-evaluation-set",
       "import",
       "import-matomo",
       "import-metrics",
@@ -308,6 +310,7 @@ describe("module contributions", () => {
       "source-settings",
       "start-approved-live-draft-batch",
       "start-approved-live-draft-once",
+      "start-evaluation-set",
       "stop-experiment",
       "withdraw-fact",
     ]);

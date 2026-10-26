@@ -44,6 +44,10 @@ import {
 } from "../../platform/knowledge/index-evaluation.ts";
 import { queueDocumentEmbedding } from "../../platform/knowledge/ingestion.ts";
 import {
+  queueEvaluationSet,
+  startEvaluationSet,
+} from "../../platform/knowledge/evaluation-set.ts";
+import {
   commitKnowledgeImport,
   importPreview,
   knowledgeImportInput,
@@ -135,6 +139,13 @@ export const knowledgeActions: Record<string, ActionHandler> = {
   ),
   "evaluate-index": sharedTransaction((tx, { scope, input }) =>
     queueIndexEvaluation(tx, scope, indexEvaluationRequest.parse(input)),
+  ),
+  // Orbit writes the test questions; the owner reviews them and starts the evaluation.
+  "generate-evaluation-set": sharedTransaction((tx, { scope, input }) =>
+    queueEvaluationSet(tx, scope, schemas.id.parse(input.indexId)),
+  ),
+  "start-evaluation-set": sharedTransaction((tx, { scope, input }) =>
+    startEvaluationSet(tx, scope, input),
   ),
   "begin-index": sharedTransaction((tx, { scope, input }) =>
     beginIndexBuild(tx, scope, z.string().max(200).parse(input.profile)),

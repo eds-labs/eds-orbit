@@ -8,6 +8,10 @@ import {
 } from "../../../../../packages/knowledge/src/freshness.ts";
 import { describeIndexGenerations } from "../../../../../packages/knowledge/src/index.ts";
 import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
+import {
+  evaluationSetEstimate,
+  latestEvaluations,
+} from "../../platform/knowledge/evaluation-set.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
@@ -130,8 +134,27 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
   app.get("/api/projects/:projectId/indexes", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      items: await describeIndexGenerations(tx, scope),
-    }));
+    return scoped(scope.workspaceId, projectId, async (tx) => {
+      const generations = await describeIndexGenerations(tx, scope);
+      const evaluations = await latestEvaluations(tx, scope);
+      const items = [];
+      for (const g of generations)
+        items.push({
+          ...g,
+          // The newest evaluation record, with the review list while in review.
+          evaluationRun: evaluations.get(g.id) ?? null,
+          // What generating the test questions would cost (micro-USD).
+          ...(["ready_for_evaluation", "evaluation_failed"].includes(g.phase)
+            ? {
+                evaluationSetEstimateMicros: await evaluationSetEstimate(
+                  tx,
+                  scope,
+                  g.id,
+                ),
+              }
+            : {}),
+        });
+      return { items };
+    });
   });
 };

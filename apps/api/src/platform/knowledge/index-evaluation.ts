@@ -46,15 +46,16 @@ export const indexEvaluationRequest = z
       .max(120),
   })
   .strict();
-export async function queueIndexEvaluation(
+/** The cases meet the evaluation's coverage rules against a complete, current build. */
+export async function assertEvaluationCases(
   tx: DbTx,
   s: Scope,
-  raw: z.input<typeof indexEvaluationRequest>,
+  input: Pick<z.output<typeof indexEvaluationRequest>, "indexId" | "cases">,
 ) {
-  authorize(s, PROJECT_OWN, "OWNER_REQUIRED");
-  const input = indexEvaluationRequest.parse(raw);
   if (
     new Set(input.cases.map((c) => c.id)).size !== input.cases.length ||
+    input.cases.length < 60 ||
+    input.cases.length > 120 ||
     input.cases.filter((c) => c.expectedChunkIds.length).length < 48 ||
     input.cases.filter(
       (c) => !c.expectedChunkIds.length && c.forbiddenChunkIds.length,
@@ -77,6 +78,16 @@ export async function queueIndexEvaluation(
     for (const id of c.expectedChunkIds)
       if (!manifest.some((m) => m.chunkId === id))
         throw new DomainError("EXPECTED_CHUNK_NOT_IN_INDEX");
+  return index;
+}
+export async function queueIndexEvaluation(
+  tx: DbTx,
+  s: Scope,
+  raw: z.input<typeof indexEvaluationRequest>,
+) {
+  authorize(s, PROJECT_OWN, "OWNER_REQUIRED");
+  const input = indexEvaluationRequest.parse(raw);
+  await assertEvaluationCases(tx, s, input);
   const request = await create(tx, s, "index_evaluations", {
     ...input,
     status: "queued",

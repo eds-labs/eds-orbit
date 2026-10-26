@@ -348,11 +348,12 @@ describe("Knowledge sub-pages", () => {
 
   it("keeps the index generations on the health page only", () => {
     answers["/indexes"] = { items: [] };
+    // The panel's intro sentence (Knowledge → search index).
     expect(render(<Knowledge tab="health" />)).toContain(
-      "Embedding index generations",
+      "A new index generation is built and checked",
     );
     expect(render(<KnowledgeOverview />)).not.toContain(
-      "Embedding index generations",
+      "A new index generation is built and checked",
     );
   });
 });
