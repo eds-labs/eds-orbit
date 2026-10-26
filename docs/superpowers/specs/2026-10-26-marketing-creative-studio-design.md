@@ -217,9 +217,14 @@ may differ by font installation, as noted today.
 - WCAG contrast of each text layer against the composed pixels behind it
   (dark/light percentile of the region, not the average).
 - Logo contrast against its local background.
-- Detail map of the art (grid of local standard deviation / edge energy):
-  subject coverage (bounding box of high-detail cells) and the share of flat
-  cells outside reserved text zones.
+- Subject and empty area of the art as it is drawn (`drawnArt`, with the
+  reserved zones in that frame, `artZones`; R21), on a grid of area-averaged
+  cells (64 on the shorter side; R20): the background is the median colour of
+  the border cells; a cell is subject when its colour differs from it or its
+  3×3 neighbourhood has a high luminance range; subject coverage is the
+  bounding box of the largest connected subject; flat cells have the
+  background colour and a low range. Grain, JPEG artefacts and the file's
+  resolution do not change the verdicts.
 - Palette distance of the art's dominant colours to the brand palette
   (informational).
 
@@ -312,22 +317,29 @@ Deterministic checks (`creative/quality.ts`), codes:
 | `CREATIVE_FILE_TOO_LARGE` | PNG over the channel/Postiz limit (default 8 MB) | re-encode once, else `needs_owner` |
 | `TEXT_OVERFLOW` | copy does not fit at minimum size | other variant, then one copy revision |
 | `TEXT_CONTRAST_LOW` | < 4.5:1 (body) / < 3:1 (large text from 32 px; the subline is body text at every size) | stronger scrim, then other variant |
-| `TEXT_BACKDROP_BUSY` | detail energy (mean absolute Laplacian / 255) behind a text layer > 0.06 (R17) | stronger scrim (compose raises it up to the layout's maximum), then other variant |
+| `TEXT_BACKDROP_BUSY` | busyness behind a text layer > 0.015: mean 3×3 standard deviation of the luma (0..1) averaged over 4 px cells, after the scrim (R17, R20) | stronger scrim (compose raises it up to the layout's maximum), then other variant |
 | `LOGO_CONTRAST_LOW` | < 2:1 against local background | other logo variant, then logo plate |
 | `LOGO_INTEGRITY` | logo bytes ≠ approved SHA-256, aspect changed, below minimum size (longer side < 0.06 of the canvas's shorter side, R19) | refuse (never render) |
 | `SCREENSHOT_INTEGRITY` | screenshot bytes ≠ approved SHA-256 or aspect changed | refuse |
-| `SUBJECT_TOO_SMALL` | high-detail coverage < 25 % of the art region | art correction |
-| `EMPTY_AREA_EXCESSIVE` | flat cells outside reserved zones > 45 % | art correction or tighter crop |
+| `SUBJECT_TOO_SMALL` | bounding box of the largest connected subject < 25 % of the drawn art (subject: colour distance to the border median > 0.15, or 3×3 luma range > 0.12) | art correction |
+| `EMPTY_AREA_EXCESSIVE` | flat cells (background colour, 3×3 luma range < 0.03) outside the reserved zones > 45 % of the drawn art | art correction or tighter crop |
 | `SAFE_AREA_VIOLATION`, `LAYER_OVERLAP` | layer boxes against safe area and each other | render bug → `needs_owner` |
 | `ASSET_UPSCALED` | an art, screenshot or logo layer drawn at more than 1.5× its source size | warning only (shown, never blocks) |
 | `ASSET_RIGHTS` | every component approved, `validUses` covers the use, not outdated, same project | refuse |
 
 Thresholds are constants in one place with tests; they are calibrated on the
-demo brands' fixtures. The busy-backdrop threshold (0.06, R17) was set by
-measuring the demo compositions: calm backdrops measure 0.01–0.04, text over
-the motif's edges and patterns 0.07–0.13. Art is measured at display scale
-(shorter side at most 1080 px), so a high-resolution upload does not read as
-flat.
+demo brands' fixtures. R20 replaced the plan's pixel-scale detail map
+(`detailCell` 0.08, `flatCell` 0.02, `grid` 16), which read grain instead of
+the motif (JPEG q70 flipped good art to `EMPTY_AREA_EXCESSIVE`, a clean vector
+subject read as empty, the art's resolution moved the scrim by 0.3), with the
+cell grid above (`artCells` 64, `subjectColor` 0.15, `subjectRange` 0.12,
+`flatRange` 0.03, `busyCell` 4, `busyText` 0.015). The empty area is counted
+as a share of the whole drawn art: as a share of the free cells, the thin
+margins between text and product read as an empty art. On the fixtures the
+art verdicts are identical for PNG, JPEG q70/q40, native 768/1024/2048 px
+renders and noise σ 2/4 in every default layout, no art threshold changes a
+verdict within ±33 %, and the scrim stays within one step (0.1). Calm text
+backdrops measure 0.002–0.014, text over the motif's edges 0.017–0.04.
 
 **Vision review** (CS-D2, optional per project `creative.visualReview`): one
 `respond()` call with the composed rendition as `input_image`, new task class

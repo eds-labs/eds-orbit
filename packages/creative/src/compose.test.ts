@@ -90,14 +90,14 @@ async function whiteLogo(): Promise<RasterSource> {
   return { bytes, sha256: sha256Hex(bytes) };
 }
 
-/** Art of two-pixel stripes in black and dark grey, dark enough for white text everywhere. */
+/** Art of eight-pixel stripes in black and dark grey: structure at text scale, dark enough for white text everywhere. */
 async function stripedArt(): Promise<RasterSource> {
   const { default: sharp } = await import("sharp");
   const bytes = await sharp(
     Buffer.from(
       `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
-        <defs><pattern id="s" width="4" height="4" patternUnits="userSpaceOnUse">
-          <rect width="2" height="4" fill="#404040"/></pattern></defs>
+        <defs><pattern id="s" width="16" height="16" patternUnits="userSpaceOnUse">
+          <rect width="8" height="16" fill="#404040"/></pattern></defs>
         <rect width="1024" height="1024" fill="#000000"/>
         <rect width="1024" height="1024" fill="url(#s)"/>
       </svg>`,
@@ -269,7 +269,7 @@ describe("composeCreative", () => {
   });
 
   it("raises the scrim until busy art behind the text is calm (R17)", async () => {
-    // Fine dark stripes: white text reads on them at any scrim, but they are busy.
+    // Dark stripes: white text reads on them at any scrim, but they are busy.
     expect(contrastRatio("#FFFFFF", "#404040")).toBeGreaterThan(4.5);
     const input = await lifestyleInput("kestrel");
     const art = await stripedArt();
@@ -340,6 +340,74 @@ describe("composeCreative", () => {
         drawnArt({ ...input.art!, sha256: "0".repeat(64) }, layout),
       ).rejects.toMatchObject({ code: "BRAND_ASSET_INTEGRITY_FAILED" });
     },
+  );
+
+  it.each(["lumora", "kestrel"] as const)(
+    "keeps the scrim when the same art comes as JPEG, at 768 or 2048 px or with noise (%s, R20)",
+    async (brandName) => {
+      const brand = await demoBrand(brandName);
+      const art = await fixtureArt("good", brandName);
+      const { default: sharp } = await import("sharp");
+      const source = (bytes: Buffer) => ({ bytes, sha256: sha256Hex(bytes) });
+      const { data, info } = await sharp(art.bytes)
+        .removeAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+      let seed = 7;
+      const uniform = () =>
+        (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+      const noisy = Buffer.from(data);
+      for (let i = 0; i < noisy.length; i++)
+        noisy[i] = Math.max(
+          0,
+          Math.min(
+            255,
+            Math.round(
+              noisy[i]! +
+                2 *
+                  Math.sqrt(3) *
+                  (uniform() + uniform() + uniform() + uniform() - 2),
+            ),
+          ),
+        );
+      const variants = [
+        source(await sharp(art.bytes).jpeg({ quality: 70 }).toBuffer()),
+        await fixtureArt("good", brandName, { width: 2048, height: 2048 }),
+        await fixtureArt("good", brandName, { width: 768, height: 768 }),
+        source(
+          await sharp(noisy, {
+            raw: { width: info.width, height: info.height, channels: 3 },
+          })
+            .png()
+            .toBuffer(),
+        ),
+      ];
+      for (const template of [
+        "lifestyle",
+        "problem_solution",
+        "brand_message",
+      ] as const) {
+        const input = {
+          template,
+          variant: variantsFor(template, "feed_portrait")[0]!,
+          format: "feed_portrait" as const,
+          brand,
+          copy: COPY,
+          options: OPTIONS,
+        };
+        const reference = (await composeCreative({ ...input, art }))
+          .scrimOpacity;
+        for (const [i, variant] of variants.entries())
+          expect(
+            Math.abs(
+              (await composeCreative({ ...input, art: variant })).scrimOpacity -
+                reference,
+            ),
+            `${template} variant ${i}`,
+          ).toBeLessThanOrEqual(0.1 + 1e-9);
+      }
+    },
+    120_000,
   );
 
   it.each(["lumora", "kestrel"] as const)(

@@ -1,7 +1,7 @@
 import type { OverlayOptions } from "sharp";
 import {
   CREATIVE_THRESHOLDS,
-  detailEnergy,
+  backdropBusyness,
   requiredTextContrast,
 } from "./analysis.ts";
 import {
@@ -88,7 +88,7 @@ export type LayerRecord = {
 
 /** What lies behind a text layer: its luminance range and how busy it is (R17). */
 export type TextBackdrop = Backdrop & {
-  /** Detail energy (`detailEnergy`) behind the layer, after the scrim; 0 on a pill. */
+  /** Busyness (`backdropBusyness`) behind the layer, after the scrim; 0 on a pill. */
   busy: number;
 };
 
@@ -390,7 +390,11 @@ function colourStack(
       continue;
     }
     const { p10, p90 } = luminanceStats(canvas, block.frame);
-    const backdrop = { p10, p90, busy: detailEnergy(canvas, block.frame) };
+    const backdrop = {
+      p10,
+      p90,
+      busy: backdropBusyness(canvas, block.frame),
+    };
     const required = requiredTextContrast(block.kind, block.fitted.size);
     let { color, contrast } = mostReadable(candidates, backdrop);
     if (

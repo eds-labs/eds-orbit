@@ -6,11 +6,12 @@ import {
   opaqueLogo,
   type DemoBrandName,
 } from "../fixtures/demo-brands.ts";
-import type { CreativeLogo } from "./brand.ts";
+import { sha256Hex, type CreativeLogo, type RasterSource } from "./brand.ts";
 import { CREATIVE_THRESHOLDS } from "./analysis.ts";
 import { relativeLuminance } from "./color.ts";
 import {
   composeCreative,
+  drawnArt,
   type ComposeResult,
   type LayerRecord,
 } from "./compose.ts";
@@ -26,7 +27,13 @@ import {
   type CreativeCheck,
   type CreativeCheckCode,
 } from "./quality.ts";
-import { TEMPLATE_NEEDS, layoutFor, variantsFor } from "./templates.ts";
+import {
+  TEMPLATE_NEEDS,
+  artZones,
+  layoutFor,
+  variantsFor,
+  type LayoutSpec,
+} from "./templates.ts";
 
 const COPY = {
   eyebrow: "New this autumn",
@@ -102,39 +109,161 @@ async function compose(
         : [await fixtureScreenshot(brandName)],
     options: OPTIONS,
   });
-  const { reservedZones } = layoutFor(template, variant, format, OPTIONS);
-  return { result, art, reservedZones };
+  const layout = layoutFor(template, variant, format, OPTIONS);
+  return { result, art, layout };
+}
+
+/** The lifestyle layout the art-only tests use. */
+const LIFESTYLE = layoutFor(
+  "lifestyle",
+  "text_bottom",
+  "feed_portrait",
+  OPTIONS,
+);
+
+/** The art checks as the pipeline runs them: on the drawn art, with its zones (R21). */
+async function artChecks(art: RasterSource, layout: LayoutSpec = LIFESTYLE) {
+  return checkArt(await drawnArt(art, layout), artZones(layout));
+}
+
+/** The art with deterministic, roughly Gaussian noise of standard deviation `sigma` per channel. */
+async function withNoise(
+  art: RasterSource,
+  sigma: number,
+): Promise<RasterSource> {
+  const { default: sharp } = await import("sharp");
+  const { data, info } = await sharp(art.bytes)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let seed = 12345;
+  const uniform = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  const noisy = Buffer.from(data);
+  for (let i = 0; i < noisy.length; i++) {
+    const gauss =
+      (uniform() + uniform() + uniform() + uniform() - 2) * Math.sqrt(3);
+    noisy[i] = Math.max(
+      0,
+      Math.min(255, Math.round(noisy[i]! + gauss * sigma)),
+    );
+  }
+  const bytes = await sharp(noisy, {
+    raw: { width: info.width, height: info.height, channels: 3 },
+  })
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}
+
+/** The art re-encoded as JPEG. */
+async function asJpeg(
+  art: RasterSource,
+  quality: number,
+): Promise<RasterSource> {
+  const { default: sharp } = await import("sharp");
+  const bytes = await sharp(art.bytes).jpeg({ quality }).toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}
+
+/** A clean vector illustration without grain: a large glossy orb and a card on a dark gradient. */
+async function vectorArt(): Promise<RasterSource> {
+  const { default: sharp } = await import("sharp");
+  const bytes = await sharp(
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1536">
+        <defs>
+          <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B2A4A"/><stop offset="1" stop-color="#0E1424"/></linearGradient>
+          <radialGradient id="orb" cx="0.35" cy="0.3" r="0.8"><stop offset="0" stop-color="#7FE3FF"/><stop offset="0.6" stop-color="#2B7BFF"/><stop offset="1" stop-color="#1A2F7A"/></radialGradient>
+        </defs>
+        <rect width="1024" height="1536" fill="url(#bg)"/>
+        <circle cx="512" cy="560" r="330" fill="url(#orb)"/>
+        <rect x="250" y="650" width="520" height="300" rx="46" fill="#E8EEFA"/>
+        <rect x="300" y="720" width="260" height="30" rx="15" fill="#2B7BFF"/>
+        <rect x="300" y="780" width="400" height="22" rx="11" fill="#9FB4E0"/>
+      </svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
 }
 
 describe("checkArt", () => {
   it.each(["lumora", "kestrel"] as const)(
+    "judges the motif, not the file or its grain (%s, R20)",
+    async (brand) => {
+      // The layouts whose verdicts flipped with JPEG in review 1.
+      const layouts = (
+        [
+          "lifestyle",
+          "product_showcase",
+          "problem_solution",
+          "brand_message",
+        ] as const
+      ).map(
+        (template) =>
+          [
+            template,
+            layoutFor(
+              template,
+              variantsFor(template, "feed_portrait")[0]!,
+              "feed_portrait",
+              OPTIONS,
+            ),
+          ] as const,
+      );
+      for (const kind of ["good", "tiny_subject", "flat"] as const) {
+        const art = await fixtureArt(kind, brand);
+        const variants = {
+          jpeg70: await asJpeg(art, 70),
+          native2048: await fixtureArt(kind, brand, {
+            width: 2048,
+            height: 2048,
+          }),
+          noise2: await withNoise(art, 2),
+        };
+        for (const [template, layout] of layouts) {
+          const label = `${kind} ${template}`;
+          const verdict = failed(await artChecks(art, layout));
+          expect(verdict.length === 0, label).toBe(kind === "good");
+          for (const [name, variant] of Object.entries(variants))
+            expect(
+              failed(await artChecks(variant, layout)),
+              `${label} ${name}`,
+            ).toEqual(verdict);
+        }
+      }
+    },
+    120_000,
+  );
+
+  it("passes a clean vector subject without grain (R20)", async () => {
+    expect(failed(await artChecks(await vectorArt()))).toEqual([]);
+  });
+
+  it("fails flat art and a tiny subject even with noise (R20)", async () => {
+    const flat = await withNoise(await fixtureArt("flat", "lumora"), 2);
+    expect(failed(await artChecks(flat))).toContain("EMPTY_AREA_EXCESSIVE");
+    const tiny = await withNoise(
+      await fixtureArt("tiny_subject", "kestrel"),
+      2,
+    );
+    expect(failed(await artChecks(tiny))).toContain("SUBJECT_TOO_SMALL");
+  });
+
+  it.each(["lumora", "kestrel"] as const)(
     "flags bad art (%s)",
     async (brand) => {
-      const { reservedZones } = layoutFor(
-        "lifestyle",
-        "text_bottom",
-        "feed_portrait",
-        OPTIONS,
-      );
-      const tiny = await checkArt(
-        (await fixtureArt("tiny_subject", brand)).bytes,
-        reservedZones,
-      );
+      const tiny = await artChecks(await fixtureArt("tiny_subject", brand));
       expect(failed(tiny)).toContain("SUBJECT_TOO_SMALL");
       expect(find(tiny, "SUBJECT_TOO_SMALL").severity).toBe("blocker");
 
-      const flat = await checkArt(
-        (await fixtureArt("flat", brand)).bytes,
-        reservedZones,
-      );
+      const flat = await artChecks(await fixtureArt("flat", brand));
       expect(failed(flat)).toContain("EMPTY_AREA_EXCESSIVE");
       expect(find(flat, "EMPTY_AREA_EXCESSIVE").severity).toBe("blocker");
       expect(failedBlockers(flat)).toContain("EMPTY_AREA_EXCESSIVE");
 
-      const good = await checkArt(
-        (await fixtureArt("good", brand)).bytes,
-        reservedZones,
-      );
+      const good = await artChecks(await fixtureArt("good", brand));
       expect(good.map((c) => c.code).sort()).toEqual([
         "EMPTY_AREA_EXCESSIVE",
         "SUBJECT_TOO_SMALL",
@@ -339,14 +468,14 @@ describe("checkComposition", () => {
     async (format) => {
       for (const brandName of ["lumora", "kestrel"] as const)
         for (const template of CREATIVE_TEMPLATE_IDS) {
-          const { result, art, reservedZones } = await compose(
+          const { result, art, layout } = await compose(
             brandName,
             template,
             format,
           );
           const checks = [
             ...checkComposition(result, approvedOf(result)),
-            ...(await checkArt(art.bytes, reservedZones)),
+            ...(await artChecks(art, layout)),
           ];
           expect(
             failedBlockers(checks),

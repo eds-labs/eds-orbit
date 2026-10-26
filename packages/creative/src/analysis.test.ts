@@ -4,22 +4,24 @@ import {
   CREATIVE_THRESHOLDS,
   analyzeArt,
   contrastRatio,
-  detailEnergy,
+  backdropBusyness,
   regionLuminance,
   relativeLuminance,
   requiredTextContrast,
 } from "./analysis.ts";
+import { drawnArt } from "./compose.ts";
 import type { Raw } from "./raster.ts";
-import { layoutFor } from "./templates.ts";
+import { artZones, layoutFor } from "./templates.ts";
 
 const OPTIONS = { logoPlacement: "auto", textScale: "m" } as const;
-/** Text and logo zones of the most common layout, as the pipeline passes them. */
-const RESERVED = layoutFor(
+/** The most common layout; art is measured as drawn into it (R21). */
+const LIFESTYLE = layoutFor(
   "lifestyle",
   "text_bottom",
   "feed_portrait",
   OPTIONS,
-).reservedZones;
+);
+const RESERVED = artZones(LIFESTYLE);
 
 /** An opaque RGBA canvas whose pixel (x, y) is the grey value `grey(x, y)`. */
 function canvasOf(
@@ -106,56 +108,87 @@ describe("analysis", () => {
     ).rejects.toMatchObject({ code: "RASTER_INPUT_INVALID" });
   });
 
-  it("measures detail energy, which a scrim scales down", () => {
+  it("measures busyness at a fixed scale, which a scrim scales down", () => {
     const box = { x: 0, y: 0, w: 40, h: 40 };
     expect(
-      detailEnergy(
+      backdropBusyness(
         canvasOf(40, 40, () => 128),
         box,
       ),
     ).toBe(0);
-    // One-pixel stripes 0/200: every pixel has |Laplacian| 400.
-    const stripes = canvasOf(40, 40, (x) => (x % 2 ? 200 : 0));
-    expect(detailEnergy(stripes, { x: 1, y: 1, w: 38, h: 38 })).toBeCloseTo(
-      400 / 255,
-      6,
+    // One-pixel stripes are grain at text scale: they average out.
+    const grain = canvasOf(40, 40, (x) => (x % 2 ? 200 : 0));
+    expect(backdropBusyness(grain, box)).toBe(0);
+    // Eight-pixel stripes are structure a text crosses.
+    const stripes = canvasOf(40, 40, (x) => (x % 8 < 4 ? 200 : 0));
+    expect(backdropBusyness(stripes, box)).toBeGreaterThan(
+      10 * CREATIVE_THRESHOLDS.busyText,
     );
-    // A 50 % black scrim halves every difference, and so the energy.
-    const scrimmed = canvasOf(40, 40, (x) => (x % 2 ? 100 : 0));
-    expect(detailEnergy(scrimmed, box)).toBeCloseTo(
-      detailEnergy(stripes, box) / 2,
-      6,
+    // A 50 % black scrim halves every difference, and so the busyness.
+    const scrimmed = canvasOf(40, 40, (x) => (x % 8 < 4 ? 100 : 0));
+    expect(backdropBusyness(scrimmed, box)).toBeCloseTo(
+      backdropBusyness(stripes, box) / 2,
+      9,
     );
     // Only the box counts.
-    const half = canvasOf(40, 40, (x, y) => (y < 20 ? 128 : x % 2 ? 200 : 0));
-    expect(detailEnergy(half, { x: 0, y: 0, w: 40, h: 19 })).toBe(0);
+    const half = canvasOf(40, 40, (x, y) =>
+      y < 20 ? 128 : x % 8 < 4 ? 200 : 0,
+    );
+    expect(backdropBusyness(half, { x: 0, y: 0, w: 40, h: 20 })).toBe(0);
   });
 
   it.each(["lumora", "kestrel"] as const)(
     "measures subject coverage and flat share (%s)",
     async (brand) => {
       const { subjectMinCoverage, flatMaxShare } = CREATIVE_THRESHOLDS;
-      const good = await analyzeArt(
-        (await fixtureArt("good", brand)).bytes,
-        RESERVED,
-      );
+      const measure = async (kind: "good" | "tiny_subject" | "flat") =>
+        analyzeArt(
+          await drawnArt(await fixtureArt(kind, brand), LIFESTYLE),
+          artZones(LIFESTYLE),
+        );
+      const good = await measure("good");
       expect(good.subjectCoverage).toBeGreaterThanOrEqual(subjectMinCoverage);
       expect(good.flatShare).toBeLessThanOrEqual(flatMaxShare);
-      expect(good.meanDetail).toBeGreaterThan(CREATIVE_THRESHOLDS.flatCell);
+      expect(good.meanDetail).toBeGreaterThan(CREATIVE_THRESHOLDS.flatRange);
 
-      const tiny = await analyzeArt(
-        (await fixtureArt("tiny_subject", brand)).bytes,
-        RESERVED,
-      );
+      const tiny = await measure("tiny_subject");
       expect(tiny.subjectCoverage).toBeLessThan(subjectMinCoverage);
 
-      const flat = await analyzeArt(
-        (await fixtureArt("flat", brand)).bytes,
-        RESERVED,
-      );
+      const flat = await measure("flat");
+      expect(flat.subjectCoverage).toBe(0);
       expect(flat.flatShare).toBeGreaterThan(flatMaxShare);
     },
   );
+
+  it("finds a smooth subject by its colour and keeps the largest one", async () => {
+    const { default: sharp } = await import("sharp");
+    const art = (circles: string) =>
+      sharp(
+        Buffer.from(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+            <rect width="1000" height="1000" fill="#20304A"/>${circles}</svg>`,
+        ),
+      )
+        .png()
+        .toBuffer();
+    // A plain disc 600 px across: its bounding box is 36 % of the art.
+    const disc = await analyzeArt(
+      await art(`<circle cx="500" cy="500" r="300" fill="#E8B04C"/>`),
+      [],
+    );
+    expect(disc.subjectCoverage).toBeGreaterThan(0.34);
+    expect(disc.subjectCoverage).toBeLessThan(0.42);
+    // A small second shape far away does not stretch the subject's box.
+    const two = await analyzeArt(
+      await art(
+        `<circle cx="500" cy="500" r="300" fill="#E8B04C"/><circle cx="930" cy="930" r="40" fill="#E8B04C"/>`,
+      ),
+      [],
+    );
+    expect(two.subjectCoverage).toBeCloseTo(disc.subjectCoverage, 6);
+    // The plain field around it is the empty area.
+    expect(disc.flatShare).toBeGreaterThan(0.55);
+  });
 
   it("counts flat cells only outside the reserved zones", async () => {
     const flat = (await fixtureArt("flat", "kestrel")).bytes;
@@ -164,12 +197,16 @@ describe("analysis", () => {
     expect(
       (await analyzeArt(flat, [{ x: 0, y: 0, w: 1, h: 1 }])).flatShare,
     ).toBe(0);
+    // The share is of the whole art: half of it reserved leaves half empty.
+    expect(
+      (await analyzeArt(flat, [{ x: 0, y: 0, w: 1, h: 0.5 }])).flatShare,
+    ).toBeCloseTo(0.5, 6);
   });
 
-  it("measures art at display scale, not at its file resolution", async () => {
+  it("measures art independent of its file resolution", async () => {
     const { default: sharp } = await import("sharp");
     const good = (await fixtureArt("good", "kestrel")).bytes;
-    // The same picture as a 4× larger file is just as detailed on the canvas.
+    // The same picture as a 4× larger, softer file reads the same.
     const large = await sharp(good).resize(4096, 4096).png().toBuffer();
     const original = await analyzeArt(good, RESERVED);
     const upscaled = await analyzeArt(large, RESERVED);
