@@ -56,7 +56,24 @@ describe("assetContent", () => {
     expect(content).toMatchObject({ mime: "image/jpeg", sha256: sha(bytes) });
   });
 
-  it("only serves raster images", async () => {
+  it("only serves raster images from a stored copy too", async () => {
+    // assetBytes alone would answer with a raw validation error for this mime.
+    await expect(
+      assetContent(scope, {
+        mime: "image/svg+xml",
+        base64: bytes.toString("base64"),
+        sha256: sha(bytes),
+      }),
+    ).rejects.toMatchObject({
+      code: "BRAND_IMAGE_FORMAT_UNSUPPORTED",
+      status: 415,
+    });
+    await expect(
+      assetContent(scope, { base64: bytes.toString("base64") }),
+    ).rejects.toMatchObject({ code: "BRAND_IMAGE_FORMAT_UNSUPPORTED" });
+  });
+
+  it("only serves raster images from Drive", async () => {
     driveContent.mockResolvedValue({ bytes, mime: "application/pdf" });
     await expect(
       assetContent(scope, { driveFileId: "drive-file" }),

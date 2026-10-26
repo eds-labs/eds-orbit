@@ -1,4 +1,8 @@
-import type { RelBox } from "../../../../../../packages/creative/src/index.ts";
+import {
+  artZones,
+  type LayoutSpec,
+  type RelBox,
+} from "../../../../../../packages/creative/src/index.ts";
 import type { MarketingProfile } from "../brand/marketing-profile.ts";
 import { oneLine, type ResolvedBrief } from "./brief.ts";
 
@@ -124,13 +128,52 @@ function region(zone: RelBox) {
   };
 }
 
+/** A zone smaller than this share of the art does not count as lying on it. */
+const MIN_ZONE_SHARE = 0.02;
+
 /**
- * Where the text goes, from its zone (fractions of the canvas): the area to
- * keep calm and the sentence that places the subject elsewhere. A product
- * screenshot covers its own zone, so the scene is built around that instead.
+ * A layout zone (canvas pixels fractions) as it lies on the art that is drawn:
+ * clipped to the art box, as fractions of it (R21); undefined when the zone
+ * misses the art or only grazes it.
  */
-function placement(text: RelBox | undefined, product: RelBox | undefined) {
-  const zone = region(text ?? { x: 0.07, y: 0.6, w: 0.87, h: 0.33 });
+function zoneOnArt(layout: LayoutSpec, zone: RelBox | undefined) {
+  if (!zone) return undefined;
+  const [clipped] = artZones({ ...layout, reservedZones: [zone] });
+  return clipped && clipped.w * clipped.h >= MIN_ZONE_SHARE
+    ? clipped
+    : undefined;
+}
+
+/**
+ * Where the text goes on the art that is drawn (R29): the text zone clipped
+ * to the art box gives the area to keep calm and where the subject belongs
+ * instead. A product screenshot covers its own zone, so the scene is built
+ * around that. When no text lies on the art (a strip or a side of the canvas),
+ * the subject is centred and fills the frame.
+ */
+function placement(
+  text: RelBox | undefined,
+  product: RelBox | undefined,
+): { area: string; sentence: string; depth: string } {
+  const around = product
+    ? `The real product screenshot is added over the ${region(product).name} later, so build the scene around that area instead of placing the main subject there.`
+    : "";
+  const deep =
+    "give the scene depth with a foreground, a midground and a softly blurred background, and fill it with relevant detail instead of empty space.";
+  if (!text)
+    return {
+      area: "text area",
+      sentence: [
+        product
+          ? "Compose a centred, frame-filling scene with even margins on all sides; no area needs to stay empty for text."
+          : "Compose one centred, frame-filling subject with even margins on all sides; no area needs to stay empty for text.",
+        around,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      depth: `Everywhere ${deep}`,
+    };
+  const zone = region(text);
   const calm =
     zone.name === "middle"
       ? "Keep the middle calm and soft for text added later"
@@ -138,34 +181,39 @@ function placement(text: RelBox | undefined, product: RelBox | undefined) {
   return {
     area: zone.name,
     sentence: product
-      ? `${calm}. The real product screenshot is added over the ${region(product).name} later, so build the scene around that area instead of placing the main subject there.`
+      ? `${calm}. ${around}`
       : zone.name === "middle"
         ? `${calm}; compose the subject around it, ${zone.rest}.`
         : `${calm}; place the subject ${zone.rest}.`,
+    depth: `Outside that calm area ${deep}`,
   };
 }
 
 const sentence = (label: string, text: string) =>
   text ? `${label}: ${text.replace(/[.!?]+$/u, "")}.` : "";
 
-/** Cuts at a word boundary where one is near, marks the cut with an ellipsis. */
+/** Length in code points, the unit of the prompt limit. */
+const length = (text: string) => Array.from(text).length;
+
+/** Cuts at a word boundary where one is near, marks the cut with an ellipsis; by code points. */
 function shorten(text: string, max: number) {
-  if (text.length <= max) return text;
-  const cut = text.slice(0, max - 1);
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  const cut = chars.slice(0, max - 1);
   const word = cut.lastIndexOf(" ");
-  return `${(word >= max / 2 ? cut.slice(0, word) : cut).trimEnd()}…`;
+  return `${(word >= max / 2 ? cut.slice(0, word) : cut).join("").trimEnd()}…`;
 }
 
 /**
- * Fits the avoid list into `room` characters: every entry is shortened to the
- * same share, none below 24 characters; entries from the end are dropped
- * only when even that does not fit.
+ * Fits the avoid list into `room` code points: every entry is shortened to the
+ * same share, none below 24; entries from the end are dropped only when even
+ * that does not fit.
  */
 function fitAvoid(entries: string[], room: number): string[] {
   const overhead = "Avoid: .".length;
   const total = (list: string[]) =>
     overhead +
-    list.reduce((sum, entry) => sum + entry.length, 0) +
+    list.reduce((sum, entry) => sum + length(entry), 0) +
     2 * Math.max(0, list.length - 1);
   if (total(entries) <= room) return entries;
   const share = (list: string[]) =>
@@ -195,10 +243,16 @@ function correctionText(correction: ArtCorrection, area: string) {
  * product name stays out because a model may draw it. When the avoid list does
  * not fit, its entries are shortened (never the fixed rules). `correction`
  * adds the change a failed art check asks for.
+ *
+ * `layout` is the layout of the brief's first format (`briefLayout`): the art is
+ * made once for it and the other formats crop the same art. The placement
+ * sentence comes from where its text and product zones lie on the drawn art
+ * (R29, R32); the brief's canvas zones are not read.
  */
 export function artPrompt(
   brief: ResolvedBrief,
   profile: MarketingProfile,
+  layout: LayoutSpec,
   correction?: ArtCorrection,
 ): string {
   const identity = profile.visualIdentity;
@@ -206,8 +260,10 @@ export function artPrompt(
   const showsProduct =
     brief.imageKind === "product" || brief.imageKind === "combined";
   const zone = placement(
-    brief.reservedZones[0],
-    showsProduct ? brief.reservedZones[2] : undefined,
+    zoneOnArt(layout, layout.reservedZones[0]),
+    showsProduct && layout.product
+      ? zoneOnArt(layout, layout.reservedZones[2])
+      : undefined,
   );
   const mood = oneLine(brief.mood, 300);
   const brandMood = oneLine(imagery?.mood ?? "", 300);
@@ -238,7 +294,7 @@ export function artPrompt(
       "Compose a bold hero image: one clear main subject, shown large and close, in sharp focus, with a strong simple silhouette and clear contrast against its surroundings.",
       "The main subject fills about 60 to 75 percent of the frame.",
       zone.sentence,
-      "Outside that calm area give the scene depth with a foreground, a midground and a softly blurred background, and fill it with relevant detail instead of empty space.",
+      zone.depth,
     ].join(" "),
     ...(correction ? [correctionText(correction, zone.area)] : []),
     ...(showsProduct
@@ -261,10 +317,14 @@ export function artPrompt(
     ),
   ];
   const fixed = [...lines, ART_NEGATIVES].join("\n");
-  const kept = fitAvoid(avoid, MAX_PROMPT - fixed.length - 1);
-  return [
+  const kept = fitAvoid(avoid, MAX_PROMPT - length(fixed) - 1);
+  const prompt = [
     ...lines,
     ...(kept.length ? [`Avoid: ${kept.join("; ")}.`] : []),
     ART_NEGATIVES,
   ].join("\n");
+  if (length(prompt) <= MAX_PROMPT) return prompt;
+  // Out of bounds only if the caps above change: cut the description, never the negatives.
+  const room = MAX_PROMPT - length(ART_NEGATIVES) - 1;
+  return `${Array.from(lines.join("\n")).slice(0, room).join("")}\n${ART_NEGATIVES}`;
 }

@@ -17,6 +17,11 @@ import {
   DomainError,
 } from "../../../shared.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
+import {
+  isApprovedAsset,
+  isRasterMime,
+  PRODUCT_ASSET_TYPES,
+} from "./asset-rules.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
 import { validateEvidence } from "../../../../../../packages/knowledge/src/index.ts";
 import {
@@ -103,10 +108,6 @@ export async function assertProfileReferences(
   await assertBrandKitAssets(tx, scope, profile.visualIdentity);
 }
 
-const RASTER_MIMES = ["image/png", "image/jpeg", "image/webp"];
-/** Asset types a project's product images may have (the brand kit's `productAssetIds`). */
-const PRODUCT_ASSET_TYPES = ["screenshot", "product", "photo"];
-
 /**
  * The brand kit's asset references: every id must belong to this project
  * (another project's id is `NOT_FOUND`), and be approved by the owner. Logos
@@ -118,8 +119,6 @@ async function assertBrandKitAssets(
   scope: Scope,
   identity: MarketingProfile["visualIdentity"],
 ) {
-  const approved = (asset: Record<string, any>) =>
-    asset.usageApproved === true && asset.assetStatus === "approved";
   const logoIds = Object.values(identity.logos ?? {}).filter(
     (logoId): logoId is string => typeof logoId === "string",
   );
@@ -127,16 +126,16 @@ async function assertBrandKitAssets(
     const asset = data(await entity(tx, scope, "assets", logoId));
     if (
       asset.type !== "logo" ||
-      !approved(asset) ||
+      !isApprovedAsset(asset) ||
       typeof asset.sha256 !== "string" ||
       !asset.sha256 ||
-      !RASTER_MIMES.includes(asset.mime)
+      !isRasterMime(asset.mime)
     )
       throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
   }
   for (const productId of new Set(identity.productAssetIds ?? [])) {
     const asset = data(await entity(tx, scope, "assets", productId));
-    if (!PRODUCT_ASSET_TYPES.includes(asset.type) || !approved(asset))
+    if (!PRODUCT_ASSET_TYPES.includes(asset.type) || !isApprovedAsset(asset))
       throw new DomainError("APPROVED_PRODUCT_ASSET_REQUIRED", 409);
   }
 }

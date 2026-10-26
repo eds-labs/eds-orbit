@@ -7,6 +7,8 @@ import {
   variantsFor,
   type FormatId,
   type ImageKind,
+  type LayoutSpec,
+  type LogoPlacement,
   type RelBox,
   type TemplateId,
   type VariantId,
@@ -129,6 +131,25 @@ function chooseVariant(
   return variantsFor(template, formats[0]!)[0]!;
 }
 
+/**
+ * The layout of the brief's first format (the primary one: the art is made
+ * once for it and the other formats crop the same art), with the brief's
+ * variant adapted to that format. The art direction reads its placement from
+ * this layout.
+ */
+export function briefLayout(
+  brief: Pick<ResolvedBrief, "template" | "variant" | "formats">,
+  logoPlacement: LogoPlacement,
+): LayoutSpec {
+  const format = brief.formats[0]!;
+  return layoutFor(
+    brief.template,
+    variantForFormat(brief.template, format, brief.variant),
+    format,
+    { logoPlacement, textScale: "m" },
+  );
+}
+
 /** The brand kit's imagery as one description. */
 function imageryNotes(imagery: MarketingProfile["visualIdentity"]["imagery"]) {
   if (!imagery) return "";
@@ -144,19 +165,33 @@ function imageryNotes(imagery: MarketingProfile["visualIdentity"]["imagery"]) {
   );
 }
 
+/** Who asks: a person in the Creative Studio, or an automated path (assignment, package, default). */
+export type BriefOrigin = "manual" | "automated";
+
 /**
  * Completes the strategy's proposal (or, without one, the content's title) into
  * the brief the studio works from. Deterministic: the brand kit decides the
  * style, the disabled templates, the variant and the formats.
  *
+ * Automated requests adapt silently:
  * - A disabled template is replaced by the first enabled one that fits the image
  *   kind (`TEMPLATE_DISABLED`); a product image without product assets, or a
  *   template that needs a product without one, becomes a `scene` with the
  *   `lifestyle` template (`NO_PRODUCT_ASSETS`).
  * - A template without a product frame shows a scene, a template that needs a
  *   product shows the product.
- * - `template` and `variant` are explicit requests and win over the proposal and
- *   the project's default variant.
+ * - An explicit `variant` that no format offers becomes the template's first
+ *   valid variant (R1), like the project's default variant.
+ *
+ * A manual request's explicit choices are never replaced (R30, R31):
+ * - An explicit `template` ignores the project's `enabled` switch, which
+ *   configures automation. One that needs a product while none is approved is
+ *   refused (`PRODUCT_ASSET_REQUIRED`, 409); with an optional product frame
+ *   the picture is a scene (`NO_PRODUCT_ASSETS`).
+ * - An explicit `variant` that none of the formats offers is refused
+ *   (`CREATIVE_VARIANT_NOT_AVAILABLE`, 409).
+ * A template the person did not choose (the proposal's) and the project's
+ * default variant follow the automated rules.
  */
 export function resolveCreativeBrief(input: {
   proposal: StrategyCreative | null;
@@ -165,12 +200,16 @@ export function resolveCreativeBrief(input: {
   config: ResolvedCreativeConfig;
   hasProducts: boolean;
   channelFormats: FormatId[];
+  origin: BriefOrigin;
   template?: TemplateId;
   variant?: VariantId;
 }): ResolvedBrief {
   const { proposal, content, profile, config } = input;
   const formats = [...new Set(input.channelFormats)];
   if (!formats.length) throw new DomainError("CREATIVE_FORMAT_REQUIRED", 409);
+  const manual = input.origin === "manual";
+  // A person's explicit template is theirs to get.
+  const chosen = manual && input.template !== undefined;
   const imagery = profile.visualIdentity.imagery;
 
   let imageKind: ImageKind = proposal?.imageKind ?? "scene";
@@ -180,14 +219,16 @@ export function resolveCreativeBrief(input: {
 
   // The template decides whether a product can be shown.
   const productNeed = TEMPLATE_NEEDS[template].product;
+  if (chosen && productNeed === "required" && !input.hasProducts)
+    throw new DomainError("PRODUCT_ASSET_REQUIRED", 409);
   if (productNeed === "required" && !SHOWS_PRODUCT.includes(imageKind))
     imageKind = "product";
   if (SHOWS_PRODUCT.includes(imageKind) && !input.hasProducts) {
     imageKind = "scene";
-    template = "lifestyle";
+    if (!chosen) template = "lifestyle";
     fallbackReason = "NO_PRODUCT_ASSETS";
   }
-  if (!config.enabledTemplates.includes(template)) {
+  if (!chosen && !config.enabledTemplates.includes(template)) {
     // The kind first, then a plain scene: owners who disabled the templates of
     // a kind still get a creative rather than an error.
     for (const kind of new Set<ImageKind>([imageKind, "scene"])) {
@@ -206,19 +247,22 @@ export function resolveCreativeBrief(input: {
   if (SHOWS_PRODUCT.includes(imageKind) && !hasProductFrame(template))
     imageKind = "scene";
 
+  if (
+    manual &&
+    input.variant &&
+    !formats.some((format) =>
+      variantsFor(template, format).includes(input.variant!),
+    )
+  )
+    throw new DomainError("CREATIVE_VARIANT_NOT_AVAILABLE", 409);
   const variant = chooseVariant(
     template,
     formats,
     input.variant ?? config.defaultVariants[template],
   );
-  const layout = layoutFor(
-    template,
-    variantForFormat(template, formats[0]!, variant),
-    formats[0]!,
-    {
-      logoPlacement: config.logoPlacement,
-      textScale: "m",
-    },
+  const layout = briefLayout(
+    { template, variant, formats },
+    config.logoPlacement,
   );
   return {
     goal: oneLine(profile.positioning, 300),

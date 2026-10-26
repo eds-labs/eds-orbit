@@ -3,6 +3,7 @@ import { lumoraProfile } from "../../../../tests/support/creative-profile.ts";
 import { DomainError } from "../../../shared.ts";
 import { resolveCreativeConfig } from "./brand-kit.ts";
 import {
+  briefLayout,
   creativeBrief,
   resolveCreativeBrief,
   type StrategyCreative,
@@ -32,6 +33,7 @@ function resolve(
     config: resolveCreativeConfig(profile),
     hasProducts: false,
     channelFormats: ["feed_portrait"],
+    origin: "automated",
     ...input,
   });
 }
@@ -83,6 +85,7 @@ describe("resolveCreativeBrief", () => {
       config: resolveCreativeConfig(profile),
       hasProducts: false,
       channelFormats: ["square"],
+      origin: "automated",
     });
     expect(brief.goal).toHaveLength(300);
     expect(brief.audience).toHaveLength(300);
@@ -314,6 +317,138 @@ describe("resolveCreativeBrief", () => {
           .variant,
       ).toBe("text_bottom");
     });
+  });
+});
+
+describe("resolveCreativeBrief for a manual request", () => {
+  const disabled = (...ids: string[]) => ({
+    creative: {
+      templates: Object.fromEntries(ids.map((id) => [id, { enabled: false }])),
+    },
+  });
+
+  it("gives an explicitly chosen template even when the project disabled it (R30)", () => {
+    const input = { template: "tips", identity: disabled("tips") } as const;
+    const manual = resolve({ ...input, origin: "manual" });
+    expect(manual.template).toBe("tips");
+    expect(manual.fallbackReason).toBeUndefined();
+    // The same request from an automated path respects the switch.
+    const automated = resolve({ ...input, origin: "automated" });
+    expect(automated.template).not.toBe("tips");
+    expect(automated.fallbackReason).toBe("TEMPLATE_DISABLED");
+  });
+
+  it("still respects the switch for a template the person did not choose", () => {
+    const brief = resolve({
+      origin: "manual",
+      identity: disabled("lifestyle"),
+    });
+    expect(brief.template).toBe("problem_solution");
+    expect(brief.fallbackReason).toBe("TEMPLATE_DISABLED");
+  });
+
+  it("refuses an explicit template that needs a product when none is approved (R31)", () => {
+    const input = { template: "product_showcase", hasProducts: false } as const;
+    expect(() => resolve({ ...input, origin: "manual" })).toThrow(
+      expect.objectContaining({ code: "PRODUCT_ASSET_REQUIRED", status: 409 }),
+    );
+    // Automated paths fall back to a scene.
+    expect(resolve({ ...input, origin: "automated" })).toMatchObject({
+      template: "lifestyle",
+      imageKind: "scene",
+      fallbackReason: "NO_PRODUCT_ASSETS",
+    });
+    expect(
+      resolve({ ...input, hasProducts: true, origin: "manual" }).template,
+    ).toBe("product_showcase");
+  });
+
+  it("keeps an explicit template whose product frame is optional and shows a scene without products", () => {
+    const brief = resolve({
+      origin: "manual",
+      template: "announcement",
+      proposal: { ...proposal, imageKind: "product", template: "lifestyle" },
+    });
+    expect(brief).toMatchObject({
+      template: "announcement",
+      imageKind: "scene",
+      fallbackReason: "NO_PRODUCT_ASSETS",
+    });
+  });
+
+  it("refuses an explicit variant that none of the formats offers (R31)", () => {
+    const input: Parameters<typeof resolve>[0] = {
+      template: "product_showcase",
+      variant: "product_left",
+      hasProducts: true,
+      channelFormats: ["feed_portrait"],
+    };
+    expect(() => resolve({ ...input, origin: "manual" })).toThrow(
+      expect.objectContaining({
+        code: "CREATIVE_VARIANT_NOT_AVAILABLE",
+        status: 409,
+      }),
+    );
+    // A variant of another template is not offered either.
+    expect(() =>
+      resolve({
+        origin: "manual",
+        template: "lifestyle",
+        variant: "centered",
+        channelFormats: ["square"],
+      }),
+    ).toThrow(
+      expect.objectContaining({ code: "CREATIVE_VARIANT_NOT_AVAILABLE" }),
+    );
+    // Automated paths adapt silently to the first valid variant.
+    expect(resolve({ ...input, origin: "automated" }).variant).toBe("text_top");
+    // Offered by one of the formats: kept, the pipeline adapts the others.
+    expect(
+      resolve({
+        ...input,
+        origin: "manual",
+        channelFormats: ["feed_portrait", "landscape"],
+      }).variant,
+    ).toBe("product_left");
+  });
+
+  it("adapts the project's default variant silently, as for automated requests", () => {
+    expect(
+      resolve({
+        origin: "manual",
+        template: "product_showcase",
+        hasProducts: true,
+        identity: {
+          creative: {
+            templates: {
+              product_showcase: { enabled: true, variant: "product_left" },
+            },
+          },
+        },
+      }).variant,
+    ).toBe("text_top");
+  });
+});
+
+describe("briefLayout", () => {
+  it("is the layout of the brief's first format with its variant adapted to it", () => {
+    const brief = resolve({
+      proposal: {
+        ...proposal,
+        imageKind: "product",
+        template: "product_showcase",
+      },
+      hasProducts: true,
+      channelFormats: ["feed_portrait", "landscape"],
+      variant: "product_left",
+    });
+    expect(brief.variant).toBe("product_left");
+    const layout = briefLayout(brief, "top_right");
+    expect(layout.format.id).toBe("feed_portrait");
+    expect(layout.logo.corner).toBe("top_right");
+    // The side variant does not exist on a tall format.
+    expect(layout.product).not.toBeNull();
+    expect(layout.textBox.y).toBeLessThan(layout.product!.y);
   });
 });
 

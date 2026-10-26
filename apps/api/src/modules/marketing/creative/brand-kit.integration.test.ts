@@ -119,6 +119,20 @@ describe.skipIf(!enabled)("brand kit loader and creative store", () => {
     });
   });
 
+  it("answers a corrupt stored profile with a domain error", async () => {
+    await saveProfile(scope, {});
+    await run(scope, (tx) =>
+      tx.projectMarketingProfile.updateMany({
+        where: { projectId: scope.projectId },
+        data: { data: { productName: 42 } },
+      }),
+    );
+    await expect(plan()).rejects.toMatchObject({
+      code: "MARKETING_PROFILE_INVALID",
+      status: 409,
+    });
+  });
+
   it("refuses a logo that is not approved, not a raster logo or not in this project", async () => {
     const bytes = await png("#E8604C");
     const foreign = await asset(other, bytes);
@@ -292,6 +306,32 @@ describe.skipIf(!enabled)("brand kit loader and creative store", () => {
     driveContent.mockResolvedValue({ bytes, mime: "image/png" });
     const [logo] = (await loadCreativeBrand(scope, await plan())).logos;
     expect(logo!.sha256).toBe(sha(bytes));
+  });
+
+  it("reads a logo shared by several roles once", async () => {
+    const bytes = await png("#E8604C");
+    const shared = await asset(scope, bytes, {
+      base64: undefined,
+      driveFileId: "drive-shared",
+      md5Checksum: "abc",
+    });
+    await saveProfile(scope, {
+      logoAssetId: shared,
+      logos: { mark: shared, onDark: shared },
+    });
+    driveContent.mockClear();
+    driveContent.mockResolvedValue({ bytes, mime: "image/png" });
+    const brand = await loadCreativeBrand(scope, await plan());
+    expect(driveContent).toHaveBeenCalledTimes(1);
+    expect(brand.logos.map((logo) => logo.role).sort()).toEqual([
+      "mark",
+      "onDark",
+      "primary",
+    ]);
+    for (const logo of brand.logos) {
+      expect(logo.bytes.equals(bytes)).toBe(true);
+      expect(logo.sha256).toBe(sha(bytes));
+    }
   });
 
   it("finds a creative of this project only", async () => {

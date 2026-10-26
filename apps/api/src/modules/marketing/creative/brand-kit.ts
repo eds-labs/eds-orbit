@@ -19,6 +19,11 @@ import {
   currentMarketingProfile,
   type MarketingProfile,
 } from "../brand/marketing-profile.ts";
+import {
+  isApprovedAsset,
+  isRasterMime,
+  PRODUCT_ASSET_TYPES,
+} from "../brand/asset-rules.ts";
 import { assetContent } from "./asset-content.ts";
 
 /** An `Entity` row as the database returns it. */
@@ -80,12 +85,6 @@ export type BrandKitPlan = {
   config: ResolvedCreativeConfig;
 };
 
-const RASTER_MIMES = ["image/png", "image/jpeg", "image/webp"];
-/** Asset types a brand kit's product images may have (as `assertProfileReferences` allows). */
-const PRODUCT_TYPES = ["screenshot", "product", "photo"];
-const approved = (asset: Record<string, any>) =>
-  asset.usageApproved === true && asset.assetStatus === "approved";
-
 const findAsset = (tx: DbTx, scope: Scope, id: string) =>
   tx.entity.findFirst({
     where: {
@@ -101,7 +100,8 @@ const findAsset = (tx: DbTx, scope: Scope, id: string) =>
  * logos are drawn from their exact bytes, so each must be an approved raster
  * `logo` with a stored SHA-256 (`APPROVED_LOGO_ASSET_REQUIRED`); the profile
  * needs a primary logo (`PRIMARY_LOGO_REQUIRED`) and itself
- * (`MARKETING_PROFILE_REQUIRED`). A product image that is no longer
+ * (`MARKETING_PROFILE_REQUIRED`, or `MARKETING_PROFILE_INVALID` for a stored
+ * profile that no longer parses). A product image that is no longer
  * approved is left out, so a creative never shows it.
  */
 export async function resolveBrandKit(
@@ -110,7 +110,9 @@ export async function resolveBrandKit(
 ): Promise<BrandKitPlan> {
   const row = await currentMarketingProfile(tx, scope);
   if (!row) throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
-  const profile = marketingProfile.parse(row.data);
+  const parsed = marketingProfile.safeParse(row.data);
+  if (!parsed.success) throw new DomainError("MARKETING_PROFILE_INVALID", 409);
+  const profile = parsed.data;
   const identity = profile.visualIdentity;
   if (!identity.logoAssetId)
     throw new DomainError("PRIMARY_LOGO_REQUIRED", 409);
@@ -134,8 +136,8 @@ export async function resolveBrandKit(
     if (
       !logo ||
       d.type !== "logo" ||
-      !approved(d) ||
-      !RASTER_MIMES.includes(d.mime) ||
+      !isApprovedAsset(d) ||
+      !isRasterMime(d.mime) ||
       !/^[0-9a-f]{64}$/iu.test(String(d.sha256 ?? ""))
     )
       throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
@@ -147,9 +149,9 @@ export async function resolveBrandKit(
     const d = data(product);
     if (
       product &&
-      PRODUCT_TYPES.includes(d.type) &&
-      approved(d) &&
-      RASTER_MIMES.includes(d.mime)
+      PRODUCT_ASSET_TYPES.includes(d.type) &&
+      isApprovedAsset(d) &&
+      isRasterMime(d.mime)
     )
       products.push(product);
   }
@@ -174,11 +176,21 @@ export async function loadCreativeBrand(
   plan: BrandKitPlan,
 ): Promise<CreativeBrand> {
   const identity = plan.profile.visualIdentity;
+  // A logo used for several roles is read and hashed once.
+  const contents = new Map<
+    string,
+    Promise<Awaited<ReturnType<typeof assetContent>>>
+  >();
   const logos = await Promise.all(
     (Object.entries(plan.logos) as Array<[LogoRole, EntityRow]>).map(
       async ([role, logo]): Promise<CreativeLogo> => {
         const stored = data(logo);
-        const content = await assetContent(scope, stored);
+        let pending = contents.get(logo.id);
+        if (!pending) {
+          pending = assetContent(scope, stored);
+          contents.set(logo.id, pending);
+        }
+        const content = await pending;
         if (content.sha256 !== String(stored.sha256).toLowerCase())
           throw new DomainError("BRAND_ASSET_INTEGRITY_FAILED", 409);
         return { role, bytes: content.bytes, sha256: content.sha256 };
