@@ -14,6 +14,15 @@ export const issuesModule: ServerModule = {
   dependsOn: [],
   defaultEnabled: false,
   entityKinds: [],
-  tables: [],
+  tables: [
+    "IssueCounter",
+    "Issue",
+    "IssueReport",
+    "IssueEvent",
+    "IssueAttachment",
+    "IssueDuplicateCandidate",
+    "IssueExternalRef",
+    "IssueDelivery",
+  ],
   permissions: issuesPermissions,
 };
