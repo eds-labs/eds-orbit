@@ -24,7 +24,7 @@ import { variantForFormat, type ResolvedBrief } from "./brief.ts";
 import {
   artCorrectionFor,
   planCorrection,
-  refusal,
+  creativeRefusal,
   type CorrectionState,
 } from "./quality.ts";
 import type { CreativeRecord } from "./store.ts";
@@ -106,7 +106,7 @@ type Attempt = {
 
 /** Fewer failed blockers is better; an attempt with a refusal is worse than any other (R34). */
 const weight = (failed: readonly string[]) =>
-  (refusal(failed) ? 1000 : 0) + failed.length;
+  (creativeRefusal(failed) ? 1000 : 0) + failed.length;
 
 const tagged = (checks: CreativeCheck[], format: FormatId) =>
   checks.map((check) => ({
@@ -179,6 +179,7 @@ export async function composeRenditions(
       maxArtCorrections: input.artState.maxCorrections,
       artIsOrbitGenerated: input.artState.orbitGenerated,
     };
+    // Logo variants drawn or tried (a forced one whose copy overflowed, R42).
     const drawnRoles = new Set<LogoRole>();
     // The attempt with the fewest failed blockers (the earlier one on a tie),
     // one without a refusal before any with one.
@@ -255,6 +256,7 @@ export async function composeRenditions(
         state.tried = [...state.tried, correction.variant];
       } else if (correction.kind === "logo_variant") {
         state.logoRole = value = correction.role;
+        drawnRoles.add(correction.role);
       } else state.textScale = value = correction.scale;
       outcome.corrections.push({
         kind: correction.kind,

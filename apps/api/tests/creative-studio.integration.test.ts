@@ -10,6 +10,7 @@ import {
   composeCreative,
   CreativeError,
   encodeWebp,
+  TEMPLATE_COPY_LIMITS,
   type ComposeInput,
 } from "../../../packages/creative/src/index.ts";
 import {
@@ -25,6 +26,7 @@ import {
   produceCreative,
   recomposeCreative,
 } from "../src/modules/marketing/creative/pipeline.ts";
+import { attachCreativeInTx } from "../src/modules/marketing/creative/attach.ts";
 import {
   CREATIVES,
   findCreative,
@@ -987,6 +989,129 @@ describe.skipIf(!enabled)(
       await expect(
         attachCreative(a.editor, creative.id, {}),
       ).rejects.toMatchObject({ code: "DRAFT_SUPERSEDED", status: 409 });
+    });
+
+    it("bounds the copy by the template's limits before reading any bytes (R42)", async () => {
+      let composed = 0;
+      const counting = async (request: ComposeInput) => {
+        composed++;
+        return composeCreative(request);
+      };
+      const long =
+        "Evenings feel softer in warm light, in every room of the house";
+      expect(long.length).toBeGreaterThan(
+        TEMPLATE_COPY_LIMITS.lifestyle.headline,
+      );
+      const content = await newContent(a);
+      const before = await stored(a);
+      // A person's copy.
+      await expect(
+        produceCreative(
+          a.editor,
+          {
+            contentId: content.id,
+            template: "lifestyle",
+            copy: { ...COPY, headline: long },
+            artAssetId: assets.goodArt.id,
+          },
+          { compose: counting },
+        ),
+      ).rejects.toMatchObject({ code: "CREATIVE_TEXT_TOO_LONG", status: 409 });
+      // The copywriter's copy stored on the post.
+      const written = await newContent(a, {
+        creativeCopy: { headline: COPY.headline, subline: "x".repeat(121) },
+      });
+      await expect(
+        produceCreative(
+          a.editor,
+          {
+            contentId: written.id,
+            template: "lifestyle",
+            artAssetId: assets.goodArt.id,
+          },
+          { compose: counting },
+        ),
+      ).rejects.toMatchObject({ code: "CREATIVE_TEXT_TOO_LONG", status: 409 });
+      expect(await stored(a)).toEqual(before);
+      // A recomposition's new copy.
+      const creative = await produceGood(a.editor, content.id);
+      await expect(
+        recomposeCreative(
+          a.editor,
+          creative.id,
+          { copy: { ...COPY, headline: long } },
+          { compose: counting },
+        ),
+      ).rejects.toMatchObject({ code: "CREATIVE_TEXT_TOO_LONG", status: 409 });
+      expect(composed).toBe(0);
+    });
+
+    it("attaches in an assignment run without the content review (R42)", async () => {
+      const content = await newContent(a);
+      const weak = await produceCreative(a.editor, {
+        contentId: content.id,
+        template: "lifestyle",
+        copy: COPY,
+        artAssetId: assets.flatArt.id,
+      });
+      expect(weak.status).toBe("needs_owner");
+      // A run attaches it for the agent review, which reports the findings.
+      expect(
+        await runIn(a, (tx) =>
+          attachCreativeInTx(tx, a.editor, weak.id, { mode: "run" }),
+        ),
+      ).toEqual({
+        contentId: content.id,
+        assetId: weak.renditions[0]!.assetId,
+      });
+      const after = data(
+        await runIn(a, (tx) => entity(tx, a.owner, "content", content.id)),
+      );
+      expect(after).toMatchObject({
+        assetId: weak.renditions[0]!.assetId,
+        creativeId: weak.id,
+        status: "draft",
+      });
+      expect(after.review).toBeUndefined();
+      expect(after.reviewedBy).toBeUndefined();
+      expect(await audits(a, "creative.qa_override", weak.id)).toEqual([]);
+      const [attached] = await audits(a, "creative.attached", weak.id);
+      expect((attached!.metadata as any).mode).toBe("run");
+      // Refusals hold in a run too.
+      const other = await newContent(a);
+      const refused = await produceGood(a.editor, other.id);
+      await runIn(a, async (tx) => {
+        const row = await findCreative(tx, a.owner, refused.id);
+        await update(tx, a.owner, row, {
+          ...data(row),
+          qa: {
+            verdict: "needs_owner",
+            checks: [
+              ...data(row).qa.checks,
+              { code: "LOGO_INTEGRITY", passed: false, severity: "blocker" },
+            ],
+          },
+        });
+      });
+      await expect(
+        runIn(a, (tx) =>
+          attachCreativeInTx(tx, a.editor, refused.id, { mode: "run" }),
+        ),
+      ).rejects.toMatchObject({ code: "LOGO_INTEGRITY", status: 409 });
+    });
+
+    it("attaches only in the format of the post's current channel (R42)", async () => {
+      const content = await newContent(a);
+      const creative = await produceGood(a.editor, content.id);
+      expect(creative.renditions.map((r) => r.format)).toEqual(["square"]);
+      // The post moved to X (landscape) after the creative was made.
+      await runIn(a, async (tx) => {
+        const row = await entity(tx, a.owner, "content", content.id);
+        await update(tx, a.owner, row, { ...data(row), channel: "x-int" });
+      });
+      await expect(
+        attachCreative(a.editor, creative.id, {}),
+      ).rejects.toMatchObject({ code: "CONTENT_CHANGED", status: 409 });
     });
 
     it("viewer cannot produce", async () => {

@@ -5,8 +5,8 @@ import type { VariantId } from "../../../../../../packages/creative/src/index.ts
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { EntityRow } from "./brand-kit.ts";
 import {
+  creativeRefusal,
   planCorrection,
-  refusal,
   rightsCheck,
   type CorrectionState,
 } from "./quality.ts";
@@ -192,15 +192,23 @@ describe("planCorrection", () => {
   });
 });
 
-describe("refusal", () => {
+describe("creativeRefusal", () => {
   it("names the first failure that refuses a creative (R34)", () => {
-    expect(refusal(["TEXT_CONTRAST_LOW", "LOGO_INTEGRITY"])).toBe(
+    expect(creativeRefusal(["TEXT_CONTRAST_LOW", "LOGO_INTEGRITY"])).toBe(
       "LOGO_INTEGRITY",
     );
-    expect(refusal(["SCREENSHOT_INTEGRITY"])).toBe("SCREENSHOT_INTEGRITY");
-    expect(refusal(["ASSET_RIGHTS", "TEXT_OVERFLOW"])).toBe("ASSET_RIGHTS");
+    expect(creativeRefusal(["SCREENSHOT_INTEGRITY"])).toBe(
+      "SCREENSHOT_INTEGRITY",
+    );
+    expect(creativeRefusal(["ASSET_RIGHTS", "TEXT_OVERFLOW"])).toBe(
+      "ASSET_RIGHTS",
+    );
     expect(
-      refusal(["TEXT_OVERFLOW", "EMPTY_AREA_EXCESSIVE", "LAYER_OVERLAP"]),
+      creativeRefusal([
+        "TEXT_OVERFLOW",
+        "EMPTY_AREA_EXCESSIVE",
+        "LAYER_OVERLAP",
+      ]),
     ).toBeNull();
   });
 });

@@ -238,6 +238,31 @@ describe("composeRenditions", () => {
     expect(outcome.failed).not.toContain("LOGO_INTEGRITY");
   });
 
+  it("marks a logo variant tried when it does not fit (R42)", async () => {
+    // The drawn logo reads badly; a forced logo variant overflows the copy.
+    const roles: Array<string | undefined> = [];
+    const compose = async (request: ComposeInput) => {
+      roles.push(request.logoRole);
+      if (request.logoRole !== undefined)
+        throw new CreativeError("TEXT_OVERFLOW");
+      const result = await composeCreative(request);
+      return {
+        ...result,
+        layers: result.layers.map((layer) =>
+          layer.kind === "logo" ? { ...layer, color: "#808080" } : layer,
+        ),
+        backdrops: { ...result.backdrops, logo: { p10: 0.2158, p90: 0.2158 } },
+      };
+    };
+    const outcome = await composeRenditions(await input(), { compose });
+    // One try of the other variant, no repeat until the correction limit.
+    expect(roles).toHaveLength(2);
+    expect(roles[0]).toBeUndefined();
+    expect(outcome.corrections.map((c) => c.kind)).toEqual(["logo_variant"]);
+    expect(outcome.failed).toContain("LOGO_CONTRAST_LOW");
+    expect(outcome.renditions).toHaveLength(1);
+  });
+
   it("keeps a person's variant and leaves weak art to the owner", async () => {
     const outcome = await composeRenditions(
       await input({

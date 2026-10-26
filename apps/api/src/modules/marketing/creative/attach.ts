@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   failedBlockers,
+  formatsForChannel,
   type LogoRole,
 } from "../../../../../../packages/creative/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
@@ -15,7 +16,7 @@ import {
   channelLimitExceeded,
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
-import { resolveBrandKit } from "./brand-kit.ts";
+import { resolveBrandKit, type BrandKitPlan } from "./brand-kit.ts";
 import {
   assetSha,
   keptAssets,
@@ -23,7 +24,7 @@ import {
   projectAssets,
   projectRow,
 } from "./components.ts";
-import { assertRights, refusal, rightsCheck } from "./quality.ts";
+import { assertRights, creativeRefusal, rightsCheck } from "./quality.ts";
 import { findCreative, type CreativeRecord } from "./store.ts";
 
 // Attaching a creative to its post (spec §11): one path for the manual
@@ -50,6 +51,7 @@ type RightsComponent = {
 async function assertRenditionHolds(
   tx: DbTx,
   scope: Scope,
+  kit: BrandKitPlan,
   creativeId: string,
   rendition: CreativeRecord["renditions"][number],
 ) {
@@ -68,7 +70,6 @@ async function assertRenditionHolds(
   const components = (d.rightsSource?.components ?? []) as RightsComponent[];
   const rows = await keptAssets(tx, scope, components);
   assertRights(await rightsCheck(tx, scope, rows, "social"));
-  const kit = await resolveBrandKit(tx, scope);
   for (const component of components)
     if (
       component.role === "logo" &&
@@ -113,39 +114,60 @@ async function retirePrevious(
 }
 
 /**
+ * How an attach treats the post: `content` for a person in the studio (the
+ * content review runs again; only the owner may accept QA findings), `run`
+ * for an assignment run (the draft stays a `draft` for the run's agent
+ * review, which reports a creative's QA findings as `CREATIVE_QA_FAILED`;
+ * nobody accepts findings on the run's behalf).
+ */
+export type AttachMode = "content" | "run";
+
+/**
  * Attaches a creative to its post in `tx` (spec §11, like
- * `attachPackageImage`). The caller checked the flag and the writer role.
+ * `attachPackageImage`; one path for the studio, assignment runs and
+ * packages, R35, R42). The caller checked the flag and the writer role.
  *
- * - The rendition of the creative's first format (the channel's) becomes the
- *   post's image (`assetId`, `creativeId`). The post goes back to `draft`
- *   without its review, approvals and publications of the old version are
- *   blocked, and the review runs again.
- * - Only a `composed` creative is attached; one that `needs_owner` only when
- *   the owner accepts the findings (audited `creative.qa_override`).
- *   Integrity and rights findings are refusals nobody accepts (R34).
+ * - The rendition in the format of the post's current channel becomes the
+ *   post's image (`assetId`, `creativeId`); a post that is no longer social
+ *   or whose channel needs another format is `CONTENT_CHANGED`. The post
+ *   goes back to `draft` without its review, and approvals and publications
+ *   of the old version are blocked. In `content` mode the review runs again.
+ * - A `composed` creative is attached. One that `needs_owner` needs the
+ *   owner's acceptance of the findings in `content` mode (audited
+ *   `creative.qa_override`), and is attached as it is in `run` mode.
+ *   Integrity and rights findings are refusals in both (R34), and the
+ *   rendition's components and brand are checked again.
  * - The post's previous rendition becomes `outdated` and a creative it
  *   replaces `superseded`; this one becomes `attached` (R5). Repeating the
  *   attach changes nothing.
  *
- * Errors: `CREATIVE_QA_FAILED`, `CREATIVE_NOT_ATTACHABLE`, `DRAFT_SUPERSEDED`,
- * `ALREADY_SCHEDULED`, `CAPTION_TOO_LONG`, `BRAND_ASSET_CHANGED`,
- * `ASSET_RIGHTS`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY` (409),
- * `OWNER_REQUIRED` (403), `NOT_FOUND` (404).
+ * Errors: `CREATIVE_QA_FAILED`, `CREATIVE_NOT_ATTACHABLE`, `CONTENT_CHANGED`,
+ * `DRAFT_SUPERSEDED`, `ALREADY_SCHEDULED`, `CAPTION_TOO_LONG`,
+ * `BRAND_ASSET_CHANGED`, `ASSET_RIGHTS`, `LOGO_INTEGRITY`,
+ * `SCREENSHOT_INTEGRITY` (409), `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
+ * besides the brand kit's own.
  */
 export async function attachCreativeInTx(
   tx: DbTx,
   scope: Scope,
   creativeId: string,
-  opts: { acceptQaFindings?: true } = {},
+  opts: { mode?: AttachMode; acceptQaFindings?: true } = {},
 ): Promise<{ contentId: string; assetId: string }> {
+  const mode = opts.mode ?? "content";
   const row = await findCreative(tx, scope, creativeId);
   const record = data(row) as CreativeRecord;
   const content = await projectRow(tx, scope, "content", record.contentId);
   const v = data(content);
-  const rendition =
-    record.renditions.find((r) => r.format === record.brief.formats[0]) ??
-    record.renditions[0];
-  if (!rendition) throw new DomainError("CREATIVE_NOT_ATTACHABLE", 409);
+  const kit = await resolveBrandKit(tx, scope);
+  // The post as it is now: social, in the format its channel takes (R42).
+  const rules = await resolveChannelRules(tx, scope, v.channel, v.type, true);
+  const format = formatsForChannel(
+    rules.providerIdentifier,
+    kit.config.formatsByChannel,
+  )[0];
+  const rendition = record.renditions.find((r) => r.format === format);
+  if (v.type !== "social" || !rendition)
+    throw new DomainError("CONTENT_CHANGED", 409);
   const result = { contentId: content.id, assetId: rendition.assetId };
   if (
     record.status === "attached" &&
@@ -155,17 +177,20 @@ export async function attachCreativeInTx(
     return result;
   const failed = [...new Set(failedBlockers(record.qa.checks))];
   // Integrity and rights findings are refusals no one accepts (R34).
-  const refused = refusal(failed);
+  const refused = creativeRefusal(failed);
   if (refused) throw new DomainError(refused, 409);
-  const override = record.status === "needs_owner";
+  const override = mode === "content" && record.status === "needs_owner";
   if (override) {
     if (opts.acceptQaFindings !== true)
       throw new DomainError("CREATIVE_QA_FAILED", 409);
     authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
-  } else if (record.status !== "composed")
+  } else if (
+    record.status !== "composed" &&
+    !(mode === "run" && record.status === "needs_owner")
+  )
     throw new DomainError("CREATIVE_NOT_ATTACHABLE", 409);
   if (v.supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
-  await assertRenditionHolds(tx, scope, row.id, rendition);
+  await assertRenditionHolds(tx, scope, kit, row.id, rendition);
   if (
     (await list(tx, scope, "publications")).some(
       (publication) =>
@@ -175,13 +200,7 @@ export async function attachCreativeInTx(
   )
     throw new DomainError("ALREADY_SCHEDULED", 409);
   // Telegram sends text with media as a caption with a smaller limit.
-  if (
-    channelLimitExceeded(
-      String(v.body ?? ""),
-      v.targetUrl,
-      await resolveChannelRules(tx, scope, v.channel, v.type, true),
-    )
-  )
+  if (channelLimitExceeded(String(v.body ?? ""), v.targetUrl, rules))
     throw new DomainError("CAPTION_TOO_LONG", 409);
   const { review: _review, ...rest } = v;
   const attached = await update(tx, scope, content, {
@@ -191,7 +210,9 @@ export async function attachCreativeInTx(
     status: "draft",
   });
   await invalidateContent(tx, scope, content.id);
-  await reviewContent(tx, scope, attached.id, attached.version);
+  // A run's agent review reviews the draft next (R42).
+  if (mode === "content")
+    await reviewContent(tx, scope, attached.id, attached.version);
   await retirePrevious(tx, scope, v, { ...result, creativeId: row.id });
   await update(tx, scope, row, { ...record, status: "attached" });
   if (override)
@@ -203,6 +224,7 @@ export async function attachCreativeInTx(
     contentId: content.id,
     assetId: rendition.assetId,
     format: rendition.format,
+    mode,
   });
   return result;
 }

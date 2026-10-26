@@ -12,6 +12,7 @@ import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import type { BrandKitPlan, EntityRow } from "./brand-kit.ts";
 import type { ResolvedBrief } from "./brief.ts";
 import { assetSha, projectAssets } from "./components.ts";
+import { creativeRefusal } from "./quality.ts";
 import type { CompositionOutcome } from "./renditions.ts";
 import type { CreativeRecord } from "./store.ts";
 
@@ -93,12 +94,21 @@ export async function assertContentHolds(
   return content;
 }
 
+/** A refused composition (R34) is never stored, whoever saves it. */
+function assertNotRefused(composed: ComposedCreative) {
+  const refused = creativeRefusal(composed.outcome.failed);
+  if (refused) throw new DomainError(refused, 409);
+}
+
 /**
  * Stores each rendition as an approved `generated_artwork` asset bound to
  * its creative and post (kept out of the library and pickers), whose rights
  * source records every drawn component's id, version and SHA-256 (the logo
  * with the role it was drawn as). `boundTo` and `rightsSource` take a flow's
  * own fields (an assignment run, a consent) next to Orbit's, which win.
+ * `approvedBy` is who stands for the rights: the person composing, or for
+ * an assignment run the owner whose confirmation carries the consent. A
+ * refused composition (R34) throws its code (409) and stores nothing.
  */
 export async function saveRenditions(
   tx: DbTx,
@@ -119,6 +129,7 @@ export async function saveRenditions(
   },
 ): Promise<CreativeRecord["renditions"]> {
   const { plan, composed } = input;
+  assertNotRefused(composed);
   const component = (
     role: string,
     row: EntityRow,
@@ -194,7 +205,7 @@ export async function saveRenditions(
  * The composition part of a creative record: the brief, the variant drawn in
  * the first format (the brief keeps the one asked for), whether a person
  * fixed it, the components with their bytes and the QA. `composed` without
- * a failed blocker, else `needs_owner`.
+ * a failed blocker, else `needs_owner`; a refusal (R34) throws its code.
  */
 export function composedFields(
   plan: CreativePlan,
@@ -208,6 +219,7 @@ export function composedFields(
   | "corrections"
   | "cost"
 > {
+  assertNotRefused(composed);
   const { outcome } = composed;
   const first = outcome.renditions[0]!;
   const logo = plan.kit.logos[first.result.logoRole]!;

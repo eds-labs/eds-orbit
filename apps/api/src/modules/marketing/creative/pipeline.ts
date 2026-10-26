@@ -3,6 +3,7 @@ import {
   composeCreative,
   CreativeError,
   formatsForChannel,
+  TEMPLATE_COPY_LIMITS,
   TEMPLATE_NEEDS,
   type CreativeCopy,
   type ImageKind,
@@ -35,7 +36,12 @@ import {
   projectAssets,
   projectRow,
 } from "./components.ts";
-import { parsedCreativeCopy, storedCreativeCopy } from "./copy-checks.ts";
+import {
+  CREATIVE_TEXT_TOO_LONG,
+  creativeCopyProblems,
+  parsedCreativeCopy,
+  storedCreativeCopy,
+} from "./copy-checks.ts";
 import { creativeStudioEnabled } from "./flag.ts";
 import {
   assertContentHolds,
@@ -46,7 +52,7 @@ import {
   type ComposedCreative,
   type CreativePlan,
 } from "./persist.ts";
-import { assertRights, refusal, rightsCheck } from "./quality.ts";
+import { assertRights, creativeRefusal, rightsCheck } from "./quality.ts";
 import { composeRenditions, type CompositionOutcome } from "./renditions.ts";
 import {
   CREATIVES,
@@ -151,13 +157,25 @@ function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
 /** A creative plan of one post. */
 type Plan = CreativePlan & { content: EntityRow };
 
-/** Completes a plan with the rights of its components; a refusal throws (R22). */
+/**
+ * Completes a plan, before any byte is read: the copy within the template's
+ * limits (Task 12's rule, `CREATIVE_TEXT_TOO_LONG`, R42), art where the
+ * template needs it (`ART_REQUIRED`) and the rights of every component (a
+ * refusal throws, R22).
+ */
 async function checkedPlan(
   tx: DbTx,
   scope: Scope,
   plan: Omit<Plan, "rights">,
 ): Promise<Plan> {
-  if (TEMPLATE_NEEDS[plan.brief.template].art === "required" && !plan.art)
+  const { template } = plan.brief;
+  if (
+    creativeCopyProblems(plan.copy, TEMPLATE_COPY_LIMITS[template], {
+      cta: plan.copy.cta,
+    }).includes(CREATIVE_TEXT_TOO_LONG)
+  )
+    throw new DomainError(CREATIVE_TEXT_TOO_LONG, 409);
+  if (TEMPLATE_NEEDS[template].art === "required" && !plan.art)
     throw new DomainError("ART_REQUIRED", 409);
   const rights = await rightsCheck(tx, scope, sourceRows(plan), "social");
   assertRights(rights);
@@ -194,7 +212,7 @@ async function composePlan(
     { compose: deps.compose },
   ).catch(engineError);
   // A logo or screenshot that is not its approved bytes is refused (R34).
-  const refused = refusal(outcome.failed);
+  const refused = creativeRefusal(outcome.failed);
   if (refused) throw new DomainError(refused, 409);
   // Copy that does not fit is the person's to shorten; nothing is saved.
   if (outcome.overflow.length) throw new DomainError("TEXT_OVERFLOW", 409);
@@ -239,7 +257,8 @@ const auditFacts = (record: CreativeRecord, outcome: CompositionOutcome) => ({
  * profile, components and post. `composed` when no failed blocker remains,
  * else `needs_owner` with the findings. Free: no model call.
  * Errors: `EDITOR_REQUIRED` (403), `NOT_FOUND` (404),
- * `CREATIVE_SOCIAL_ONLY`, `CREATIVE_COPY_REQUIRED`, `ART_REQUIRED`,
+ * `CREATIVE_SOCIAL_ONLY`, `CREATIVE_COPY_REQUIRED`, `CREATIVE_TEXT_TOO_LONG`,
+ * `ART_REQUIRED`,
  * `TEXT_OVERFLOW`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`,
  * `MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED`, `CONTENT_CHANGED`
  * (409), besides the brand kit's and brief's own.

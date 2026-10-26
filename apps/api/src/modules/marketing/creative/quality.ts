@@ -93,7 +93,7 @@ export const REFUSALS = [
 export type Refusal = (typeof REFUSALS)[number];
 
 /** The first failed code that refuses the creative, or null. */
-export function refusal(failed: readonly string[]): Refusal | null {
+export function creativeRefusal(failed: readonly string[]): Refusal | null {
   return (
     (failed.find((code) => (REFUSALS as readonly string[]).includes(code)) as
       Refusal | undefined) ?? null
@@ -162,7 +162,7 @@ export function artCorrectionFor(
   if (
     !state.artIsOrbitGenerated ||
     state.artAttempts >= state.maxArtCorrections ||
-    refusal(failed)
+    creativeRefusal(failed)
   )
     return null;
   if (failed.includes("SUBJECT_TOO_SMALL")) return { kind: "subject_larger" };
@@ -188,7 +188,7 @@ export function planCorrection(
   state: CorrectionState,
   failed: Array<CreativeCheck["code"] | "TEXT_OVERFLOW">,
 ): Correction | null {
-  if (refusal(failed)) return null;
+  if (creativeRefusal(failed)) return null;
   const has = (...codes: Array<CreativeCheck["code"] | "TEXT_OVERFLOW">) =>
     codes.some((code) => failed.includes(code));
   const categories: Array<() => Correction | null> = [
