@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by Mario, 2026-10-25. The plan is [`docs/plans/ai-project-manager-phase-2.md`](../plans/ai-project-manager-phase-2.md); Mario answered its questions Q-P2-1 to Q-P2-6 on 2026-10-25 and asked to start the implementation after Phase 1 went live (`5f89cc00`). Implementation is local on the branch `claude/ai-pm-phase-2`; nothing is merged or deployed, and `ORBIT_WORK_PM` is off.
+Accepted by Mario, 2026-10-25. The plan is [`docs/plans/ai-project-manager-phase-2.md`](../plans/ai-project-manager-phase-2.md); Mario answered its questions Q-P2-1 to Q-P2-6 on 2026-10-25 and asked to start the implementation after Phase 1 went live (`5f89cc00`). Implemented and pushed to main on 2026-10-26 with Mario's approval; `ORBIT_WORK_PM` is off.
 
 ## Context
 

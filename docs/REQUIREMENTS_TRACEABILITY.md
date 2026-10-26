@@ -6,8 +6,8 @@
 | --- | --- | --- |
 | PM2-01 Shared PM capability in the work module, one initiative per run, behind `ORBIT_WORK_PM` | `modules/work/pm/`, `gate.ts`; `work-pm-settings.integration.test.ts`, `work-routes.integration.test.ts` | PASS_TEST (local; flag off) |
 | PM2-02 Platform structured runs: read tools only, strict output, input limit before reservation, per-call reservation and settlement, unclear calls never resent | `platform/agents/structured-run.ts`; `structured-run.integration.test.ts` | PASS_TEST (local) |
-| PM2-03 Task classes `pm_plan`, `pm_analysis` and run kind `work_pm` | `packages/ai/src/routing.ts`, migration `202610250006_work_pm_run_kind`; `routing.test.ts`, `unit.test.ts` | PASS_TEST (local) |
-| PM2-04 PM tables with FORCE RLS, composite keys; settings with owner path; per-initiative state | migrations `202610250007_work_pm`, `202610250008_work_handoffs`; RLS matrix, `work-pm-settings.integration.test.ts` | PASS_TEST (local) |
+| PM2-03 Task classes `pm_plan`, `pm_analysis` and run kind `work_pm` | `packages/ai/src/routing.ts`, migration `202610250007_work_pm_run_kind`; `routing.test.ts`, `unit.test.ts` | PASS_TEST (local) |
+| PM2-04 PM tables with FORCE RLS, composite keys; settings with owner path; per-initiative state | migrations `202610250008_work_pm`, `202610250009_work_handoffs`; RLS matrix, `work-pm-settings.integration.test.ts` | PASS_TEST (local) |
 | PM2-05 Planning: request, deterministic validation, approval by an editor, apply once; revisions withdraw the previous approval | `pm/{planner,plan-validate,apply}.ts`; `work-pm-plan.test.ts`, `work-pm-planning.integration.test.ts` | PASS_TEST (scripted model) |
 | PM2-06 Monitoring rules without AI, fingerprints, debounced event wake-up, daily scan, escalation | `pm/{rules,monitor}.ts`; `work-pm-rules.test.ts`, `work-pm-monitor.integration.test.ts` | PASS_TEST (local) |
 | PM2-07 Reports and re-prioritization proposals with state-hash skip, daily ceiling, version-bound bulk approval | `pm/{reporter,analyst,budget}.ts`; `work-pm-reports.integration.test.ts` | PASS_TEST (scripted model) |
@@ -19,7 +19,7 @@
 | PM2-13 Offline evaluation with thresholds and a capped live run | `evals/work-pm/`; `metrics.test.ts`, dry run | PASS_TEST (dry run; live run needs approval) |
 | PM2-14 Web: PM panel, plan review, task handoffs and coding runs, settings, approval renderers, attention | `apps/web/src/modules/work/pm*.tsx`; `pm.test.tsx`; browser check on a local stack | PASS_TEST (local) |
 | PM2-15 Approvals list shows the requests a member may decide, with module summaries | `platform/governance/action-requests.ts`; planning and MCP tests, access matrix | PASS_TEST (local) |
-| PM2-16 Production activation (merge with migrations, routes, evaluation, `ORBIT_WORK_PM`) | `docs/WORK.md` rollout | NOT_STARTED (needs approvals) |
+| PM2-16 Production activation (merge with migrations, routes, evaluation, `ORBIT_WORK_PM`) | `docs/WORK.md` rollout | PARTIAL (merged and deployed with migrations 2026-10-26; routes, evaluation and `ORBIT_WORK_PM` need approvals) |
 
 ## Project management phase 1 (ADR 0016, 2026-10-25)
 

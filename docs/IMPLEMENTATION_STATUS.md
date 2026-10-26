@@ -1,6 +1,6 @@
 # Implementation status
 
-## AI project manager phase 2 (2026-10-25, branch `claude/ai-pm-phase-2`, local; not pushed)
+## AI project manager phase 2 (2026-10-26, merged to main with Mario's approval; `ORBIT_WORK_PM` off)
 
 Plan: [plans/ai-project-manager-phase-2.md](plans/ai-project-manager-phase-2.md); ADR: [adr/0017-ai-project-manager.md](adr/0017-ai-project-manager.md); guide: [WORK.md](WORK.md#ai-project-manager-phase-2-adr-0017). Mario's decisions Q-P2-1 to Q-P2-6 of 2026-10-25 apply.
 
@@ -13,7 +13,7 @@ Plan: [plans/ai-project-manager-phase-2.md](plans/ai-project-manager-phase-2.md)
   - MCP scopes `orbit:work.pm` and `orbit:work.coding`.
 - **Work module:** `ORBIT_WORK_PM` (default off); PM settings (budget USD 2 per day, propose-only autonomy, coding budget, repositories); per-initiative state; planning with an editor-approved apply; nine monitoring rules without AI; reports and re-prioritization proposals; research and analysis handoffs; coding work orders (manual provider, and the automation provider tested against a fake endpoint); four assistant reads, two in-app requests and four MCP proposals; 26 routes.
 - **Web:** PM panel per initiative, plan review, handoffs and coding runs per task, PM settings, renderers for every PM approval type, attention texts.
-- **Migrations (additive):** `202610250006_work_pm_run_kind`, `202610250007_work_pm`, `202610250008_work_handoffs`.
+- **Migrations (additive):** `202610250007_work_pm_run_kind`, `202610250008_work_pm`, `202610250009_work_handoffs`.
 - **Eval:** `evals/work-pm/`, with a dry-run worst case of USD 0.91 for 6 goals under a USD 2 ceiling. No live run.
 
 **Also fixed (affects Phase 1; shipped separately to main as `17baf6a9`, live 2026-10-26 04:22 UTC, see the entry below):** the approvals list (`GET /action-requests`) showed only owner-decided requests and only to owners. Work proposals that an editor decides therefore appeared nowhere, so MCP work proposals could not be approved in the UI. It now also lists editor-decided types that opt in (`inbox: "editors"`: the work types) to members who write in the module. For MCP types, the module's summary now wins over the raw arguments, so the work renderers match. Access matrix: editor `GET /action-requests` 403 → 200; viewers still 403.
@@ -29,7 +29,7 @@ Plan: [plans/ai-project-manager-phase-2.md](plans/ai-project-manager-phase-2.md)
 
 Verification (local, worktree database): full suite 3,812 passed / 7 skipped / 0 failed (no paid call; models scripted); root and web `tsc`, source check, boundaries, Coolify compose check, `next build`; OpenAPI regenerated (26 new PM routes, nothing removed or changed); access matrix reviewed (26 new routes, all 404 while the module is off; editor `GET /action-requests` 403 → 200); eval dry run. A self-review found two problems, both fixed with tests: an editor's MCP coding proposal failed at the owner's approval, and the opened approvals list would have shown Marketing's chat confirmations. E2e was not run (see above).
 
-**Not deployed. `ORBIT_WORK_PM` off; no paid call was made.** Merging deploys the three migrations and needs Mario's approval. Each further rollout step (routes, live evaluation within its budget, the flag, budgets, an n8n coding workflow) needs its own approval.
+**Pushed to main on 2026-10-26 with Mario's approval (the push deploys the three additive migrations). `ORBIT_WORK_PM` stays off; no paid call was made.** After the merge with main the migrations were renumbered after `202610250006_ai_organization_budget`, the PM task classes were added to the new model choice, and the full suite ran again: 3,830 passed / 7 skipped / 0 failed. Each further rollout step (routes, live evaluation within its budget, the flag, budgets, an n8n coding workflow) needs its own approval.
 
 
 ## Approvals list for editors (2026-10-25, fix for project management phase 1)

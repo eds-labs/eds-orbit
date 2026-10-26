@@ -66,6 +66,9 @@ export const aiTasks = [
   { id: "support_triage", en: "Support triage", de: "Support-Einordnung", tokens: 800 },
   { id: "support_draft", en: "Support replies", de: "Support-Antworten", tokens: 1800 },
   { id: "finance_extraction", en: "Finance extraction", de: "Finanz-Auslesen", tokens: 4000 },
+  // AI project manager (ADR 0017).
+  { id: "pm_plan", en: "Project manager plans", de: "KI-Projektleiter: Pläne", tokens: 12000 },
+  { id: "pm_analysis", en: "Project manager reports", de: "KI-Projektleiter: Berichte", tokens: 3000 },
 ] as const;
 export const taskName = (task: (typeof aiTasks)[number], locale: Locale) =>
   locale === "de" ? task.de : task.en;

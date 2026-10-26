@@ -1,6 +1,6 @@
 # AI project manager — Phase 2 implementation plan
 
-Status: **implemented locally** (2026-10-25, branch `claude/ai-pm-phase-2`, ADR 0017); not merged or deployed, `ORBIT_WORK_PM` off, no paid call made. The sections below are the plan as decided; deviations are listed in `docs/IMPLEMENTATION_STATUS.md`.
+Status: **implemented** (ADR 0017), on main since 2026-10-26; `ORBIT_WORK_PM` off, no paid call made. The sections below are the plan as decided; deviations are listed in `docs/IMPLEMENTATION_STATUS.md`.
 Basis: `main` at `c4886cc0` (read-only analysis). Prerequisite: Phase 1 ([`project-management-phase-1.md`](project-management-phase-1.md)) is implemented and merged; this plan names the Phase 1 contracts it uses (§1.3). Phase 3 ([`issue-center-phase-3.md`](issue-center-phase-3.md)) builds on §2.5 (handoffs) and §2.7 (coding work orders).
 
 Classification under `AGENTS.md`:

@@ -86,9 +86,9 @@ Reads: `work_search_tasks`, `work_get_task`, `work_list_initiatives`, `work_prog
 
 ## AI project manager (Phase 2, ADR 0017)
 
-**State (2026-10-25): implemented locally on the branch `claude/ai-pm-phase-2`; not merged or deployed. `ORBIT_WORK_PM` is off; no paid call was made.** The plan is [`plans/ai-project-manager-phase-2.md`](plans/ai-project-manager-phase-2.md).
+**State (2026-10-26): on main (pushed with Mario's approval, migrations included); `ORBIT_WORK_PM` is off and no paid call was made.** The plan is [`plans/ai-project-manager-phase-2.md`](plans/ai-project-manager-phase-2.md).
 
-The PM is part of this module. It is one implementation that loads one initiative at a time; it has no instance, process or memory of its own, and its state is rows in the database (`WorkPmState`, `WorkPlanProposal`, `WorkPmFinding`, `WorkPmReport`, `WorkHandoff`, `WorkCodingRun`; migrations `202610250006_work_pm_run_kind`, `202610250007_work_pm`, `202610250008_work_handoffs`). It never chats. It runs as background jobs (queue `work_pm`), and members reach it in the initiative view, the task view, the assistant and MCP.
+The PM is part of this module. It is one implementation that loads one initiative at a time; it has no instance, process or memory of its own, and its state is rows in the database (`WorkPmState`, `WorkPlanProposal`, `WorkPmFinding`, `WorkPmReport`, `WorkHandoff`, `WorkCodingRun`; migrations `202610250007_work_pm_run_kind`, `202610250008_work_pm`, `202610250009_work_handoffs`). It never chats. It runs as background jobs (queue `work_pm`), and members reach it in the initiative view, the task view, the assistant and MCP.
 
 **Switching it on.** `ORBIT_WORK_PM=true` on top of `ORBIT_WORK` and the module in the project. While off, every PM route but `status` answers 404 `WORK_PM_DISABLED`, and its tools, jobs, subscribers and attention items stay quiet. Per initiative, an owner switches monitoring on (Projektmanagement → Vorhaben → KI-Projektleiter). A plan the PM created starts watched; status reports stay off until switched on (Q-P2-2).
 
