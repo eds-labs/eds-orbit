@@ -1,3 +1,4 @@
+import { CREATIVE_THRESHOLDS } from "./analysis.ts";
 import type { CreativeBrand, CreativeLogo } from "./brand.ts";
 import { contrastRatio, parseHex, relativeLuminance } from "./color.ts";
 import type { LogoRole } from "./ids.ts";
@@ -17,7 +18,8 @@ import type { Box, LayoutSpec } from "./templates.ts";
 // The approved logo: variant choice by backdrop, proportional scaling into its
 // anchor, and a plate behind it when no variant is visible on its own.
 
-const LOGO_CONTRAST = 2;
+/** QA's logo contrast requirement (spec §9). */
+const LOGO_CONTRAST = CREATIVE_THRESHOLDS.logoContrast;
 /** Mean luminance below which the logo backdrop counts as dark. */
 const DARK_BACKDROP = 0.4;
 const PLATE_OPACITY = 0.9;

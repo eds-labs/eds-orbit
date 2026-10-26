@@ -6,6 +6,7 @@ import {
   opaqueLogo,
 } from "../fixtures/demo-brands.ts";
 import { sha256Hex, type CreativeBrand, type RasterSource } from "./brand.ts";
+import { CREATIVE_THRESHOLDS } from "./analysis.ts";
 import { contrastRatio, relativeLuminance } from "./color.ts";
 import {
   composeCreative,
@@ -80,6 +81,24 @@ async function whiteLogo(): Promise<RasterSource> {
       `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="160">
         <circle cx="80" cy="80" r="64" fill="#FFFFFF"/>
         <rect x="176" y="48" width="280" height="64" rx="18" fill="#FFFFFF"/>
+      </svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}
+
+/** Art of two-pixel stripes in black and dark grey, dark enough for white text everywhere. */
+async function stripedArt(): Promise<RasterSource> {
+  const { default: sharp } = await import("sharp");
+  const bytes = await sharp(
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
+        <defs><pattern id="s" width="4" height="4" patternUnits="userSpaceOnUse">
+          <rect width="2" height="4" fill="#404040"/></pattern></defs>
+        <rect width="1024" height="1024" fill="#000000"/>
+        <rect width="1024" height="1024" fill="url(#s)"/>
       </svg>`,
     ),
   )
@@ -248,6 +267,36 @@ describe("composeCreative", () => {
     );
   });
 
+  it("raises the scrim until busy art behind the text is calm (R17)", async () => {
+    // Fine dark stripes: white text reads on them at any scrim, but they are busy.
+    expect(contrastRatio("#FFFFFF", "#404040")).toBeGreaterThan(4.5);
+    const input = await lifestyleInput("kestrel");
+    const art = await stripedArt();
+    const result = await composeCreative({ ...input, art });
+    const scrim = layoutFor(
+      "lifestyle",
+      "text_bottom",
+      "feed_portrait",
+      OPTIONS,
+    ).scrim!;
+    expect(result.scrimOpacity).toBeGreaterThan(scrim.base);
+    expect(result.scrimOpacity).toBeLessThanOrEqual(scrim.max);
+    for (const record of result.layers.filter((l) =>
+      TEXT_KINDS.includes(l.kind as never),
+    )) {
+      const backdrop =
+        result.backdrops[record.kind as (typeof TEXT_KINDS)[number]]!;
+      expect(backdrop.busy, record.kind).toBeLessThanOrEqual(
+        CREATIVE_THRESHOLDS.busyText,
+      );
+      expect(backdropContrast(result, record)).toBeGreaterThanOrEqual(
+        required(record),
+      );
+    }
+    // The pill is a flat backdrop of its own.
+    expect(result.backdrops.cta!.busy).toBe(0);
+  });
+
   it.each(["lumora", "kestrel"] as const)(
     "keeps an opaque logo visible on its own background (%s)",
     async (brandName) => {
@@ -357,7 +406,7 @@ describe("composeCreative", () => {
     const cta = layer(result, "cta");
     const pill = relativeLuminance(input.brand.palette.primaryColor);
     expect(result.ctaStyleApplied).toBe("pill");
-    expect(result.backdrops.cta).toEqual({ p10: pill, p90: pill });
+    expect(result.backdrops.cta).toEqual({ p10: pill, p90: pill, busy: 0 });
     expect(backdropContrast(result, cta)).toBeGreaterThanOrEqual(required(cta));
   });
 
@@ -510,11 +559,17 @@ describe("composeCreative", () => {
               inside(record.box, safeBox),
               `${template} ${record.kind}`,
             ).toBe(true);
-            if (TEXT_KINDS.includes(record.kind as never))
+            if (TEXT_KINDS.includes(record.kind as never)) {
               expect(
                 backdropContrast(result, record),
                 `${brandName} ${template} ${record.kind}`,
               ).toBeGreaterThanOrEqual(required(record));
+              expect(
+                result.backdrops[record.kind as (typeof TEXT_KINDS)[number]]!
+                  .busy,
+                `${brandName} ${template} ${record.kind} busy`,
+              ).toBeLessThanOrEqual(CREATIVE_THRESHOLDS.busyText);
+            }
           }
           for (const [i, a] of placed.entries())
             for (const b of placed.slice(i + 1))

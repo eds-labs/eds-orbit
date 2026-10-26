@@ -1,5 +1,10 @@
 import type { OverlayOptions } from "sharp";
 import {
+  CREATIVE_THRESHOLDS,
+  detailEnergy,
+  requiredTextContrast,
+} from "./analysis.ts";
+import {
   sha256Hex,
   verifyBrand,
   type BrandPalette,
@@ -81,6 +86,12 @@ export type LayerRecord = {
   role?: LogoRole;
 };
 
+/** What lies behind a text layer: its luminance range and how busy it is (R17). */
+export type TextBackdrop = Backdrop & {
+  /** Detail energy (`detailEnergy`) behind the layer, after the scrim; 0 on a pill. */
+  busy: number;
+};
+
 export type ComposeResult = {
   png: Buffer;
   sha256: string;
@@ -94,7 +105,9 @@ export type ComposeResult = {
    * For a pill CTA the backdrop is the pill colour; for a plated logo, the
    * plate; for a logo with its own opaque background, that background.
    */
-  backdrops: Partial<Record<TextLayerKind | "logo", Backdrop>>;
+  backdrops: Partial<Record<TextLayerKind, TextBackdrop>> & {
+    logo?: Backdrop;
+  };
   scrimOpacity: number;
   logoRole: LogoRole;
   /** The CTA as drawn: a pill falls back to an outline when no label colour is readable on it (R2). */
@@ -108,10 +121,6 @@ const ART_ASPECT_TOLERANCE = 1.35;
 const ART_FEATHER = 0.12;
 const SCRIM_BOOST_STEP = 0.12;
 const SCRIM_RAISE_STEP = 0.1;
-/** QA's contrast requirements for text (spec §9): body text, large text from 32 px. */
-const BODY_CONTRAST = 4.5;
-const LARGE_CONTRAST = 3;
-const LARGE_TEXT_PX = 32;
 const PNG_OPTIONS = {
   compressionLevel: 9,
   adaptiveFiltering: false,
@@ -127,10 +136,6 @@ function mostReadable(candidates: string[], backdrop: Backdrop) {
   }
   return best;
 }
-
-/** QA's requirement for a text layer (spec §9, R2); the subline counts as body text. */
-const requiredContrast = (kind: TextLayerKind, size: number) =>
-  kind !== "subline" && size >= LARGE_TEXT_PX ? LARGE_CONTRAST : BODY_CONTRAST;
 
 /** Text colours: the palette's text colour and a light one (the surface when it is light enough). */
 function textColors(palette: BrandPalette) {
@@ -328,7 +333,11 @@ function scrimSvg(
   );
 }
 
-/** Text colours and backdrops of every block on a canvas; `readable` when all meet QA's requirement. */
+/**
+ * Text colours and backdrops of every block on a canvas; `readable` when all
+ * meet QA's contrast requirement, `calm` when no backdrop is busier than QA
+ * allows (R17).
+ */
 function colourStack(
   canvas: Raw,
   blocks: Block[],
@@ -336,19 +345,20 @@ function colourStack(
   pill: { color: string; label: string } | null,
 ) {
   const candidates = textColors(palette);
-  const backdrops: Partial<Record<TextLayerKind, Backdrop>> = {};
+  const backdrops: Partial<Record<TextLayerKind, TextBackdrop>> = {};
   const colors: Partial<Record<TextLayerKind, string>> = {};
   let readable = true;
+  let calm = true;
   for (const block of blocks) {
     if (block.kind === "cta" && pill) {
       const l = relativeLuminance(pill.color);
-      backdrops.cta = { p10: l, p90: l };
+      backdrops.cta = { p10: l, p90: l, busy: 0 };
       colors.cta = pill.label;
       continue;
     }
     const { p10, p90 } = luminanceStats(canvas, block.frame);
-    const backdrop = { p10, p90 };
-    const required = requiredContrast(block.kind, block.fitted.size);
+    const backdrop = { p10, p90, busy: detailEnergy(canvas, block.frame) };
+    const required = requiredTextContrast(block.kind, block.fitted.size);
     let { color, contrast } = mostReadable(candidates, backdrop);
     if (
       block.kind === "eyebrow" &&
@@ -360,8 +370,9 @@ function colourStack(
     backdrops[block.kind] = backdrop;
     colors[block.kind] = color;
     if (contrast < required) readable = false;
+    if (backdrop.busy > CREATIVE_THRESHOLDS.busyText) calm = false;
   }
-  return { backdrops, colors, readable };
+  return { backdrops, colors, readable, calm };
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +389,8 @@ function assertIntact(source: RasterSource) {
  * screenshot, the text stack and the approved logo, in one sharp pipeline.
  * Logos and screenshots are their approved bytes (SHA-256 checked), only
  * scaled with their aspect kept. The scrim is strengthened until every text
- * layer meets QA's contrast requirement or the layout's maximum is reached.
+ * layer meets QA's contrast requirement on a backdrop no busier than QA allows
+ * (R17), or the layout's maximum is reached.
  * Throws `ART_REQUIRED`, `PRODUCT_ASSET_REQUIRED`,
  * `BRAND_ASSET_INTEGRITY_FAILED`, `TEXT_OVERFLOW`, `RASTER_RENDER_FAILED`,
  * `RASTER_OUTPUT_INVALID` and `INVALID_TEMPLATE_INPUT`.
@@ -466,7 +478,7 @@ export async function composeCreative(
         p10: relativeLuminance(palette.primaryColor),
         p90: relativeLuminance(palette.primaryColor),
       });
-      if (label.contrast >= requiredContrast("cta", cta.fitted.size))
+      if (label.contrast >= requiredTextContrast("cta", cta.fitted.size))
         pill = { color: palette.primaryColor, label: label.color };
     }
 
@@ -482,7 +494,8 @@ export async function composeCreative(
           )
         : null;
 
-    // 4. Scrim: from its start opacity up in steps until the text reads, capped at the layout's maximum.
+    // 4. Scrim: from its start opacity up in steps until the text reads on a
+    // calm backdrop (R17), capped at the layout's maximum.
     const scrim = layout.scrim;
     const scrimColor =
       relativeLuminance(palette.textColor) < 0.2
@@ -507,7 +520,12 @@ export async function composeCreative(
       if (product) overlays.push(...product.overlays);
       canvas = await flatten(sharp, base, overlays);
       colouring = colourStack(canvas, blocks, palette, pill);
-      if (colouring.readable || !scrim || opacity >= scrim.max) break;
+      if (
+        (colouring.readable && colouring.calm) ||
+        !scrim ||
+        opacity >= scrim.max
+      )
+        break;
       opacity = Math.min(
         scrim.max,
         Math.round((opacity + SCRIM_RAISE_STEP) * 100) / 100,
@@ -537,7 +555,7 @@ export async function composeCreative(
         const stroke = Math.max(2, Math.round(0.08 * size));
         const outline =
           worstContrast(palette.accentColor, colouring.backdrops.cta!) >=
-          LARGE_CONTRAST
+          CREATIVE_THRESHOLDS.largeContrast
             ? palette.accentColor
             : color;
         textOverlays.push({

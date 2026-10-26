@@ -311,17 +311,23 @@ Deterministic checks (`creative/quality.ts`), codes:
 | `CREATIVE_DIMENSIONS` | exact format size and aspect | render bug → `needs_owner` |
 | `CREATIVE_FILE_TOO_LARGE` | PNG over the channel/Postiz limit (default 8 MB) | re-encode once, else `needs_owner` |
 | `TEXT_OVERFLOW` | copy does not fit at minimum size | other variant, then one copy revision |
-| `TEXT_CONTRAST_LOW` | < 4.5:1 (body) / < 3:1 (large text) | stronger scrim, then other variant |
+| `TEXT_CONTRAST_LOW` | < 4.5:1 (body) / < 3:1 (large text from 32 px; the subline is body text at every size) | stronger scrim, then other variant |
+| `TEXT_BACKDROP_BUSY` | detail energy (mean absolute Laplacian / 255) behind a text layer > 0.06 (R17) | stronger scrim (compose raises it up to the layout's maximum), then other variant |
 | `LOGO_CONTRAST_LOW` | < 2:1 against local background | other logo variant, then logo plate |
 | `LOGO_INTEGRITY` | logo bytes ≠ approved SHA-256, aspect changed, below minimum size | refuse (never render) |
 | `SCREENSHOT_INTEGRITY` | screenshot bytes ≠ approved SHA-256 or aspect changed | refuse |
 | `SUBJECT_TOO_SMALL` | high-detail coverage < 25 % of the art region | art correction |
 | `EMPTY_AREA_EXCESSIVE` | flat cells outside reserved zones > 45 % | art correction or tighter crop |
 | `SAFE_AREA_VIOLATION`, `LAYER_OVERLAP` | layer boxes against safe area and each other | render bug → `needs_owner` |
+| `ASSET_UPSCALED` | an art, screenshot or logo layer drawn at more than 1.5× its source size | warning only (shown, never blocks) |
 | `ASSET_RIGHTS` | every component approved, `validUses` covers the use, not outdated, same project | refuse |
 
 Thresholds are constants in one place with tests; they are calibrated on the
-demo brands' fixtures.
+demo brands' fixtures. The busy-backdrop threshold (0.06, R17) was set by
+measuring the demo compositions: calm backdrops measure 0.01–0.04, text over
+the motif's edges and patterns 0.07–0.13. Art is measured at display scale
+(shorter side at most 1080 px), so a high-resolution upload does not read as
+flat.
 
 **Vision review** (CS-D2, optional per project `creative.visualReview`): one
 `respond()` call with the composed rendition as `input_image`, new task class
