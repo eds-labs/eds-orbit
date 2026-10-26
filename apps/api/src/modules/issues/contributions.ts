@@ -1,5 +1,6 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { issuesSwitchedOn } from "./gate.ts";
+import { erasureSubscriber, issuesHandoffTargets } from "./handoffs.ts";
 import { issuesJobs } from "./jobs.ts";
 import { issuesLinkTypes } from "./links.ts";
 import { issuesRoutes } from "./routes.ts";
@@ -28,7 +29,9 @@ export const issuesContributions: ModuleContributions = {
   unavailableCode: "ISSUES_DISABLED",
   routes: issuesRoutes,
   linkTypes: issuesLinkTypes,
-  events: { publishes: ISSUES_EVENTS },
+  events: { publishes: ISSUES_EVENTS, subscribes: [erasureSubscriber] },
+  // Support's hand-in of a ticket (WP3.6).
+  handoffs: issuesHandoffTargets,
   // Signed reports from any system or n8n (contract issues.report.v1),
   // only while ORBIT_PUBLIC_INGRESS is on as well.
   connections: { providers: { [ISSUES_WEBHOOK_PROVIDER]: issuesWebhookConnectionProvider } },

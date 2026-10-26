@@ -148,6 +148,26 @@ async function unassignedTickets(tx: DbTx, scope: Scope, soon: Date) {
   };
 }
 
+/**
+ * Open tickets whose reported product issue was released (ADR 0018) and
+ * that no agent answered since: the member's own and the unassigned ones.
+ */
+async function releasedIssueTickets(tx: DbTx, scope: Scope) {
+  const [row] = await tx.$queryRaw<{ n: bigint; since: Date | null }[]>`
+    SELECT count(DISTINCT t."id") AS n, min(e."createdAt") AS since
+      FROM "SupportTicket" t
+      JOIN "SupportTicketEvent" e ON e."projectId" = t."projectId" AND e."ticketId" = t."id" AND e."type" = 'issue_released'
+     WHERE t."projectId" = ${scope.projectId}::uuid
+       AND t."mergedIntoTicketId" IS NULL
+       AND t."status" = ANY(${OPEN_STATUSES}::text[])
+       AND (t."assigneeUserId" = ${scope.userId} OR t."assigneeUserId" IS NULL)
+       AND NOT EXISTS (
+         SELECT 1 FROM "SupportMessage" m
+          WHERE m."projectId" = t."projectId" AND m."ticketId" = t."id"
+            AND m."kind" = 'agent_reply' AND m."createdAt" > e."createdAt")`;
+  return { count: Number(row?.n ?? 0), since: row?.since ?? null };
+}
+
 export const supportAttention: AttentionContribution = async (
   tx,
   scope,
@@ -156,10 +176,11 @@ export const supportAttention: AttentionContribution = async (
   if (!can(scope, SUPPORT_TICKETS_READ)) return [];
   if (!(await supportActive(tx, scope))) return [];
   const soon = new Date(now.getTime() + SLA_AT_RISK_MINUTES * 60_000);
-  const [breached, atRisk, unassigned] = await Promise.all([
+  const [breached, atRisk, unassigned, released] = await Promise.all([
     dueTickets(tx, scope, { to: now }),
     dueTickets(tx, scope, { from: now, to: soon }),
     unassignedTickets(tx, scope, soon),
+    releasedIssueTickets(tx, scope),
   ]);
   const items = [
     ...(await slaItems(tx, scope, breached, "support_sla_breached")),
@@ -175,6 +196,17 @@ export const supportAttention: AttentionContribution = async (
       count: unassigned.rest,
       ...(unassigned.since ? { since: unassigned.since.toISOString() } : {}),
       params: unassigned.listed > 0 ? { othersListed: true } : {},
+      ...TICKETS,
+    });
+  if (released.count > 0)
+    items.push({
+      id: "support:issue_released",
+      moduleId: "support",
+      kind: "support_issue_released",
+      severity: "info",
+      count: released.count,
+      ...(released.since ? { since: released.since.toISOString() } : {}),
+      params: {},
       ...TICKETS,
     });
   return items;

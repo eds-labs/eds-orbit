@@ -6,6 +6,7 @@ import { mailboxOwner } from "../../platform/email/ownership.ts";
 import { EMAIL_KIND, ORBIT_MESSAGE_ID } from "../../platform/email/send.ts";
 import { deleteFile, filesConfig } from "../../platform/files/files.ts";
 import type { PeriodicTask } from "../../platform/jobs/types.ts";
+import { publishEvent } from "../../platform/events/events.ts";
 import { audit, data, DomainError, update } from "../../shared.ts";
 import { supportSettings } from "./common.ts";
 import { requireSupport, supportActive } from "./gate.ts";
@@ -265,6 +266,16 @@ export async function eraseContact(scope: Scope, contactId: string) {
           .filter((v): v is string => typeof v === "string"),
       );
       await tx.supportContact.delete({ where: { id: contactId } });
+      // Other modules drop what they derived from these tickets (ADR 0018),
+      // in events small enough for the platform's data limit.
+      for (let i = 0; i === 0 || i < tickets.length; i += 80)
+        await publishEvent(tx, scope, {
+          type: "support.contact.erased",
+          subject: { type: "support.contact", id: contactId },
+          actor: { kind: "user", id: scope.userId },
+          origin: "support",
+          data: { ticketIds: tickets.slice(i, i + 80).map((t) => t.id) },
+        });
       await audit(tx, scope, "support.contact.erased", contactId, {
         contactId,
         tickets: tickets.length,

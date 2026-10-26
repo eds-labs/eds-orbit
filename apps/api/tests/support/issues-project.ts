@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { authDb, scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import { eventJob } from "../../src/platform/events/events.ts";
+import { data } from "../../src/shared.ts";
 
 /**
  * A synthetic project for the issue center (ADR 0018): an owner, an editor
@@ -66,6 +68,36 @@ export async function createIssuesProject(
         data: { workspaceId: owner.workspaceId, projectId: owner.projectId, userId, role },
       });
       return { ...owner, userId, role };
+    },
+    /**
+     * Delivers queued domain events to their subscribers as the worker does,
+     * round by round until none is left (follow-up events included).
+     * Returns how many jobs ran.
+     */
+    async deliverEvents(rounds = 10) {
+      let ran = 0;
+      for (let round = 0; round < rounds; round++) {
+        const jobs = await run((tx) =>
+          tx.entity.findMany({
+            where: {
+              projectId: owner.projectId,
+              kind: "jobs",
+              AND: [
+                { data: { path: ["topic"], equals: "domain_event" } },
+                { data: { path: ["status"], equals: "queued" } },
+              ],
+            },
+            orderBy: { createdAt: "asc" },
+          }),
+        );
+        if (!jobs.length) break;
+        for (const job of jobs) {
+          await eventJob.handler({ scope: { ...owner, userId: "worker" }, jobId: job.id, job: data(job), executionMode: "test" });
+          await run((tx) => tx.entity.update({ where: { id: job.id }, data: { data: { ...data(job), status: "done" } } }));
+          ran++;
+        }
+      }
+      return ran;
     },
     async cleanup() {
       await authDb.workspace.deleteMany({ where: { id: workspace.id } });
