@@ -43,6 +43,17 @@ Verification (local, worktree database):
 
 Nothing was pushed, deployed or enabled, and no paid call was made. Rollout steps (merge and migration, `ORBIT_ISSUES`, `ORBIT_MODULE_ROLES`, enabling it in projects, AI triage routes and the first live run, an n8n source with `ORBIT_PUBLIC_INGRESS`, GitHub App, Sentry) each need their own approval ([ISSUES.md](ISSUES.md#rollout-runbook-each-step-needs-marios-approval)).
 
+## Index check without JSON (2026-10-26, local)
+
+Knowledge → search index: a fully embedded generation offers "Check" (German UI: "Prüfen"). Orbit writes the test questions itself (task class `knowledge_evaluation`, one batch of 15 passages per `index_evaluation_set` job, paid within the AI budget, estimate shown first), builds the control questions without a model, shows everything for review (untick questions), and starts the normal live evaluation (`start-evaluation-set`). The panel shows phase, progress and the result in words and is translated (en/de); the JSON field is gone. New owner actions `generate-evaluation-set` and `start-evaluation-set` (access matrix reviewed: owner only, editors and viewers forbidden). No migration, no flag, OpenAPI unchanged. The questions are model-written from the passages, not independently labeled (Mario's decision, 2026-10-26).
+
+## FamilyPlan work orders and index status (2026-10-26, local branch `claude/eds-orbit-familyplan-errors-dcacbc`, not deployed)
+
+Analysis and plan: [plans/familyplan-marketing-knowledge-fixes.md](plans/familyplan-marketing-knowledge-fixes.md).
+
+- **`CHAT_MODEL_OUTPUT_LIMIT`:** a chat or work-order call cut off by the route's output limit is settled with the reported usage (no unclear outcome), recorded with its tokens, and continued in the next model call (at most two continuations per turn). A turn that still ends blocked keeps its full text as the work-order result; `orbit_get_task_result` returns up to the turn's 8,000 characters (was 4,000). Work orders are told to keep the final answer under about 1,000 words.
+- **Index generations:** `knowledge_evaluation_get` and `GET /indexes` report a phase per generation (`embedding`, `ready_for_evaluation`, `evaluation_failed`, `evaluated`, `active`, `retired`, `corpus_changed`) and the next step; the web view shows embedded/total chunks and only that step. The `evaluate` proposal names dataset chunk ids outside the generation's corpus before approval (`EVALUATION_CHUNKS_NOT_IN_INDEX:<ids>`).
+- No migration, no API contract change (the routes are untyped), no flag. Production configuration (the FamilyPlan `chat_operator` route), the paid index steps and the knowledge clean-up are open owner steps.
 
 ## AI project manager phase 2 (2026-10-26, merged to main with Mario's approval; `ORBIT_WORK_PM` off)
 

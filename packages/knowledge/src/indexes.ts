@@ -107,6 +107,103 @@ export async function listIndexGenerations(tx: DbTx, s: Scope) {
     orderBy: { generation: "desc" },
   });
 }
+/**
+ * Where a generation stands. `building` alone covers both "embeddings
+ * missing" and "embedded, waiting for its live evaluation"; the phase tells
+ * them apart, and `corpus_changed` marks a snapshot that can no longer be
+ * evaluated or activated because the indexed knowledge changed.
+ */
+export type IndexPhase =
+  | "embedding"
+  | "ready_for_evaluation"
+  | "evaluation_failed"
+  | "evaluated"
+  | "active"
+  | "retired"
+  | "corpus_changed";
+const NEXT_STEP: Record<IndexPhase, string | null> = {
+  embedding: "build_index",
+  ready_for_evaluation: "evaluate",
+  evaluation_failed: "evaluate",
+  evaluated: "activate",
+  active: null,
+  retired: null,
+  corpus_changed: "begin_index",
+};
+export function indexGenerationPhase(input: {
+  state: string;
+  chunks: number;
+  embeddedChunks: number;
+  corpusCurrent: boolean;
+  evaluation: unknown;
+}): { phase: IndexPhase; nextStep: string | null } {
+  const passed =
+    (input.evaluation as { passed?: unknown } | null)?.passed === true;
+  const phase: IndexPhase =
+    input.state === "active"
+      ? "active"
+      : input.state === "retired"
+        ? "retired"
+        : !input.corpusCurrent
+          ? "corpus_changed"
+          : input.state === "evaluated"
+            ? "evaluated"
+            : input.embeddedChunks < input.chunks
+              ? "embedding"
+              : input.evaluation && !passed
+                ? "evaluation_failed"
+                : "ready_for_evaluation";
+  return { phase, nextStep: NEXT_STEP[phase] };
+}
+/** Every generation, newest first, with its embedding coverage and phase. */
+export async function describeIndexGenerations(tx: DbTx, s: Scope) {
+  const generations = await listIndexGenerations(tx, s);
+  const embedded = await tx.chunkEmbedding.groupBy({
+    by: ["profile", "indexGeneration"],
+    where: where(s),
+    _count: { _all: true },
+  });
+  const corpusHash = hash(JSON.stringify(await manifest(tx, s)));
+  return generations.map((g) => {
+    const chunks = Array.isArray(g.manifest) ? g.manifest.length : 0;
+    const embeddedChunks =
+      embedded.find(
+        (e) => e.profile === g.profile && e.indexGeneration === g.generation,
+      )?._count._all ?? 0;
+    return {
+      ...g,
+      chunks,
+      embeddedChunks,
+      ...indexGenerationPhase({
+        state: g.state,
+        chunks,
+        embeddedChunks,
+        corpusCurrent: g.manifestHash === corpusHash,
+        evaluation: g.evaluation,
+      }),
+    };
+  });
+}
+/** The chunk ids of an evaluation dataset that are not in the generation's corpus snapshot. */
+export async function evaluationChunksNotInIndex(
+  tx: DbTx,
+  s: Scope,
+  indexId: string,
+  cases: { expectedChunkIds: string[]; forbiddenChunkIds?: string[] }[],
+) {
+  const index = await selectedIndex(tx, s, indexId);
+  const ids = new Set(
+    (index.manifest as unknown as ManifestItem[]).map((m) => m.chunkId),
+  );
+  return [
+    ...new Set(
+      cases.flatMap((c) => [
+        ...c.expectedChunkIds,
+        ...(c.forbiddenChunkIds ?? []),
+      ]),
+    ),
+  ].filter((id) => !ids.has(id));
+}
 export async function beginIndexBuild(tx: DbTx, s: Scope, profile: string) {
   const config = profileConfig(profile);
   await getActiveIndex(tx, s);

@@ -3796,6 +3796,55 @@ body:has(dialog[open]) {
   flex: 0 1 auto;
   flex-wrap: wrap;
 }
+/* The generated test questions of an index check (review dialog). */
+.evaluation-review {
+  margin: 14px 0 18px;
+  max-height: 46dvh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+.evaluation-review li + li {
+  border-top: 1px solid var(--border);
+}
+.evaluation-review label,
+.evaluation-review-confirm {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.evaluation-review input,
+.evaluation-review-confirm input {
+  margin-top: 3px;
+  flex: none;
+}
+.evaluation-review span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.evaluation-review strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.evaluation-review em,
+.evaluation-review small {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.evaluation-review em {
+  font-style: normal;
+  font-weight: 600;
+}
+.evaluation-review-confirm {
+  padding-inline: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
 .capability-readiness {
   border-top: 1px solid var(--border);
 }

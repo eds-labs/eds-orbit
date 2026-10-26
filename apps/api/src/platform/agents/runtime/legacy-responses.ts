@@ -12,6 +12,12 @@ export const legacyResponsesRuntime: AgentRuntime = {
       const step = await model.call({ input, signal });
       modelCalls++;
       input.push(...step.output);
+      // A cut-off answer continues in the next call; without one it stays cut off.
+      if (step.truncated) {
+        if (modelCalls >= limits.maxModelCalls)
+          throw new DomainError("CHAT_MODEL_OUTPUT_LIMIT");
+        continue;
+      }
       if (!step.toolCalls.length && !step.toolSearches.length) break;
       if (
         toolCalls + step.toolCalls.length + step.toolSearches.length >

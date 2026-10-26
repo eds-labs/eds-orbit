@@ -520,6 +520,34 @@ describe.skipIf(!enabled)("Project administration over MCP", () => {
         idempotencyKey: randomUUID(),
       }),
     ).rejects.toMatchObject({ code: "EVALUATION_CASE_COVERAGE_REQUIRED" });
+    // The phase names the next step while the state stays `building`.
+    expect(building).toMatchObject({ phase: "embedding", nextStep: "build_index", embeddedChunks: 0 });
+    // Chunk ids outside the generation's corpus are named before approval.
+    await expect(
+      call(owner, "knowledge_evaluate", {
+        step: "evaluate",
+        indexId: building.id,
+        datasetVersion: "familyplan-v1",
+        confirmQueriesMayBeSentToOpenAI: true,
+        cases: [
+          ...Array.from({ length: 48 }, (_, i) => ({
+            id: `p${i}`,
+            query: `question ${i}`,
+            expectedChunkIds: ["not-in-index"],
+            forbiddenChunkIds: [],
+          })),
+          ...Array.from({ length: 12 }, (_, i) => ({
+            id: `n${i}`,
+            query: `negative ${i}`,
+            expectedChunkIds: [],
+            forbiddenChunkIds: ["also-not-in-index"],
+          })),
+        ],
+        idempotencyKey: randomUUID(),
+      }),
+    ).rejects.toMatchObject({
+      code: "EVALUATION_CHUNKS_NOT_IN_INDEX:not-in-index,also-not-in-index",
+    });
     expect(await blockers()).toContain("LIVE_RAG_EVAL_REQUIRED");
   });
 

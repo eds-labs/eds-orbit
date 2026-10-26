@@ -10,6 +10,9 @@ import {
   getActiveIndex,
   assertActiveEmbeddingProfile,
   listIndexGenerations,
+  describeIndexGenerations,
+  evaluationChunksNotInIndex,
+  indexGenerationPhase,
   retrieve,
   validateEvidence,
   EMBEDDING_PROFILE,
@@ -178,14 +181,44 @@ suite("isolated index generations / synthetic SQL mechanics only", () => {
     await expect(
       run((tx) => evaluateIndexGeneration(tx, s, smallId, evaluation(1536))),
     ).rejects.toThrow("INCOMPLETE_INDEX_BUILD");
+    const phase = async () =>
+      (await run((tx) => describeIndexGenerations(tx, s))).find(
+        (g) => g.id === smallId,
+      );
+    expect(await phase()).toMatchObject({
+      chunks: 2,
+      embeddedChunks: 1,
+      phase: "embedding",
+      nextStep: "build_index",
+    });
     await run((tx) =>
       attachIndexBatch(tx, s, smallId, [
         { chunkId: privateChunk, vector: vector(1536, 1) },
       ]),
     );
+    // Fully embedded but still `building`: waiting for its evaluation.
+    expect(await phase()).toMatchObject({
+      state: "building",
+      embeddedChunks: 2,
+      phase: "ready_for_evaluation",
+      nextStep: "evaluate",
+    });
+    const unknown = randomUUID();
+    expect(
+      await run((tx) =>
+        evaluationChunksNotInIndex(tx, s, smallId, [
+          { expectedChunkIds: [publicChunk] },
+          { expectedChunkIds: [], forbiddenChunkIds: [privateChunk, unknown] },
+        ]),
+      ),
+    ).toEqual([unknown]);
     const result = await run((tx) =>
       evaluateIndexGeneration(tx, s, smallId, evaluation(1536)),
     );
+    expect(await phase()).toMatchObject({
+      phase: "evaluated",
+      nextStep: "activate",
+    });
     expect(result).toMatchObject({
       passed: true,
       recallAt10: 1,
@@ -400,7 +433,14 @@ suite("isolated index generations / synthetic SQL mechanics only", () => {
   });
   it("revocation purges every vector generation and prevents stale build activation or rollback", async () => {
     const building = await run((tx) => beginIndexBuild(tx, s, LARGE));
+    const phase = async () =>
+      (await run((tx) => describeIndexGenerations(tx, s))).find(
+        (g) => g.id === building.id,
+      )?.phase;
+    expect(await phase()).toBe("embedding");
     await run((tx) => revokeSource(tx, s, publicSource));
+    // The snapshot no longer matches the knowledge: begin a new generation.
+    expect(await phase()).toBe("corpus_changed");
     expect(
       await run((tx) =>
         tx.chunkEmbedding.count({ where: { chunkId: publicChunk } }),
@@ -423,5 +463,25 @@ suite("isolated index generations / synthetic SQL mechanics only", () => {
     expect((await run((tx) => getActiveIndex(tx, s))).id).toBe(smallId);
     expect(await app.knowledgeIndex.count()).toBe(0);
     expect(privateSource).not.toBe(publicSource);
+  });
+  it("names a failed evaluation of a complete build", () => {
+    expect(
+      indexGenerationPhase({
+        state: "building",
+        chunks: 112,
+        embeddedChunks: 112,
+        corpusCurrent: true,
+        evaluation: { passed: false },
+      }),
+    ).toEqual({ phase: "evaluation_failed", nextStep: "evaluate" });
+    expect(
+      indexGenerationPhase({
+        state: "active",
+        chunks: 0,
+        embeddedChunks: 0,
+        corpusCurrent: false,
+        evaluation: null,
+      }),
+    ).toEqual({ phase: "active", nextStep: null });
   });
 });

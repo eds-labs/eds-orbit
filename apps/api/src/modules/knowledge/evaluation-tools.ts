@@ -4,9 +4,10 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   activateIndexGeneration,
   beginIndexBuild,
+  describeIndexGenerations,
   EMBEDDING_PROFILES,
+  evaluationChunksNotInIndex,
   getActiveIndex,
-  listIndexGenerations,
   validateActiveIndexEvaluation,
 } from "../../../../../packages/knowledge/src/index.ts";
 import { estimateCost } from "../../../../../packages/ai/src/index.ts";
@@ -75,12 +76,7 @@ const summary = (e: Record<string, any> | null) =>
 
 export async function readKnowledgeEvaluation(tx: DbTx, scope: Scope) {
   const active = await getActiveIndex(tx, scope);
-  const generations = await listIndexGenerations(tx, scope);
-  const embedded = await tx.chunkEmbedding.groupBy({
-    by: ["profile", "indexGeneration"],
-    where: { workspaceId: scope.workspaceId, projectId: scope.projectId },
-    _count: { _all: true },
-  });
+  const generations = await describeIndexGenerations(tx, scope);
   const live = await validateActiveIndexEvaluation(tx, scope);
   const runs = (await list(tx, scope, "index_evaluations")).slice(0, 10);
   const sources = await knowledgeIndexStatus(tx, scope);
@@ -105,10 +101,11 @@ export async function readKnowledgeEvaluation(tx: DbTx, scope: Scope) {
       profile: g.profile,
       model: g.model,
       state: g.state,
-      chunks: Array.isArray(g.manifest) ? g.manifest.length : 0,
-      embeddedChunks:
-        embedded.find((e) => e.profile === g.profile && e.indexGeneration === g.generation)
-          ?._count._all ?? 0,
+      // `building` covers "embedding" and "embedded, waiting for evaluation".
+      phase: g.phase,
+      nextStep: g.nextStep,
+      chunks: g.chunks,
+      embeddedChunks: g.embeddedChunks,
       evaluation: summary(g.evaluation as Record<string, any> | null),
     })),
     evaluationRuns: runs.map((r) => ({
@@ -146,7 +143,7 @@ export async function readKnowledgeEvaluation(tx: DbTx, scope: Scope) {
       perRunBudgetMicros: mandate?.limits.perRunBudgetMicros ?? 0,
     },
     steps:
-      "knowledge_evaluate step begin_index (free) → build_index (paid embeddings) → evaluate (paid query embeddings) → activate (only a passed evaluation).",
+      "knowledge_evaluate step begin_index (free) → build_index (paid embeddings) → evaluate (paid query embeddings) → activate (only a passed evaluation). A generation stays in state building until its evaluation passes; its phase names the next step (corpus_changed: the knowledge changed after begin_index, so begin a new generation).",
   };
 }
 
@@ -224,7 +221,15 @@ async function validateStep(tx: DbTx, scope: Scope, args: EvaluateInput) {
       )
         throw new DomainError("EVALUATION_CASE_COVERAGE_REQUIRED", 400);
       need(args.confirmQueriesMayBeSentToOpenAI, "confirmQueriesMayBeSentToOpenAI");
-      await indexOf(tx, scope, need(args.indexId, "indexId"));
+      const index = await indexOf(tx, scope, need(args.indexId, "indexId"));
+      // Before approval: an unknown expected id fails the run after paying for
+      // it, and an unknown forbidden id makes its negative case test nothing.
+      const missing = await evaluationChunksNotInIndex(tx, scope, index.id, cases);
+      if (missing.length)
+        throw new DomainError(
+          `EVALUATION_CHUNKS_NOT_IN_INDEX:${missing.slice(0, 5).join(",")}`,
+          409,
+        );
       return;
     }
     case "activate": {

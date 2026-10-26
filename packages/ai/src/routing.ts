@@ -20,6 +20,8 @@ export const taskClasses = [
   // AI project manager (ADR 0017): plans and coding briefs; reports and analyses.
   "pm_plan",
   "pm_analysis",
+  // Knowledge: the test questions of a live index evaluation.
+  "knowledge_evaluation",
   // Issue center (ADR 0018): AI triage suggestions for a new issue.
   "issue_triage",
 ] as const;
@@ -54,6 +56,7 @@ export const taskRoutesSchema = z
     finance_extraction: modelRouteSchema.optional(),
     pm_plan: modelRouteSchema.optional(),
     pm_analysis: modelRouteSchema.optional(),
+    knowledge_evaluation: modelRouteSchema.optional(),
     issue_triage: modelRouteSchema.optional(),
   })
   .strict();
@@ -80,6 +83,8 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   // A plan of up to 80 tasks with criteria and dependencies.
   pm_plan: 12000,
   pm_analysis: 3000,
+  // About 15 passages per call, one to three questions each, with thinking.
+  knowledge_evaluation: 6000,
   issue_triage: 1500,
 };
 // Tier used when no explicit task route is configured.
@@ -96,6 +101,7 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   finance_extraction: "standard",
   pm_plan: "quality",
   pm_analysis: "standard",
+  knowledge_evaluation: "standard",
   issue_triage: "standard",
 };
 

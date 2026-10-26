@@ -69,6 +69,7 @@ export const aiTasks = [
   // AI project manager (ADR 0017).
   { id: "pm_plan", en: "Project manager plans", de: "KI-Projektleiter: Pläne", tokens: 12000 },
   { id: "pm_analysis", en: "Project manager reports", de: "KI-Projektleiter: Berichte", tokens: 3000 },
+  { id: "knowledge_evaluation", en: "Knowledge test questions", de: "Wissensprüfung: Testfragen", tokens: 6000 },
   // Issue center (ADR 0018).
   { id: "issue_triage", en: "Issue triage", de: "Issue-Einordnung", tokens: 1500 },
 ] as const;

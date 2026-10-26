@@ -142,6 +142,7 @@ export const anthropicCatalog = {
     finance_extraction: "claude-sonnet-5-5",
     pm_plan: "claude-sonnet-5-5",
     pm_analysis: "claude-haiku-5-5",
+    knowledge_evaluation: "claude-haiku-5-5",
     issue_triage: "claude-haiku-5-5",
   },
   tiers: {

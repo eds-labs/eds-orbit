@@ -54,6 +54,15 @@ const answer = (text: string): ModelStep => ({
   toolCalls: [],
   toolSearches: [],
 });
+const cutOff = (text: string): ModelStep => ({
+  output: [
+    { type: "message", role: "assistant", content: text },
+    { type: "message", role: "user", content: "Continue." },
+  ],
+  toolCalls: [],
+  toolSearches: [],
+  truncated: true,
+});
 const user = { role: "user", content: "What is the project status?" };
 
 function scriptedModel(steps: Array<ModelStep | Error>) {
@@ -348,6 +357,40 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
       ).rejects.toThrow("RETRIEVAL_UNAVAILABLE");
       expect(seen).toHaveLength(1);
       expect(executed.map((entry) => entry.callId)).toEqual(["search"]);
+    });
+
+    it("calls the model again after a step cut off by the output limit", async () => {
+      const first = cutOff("Part one");
+      const { model, seen } = scriptedModel([first, answer("Part two.")]);
+      const { tools, executed } = recordingTools();
+      const result = await runtime.runTurn({
+        input: [user],
+        model,
+        tools,
+        limits,
+        signal: new AbortController().signal,
+      });
+      expect(seen[1]).toEqual([user, ...first.output]);
+      expect(executed).toEqual([]);
+      expect(result).toEqual({ modelCalls: 2, toolCalls: 0 });
+    });
+
+    it("fails when the last allowed model call is cut off", async () => {
+      const { model, seen } = scriptedModel([
+        toolStep(call("a")),
+        cutOff("Part one"),
+      ]);
+      const { tools } = recordingTools();
+      await expect(
+        runtime.runTurn({
+          input: [user],
+          model,
+          tools,
+          limits: { maxModelCalls: 2, maxToolCalls: 8 },
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow("CHAT_MODEL_OUTPUT_LIMIT");
+      expect(seen).toHaveLength(2);
     });
 
     it("propagates a model error without retrying the request", async () => {

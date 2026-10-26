@@ -96,7 +96,14 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
               ],
             },
           };
-        } else if (mocked.mode === "incomplete") {
+        } else if (
+          mocked.mode === "incomplete" ||
+          (mocked.mode === "incomplete_once" && step === 1)
+        ) {
+          yield {
+            type: "response.output_text.delta",
+            delta: mocked.mode === "incomplete" ? "Partial answer. " : "Part one. ",
+          };
           yield {
             type: "response.incomplete",
             response: {
@@ -251,6 +258,7 @@ import {
   confirmProposal,
 } from "../src/modules/marketing/assistant/proposals.ts";
 import { runChat, runChatJob } from "../src/modules/chat-runner.ts";
+import { CONTINUE_AFTER_OUTPUT_LIMIT } from "../src/platform/assistant/chat-runner.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";
 import { hashText, startRun } from "../src/modules/telemetry.ts";
@@ -1170,7 +1178,7 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       mocked.mode = "normal";
     }
   });
-  it("blocks an incomplete response without replaying a paid call", async () => {
+  it("stops after two continuations of cut-off answers, with settled cost and the full partial text", async () => {
     mocked.mode = "incomplete";
     const before = mocked.calls;
     try {
@@ -1183,21 +1191,68 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       const result = await getRun(scope, sent.runId);
       expect(result.status).toBe("blocked");
       expect(result.errorCode).toBe("CHAT_MODEL_OUTPUT_LIMIT");
+      // Nothing written is lost when the limit still stops the turn.
+      expect(result.partialText).toBe("Partial answer. ".repeat(3));
       await runChat(scope, sent.runId);
-      expect(mocked.calls).toBe(before + 1);
-      const reservation = await scoped(
+      expect(mocked.calls).toBe(before + 3);
+      const reservations = await scoped(
         scope.workspaceId,
         scope.projectId,
         (tx) =>
-          tx.budgetReservation.findFirstOrThrow({
-            where: { key: `${scope.projectId}:chat:${sent.runId}:0` },
+          tx.budgetReservation.findMany({
+            where: { key: { startsWith: `${scope.projectId}:chat:${sent.runId}:` } },
+            orderBy: { key: "asc" },
           }),
       );
-      expect(reservation.state).toBe("unknown");
+      // The provider reported what each cut-off answer cost: no unclear outcome.
+      expect(reservations.map((r) => r.state)).toEqual([
+        "settled",
+        "settled",
+        "settled",
+      ]);
+      for (const reservation of reservations)
+        expect(reservation.settledMicros).toBeGreaterThan(0n);
     } finally {
       mocked.mode = "normal";
     }
   });
+  it("continues an answer cut off by the output limit in the next call", async () => {
+    mocked.mode = "incomplete_once";
+    mocked.calls = 0;
+    mocked.inputs = [];
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Audit the knowledge",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const result = await getRun(scope, sent.runId);
+      expect(result.status).toBe("succeeded");
+      expect(mocked.calls).toBe(2);
+      // The second call carries the cut-off text and Orbit's request to continue.
+      // (The mock keeps the input array, which grows after the call.)
+      const second = mocked.inputs[1] as Array<{ role?: string; content?: unknown }>;
+      const cut = second.findIndex((item) => item.content === "Part one. ");
+      expect(second[cut]).toEqual({
+        type: "message",
+        role: "assistant",
+        content: "Part one. ",
+      });
+      expect(second[cut + 1]).toEqual({
+        type: "message",
+        role: "user",
+        content: CONTINUE_AFTER_OUTPUT_LIMIT,
+      });
+      const detail = await getConversation(scope, thread.id);
+      expect(detail.messages.at(-1)?.text).toBe(
+        "Part one. Project status is available.",
+      );
+    } finally {
+      mocked.mode = "normal";
+    }
+  });
+
   const traced = (runId: string) =>
     scoped(scope.workspaceId, scope.projectId, async (tx) => ({
       runs: await tx.agentRun.findMany({ where: { subjectId: runId } }),
@@ -1578,7 +1633,7 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     });
     expect(modelCalls[0]!.errorCode).toMatch(/^400 .*Unsupported value: 'reasoning\.effort'/);
   });
-  it("records an unknown model span and the blocked run for an incomplete response", async () => {
+  it("records each cut-off model call with its tokens and cost", async () => {
     mocked.mode = "incomplete";
     try {
       const thread = await createConversation(scope);
@@ -1596,14 +1651,17 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         }),
       );
       const modelCalls = spans.filter((span) => span.type === "model_call");
-      expect(modelCalls).toHaveLength(1);
-      expect(modelCalls[0]).toEqual(
-        expect.objectContaining({
-          status: "unknown",
-          errorCode: "CHAT_MODEL_OUTPUT_LIMIT",
-          costMicros: null,
-        }),
-      );
+      expect(modelCalls).toHaveLength(3);
+      for (const span of modelCalls) {
+        expect(span).toEqual(
+          expect.objectContaining({
+            status: "failed",
+            errorCode: "CHAT_MODEL_OUTPUT_LIMIT",
+            outputTokens: 3000,
+          }),
+        );
+        expect(span.costMicros).toBeGreaterThan(0n);
+      }
     } finally {
       mocked.mode = "normal";
     }

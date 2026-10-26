@@ -88,9 +88,10 @@ The steps, in order:
 
 1. **`begin_index`** (optional `profile`): a new index generation from the current corpus. Free.
 2. **`build_index`** (`indexId`): the paid embedding build.
-3. **`evaluate`** (`indexId`, `datasetVersion`, 60 to 120 `cases`, `confirmQueriesMayBeSentToOpenAI: true`): the paid live evaluation. At least 48 cases need `expectedChunkIds`, and at least 12 negatives `forbiddenChunkIds` only (`EVALUATION_CASE_COVERAGE_REQUIRED`).
+3. **`evaluate`** (`indexId`, `datasetVersion`, 60 to 120 `cases`, `confirmQueriesMayBeSentToOpenAI: true`): the paid live evaluation. At least 48 cases need `expectedChunkIds`, and at least 12 negatives `forbiddenChunkIds` only (`EVALUATION_CASE_COVERAGE_REQUIRED`). Every expected and forbidden chunk id must be in the generation's corpus; the proposal names up to five that are not (`EVALUATION_CHUNKS_NOT_IN_INDEX:<ids>`).
 4. **`activate`** (`indexId`): only an index whose live evaluation passed (`INDEX_NOT_EVALUATED`).
 
+- **Phase.** A generation stays in state `building` until its evaluation passes. `knowledge_evaluation_get` gives each generation a `phase` and `nextStep`: `embedding` (build_index), `ready_for_evaluation` and `evaluation_failed` (evaluate), `evaluated` (activate), `active`, `retired`, and `corpus_changed` (the knowledge changed after `begin_index`: begin a new generation).
 - **Costs.** The proposal carries the estimated provider cost as its ceiling. The paid steps run under the active policy's paid mandate.
 - **When the gate opens.** `LIVE_RAG_EVAL_REQUIRED` clears only when all of these hold:
   - the active index's evaluation is live and passed (recall@10 at least 0.9, no forbidden hit);

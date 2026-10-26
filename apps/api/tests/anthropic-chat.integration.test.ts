@@ -62,6 +62,7 @@ import {
   sendMessage,
 } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
+import { CONTINUE_AFTER_OUTPUT_LIMIT } from "../src/platform/assistant/chat-runner.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -303,6 +304,58 @@ describe.skipIf(!enabled)("Orbit Chat on a Claude route (mocked SDK)", () => {
     });
   });
 
+  it("continues a Claude answer cut off at max_tokens and settles both calls", async () => {
+    sdk.requests = [];
+    sdk.replies.push(
+      () => ({
+        ...message(
+          [
+            { type: "thinking", thinking: "", signature: "sig-cut" },
+            { type: "text", text: "Audit, part one.", citations: null },
+          ],
+          "msg_cut",
+        ),
+        stop_reason: "max_tokens",
+      }),
+      () =>
+        message(
+          [{ type: "text", text: " Part two.", citations: null }],
+          "msg_rest",
+        ),
+    );
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "Audit the knowledge.",
+      clientRequestId: randomUUID(),
+    });
+    await runChat(scope, sent.runId);
+    expect(await getRun(scope, sent.runId)).toMatchObject({
+      status: "succeeded",
+      errorCode: null,
+    });
+    expect(sdk.requests).toHaveLength(2);
+    // The cut-off text goes back without its thinking block, then Orbit's request.
+    expect(sdk.requests[1].messages.slice(1)).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Audit, part one." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: CONTINUE_AFTER_OUTPUT_LIMIT }],
+      },
+    ]);
+    const detail = await getConversation(scope, thread.id);
+    expect(detail.messages.at(-1)?.text).toBe("Audit, part one. Part two.");
+    const rows = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      tx.budgetReservation.findMany({
+        where: {
+          key: { startsWith: `${scope.projectId}:chat:${sent.runId}:` },
+        },
+      }),
+    );
+    expect(rows.map((row) => row.state)).toEqual(["settled", "settled"]);
+  });
   it("closes a refused turn as blocked with the usage settled", async () => {
     sdk.replies.push(() => ({
       ...message([], "msg_refused"),
