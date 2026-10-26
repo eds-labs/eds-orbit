@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext } from "@playwright/test";
+import { test, expect, type BrowserContext } from "./fixtures";
 import { randomInt } from "node:crypto";
 import { readFileSync } from "node:fs";
 test.skip(
