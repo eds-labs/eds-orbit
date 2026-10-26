@@ -299,9 +299,12 @@ export const marketingActions: Record<string, ActionHandler> = {
     const providerUseBefore = data(asset).providerUse === true;
     // Provider use exists only while the asset is approved: outdating it or
     // taking its approval back ends it, and approving again starts without.
+    // Only an asset that already was approved keeps its stored grant (a
+    // re-imported file, whose rights were reset, does not get it back).
     const providerUse =
       i.assetStatus === "approved"
-        ? (i.providerUse ?? providerUseBefore)
+        ? (i.providerUse ??
+          (data(asset).assetStatus === "approved" && providerUseBefore))
         : false;
     const updated = await update(tx, scope, asset, {
       ...data(asset),

@@ -233,6 +233,8 @@ describe("brand kit in the visual identity", () => {
     expect(parse({ productAssetIds: uuids(20) })).toBe(true);
     expect(parse({ productAssetIds: uuids(21) })).toBe(false);
     expect(parse({ productAssetIds: ["not-an-id"] })).toBe(false);
+    // The same product image twice would be placed twice.
+    expect(parse({ productAssetIds: [uuids(1)[0], uuids(1)[0]] })).toBe(false);
     const imagery = (changes: Record<string, unknown>) =>
       parse({ imagery: { kind: "mixed", mood: "calm", ...changes } });
     expect(imagery({ mood: "m".repeat(300) })).toBe(true);

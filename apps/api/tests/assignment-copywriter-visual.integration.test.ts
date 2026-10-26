@@ -1049,6 +1049,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
         sha256: createHash("sha256").update(png).digest("hex"),
         usageApproved: true,
         assetStatus: "approved",
+        providerUse: true,
         prompt: "Deep blue gradient with soft geometric light",
         tags: ["banner"],
       }),
@@ -1091,6 +1092,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
         sha256: createHash("sha256").update(png).digest("hex"),
         usageApproved: true,
         assetStatus: "approved",
+        providerUse: true,
         prompt: "Deep blue gradient with soft geometric light",
         tags: ["banner"],
       }),
@@ -1119,7 +1121,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     );
   });
 
-  it("keeps screenshots and product images away from the image provider unless the owner allowed it", async () => {
+  it("sends only assets the owner marked for provider use as style references, whatever their type", async () => {
     process.env.ORBIT_IMAGE_REFERENCES = "true";
     const reference = (type: string, changes: Record<string, unknown> = {}) =>
       run((tx) =>
@@ -1134,20 +1136,25 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
           ...changes,
         }),
       );
-    const unflagged = await reference("screenshot");
+    // Without the flag nothing leaves Orbit: not a logo, a photo or a screenshot.
+    const without = await Promise.all(
+      ["logo", "photo", "screenshot", "product"].map((type) => reference(type)),
+    );
     const refused = await reference("product", { providerUse: false });
-    const allowed = await reference("screenshot", { providerUse: true });
-    const photo = await reference("photo");
+    const allowed = await Promise.all(
+      ["logo", "photo", "screenshot"].map((type) =>
+        reference(type, { providerUse: true }),
+      ),
+    );
     await makeAssignment({
-      styleAssetIds: [unflagged.id, refused.id, allowed.id, photo.id],
+      styleAssetIds: [...without, refused, ...allowed].map((row) => row.id),
     });
     await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
     await runAgentTask(worker(), (await task("visual")).id);
     expect(provider.generateImageWithReferences).toHaveBeenCalledTimes(1);
-    // The photo (as before) and the screenshot the owner allowed.
     expect(
       provider.generateImageWithReferences.mock.calls[0]![0].references,
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   it("uses no reference images by default", async () => {
@@ -1160,6 +1167,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
         sha256: createHash("sha256").update(png).digest("hex"),
         usageApproved: true,
         assetStatus: "approved",
+        providerUse: true,
         prompt: "Deep blue gradient with soft geometric light",
       }),
     );
@@ -1185,6 +1193,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
         sha256: "0".repeat(64),
         usageApproved: true,
         assetStatus: "approved",
+        providerUse: true,
         prompt: "Warm sunrise colours over calm water",
       }),
     );

@@ -328,7 +328,13 @@ export const visualIdentity = z
     // logo assets for other backgrounds (`logoAssetId` stays the primary one),
     // `productAssetIds` approved screenshots, product images or photos.
     logos: brandLogos.optional(),
-    productAssetIds: z.array(id).max(20).optional(),
+    productAssetIds: z
+      .array(id)
+      .max(20)
+      .refine((ids) => new Set(ids).size === ids.length, {
+        message: "Duplicate product asset",
+      })
+      .optional(),
     imagery: brandImagery.optional(),
     typography: brandTypography.optional(),
     // Layout and design variants the studio must not use.

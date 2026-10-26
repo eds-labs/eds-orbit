@@ -527,6 +527,20 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
     }
     // One asset per Drive file: the second import changed the type.
     expect(state.rows.filter((r) => r.kind === "assets")).toHaveLength(1);
+    // A re-import (the Drive file may have changed) ends rights and provider use.
+    const stored = state.rows.find((r) => r.kind === "assets")!;
+    stored.data = {
+      ...stored.data,
+      assetStatus: "approved",
+      usageApproved: true,
+      providerUse: true,
+    };
+    const again = await importDriveFile(scope, logo, "screenshot");
+    expect(data(again)).toMatchObject({
+      assetStatus: "reference",
+      usageApproved: false,
+      providerUse: false,
+    });
     state.driveFiles.notAnImage = {
       id: "notAnImage",
       name: "notes.pdf",

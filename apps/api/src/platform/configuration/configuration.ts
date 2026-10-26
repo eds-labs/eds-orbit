@@ -60,17 +60,28 @@ export async function readConfiguration(tx: DbTx, scope: Scope) {
 // tool schema cannot express, and a change replaces a visual identity field
 // as a whole, so they stay out of reach here: a partial change never
 // touches them (Creative Studio brand kit, Review Focus 1).
+// A partial change must not carry defaults either: zod fills the default of a
+// field inside `.partial()`, which would overwrite the stored colours, fonts
+// and design rules with the defaults of the fields the client left out.
+const visualIdentityChanges = z
+  .object(
+    Object.fromEntries(
+      Object.entries(visualIdentity.omit({ creative: true }).shape).map(
+        ([key, field]) => [
+          key,
+          (field instanceof z.ZodDefault ? field.unwrap() : field).optional(),
+        ],
+      ),
+    ) as z.ZodRawShape,
+  )
+  .strict();
 const marketingChanges = z
   .object(
     Object.fromEntries(
       Object.entries(marketingProfile.shape).map(([key, field]) => [
         key,
         key === "visualIdentity"
-          ? visualIdentity
-              .omit({ creative: true })
-              .partial()
-              .strict()
-              .optional()
+          ? visualIdentityChanges.optional()
           : (field as z.ZodType).optional(),
       ]),
     ) as z.ZodRawShape,
@@ -156,7 +167,7 @@ const update = approvedOperation({
   policyRequired: false,
   mcpProjectRequired: true,
   description:
-    "Proposes a partial change to the project configuration: changes = {marketing: {field: value}} with only the fields to change, against expectedVersion from project_configuration_get. Owners only; executes after approval in Orbit.",
+    "Proposes a partial change to the project configuration: changes = {marketing: {field: value}} with only the fields to change, against expectedVersion from project_configuration_get. visualIdentity.creative (templates, formats per channel, logo placement) is read-only over MCP: it is edited in Orbit's Brand settings. Owners only; executes after approval in Orbit.",
   input: configurationChange,
   permission: PROJECT_OWN,
   validate: (tx, scope, args) => validateConfigurationChange(tx, scope, args),

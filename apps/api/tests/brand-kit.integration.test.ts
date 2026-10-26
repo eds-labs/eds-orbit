@@ -12,7 +12,11 @@ import { buildServer } from "../src/server.ts";
 import { create, data, entity } from "../src/shared.ts";
 import { marketingActions } from "../src/modules/marketing/actions.ts";
 import { mergeProfile } from "../src/modules/marketing/brand/configuration-section.ts";
-import { configurationChange } from "../src/platform/configuration/configuration.ts";
+import {
+  configurationChange,
+  configurationTools,
+} from "../src/platform/configuration/configuration.ts";
+import { mayTransmitToProvider } from "../src/modules/marketing/brand/provider-use.ts";
 import { createPackageProject } from "./support/package-project.ts";
 
 const enabled = Boolean(
@@ -44,17 +48,64 @@ const brandKit = {
 };
 
 describe("brand kit stays out of partial MCP changes", () => {
-  it("keeps brand kit fields a partial change does not name", () => {
-    const stored = {
-      productName: "Kestrel Analytics",
-      visualIdentity: { primaryColor: "#112233", ...brandKit },
-    };
-    const merged = mergeProfile(stored, {
-      visualIdentity: { primaryColor: "#445566" },
-    }) as { visualIdentity: Record<string, unknown> };
-    expect(merged.visualIdentity).toEqual({
-      ...stored.visualIdentity,
-      primaryColor: "#445566",
+  // The identity a project saved: its own colours, fonts and rules plus a brand kit.
+  const storedIdentity = {
+    primaryColor: "#112233",
+    secondaryColor: "#334455",
+    accentColor: "#55AAFF",
+    backgroundColor: "#F0F4F8",
+    surfaceColor: "#FFFFFF",
+    textColor: "#101820",
+    headingFont: "DejaVu Sans",
+    bodyFont: "Arial",
+    designRules: ["Use clean geometric forms."],
+    ...brandKit,
+    logos: {
+      secondary: randomUUID(),
+      onDark: randomUUID(),
+      onLight: randomUUID(),
+      mark: randomUUID(),
+    },
+  };
+  const stored = {
+    productName: "Kestrel Analytics",
+    visualIdentity: storedIdentity,
+  };
+  /** The real MCP path: the tool's input schema, then the section's merge. */
+  const viaMcp = (visualIdentity: Record<string, unknown>) =>
+    (
+      mergeProfile(
+        stored,
+        configurationChange.parse({
+          expectedVersion: 1,
+          changes: { marketing: { visualIdentity } },
+        }).changes.marketing!,
+      ) as { visualIdentity: Record<string, unknown> }
+    ).visualIdentity;
+
+  it("changes one field and keeps every other stored field", () => {
+    // Parsing must not invent the defaults of the fields the client left out.
+    for (const change of [
+      { imagery: { kind: "flat", mood: "calm" } },
+      { primaryColor: "#445566" },
+      { headingFont: "Inter" },
+      { designRules: ["Keep the logo clear."] },
+      { typography: { headingWeight: 600, headingCase: "none" } },
+      { forbiddenDesigns: ["Stock photos"] },
+    ])
+      expect(viaMcp(change)).toEqual({
+        ...storedIdentity,
+        ...(change.imagery
+          ? { imagery: { ...change.imagery, subjects: "", avoid: [] } }
+          : change),
+      });
+  });
+
+  it("changes one logo and keeps the other stored logos", () => {
+    const onDark = randomUUID();
+    expect(viaMcp({ logos: { onDark } }).logos).toEqual({
+      ...storedIdentity.logos,
+      onDark,
     });
   });
 
@@ -67,6 +118,36 @@ describe("brand kit stays out of partial MCP changes", () => {
     expect(change({ imagery: brandKit.imagery })).toBe(true);
     expect(change({ typography: brandKit.typography })).toBe(true);
     expect(change({ creative: { ctaStyle: "pill" } })).toBe(false);
+  });
+
+  it("states in the update tool that the creative settings are read-only over MCP", () => {
+    expect(
+      configurationTools.find((t) => t.name === "project_configuration_update")!
+        .description,
+    ).toMatch(/visualIdentity\.creative.*(read-only|Brand settings)/s);
+  });
+});
+
+describe("one gate for every asset sent to an AI provider", () => {
+  const approved = {
+    usageApproved: true,
+    assetStatus: "approved",
+    providerUse: true,
+  };
+  it("needs approval, usage rights and the owner's provider use flag", () => {
+    expect(mayTransmitToProvider(approved)).toBe(true);
+    for (const type of ["logo", "photo", "screenshot", "product", "banner"])
+      expect(mayTransmitToProvider({ ...approved, type })).toBe(true);
+    for (const change of [
+      { providerUse: false },
+      { providerUse: undefined },
+      { providerUse: "true" },
+      { usageApproved: false },
+      { assetStatus: "reference" },
+      { assetStatus: "outdated" },
+    ])
+      expect(mayTransmitToProvider({ ...approved, ...change })).toBe(false);
+    expect(mayTransmitToProvider({})).toBe(false);
   });
 });
 
@@ -527,6 +608,30 @@ describe.skipIf(!enabled)(
           }),
         );
         expect(events).toHaveLength(1);
+      });
+
+      it("does not bring back a grant that a re-import left on an unapproved asset", async () => {
+        // A Drive re-import sets the asset back to reference; a grant stored
+        // before it must not return with the next approval (the file may differ).
+        const row = await asset(a, "screenshot", {
+          usageApproved: false,
+          assetStatus: "reference",
+          providerUse: true,
+        });
+        const approved = await setStatus("owner", a, row, approve);
+        expect(approved.statusCode).toBe(200);
+        expect(approved.json().data).toMatchObject({
+          assetStatus: "approved",
+          providerUse: false,
+        });
+        // The owner's explicit decision on the approved asset still works.
+        const granted = await setStatus(
+          "owner",
+          a,
+          { id: row.id, version: approved.json().version },
+          { ...approve, providerUse: true },
+        );
+        expect(granted.json().data.providerUse).toBe(true);
       });
 
       it("resets provider use when the asset becomes outdated or loses its approval", async () => {

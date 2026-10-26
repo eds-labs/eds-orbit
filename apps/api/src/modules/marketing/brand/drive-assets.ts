@@ -84,6 +84,8 @@ export async function importDriveFile(
       lastIndexedAt: new Date().toISOString(),
       assetStatus: "reference",
       usageApproved: false,
+      // The Drive file may differ from the one the owner allowed.
+      providerUse: false,
       tags: [],
     };
     return prior

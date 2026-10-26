@@ -14,9 +14,10 @@ import {
 
 // The Marketing profile as a section of the project configuration (plans/
 // project-configuration-mcp.md). A partial change is merged onto the
-// stored profile (visual identity field by field; null clears an optional
-// field), validated with the same schema and references as the editor, and
-// saved as a new profile version, which sends dependent drafts to review.
+// stored profile (visual identity field by field, the brand logos per role;
+// null clears an optional field), validated with the same schema and
+// references as the editor, and saved as a new profile version, which sends
+// dependent drafts to review.
 
 /** The stored profile with a partial change applied. */
 export function mergeProfile(
@@ -37,7 +38,21 @@ export function mergeProfile(
       };
       for (const [k, v] of Object.entries(value))
         if (v === null) delete visual[k];
-        else visual[k] = v;
+        else if (
+          k === "logos" &&
+          v &&
+          typeof v === "object" &&
+          !Array.isArray(v)
+        ) {
+          // The brand logos change one role at a time; null clears a role.
+          const logos = {
+            ...((visual.logos as Record<string, unknown>) ?? {}),
+          };
+          for (const [role, logo] of Object.entries(v))
+            if (logo === null) delete logos[role];
+            else logos[role] = logo;
+          visual.logos = logos;
+        } else visual[k] = v;
       merged.visualIdentity = visual;
     } else merged[key] = value;
   }

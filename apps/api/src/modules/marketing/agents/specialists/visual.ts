@@ -26,6 +26,7 @@ import {
   currentImageTerms,
   generateAssignmentImage,
 } from "../../brand/image-generation.ts";
+import { mayTransmitToProvider } from "../../brand/provider-use.ts";
 import { renderRasterBanner } from "../../../../../../../packages/creative/src/index.ts";
 import { assignmentHash } from "../assignments.ts";
 import {
@@ -444,9 +445,10 @@ function describeStyle(rows: Array<{ data: unknown }>) {
 
 /**
  * The approved style references of an assignment (R6: uploaded or Orbit
- * generated assets with approved usage, raster images only). Screenshots and
- * product images are the project's own material: they leave Orbit as a
- * reference only when the owner set `providerUse` on them.
+ * generated assets with approved usage, raster images only). They go to the
+ * image provider (bytes) and into its prompt (the stored description), so
+ * only assets the owner marked for provider use qualify, whatever their
+ * type (R28).
  */
 async function styleAssets(tx: DbTx, scope: Scope, ids: string[]) {
   if (!ids.length) return [];
@@ -462,11 +464,9 @@ async function styleAssets(tx: DbTx, scope: Scope, ids: string[]) {
     const row = rows.find((candidate) => candidate.id === id);
     const d = data(row);
     return row &&
-      d.usageApproved === true &&
-      d.assetStatus === "approved" &&
+      mayTransmitToProvider(d) &&
       // A composed banner is bound to its post (R78), never a style reference.
       !d.boundTo &&
-      (!["screenshot", "product"].includes(d.type) || d.providerUse === true) &&
       ["image/png", "image/jpeg", "image/webp"].includes(d.mime)
       ? [row]
       : [];
