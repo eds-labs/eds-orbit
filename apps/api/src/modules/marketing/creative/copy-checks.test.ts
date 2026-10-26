@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   copyCraftInstruction,
   copyCraftProblems,
@@ -8,8 +8,11 @@ import {
   creativeCta,
   CREATIVE_LINK_NOT_ALLOWED,
   CREATIVE_PROHIBITED_LANGUAGE,
+  CREATIVE_REVISABLE,
   CREATIVE_TEXT_MISSING,
+  CREATIVE_TEXT_TOO_LONG,
   CREATIVE_TEXT_UNSAFE,
+  creativeTemplateOf,
   CREATIVE_UNSUPPORTED_CLAIM,
   FACT_TOO_LONG_FOR_SOCIAL,
   parsedCreativeCopy,
@@ -90,7 +93,7 @@ describe("creative copy checks", () => {
     ]);
   });
 
-  it("names missing, malformed or too long copy", () => {
+  it("names missing or malformed copy alone", () => {
     expect(check({ headline: "" })).toEqual([CREATIVE_TEXT_MISSING]);
     expect(check({ headline: "   " })).toEqual([CREATIVE_TEXT_MISSING]);
     expect(creativeCopyProblems(undefined, limits, { cta })).toEqual([
@@ -102,13 +105,42 @@ describe("creative copy checks", () => {
     expect(
       creativeCopyProblems({ ...copy, footer: "lumora" }, limits, { cta }),
     ).toEqual([CREATIVE_TEXT_MISSING]);
-    expect(check({ headline: "x".repeat(61) })).toEqual([
-      CREATIVE_TEXT_MISSING,
-    ]);
-    // A line break the template cannot draw.
+    // A line break the template cannot draw, as for the banner.
     expect(check({ subline: "Calm light.\nLong days." })).toEqual([
       CREATIVE_TEXT_MISSING,
     ]);
+  });
+
+  it("names a layer over its limit next to the other problems (R39)", () => {
+    expect(check({ headline: "x".repeat(61) })).toEqual([
+      CREATIVE_TEXT_TOO_LONG,
+    ]);
+    expect(check({ eyebrow: "x".repeat(33) })).toEqual([
+      CREATIVE_TEXT_TOO_LONG,
+    ]);
+    expect(CREATIVE_REVISABLE.has(CREATIVE_TEXT_TOO_LONG)).toBe(true);
+    // Too long and a figure: one revision fixes both.
+    const headline =
+      "Save 30% on calm light for your long home-office evenings, all week";
+    expect(headline.length).toBeGreaterThan(60);
+    expect(check({ headline })).toEqual([
+      CREATIVE_TEXT_TOO_LONG,
+      CREATIVE_UNSUPPORTED_CLAIM,
+    ]);
+    const instruction = creativeCopyInstruction(
+      { ...copy, headline },
+      [CREATIVE_TEXT_TOO_LONG, CREATIVE_UNSUPPORTED_CLAIM],
+      limits,
+      cta,
+    );
+    expect(instruction).toContain("headline at most 60 characters");
+    expect(instruction).toContain(`now ${headline.length}`);
+    expect(instruction).toContain('"30"');
+    expect(instruction).toContain('"%"');
+    // Too long with an invisible character: unsafe, rejected without a revision.
+    const unsafe = check({ headline: `${"x".repeat(61)}\u200B` });
+    expect(unsafe).toEqual([CREATIVE_TEXT_TOO_LONG, CREATIVE_TEXT_UNSAFE]);
+    expect(unsafe.every((code) => CREATIVE_REVISABLE.has(code))).toBe(false);
   });
 
   it("refuses links on the image", () => {
@@ -206,6 +238,11 @@ describe("copy craft checks", () => {
     ]);
     expect(instruction).toContain(LONG_FACT.slice(0, 40));
     expect(instruction).toContain(`${LONG_FACT.length} characters`);
+    // The previous body shows the fact's text, not its placeholder.
+    expect(instruction).toContain(
+      "replace that long fact sentence with a shorter fact or none",
+    );
+    expect(instruction).not.toContain("placeholder");
   });
 
   it("names a missing core message", () => {
@@ -239,5 +276,39 @@ describe("copy craft checks", () => {
         }),
       ),
     ).toEqual([]);
+  });
+});
+
+describe("creativeTemplateOf", () => {
+  // The configuration the API needs to start, so the test also runs without a local env file.
+  const REQUIRED = {
+    DATABASE_URL: "postgresql://a@b/c",
+    AUTH_DATABASE_URL: "postgresql://a@b/c",
+    REDIS_URL: "redis://redis:6379",
+    AUTH_SECRET: "x".repeat(32),
+    ORBIT_SETUP_TOKEN: "y".repeat(20),
+    CREDENTIAL_KEY: "0".repeat(64),
+  };
+  beforeEach(() => {
+    for (const [name, value] of Object.entries(REQUIRED))
+      vi.stubEnv(name, process.env[name] ?? value);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("names a known template only while the Creative Studio is on (R38)", () => {
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "false");
+    expect(creativeTemplateOf({ creativeTemplate: "lifestyle" })).toBeNull();
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+    expect(creativeTemplateOf({ creativeTemplate: "lifestyle" })).toBe(
+      "lifestyle",
+    );
+    expect(
+      creativeTemplateOf({ creativeTemplate: "brand_landscape" }),
+    ).toBeNull();
+    expect(creativeTemplateOf({ creativeTemplate: "toString" })).toBeNull();
+    expect(creativeTemplateOf({})).toBeNull();
+    expect(creativeTemplateOf(null)).toBeNull();
   });
 });

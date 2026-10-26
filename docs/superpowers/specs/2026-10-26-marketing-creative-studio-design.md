@@ -382,10 +382,11 @@ The draft contract gains `copyCraft` for social content when the flag is on.
 An instruction addition (separate constant, so the draft prompt for everything
 else stays unchanged) asks for: one core message; a hook in the first line;
 a concrete problem or benefit for the audience; the product introduced as the
-solution in at most one sentence; the contract's CTA phrased for the channel;
-0–2 fact placeholders, preferring short facts; topical hashtags only (count
-from the format, else channel defaults). The output adds `coreMessage` and
-`hook` (stored for preview and QA) and, when a creative is planned,
+solution in at most one sentence; the contract's exact CTA, led into
+naturally for the channel; 0–2 fact placeholders, preferring short facts;
+topical hashtags only (count from the format, else channel defaults). The
+output adds `coreMessage` and `hook` (stored for preview and QA) and, when a
+creative is planned,
 `creative: { eyebrow?, headline, subline?, cta? }` with the template's limits —
 the generalisation of banner copy, checked by the existing deterministic
 banner copy rules (figures, status words, prohibited language, links, unsafe

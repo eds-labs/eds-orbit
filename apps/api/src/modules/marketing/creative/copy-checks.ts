@@ -22,6 +22,8 @@ import { creativeStudioEnabled } from "./flag.ts";
 // run next to the body's, with the banner copy's rules (R78) for the image.
 
 export const CREATIVE_TEXT_MISSING = "CREATIVE_TEXT_MISSING";
+// A layer over its template limit (R39), like the banner's BANNER_TEXT_OVERFLOW.
+export const CREATIVE_TEXT_TOO_LONG = "CREATIVE_TEXT_TOO_LONG";
 export const CREATIVE_UNSUPPORTED_CLAIM = "CREATIVE_UNSUPPORTED_CLAIM";
 export const CREATIVE_PROHIBITED_LANGUAGE = "CREATIVE_PROHIBITED_LANGUAGE";
 // Invisible characters or letters of another script (homoglyphs) in the copy.
@@ -43,6 +45,7 @@ export const CREATIVE_REVISABLE = new Set([
   CREATIVE_UNSUPPORTED_CLAIM,
   CREATIVE_PROHIBITED_LANGUAGE,
   CREATIVE_TEXT_MISSING,
+  CREATIVE_TEXT_TOO_LONG,
 ]);
 
 /** A creative's image copy as the copywriter writes it: every layer, an empty one is absent. */
@@ -142,13 +145,16 @@ const checkedCopy = (copy: CreativeCopyText, cta: unknown, max: number) =>
   ).normalize("NFKC");
 
 /**
- * Deterministic problems of a creative's image copy: missing or malformed
- * copy, a layer over the template's `limits` or one the template cannot draw
- * (`CREATIVE_TEXT_MISSING`), invisible or non-Latin characters
- * (`CREATIVE_TEXT_UNSAFE`), figures, number words, prices, fact placeholders
- * and status wording (`CREATIVE_UNSUPPORTED_CLAIM`), promises and the
- * profile's prohibited wording (`CREATIVE_PROHIBITED_LANGUAGE`), all with the
- * banner copy's rules, and links: an explicit link
+ * Deterministic problems of a creative's image copy. Missing or malformed
+ * copy, a blank headline or a layer the template cannot draw (a line break,
+ * as for the banner) is `CREATIVE_TEXT_MISSING`, alone. Otherwise every
+ * problem is named together (R39): a layer over the template's `limits`
+ * (`CREATIVE_TEXT_TOO_LONG`), invisible or non-Latin characters
+ * (`CREATIVE_TEXT_UNSAFE`; the other checks then cannot trust the copy and
+ * are skipped, as for the banner), figures, number words, prices, fact
+ * placeholders and status wording (`CREATIVE_UNSUPPORTED_CLAIM`), promises
+ * and the profile's prohibited wording (`CREATIVE_PROHIBITED_LANGUAGE`), all
+ * with the banner copy's rules, and links: an explicit link
  * (`CREATIVE_LINK_NOT_ALLOWED`) or a bare host that may also be a name
  * (`LINK_UNVERIFIED`, left for the owner as in the body, R49). A CTA that is
  * the mission's `opts.cta` is campaign copy and not checked for claims or
@@ -163,14 +169,13 @@ export function creativeCopyProblems(
   if (
     !text ||
     !text.headline.trim() ||
-    LAYERS.some(
-      (field) =>
-        text[field].length > limits[field] || UNDRAWABLE.test(text[field]),
-    )
+    LAYERS.some((field) => UNDRAWABLE.test(text[field]))
   )
     return [CREATIVE_TEXT_MISSING];
-  if (unsafeText(allCopy(text))) return [CREATIVE_TEXT_UNSAFE];
   const problems: string[] = [];
+  if (LAYERS.some((field) => text[field].length > limits[field]))
+    problems.push(CREATIVE_TEXT_TOO_LONG);
+  if (unsafeText(allCopy(text))) return [...problems, CREATIVE_TEXT_UNSAFE];
   const checked = checkedCopy(text, opts.cta, limits.cta);
   if (statesUnsupportedClaim(checked))
     problems.push(CREATIVE_UNSUPPORTED_CLAIM);
@@ -185,8 +190,8 @@ export function creativeCopyProblems(
 
 /**
  * The copywriter's revision instruction for image copy: write the missing
- * copy within the template's limits, or remove the words an image cannot
- * carry, naming them. Nothing new.
+ * copy within the template's limits, shorten layers over them, and remove
+ * the words an image cannot carry, naming them. Nothing new.
  */
 export function creativeCopyInstruction(
   value: unknown,
@@ -196,15 +201,18 @@ export function creativeCopyInstruction(
 ) {
   const text = everyLayer(value);
   const parts: string[] = [];
-  if (problems.includes(CREATIVE_TEXT_MISSING)) {
-    const sizes = text
-      ? ` (now ${text.headline.length}, ${text.eyebrow.length} and ${text.subline.length} characters)`
-      : "";
-    // The CTA is the mission's, set by Orbit: not the copywriter's to write.
+  const sizes = text
+    ? ` (now ${text.headline.length}, ${text.eyebrow.length} and ${text.subline.length} characters)`
+    : "";
+  // The CTA is the mission's, set by Orbit: not the copywriter's to write or shorten.
+  if (problems.includes(CREATIVE_TEXT_MISSING))
     parts.push(
       `write it as plain single lines within the limits: a headline of at most ${limits.headline} characters, an eyebrow of at most ${limits.eyebrow} and a subline of at most ${limits.subline}, each of them may be empty except the headline${sizes}`,
     );
-  }
+  if (problems.includes(CREATIVE_TEXT_TOO_LONG))
+    parts.push(
+      `shorten it to fit: headline at most ${limits.headline} characters, eyebrow at most ${limits.eyebrow} and subline at most ${limits.subline}${sizes}`,
+    );
   if (
     problems.includes(CREATIVE_UNSUPPORTED_CLAIM) ||
     problems.includes(CREATIVE_PROHIBITED_LANGUAGE)
@@ -232,7 +240,10 @@ function longSocialFacts(content: Record<string, any>) {
 
 /**
  * Deterministic problems of a draft written with copy craft (only when
- * `content.copyCraft === true`): no core message (`CORE_MESSAGE_MISSING`), or
+ * `content.copyCraft === true`, which generation sets when its contract asked
+ * for copy craft; the creative checks instead follow the Creative Studio
+ * switch through `creativeTemplateOf`, R38): no core message
+ * (`CORE_MESSAGE_MISSING`), or
  * a fact claim in a social body longer than `SOCIAL_FACT_MAX` characters, a
  * knowledge-base description rather than a fact a post can carry
  * (`FACT_TOO_LONG_FOR_SOCIAL`). Both are revised once (`COPY_CRAFT_REVISABLE`).
@@ -248,8 +259,9 @@ export function copyCraftProblems(content: Record<string, any>) {
 
 /**
  * The copywriter's revision instruction for copy craft problems: return the
- * core message, or replace each long fact (quoted by its start) with a
- * shorter one or none.
+ * core message, or replace each long fact sentence (quoted by its start; the
+ * previous body shows the fact's text, not its placeholder) with a shorter
+ * fact or none.
  */
 export function copyCraftInstruction(
   content: Record<string, any>,
@@ -268,7 +280,7 @@ export function copyCraftInstruction(
       )
       .join(", ");
     parts.push(
-      `replace ${facts || "the long fact"}: a description this long does not fit a social post; remove its fact placeholder and use a supplied fact with a short value instead, or none`,
+      `the fact sentence ${facts || "in the body"} is a description too long for a social post: replace that long fact sentence with a shorter fact or none`,
     );
   }
   return `Fix the post: ${parts.join("; ")}. Keep the post's message, its hook and the intendedPrimaryCta, and add no new claim, figure or link.`;

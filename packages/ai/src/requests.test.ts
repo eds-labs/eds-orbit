@@ -379,6 +379,11 @@ describe("copy craft and creative copy in drafts (Creative Studio)", () => {
       `${DRAFT_INSTRUCTIONS} ${COPY_CRAFT_INSTRUCTION}`,
     );
     expect(body.instructions.endsWith(COPY_CRAFT_INSTRUCTION)).toBe(true);
+    // The exact profile CTA is binding; copy craft only leads into it (R40).
+    expect(COPY_CRAFT_INSTRUCTION).toContain(
+      "and close with the contract's exact intendedPrimaryCta, led into naturally for the channel.",
+    );
+    expect(COPY_CRAFT_INSTRUCTION).not.toContain("phrased for the channel");
     const schema = body.text.format.schema;
     expect(schema.required).toEqual(
       expect.arrayContaining([
@@ -453,6 +458,15 @@ describe("copy craft and creative copy in drafts (Creative Studio)", () => {
     expect(result.output).not.toHaveProperty("creative");
     expect(result.output).not.toHaveProperty("coreMessage");
     expect(result.output).not.toHaveProperty("hook");
+    // Never read when not asked for: malformed values change nothing (as before).
+    create.mockResolvedValue(
+      crafted({ creative: 3, coreMessage: 5, hook: "h".repeat(5000) }),
+    );
+    expect((await generate(params)).output).toEqual({
+      title: "t",
+      body: "b",
+      claims: [{ text: "c", kind: "style" }],
+    });
   });
 
   it("drops a style claim that is only the creative copy (R83)", async () => {

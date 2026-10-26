@@ -91,7 +91,7 @@ export const BANNER_DRAFT_INSTRUCTION =
  * draft request stays as it was.
  */
 export const COPY_CRAFT_INSTRUCTION =
-  "The contract has copyCraft: build the post around exactly one core message and return it as coreMessage (one sentence of at most 160 characters, not copied from the body). Open the body with a hook in its first line: a question, a recognisable everyday moment or a concrete benefit; return that line as hook. Then show one concrete problem or benefit for the audience, introduce the product as the answer in at most one sentence, and close with the contract's intendedPrimaryCta phrased for the channel. Do not describe the whole product: use at most two fact placeholders, prefer facts with short values, and never use a fact whose value is a long description. Use only hashtags that name the post's topic.";
+  "The contract has copyCraft: build the post around exactly one core message and return it as coreMessage (one sentence of at most 160 characters, not copied from the body). Open the body with a hook in its first line: a question, a recognisable everyday moment or a concrete benefit; return that line as hook. Then show one concrete problem or benefit for the audience, introduce the product as the answer in at most one sentence, and close with the contract's exact intendedPrimaryCta, led into naturally for the channel. Do not describe the whole product: use at most two fact placeholders, prefer facts with short values, and never use a fact whose value is a long description. Use only hashtags that name the post's topic.";
 
 /**
  * The draft instructions' addition for a creative's image copy (Creative
@@ -450,25 +450,26 @@ export async function generate(params: {
   let output: z.infer<typeof structuredOutput>;
   try {
     const raw = JSON.parse(completed.text);
+    // Copy craft and image copy that were not asked for are never read, so
+    // every other request parses exactly as before.
+    if (!copyCraft) {
+      delete raw.coreMessage;
+      delete raw.hook;
+    }
+    if (!creative) delete raw.creative;
     raw.claims = raw.claims.map((c: any) =>
       Object.fromEntries(Object.entries(c).filter(([, v]) => v !== null)),
     );
     output = structuredOutput.parse(raw);
     // A banner was asked for: without it the output is not usable; never kept otherwise.
     if (banner ? !output.banner : output.banner) throw new Error("BANNER");
-    // Copy craft and image copy that were asked for are required; fields
-    // that were not are dropped, as before (the request stays unchanged).
+    // Copy craft and image copy that were asked for are required.
     if (
       copyCraft &&
       (output.coreMessage === undefined || output.hook === undefined)
     )
       throw new Error("COPY_CRAFT");
     if (creative && !output.creative) throw new Error("CREATIVE");
-    if (!copyCraft) {
-      delete output.coreMessage;
-      delete output.hook;
-    }
-    if (!creative) delete output.creative;
     if (output.banner)
       output.claims = withoutBannerClaims(
         output.claims,
