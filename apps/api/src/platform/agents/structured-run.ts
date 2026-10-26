@@ -6,6 +6,8 @@ import {
   estimateCost,
   isRejectedRequest,
   providerCallName,
+  rejectionCode,
+  rejectionDetail,
   respond,
   webSearchFee,
   webSearchInputTokens,
@@ -425,13 +427,17 @@ export async function runStructured<O>(
       await scoped(scope.workspaceId, scope.projectId, (tx) =>
         settle(tx, scope, unsettled, rejected ? 0 : null).then(() => undefined),
       ).catch(() => undefined);
-      const code = rejected ? "MODEL_REQUEST_NOT_ACCEPTED" : "AGENT_OUTCOME_UNKNOWN";
+      // A refusal says why (rate limit, overload, key, model, request
+      // field); the span keeps what the provider said, never prompt text.
+      const code = rejected ? (rejectionCode(error) ?? "MODEL_REQUEST_NOT_ACCEPTED") : "AGENT_OUTCOME_UNKNOWN";
+      const detail = rejected ? rejectionDetail(error) : null;
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: providerCallName(inFlight.provider, "create"),
         model: inFlight.model,
         status: rejected ? "failed" : "unknown",
-        errorCode: code,
+        errorCode: detail ? `${code} ${detail.code}`.slice(0, 160) : code,
+        ...(detail?.requestId ? { providerResponseId: detail.requestId } : {}),
         startedAt: inFlight.startedAt,
         durationMs: Date.now() - inFlight.startedAt.valueOf(),
         ...(rejected ? { costMicros: 0 } : {}),

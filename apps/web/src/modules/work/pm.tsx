@@ -405,7 +405,29 @@ export function PlanReview({ planId, onClose, onOpen }: { planId: string; onClos
         {p.costMicros > 0 && ` · ${t.costs(usd(p.costMicros))}`}
       </p>
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      {p.errorCode && p.status === "failed" && <Alert kind="error">{p.errorCode}</Alert>}
+      {p.errorCode && p.status === "failed" && (
+        <Alert kind="error">
+          {t.failure(p.errorCode)}
+          {access.write && (
+            <>
+              {" "}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={mutation.pending}
+                onClick={() =>
+                  mutation.run(async () => {
+                    const next = await send<{ id: string }>(workPath(project.id, `/pm/plans/${p.id}/retry`), "POST", {});
+                    onOpen(next.id);
+                  })
+                }
+              >
+                {t.retryPlan}
+              </Button>
+            </>
+          )}
+        </Alert>
+      )}
       {p.validation.errors.length > 0 && (
         <Alert kind="error">
           {t.errors}: {p.validation.errors.join(", ")}

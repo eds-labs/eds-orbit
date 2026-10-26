@@ -148,6 +148,24 @@ const en = {
     open: "Open initiatives",
     openTasks: "Open tasks",
   },
+  retryPlan: "Plan again",
+  /** Why a planning run failed, in words; the code stays visible for support. */
+  failure: (code: string) =>
+    `${
+      {
+        MODEL_RATE_LIMITED: "The AI provider's rate limit was reached. Nothing was charged; plan again in a few minutes.",
+        MODEL_OVERLOADED: "The AI provider was overloaded. Nothing was charged; plan again in a few minutes.",
+        MODEL_AUTH_REJECTED: "The AI provider refused the key. Check the provider connection in Settings → AI. Nothing was charged.",
+        MODEL_NOT_AVAILABLE: "The chosen model is not available for this key. Choose another model for 'Project manager plans' in Settings → AI. Nothing was charged.",
+        MODEL_REQUEST_INVALID: "The AI provider refused the request (for example the model or its output limit). Choose another model for 'Project manager plans' in Settings → AI. Nothing was charged.",
+        MODEL_REQUEST_NOT_ACCEPTED: "The AI provider refused the request. Nothing was charged; plan again or choose another model in Settings → AI.",
+        WORK_PM_BUDGET_EXHAUSTED: "The AI project manager's daily budget is used up. Plan again tomorrow or raise the budget.",
+        AGENT_OUTCOME_UNKNOWN: "The answer did not arrive; the call may have been charged. Plan again only if needed.",
+        AGENT_OUTPUT_INVALID: "The AI's answer was not a valid plan. Plan again.",
+        AGENT_OUTPUT_LIMIT: "The plan was cut off at the output limit. Raise the output tokens for 'Project manager plans' or narrow the request.",
+        AGENT_LIMIT: "The planning run hit its time or step limit. Plan again with a narrower request.",
+      }[code] ?? "Planning failed."
+    } (${code})`,
   decisions: {
     plan: "Apply a plan",
     bulk: "Change several tasks",
@@ -227,6 +245,23 @@ const de: PmText = {
   milestones: "Meilensteine",
   tasks: "Aufgaben",
   risks: "Risiken",
+  retryPlan: "Erneut planen",
+  failure: (code: string) =>
+    `${
+      {
+        MODEL_RATE_LIMITED: "Das Rate-Limit des KI-Anbieters war erreicht. Es wurde nichts berechnet; in einigen Minuten erneut planen.",
+        MODEL_OVERLOADED: "Der KI-Anbieter war überlastet. Es wurde nichts berechnet; in einigen Minuten erneut planen.",
+        MODEL_AUTH_REJECTED: "Der KI-Anbieter hat den Schlüssel abgelehnt. Prüfe die Verbindung unter Einstellungen → KI. Es wurde nichts berechnet.",
+        MODEL_NOT_AVAILABLE: "Das gewählte Modell ist für diesen Schlüssel nicht verfügbar. Wähle unter Einstellungen → KI ein anderes Modell für „KI-Projektleiter: Pläne“. Es wurde nichts berechnet.",
+        MODEL_REQUEST_INVALID: "Der KI-Anbieter hat die Anfrage abgelehnt (zum Beispiel Modell oder Ausgabegrenze). Wähle unter Einstellungen → KI ein anderes Modell für „KI-Projektleiter: Pläne“. Es wurde nichts berechnet.",
+        MODEL_REQUEST_NOT_ACCEPTED: "Der KI-Anbieter hat die Anfrage abgelehnt. Es wurde nichts berechnet; erneut planen oder unter Einstellungen → KI ein anderes Modell wählen.",
+        WORK_PM_BUDGET_EXHAUSTED: "Das Tagesbudget des KI-Projektleiters ist aufgebraucht. Morgen erneut planen oder das Budget erhöhen.",
+        AGENT_OUTCOME_UNKNOWN: "Die Antwort kam nicht an; der Aufruf wurde möglicherweise berechnet. Nur bei Bedarf erneut planen.",
+        AGENT_OUTPUT_INVALID: "Die Antwort der KI war kein gültiger Plan. Erneut planen.",
+        AGENT_OUTPUT_LIMIT: "Der Plan wurde an der Ausgabegrenze abgeschnitten. Ausgabe-Tokens für „KI-Projektleiter: Pläne“ erhöhen oder den Auftrag eingrenzen.",
+        AGENT_LIMIT: "Der Planungslauf hat seine Zeit- oder Schrittgrenze erreicht. Mit engerem Auftrag erneut planen.",
+      }[code] ?? "Planung fehlgeschlagen."
+    } (${code})`,
   decisions: { ...en.decisions,
     plan: "Plan übernehmen",
     bulk: "Mehrere Aufgaben ändern",
