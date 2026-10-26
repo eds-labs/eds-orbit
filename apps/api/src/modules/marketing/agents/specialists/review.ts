@@ -58,6 +58,16 @@ import {
   officialFooter,
   parsedBanner,
 } from "../banner.ts";
+import {
+  copyCraftInstruction,
+  copyCraftProblems,
+  COPY_CRAFT_REVISABLE,
+  creativeCopyInstruction,
+  creativeCopyProblems,
+  CREATIVE_REVISABLE,
+  creativeTemplateOf,
+} from "../../creative/copy-checks.ts";
+import { TEMPLATE_COPY_LIMITS } from "../../../../../../../packages/creative/src/index.ts";
 import { attachOwnBanner, bannerState, mediaRefusal } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
@@ -86,8 +96,9 @@ import {
  * content before they are applied, so running the task again neither calls
  * the model for a decided draft nor revises twice (R26). A draft whose only
  * problems are the assignment's format (R77), its banner copy (R78), a fact
- * claim that does not match its fact or text addressed to a reviewer is
- * revised once without the model;
+ * claim that does not match its fact, text addressed to a reviewer, its copy
+ * craft (no core message, a fact too long for a social post) or its image
+ * copy (Creative Studio) is revised once without the model;
  * a shared run's settled draft is copied for its slot group's other
  * channels, each copy checked on its own channel (R76, `shareDraft`).
  */
@@ -142,12 +153,14 @@ export const CHANNEL_PROBLEMS = new Set([
 export const AGENT_REVIEW_TEXT_CHANGED = "AGENT_REVIEW_TEXT_CHANGED";
 // A fact claim with words its fact does not back (checkClaims).
 const FACT_VALUE_MISMATCH = "FACT_VALUE_MISMATCH";
-// Problems one deterministic revision may fix in round 1 (R77, R78).
+// Problems one deterministic revision may fix in round 1 (R77, R78, spec §10).
 const REVISABLE = new Set([
   ...FORMAT_PROBLEMS,
   ...BANNER_REVISABLE,
   FACT_VALUE_MISMATCH,
   DRAFT_INSTRUCTION_TEXT,
+  ...COPY_CRAFT_REVISABLE,
+  ...CREATIVE_REVISABLE,
 ]);
 // Revision failures of the provider or the project, not of the draft (R49).
 const TRANSIENT_REVISION_FAILURES = new Set([
@@ -326,6 +339,18 @@ export async function deterministicProblems(
         mission?.targetAction,
       )),
     );
+  // Copy craft (spec §10): a crafted social post has a core message and short facts.
+  problems.push(...copyCraftProblems(v));
+  // A creative's image copy is reviewed content too; its CTA is the mission CTA.
+  const creativeTemplate = creativeTemplateOf(mission);
+  if (creativeTemplate)
+    problems.push(
+      ...creativeCopyProblems(
+        v.creativeCopy,
+        TEMPLATE_COPY_LIMITS[creativeTemplate],
+        { cta: mission?.targetAction },
+      ),
+    );
   return [...new Set(problems)];
 }
 
@@ -413,7 +438,9 @@ async function factMismatches(tx: DbTx, scope: Scope, v: Record<string, any>) {
 /**
  * A round-1 draft whose only problems are the format's (R77), its banner
  * copy's (R78: too long, a figure, status or promise word), fact claims
- * that do not match their facts or text addressed to a reviewer gets one
+ * that do not match their facts, text addressed to a reviewer, its copy
+ * craft's (no core message, a fact too long for a social post) or its image
+ * copy's (missing, too long, a figure, status or promise word) gets one
  * revision with a deterministic instruction instead of a reject; the model
  * does not judge it in this round. Anything else, or round 2, stays as
  * before: reject or leave for the owner (R26).
@@ -446,6 +473,20 @@ async function deterministicRevision(
   }
   if (problems.includes(DRAFT_INSTRUCTION_TEXT))
     parts.push(instructionTextInstruction(v.body));
+  if (problems.some((code) => COPY_CRAFT_REVISABLE.has(code)))
+    parts.push(copyCraftInstruction(v, problems));
+  if (problems.some((code) => CREATIVE_REVISABLE.has(code))) {
+    const template = creativeTemplateOf(mission);
+    if (!template) return null;
+    parts.push(
+      creativeCopyInstruction(
+        v.creativeCopy,
+        problems,
+        TEMPLATE_COPY_LIMITS[template],
+        mission?.targetAction,
+      ),
+    );
+  }
   return parts.join(" ");
 }
 

@@ -58,9 +58,13 @@ export const bannerText = z
  * button). A banner thus never names another call to action than its post.
  */
 export function ctaButton(cta: unknown) {
-  const label =
-    typeof cta === "string" ? cta.replace(/[\s\p{P}]+$/u, "").trim() : "";
+  const label = ctaLabel(cta);
   return bannerButtonFits(label) ? label : "";
+}
+
+/** A CTA as a label on an image: without closing punctuation; empty without a CTA. */
+export function ctaLabel(cta: unknown) {
+  return typeof cta === "string" ? cta.replace(/[\s\p{P}]+$/u, "").trim() : "";
 }
 
 /** Banner copy with its button set to the mission CTA (`ctaButton`). */
@@ -239,8 +243,21 @@ const PROMISE =
 // Invisible format characters (zero-width space, joiner, soft hyphen, BOM, bidi marks).
 const INVISIBLE = /\p{Cf}/u;
 
-/** The copy as the checks read it: NFKC-normalized. */
-const normalized = (text: BannerText) => bannerCopy(text).normalize("NFKC");
+/** Whether `rule` matches `copy` (case-insensitively, as the copy checks read it). */
+const hits = (rule: RegExp, copy: string) =>
+  new RegExp(rule.source, "iu").test(copy);
+
+/**
+ * Whether image copy (NFKC) states a figure, number word, percentage, price,
+ * fact placeholder or status: a claim the image cannot back. The rules of
+ * banner copy (R78), shared with a creative's image copy.
+ */
+export const statesUnsupportedClaim = (copy: string) =>
+  hits(FIGURE, copy) || hits(STATUS, copy);
+
+/** Whether image copy (NFKC) promises profit, returns or no risk, or uses the profile's prohibited wording. */
+export const statesProhibitedLanguage = (copy: string) =>
+  hits(PROMISE, copy) || PROHIBITED_LANGUAGE.some((rule) => hits(rule, copy));
 
 /**
  * The copy the claim and wording checks read: without the button when it
@@ -259,9 +276,13 @@ const checkedCopy = (text: BannerText, cta?: unknown) =>
  * alikes); the copy is written in English or German.
  */
 function unsafeCopy(text: BannerText) {
-  const raw = bannerCopy(text);
+  return unsafeText(bannerCopy(text));
+}
+
+/** Image copy with invisible format characters or letters outside the Latin script (`unsafeCopy`). */
+export function unsafeText(raw: string) {
   if (INVISIBLE.test(raw)) return true;
-  return [...normalized(text).matchAll(/\p{L}/gu)].some(
+  return [...raw.normalize("NFKC").matchAll(/\p{L}/gu)].some(
     ([letter]) => !/\p{Script=Latin}/u.test(letter!),
   );
 }
@@ -270,7 +291,11 @@ function unsafeCopy(text: BannerText) {
 export function bannerOffenses(value: unknown, cta?: unknown) {
   const text = parsedBanner(value);
   if (!text) return [];
-  const copy = checkedCopy(text, cta);
+  return copyOffenses(checkedCopy(text, cta));
+}
+
+/** The words of image copy (NFKC) that an image cannot carry: figures, status, promises and prohibited wording. */
+export function copyOffenses(copy: string) {
   const found = [FIGURE, STATUS, PROMISE, ...PROHIBITED_LANGUAGE].flatMap(
     (rule) =>
       [
@@ -319,10 +344,8 @@ export function bannerTextProblems(
     return [BANNER_TEXT_MISSING];
   }
   const copy = checkedCopy(text, layout.cta);
-  const hits = (rule: RegExp) => new RegExp(rule.source, "iu").test(copy);
-  if (hits(FIGURE) || hits(STATUS)) problems.push(BANNER_UNSUPPORTED_CLAIM);
-  if (hits(PROMISE) || PROHIBITED_LANGUAGE.some((rule) => hits(rule)))
-    problems.push(BANNER_PROHIBITED_LANGUAGE);
+  if (statesUnsupportedClaim(copy)) problems.push(BANNER_UNSUPPORTED_CLAIM);
+  if (statesProhibitedLanguage(copy)) problems.push(BANNER_PROHIBITED_LANGUAGE);
   if (overflow) problems.push(BANNER_TEXT_OVERFLOW);
   return problems;
 }

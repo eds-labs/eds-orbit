@@ -6,7 +6,15 @@ vi.mock("openai", () => ({
     responses = { create };
   },
 }));
-import { GenerationOutputError, generate, streamChat } from "./index.ts";
+import {
+  COPY_CRAFT_INSTRUCTION,
+  CREATIVE_DRAFT_INSTRUCTION,
+  DRAFT_INSTRUCTIONS,
+  GenerationOutputError,
+  generate,
+  streamChat,
+  withoutBannerClaims,
+} from "./index.ts";
 
 const runtime = {
   apiKey: "test-key",
@@ -299,5 +307,199 @@ describe("banner copy in drafts (R78)", () => {
     await expect(generate({ ...params, banner: true })).rejects.toMatchObject({
       code: "MODEL_OUTPUT_NOT_VALID",
     });
+  });
+});
+
+describe("copy craft and creative copy in drafts (Creative Studio)", () => {
+  const params = {
+    task: "draft",
+    goal: "g",
+    evidence: {},
+    route: { model: "m", maxOutputTokens: 1800 },
+    reservationId: "r",
+    runtime,
+  };
+  const limits = { eyebrow: 32, headline: 60, subline: 120, cta: 24 };
+  const creative = {
+    eyebrow: "Home office",
+    headline: "Calm light for long days",
+    subline: "",
+    cta: "Shop the lamp",
+  };
+  const crafted = (extra: Record<string, unknown>) => ({
+    ...answer,
+    output_text: JSON.stringify({
+      ...JSON.parse(answer.output_text),
+      ...extra,
+    }),
+  });
+  beforeEach(() => {
+    create.mockReset().mockResolvedValue(answer);
+  });
+
+  it("leaves the prompt and schema unchanged without copy craft or creative", async () => {
+    await generate(params);
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).toBe(DRAFT_INSTRUCTIONS);
+    expect(body.text.format.schema).toEqual({
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        body: { type: "string" },
+        claims: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              text: { type: "string" },
+              factId: { type: ["string", "null"] },
+              chunkId: { type: ["string", "null"] },
+              kind: { type: "string", enum: ["fact", "quote", "style"] },
+            },
+            required: ["text", "factId", "chunkId", "kind"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["title", "body", "claims"],
+      additionalProperties: false,
+    });
+  });
+
+  it("asks for a core message and a hook with copy craft", async () => {
+    create.mockResolvedValue(
+      crafted({
+        coreMessage: "Good light makes long days easier.",
+        hook: "Ever squinted at your screen at 6 pm?",
+      }),
+    );
+    const result = await generate({ ...params, copyCraft: true });
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).toBe(
+      `${DRAFT_INSTRUCTIONS} ${COPY_CRAFT_INSTRUCTION}`,
+    );
+    expect(body.instructions.endsWith(COPY_CRAFT_INSTRUCTION)).toBe(true);
+    const schema = body.text.format.schema;
+    expect(schema.required).toEqual(
+      expect.arrayContaining([
+        "title",
+        "body",
+        "claims",
+        "coreMessage",
+        "hook",
+      ]),
+    );
+    expect(schema.properties.coreMessage).toEqual({ type: "string" });
+    expect(schema.properties.hook).toEqual({ type: "string" });
+    expect(schema.properties).not.toHaveProperty("creative");
+    expect(result.output).toMatchObject({
+      coreMessage: "Good light makes long days easier.",
+      hook: "Ever squinted at your screen at 6 pm?",
+    });
+    // Without the fields it asked for, the answer is not usable.
+    create.mockResolvedValue(answer);
+    await expect(
+      generate({ ...params, copyCraft: true }),
+    ).rejects.toMatchObject({ code: "MODEL_OUTPUT_NOT_VALID" });
+  });
+
+  it("asks for the image copy with a creative", async () => {
+    create.mockResolvedValue(crafted({ creative }));
+    const result = await generate({ ...params, creative: { limits } });
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).toBe(
+      `${DRAFT_INSTRUCTIONS} ${CREATIVE_DRAFT_INSTRUCTION}`,
+    );
+    const schema = body.text.format.schema;
+    expect(schema.required).toContain("creative");
+    expect(schema.required).not.toContain("coreMessage");
+    expect(schema.properties.creative).toEqual({
+      type: "object",
+      properties: {
+        eyebrow: { type: "string" },
+        headline: { type: "string" },
+        subline: { type: "string" },
+        cta: { type: "string" },
+      },
+      required: ["eyebrow", "headline", "subline", "cta"],
+      additionalProperties: false,
+    });
+    expect(result.output.creative).toEqual(creative);
+    create.mockResolvedValue(answer);
+    await expect(
+      generate({ ...params, creative: { limits } }),
+    ).rejects.toMatchObject({ code: "MODEL_OUTPUT_NOT_VALID" });
+  });
+
+  it("asks for copy craft first and the creative copy last when both apply", async () => {
+    create.mockResolvedValue(
+      crafted({ creative, coreMessage: "c", hook: "h" }),
+    );
+    await generate({ ...params, copyCraft: true, creative: { limits } });
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).toBe(
+      `${DRAFT_INSTRUCTIONS} ${COPY_CRAFT_INSTRUCTION} ${CREATIVE_DRAFT_INSTRUCTION}`,
+    );
+    expect(body.text.format.schema.required).toEqual(
+      expect.arrayContaining(["coreMessage", "hook", "creative"]),
+    );
+  });
+
+  it("keeps no copy craft or creative fields it did not ask for", async () => {
+    create.mockResolvedValue(
+      crafted({ creative, coreMessage: "c", hook: "h" }),
+    );
+    const result = await generate(params);
+    expect(result.output).not.toHaveProperty("creative");
+    expect(result.output).not.toHaveProperty("coreMessage");
+    expect(result.output).not.toHaveProperty("hook");
+  });
+
+  it("drops a style claim that is only the creative copy (R83)", async () => {
+    const cta = { text: "Shop the lamp", kind: "style" };
+    const fact = {
+      text: "The lamp dims in three steps",
+      kind: "fact",
+      factId: "f1",
+    };
+    create.mockResolvedValue({
+      ...answer,
+      output_text: JSON.stringify({
+        title: "t",
+        body: "The lamp dims in three steps. Shop the lamp",
+        claims: [
+          fact,
+          cta,
+          // The image copy recorded as a claim: not in the body.
+          {
+            text: "HOME OFFICE / Calm light for long days / Shop the lamp",
+            kind: "style",
+          },
+          { text: "Calm light for long days.", kind: "style" },
+          // Not only image copy: kept for the checks.
+          { text: "Calm light for long days / Brightest lamp", kind: "style" },
+        ],
+        creative,
+      }),
+    });
+    const result = await generate({ ...params, creative: { limits } });
+    expect(result.output.claims).toEqual([
+      fact,
+      cta,
+      { text: "Calm light for long days / Brightest lamp", kind: "style" },
+    ]);
+    expect(create.mock.calls[0]![0].instructions).toContain(
+      "never record it in the claims ledger",
+    );
+  });
+
+  it("drops banner-only style claims through the same rule for creative copy", () => {
+    const claims = [
+      { text: "Calm light for long days", kind: "style" },
+      { text: "Shop the lamp", kind: "style" },
+    ];
+    expect(
+      withoutBannerClaims(claims, creative, "Light for your desk."),
+    ).toEqual([]);
   });
 });

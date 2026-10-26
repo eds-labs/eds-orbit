@@ -26,6 +26,7 @@ import {
   providerCallName,
   resolveRoute,
   estimateCost,
+  type CopyLimits,
 } from "../../../../../../packages/ai/src/index.ts";
 import { planCall } from "../../../platform/ai/call-plan.ts";
 import { activePolicy, CLAIM_REPEAT_WINDOW_DAYS } from "../policy/policy.ts";
@@ -61,7 +62,19 @@ import {
   parsedBanner,
   withCtaButton,
 } from "../agents/banner.ts";
-import type { BannerText } from "../../../../../../packages/creative/src/index.ts";
+import {
+  TEMPLATE_COPY_LIMITS,
+  type BannerText,
+  type CreativeCopy,
+  type TemplateId,
+} from "../../../../../../packages/creative/src/index.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
+import {
+  creativeCta,
+  creativeTemplateOf,
+  parsedCreativeCopy,
+  storedCreativeCopy,
+} from "../creative/copy-checks.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -113,6 +126,8 @@ type GenerationContract = {
     previousBody: string;
     // The banner copy of the revised draft (R78): kept unless the instruction concerns it.
     previousBanner?: BannerText;
+    // The image copy of the revised draft: kept unless the instruction concerns it.
+    previousCreative?: CreativeCopy;
   };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
@@ -138,6 +153,13 @@ type GenerationContract = {
     template: "brand_landscape";
     limits: Readonly<Record<keyof BannerText, number>>;
   };
+  // Present only for social content while the Creative Studio is on (spec §10): the copy craft rules.
+  copyCraft?: true;
+  // Present only for a mission with a creative template: the image copy's template and limits.
+  creative?: {
+    template: TemplateId;
+    limits: CopyLimits;
+  };
   // Present only for a shared text (R76): every channel it goes out on, unchanged.
   sharedChannels?: {
     channel: string;
@@ -151,15 +173,20 @@ async function revisionContext(
   scope: Scope,
   revisionOf: { contentId: string; version: number; instruction: string },
   withBanner = false,
+  withCreative = false,
 ) {
   const parent = await entity(tx, scope, "content", revisionOf.contentId);
   if (parent.version !== revisionOf.version)
     throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
   const previousBanner = withBanner ? parsedBanner(data(parent).banner) : null;
+  const previousCreative = withCreative
+    ? parsedCreativeCopy(data(parent).creativeCopy)
+    : null;
   return {
     instruction: revisionOf.instruction,
     previousBody: String(data(parent).body ?? ""),
     ...(previousBanner ? { previousBanner } : {}),
+    ...(previousCreative ? { previousCreative } : {}),
   };
 }
 
@@ -477,12 +504,14 @@ async function generateMissionDraft(
         reservedCharacters > channelRules.characterLimit
       )
         throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
+      const creativeTemplate = creativeTemplateOf(m);
       const revision = m.revisionOf
         ? await revisionContext(
             tx,
             scope,
             m.revisionOf,
             Boolean(m.assignmentRunId && bannerTemplateOf(m)),
+            Boolean(creativeTemplate),
           )
         : null;
       const contract: GenerationContract = {
@@ -577,6 +606,19 @@ async function generateMissionDraft(
               banner: {
                 template: bannerTemplateOf(m)!,
                 limits: BANNER_TEXT_LIMITS,
+              },
+            }
+          : {}),
+        // Copy craft for social posts while the Creative Studio is on (spec §10).
+        ...(creativeStudioEnabled() && m.contentType === "social"
+          ? { copyCraft: true as const }
+          : {}),
+        // The image copy for a mission with a creative template.
+        ...(creativeTemplate
+          ? {
+              creative: {
+                template: creativeTemplate,
+                limits: TEMPLATE_COPY_LIMITS[creativeTemplate],
               },
             }
           : {}),
@@ -703,6 +745,9 @@ async function generateMissionDraft(
         policyVersion: p.version,
         campaignContext,
         channelRules,
+        // What the request asks for besides the post, as the contract says.
+        copyCraft: contract.copyCraft === true,
+        creative: contract.creative ?? null,
       };
     },
   );
@@ -781,6 +826,11 @@ async function generateMissionDraft(
       ...(data(prepared.mission).assignmentRunId &&
       bannerTemplateOf(data(prepared.mission))
         ? { banner: true }
+        : {}),
+      // Copy craft and image copy (Creative Studio); otherwise the request is unchanged.
+      ...(prepared.copyCraft ? { copyCraft: true } : {}),
+      ...(prepared.creative
+        ? { creative: { limits: prepared.creative.limits } }
         : {}),
     });
   } catch (error) {
@@ -912,10 +962,17 @@ async function generateMissionDraft(
             m.completedRuns ?? 0,
           )
         : null;
-    const resolvedOutput = resolveFactPlaceholders(
-      outcome.output,
-      data(prepared.evidence).facts ?? [],
-    );
+    const facts = data(prepared.evidence).facts ?? [];
+    // The core message, hook and image copy are stored as their own fields below.
+    const {
+      creative: creativeCopy,
+      coreMessage,
+      hook,
+      ...resolvedOutput
+    } = resolveFactPlaceholders(outcome.output, facts);
+    // A fact placeholder in the core message or hook shows its verified value, as in the body.
+    const withFacts = (text: string | undefined) =>
+      resolveFactPlaceholders({ body: text ?? "", claims: [] }, facts).body;
     await assertDistinctDraft(
       tx,
       scope,
@@ -943,6 +1000,24 @@ async function generateMissionDraft(
       // call to action (R78): no banner competes with its post.
       ...(outcome.output.banner
         ? { banner: withCtaButton(outcome.output.banner, m.targetAction) }
+        : {}),
+      // Copy craft (spec §10): the post's core message and hook, for preview and review.
+      ...(prepared.copyCraft
+        ? {
+            copyCraft: true,
+            coreMessage: withFacts(coreMessage),
+            hook: withFacts(hook),
+          }
+        : {}),
+      // The image copy, empty layers left out (R37); its CTA is the mission
+      // CTA, set by Orbit like the banner's button.
+      ...(prepared.creative && creativeCopy
+        ? {
+            creativeCopy: storedCreativeCopy({
+              ...creativeCopy,
+              cta: creativeCta(m.targetAction, prepared.creative.limits.cta),
+            }),
+          }
         : {}),
       type: m.contentType,
       language: m.language,

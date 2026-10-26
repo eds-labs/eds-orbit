@@ -19,6 +19,8 @@ const provider = vi.hoisted(() => ({
   failRevision: false,
   // A revision repeats the original's mismatched fact claim when set.
   mismatchRevision: false,
+  // A revision repeats the original's long fact (copy craft) when set.
+  longFactRevision: false,
   replies: [] as Array<(request: any) => Reply>,
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
@@ -49,6 +51,23 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
     }),
   };
 });
+// Missions get `creativeTemplate` with Task 14's assignments; until then a
+// test names the template every mission writes image copy for.
+const creativeSeam = vi.hoisted(() => ({ template: null as string | null }));
+vi.mock(
+  "../src/modules/marketing/creative/copy-checks.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/creative/copy-checks.ts")
+      >();
+    return {
+      ...actual,
+      creativeTemplateOf: (mission: Record<string, any> | null) =>
+        creativeSeam.template ?? actual.creativeTemplateOf(mission),
+    };
+  },
+);
 vi.mock(
   "../src/modules/marketing/brand/drive-assets.ts",
   async (importOriginal) => {
@@ -71,6 +90,8 @@ import { reviewStep } from "../src/modules/agents/specialists/review.ts";
 import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
 import { checkClaims, preflight } from "../src/modules/policy.ts";
 import { reviewContent } from "../src/modules/workflow.ts";
+import { setFact } from "../src/platform/knowledge/engine.ts";
+import { TEMPLATE_COPY_LIMITS } from "../../../packages/creative/src/index.ts";
 import {
   createPackageProject,
   TELEGRAM,
@@ -91,6 +112,8 @@ const BODY = "Beta access is open for product teams. Learn more.";
 const HUMAN = "HUMAN_CONTENT_REVIEW_REQUIRED";
 // "worldwide" is not in the fact beta.access = "open for product teams".
 const MISMATCH = "Beta access is open for product teams worldwide";
+// A knowledge-base description: too long for a social post under copy craft.
+const LONG_FACT = `Synthetic Orbit gives product teams ${"one calm shared workspace for plans, reviews and handoffs, ".repeat(4)}so nothing gets lost between tools`;
 
 type Verdict = {
   verdict: "approve" | "revise" | "reject";
@@ -184,12 +207,58 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     provider.replies = [];
     provider.failRevision = false;
     provider.mismatchRevision = false;
+    provider.longFactRevision = false;
+    creativeSeam.template = null;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
+      const reply = await recordedDraft(params, contract);
+      // Copy craft (Creative Studio) asks for a core message and a hook too,
+      // a creative for the image copy, written with empty optional layers.
+      return {
+        ...reply,
+        output: {
+          ...reply.output,
+          ...(contract.copyCraft
+            ? {
+                coreMessage: "Product teams keep their work in one place.",
+                hook: reply.output.body.split("\n")[0],
+              }
+            : {}),
+          ...(contract.creative
+            ? {
+                creative: {
+                  eyebrow: "",
+                  // A figure the image cannot back, fixed by the revision.
+                  headline:
+                    String(contract.brief?.topic).includes("FIGURE") &&
+                    !contract.revision
+                      ? "Save 30% on beta access"
+                      : "Beta access for product teams",
+                  subline: "",
+                  // Orbit replaces it with the mission CTA.
+                  cta: "Join now!",
+                },
+              }
+            : {}),
+        },
+      };
+    });
+    /** The recorded draft for a generation request, by its brief topic. */
+    const recordedDraft = async (params: any, contract: any) => {
       const topic = String(contract.brief?.topic ?? "");
       if (contract.revision && provider.failRevision)
         throw new Error("synthetic provider outage");
+      // A long text fact placed whole in the post (FACT_TOO_LONG_FOR_SOCIAL).
+      const long = params.evidence.facts.find(
+        (fact: any) => fact.key === "product.description",
+      );
+      const longFact = () =>
+        generated(`${LONG_FACT}. Learn more. (${topic})`, [
+          { text: LONG_FACT, kind: "fact", factId: long.id },
+          { text: "Learn more.", kind: "style" },
+        ]);
+      if (contract.revision && provider.longFactRevision) return longFact();
       // A fact claim with a word its fact does not back (FACT_VALUE_MISMATCH).
       const beta = params.evidence.facts.find(
         (fact: any) => fact.key === "beta.access",
@@ -209,6 +278,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
           `Beta access is open, sign up at beta-signup.example/teams (${topic}). Learn more.`,
         );
       if (topic.includes("MISMATCH")) return mismatched();
+      if (topic.includes("LONGFACT")) return longFact();
       if (topic.includes("REVIEWERNOTE"))
         return generated(
           `${BODY}\n\n[Note to reviewer: add the launch date here] (${topic})`,
@@ -218,7 +288,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
           `Guaranteed returns for product teams in the beta (${topic}). Learn more.`,
         );
       return generated(`${BODY} (${topic})`);
-    });
+    };
     provider.saveDraftDocument.mockReset().mockResolvedValue({
       id: "driveFileABC123",
       folderId: "driveFolderABC123",
@@ -239,6 +309,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
   afterEach(async () => {
     delete process.env.ORBIT_AGENTS;
     delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+    delete process.env.ORBIT_CREATIVE_STUDIO;
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
@@ -553,6 +624,173 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     });
     await reviewAgain(review.id);
     expect(provider.generate).toHaveBeenCalledTimes(2);
+  });
+
+  /** A Telegram slot drafted with a long description fact; copy craft only with the Creative Studio on. */
+  const longFactDraft = async (creativeStudio = true) => {
+    if (creativeStudio) process.env.ORBIT_CREATIVE_STUDIO = "true";
+    await h.run((tx) =>
+      setFact(tx, project.owner, {
+        key: "product.description",
+        value: LONG_FACT,
+        valueType: "text",
+        language: "en",
+        sourceId: project.sourceId,
+        validFrom: new Date(Date.now() - 3600000).toISOString(),
+        validUntil: new Date(Date.now() + 30 * 86400000).toISOString(),
+        status: "verified",
+        publicUse: true,
+        modelUse: true,
+      }),
+    );
+    await h.connectTelegram();
+    await h.makeAssignment({
+      channels: [TELEGRAM],
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    return drafted(() => ({
+      topic: "LONGFACT of the product",
+      factKeys: ["beta.access", "product.description"],
+    }));
+  };
+
+  it("asks for no copy craft and checks no long fact while the Creative Studio is off", async () => {
+    const review = await longFactDraft(false);
+    const [draft] = await contents();
+    expect(
+      JSON.parse(provider.generate.mock.calls[0]![0].goal),
+    ).not.toHaveProperty("copyCraft");
+    expect(provider.generate.mock.calls[0]![0]).not.toHaveProperty("copyCraft");
+    expect(draft).not.toHaveProperty("copyCraft");
+    expect(draft).not.toHaveProperty("coreMessage");
+    expect(draft).not.toHaveProperty("hook");
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+    // No deterministic revision: the model judged the draft as before.
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(shown(provider.requests[0]).map((d) => d.contentId)).toEqual([
+      draft!.id,
+    ]);
+  });
+
+  it("revises a social draft with a long fact under copy craft once, without the model", async () => {
+    const review = await longFactDraft();
+    const [original] = await contents();
+    expect(original).toMatchObject({
+      copyCraft: true,
+      coreMessage: "Product teams keep their work in one place.",
+      hook: expect.stringContaining(LONG_FACT),
+    });
+    expect(LONG_FACT.length).toBeGreaterThan(220);
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+
+    // The model never saw the draft with the long fact; the copywriter revised it once.
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    const revision = JSON.parse(provider.generate.mock.calls[1]![0].goal);
+    expect(revision.copyCraft).toBe(true);
+    expect(provider.generate.mock.calls[1]![0].copyCraft).toBe(true);
+    const instruction = revision.revision.instruction as string;
+    expect(instruction).toContain(LONG_FACT.slice(0, 40));
+    const all = Object.fromEntries(
+      (await h.rows("content")).map((d) => [d.id, d]),
+    );
+    expect(all[original!.id]!.agentReviewDecision).toMatchObject({
+      round: 1,
+      verdict: "revise",
+      modelVerdict: null,
+      deterministicProblems: ["FACT_TOO_LONG_FOR_SOCIAL"],
+      revisionInstructions: instruction,
+    });
+    const revisedId = all[original!.id]!.supersededBy as string;
+    expect(shown(provider.requests[0]).map((d) => d.contentId)).toEqual([
+      revisedId,
+    ]);
+    expect(all[revisedId]!.status).toBe("reviewed");
+  });
+
+  it("rejects a revision that still carries the long fact", async () => {
+    const review = await longFactDraft();
+    provider.longFactRevision = true;
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+
+    // One revision only, and no model call for either draft.
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    expect(provider.requests).toHaveLength(0);
+    const revised = (await h.rows("content")).find((d) => !d.supersededBy)!;
+    expect(revised.status).toBe("rejected");
+    expect(revised.agentReviewDecision).toMatchObject({
+      round: 2,
+      verdict: "reject",
+      deterministicProblems: ["FACT_TOO_LONG_FOR_SOCIAL"],
+    });
+    await reviewAgain(review.id);
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("stores the image copy without empty layers and revises a figure on the image once", async () => {
+    process.env.ORBIT_CREATIVE_STUDIO = "true";
+    creativeSeam.template = "lifestyle";
+    await h.connectTelegram();
+    await h.makeAssignment({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    const review = await drafted(() => ({ topic: "FIGURE on the image" }));
+    const [original] = await contents();
+    const [first] = provider.generate.mock.calls;
+    expect(JSON.parse(first![0].goal).creative).toEqual({
+      template: "lifestyle",
+      limits: TEMPLATE_COPY_LIMITS.lifestyle,
+    });
+    expect(first![0].creative).toEqual({
+      limits: TEMPLATE_COPY_LIMITS.lifestyle,
+    });
+    // Only the layers with copy (R37); the CTA is the mission's, without closing punctuation.
+    expect(original!.creativeCopy).toEqual({
+      headline: "Save 30% on beta access",
+      cta: "Learn more",
+    });
+    expect(original).not.toHaveProperty("creative");
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+
+    // The figure on the image is revised once without the model.
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    const revision = JSON.parse(
+      provider.generate.mock.calls[1]![0].goal,
+    ).revision;
+    expect(revision.previousCreative).toEqual(original!.creativeCopy);
+    expect(revision.instruction).toContain('"30"');
+    expect(revision.instruction).toContain("previousCreative");
+    const all = Object.fromEntries(
+      (await h.rows("content")).map((d) => [d.id, d]),
+    );
+    expect(all[original!.id]!.agentReviewDecision).toMatchObject({
+      round: 1,
+      verdict: "revise",
+      modelVerdict: null,
+      deterministicProblems: ["CREATIVE_UNSUPPORTED_CLAIM"],
+    });
+    const revisedId = all[original!.id]!.supersededBy as string;
+    expect(all[revisedId]!.creativeCopy).toEqual({
+      headline: "Beta access for product teams",
+      cta: "Learn more",
+    });
+    expect(shown(provider.requests[0]).map((d) => d.contentId)).toEqual([
+      revisedId,
+    ]);
+    expect(all[revisedId]!.status).toBe("reviewed");
   });
 
   // Production uLiquid, 2026-10-17 (run f610945b): a paragraph addressed the
