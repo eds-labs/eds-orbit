@@ -192,7 +192,7 @@
 **Files:**
 - Create: `packages/db/prisma/migrations/202610230002_finance_core/migration.sql`
 - Modify: `packages/db/prisma/schema.prisma` (models)
-- Modify: `scripts/db-deploy.ts:159-201` (grants)
+- Modify: `scripts/db-deploy.ts`, lines 159-201 (grants)
 - Modify: `apps/api/tests/rls-matrix.integration.test.ts:25-52` and its seed (~l.340-440)
 - Test: `apps/api/tests/finance-integrity.integration.test.ts`
 

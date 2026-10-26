@@ -258,7 +258,7 @@ A failure marks the evidence invalid, as today.
 
 ## 8. Migration of existing connections (separate WP; nothing automatic across organizations)
 
-1. **Inventory (read-only script, `scripts/connections-inventory.ts`).** Per project, list provider, status, created, binding (inbox, workflow), the secret fingerprint (sha256 of the ciphertext, never the plaintext) and duplicates across projects of the same organization. The report goes to Mario. It has no write path.
+1. **Inventory (read-only `inventory` command of `scripts/connections-migrate.ts`).** Per project, list provider, status, created, binding (inbox, workflow), the secret fingerprint (sha256 of the ciphertext, never the plaintext) and duplicates across projects of the same organization. The report goes to Mario. It has no write path.
 2. **Adopt one-to-one (`ORBIT_CONNECTIONS_ADOPT`, per provider).** For each legacy project connection, create `Connection(scope project)`, a `ConnectionSecret` with the same ciphertext and key, and a project grant. `legacyRef` points to the old entity, which is kept and marked `adoptedTo`.
    - Idempotent.
    - Audited as `system:migration`.
