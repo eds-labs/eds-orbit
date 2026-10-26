@@ -1,0 +1,181 @@
+import { describe, expect, it } from "vitest";
+import {
+  composeCreative,
+  CreativeError,
+  type ComposeInput,
+} from "../../../../../../packages/creative/src/index.ts";
+import {
+  demoBrand,
+  fixtureArt,
+} from "../../../../../../packages/creative/fixtures/demo-brands.ts";
+import { composeRenditions, type RenditionInput } from "./renditions.ts";
+
+const COPY = {
+  eyebrow: "New this autumn",
+  headline: "Evenings feel softer in warm light",
+  subline: "Lamps, throws and textures that turn any room into a calm retreat.",
+  cta: "Shop the collection",
+};
+
+async function input(
+  changes: Partial<RenditionInput> = {},
+): Promise<RenditionInput> {
+  return {
+    brand: await demoBrand("lumora"),
+    brief: {
+      template: "lifestyle",
+      variant: "text_bottom",
+      formats: ["square"],
+    },
+    copy: COPY,
+    art: await fixtureArt("good", "lumora"),
+    products: [],
+    options: { logoPlacement: "auto", textScale: "m" },
+    variantFixed: false,
+    artState: { orbitGenerated: false, attempts: 0, maxCorrections: 1 },
+    ...changes,
+  };
+}
+
+/** A composer that refuses the first `overflows` calls with TEXT_OVERFLOW and records every call. */
+function overflowing(overflows: number) {
+  const calls: ComposeInput[] = [];
+  const compose = async (request: ComposeInput) => {
+    calls.push(request);
+    if (calls.length <= overflows) throw new CreativeError("TEXT_OVERFLOW");
+    return composeCreative(request);
+  };
+  return { compose, calls };
+}
+
+describe("composeRenditions", () => {
+  it("composes one checked rendition per format and passes good art", async () => {
+    const outcome = await composeRenditions(await input());
+    expect(outcome.renditions).toHaveLength(1);
+    const [rendition] = outcome.renditions;
+    expect(rendition).toMatchObject({
+      format: "square",
+      variant: "text_bottom",
+    });
+    expect(rendition!.result).toMatchObject({ width: 1080, height: 1080 });
+    expect(outcome).toMatchObject({
+      verdict: "pass",
+      failed: [],
+      overflow: [],
+      corrections: [],
+      artCorrection: null,
+    });
+    // Composition and art checks, each tagged with its format.
+    const codes = outcome.checks.map((c) => c.code);
+    expect(codes).toEqual(
+      expect.arrayContaining([
+        "TEXT_CONTRAST_LOW",
+        "LOGO_INTEGRITY",
+        "SUBJECT_TOO_SMALL",
+        "EMPTY_AREA_EXCESSIVE",
+      ]),
+    );
+    expect(outcome.checks.every((c) => c.detail?.format === "square")).toBe(
+      true,
+    );
+  });
+
+  it("draws each format in its own valid variant (R1)", async () => {
+    const outcome = await composeRenditions(
+      await input({
+        brief: {
+          template: "lifestyle",
+          variant: "text_side",
+          formats: ["landscape", "story"],
+        },
+      }),
+    );
+    expect(
+      outcome.renditions.map((r) => [r.format, r.variant, r.result.width]),
+    ).toEqual([
+      ["landscape", "text_side", 1200],
+      ["story", "text_bottom", 1080],
+    ]);
+  });
+
+  it("corrects overflow with another variant for free and records it", async () => {
+    const { compose, calls } = overflowing(1);
+    const outcome = await composeRenditions(await input(), { compose });
+    expect(calls.map((c) => c.variant)).toEqual(["text_bottom", "text_top"]);
+    expect(outcome.renditions[0]!.variant).toBe("text_top");
+    expect(outcome.verdict).toBe("corrected");
+    expect(outcome.corrections).toEqual([
+      expect.objectContaining({
+        kind: "variant",
+        reason: "TEXT_OVERFLOW",
+        format: "square",
+        value: "text_top",
+        at: expect.any(String),
+      }),
+    ]);
+  });
+
+  it("gives up on copy that never fits after bounded corrections", async () => {
+    const { compose, calls } = overflowing(Infinity);
+    const outcome = await composeRenditions(await input(), { compose });
+    // Two other variants, then the small text scale: four compositions.
+    expect(calls.map((c) => [c.variant, c.options.textScale])).toEqual([
+      ["text_bottom", "m"],
+      ["text_top", "m"],
+      ["text_side", "m"],
+      ["text_side", "s"],
+    ]);
+    expect(outcome).toMatchObject({
+      renditions: [],
+      overflow: ["square"],
+      verdict: "needs_owner",
+      failed: ["TEXT_OVERFLOW"],
+    });
+  });
+
+  it("keeps a person's variant and leaves weak art to the owner", async () => {
+    const outcome = await composeRenditions(
+      await input({
+        art: await fixtureArt("flat", "lumora"),
+        variantFixed: true,
+      }),
+    );
+    expect(outcome.verdict).toBe("needs_owner");
+    expect(outcome.failed).toContain("EMPTY_AREA_EXCESSIVE");
+    expect(outcome.corrections).toEqual([]);
+    expect(outcome.renditions[0]!.variant).toBe("text_bottom");
+    expect(outcome.artCorrection).toBeNull();
+  });
+
+  it("tries other variants for weak uploaded art, at most two", async () => {
+    const outcome = await composeRenditions(
+      await input({ art: await fixtureArt("flat", "lumora") }),
+    );
+    expect(outcome.verdict).toBe("needs_owner");
+    expect(outcome.corrections.map((c) => c.kind)).toEqual([
+      "variant",
+      "variant",
+    ]);
+    expect(outcome.artCorrection).toBeNull();
+  });
+
+  it("names the art correction for Orbit's own art instead of paying for it", async () => {
+    const outcome = await composeRenditions(
+      await input({
+        art: await fixtureArt("flat", "lumora"),
+        artState: { orbitGenerated: true, attempts: 0, maxCorrections: 1 },
+      }),
+    );
+    expect(outcome.verdict).toBe("needs_owner");
+    expect(outcome.corrections).toEqual([]);
+    expect(outcome.artCorrection).toMatchObject({
+      kind: expect.stringMatching(/^(subject_larger|more_detail)$/),
+    });
+  });
+
+  it("passes engine refusals other than overflow to the caller", async () => {
+    await expect(
+      composeRenditions(await input({ art: undefined })),
+    ).rejects.toMatchObject({ code: "ART_REQUIRED" });
+  });
+});

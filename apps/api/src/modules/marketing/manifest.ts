@@ -94,6 +94,11 @@ export const marketingModule: ServerModule = {
     },
     // Brand library; stays marketing-owned with its storage (Q-06).
     { kind: "assets", description: "Brand and generated assets" },
+    // Read through the creative routes, not the generic collections.
+    {
+      kind: "creatives",
+      description: "Composed creatives of posts; renditions are bound assets",
+    },
   ],
   tables: ["ProjectMarketingProfile", "ProjectMarketingProfileVersion"],
   permissions: marketingPermissions,
