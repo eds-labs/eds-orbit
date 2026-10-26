@@ -5,6 +5,7 @@ import {
   channelLabel,
   decisionErrorText,
   mcpClientHost,
+  RequestBoundary,
   RequestedViaMcp,
 } from "./action-request-inbox";
 
@@ -98,5 +99,19 @@ describe("decision error text (WP-M4)", () => {
     expect(decisionErrorText(undefined, true)).toBe(
       "Entscheidung fehlgeschlagen",
     );
+  });
+});
+
+describe("a failing request renderer", () => {
+  it("shows a notice without decision buttons instead of breaking the page", () => {
+    expect(RequestBoundary.getDerivedStateFromError()).toEqual({ failed: true });
+    const boundary = new RequestBoundary({ de: true, actionType: "work.mcp.work_pm_propose_plan", children: null });
+    boundary.state = { failed: true };
+    const html = renderToStaticMarkup(<>{boundary.render()}</>);
+    expect(html).toContain("work.mcp.work_pm_propose_plan");
+    expect(html).toContain("kann hier nicht angezeigt werden");
+    expect(html).not.toContain("<button");
+    boundary.state = { failed: false };
+    expect(renderToStaticMarkup(<>{new RequestBoundary({ de: false, actionType: "x", children: <p>ok</p> }).render()}</>)).toBe("<p>ok</p>");
   });
 });

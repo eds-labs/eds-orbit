@@ -30,26 +30,26 @@ export const workDecisionRenderer: ActionRequestRenderer = {
     return (
       <article className="action-request">
         <h3>{TITLES[op.kind]![de ? "de" : "en"]}</h3>
-        {op.title && <p>{op.title}</p>}
-        {op.initiativeKey && (
+        {typeof op.title === "string" && <p>{op.title}</p>}
+        {typeof op.initiativeKey === "string" && (
           <p>
             {de ? "Vorhaben" : "Initiative"}: {op.initiativeKey}
           </p>
         )}
         {op.number !== undefined && <p>#{op.number}</p>}
-        {list && list.length > 0 && (
+        {Array.isArray(list) && list.length > 0 && (
           <ul>
             {list.map((title, i) => (
-              <li key={i}>{title}</li>
+              <li key={i}>{typeof title === "string" ? title : ""}</li>
             ))}
           </ul>
         )}
-        {op.fields && op.fields.length > 0 && (
+        {Array.isArray(op.fields) && op.fields.length > 0 && (
           <p>
             {de ? "Felder" : "Fields"}: {op.fields.join(", ")}
           </p>
         )}
-        {op.body && <blockquote style={{ whiteSpace: "pre-wrap" }}>{op.body}</blockquote>}
+        {typeof op.body === "string" && <blockquote style={{ whiteSpace: "pre-wrap" }}>{op.body}</blockquote>}
         <p className="panel-note">
           {de
             ? "Die Freigabe führt genau diese Änderung einmal aus."
@@ -78,6 +78,8 @@ export const pmDecisionRenderer: ActionRequestRenderer = {
   component: ({ item, de, pending, decide }) => {
     const t = pmText(de ? "de" : "en");
     const op = item.summary.operation as Record<string, any>;
+    // Only texts and numbers are shown as text; anything else is left out.
+    const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "");
     const title =
       op.kind === "new_plan" || op.kind === "extension"
         ? t.decisions.plan
@@ -91,13 +93,20 @@ export const pmDecisionRenderer: ActionRequestRenderer = {
                 ? t.decisions.pmPlan
                 : t.decisions.pmReport;
     const ceiling = Number(item.costCeilingMicros ?? op.ceilingMicros ?? 0);
-    const lines = (label: string, items?: string[]) =>
-      items && items.length > 0 ? (
+    // MCP requests also carry the tool's raw arguments, so a field may be a
+    // text where a list is expected (a plan request's constraints).
+    const lines = (label: string, items?: unknown) =>
+      typeof items === "string" && items.trim() ? (
+        <>
+          <p>{label}</p>
+          <blockquote style={{ whiteSpace: "pre-wrap" }}>{items}</blockquote>
+        </>
+      ) : Array.isArray(items) && items.length > 0 ? (
         <>
           <p>{label}</p>
           <ul>
             {items.map((x, i) => (
-              <li key={i}>{x}</li>
+              <li key={i}>{typeof x === "string" ? x : JSON.stringify(x)}</li>
             ))}
           </ul>
         </>
@@ -105,21 +114,21 @@ export const pmDecisionRenderer: ActionRequestRenderer = {
     return (
       <article className="action-request">
         <h3>{title}</h3>
-        {op.initiative && <p>{op.initiative}</p>}
-        {op.goal && <p>{op.goal}</p>}
-        {op.initiativeKey && <p>{op.initiativeKey}</p>}
+        {text(op.initiative) && <p>{text(op.initiative)}</p>}
+        {text(op.goal) && <p>{text(op.goal)}</p>}
+        {text(op.initiativeKey) && <p>{text(op.initiativeKey)}</p>}
         {typeof op.tasks === "number" && <p>{t.decisions.tasksCount(op.tasks)}</p>}
         {typeof op.milestones === "number" && <p>{t.decisions.milestonesCount(op.milestones)}</p>}
-        {op.target && <p>{op.target}</p>}
+        {text(op.target) && <p>{text(op.target)}</p>}
         {typeof op.task === "number" && <p>#{op.task}</p>}
-        {op.repository && (
+        {text(op.repository) && (
           <p>
-            {t.repository}: {op.repository}
-            {op.provider && ` (${op.provider})`}
+            {t.repository}: {text(op.repository)}
+            {text(op.provider) && ` (${text(op.provider)})`}
           </p>
         )}
-        {op.rationale && <blockquote style={{ whiteSpace: "pre-wrap" }}>{op.rationale}</blockquote>}
-        {op.description && <blockquote style={{ whiteSpace: "pre-wrap" }}>{op.description}</blockquote>}
+        {text(op.rationale) && <blockquote style={{ whiteSpace: "pre-wrap" }}>{text(op.rationale)}</blockquote>}
+        {text(op.description) && <blockquote style={{ whiteSpace: "pre-wrap" }}>{text(op.description)}</blockquote>}
         {lines(t.criteria, op.acceptanceCriteria)}
         {lines(t.constraints, op.constraints)}
         {lines(t.doNotTouch, op.doNotTouch)}

@@ -1,11 +1,39 @@
 "use client";
 import Image from "next/image";
-import { useContext, useState } from "react";
+import { Component, useContext, useState, type ReactNode } from "react";
 import { collectionPath, useResource, usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 import { useDecideActionRequest } from "@/platform/assistant/decide";
 import { ShellContext } from "@/platform/shell/shell-context";
+
+/**
+ * Keeps one request whose module renderer fails from taking the whole
+ * page down: that request shows a notice without decision buttons, the
+ * others stay usable.
+ */
+export class RequestBoundary extends Component<
+  { de: boolean; actionType: string; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <article className="action-request" role="alert">
+        <strong>{this.props.actionType}</strong>
+        <p className="panel-note">
+          {this.props.de
+            ? "Diese Anfrage kann hier nicht angezeigt werden. Sie bleibt offen; lade die Seite neu oder melde den Fehler."
+            : "This request cannot be shown here. It stays open; reload the page or report the problem."}
+        </p>
+      </article>
+    );
+  }
+}
 
 const platforms: Record<string, string> = {
   x: "X",
@@ -184,14 +212,16 @@ export function ActionRequestInbox({
         return view?.accepts(item) ? (
           <div key={item.id}>
             <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
-            <view.component
-              item={item}
-              de={de}
-              pending={Boolean(pending)}
-              decide={(decision, consent) =>
-                void decide(item, decision, consent)
-              }
-            />
+            <RequestBoundary de={de} actionType={item.actionType}>
+              <view.component
+                item={item}
+                de={de}
+                pending={Boolean(pending)}
+                decide={(decision, consent) =>
+                  void decide(item, decision, consent)
+                }
+              />
+            </RequestBoundary>
           </div>
         ) : (
           <article key={item.id} className="action-request">
