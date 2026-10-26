@@ -6,6 +6,7 @@ export * from "./brand.ts";
 export * from "./errors.ts";
 export * from "./formats.ts";
 export * from "./ids.ts";
+export * from "./text.ts";
 const logo = readFileSync(
   new URL("../assets/logo-layer-stack-mark.svg", import.meta.url),
 );
