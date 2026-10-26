@@ -184,6 +184,21 @@ describe("AI project manager views (ADR 0017)", () => {
     expect(render(<PlanReview planId="plan-1" onClose={() => {}} onOpen={() => {}} />, { access: "viewer" })).not.toContain("Save as new revision");
   });
 
+  it("shows a failed plan with its reason and 'Plan again', also with the stored empty validation", () => {
+    // As production stored the EOP plan of 2026-10-26: no plan, validation {}.
+    for (const key of Object.keys(answers)) delete answers[key];
+    Object.assign(answers, {
+      "/pm/plans/plan-f": { ...plan, id: "plan-f", status: "failed", plan: null, validation: {}, errorCode: "MODEL_OVERLOADED", actionRequestId: null },
+      "/work/settings": { settings: defaultSettings, version: 1 },
+      "/work/members": { items: [] },
+    });
+    const html = render(<PlanReview planId="plan-f" onClose={() => {}} onOpen={() => {}} />, { locale: "de" });
+    expect(html).toContain("überlastet");
+    expect(html).toContain("(MODEL_OVERLOADED)");
+    expect(html).toContain("Erneut planen");
+    expect(render(<PlanReview planId="plan-f" onClose={() => {}} onOpen={() => {}} />, { access: "viewer" })).not.toContain("Plan again");
+  });
+
   it("renders the PM's approvals and attention items", () => {
     const renderer = workActionRequests["work.coding.dispatch"]!;
     const item = {

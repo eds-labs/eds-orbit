@@ -4,7 +4,7 @@ import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { data } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
 import { readPmSettings, savePmSettings } from "../src/modules/work/pm/settings.ts";
-import { loadProposal, requestPlan, retryPlan, runPlanJob } from "../src/modules/work/pm/planner.ts";
+import { loadProposal, proposalView, requestPlan, retryPlan, runPlanJob } from "../src/modules/work/pm/planner.ts";
 import { syntheticPlan } from "./fixtures/work-pm/plans.ts";
 import { createWorkPmProject, withEnv } from "./support/work-pm-project.ts";
 
@@ -84,6 +84,8 @@ describe.skipIf(!enabled)("AI project manager: failed plans", () => {
     const failed = await proposal(queued.id);
     expect(failed).toMatchObject({ status: "failed", errorCode: code, plan: null, appliedTaskIds: [], costMicros: 0n });
     expect(failed.actionRequestId).toBeNull();
+    // The view a client reads always has both validation lists.
+    expect(proposalView(failed).validation).toEqual({ errors: [], warnings: [] });
     // The span says what the provider said; the reservation is released at 0.
     const span = await p.run((tx) =>
       tx.agentSpan.findFirstOrThrow({ where: { projectId: p.owner.projectId, runId: failed.agentRunId!, type: "model_call" } }),

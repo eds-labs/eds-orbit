@@ -73,7 +73,8 @@ export function proposalView(row: ProposalRow) {
     revision: row.revision,
     supersedesId: row.supersedesId,
     plan: row.plan as WorkPlan | null,
-    validation: row.validation as PlanValidation,
+    // A queued, running or failed proposal has no validation yet.
+    validation: { errors: [], warnings: [], ...(row.validation as Partial<PlanValidation>) },
     planHash: row.planHash,
     actionRequestId: row.actionRequestId,
     appliedAt: row.appliedAt?.toISOString() ?? null,

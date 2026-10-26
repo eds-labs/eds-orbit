@@ -428,12 +428,12 @@ export function PlanReview({ planId, onClose, onOpen }: { planId: string; onClos
           )}
         </Alert>
       )}
-      {p.validation.errors.length > 0 && (
+      {(p.validation?.errors?.length ?? 0) > 0 && (
         <Alert kind="error">
           {t.errors}: {p.validation.errors.join(", ")}
         </Alert>
       )}
-      {p.validation.warnings.length > 0 && (
+      {(p.validation?.warnings?.length ?? 0) > 0 && (
         <Alert kind="info">
           {t.warnings}: {p.validation.warnings.join(", ")}
         </Alert>
