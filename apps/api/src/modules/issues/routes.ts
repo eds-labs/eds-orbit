@@ -24,6 +24,8 @@ import { reportManually } from "./sources/manual.ts";
 import { createSource, disableSource, listSources } from "./sources.ts";
 import { issuesOverview } from "./stats.ts";
 import { applyTriage, requestTriage } from "./triage.ts";
+import { recordDelivery, releasesView } from "./deliveries.ts";
+import { createTaskFromIssue } from "./tasks.ts";
 
 // The issue center's HTTP API (plan §4.2): a thin layer over the services.
 // Every route checks the member's permission in the module, then that the
@@ -118,6 +120,16 @@ export const issuesRoutes: RoutesContribution = (context) => {
   app.post(`${BASE}/duplicates/:id/reject`, (req) =>
     inIssues(auth, req, ISSUES_TRIAGE, (tx, scope, p) => rejectCandidate(tx, scope, id(p), userActor(scope))),
   );
+
+  // A development task from the issue (work.task_from_issue), and delivery
+  // records up to the production release (WP3.9, WP3.11).
+  app.post(`${BASE}/issues/:id/tasks`, (req) =>
+    inIssues(auth, req, ISSUES_TRIAGE, (tx, scope, p) => createTaskFromIssue(tx, scope, id(p), req.body, userActor(scope))),
+  );
+  app.post(`${BASE}/issues/:id/deliveries`, (req) =>
+    inIssues(auth, req, ISSUES_TRIAGE, (tx, scope, p) => recordDelivery(tx, scope, id(p), req.body, userActor(scope))),
+  );
+  app.get(`${BASE}/releases`, (req) => inIssues(auth, req, ISSUES_READ, (tx, scope) => releasesView(tx, scope)));
 
   // Links to tasks, tickets and other objects (ADR 0016).
   app.get(`${BASE}/issues/:id/links`, (req) =>

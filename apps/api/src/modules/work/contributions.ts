@@ -12,6 +12,7 @@ import { pmJobs } from "./pm/jobs.ts";
 import { pmDailyScan, pmMonitorSubscriber } from "./pm/monitor.ts";
 import { handoffActionTypes, handoffLinkType, handoffSyncSubscriber } from "./pm/handoffs.ts";
 import { pmHandoffTargets } from "./pm/research.ts";
+import { taskFromIssue } from "./issue-handoff.ts";
 import { CODING_DISPATCH, codingDispatchAction, codingRunLinkType, codingTimeouts } from "./pm/coding.ts";
 import { CODING_EVENT, codingResultHandler } from "./pm/coding-dispatch.ts";
 
@@ -53,8 +54,9 @@ export const workContributions: ModuleContributions = {
   unavailableCode: "WORK_DISABLED",
   routes: workRoutes,
   linkTypes: { ...workLinkTypes, handoff: handoffLinkType, coding_run: codingRunLinkType },
-  // Research and analysis of a task by the AI project manager (ADR 0017).
-  handoffs: pmHandoffTargets,
+  // Research and analysis of a task by the AI project manager (ADR 0017),
+  // and a task from an issue of the issue center (ADR 0018).
+  handoffs: { ...pmHandoffTargets, task_from_issue: taskFromIssue },
   // Results of the coding agent workflow's callbacks (WP2.9).
   automationResults: { [CODING_EVENT]: codingResultHandler },
   // The AI project manager's monitor wakes on task and milestone changes.

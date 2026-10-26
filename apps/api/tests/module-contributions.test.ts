@@ -89,6 +89,7 @@ describe("module contributions", () => {
         "image",
         "index_evaluation",
         "ingestion",
+        "issues_ai",
         "issues_intake",
         "knowledge_analysis",
         "postiz_draft",
