@@ -830,3 +830,55 @@ describe("tool schemas for Claude", () => {
     );
   });
 });
+
+describe("an output schema whose grammar Anthropic finds too large", () => {
+  beforeEach(() => {
+    sdk.create.mockReset();
+    sdk.stream.mockReset();
+    sdk.options.length = 0;
+  });
+  const refused = (status: number, text: string) => ({
+    async *[Symbol.asyncIterator]() {},
+    finalMessage: async () => {
+      throw APIError.generate(status, { type: "error", error: { type: "invalid_request_error", message: text } }, text, new Headers());
+    },
+  });
+  const schema = { type: "object", properties: { summary: { type: "string" } }, required: ["summary"], additionalProperties: false };
+  const call = () =>
+    respond({
+      route,
+      instructions: "Plan.",
+      input: [{ role: "user", content: "x" }],
+      tools: [],
+      outputSchema: schema,
+      reservationId: "r",
+      runtime,
+    });
+
+  it("is sent once more with the schema in the instructions (2026-10-26 EOP plan)", async () => {
+    sdk.stream
+      .mockReturnValueOnce(refused(400, "The compiled grammar is too large, which would cause performance issues"))
+      .mockReturnValueOnce(streamed(message([{ type: "text", text: '```json\n{"summary":"ok"}\n```', citations: null }])));
+    const result = await call();
+    expect(sdk.stream).toHaveBeenCalledTimes(2);
+    const [first] = sdk.stream.mock.calls[0]!;
+    const [second] = sdk.stream.mock.calls[1]!;
+    expect(first.output_config).toMatchObject({ format: { type: "json_schema" } });
+    expect(second.output_config?.format).toBeUndefined();
+    expect(second.system[0].text).toContain("Answer with exactly one JSON object that matches this JSON schema");
+    expect(second.system[0].text).toContain('"summary"');
+    expect(result.output).toEqual([expect.objectContaining({ type: "message" })]);
+  });
+
+  it("sends no second request for any other refusal or without a schema", async () => {
+    sdk.stream.mockReturnValueOnce(refused(400, "max_tokens: too large"));
+    await expect(call()).rejects.toBeInstanceOf(APIError);
+    expect(sdk.stream).toHaveBeenCalledTimes(1);
+    sdk.stream.mockReset();
+    sdk.stream.mockReturnValueOnce(refused(400, "The compiled grammar is too large"));
+    await expect(
+      respond({ route, instructions: "x", input: [{ role: "user", content: "x" }], tools: [], reservationId: "r", runtime }),
+    ).rejects.toBeInstanceOf(APIError);
+    expect(sdk.stream).toHaveBeenCalledTimes(1);
+  });
+});
