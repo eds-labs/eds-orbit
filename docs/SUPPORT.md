@@ -334,6 +334,20 @@ These come on top of the platform's rate limits.
 
 The channel contract is `SupportChannelAdapter` (`modules/support/channels/adapter.ts`). E-mail (WP5.3) and the widget (WP5.4) implement it. There is no adapter yet.
 
+## Product issues (ADR 0018, local; flag off)
+
+With the issue center on (`docs/ISSUES.md`), an agent who may read tickets and report issues can report a ticket as a product issue. The ticket header has a "Report as product issue" action:
+- The agent writes a title and the symptoms, or takes over the customer's messages through a preview. In the preview the contact's name and addresses are replaced and other sensitive values are removed.
+- A ticket whose customer messages touch a sensitive topic (the hard rules) needs an explicit acknowledgement.
+
+The ticket itself is not changed; it gets a `reported_in` link and shows its issues as chips. Support never imports the issue center: the hand-in goes through the platform's handoff target `issues.report`.
+
+When an issue's fix is released to production, each reported ticket gets an internal system note. It also gets an attention item ("Fix released: inform the customer") until an agent replies. No customer message is sent automatically.
+
+Erasing a contact publishes `support.contact.erased` with the erased ticket ids (content-free). The issue center then clears the texts it took from those tickets.
+
+Over MCP, `support_report_issue` needs `orbit:support` and `orbit:issues`, and the owner's approval.
+
 ## Rollback
 
 | Step | Effect |

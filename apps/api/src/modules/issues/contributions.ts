@@ -5,6 +5,7 @@ import { triageQueueSubscriber } from "./triage.ts";
 import { syncSubscriber } from "./sync.ts";
 import { issuesAttention } from "./attention.ts";
 import { issuesActionTypes, issuesInstructions, issuesTools } from "./tools.ts";
+import { issuesRetentionTask } from "./retention.ts";
 import { issuesJobs } from "./jobs.ts";
 import { issuesLinkTypes } from "./links.ts";
 import { issuesRoutes } from "./routes.ts";
@@ -42,6 +43,8 @@ export const issuesContributions: ModuleContributions = {
   webhooks: { [ISSUES_HOOK]: issuesWebhook },
   jobs: issuesJobs,
   attention: issuesAttention,
+  // Closed issues after 36 months, diagnostics after 12 (Q-P3-5).
+  periodic: [issuesRetentionTask],
   // Assistant and MCP reads and proposals (plan §6).
   tools: issuesTools,
   actionTypes: issuesActionTypes,

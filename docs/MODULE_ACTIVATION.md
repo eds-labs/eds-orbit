@@ -132,6 +132,19 @@ Switching it off deletes nothing; links to its objects stay and show as unavaila
 
 **AI project manager (ADR 0017, local; flag off).** A second installation switch, `ORBIT_WORK_PM` (default `false`), works on top of `ORBIT_WORK` and the project row. While it is off, every PM route except `GET /work/pm/status` answers 404 `WORK_PM_DISABLED`. The tool feature `work_pm`, the PM jobs, the monitor subscriber, the daily scan and the coding timeouts, and the PM attention items all stay quiet. Per initiative an owner switches monitoring on (`WorkPmState`). The permissions `work.pm.use`, `work.pm.apply`, `work.pm.manage` and `work.coding.dispatch` (owner, sensitive) follow the module role like the others.
 
+## Issue center (opt-in, 2026-10-26, local; flag off)
+
+The issue center (`docs/ISSUES.md`, ADR 0018) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_ISSUES` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_ISSUES=true` (default `false`). While off, routes answer 404 `ISSUES_DISABLED`; tools (feature `issues`), the intake and AI jobs, the sync, erasure and triage subscribers, the retention task and the attention items are inactive. Webhook sources also need `ORBIT_PUBLIC_INGRESS`. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `issues.read` (all roles), `issues.report` and `issues.triage` (owner, editor), `issues.diagnostics.read` (owner, editor; sensitive), `issues.github` (owner; sensitive) and `issues.settings` (owner); module roles may narrow them. |
+| Cross-module | Support's hand-in needs Issues enabled and `issues.report`; a task from an issue needs project management enabled and `work.write`. Each side checks its own module through the handoff registry. |
+
+Switching it off deletes nothing; links to issues stay and show as unavailable, and Support's "Report as product issue" disappears.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

@@ -52,7 +52,10 @@ describe("Support MCP contracts and validation", () => {
         false,
       );
       expect(() => responsesTool(t), t.name).not.toThrow();
-      expect(t.mcpScopes).toEqual(["orbit:support"]);
+      // The hand-in to the issue center also needs that module's scope.
+      expect(t.mcpScopes).toEqual(
+        t.name === "support_report_issue" ? ["orbit:support", "orbit:issues"] : ["orbit:support"],
+      );
     }
   });
   it("marks the new tools as read/proposal with explicit project selection", () => {
