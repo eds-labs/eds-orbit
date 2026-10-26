@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by Mario, 2026-10-25. The plan is [`docs/plans/issue-center-phase-3.md`](../plans/issue-center-phase-3.md); Mario answered its questions Q-P3-1 to Q-P3-6 on 2026-10-25 and asked to start the implementation on 2026-10-26, after Phase 2 went live (`699c0e54`). Implementation is local on the branch `claude/issue-center-phase-3`; nothing is merged or deployed, and `ORBIT_ISSUES` is off. The MVP scope is the plan's §10 MVP; the GitHub App (WP3.10) and Sentry/monitoring sources (WP3.14) follow later with their own approvals.
+Accepted by Mario, 2026-10-25. The plan is [`docs/plans/issue-center-phase-3.md`](../plans/issue-center-phase-3.md); Mario answered its questions Q-P3-1 to Q-P3-6 on 2026-10-25 and asked to start the implementation on 2026-10-26, after Phase 2 went live (`699c0e54`). Implemented on the branch `claude/issue-center-phase-3` and pushed to main on 2026-10-26 with Mario's approval; `ORBIT_ISSUES` is off. The MVP scope is the plan's §10 MVP; the GitHub App (WP3.10) and Sentry/monitoring sources (WP3.14) follow later with their own approvals.
 
 ## Context
 

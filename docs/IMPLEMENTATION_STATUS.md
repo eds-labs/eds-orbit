@@ -1,6 +1,6 @@
 # Implementation status
 
-## Issue center phase 3 (2026-10-26, branch `claude/issue-center-phase-3`, local; not pushed, `ORBIT_ISSUES` off)
+## Issue center phase 3 (2026-10-26, pushed to main with Mario's approval; `ORBIT_ISSUES` off)
 
 Plan: [plans/issue-center-phase-3.md](plans/issue-center-phase-3.md); ADR: [adr/0018-issue-center.md](adr/0018-issue-center.md); guide: [ISSUES.md](ISSUES.md); privacy assessment in [SECURITY_REVIEW.md](SECURITY_REVIEW.md#issue-center-adr-0018-prepared-2026-10-26-local-only). Mario's decisions Q-P3-1 to Q-P3-6 of 2026-10-25 apply. Scope: the plan's MVP (WP3.0–WP3.9, WP3.11 with manual records, WP3.12, WP3.13, WP3.15). The GitHub App (WP3.10) and Sentry/monitoring (WP3.14) are not built.
 
@@ -41,7 +41,7 @@ Verification (local, worktree database):
 - RLS matrix with the eight new tables.
 - The e2e spec `apps/web/tests/issues.spec.ts` was not run, because it needs a stack with the flags on.
 
-Nothing was pushed, deployed or enabled, and no paid call was made. Rollout steps (merge and migration, `ORBIT_ISSUES`, `ORBIT_MODULE_ROLES`, enabling it in projects, AI triage routes and the first live run, an n8n source with `ORBIT_PUBLIC_INGRESS`, GitHub App, Sentry) each need their own approval ([ISSUES.md](ISSUES.md#rollout-runbook-each-step-needs-marios-approval)).
+**Pushed to main on 2026-10-26 with Mario's approval.** The push deploys the additive migration `202610260001_issues_core`. Before the push, `origin/main` (`925b6798`, `bd26490b`: the task class `knowledge_evaluation` next to `issue_triage`) was merged in and everything was checked again. The full suite passed with 3,908 tests, 7 skipped and 0 failed. Root and web `tsc`, the source check, boundaries, the Coolify compose check and `next build` were green, and OpenAPI was unchanged after the merge. `ORBIT_ISSUES` stays off; nothing was enabled and no paid call was made. Further rollout steps (`ORBIT_ISSUES`, `ORBIT_MODULE_ROLES`, enabling it in projects, AI triage routes and the first live run, an n8n source with `ORBIT_PUBLIC_INGRESS`, GitHub App, Sentry) each need their own approval ([ISSUES.md](ISSUES.md#rollout-runbook-each-step-needs-marios-approval)).
 
 ## Index check without JSON (2026-10-26, local)
 

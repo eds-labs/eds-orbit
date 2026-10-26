@@ -2,7 +2,7 @@
 
 The issue center collects product problems that customers, staff and connected systems report. It groups their reports into issues and follows each issue through its tasks to the production release. Decision: [ADR 0018](adr/0018-issue-center.md). Plan: [plans/issue-center-phase-3.md](plans/issue-center-phase-3.md). Privacy assessment: [SECURITY_REVIEW.md](SECURITY_REVIEW.md#issue-center-adr-0018-prepared-2026-10-26-local-only).
 
-State on 2026-10-26: implemented locally on the branch `claude/issue-center-phase-3`. It is not merged or deployed, and `ORBIT_ISSUES` is off.
+State on 2026-10-26: pushed to main with Mario's approval (the push deploys the migration). `ORBIT_ISSUES` is off.
 
 ## Terms
 
@@ -125,7 +125,7 @@ Counts (open, critical, new in 7 days, awaiting triage, fix ready, released in 3
 
 ## Rollout runbook (each step needs Mario's approval)
 
-1. Merge to main. The push deploys the additive migration `202610260001_issues_core`, which also widens the `AgentRun.kind` check by `issues`.
+1. Done 2026-10-26: merged to main. The push deployed the additive migration `202610260001_issues_core`, which also widens the `AgentRun.kind` check by `issues`.
 2. Set `ORBIT_ISSUES=true` in Coolify and redeploy. Check that `/api/health/ready` is OK and that `GET /issues/overview` answers 404 in projects without the module.
 3. Q-P3-1: enable `ORBIT_MODULE_ROLES` after its security review, before inviting developers who must not see Support.
 4. Enable Issues in the Support project (uLiquid, then FamilyPlan, Q-P3-2), configure components and production environments.
