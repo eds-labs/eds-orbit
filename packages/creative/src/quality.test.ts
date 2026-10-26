@@ -3,8 +3,10 @@ import {
   demoBrand,
   fixtureArt,
   fixtureScreenshot,
+  opaqueLogo,
   type DemoBrandName,
 } from "../fixtures/demo-brands.ts";
+import type { CreativeLogo } from "./brand.ts";
 import { CREATIVE_THRESHOLDS } from "./analysis.ts";
 import { relativeLuminance } from "./color.ts";
 import {
@@ -12,7 +14,11 @@ import {
   type ComposeResult,
   type LayerRecord,
 } from "./compose.ts";
-import { CREATIVE_TEMPLATE_IDS, type TemplateId } from "./ids.ts";
+import {
+  CREATIVE_TEMPLATE_IDS,
+  type FormatId,
+  type TemplateId,
+} from "./ids.ts";
 import {
   checkArt,
   checkComposition,
@@ -58,19 +64,36 @@ function withLayer(
   };
 }
 
+/** The default variant as the resolver picks it (R12, R16: a side variant first on landscape). */
+function defaultVariant(template: TemplateId, format: FormatId) {
+  const variants = variantsFor(template, format);
+  if (
+    format === "landscape" &&
+    (TEMPLATE_NEEDS[template].product !== "none" || template === "lifestyle")
+  ) {
+    const side = variants.find((v) =>
+      ["product_right", "product_left", "text_side"].includes(v),
+    );
+    if (side) return side;
+  }
+  return variants[0]!;
+}
+
 /** A creative with art, a screenshot (where the template has room) and the brand's logo. */
 async function compose(
   brandName: DemoBrandName,
   template: TemplateId,
-  format: "feed_portrait" | "square" = "feed_portrait",
+  format: FormatId = "feed_portrait",
+  options: { logos?: CreativeLogo[]; artBrand?: DemoBrandName } = {},
 ) {
-  const art = await fixtureArt("good", brandName);
-  const variant = variantsFor(template, format)[0]!;
+  const art = await fixtureArt("good", options.artBrand ?? brandName);
+  const variant = defaultVariant(template, format);
+  const brand = await demoBrand(brandName);
   const result = await composeCreative({
     template,
     variant,
     format,
-    brand: await demoBrand(brandName),
+    brand: options.logos ? { ...brand, logos: options.logos } : brand,
     copy: COPY,
     art,
     products:
@@ -182,13 +205,15 @@ describe("checkComposition", () => {
         })),
       ),
     ).toEqual(["SCREENSHOT_INTEGRITY"]);
-    // A logo below the minimum size.
+    // A logo whose longer side is below the minimum (R19: 0.06 of the canvas's shorter side).
     expect(
       blockers(
         withLayer(result, "logo", (l) => {
-          const w = Math.floor(
-            (CREATIVE_THRESHOLDS.minLogoWidthShare - 0.01) * result.width,
-          );
+          const w =
+            Math.ceil(
+              CREATIVE_THRESHOLDS.minLogoSideShare *
+                Math.min(result.width, result.height),
+            ) - 1;
           return {
             ...l,
             box: {
@@ -309,21 +334,55 @@ describe("checkComposition", () => {
     expect(failedBlockers(checks)).toEqual([]);
   });
 
-  it("calibration: both demo brands pass every template", async () => {
-    for (const brandName of ["lumora", "kestrel"] as const)
-      for (const template of CREATIVE_TEMPLATE_IDS) {
-        const { result, art, reservedZones } = await compose(
-          brandName,
-          template,
-        );
-        const checks = [
-          ...checkComposition(result, approvedOf(result)),
-          ...(await checkArt(art.bytes, reservedZones)),
-        ];
-        expect(
-          failedBlockers(checks),
-          `${brandName} ${template}: ${JSON.stringify(checks.filter((c) => !c.passed))}`,
-        ).toEqual([]);
-      }
-  }, 120_000);
+  it.each(["feed_portrait", "landscape"] as const)(
+    "calibration: both demo brands pass every template (%s)",
+    async (format) => {
+      for (const brandName of ["lumora", "kestrel"] as const)
+        for (const template of CREATIVE_TEMPLATE_IDS) {
+          const { result, art, reservedZones } = await compose(
+            brandName,
+            template,
+            format,
+          );
+          const checks = [
+            ...checkComposition(result, approvedOf(result)),
+            ...(await checkArt(art.bytes, reservedZones)),
+          ];
+          expect(
+            failedBlockers(checks),
+            `${brandName} ${template}: ${JSON.stringify(checks.filter((c) => !c.passed))}`,
+          ).toEqual([]);
+        }
+    },
+    120_000,
+  );
+
+  it("calibration: a square logo and a plated logo pass on landscape (R19)", async () => {
+    const square = await opaqueLogo();
+    const cases = [
+      // A square logo in the corner under the product and in the side layout.
+      await compose("lumora", "product_showcase", "landscape", {
+        logos: [{ ...square, role: "primary" }],
+      }),
+      await compose("lumora", "lifestyle", "landscape", {
+        logos: [{ ...square, role: "primary" }],
+      }),
+      // Kestrel's dark wordmark on Lumora's dark art gets a plate.
+      await compose("kestrel", "lifestyle", "landscape", {
+        artBrand: "lumora",
+      }),
+    ];
+    expect(cases[2]!.result.layers.some((l) => l.kind === "logo_plate")).toBe(
+      true,
+    );
+    for (const { result } of cases) {
+      const logo = result.layers.find((l) => l.kind === "logo")!;
+      expect(Math.max(logo.box.w, logo.box.h)).toBeGreaterThanOrEqual(
+        CREATIVE_THRESHOLDS.minLogoSideShare * result.height,
+      );
+      expect(
+        failedBlockers(checkComposition(result, approvedOf(result))),
+      ).toEqual([]);
+    }
+  });
 });

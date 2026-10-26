@@ -338,32 +338,38 @@ describe("composeCreative", () => {
     expect(logoContrast(result)).toBeGreaterThanOrEqual(2);
   });
 
-  it("puts a plate behind a dark transparent logo on dark art", async () => {
-    const kestrel = await demoBrand("kestrel");
-    const result = await composeCreative({
-      template: "lifestyle",
-      variant: "text_bottom",
-      format: "feed_portrait",
-      brand: kestrel,
-      copy: COPY,
-      art: await fixtureArt("good", "lumora"),
-      options: OPTIONS,
-    });
-    const logo = layer(result, "logo");
-    const plate = layer(result, "logo_plate");
-    expect(logo.sourceSha256).toBe(kestrel.logos[0]!.sha256);
-    expectAspectKept(logo);
-    expect(inside(logo.box, plate.box)).toBe(true);
-    expect(
-      inside(
-        plate.box,
-        layoutFor("lifestyle", "text_bottom", "feed_portrait", OPTIONS).logo
-          .box,
-      ),
-    ).toBe(true);
-    expect(plate.color).toBe(kestrel.palette.surfaceColor);
-    expect(logoContrast(result)).toBeGreaterThanOrEqual(2);
-  });
+  it.each([
+    ["feed_portrait", "text_bottom"],
+    ["landscape", "text_side"],
+  ] as const)(
+    "puts a plate behind a dark transparent logo on dark art (%s)",
+    async (format, variant) => {
+      const kestrel = await demoBrand("kestrel");
+      const result = await composeCreative({
+        template: "lifestyle",
+        variant,
+        format,
+        brand: kestrel,
+        copy: COPY,
+        art: await fixtureArt("good", "lumora"),
+        options: OPTIONS,
+      });
+      const logo = layer(result, "logo");
+      const plate = layer(result, "logo_plate");
+      expect(logo.sourceSha256).toBe(kestrel.logos[0]!.sha256);
+      expectAspectKept(logo);
+      expect(inside(logo.box, plate.box)).toBe(true);
+      const anchor = layoutFor("lifestyle", variant, format, OPTIONS).logo.box;
+      expect(inside(plate.box, anchor)).toBe(true);
+      // The plate's padding follows the anchor height (R19), so the logo stays large.
+      expect(logo.box.y - plate.box.y).toBe(Math.round(0.12 * anchor.h));
+      expect(Math.max(logo.box.w, logo.box.h)).toBeGreaterThanOrEqual(
+        0.06 * Math.min(result.width, result.height),
+      );
+      expect(plate.color).toBe(kestrel.palette.surfaceColor);
+      expect(logoContrast(result)).toBeGreaterThanOrEqual(2);
+    },
+  );
 
   it("refuses a missing required art or product", async () => {
     const input = await lifestyleInput("kestrel");

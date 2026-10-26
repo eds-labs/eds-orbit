@@ -23,6 +23,8 @@ const LOGO_CONTRAST = CREATIVE_THRESHOLDS.logoContrast;
 /** Mean luminance below which the logo backdrop counts as dark. */
 const DARK_BACKDROP = 0.4;
 const PLATE_OPACITY = 0.9;
+/** Plate padding per side, as a share of the logo anchor's height. */
+const PLATE_PADDING = 0.12;
 const AUTO_ROLES: readonly LogoRole[] = ["onDark", "onLight", "primary"];
 
 /** Alpha from which an edge pixel counts as opaque. */
@@ -211,7 +213,8 @@ export async function placeLogo(
     };
 
   // No variant reads on this backdrop: put the variant that reads best on the plate on a plate.
-  const inset = Math.round(0.012 * layout.format.width);
+  // Padding relative to the anchor height, so a short (landscape) anchor keeps the logo large (R19).
+  const inset = Math.round(PLATE_PADDING * layout.logo.box.h);
   const insetLogos = new Map<CreativeLogo, Promise<PlacedLogo>>();
   const colors = [
     brand.palette.surfaceColor,

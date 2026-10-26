@@ -169,14 +169,14 @@ const TEXT_AT_TOP: Frame = {
   tall: { text: [0, 0, 1, 0.42] },
   wide: { text: [0, 0, 0.8, 0.66] },
 };
-/** Full-height text column beside a product; the logo goes under the product. */
+/** Full-height text column beside a product; the logo goes under the product (room for R19's 60 px landscape logo). */
 const PRODUCT_AT_RIGHT: Frame = {
   tall: { text: [0, 0, 0.46, 1], product: [0.5, 0, 0.5, 0.88] },
-  wide: { text: [0, 0, 0.55, 1], product: [0.62, 0, 0.38, 0.84] },
+  wide: { text: [0, 0, 0.55, 1], product: [0.62, 0, 0.38, 0.82] },
 };
 const PRODUCT_AT_LEFT: Frame = {
   tall: { text: [0.54, 0, 0.46, 1], product: [0, 0, 0.5, 0.88] },
-  wide: { text: [0.45, 0, 0.55, 1], product: [0, 0, 0.38, 0.84] },
+  wide: { text: [0.45, 0, 0.55, 1], product: [0, 0, 0.38, 0.82] },
 };
 
 const TEMPLATES: Readonly<Record<TemplateId, TemplateSpec>> = {
@@ -429,7 +429,8 @@ function logoBoxAt(
 ): Box {
   const { width: W, height: H, safe } = format;
   const w = Math.round((role === "mark" ? 0.1 : 0.14) * W);
-  const h = Math.round(0.06 * H);
+  // At least 0.05·W tall, so a square logo stays legible on landscape (R19).
+  const h = Math.round(Math.max(0.06 * H, 0.05 * W));
   return {
     x: corner.endsWith("left") ? safe.left : W - safe.right - w,
     y: corner.startsWith("top") ? safe.top : H - safe.bottom - h,

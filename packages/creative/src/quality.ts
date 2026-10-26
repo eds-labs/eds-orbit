@@ -92,12 +92,12 @@ function aspectKept(layer: LayerRecord) {
   );
 }
 
-/** Approved bytes with their aspect kept; `minWidth` adds a size floor (logos). */
+/** Approved bytes with their aspect kept; `minSide` is a floor for the drawn box's longer side (logos). */
 function integrity(
   code: "LOGO_INTEGRITY" | "SCREENSHOT_INTEGRITY",
   layers: LayerRecord[],
   approved: string[],
-  minWidth = 0,
+  minSide = 0,
 ) {
   const hashes = new Set(approved.map((sha) => sha.toLowerCase()));
   for (const layer of layers) {
@@ -105,7 +105,7 @@ function integrity(
       ? "not_approved"
       : !aspectKept(layer)
         ? "aspect_changed"
-        : layer.box.w < minWidth
+        : Math.max(layer.box.w, layer.box.h) < minSide
           ? "too_small"
           : null;
     if (reason) return check(code, false, { layer: layer.kind, reason });
@@ -226,7 +226,7 @@ export function checkComposition(
           "LOGO_INTEGRITY",
           logos,
           approved.logoSha256,
-          T.minLogoWidthShare * result.width,
+          T.minLogoSideShare * Math.min(result.width, result.height),
         )
       : check("LOGO_INTEGRITY", false, { reason: "missing" }),
     integrity(

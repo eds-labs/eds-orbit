@@ -380,12 +380,20 @@ describe("layoutFor", () => {
       const bl = at("bottom_left");
       expect(bl.box.x).toBe(safe.left);
       expect(bl.box.y + bl.box.h).toBe(H - safe.bottom);
-      // 0.14·W × 0.06·H, whichever corner.
+      // 0.14·W × max(0.06·H, 0.05·W) (R19), whichever corner.
       for (const logo of [br, tl, tr, bl]) {
         expect(logo.box.w).toBe(Math.round(0.14 * W));
-        expect(logo.box.h).toBe(Math.round(0.06 * H));
+        expect(logo.box.h).toBe(Math.round(Math.max(0.06 * H, 0.05 * W)));
       }
     }
+    // Landscape gets 60 px instead of 38 px; the tall formats keep 0.06·H.
+    expect(
+      layoutFor("lifestyle", "text_side", "landscape", options()).logo.box.h,
+    ).toBe(60);
+    expect(
+      layoutFor("lifestyle", "text_bottom", "feed_portrait", options()).logo.box
+        .h,
+    ).toBe(81);
   });
 
   it("makes the logo box of a mark narrower", () => {

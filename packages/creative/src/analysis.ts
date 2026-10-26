@@ -21,8 +21,8 @@ export const CREATIVE_THRESHOLDS = {
   /** Largest share of flat cells outside the reserved zones. */
   flatMaxShare: 0.45,
   maxFileBytes: 8_388_608,
-  /** Smallest drawn logo width, as a share of the canvas width. */
-  minLogoWidthShare: 0.06,
+  /** Smallest longer side of the drawn logo, as a share of the canvas's shorter side (R19). */
+  minLogoSideShare: 0.06,
   /** Largest scale of a raster layer before it counts as upscaled. */
   maxUpscale: 1.5,
   /** Detail above which a cell counts as subject (`detailCell`) or below which as flat (`flatCell`). */

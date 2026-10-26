@@ -314,7 +314,7 @@ Deterministic checks (`creative/quality.ts`), codes:
 | `TEXT_CONTRAST_LOW` | < 4.5:1 (body) / < 3:1 (large text from 32 px; the subline is body text at every size) | stronger scrim, then other variant |
 | `TEXT_BACKDROP_BUSY` | detail energy (mean absolute Laplacian / 255) behind a text layer > 0.06 (R17) | stronger scrim (compose raises it up to the layout's maximum), then other variant |
 | `LOGO_CONTRAST_LOW` | < 2:1 against local background | other logo variant, then logo plate |
-| `LOGO_INTEGRITY` | logo bytes ≠ approved SHA-256, aspect changed, below minimum size | refuse (never render) |
+| `LOGO_INTEGRITY` | logo bytes ≠ approved SHA-256, aspect changed, below minimum size (longer side < 0.06 of the canvas's shorter side, R19) | refuse (never render) |
 | `SCREENSHOT_INTEGRITY` | screenshot bytes ≠ approved SHA-256 or aspect changed | refuse |
 | `SUBJECT_TOO_SMALL` | high-detail coverage < 25 % of the art region | art correction |
 | `EMPTY_AREA_EXCESSIVE` | flat cells outside reserved zones > 45 % | art correction or tighter crop |
