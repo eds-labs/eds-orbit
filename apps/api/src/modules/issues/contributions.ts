@@ -1,6 +1,7 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { issuesSwitchedOn } from "./gate.ts";
 import { erasureSubscriber, issuesHandoffTargets } from "./handoffs.ts";
+import { triageQueueSubscriber } from "./triage.ts";
 import { issuesJobs } from "./jobs.ts";
 import { issuesLinkTypes } from "./links.ts";
 import { issuesRoutes } from "./routes.ts";
@@ -29,7 +30,7 @@ export const issuesContributions: ModuleContributions = {
   unavailableCode: "ISSUES_DISABLED",
   routes: issuesRoutes,
   linkTypes: issuesLinkTypes,
-  events: { publishes: ISSUES_EVENTS, subscribes: [erasureSubscriber] },
+  events: { publishes: ISSUES_EVENTS, subscribes: [erasureSubscriber, triageQueueSubscriber] },
   // Support's hand-in of a ticket (WP3.6).
   handoffs: issuesHandoffTargets,
   // Signed reports from any system or n8n (contract issues.report.v1),

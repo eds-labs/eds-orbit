@@ -2046,6 +2046,7 @@ model Issue {
   acceptanceCriteria String[]                 @default([])
   shareReviewedAt    DateTime?                @db.Timestamptz(3)
   shareReviewedBy    String?
+  aiTriage           Json                     @default("{}")
   searchVector       Unsupported("tsvector")?
   version            Int                      @default(1)
   createdBy          String

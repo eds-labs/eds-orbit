@@ -341,6 +341,7 @@ export function issueView(row: IssueRow) {
     mergedIntoIssueId: row.mergedIntoIssueId,
     acceptanceCriteria: row.acceptanceCriteria,
     shareReviewed: Boolean(row.shareReviewedAt),
+    aiTriage: row.aiTriage,
     version: row.version,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

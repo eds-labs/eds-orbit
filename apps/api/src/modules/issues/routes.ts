@@ -23,6 +23,7 @@ import { readIssuesSettings, saveIssuesSettings } from "./settings.ts";
 import { reportManually } from "./sources/manual.ts";
 import { createSource, disableSource, listSources } from "./sources.ts";
 import { issuesOverview } from "./stats.ts";
+import { applyTriage, requestTriage } from "./triage.ts";
 
 // The issue center's HTTP API (plan §4.2): a thin layer over the services.
 // Every route checks the member's permission in the module, then that the
@@ -97,6 +98,14 @@ export const issuesRoutes: RoutesContribution = (context) => {
   );
   app.post(`${BASE}/issues/:id/share-review`, (req) =>
     inIssues(auth, req, ISSUES_TRIAGE, async (tx, scope, p) => issueView(await setShareReview(tx, scope, id(p), req.body, userActor(scope)))),
+  );
+
+  // AI triage: a triager asks for a suggestion and applies chosen fields.
+  app.post(`${BASE}/issues/:id/triage`, (req) =>
+    inIssues(auth, req, ISSUES_TRIAGE, (tx, scope, p) => requestTriage(tx, scope, id(p), scope.userId)),
+  );
+  app.post(`${BASE}/issues/:id/triage/apply`, (req) =>
+    inIssues(auth, req, ISSUES_TRIAGE, async (tx, scope, p) => issueView(await applyTriage(tx, scope, id(p), req.body))),
   );
 
   // Duplicate candidates: a person confirms (merges) or rejects (I-3).

@@ -6,6 +6,10 @@
 -- stored redacted (decision I-5); raw payloads are never stored. Duplicate
 -- search is full-text only: pg_trgm is not installed (plan §3.6, R-P3-11).
 
+-- Telemetry runs of the issue triage (ADR 0018). Widens the check only.
+ALTER TABLE "AgentRun" DROP CONSTRAINT "AgentRun_kind_check";
+ALTER TABLE "AgentRun" ADD CONSTRAINT "AgentRun_kind_check" CHECK ("kind" IN ('chat','generation','retrieval','ingestion','reindex','evaluation','image','agent','support','mcp','finance','work_pm','issues'));
+
 -- The last issue number per project (ISS-<n>); numbers are never reused.
 CREATE TABLE "IssueCounter" (
   "workspaceId" UUID NOT NULL,
@@ -40,6 +44,8 @@ CREATE TABLE "Issue" (
   "acceptanceCriteria" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   "shareReviewedAt" TIMESTAMPTZ(3),
   "shareReviewedBy" TEXT,
+  -- The latest AI triage suggestion (redacted), applied only by a person.
+  "aiTriage" JSONB NOT NULL DEFAULT '{}',
   "searchVector" tsvector,
   "version" INTEGER NOT NULL DEFAULT 1,
   "createdBy" TEXT NOT NULL,
@@ -67,7 +73,8 @@ CREATE TABLE "Issue" (
   CONSTRAINT "Issue_environment_check" CHECK ("environment" IS NULL OR "environment" ~ '^[A-Za-z0-9._-]{1,40}$'),
   CONSTRAINT "Issue_counts_check" CHECK ("reportCount" >= 0 AND "ticketCount" >= 0),
   CONSTRAINT "Issue_seen_check" CHECK ("lastSeenAt" >= "firstSeenAt"),
-  CONSTRAINT "Issue_share_check" CHECK (("shareReviewedAt" IS NULL) = ("shareReviewedBy" IS NULL))
+  CONSTRAINT "Issue_share_check" CHECK (("shareReviewedAt" IS NULL) = ("shareReviewedBy" IS NULL)),
+  CONSTRAINT "Issue_aiTriage_check" CHECK (jsonb_typeof("aiTriage") = 'object' AND pg_column_size("aiTriage") <= 8192)
 );
 CREATE INDEX "Issue_projectId_status_severity_idx" ON "Issue"("projectId", "status", "severity");
 CREATE INDEX "Issue_projectId_assigneeUserId_status_idx" ON "Issue"("projectId", "assigneeUserId", "status");

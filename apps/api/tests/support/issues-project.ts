@@ -69,41 +69,45 @@ export async function createIssuesProject(
       });
       return { ...owner, userId, role };
     },
-    /**
-     * Delivers queued domain events to their subscribers as the worker does,
-     * round by round until none is left (follow-up events included).
-     * Returns how many jobs ran.
-     */
-    async deliverEvents(rounds = 10) {
-      let ran = 0;
-      for (let round = 0; round < rounds; round++) {
-        const jobs = await run((tx) =>
-          tx.entity.findMany({
-            where: {
-              projectId: owner.projectId,
-              kind: "jobs",
-              AND: [
-                { data: { path: ["topic"], equals: "domain_event" } },
-                { data: { path: ["status"], equals: "queued" } },
-              ],
-            },
-            orderBy: { createdAt: "asc" },
-          }),
-        );
-        if (!jobs.length) break;
-        for (const job of jobs) {
-          await eventJob.handler({ scope: { ...owner, userId: "worker" }, jobId: job.id, job: data(job), executionMode: "test" });
-          await run((tx) => tx.entity.update({ where: { id: job.id }, data: { data: { ...data(job), status: "done" } } }));
-          ran++;
-        }
-      }
-      return ran;
-    },
+    /** Delivers queued domain events to their subscribers (see deliverEvents). */
+    deliverEvents: (rounds?: number) => deliverEvents(owner, rounds),
     async cleanup() {
       await authDb.workspace.deleteMany({ where: { id: workspace.id } });
       await authDb.user.deleteMany({ where: { id: { in: users } } });
     },
   };
+}
+
+/**
+ * Delivers the project's queued domain events to their subscribers as the
+ * worker does, round by round until none is left (follow-up events
+ * included). Returns how many jobs ran.
+ */
+export async function deliverEvents(owner: Scope, rounds = 10) {
+  const run = <T>(fn: (tx: DbTx) => Promise<T>) => scoped(owner.workspaceId, owner.projectId, fn);
+  let ran = 0;
+  for (let round = 0; round < rounds; round++) {
+    const jobs = await run((tx) =>
+      tx.entity.findMany({
+        where: {
+          projectId: owner.projectId,
+          kind: "jobs",
+          AND: [
+            { data: { path: ["topic"], equals: "domain_event" } },
+            { data: { path: ["status"], equals: "queued" } },
+          ],
+        },
+        orderBy: { createdAt: "asc" },
+      }),
+    );
+    if (!jobs.length) break;
+    for (const job of jobs) {
+      await eventJob.handler({ scope: { ...owner, userId: "worker" }, jobId: job.id, job: data(job), executionMode: "test" });
+      await run((tx) => tx.entity.update({ where: { id: job.id }, data: { data: { ...data(job), status: "done" } } }));
+      ran++;
+    }
+  }
+  return ran;
 }
 
 /** Sets the given environment switches for a suite and restores them after. */

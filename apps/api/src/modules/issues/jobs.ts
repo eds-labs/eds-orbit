@@ -5,10 +5,12 @@ import { audit, data, DomainError } from "../../shared.ts";
 import { issuesActive } from "./gate.ts";
 import { ingestReport } from "./intake.ts";
 import { ISSUES_INTAKE, normalizeWebhook } from "./sources/webhook.ts";
+import { ISSUES_AI, runTriageJob } from "./triage.ts";
 
 // The issue center's background work (plan §4.3). A stored webhook
 // delivery becomes a report; afterwards its raw body is dropped whatever
-// the outcome (I-5). Nothing here calls a provider, so a retry is safe.
+// the outcome (I-5). The intake calls no provider, so a retry is safe; the
+// AI triage never resends a call whose outcome is unclear.
 
 export const issuesJobs: JobDef[] = [
   {
@@ -51,6 +53,13 @@ export const issuesJobs: JobDef[] = [
           await audit(tx, scope, "issues.intake.rejected", row.id, { connectionId: message.connectionId, code });
         }
       });
+    },
+  },
+  {
+    queueClass: ISSUES_AI,
+    leaseMs: 180_000,
+    async handler({ scope, job }) {
+      if (job.kind === "triage") await runTriageJob(scope, String(job.resourceId), Number(job.version));
     },
   },
 ];
