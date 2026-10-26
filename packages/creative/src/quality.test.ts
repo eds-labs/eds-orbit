@@ -19,6 +19,7 @@ import {
   CREATIVE_TEMPLATE_IDS,
   type FormatId,
   type TemplateId,
+  type VariantId,
 } from "./ids.ts";
 import {
   checkArt,
@@ -91,10 +92,14 @@ async function compose(
   brandName: DemoBrandName,
   template: TemplateId,
   format: FormatId = "feed_portrait",
-  options: { logos?: CreativeLogo[]; artBrand?: DemoBrandName } = {},
+  options: {
+    logos?: CreativeLogo[];
+    artBrand?: DemoBrandName;
+    variant?: VariantId;
+  } = {},
 ) {
   const art = await fixtureArt("good", options.artBrand ?? brandName);
-  const variant = defaultVariant(template, format);
+  const variant = options.variant ?? defaultVariant(template, format);
   const brand = await demoBrand(brandName);
   const result = await composeCreative({
     template,
@@ -110,7 +115,23 @@ async function compose(
     options: OPTIONS,
   });
   const layout = layoutFor(template, variant, format, OPTIONS);
-  return { result, art, layout };
+  return { result, art, layout, variant };
+}
+
+/** Failed blockers of a creative: its composition and its drawn art. */
+async function blockersOf({
+  result,
+  art,
+  layout,
+}: Awaited<ReturnType<typeof compose>>) {
+  const checks = [
+    ...checkComposition(result, approvedOf(result)),
+    ...(await artChecks(art, layout)),
+  ];
+  return {
+    blockers: failedBlockers(checks),
+    detail: JSON.stringify(checks.filter((c) => !c.passed)),
+  };
 }
 
 /** The lifestyle layout the art-only tests use. */
@@ -162,6 +183,43 @@ async function asJpeg(
 ): Promise<RasterSource> {
   const { default: sharp } = await import("sharp");
   const bytes = await sharp(art.bytes).jpeg({ quality }).toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}
+
+/** A PNG of the given size: a plain dark-blue field with optional SVG shapes on it. */
+async function field(width: number, height: number, shapes = "") {
+  const { default: sharp } = await import("sharp");
+  return sharp(
+    Buffer.from(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+        <rect width="${width}" height="${height}" fill="#20304A"/>${shapes}</svg>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+}
+
+/** 1024² art of vertical stripes, `period` px apart, in two colours. */
+async function stripes(
+  dark: string,
+  light: string,
+  period: number,
+): Promise<RasterSource> {
+  const bytes = await (
+    await import("sharp")
+  )
+    .default(
+      Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024">
+          <defs><pattern id="s" width="${period}" height="${period}" patternUnits="userSpaceOnUse">
+            <rect width="${period / 2}" height="${period}" fill="${light}"/></pattern></defs>
+          <rect width="1024" height="1024" fill="${dark}"/>
+          <rect width="1024" height="1024" fill="url(#s)"/>
+        </svg>`,
+      ),
+    )
+    .png()
+    .toBuffer();
   return { bytes, sha256: sha256Hex(bytes) };
 }
 
@@ -249,6 +307,54 @@ describe("checkArt", () => {
       2,
     );
     expect(failed(await artChecks(tiny))).toContain("SUBJECT_TOO_SMALL");
+  });
+
+  it("skips decorative strips wider than 4:1 (R24)", async () => {
+    // tips/centered on landscape draws its art into a 9:1 strip.
+    const strip = layoutFor("tips", "centered", "landscape", OPTIONS);
+    expect(strip.art!.w / strip.art!.h).toBeGreaterThan(4);
+    for (const kind of ["good", "flat"] as const) {
+      const checks = await artChecks(await fixtureArt(kind, "kestrel"), strip);
+      expect(checks.map((c) => c.code).sort()).toEqual([
+        "EMPTY_AREA_EXCESSIVE",
+        "SUBJECT_TOO_SMALL",
+      ]);
+      for (const check of checks)
+        expect(check, kind).toMatchObject({
+          passed: true,
+          detail: { skipped: "ART_STRIP" },
+        });
+    }
+    // 5:1 and 1:5 strips are decorative; a 3:1 field is still judged.
+    expect(failed(await checkArt(await field(1000, 200), []))).toEqual([]);
+    expect(failed(await checkArt(await field(200, 1000), []))).toEqual([]);
+    expect(failed(await checkArt(await field(900, 300), []))).toEqual([
+      "SUBJECT_TOO_SMALL",
+      "EMPTY_AREA_EXCESSIVE",
+    ]);
+  });
+
+  it("counts every significant subject, not only the largest (R26)", async () => {
+    // Two 400 px discs at opposite corners are one composition, not a small subject.
+    const two = await checkArt(
+      await field(
+        1000,
+        1000,
+        `<circle cx="250" cy="250" r="200" fill="#E8B04C"/><circle cx="750" cy="750" r="200" fill="#7FE3FF"/>`,
+      ),
+      [],
+    );
+    expect(find(two, "SUBJECT_TOO_SMALL").passed).toBe(true);
+    // A tiny subject and flat art still fail, with and without noise.
+    for (const brand of ["lumora", "kestrel"] as const)
+      for (const kind of ["tiny_subject", "flat"] as const) {
+        const art = await fixtureArt(kind, brand);
+        for (const variant of [art, await withNoise(art, 2)])
+          expect(
+            failed(await artChecks(variant)),
+            `${brand} ${kind}`,
+          ).toContain("SUBJECT_TOO_SMALL");
+      }
   });
 
   it.each(["lumora", "kestrel"] as const)(
@@ -437,6 +543,45 @@ describe("checkComposition", () => {
     ).toEqual(expect.arrayContaining(["LOGO_INTEGRITY", "LOGO_CONTRAST_LOW"]));
   });
 
+  it("stops a busy-driven full tint at 0.6 behind centred text and reports the busy backdrop (R23)", async () => {
+    // Dark stripes: white text reads on them at any scrim, so only busyness raises it.
+    const result = await composeCreative({
+      template: "brand_message",
+      variant: "centered",
+      format: "feed_portrait",
+      brand: await demoBrand("kestrel"),
+      copy: COPY,
+      art: await stripes("#000000", "#404040", 16),
+      options: OPTIONS,
+    });
+    expect(result.scrimOpacity).toBe(0.6);
+    expect(failed(checkComposition(result, approvedOf(result)))).toEqual([
+      "TEXT_BACKDROP_BUSY",
+    ]);
+  });
+
+  it("still raises the scrim to the layout maximum for contrast (R23)", async () => {
+    // A mid-grey text colour gives a mid-grey scrim: no text colour reaches
+    // its contrast on black and white stripes, so contrast drives it to the cap.
+    const lumora = await demoBrand("lumora");
+    const result = await composeCreative({
+      template: "brand_message",
+      variant: "centered",
+      format: "feed_portrait",
+      brand: {
+        ...lumora,
+        palette: { ...lumora.palette, textColor: "#6B6B6B" },
+      },
+      copy: COPY,
+      art: await stripes("#000000", "#FFFFFF", 128),
+      options: OPTIONS,
+    });
+    expect(result.scrimOpacity).toBe(
+      layoutFor("brand_message", "centered", "feed_portrait", OPTIONS).scrim!
+        .max,
+    );
+  });
+
   it("warns on upscaled assets (Review Focus 4)", async () => {
     const brand = await demoBrand("kestrel");
     const small = await fixtureScreenshot("kestrel", {
@@ -468,19 +613,26 @@ describe("checkComposition", () => {
     async (format) => {
       for (const brandName of ["lumora", "kestrel"] as const)
         for (const template of CREATIVE_TEMPLATE_IDS) {
-          const { result, art, layout } = await compose(
-            brandName,
-            template,
-            format,
-          );
-          const checks = [
-            ...checkComposition(result, approvedOf(result)),
-            ...(await artChecks(art, layout)),
-          ];
-          expect(
-            failedBlockers(checks),
-            `${brandName} ${template}: ${JSON.stringify(checks.filter((c) => !c.passed))}`,
-          ).toEqual([]);
+          const creative = await compose(brandName, template, format);
+          const { blockers, detail } = await blockersOf(creative);
+          const label = `${brandName} ${template}: ${detail}`;
+          if (
+            creative.layout.scrim?.direction === "full" &&
+            blockers.join() === "TEXT_BACKDROP_BUSY"
+          ) {
+            // R23: busy art under a full tint stops at 0.6; the correction is
+            // another variant (R22), which must then pass.
+            expect(creative.result.scrimOpacity, label).toBe(0.6);
+            const next = variantsFor(template, format).find(
+              (v) => v !== creative.variant,
+            )!;
+            const corrected = await blockersOf(
+              await compose(brandName, template, format, { variant: next }),
+            );
+            expect(corrected.blockers, `${label} -> ${next}`).toEqual([]);
+            continue;
+          }
+          expect(blockers, label).toEqual([]);
         }
     },
     120_000,

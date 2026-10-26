@@ -178,7 +178,7 @@ describe("analysis", () => {
     );
     expect(disc.subjectCoverage).toBeGreaterThan(0.34);
     expect(disc.subjectCoverage).toBeLessThan(0.42);
-    // A small second shape far away does not stretch the subject's box.
+    // A speck far away, below the minimum subject size, does not stretch the box (R26).
     const two = await analyzeArt(
       await art(
         `<circle cx="500" cy="500" r="300" fill="#E8B04C"/><circle cx="930" cy="930" r="40" fill="#E8B04C"/>`,

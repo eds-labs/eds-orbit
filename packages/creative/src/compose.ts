@@ -121,6 +121,8 @@ const ART_ASPECT_TOLERANCE = 1.35;
 const ART_FEATHER = 0.12;
 const SCRIM_BOOST_STEP = 0.12;
 const SCRIM_RAISE_STEP = 0.1;
+/** Busyness raises a full (centred) tint at most this far, so a statement keeps its motif (R23). */
+const BUSY_SCRIM_CAP = 0.6;
 const PNG_OPTIONS = {
   compressionLevel: 9,
   adaptiveFiltering: false,
@@ -222,8 +224,10 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
 /**
  * The art exactly as compose draws it into the layout's art box (same cover
  * or contain fit, same code), as a PNG of the box's size. Art checks run on
- * it, with `artZones(layout)` as their reserved zones (R21). Throws
- * `BRAND_ASSET_INTEGRITY_FAILED` for bytes that are not the approved ones.
+ * it, with `artZones(layout)` as their reserved zones (R21). The art is laid
+ * on black, which only shows for art with transparency (a known limit, R27).
+ * Throws `BRAND_ASSET_INTEGRITY_FAILED` for bytes that are not the approved
+ * ones.
  */
 export async function drawnArt(
   art: RasterSource,
@@ -427,7 +431,8 @@ function assertIntact(source: RasterSource) {
  * Logos and screenshots are their approved bytes (SHA-256 checked), only
  * scaled with their aspect kept. The scrim is strengthened until every text
  * layer meets QA's contrast requirement on a backdrop no busier than QA allows
- * (R17), or the layout's maximum is reached.
+ * (R17), or the layout's maximum is reached (for busyness under a full,
+ * centred tint, 0.6: R23).
  * Throws `ART_REQUIRED`, `PRODUCT_ASSET_REQUIRED`,
  * `BRAND_ASSET_INTEGRITY_FAILED`, `TEXT_OVERFLOW`, `RASTER_RENDER_FAILED`,
  * `RASTER_OUTPUT_INVALID` and `INVALID_TEMPLATE_INPUT`.
@@ -539,8 +544,14 @@ export async function composeCreative(
         : null;
 
     // 4. Scrim: from its start opacity up in steps until the text reads on a
-    // calm backdrop (R17), capped at the layout's maximum.
+    // calm backdrop (R17). Contrast may take it to the layout's maximum;
+    // busyness under a full (centred) tint only to BUSY_SCRIM_CAP (R23), past
+    // which QA reports the busy backdrop and a variant is the correction (R22).
     const scrim = layout.scrim;
+    const busyLimit =
+      scrim?.direction === "full"
+        ? Math.min(scrim.max, BUSY_SCRIM_CAP)
+        : (scrim?.max ?? 0);
     const scrimColor =
       relativeLuminance(palette.textColor) < 0.2
         ? palette.textColor
@@ -564,14 +575,15 @@ export async function composeCreative(
       if (product) overlays.push(...product.overlays);
       canvas = await flatten(sharp, base, overlays);
       colouring = colourStack(canvas, blocks, palette, pill);
-      if (
-        (colouring.readable && colouring.calm) ||
-        !scrim ||
-        opacity >= scrim.max
-      )
-        break;
+      if (!scrim) break;
+      const limit = !colouring.readable
+        ? scrim.max
+        : !colouring.calm
+          ? busyLimit
+          : 0;
+      if (opacity >= limit) break;
       opacity = Math.min(
-        scrim.max,
+        limit,
         Math.round((opacity + SCRIM_RAISE_STEP) * 100) / 100,
       );
     }

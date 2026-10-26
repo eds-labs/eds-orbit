@@ -648,9 +648,16 @@ describe("composeCreative", () => {
       for (const brandName of ["lumora", "kestrel"] as const) {
         const brand = await demoBrand(brandName);
         for (const template of CREATIVE_TEMPLATE_IDS) {
+          const variant = defaultVariant(template, format);
+          // R23: busy art under a full tint stops at 0.6 and stays busy (QA reports it).
+          const busyCap =
+            layoutFor(template, variant, format, OPTIONS).scrim?.direction ===
+            "full"
+              ? 0.6
+              : Infinity;
           const result = await composeCreative({
             template,
-            variant: defaultVariant(template, format),
+            variant,
             format,
             brand,
             copy: COPY,
@@ -683,11 +690,12 @@ describe("composeCreative", () => {
                 backdropContrast(result, record),
                 `${brandName} ${template} ${record.kind}`,
               ).toBeGreaterThanOrEqual(required(record));
-              expect(
-                result.backdrops[record.kind as (typeof TEXT_KINDS)[number]]!
-                  .busy,
-                `${brandName} ${template} ${record.kind} busy`,
-              ).toBeLessThanOrEqual(CREATIVE_THRESHOLDS.busyText);
+              if (result.scrimOpacity < busyCap)
+                expect(
+                  result.backdrops[record.kind as (typeof TEXT_KINDS)[number]]!
+                    .busy,
+                  `${brandName} ${template} ${record.kind} busy`,
+                ).toBeLessThanOrEqual(CREATIVE_THRESHOLDS.busyText);
             }
           }
           for (const [i, a] of placed.entries())

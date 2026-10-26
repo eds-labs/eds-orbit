@@ -5,7 +5,8 @@ import {
 } from "./analysis.ts";
 import type { ComposeResult, LayerRecord } from "./compose.ts";
 import { CREATIVE_FORMATS } from "./formats.ts";
-import { worstContrast } from "./raster.ts";
+import { CreativeError } from "./errors.ts";
+import { openRaster, worstContrast } from "./raster.ts";
 import type { Box, RelBox, TextLayerKind } from "./templates.ts";
 
 // Deterministic creative checks (spec §9). Composition checks read the
@@ -255,16 +256,37 @@ export function checkComposition(
   ];
 }
 
+/** Pixel size of raster bytes; undecodable bytes are `RASTER_INPUT_INVALID`. */
+async function rasterSize(bytes: Buffer) {
+  const { default: sharp } = await import("sharp");
+  try {
+    const { width = 0, height = 0 } = await openRaster(sharp, bytes).metadata();
+    if (width && height) return { width, height };
+  } catch {
+    // Reported below.
+  }
+  throw new CreativeError("RASTER_INPUT_INVALID");
+}
+
 /**
  * Subject size and empty area of an art, judged in the frame it is drawn in
  * (R21): `png` is `drawnArt(art, layout)` and `reserved` is
- * `artZones(layout)` (fractions of the drawn art).
+ * `artZones(layout)` (fractions of the drawn art). A drawn art box beyond
+ * `maxArtAspect` (4:1 either way) is a decorative strip: both checks pass
+ * with `detail.skipped = "ART_STRIP"` (R24).
  */
 export async function checkArt(
   png: Buffer,
   reserved: RelBox[],
 ): Promise<CreativeCheck[]> {
   const T = CREATIVE_THRESHOLDS;
+  const { width, height } = await rasterSize(png);
+  if (width > T.maxArtAspect * height || height > T.maxArtAspect * width)
+    // A decorative strip: no motif to judge, and new art could not change that (R24).
+    return [
+      check("SUBJECT_TOO_SMALL", true, { skipped: "ART_STRIP" }),
+      check("EMPTY_AREA_EXCESSIVE", true, { skipped: "ART_STRIP" }),
+    ];
   const { subjectCoverage, flatShare } = await analyzeArt(png, reserved);
   return [
     check("SUBJECT_TOO_SMALL", subjectCoverage >= T.subjectMinCoverage, {

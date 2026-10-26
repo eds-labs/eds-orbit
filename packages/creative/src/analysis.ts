@@ -28,6 +28,13 @@ export const CREATIVE_THRESHOLDS = {
   maxUpscale: 1.5,
   /** Cells on the shorter side of the art's analysis grid (R20). */
   artCells: 64,
+  /**
+   * Smallest connected subject, in cells, that counts towards the subject's
+   * box (about 1/8 of the shorter side across); smaller ones are specks (R26).
+   */
+  subjectMinCells: 64,
+  /** Aspect beyond which a drawn art box is a decorative strip and is not judged (R24). */
+  maxArtAspect: 4,
   /** Colour distance from the background (Euclidean RGB / 255) from which a cell is subject. */
   subjectColor: 0.15,
   /** Luminance range of a cell's 3×3 neighbourhood from which it is subject (structure). */
@@ -204,11 +211,18 @@ function borderColour(cells: Cells) {
   });
 }
 
-/** Bounding box (in cells) of the largest 8-connected component of `mask`, or `null`. */
-function largestComponent(mask: Uint8Array, cols: number, rows: number) {
+/**
+ * Bounding box (in cells) of every 8-connected component of `mask` with at
+ * least `minCells` cells (R26), or `null` when none is that large.
+ */
+function subjectBox(
+  mask: Uint8Array,
+  cols: number,
+  rows: number,
+  minCells: number,
+) {
   const seen = new Uint8Array(mask.length);
-  let best: { size: number; box: [number, number, number, number] } | null =
-    null;
+  let union: [number, number, number, number] | null = null;
   for (let start = 0; start < mask.length; start++) {
     if (!mask[start] || seen[start]) continue;
     const stack = [start];
@@ -237,9 +251,17 @@ function largestComponent(mask: Uint8Array, cols: number, rows: number) {
           }
         }
     }
-    if (!best || size > best.size) best = { size, box };
+    if (size < minCells) continue;
+    union = union
+      ? [
+          Math.min(union[0], box[0]),
+          Math.min(union[1], box[1]),
+          Math.max(union[2], box[2]),
+          Math.max(union[3], box[3]),
+        ]
+      : box;
   }
-  return best?.box ?? null;
+  return union;
 }
 
 /**
@@ -249,8 +271,9 @@ function largestComponent(mask: Uint8Array, cols: number, rows: number) {
  * background by more than `subjectColor` or the luma range of its 3×3
  * neighbourhood exceeds `subjectRange`; it is flat when it has the background
  * colour and a range below `flatRange`.
- * - `subjectCoverage`: area of the bounding box of the largest connected
- *   subject (8-connected cells; specks lose to it), as a share of the art;
+ * - `subjectCoverage`: area of the bounding box of all connected subjects of
+ *   at least `subjectMinCells` cells (8-connected; smaller specks are left
+ *   out), as a share of the art (R26);
  * - `flatShare`: the empty area left visible: flat cells whose centre lies
  *   outside every reserved zone (fractions of the art), as a share of all
  *   cells. (A share of the free cells alone would read the thin margins
@@ -261,7 +284,7 @@ export async function analyzeArt(
   png: Buffer,
   reserved: RelBox[],
 ): Promise<{ subjectCoverage: number; flatShare: number; meanDetail: number }> {
-  const { artCells, subjectColor, subjectRange, flatRange } =
+  const { artCells, subjectColor, subjectRange, flatRange, subjectMinCells } =
     CREATIVE_THRESHOLDS;
   const canvas = await decode(png, 16 * artCells);
   const cell = Math.min(canvas.width, canvas.height) / artCells;
@@ -309,7 +332,7 @@ export async function analyzeArt(
         continue;
       if (distance <= subjectColor && range < flatRange) flat++;
     }
-  const box = largestComponent(subject, cols, rows);
+  const box = subjectBox(subject, cols, rows, subjectMinCells);
   return {
     subjectCoverage: box
       ? ((box[2] - box[0] + 1) * (box[3] - box[1] + 1)) / (cols * rows)

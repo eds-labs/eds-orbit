@@ -317,12 +317,12 @@ Deterministic checks (`creative/quality.ts`), codes:
 | `CREATIVE_FILE_TOO_LARGE` | PNG over the channel/Postiz limit (default 8 MB) | re-encode once, else `needs_owner` |
 | `TEXT_OVERFLOW` | copy does not fit at minimum size | other variant, then one copy revision |
 | `TEXT_CONTRAST_LOW` | < 4.5:1 (body) / < 3:1 (large text from 32 px; the subline is body text at every size) | stronger scrim, then other variant |
-| `TEXT_BACKDROP_BUSY` | busyness behind a text layer > 0.015: mean 3×3 standard deviation of the luma (0..1) averaged over 4 px cells, after the scrim (R17, R20) | stronger scrim (compose raises it up to the layout's maximum), then other variant |
+| `TEXT_BACKDROP_BUSY` | busyness behind a text layer > 0.015: mean 3×3 standard deviation of the luma (0..1) averaged over 4 px cells, after the scrim (R17, R20) | stronger scrim (compose raises it up to the layout's maximum; under a full, centred tint busyness raises it only to 0.6, contrast still to the maximum, R23), then other variant (R22) |
 | `LOGO_CONTRAST_LOW` | < 2:1 against local background | other logo variant, then logo plate |
 | `LOGO_INTEGRITY` | logo bytes ≠ approved SHA-256, aspect changed, below minimum size (longer side < 0.06 of the canvas's shorter side, R19) | refuse (never render) |
 | `SCREENSHOT_INTEGRITY` | screenshot bytes ≠ approved SHA-256 or aspect changed | refuse |
-| `SUBJECT_TOO_SMALL` | bounding box of the largest connected subject < 25 % of the drawn art (subject: colour distance to the border median > 0.15, or 3×3 luma range > 0.12) | art correction |
-| `EMPTY_AREA_EXCESSIVE` | flat cells (background colour, 3×3 luma range < 0.03) outside the reserved zones > 45 % of the drawn art | art correction or tighter crop |
+| `SUBJECT_TOO_SMALL` | bounding box of all connected subjects of at least 64 cells < 25 % of the drawn art (subject: colour distance to the border median > 0.15, or 3×3 luma range > 0.12; R26); not judged for a decorative strip beyond 4:1 (R24) | art correction |
+| `EMPTY_AREA_EXCESSIVE` | flat cells (background colour, 3×3 luma range < 0.03) outside the reserved zones > 45 % of the drawn art (R25); not judged for a decorative strip beyond 4:1 (R24) | art correction or tighter crop |
 | `SAFE_AREA_VIOLATION`, `LAYER_OVERLAP` | layer boxes against safe area and each other | render bug → `needs_owner` |
 | `ASSET_UPSCALED` | an art, screenshot or logo layer drawn at more than 1.5× its source size | warning only (shown, never blocks) |
 | `ASSET_RIGHTS` | every component approved, `validUses` covers the use, not outdated, same project | refuse |
@@ -340,6 +340,19 @@ art verdicts are identical for PNG, JPEG q70/q40, native 768/1024/2048 px
 renders and noise σ 2/4 in every default layout, no art threshold changes a
 verdict within ±33 %, and the scrim stays within one step (0.1). Calm text
 backdrops measure 0.002–0.014, text over the motif's edges 0.017–0.04.
+Subjects smaller than 64 cells (about 1/8 of the shorter side across) are
+specks and do not widen the subject's box (`subjectMinCells`, R26): two 80 px
+dots in opposite corners of a 1000 px field stay a small subject, two 400 px
+discs there are one composition. A drawn art box beyond 4:1 either way
+(`maxArtAspect`, R24) is a decorative strip; both art checks pass with
+`detail.skipped = "ART_STRIP"`.
+
+Known limits (R27), accepted because they err on the lenient side and cost no
+money: a smooth gradient or vignette that differs from the border colour
+counts as subject, so a motif-less gradient can pass `SUBJECT_TOO_SMALL`;
+`drawnArt` composites the art onto black, which only matters for art with an
+alpha channel (provider art is opaque). The optional vision review covers
+aesthetics.
 
 **Vision review** (CS-D2, optional per project `creative.visualReview`): one
 `respond()` call with the composed rendition as `input_image`, new task class
