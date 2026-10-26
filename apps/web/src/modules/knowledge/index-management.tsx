@@ -29,7 +29,8 @@ export type EvaluationRun = {
     answered: number;
     recallAt10: number;
     forbiddenHits: number;
-    missed: number | null;
+    /** Answered questions that found their passage. */
+    found: number;
   } | null;
   items?: {
     id: string;
@@ -314,7 +315,7 @@ function RunSummary({ run, text }: { run: EvaluationRun; text: Text }) {
     return <p>{text.run.failed(reason(text, run.errorCode))}</p>;
   const e = run.evaluation;
   if (run.status !== "completed" || !e) return null;
-  const found = e.answered - (e.missed ?? 0);
+  const found = e.found;
   const recall = Math.round(e.recallAt10 * 100);
   return (
     <p>

@@ -265,5 +265,16 @@ describe.skipIf(!enabled)("generated index evaluation sets", () => {
       tx.knowledgeIndex.findUniqueOrThrow({ where: { id: indexId } }),
     );
     expect(index.state).toBe("evaluated");
+    // The panel's count: answered questions only, never the control questions.
+    const result = (await run((tx) => latestEvaluations(tx, scope()))).get(
+      indexId,
+    )!;
+    expect(result.evaluation).toEqual({
+      passed: true,
+      answered: 48,
+      found: 48,
+      recallAt10: 1,
+      forbiddenHits: 0,
+    });
   });
 });
