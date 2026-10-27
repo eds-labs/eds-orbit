@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { aiErrorText, presetName, taskRoutesFrom } from "./ai-presets";
+import {
+  aiErrorText,
+  presetName,
+  shownAiTasks,
+  taskRoutesFrom,
+} from "./ai-presets";
 import { budgetRefusalText } from "./budget-refusals";
 
 describe("taskRoutesFrom", () => {
@@ -53,5 +58,17 @@ describe("budget refusals", () => {
     expect(budgetRefusalText("MODEL_OUTPUT_NOT_VALID", true)).toBeNull();
     // The AI settings fall back to the refusal texts.
     expect(aiErrorText("ORG_PROVIDER_BUDGET_EXCEEDED", "en")).toMatch(/cap for this provider/);
+  });
+});
+
+// CS-D6 (R64): the Creative Studio's vision review is a task only while it is on.
+describe("shownAiTasks", () => {
+  it("offers the creative vision review only with the Creative Studio on", () => {
+    const ids = (features?: Record<string, boolean>) =>
+      shownAiTasks(features).map((task) => task.id);
+    expect(ids()).not.toContain("creative_review");
+    expect(ids({ creativeStudio: false })).not.toContain("creative_review");
+    expect(ids({ creativeStudio: true })).toContain("creative_review");
+    expect(ids()).toContain("issue_triage");
   });
 });

@@ -449,6 +449,21 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
       expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
     });
 
+    // CS-D6 (R64): accepting QA findings exists only with the Creative Studio.
+    it("refuses acceptQaFindings with the Creative Studio off, as before", async () => {
+      const { pkg, ids } = await readyPackage();
+      process.env.ORBIT_CREATIVE_STUDIO = "false";
+      await expect(
+        attachPackageImage(project.owner, pkg.id, {
+          deliverableKeys: both,
+          acceptQaFindings: true,
+        }),
+      ).rejects.toThrow();
+      for (const key of both)
+        expect(data(await contentRow(ids[key]!)).assetId).toBeUndefined();
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
     it("keeps the raw image for a draft without image copy and reports it", async () => {
       const { pkg, assetId, ids } = await readyPackage({
         copy: { [X]: PACKAGE_CREATIVE_COPY },

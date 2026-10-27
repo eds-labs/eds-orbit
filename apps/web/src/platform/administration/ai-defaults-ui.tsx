@@ -1,11 +1,13 @@
 "use client";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { put, remove, useMutation, useResource } from "@/lib/api";
+import { ShellContext } from "@/platform/shell/shell-context";
 import type { Locale } from "@/lib/i18n";
 import {
   aiErrorText,
   aiProviderName,
   aiTasks,
+  shownAiTasks,
   levelName,
   presetLevels,
   presetName,
@@ -194,6 +196,7 @@ function DefaultsForm({
   onSaved: () => void;
 }) {
   const t = text[locale === "de" ? "de" : "en"];
+  const features = useContext(ShellContext)?.features;
   const mutation = useMutation(onSaved);
   const current = view.defaults;
   const active = catalog.filter((m) => m.active);
@@ -243,7 +246,7 @@ function DefaultsForm({
         { value: "yes", label: t.yes },
       ],
     },
-    ...aiTasks.map(
+    ...shownAiTasks(features).map(
       (task): FormField => ({
         name: `task-${task.id}`,
         label: taskName(task, locale),

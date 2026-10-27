@@ -17,6 +17,7 @@ import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
 import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 
 /**
  * Read models of Orbit Agents for the web (Task 14): the assignments page,
@@ -375,8 +376,11 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
       excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
-      // The draft's image or creative rendition, shown as a thumbnail.
-      assetId: typeof d.assetId === "string" ? d.assetId : null,
+      // The draft's image or creative rendition, shown as a thumbnail
+      // (Creative Studio on; off, the list is as before, CS-D6).
+      ...(creativeStudioEnabled()
+        ? { assetId: typeof d.assetId === "string" ? d.assetId : null }
+        : {}),
       assignmentId: d.assignmentId,
       assignmentName: data(assignment).name ?? null,
       // What the release does: schedule the post, or book a Postiz draft (R73).

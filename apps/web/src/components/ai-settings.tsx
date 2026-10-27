@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import { Brain, Coins, Gauge, Sparkles } from "lucide-react";
 import {
   action,
@@ -13,6 +13,7 @@ import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
+import { ShellContext } from "@/platform/shell/shell-context";
 import {
   AiSetupPanel,
   ModelChoicePanel,
@@ -1123,6 +1124,9 @@ const taskClasses = [
   { id: "creative_review", label: "Creative vision review", defaultTokens: 1500 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
+/** The task classes that get a route: the Creative Studio's vision review only while it is on (CS-D6). */
+export const routeTaskClasses = (studio: boolean) =>
+  taskClasses.filter((task) => studio || task.id !== "creative_review");
 const reasoningEffortValues = [
   "none",
   "low",
@@ -1410,6 +1414,9 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
 export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
   const { project, refresh, locale } = useWorkspace();
   const de = locale === "de";
+  const tasks = routeTaskClasses(
+    useContext(ShellContext)?.features?.creativeStudio === true,
+  );
   const configuration = useModelsView();
   const mutation = useMutation(() => {
     refresh();
@@ -1417,7 +1424,7 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
   });
   const current = configuration.data;
   const fields: FormField[] = current
-    ? taskClasses.flatMap(({ id, label, defaultTokens }): FormField[] => {
+    ? tasks.flatMap(({ id, label, defaultTokens }): FormField[] => {
         const stored = current.taskRoutes?.[id];
         return [
           {
@@ -1479,7 +1486,7 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
               saveModels(project.id, {
                 ...modelsPayload(current),
                 taskRoutes: Object.fromEntries(
-                  taskClasses.flatMap(({ id, defaultTokens }) => {
+                  tasks.flatMap(({ id, defaultTokens }) => {
                     const model = str(values, `route-${id}-model`);
                     if (!model) return [];
                     const effort = str(values, `route-${id}-effort`);

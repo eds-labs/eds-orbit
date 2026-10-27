@@ -624,19 +624,31 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
         usageApproved: false,
       });
       expect(fake.calls.count).toBe(1);
-      // R58: only a draft whose asset is the package image carries it.
-      expect(
-        result.deliverables.map((d) => d.content?.carriesPackageImage),
-      ).toEqual([false, false]);
-      const first = result.deliverables[0]!.content!;
-      await run(async (tx) => {
-        const row = await entity(tx, owner, "content", String(first.id));
-        await update(tx, owner, row, { ...data(row), assetId: asset.id });
-      });
-      const withImage = await snapshot(pkg.id);
-      expect(
-        withImage.deliverables.map((d) => d.content?.carriesPackageImage),
-      ).toEqual([true, false]);
+      // CS-D6 (R64): the snapshot reports it only with the Creative Studio on.
+      for (const deliverable of result.deliverables)
+        expect(deliverable.content).not.toHaveProperty("carriesPackageImage");
+      const studioFlag = process.env.ORBIT_CREATIVE_STUDIO;
+      process.env.ORBIT_CREATIVE_STUDIO = "true";
+      try {
+        // R58: only a draft whose asset is the package image carries it.
+        expect(
+          (await snapshot(pkg.id)).deliverables.map(
+            (d) => d.content?.carriesPackageImage,
+          ),
+        ).toEqual([false, false]);
+        const first = result.deliverables[0]!.content!;
+        await run(async (tx) => {
+          const row = await entity(tx, owner, "content", String(first.id));
+          await update(tx, owner, row, { ...data(row), assetId: asset.id });
+        });
+        const withImage = await snapshot(pkg.id);
+        expect(
+          withImage.deliverables.map((d) => d.content?.carriesPackageImage),
+        ).toEqual([true, false]);
+      } finally {
+        if (studioFlag === undefined) delete process.env.ORBIT_CREATIVE_STUDIO;
+        else process.env.ORBIT_CREATIVE_STUDIO = studioFlag;
+      }
       const runRow = await run((tx) =>
         tx.entity.findFirstOrThrow({
           where: {

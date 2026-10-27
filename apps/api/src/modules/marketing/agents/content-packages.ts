@@ -544,12 +544,17 @@ export async function packageSnapshot(
           status: data(draft).status,
           scheduledAt: data(draft).scheduledAt ?? null,
           assetId: data(draft).assetId ?? null,
-          carriesPackageImage: await carriesPackageImage(
-            tx,
-            scope,
-            draft,
-            image?.assetId ?? null,
-          ),
+          // Creative Studio on only; off, the snapshot is as before (CS-D6).
+          ...(creativeStudioEnabled()
+            ? {
+                carriesPackageImage: await carriesPackageImage(
+                  tx,
+                  scope,
+                  draft,
+                  image?.assetId ?? null,
+                ),
+              }
+            : {}),
           reused,
         };
         review = data(draft).review ?? null;

@@ -295,6 +295,7 @@ describe("AwaitingOwnerDraftList", () => {
       <AwaitingOwnerDraftList
         items={items}
         projectId="p1"
+        thumbnails
         de
         timezone="Europe/Berlin"
         canRelease={canRelease}
@@ -304,11 +305,12 @@ describe("AwaitingOwnerDraftList", () => {
     );
 
   it("shows the thumbnail of a draft with an image", () => {
-    const html = (assetId?: string | null) =>
+    const html = (assetId?: string | null, thumbnails = true) =>
       renderToStaticMarkup(
         <AwaitingOwnerDraftList
           items={[draft({ assetId })]}
           projectId="p1"
+          thumbnails={thumbnails}
           de={false}
           timezone="Europe/Berlin"
           canRelease
@@ -321,6 +323,8 @@ describe("AwaitingOwnerDraftList", () => {
     );
     expect(html(null)).not.toContain("<img");
     expect(html()).not.toContain("<img");
+    // CS-D6 (R64): no thumbnails while the Creative Studio is off.
+    expect(html("asset-9", false)).not.toContain("<img");
   });
 
   it("lists drafts left for the owner with their slot and a release button for the owner", () => {

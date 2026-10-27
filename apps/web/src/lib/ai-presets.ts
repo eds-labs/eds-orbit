@@ -75,6 +75,15 @@ export const aiTasks = [
   // Creative Studio: the optional vision review of a composed creative.
   { id: "creative_review", en: "Creative vision review", de: "Creative: Bildprüfung", tokens: 1500 },
 ] as const;
+/**
+ * The task classes a page offers: the Creative Studio's vision review only
+ * while the studio is on (CS-D6), from the shell's `features`.
+ */
+export const shownAiTasks = (features?: Record<string, boolean>) =>
+  aiTasks.filter(
+    (task) =>
+      task.id !== "creative_review" || features?.creativeStudio === true,
+  );
 export const taskName = (task: (typeof aiTasks)[number], locale: Locale) =>
   locale === "de" ? task.de : task.en;
 

@@ -51,15 +51,24 @@ import {
  * Package image in a post (Orbit Core J3.3). The package's generated image is
  * attached to chosen drafts only after an owner approved its usage rights; each
  * draft is reviewed again, and approvals or schedule proposals for the previous
- * version become stale. `acceptQaFindings` (owner only) accepts the findings of
- * composed creatives that did not pass their checks.
+ * version become stale.
  */
-export const imageAttachment = z
+const plainImageAttachment = z
   .object({
     deliverableKeys: z.array(z.string().trim().min(1).max(80)).min(1).max(4),
-    acceptQaFindings: z.literal(true).optional(),
   })
   .strict();
+/**
+ * With the Creative Studio on, `acceptQaFindings` (owner only) also accepts
+ * the findings of composed creatives that did not pass their checks; off,
+ * the key is refused as before (CS-D6).
+ */
+const studioImageAttachment = plainImageAttachment
+  .extend({ acceptQaFindings: z.literal(true).optional() })
+  .strict();
+/** The input of a package image attach under the current Creative Studio switch. */
+export const imageAttachment = () =>
+  creativeStudioEnabled() ? studioImageAttachment : plainImageAttachment;
 
 // Publications in these states no longer hold the post.
 const INACTIVE_PUBLICATION = ["canceled", "failed", "blocked_dependency"];
@@ -342,7 +351,8 @@ export async function attachPackageImage(
   authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
-  const input = imageAttachment.parse(raw);
+  const input: z.infer<typeof studioImageAttachment> =
+    imageAttachment().parse(raw);
   // Accepting findings is the owner's decision, as in the studio.
   if (input.acceptQaFindings) authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const keys = [...new Set(input.deliverableKeys)];

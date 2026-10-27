@@ -646,6 +646,27 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     expect(await mission(first!.missionId)).toEqual(before);
   });
 
+  // CS-D6 (R64): the drafts' thumbnails come with the Creative Studio.
+  it("lists a draft's image for its thumbnail only with the Creative Studio on", async () => {
+    await leftForOwner();
+    const flag = process.env.ORBIT_CREATIVE_STUDIO;
+    try {
+      process.env.ORBIT_CREATIVE_STUDIO = "false";
+      for (const item of await h.run((tx) =>
+        draftsAwaitingOwner(tx, project.owner),
+      ))
+        expect(item).not.toHaveProperty("assetId");
+      process.env.ORBIT_CREATIVE_STUDIO = "true";
+      for (const item of await h.run((tx) =>
+        draftsAwaitingOwner(tx, project.owner),
+      ))
+        expect(item).toHaveProperty("assetId");
+    } finally {
+      if (flag === undefined) delete process.env.ORBIT_CREATIVE_STUDIO;
+      else process.env.ORBIT_CREATIVE_STUDIO = flag;
+    }
+  });
+
   it("answers 404 while Orbit Agents is off", async () => {
     const { drafts } = await leftForOwner();
     delete process.env.ORBIT_AGENTS;

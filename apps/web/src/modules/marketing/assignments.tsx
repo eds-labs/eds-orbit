@@ -1,7 +1,7 @@
 "use client";
 import { RunOperationView, type RunOperation } from "./run-operation";
 import { AppLink } from "@/platform/ui/app-link";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import {
   ApiError,
   collectionPath,
@@ -26,6 +26,7 @@ import {
 } from "./assignment-card";
 import { Alert, Badge, Button, Loading } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { ShellContext } from "@/platform/shell/shell-context";
 
 /** One row of `GET /assignments`. */
 export type AssignmentItem = Pick<
@@ -632,6 +633,7 @@ export function UpcomingPostList({
 export function AwaitingOwnerDraftList({
   items,
   projectId,
+  thumbnails = false,
   de,
   timezone,
   canRelease,
@@ -641,6 +643,8 @@ export function AwaitingOwnerDraftList({
   items: AwaitingOwnerDraft[];
   /** Needed for the thumbnails of drafts with an image. */
   projectId: string;
+  /** Thumbnails of drafts with an image (Creative Studio on; off, none, CS-D6). */
+  thumbnails?: boolean;
   de: boolean;
   timezone: string;
   canRelease: boolean;
@@ -676,7 +680,7 @@ export function AwaitingOwnerDraftList({
               </span>
             ))}
           </p>
-          {item.assetId && (
+          {thumbnails && item.assetId && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               className="approval-item-thumbnail"
@@ -737,6 +741,7 @@ export function UpcomingAssignmentPosts() {
   const { locale, project, revision, canEdit, isOwner, refresh } =
     useWorkspace();
   const de = locale === "de";
+  const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const posts = useResource<{ items: UpcomingPost[] }>(
     collectionPath(project.id, `assignment-posts?revision=${revision}`),
   );
@@ -796,6 +801,7 @@ export function UpcomingAssignmentPosts() {
       <AwaitingOwnerDraftList
         items={drafts}
         projectId={project.id}
+        thumbnails={studio}
         de={de}
         timezone={project.timezone}
         canRelease={isOwner}

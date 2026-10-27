@@ -1,12 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Sparkles } from "lucide-react";
 import { action, useMutation } from "@/lib/api";
+import { ShellContext } from "@/platform/shell/shell-context";
 import type { Locale } from "@/lib/i18n";
 import {
   aiErrorText,
   aiProviderName,
   aiTasks,
+  shownAiTasks,
   levelName,
   presetLevels,
   presetName,
@@ -231,7 +233,12 @@ function choiceFields(
   view: ModelChoiceView,
   t: Text,
   locale: Locale,
-  options: { custom: boolean; advanced: boolean },
+  options: {
+    custom: boolean;
+    advanced: boolean;
+    /** The shell's features: the Creative Studio's task only while it is on. */
+    features?: Record<string, boolean>;
+  },
 ): FormField[] {
   const routing = view.routing;
   const standard = view.defaults?.standard;
@@ -292,7 +299,7 @@ function choiceFields(
               { value: "yes", label: t.yes },
             ],
           },
-          ...aiTasks.map(
+          ...shownAiTasks(options.features).map(
             (task): FormField => ({
               name: `task-${task.id}`,
               label: taskName(task, locale),
@@ -335,6 +342,7 @@ function ChoiceForm({
   onSaved: () => void;
 }) {
   const { project, refresh, locale } = useWorkspace();
+  const features = useContext(ShellContext)?.features;
   const t = textOf(locale);
   const mutation = useMutation(() => {
     refresh();
@@ -343,7 +351,11 @@ function ChoiceForm({
   return (
     <Modal title={t.title} onClose={onClose}>
       <DataForm
-        fields={choiceFields(view, t, locale, { custom: true, advanced: true })}
+        fields={choiceFields(view, t, locale, {
+          custom: true,
+          advanced: true,
+          features,
+        })}
         pending={mutation.pending}
         error={aiErrorText(mutation.error, locale)}
         submitLabel={t.save}
