@@ -1,5 +1,18 @@
 # Implementation status
 
+## Marketing Creative Studio v2 (2026-10-27, implemented locally; not pushed or deployed; `ORBIT_CREATIVE_STUDIO` off)
+
+Spec: [superpowers/specs/2026-10-26-marketing-creative-studio-design.md](superpowers/specs/2026-10-26-marketing-creative-studio-design.md); plan: [superpowers/plans/2026-10-26-marketing-creative-studio.md](superpowers/plans/2026-10-26-marketing-creative-studio.md); guide: [MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md). Branch `claude/orbit-creative-studio-v2-3ae0b3` (50 commits on `ad29a197`), 21 of 22 plan tasks done; state is local only: nothing is pushed, merged, deployed or enabled, and no paid call was made. Task 22 (live run, at most 1 USD) waits for Mario's go-ahead.
+
+- **Engine (`packages/creative`):** formats and channel mapping, seven declarative templates with variants, Pango text fitting (never cut), one-pass composition with exact-byte logo and screenshot placement, deterministic QA with calibrated thresholds, grain-insensitive art analysis. No new dependency, no migration.
+- **Brand kit and assets:** optional `visualIdentity` fields (logo variants, product images, imagery, typography, forbidden designs, `creative` settings), asset types `screenshot` and `product`, `providerUse` gating every transmission to a provider.
+- **Service:** creative brief and art direction, pipeline with bounded free and paid corrections, persistence as `creatives` entities and bound renditions, vision review (task class `creative_review`), seven routes behind the flag with strict bodies and content-free error details.
+- **Integration:** strategy and copywriter creative output, review checks, assignment field `creative` (exclusive with `banner`; CS-D7: agent authority does not cover creatives), package image composition per draft, Instagram and Facebook channel rules with `MEDIA_REQUIRED`, rendition rights in preflight and the Postiz draft handoff.
+- **UI:** creative panel in the content detail, Brand kit section in Settings, creative row and consent in the assignment card, rendition thumbnails for drafts awaiting the owner.
+- **Acceptance A–E** pass offline with two fictional demo brands (0 USD); a Playwright flow ran against a local stack.
+- **Rollout note:** compose changes alter rendered bytes; stored creatives recompose differently after a deploy. uLiquid's `brand_landscape` banner is unchanged (CS-D3); migrating it to a generic template is a follow-up.
+- **Open:** whole-branch review, Task 22 live acceptance, flag decision, deploy approval (every push to `main` deploys), creative cases in the review eval set (CS-D7).
+
 ## Claude specialist calls: streaming and named cut-offs (2026-10-26)
 
 Claude calls through `respond` (structured runs, marketing specialists, Support AI, finance extraction, knowledge workspace) and draft `generate` now stream to the final message, so the 45/60-second client timeout no longer limits a long answer. A cut-off answer is named: `AGENT_OUTPUT_LIMIT` for structured runs and specialists, `MODEL_OUTPUT_LIMIT` for drafts, each with its cost settled. Found while preparing the FamilyPlan end-to-end test (`docs/plans/familyplan-p4-e2e-test.md`): FamilyPlan's Claude routes had 1,800–3,000 output tokens. No migration, no flag, no API change.

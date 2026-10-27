@@ -1,6 +1,6 @@
 # Marketing Creative Studio v2 — design
 
-Status: proposed design, awaiting Mario's review. Date: 2026-10-26.
+Status: accepted (Mario, 2026-10-26), implemented locally 2026-10-27 (not pushed, not deployed, flag off); live acceptance (Task 22) pending. Date: 2026-10-26. Guide: [MARKETING_CREATIVE_STUDIO.md](../../MARKETING_CREATIVE_STUDIO.md).
 Branch: `claude/orbit-creative-studio-v2-3ae0b3` (worktree), base `origin/main` `ad29a197`.
 
 ## 1. Goal and success criteria
@@ -430,7 +430,7 @@ vision review; attach. Attaching resets the content to `draft` and re-runs
 
 **Publishing.** Channel rules gain Instagram (`instagram`,
 `instagram-standalone`: caption 2,200, media required) and Facebook
-(`facebook`: 63,206) with `liveCapabilityKnown: true`, verified against the
+(`facebook`: 50,000, the Postiz client's bound; Postiz itself allows 63,206) with `liveCapabilityKnown: true`, verified against the
 Postiz integration schema before merge; each channel's content row carries its
 own rendition as `assetId`, so Postiz handoff and publishing code stay as they
 are. Preflight keeps requiring an approved PNG.

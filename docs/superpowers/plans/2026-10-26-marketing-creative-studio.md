@@ -558,7 +558,7 @@ Flow (spec §8):
 
 Exact instruction texts (appended like `BANNER_DRAFT_INSTRUCTION`):
 
-`COPY_CRAFT_INSTRUCTION` = "The contract has copyCraft: build the post around exactly one core message and return it as coreMessage (one sentence of at most 160 characters, not copied from the body). Open the body with a hook in its first line: a question, a recognisable everyday moment or a concrete benefit; return that line as hook. Then show one concrete problem or benefit for the audience, introduce the product as the answer in at most one sentence, and close with the contract's intendedPrimaryCta phrased for the channel. Do not describe the whole product: use at most two fact placeholders, prefer facts with short values, and never use a fact whose value is a long description. Use only hashtags that name the post's topic."
+`COPY_CRAFT_INSTRUCTION` = "The contract has copyCraft: build the post around exactly one core message and return it as coreMessage (one sentence of at most 160 characters, not copied from the body). Open the body with a hook in its first line: a question, a recognisable everyday moment or a concrete benefit; return that line as hook. Then show one concrete problem or benefit for the audience, introduce the product as the answer in at most one sentence, and close with the contract's exact intendedPrimaryCta, led into naturally for the channel. Do not describe the whole product: use at most two fact placeholders, prefer facts with short values, and never use a fact whose value is a long description. Use only hashtags that name the post's topic."
 
 `CREATIVE_DRAFT_INSTRUCTION` = "The contract has a creative: also write creative, the short copy on the post's image. headline is the image's main line (the core message in a few words), subline is one short supporting line or empty, eyebrow is a label of two or three words or empty, and cta is the contract's intendedPrimaryCta without closing punctuation (Orbit sets it). Keep each field within creative.limits characters, write in the post's language and voice, and state nothing the body does not back with its facts: no figure, number word, percentage, price, date, status, promise or link. If the contract has revision.previousCreative, return it unchanged unless revision.instruction concerns the image copy. The creative copy is no claim: never record it in the claims ledger."
 
@@ -682,14 +682,14 @@ Exact instruction texts (appended like `BANNER_DRAFT_INSTRUCTION`):
 - Produces:
   - `ChannelRules.mediaRequired: boolean` (false everywhere else)
   - `instagram` and `instagram-standalone`: `characterLimit 2200`, `utf16_units`, `liveCapabilityKnown true`, `mediaRequired true`
-  - `facebook`: `63206`, `utf16_units`, `true`, `false`
+  - `facebook`: `50000` (the Postiz client's bound; was 63206, ruling in Task 16), `utf16_units`, `true`, `false`
   - preflight blocker `MEDIA_REQUIRED` for social content without `assetId` on a `mediaRequired` channel
 
 - [ ] **Step 1: Verify Postiz provider settings.** Use the Postiz MCP `integrationSchema` tool (read-only) for `instagram`, `instagram-standalone` and `facebook`, or the Postiz source for `__type` DTOs. Record the required settings fields in the commit message. If `instagram` requires `post_type`, `postizProviderSettings("instagram")` returns `{__type: "instagram", post_type: "post"}` plus any other required field with its documented default.
 - [ ] **Step 2: Write failing tests:**
   - the Instagram rules as listed
   - Telegram and X unchanged
-  - Facebook 63206
+  - Facebook 50000
   - preflight `MEDIA_REQUIRED` for Instagram text-only content
   - the provider settings for Instagram (if changed)
 - [ ] **Step 3: Run.** `./node_modules/.bin/vitest run apps/api/src/modules/marketing/publishing packages/connectors`, then the safety integration test. Expected: FAIL.

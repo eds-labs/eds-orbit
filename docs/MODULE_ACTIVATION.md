@@ -85,6 +85,18 @@ of Marketing. The API remains authoritative after every navigation or role chang
 - The platform's `knowledge_search` and the AI spending authority (Settings → AI & budget) stay.
 - Without Marketing, the dashboard shows the platform's AI readiness (spending authority and text model) instead of Marketing's go-live readiness.
 
+## Creative Studio (Marketing feature flag, 2026-10-27, local; flag off)
+
+The Creative Studio ([MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md)) is a feature of the Marketing module, not a module of its own. It adds no manifest entry and no project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_CREATIVE_STUDIO=true` (default `false`). While off, every creative route answers 404 `NOT_FOUND`, the creative tools, prompts, schemas and UI are absent and existing paths behave as before. |
+| Project | Marketing must be active for the project (`MODULE_DISABLED` otherwise, after the membership check). A project opts in through its brand kit (primary logo) and, for automation, the assignment field `creative`. |
+| Member | Existing Marketing roles: any member reads; editor composes, recomposes and attaches; owner generates art, reviews and accepts findings. |
+
+Rollback: flag off and redeploy; stored creatives are ignored.
+
 ## Rollout
 
 1. Merge with the flag off; no behaviour change.

@@ -1,5 +1,18 @@
 # Requirements traceability
 
+## Marketing Creative Studio acceptance (2026-10-27, local; flag off)
+
+Mario's acceptance tests A–E from the [design](superpowers/specs/2026-10-26-marketing-creative-studio-design.md) (section 12), offline with two fictional demo brands and fixture art (0 USD); the live run with real art (at most 1 USD) is Task 22 and needs Mario's go-ahead. Guide: [MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| CS-A | Lifestyle post from a general brief: strong motif, clear message, original logo, brand colours, complete copy, QA passed | `packages/creative/src` (`compose.ts`, `quality.ts`, `analysis.ts`), `apps/api/src/modules/marketing/creative/` | `creative-acceptance.integration.test.ts` (A, both brands: logo layer SHA = approved SHA, all copy layers, pill CTA in the brand colour, verdict pass), `packages/creative/src/*.test.ts`, `scripts/creative-demo.ts` | PASS_TEST (live art run: NOT_RUN, Task 22) |
+| CS-B | Product feature post from an approved screenshot used unchanged in several formats | `compose.ts`, `creative/pipeline.ts`, `creative/asset-content.ts` | `creative-acceptance.integration.test.ts` (B: `feature_highlight`, four formats, `SCREENSHOT_INTEGRITY` passes in each, product layer SHA = screenshot SHA); `creative-studio.integration.test.ts` | PASS_TEST |
+| CS-C | A deliberately bad image is caught, a bounded correction is proposed or applied, nothing is published | `creative/quality.ts`, `creative/art.ts`, `creative/pipeline.ts`, `packages/creative/src/analysis.ts` | `creative-acceptance.integration.test.ts` (C: flat and tiny art give `needs_owner`, the correction is bounded by `maxArtCorrections`, `ART_CORRECTION_LIMIT`, attach gives `CREATIVE_QA_FAILED`, no publication); `creative-art.integration.test.ts`; demo bad-art cases | PASS_TEST |
+| CS-D | Two projects never see each other's brand assets, colours or information | `creative/brand-kit.ts`, `creative/routes.ts`, scoped transactions under RLS | `creative-acceptance.integration.test.ts` (D: foreign logo, screenshot, art, post and creative give 404, no foreign palette value in any layer); `creative-routes.integration.test.ts`; `access-matrix.integration.test.ts` (creative routes) | PASS_TEST |
+| CS-E | A finished creative is published only with the approvals required today | `creative/attach.ts`, `publishing/policy`, `publishing/postiz-draft.ts`, `agents/specialists/review.ts` | `creative-acceptance.integration.test.ts` (E: `APPROVAL_REQUIRED` stays, `publish` 409 without approval, handoff owner only); `assignment-creatives.integration.test.ts` (CS-D7: agent authority does not cover creatives); `safety.integration.test.ts` (`MEDIA_REQUIRED`, R36) | PASS_TEST |
+| CS-F | Flag off changes nothing; browser flow works | `creative/flag.ts`, `apps/web/src/modules/marketing/creative/` | `flag.test.ts`, route tests (404 while off), prompt snapshots; `apps/web/tests/creative-studio.spec.ts` (gated by `CREATIVE_STUDIO_E2E`) | PASS_TEST (local stack run once) |
+
 ## Issue center phase 3 (ADR 0018, 2026-10-26, local; flag off)
 
 | Requirement | Evidence | State |
