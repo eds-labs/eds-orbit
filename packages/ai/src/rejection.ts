@@ -47,3 +47,28 @@ export function rejectionDetail(
     .slice(0, 120);
   return { code: text, requestId: e.requestID ?? null };
 }
+
+/**
+ * Why a provider refused a request, as a specific code for runs and the
+ * people who read them (the run still cost nothing):
+ * - `MODEL_RATE_LIMITED` (429) and `MODEL_OVERLOADED` (Anthropic 529) are
+ *   temporary; the same request may succeed later.
+ * - `MODEL_AUTH_REJECTED` (401, 403): the key or its permissions.
+ * - `MODEL_NOT_AVAILABLE` (404): the model is unknown to this key.
+ * - `MODEL_REQUEST_INVALID` (400, 413, 422): a request field, such as the
+ *   output schema or the output limit, was refused.
+ * Null for anything that is not a refusal.
+ */
+export function rejectionCode(error: unknown): string | null {
+  if (!isRejectedRequest(error)) return null;
+  const status = (error as { status?: number }).status;
+  if (status === 429) return "MODEL_RATE_LIMITED";
+  if (status === 529) return "MODEL_OVERLOADED";
+  if (status === 401 || status === 403) return "MODEL_AUTH_REJECTED";
+  if (status === 404) return "MODEL_NOT_AVAILABLE";
+  if (status === 400 || status === 413 || status === 422) return "MODEL_REQUEST_INVALID";
+  return "MODEL_REQUEST_NOT_ACCEPTED";
+}
+
+/** Refusal codes after which the same request may be tried again later. */
+export const TEMPORARY_REJECTIONS: ReadonlySet<string> = new Set(["MODEL_RATE_LIMITED", "MODEL_OVERLOADED"]);

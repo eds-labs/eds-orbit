@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -46,7 +46,7 @@ test.describe("system administration", () => {
 
     await page.getByRole("link", { name: "Organizations" }).first().click();
     await page.locator("table a.row-button").first().click();
-    await page.getByRole("button", { name: "Invite" }).click();
+    await page.getByRole("button", { name: "Invite", exact: true }).click();
     const email = `${randomUUID()}@example.invalid`;
     const dialog = page.getByRole("dialog", { name: "Invite someone" });
     await dialog.getByLabel(/^E-Mail/).fill(email);

@@ -7,7 +7,7 @@ concurrency:
 jobs:
   isolated-acceptance:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       NEXT_TELEMETRY_DISABLED: '1'
     steps:
@@ -25,6 +25,9 @@ jobs:
       - run: pnpm audit --audit-level high
       - run: pnpm exec playwright install --with-deps chromium
       - name: Browser acceptance
+        # Invitations need the administration feature, as in production.
+        env:
+          ORBIT_ADMINISTRATION: 'true'
         run: |
           pnpm exec tsx scripts/seed-e2e.ts
           pnpm dev > .runtime/ci-services.log 2>&1 &

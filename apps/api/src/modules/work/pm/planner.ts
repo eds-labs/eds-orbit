@@ -73,7 +73,8 @@ export function proposalView(row: ProposalRow) {
     revision: row.revision,
     supersedesId: row.supersedesId,
     plan: row.plan as WorkPlan | null,
-    validation: row.validation as PlanValidation,
+    // A queued, running or failed proposal has no validation yet.
+    validation: { errors: [], warnings: [], ...(row.validation as Partial<PlanValidation>) },
     planHash: row.planHash,
     actionRequestId: row.actionRequestId,
     appliedAt: row.appliedAt?.toISOString() ?? null,
@@ -132,6 +133,10 @@ export async function requestPlan(
   const existing = await tx.workPlanProposal.findFirst({
     where: { projectId: scope.projectId, idempotencyKey: key },
   });
+  // The same request again after a failed run plans anew instead of
+  // returning the failure (the new revision takes over the key).
+  if (existing?.status === "failed")
+    return { proposal: await retryPlan(tx, scope, existing.id, via, now), deduplicated: false };
   if (existing) return { proposal: existing, deduplicated: true };
   // Nothing is queued that could not spend: no mandate or no budget left.
   await requireSpendMandate(tx, scope);
@@ -159,6 +164,57 @@ export async function requestPlan(
     initiativeId,
   });
   return { proposal, deduplicated: false };
+}
+
+/**
+ * Runs a failed plan request again as a new revision with the same request
+ * text: the failed revision is superseded and hands its idempotency key
+ * to the new one, so a repeated retry finds the running revision instead
+ * of starting a second. Spend mandate and the PM budget are checked as for
+ * a new request; nothing of the failed run is reused.
+ */
+export async function retryPlan(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  via: "ui" | "assistant" | "mcp" = "ui",
+  now = new Date(),
+) {
+  await requirePm(tx, scope);
+  // It spends the PM budget: only members who may ask the PM.
+  if (!can(scope, WORK_PM_USE)) throw new DomainError("FORBIDDEN", 403);
+  const failed = await loadProposal(tx, scope, id);
+  if (failed.status !== "failed") throw new DomainError("WORK_PROPOSAL_NOT_FAILED", 409);
+  if (failed.initiativeId) await liveInitiative(tx, scope, failed.initiativeId);
+  await requireSpendMandate(tx, scope);
+  await assertPmBudget(tx, scope, 1, now);
+  await tx.workPlanProposal.update({
+    where: { id: failed.id },
+    data: { status: "superseded", idempotencyKey: null, version: { increment: 1 } },
+  });
+  const next = await tx.workPlanProposal.create({
+    data: {
+      id: randomUUID(),
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      initiativeId: failed.initiativeId,
+      kind: failed.kind,
+      status: "queued",
+      requestText: failed.requestText,
+      requestedBy: scope.userId,
+      requestedVia: via,
+      revision: failed.revision + 1,
+      supersedesId: failed.id,
+      idempotencyKey: failed.idempotencyKey,
+    },
+  });
+  await enqueue(tx, scope, PM_QUEUE, next.id, `work_pm:plan:${next.id}`, now, { kind: "plan" });
+  await audit(tx, scope, "work.pm.plan_retried", next.id, {
+    previousId: failed.id,
+    previousError: failed.errorCode,
+    via,
+  });
+  return next;
 }
 
 /** The member a PM job acts for, with their role in the module; null when they left. */

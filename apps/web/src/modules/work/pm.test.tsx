@@ -1,3 +1,4 @@
+import { pmText } from "./pm-labels";
 import { describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -183,6 +184,21 @@ describe("AI project manager views (ADR 0017)", () => {
     expect(render(<PlanReview planId="plan-1" onClose={() => {}} onOpen={() => {}} />, { access: "viewer" })).not.toContain("Save as new revision");
   });
 
+  it("shows a failed plan with its reason and 'Plan again', also with the stored empty validation", () => {
+    // As production stored the EOP plan of 2026-10-26: no plan, validation {}.
+    for (const key of Object.keys(answers)) delete answers[key];
+    Object.assign(answers, {
+      "/pm/plans/plan-f": { ...plan, id: "plan-f", status: "failed", plan: null, validation: {}, errorCode: "MODEL_OVERLOADED", actionRequestId: null },
+      "/work/settings": { settings: defaultSettings, version: 1 },
+      "/work/members": { items: [] },
+    });
+    const html = render(<PlanReview planId="plan-f" onClose={() => {}} onOpen={() => {}} />, { locale: "de" });
+    expect(html).toContain("überlastet");
+    expect(html).toContain("(MODEL_OVERLOADED)");
+    expect(html).toContain("Erneut planen");
+    expect(render(<PlanReview planId="plan-f" onClose={() => {}} onOpen={() => {}} />, { access: "viewer" })).not.toContain("Plan again");
+  });
+
   it("renders the PM's approvals and attention items", () => {
     const renderer = workActionRequests["work.coding.dispatch"]!;
     const item = {
@@ -195,6 +211,31 @@ describe("AI project manager views (ADR 0017)", () => {
     expect(html).toContain("Dispatch a coding work order");
     expect(html).toContain("Spends at most $1.50");
     expect(workActionRequests["work.plan.apply"]!.accepts({ summary: { operation: { kind: "new_plan" } } })).toBe(true);
+    // An MCP plan request carries the raw arguments: constraints are a text,
+    // not a list (production crash of 2026-10-26).
+    const plan = workActionRequests["work.mcp.work_pm_propose_plan"]!;
+    const request = {
+      costCeilingMicros: 1_000_000,
+      summary: {
+        operation: {
+          kind: "pm_plan",
+          goal: "Plan the EOP initiative",
+          constraints: "No deploys. Keep the core generic.",
+          initiativeKey: "EOP",
+          extra: { nested: true },
+        },
+      },
+    };
+    expect(plan.accepts(request)).toBe(true);
+    const Plan = plan.component;
+    const planHtml = render(<Plan item={request} de={true} pending={false} decide={() => {}} />);
+    expect(planHtml).toContain("KI-Projektleiter planen lassen");
+    expect(planHtml).toContain("No deploys. Keep the core generic.");
+    expect(planHtml).toContain("Kostet höchstens $1.00");
+    // Failed plans say why in words (2026-10-26 EOP incident).
+    expect(pmText("de").failure("MODEL_OVERLOADED")).toContain("überlastet");
+    expect(pmText("en").failure("MODEL_NOT_AVAILABLE")).toContain("Settings → AI");
+    expect(pmText("en").failure("SOMETHING_NEW")).toBe("Planning failed. (SOMETHING_NEW)");
     expect(workAttention.work_pm_critical!({ count: 2 } as never, "en").title).toBe("2 critical findings in initiatives");
     expect(workAttention.work_coding_unknown!({ count: 1 } as never, "de").title).toBe("1 Coding-Auftrag mit unklarem Ausgang");
   });

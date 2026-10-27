@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -71,8 +71,11 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
   await page.getByLabel("Message Orbit").fill(message);
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText(message, { exact: true })).toBeVisible();
+  // POLICY_REQUIRED is shown as text (lib/budget-refusals.ts).
   await expect(
-    page.getByText(/POLICY_REQUIRED|APPROVED_PAID_BUDGET_REQUIRED/),
+    page.getByText(
+      /No AI spending authority for this project|APPROVED_PAID_BUDGET_REQUIRED/,
+    ),
   ).toBeVisible({ timeout: 30000 });
   await page.reload();
   await expect(page.getByText(message, { exact: true })).toBeVisible();

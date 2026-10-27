@@ -6,6 +6,8 @@ import {
   estimateCost,
   isRejectedRequest,
   providerCallName,
+  rejectionCode,
+  rejectionDetail,
   respond,
   webSearchFee,
   webSearchInputTokens,
@@ -134,6 +136,22 @@ function finalText(output: unknown[]) {
     .filter((part) => part?.type === "output_text")
     .map((part) => String(part.text ?? ""))
     .join("");
+}
+
+/**
+ * The JSON object of an answer. An answer decoded with the schema is the
+ * object itself; one that only had the schema in its instructions may wrap
+ * it in a code fence or a sentence, which is taken off here. The schema
+ * check that follows is the same either way.
+ */
+export function jsonOf(answer: string) {
+  const text = answer.trim();
+  if (text.startsWith("{")) return text;
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1]?.trim();
+  if (fenced?.startsWith("{")) return fenced;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
 }
 
 /** Where an answer fails its schema: paths, issue codes and lengths, never its text. */
@@ -398,7 +416,7 @@ export async function runStructured<O>(
     const answer = finalText(lastOutput);
     let output: O;
     try {
-      output = spec.outputSchema.parse(JSON.parse(answer));
+      output = spec.outputSchema.parse(JSON.parse(jsonOf(answer)));
     } catch {
       // A cut-off answer needs a larger output limit, not another try.
       const code = lastTruncated ? "AGENT_OUTPUT_LIMIT" : "AGENT_OUTPUT_INVALID";
@@ -425,13 +443,17 @@ export async function runStructured<O>(
       await scoped(scope.workspaceId, scope.projectId, (tx) =>
         settle(tx, scope, unsettled, rejected ? 0 : null).then(() => undefined),
       ).catch(() => undefined);
-      const code = rejected ? "MODEL_REQUEST_NOT_ACCEPTED" : "AGENT_OUTCOME_UNKNOWN";
+      // A refusal says why (rate limit, overload, key, model, request
+      // field); the span keeps what the provider said, never prompt text.
+      const code = rejected ? (rejectionCode(error) ?? "MODEL_REQUEST_NOT_ACCEPTED") : "AGENT_OUTCOME_UNKNOWN";
+      const detail = rejected ? rejectionDetail(error) : null;
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: providerCallName(inFlight.provider, "create"),
         model: inFlight.model,
         status: rejected ? "failed" : "unknown",
-        errorCode: code,
+        errorCode: detail ? `${code} ${detail.code}`.slice(0, 160) : code,
+        ...(detail?.requestId ? { providerResponseId: detail.requestId } : {}),
         startedAt: inFlight.startedAt,
         durationMs: Date.now() - inFlight.startedAt.valueOf(),
         ...(rejected ? { costMicros: 0 } : {}),

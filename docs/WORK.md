@@ -152,6 +152,8 @@ Delegated MCP 2.0 work orders may read the PM's state, but never spend its budge
 5. An owner sets the PM budget and repositories, and switches monitoring on per initiative.
 6. Optional: an n8n coding workflow, with its own approval of workflow, repository and GitHub rights.
 
+**Failed plans.** A plan whose run failed shows the reason in words, for example "the AI provider was overloaded" or "the model is not available for this key", with its code. Members who may ask the PM can **plan again**: the request runs again as a new revision, after the budget check, and only once. Asking for the same plan again (also over MCP) does the same. A provider's refusal is not billed; its status and message are kept in the run's model-call span. See the incident note [plans/pm-plan-rejection-2026-10-26.md](plans/pm-plan-rejection-2026-10-26.md).
+
 **Rollback.** `ORBIT_WORK_PM=false` and redeploy: the PM disappears and its data stays. The migrations are additive.
 
 ## Configuration guide (when approved)

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { readFileSync } from "node:fs";
 test.skip(
   process.env.MARKETING_REPORT_E2E !== "true",

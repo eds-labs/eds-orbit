@@ -1,9 +1,4 @@
-import {
-  test,
-  expect,
-  type Page,
-  type APIRequestContext,
-} from "@playwright/test";
+import { test, expect, type Page, type APIRequestContext } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -344,6 +339,36 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       );
       linkFactIds.set(label, fact.id as string);
     }
+    // The Marketing profile offers the project links (Settings → Project)
+    // that a public, verified fact backs as its official target links.
+    const projectLinks = [
+      { type: "website", label: "Website", url: "https://orbit.example.test" },
+      {
+        type: "web_app",
+        label: "Web app",
+        url: "https://app.orbit.example.test",
+      },
+      {
+        type: "custom",
+        label: "Beta registration",
+        url: "https://orbit.example.test/beta",
+      },
+      {
+        type: "documentation",
+        label: "Getting Started",
+        url: "https://orbit.example.test/docs",
+      },
+    ];
+    await checkedPost(
+      page.request,
+      `/api/projects/${projectId}/actions/project-settings`,
+      {
+        name: "EDS Labs · browser acceptance",
+        timezone: "Europe/Berlin",
+        language: "en",
+        links: projectLinks,
+      },
+    );
     await open(page, projectId, "settings");
     await settingsSection(page, "Brand");
     await expect(page).toHaveURL(
@@ -410,8 +435,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .getByRole("link", { name: "Settings", exact: true })
       .click();
     await settingsSection(page, "Brand");
-    await page.getByRole("button", { name: "Configure project" }).click();
-    dialog = page.getByRole("dialog", { name: "Project configuration" });
+    await page
+      .getByRole("button", { name: "Set up marketing profile" })
+      .click();
+    dialog = page.getByRole("dialog", { name: "Marketing profile" });
     await dialog
       .getByRole("textbox", { name: "Product", exact: true })
       .fill("Orbit browser acceptance");
@@ -419,6 +446,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog
       .getByLabel("Positioning")
       .fill("Synthetic local test workspace");
+    await dialog.getByLabel("Campaign types").selectOption("presale,product");
     await dialog
       .getByLabel("Product marketing strategy")
       .fill("Explain verified product facts");
@@ -441,21 +469,17 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog.getByLabel("Internal work language").selectOption("en");
     await dialog.getByLabel("Notification preference").selectOption("none");
     await dialog.getByLabel("Default approved logo").selectOption(logoAssetId);
-    for (const label of [
-      "Website",
-      "Web app",
-      "Beta registration",
-      "Getting Started",
-    ]) {
-      const factId = linkFactIds.get(label);
-      if (!factId) throw new Error(`Missing browser fact for ${label}`);
+    for (const link of projectLinks) {
+      if (!linkFactIds.has(link.label))
+        throw new Error(`Missing browser fact for ${link.label}`);
       await dialog
-        .getByRole("combobox", { name: label, exact: true })
-        .selectOption(factId);
+        .getByRole("checkbox", {
+          name: `${link.label} · ${link.url}`,
+          exact: true,
+        })
+        .check();
     }
-    await dialog
-      .getByRole("button", { name: "Save configuration version" })
-      .click();
+    await dialog.getByRole("button", { name: "Save profile version" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByText("Profile v1", { exact: true })).toBeVisible();
     await expect(
@@ -840,23 +864,37 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       name: "Synthetic viewer",
       email: `orbit-viewer-${randomUUID()}@example.invalid`,
       password: randomUUID() + randomUUID(),
-      role: "viewer",
     };
+    // Someone outside the organization joins through an invitation link and
+    // sets their own password (ADR 0013; needs ORBIT_ADMINISTRATION=true).
     await open(page, projectId, "settings");
     await settingsSection(page, "Members & roles");
-    await page.getByRole("button", { name: "Add member", exact: true }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Name", { exact: false }).fill(viewer.name);
-    await dialog.getByLabel("Email", { exact: false }).fill(viewer.email);
-    await dialog.getByLabel("Initial password").fill(viewer.password);
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-    await expect(page.locator(".member-list")).toContainText(viewer.name);
+    await page
+      .getByRole("button", { name: "Invite member", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", { name: "Invite member" });
+    await dialog.getByLabel(/^E-Mail/).fill(viewer.email);
+    await expect(dialog.getByLabel(/^Project role/)).toHaveValue("viewer");
+    await dialog.getByRole("button", { name: "Invite", exact: true }).click();
+    // Without system mail the link is shown once.
+    const link = await page
+      .getByRole("dialog", { name: "Pass on the link" })
+      .locator("code")
+      .innerText();
+    await page.getByRole("button", { name: "Close dialog" }).click();
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Sign in", exact: true }),
     ).toBeVisible();
-    await login(page, viewer);
+    await page.goto(link);
+    await page.getByLabel(/^Your name/).fill(viewer.name);
+    await page.getByLabel(/^Choose a password/).fill(viewer.password);
+    await page.getByLabel(/^Repeat the password/).fill(viewer.password);
+    await page
+      .getByRole("button", { name: "Create account and accept" })
+      .click();
+    await expect(page.getByLabel(/^Account menu/)).toBeVisible();
+    await page.goto(`/p/${projectId}`);
     await expect(
       page.getByText("You have read-only access to this project."),
     ).toBeVisible();
@@ -891,7 +929,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       sections.getByRole("link", { name: "Members & roles", exact: true }),
     ).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Add member", exact: true }),
+      page.getByRole("button", { name: "Invite member", exact: true }),
     ).toHaveCount(0);
     await settingsSection(page, "Publishing rules");
     await expect(
@@ -1107,13 +1145,15 @@ test("editable local brief, private community groups, calendar blocks and owner 
   ).toBe("revoked");
   await knowledgeDiagnostic(page, "Health");
   await expect(
-    page.getByRole("heading", { name: "Embedding index generations" }),
+    page.getByRole("heading", { name: "Search index" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Prepare index generation" }).click();
+  await page.getByRole("button", { name: "Prepare new generation" }).click();
+  // Preparing is free; the paid embedding is a separate step.
+  await expect(page.getByRole("dialog")).toContainText(
+    "the embedding follows as a separate step",
+  );
   await expect(
-    page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Prepare without model call" }),
+    page.getByRole("dialog").getByRole("button", { name: "Prepare" }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await open(page, projectId, "analytics");
@@ -1128,7 +1168,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
   await open(page, projectId, "knowledge");
   await knowledgeDiagnostic(page, "Health");
   await expect(
-    page.getByRole("heading", { name: "Embedding index generations" }),
+    page.getByRole("heading", { name: "Search index" }),
   ).toBeVisible();
   expect(
     await page.evaluate(
@@ -1165,7 +1205,10 @@ test("index activation is offered only after evaluation", async ({ page }) => {
             generation: 3,
             profile,
             state: "building",
+            phase: "ready_for_evaluation",
             manifest: [],
+            chunks: 1,
+            embeddedChunks: 1,
           },
           {
             id: "ec2f0d83-4527-4342-a5a0-18409c233c73",
@@ -1192,17 +1235,14 @@ test("index activation is offered only after evaluation", async ({ page }) => {
   await expect(building.getByRole("button", { name: "Activate" })).toHaveCount(
     0,
   );
-  await expect(
-    building.getByRole("button", { name: "Evaluate" }),
-  ).toBeVisible();
+  await expect(building.getByRole("button", { name: "Check" })).toBeVisible();
   await evaluated.getByRole("button", { name: "Activate" }).click();
-  await expect(page.getByRole("dialog")).toContainText(
-    "Activate index generation 2",
+  const activation = page.getByRole("dialog", { name: "Activate generation" });
+  await expect(activation).toContainText(
+    "From now on the search uses this generation.",
   );
   await expect(
-    page.getByRole("dialog").getByRole("button", {
-      name: "Apply generation change",
-    }),
+    activation.getByRole("button", { name: "Apply", exact: true }),
   ).toBeVisible();
 });
 

@@ -60,7 +60,7 @@ The most important single finding: **AI execution rights depend on the Marketing
 
 ### 2.3 Import boundaries
 
-- `scripts/boundaries.json:116`: `"baseline": []`. There are no exceptions, and `platform/**` imports nothing from `marketing/`.
+- `scripts/boundaries.json` (line 116): `"baseline": []`. There are no exceptions, and `platform/**` imports nothing from `marketing/`.
 - Support, Knowledge and Finance import nothing from Marketing. Their only reach outside their own folders is `modules/agents/tools/registry.ts` (platform zone).
 - **The zone map has gaps:**
   - There is no `module:support` zone. `apps/api/src/modules/support/**` falls into the catch-all `"apps/api/src/modules/"` → `module:marketing` (`boundaries.json:44`), so Support↔Marketing imports are never flagged.
@@ -102,7 +102,7 @@ The most important single finding: **AI execution rights depend on the Marketing
 **Consequences**
 - With Marketing off, a project without an existing policy **cannot run any paid AI**: no chat, no Support AI, no Finance extraction, no embeddings.
 - A project with an existing policy keeps running on a record that nobody can see or change any more.
-- `docs/adr/0009-modular-platform.md:48` deferred separate storage "until a non-marketing module needs paid AI". That condition has been met.
+- `docs/adr/0009-modular-platform.md` (line 48) deferred separate storage "until a non-marketing module needs paid AI". That condition has been met.
 - `apps/web/src/modules/finance/labels.ts:389-390` sends the owner to "Settings, Policy", which does not exist with Marketing off.
 
 ### F2: Approval requests need the Marketing policy (P1)
@@ -121,7 +121,7 @@ The most important single finding: **AI execution rights depend on the Marketing
   - `finance_retry_extraction` (`finance/mcp-tools.ts:518`)
   - `platform.task.start` (`platform/tasks/tasks.ts:88`)
   - all `approvedOperation` types (`platform/tasks/operation-tools.ts:209-245`)
-- Documented as intended in `docs/FINANCE.md:228`. It still contradicts the semantics of `policyRequired` in `action-requests.ts:88-91` ("spends nothing and needs no Marketing automation").
+- Documented as intended in `docs/FINANCE.md` (line 228). It still contradicts the semantics of `policyRequired` in `action-requests.ts:88-91` ("spends nothing and needs no Marketing automation").
 - `action-requests.ts` also contains Marketing branches: the `content_packages` lookup `:697-705`, the `assignment.confirm` payload with `postiz_draft` `:765-790`, and channel directories `:682`.
 
 ### F3: The policy form mixes two responsibilities (P2)

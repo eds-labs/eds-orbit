@@ -4,7 +4,7 @@ import {
   type APIRequestContext,
   type Locator,
   type Page,
-} from "@playwright/test";
+} from "./fixtures";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

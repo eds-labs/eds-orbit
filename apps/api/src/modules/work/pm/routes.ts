@@ -20,6 +20,7 @@ import {
   loadProposal,
   proposalView,
   requestPlan,
+  retryPlan,
   revisePlan,
 } from "./planner.ts";
 import { readPmSettings, savePmSettings } from "./settings.ts";
@@ -187,6 +188,9 @@ export const pmRoutes: RoutesContribution = ({ app, auth }) => {
   );
   app.post(`${BASE}/plans/:id/revisions`, (req) =>
     inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => proposalView(await revisePlan(tx, scope, id(p), req.body))),
+  );
+  app.post(`${BASE}/plans/:id/retry`, (req) =>
+    inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => proposalView(await retryPlan(tx, scope, id(p)))),
   );
   app.post(`${BASE}/plans/:id/discard`, (req) =>
     inPm(auth, req, WORK_PM_USE, async (tx, scope, p) => proposalView(await discardPlan(tx, scope, id(p)))),
