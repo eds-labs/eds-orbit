@@ -1245,8 +1245,12 @@ describe.skipIf(!enabled)(
       // The same holds for the logo it shows.
       const logo = assets.lumoraLogo;
       const revokedLogo = await setStatus(a, logo, "reference");
-      expect(await blockers()).toContain(BLOCKER);
-      assets.lumoraLogo = await setStatus(a, revokedLogo, "approved");
+      try {
+        expect(await blockers()).toContain(BLOCKER);
+      } finally {
+        // The shared logo is approved again for the tests that follow (M10).
+        assets.lumoraLogo = await setStatus(a, revokedLogo, "approved");
+      }
       expect(await blockers()).not.toContain(BLOCKER);
     });
 
