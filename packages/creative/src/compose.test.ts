@@ -299,7 +299,8 @@ describe("composeCreative", () => {
   });
 
   it.each([
-    ["lifestyle", "text_bottom", { x: 300, y: 200, w: 600, h: 300 }],
+    // Above the scrim, which reaches 0.22·H past the text (T20), and right of the logo.
+    ["lifestyle", "text_bottom", { x: 300, y: 100, w: 600, h: 300 }],
     // The art strip behind the screenshot is contained over a blurred copy; left of the card.
     ["feature_highlight", "text_top", { x: 0, y: 730, w: 90, h: 560 }],
   ] as const)(

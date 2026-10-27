@@ -580,6 +580,26 @@ describe("layoutFor", () => {
         );
       }
     }
+    // A directional gradient fades out over a long reach past the text, so
+    // its start never reads as a hard edge (T20: 0.22 of the canvas side).
+    for (const formatId of CREATIVE_FORMAT_IDS) {
+      const { width: W, height: H } = CREATIVE_FORMATS[formatId];
+      const up = layoutFor("lifestyle", "text_bottom", formatId, options());
+      expect(up.textBox.y - up.scrim!.box.y, formatId).toBe(
+        Math.min(up.textBox.y, Math.round(0.22 * H)),
+      );
+      if (!variantsFor("lifestyle", formatId).includes("text_side")) continue;
+      const side = layoutFor("lifestyle", "text_side", formatId, options());
+      expect(side.scrim!.direction).toBe("right");
+      expect(
+        side.scrim!.box.x +
+          side.scrim!.box.w -
+          (side.textBox.x + side.textBox.w),
+        formatId,
+      ).toBe(
+        Math.min(W - side.textBox.x - side.textBox.w, Math.round(0.22 * W)),
+      );
+    }
     // Text at the bottom fades up, text at the top fades down, a statement tints everything.
     const dir = (t: TemplateId, v: VariantId) =>
       layoutFor(t, v, "square", options()).scrim?.direction;

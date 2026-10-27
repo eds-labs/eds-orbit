@@ -265,8 +265,9 @@ const TEMPLATES: Readonly<Record<TemplateId, TemplateSpec>> = {
     scrim: null,
     regions: {
       text_top: {
-        // The art strip stays below 3:1 on square, so a scene keeps its subject.
-        tall: { text: [0, 0.12, 1, 0.5], art: { edge: "bottom", cut: 0.68 } },
+        // A band beyond 2.5:1 on square and portrait (R60: judged for its
+        // subject only); the text keeps room for tips' longer copy.
+        tall: { text: [0, 0.12, 1, 0.54], art: { edge: "bottom", cut: 0.73 } },
         wide: {
           text: [0, 0.15, 0.66, 0.85],
           art: { edge: "right", cut: 0.72 },
@@ -355,8 +356,11 @@ const CORNERS: readonly Corner[] = [
 const LOGO_WIDTH = { tall: 0.2, wide: 0.14 } as const;
 /** Clear space around the logo, as a fraction of the canvas width. */
 const LOGO_CLEARANCE = 0.025;
-/** How far a gradient scrim reaches past the text, as a fraction of the canvas side. */
-const SCRIM_REACH = 0.12;
+/**
+ * How far a gradient scrim reaches past the text, as a fraction of the canvas
+ * side; a long reach lets it fade out without a visible edge.
+ */
+const SCRIM_REACH = 0.22;
 
 const SIZE_FRACTIONS: Readonly<
   Record<TextLayerKind, { max: number; min: number }>

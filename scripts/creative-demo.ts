@@ -7,7 +7,8 @@
  *
  * Writes `<brand>/<template>-<format>.png`, `bad-art/<brand>-<kind>-<format>.png`,
  * `report.json` (the QA checks of every file) and `contact-sheet.png`. Exits 1
- * when a render from good art has a failed blocker. The default variant is
+ * when a render from good art has a failed blocker, or when bad art passes
+ * both art checks (test C). The default variant is
  * the resolver's (R12, R16): on landscape the template's first side variant,
  * else its first variant for the format. Art is fixture art in the image
  * model's source size closest to the layout's art box, as production asks
@@ -331,4 +332,4 @@ console.log(
 );
 for (const e of [...failing, ...missed])
   console.log(`  ${e.file}: ${e.failed.join(", ") || "not flagged"}`);
-process.exitCode = failing.length ? 1 : 0;
+process.exitCode = failing.length || missed.length ? 1 : 0;
