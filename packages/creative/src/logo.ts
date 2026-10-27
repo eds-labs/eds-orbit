@@ -29,6 +29,12 @@ const DARK_BACKDROP = 0.4;
 const PLATE_OPACITY = 0.9;
 /** Plate padding per side, as a share of the logo anchor's height. */
 const PLATE_PADDING = 0.12;
+/**
+ * Smallest padding of a comfort plate (below 3:1 or on a busy backdrop), as a
+ * share of the anchor's height: when the logo's minimum size leaves less room,
+ * that plate is left out (R19).
+ */
+const MIN_PLATE_PADDING = 0.04;
 const AUTO_ROLES: readonly LogoRole[] = ["onDark", "onLight", "primary"];
 
 /** Alpha from which an edge pixel counts as opaque. */
@@ -100,6 +106,35 @@ async function fitLogo(
   };
 }
 
+/**
+ * The largest plate padding up to `wanted` that keeps the logo, refitted into
+ * the anchor less the padding on each side, at QA's minimum size: its longer
+ * side at least `minLogoSideShare` of the canvas's shorter side (R19,
+ * `LOGO_INTEGRITY` refuses below it, R34). One pixel is kept as a margin for
+ * rounding; 0 when even the unpadded logo has no room to spare.
+ */
+function plateInset(
+  placed: PlacedLogo,
+  layout: LayoutSpec,
+  wanted: number,
+): number {
+  const { width: sw, height: sh } = placed.sourceSize;
+  const { w: aw, h: ah } = layout.logo.box;
+  const longest = Math.max(sw, sh);
+  const minimum =
+    Math.ceil(
+      CREATIVE_THRESHOLDS.minLogoSideShare *
+        Math.min(layout.format.width, layout.format.height),
+    ) + 1;
+  const room = Math.floor(
+    Math.min(
+      (aw - (minimum * sw) / longest) / 2,
+      (ah - (minimum * sh) / longest) / 2,
+    ),
+  );
+  return Math.max(0, Math.min(wanted, room));
+}
+
 /** The logo's own background colour (per-channel median of its edge), or `null` when any edge pixel is see-through. */
 function backingColor(rgba: Buffer, w: number, h: number) {
   const edge: number[][] = [[], [], []];
@@ -165,10 +200,13 @@ function inkColor(rgba: Buffer, counts: (index: number) => boolean) {
  * QA's `LOGO_CONTRAST` (2:1), and also when the chosen transparent variant
  * stays below `LOGO_COMFORT_CONTRAST` (3:1) or the backdrop behind it is
  * busier than `CREATIVE_THRESHOLDS.busyLogo` (spec §9). A logo with its own
- * opaque background is its own backdrop and is never plated. The plate is
- * surface-coloured first; when the logo does not reach the comfort contrast
- * on it, the text colour, white and black are tried, and the best plate is
- * kept, but only when it improves on the unplated logo's contrast.
+ * opaque background is its own backdrop and is never plated. The plate's
+ * padding is capped so the refitted logo keeps QA's minimum size
+ * (`plateInset`, R19); a comfort plate without room for `MIN_PLATE_PADDING`
+ * is left out. Colours tried: surface, text colour, white, black. Below 2:1
+ * the first plate reaching the comfort contrast wins, else the best one; on
+ * the comfort path the best of all. A plate is kept only when it improves on
+ * the unplated logo's contrast.
  */
 export async function placeLogo(
   sharp: Sharp,
@@ -227,9 +265,15 @@ export async function placeLogo(
     return unplated;
 
   // The logo does not read comfortably here: put the variant that reads best on the plate on a plate.
-  // Padding relative to the anchor height, so a short (landscape) anchor keeps the logo large (R19).
-  const inset = Math.round(PLATE_PADDING * layout.logo.box.h);
-  const insetLogos = new Map<CreativeLogo, Promise<PlacedLogo>>();
+  // Padding relative to the anchor height, so a short (landscape) anchor keeps the logo large (R19),
+  // and capped per logo so the plate never shrinks it below QA's minimum.
+  const failsQa = choice.contrast < LOGO_CONTRAST;
+  const wanted = Math.round(PLATE_PADDING * layout.logo.box.h);
+  const least = Math.round(MIN_PLATE_PADDING * layout.logo.box.h);
+  const insetLogos = new Map<
+    CreativeLogo,
+    Promise<{ placed: PlacedLogo; inset: number } | null>
+  >();
   const colors = [
     brand.palette.surfaceColor,
     brand.palette.textColor,
@@ -247,9 +291,23 @@ export async function placeLogo(
     const option = plateable.reduce((a, b) =>
       contrastRatio(b.color, color) > contrastRatio(a.color, color) ? b : a,
     );
-    if (!insetLogos.has(option.logo))
-      insetLogos.set(option.logo, fitLogo(sharp, option.logo, layout, inset));
-    const placed = await insetLogos.get(option.logo)!;
+    if (!insetLogos.has(option.logo)) {
+      const inset = plateInset(option, layout, wanted);
+      // A comfort plate needs room for its padding; a logo below 2:1 gets
+      // whatever padding its size allows.
+      insetLogos.set(
+        option.logo,
+        !failsQa && inset < least
+          ? Promise.resolve(null)
+          : fitLogo(sharp, option.logo, layout, inset).then((placed) => ({
+              placed,
+              inset,
+            })),
+      );
+    }
+    const fitted = await insetLogos.get(option.logo)!;
+    if (!fitted) continue;
+    const { placed, inset } = fitted;
     const box = {
       x: placed.box.x - inset,
       y: placed.box.y - inset,
@@ -277,12 +335,11 @@ export async function placeLogo(
       canvas: plated,
       plate: { box, color },
     };
-    if (attempt.contrast >= LOGO_COMFORT_CONTRAST) {
-      best = attempt;
-      break;
-    }
     if (!best || attempt.contrast > best.contrast) best = attempt;
+    // Below 2:1 the first plate that reads comfortably wins (brand colours
+    // first); on the comfort path every colour is tried and the best kept.
+    if (failsQa && attempt.contrast >= LOGO_COMFORT_CONTRAST) break;
   }
   // A plate that does not improve the logo's contrast is left out.
-  return best!.contrast > choice.contrast ? best! : unplated;
+  return best && best.contrast > choice.contrast ? best : unplated;
 }

@@ -357,11 +357,16 @@ cropped into the 2.9:1 tips band.
 logo anchor's height per side, R19) behind a transparent logo when no variant
 reaches the 2:1 of `LOGO_CONTRAST_LOW`, and also when the chosen variant stays
 below a comfort contrast of 3:1 or the backdrop behind it is busier than
-`busyLogo` (0.015, the same measure and value as `busyText`). The plate is
-tried in the surface colour, then the text colour, white and black; the first
-reaching 3:1 is kept, else the best one, and only when it improves the logo's
-contrast over the unplated choice. A logo with its own opaque backing is its
-own backdrop and is never plated. QA is unchanged: `LOGO_CONTRAST_LOW` still
+`busyLogo` (0.015, the same measure and value as `busyText`). The plate's
+padding is capped per logo so the refitted logo keeps the R19 minimum
+(longer side ≥ 0.06 of the canvas's shorter side, else `LOGO_INTEGRITY` would
+refuse it); a comfort plate without room for a padding of 0.04 of the anchor
+height is left out, a logo below 2:1 gets whatever padding fits. The plate is
+tried in the surface colour, the text colour, white and black: below 2:1 the
+first reaching 3:1 is kept (brand colours first), else the best; on the
+comfort path the best of all. A plate is kept only when it improves the
+logo's contrast over the unplated choice. A logo with its own opaque backing
+is its own backdrop and is never plated. QA is unchanged: `LOGO_CONTRAST_LOW` still
 blocks below 2:1.
 
 Known limits (R27), accepted because they err on the lenient side and cost no

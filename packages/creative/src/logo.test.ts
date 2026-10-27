@@ -3,9 +3,12 @@ import { demoBrand, opaqueLogo } from "../fixtures/demo-brands.ts";
 import { CREATIVE_THRESHOLDS, backdropBusyness } from "./analysis.ts";
 import { sha256Hex, type CreativeBrand, type RasterSource } from "./brand.ts";
 import { relativeLuminance } from "./color.ts";
+import { composeCreative } from "./compose.ts";
+import { CREATIVE_FORMAT_IDS } from "./ids.ts";
 import { placeLogo } from "./logo.ts";
+import { checkComposition } from "./quality.ts";
 import { svgImage, worstContrast, type Raw } from "./raster.ts";
-import { layoutFor } from "./templates.ts";
+import { layoutFor, variantsFor } from "./templates.ts";
 
 // The plate behind a transparent logo (spec §9): drawn when no variant reaches
 // QA's 2:1, and also when the chosen one stays below 3:1 or sits on a busy
@@ -129,5 +132,107 @@ describe("placeLogo", () => {
       await opaqueLogo(),
     );
     expect(result.plate).toBeNull();
+  });
+});
+
+/** A transparent logo of the given size: one ink block with a margin. */
+async function sizedLogo(
+  width: number,
+  height: number,
+  color = "#111111",
+): Promise<RasterSource> {
+  const sharp = await sharpLib();
+  const bytes = await sharp(
+    svgImage(
+      width,
+      height,
+      `<rect x="${width * 0.05}" y="${height * 0.05}" width="${width * 0.9}" height="${height * 0.9}" rx="20" fill="${color}"/>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}
+
+/** Busy striped art (8 px stripes) of a size, as approved art bytes. */
+async function stripedArt(size: number): Promise<RasterSource> {
+  const sharp = await sharpLib();
+  const bytes = await sharp(
+    svgImage(
+      size,
+      size,
+      `<defs><pattern id="s" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="8" height="16" fill="#E0E0E0"/><rect x="8" width="8" height="16" fill="#A0A0A0"/></pattern></defs><rect width="${size}" height="${size}" fill="url(#s)"/>`,
+    ),
+  )
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}
+
+// A plate never shrinks the logo below QA's minimum (R19, R34): its padding
+// is capped per logo, and a comfort plate that cannot fit is left out.
+describe("logo plate and the minimum logo size", () => {
+  const minimum = (width: number, height: number) =>
+    CREATIVE_THRESHOLDS.minLogoSideShare * Math.min(width, height);
+
+  it.each(CREATIVE_FORMAT_IDS)(
+    "keeps square and 5:4 logos at the minimum on a busy backdrop (%s)",
+    async (format) => {
+      const art = await stripedArt(1600);
+      const brand = await demoBrand("kestrel");
+      for (const [w, h] of [
+        [400, 400],
+        [500, 400],
+      ] as const) {
+        const logo = await sizedLogo(w, h);
+        const result = await composeCreative({
+          template: "lifestyle",
+          variant: variantsFor("lifestyle", format)[0]!,
+          format,
+          brand: { ...brand, logos: [{ ...logo, role: "primary" }] },
+          copy: { headline: "Calm light" },
+          art,
+          options: { logoPlacement: "auto", textScale: "m" },
+        });
+        const integrity = checkComposition(result, {
+          logoSha256: [logo.sha256],
+          productSha256: [],
+        }).find((check) => check.code === "LOGO_INTEGRITY")!;
+        expect(integrity.passed, `${format} ${w}x${h}`).toBe(true);
+        const drawn = result.layers.find((l) => l.kind === "logo")!;
+        expect(Math.max(drawn.box.w, drawn.box.h)).toBeGreaterThanOrEqual(
+          minimum(result.width, result.height),
+        );
+      }
+    },
+    60_000,
+  );
+
+  it("still plates a logo on a busy backdrop when the plate fits", async () => {
+    // A wide logo in the portrait anchor has room for the padding.
+    const result = await place(
+      await stripes("#E0E0E0", "#A0A0A0"),
+      await sizedLogo(800, 200),
+    );
+    expect(result.plate).not.toBeNull();
+    expect(
+      Math.max(result.placed.box.w, result.placed.box.h),
+    ).toBeGreaterThanOrEqual(minimum(W, H));
+  });
+
+  it("picks the best plate on the comfort path, not the first that reaches 3:1", async () => {
+    // Black ink reads at about 16:1 on light stripes; a grey surface plate
+    // reaches 3:1 but is worse than no plate, a white one is better.
+    const backdrop = await stripes("#FFFFFF", "#E0E0E0");
+    const logo = await inkLogo("#000000");
+    const brand = await brandWith(logo);
+    const result = await placeLogo(
+      await sharpLib(),
+      backdrop,
+      LAYOUT,
+      { ...brand, palette: { ...brand.palette, surfaceColor: "#808080" } },
+      undefined,
+    );
+    expect(result.plate?.color).toBe("#FFFFFF");
   });
 });
