@@ -116,9 +116,10 @@ export type ProduceRequest = {
   /** An approved art asset (photo, background, banner or generated artwork). */
   artAssetId?: string;
   /**
-   * The person's motif, setting and mood for the art; without it the post's
+   * The person's motif, setting and mood for new art; without it the post's
    * title is the motif. Stored in the brief, so a later regeneration and
-   * every recomposition keep it.
+   * every recomposition keep it. Not with `artAssetId`
+   * (`INVALID_TEMPLATE_INPUT`, 400): a chosen art shows what it shows.
    */
   artDirection?: ArtDirection;
   /** The approved screenshot or product image to show; without it the brand kit's first. */
@@ -495,6 +496,9 @@ export async function produceCreative(
   assertStudio(scope);
   const confirmation = newArtConfirmation(scope, request);
   const artDirection = checkedArtDirection(request.artDirection);
+  // A chosen art shows what it shows: an art direction is for new art (R31).
+  if (artDirection && request.artAssetId)
+    throw new DomainError("INVALID_TEMPLATE_INPUT", 400);
   const prep = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const content = await projectRow(tx, scope, "content", request.contentId);
     const v = data(content);

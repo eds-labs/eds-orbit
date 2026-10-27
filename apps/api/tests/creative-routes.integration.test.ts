@@ -825,15 +825,28 @@ describe.skipIf(!enabled)("Creative Studio routes", () => {
         motif: "A glass teapot glowing on a windowsill",
         setting: "Living room at dusk",
       };
+      // Without chosen art (optional art): the direction is kept for new art.
+      const noArt = (contentId: string) => ({
+        contentId,
+        template: "tips",
+        copy: COPY,
+      });
       const content = await newContent();
       const made = await call("editor", "POST", "creatives", {
-        ...produceBody(content.id),
+        ...noArt(content.id),
         artDirection: direction,
       });
       expect(made.statusCode, made.body).toBe(201);
       expect(made.json().brief).toMatchObject(direction);
-      const refused = await call("editor", "POST", "creatives", {
+      // A chosen art shows what it shows: no art direction with it (R31).
+      const mixed = await call("editor", "POST", "creatives", {
         ...produceBody((await newContent()).id),
+        artDirection: direction,
+      });
+      expect(mixed.statusCode, mixed.body).toBe(400);
+      expect(mixed.json().error.code).toBe("INVALID_TEMPLATE_INPUT");
+      const refused = await call("editor", "POST", "creatives", {
+        ...noArt((await newContent()).id),
         artDirection: { motif: "See https://example.com" },
       });
       expect(refused.statusCode, refused.body).toBe(409);

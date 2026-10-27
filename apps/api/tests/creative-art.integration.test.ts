@@ -984,13 +984,14 @@ describe.skipIf(!enabled)(
 
       it("regenerate with art direction replaces it; without, the stored one is used", async () => {
         const generate = imageProvider();
+        // Art direction is for new art: a creative without art (optional
+        // art) stores it for its regeneration.
         const first = await produceCreative(
           p.editor,
           {
             contentId: (await newContent()).id,
-            template: "lifestyle",
+            template: "announcement",
             copy: COPY,
-            artAssetId: assets.art.id,
             artDirection: DIRECTION,
           },
           { generate },
@@ -1016,9 +1017,8 @@ describe.skipIf(!enabled)(
         // Without one, the stored art direction makes the prompt.
         const second = await produceCreative(p.editor, {
           contentId: (await newContent()).id,
-          template: "lifestyle",
+          template: "announcement",
           copy: COPY,
-          artAssetId: assets.art.id,
           artDirection: DIRECTION,
         });
         await regenerateCreativeArt(p.owner, second.id, CONFIRM, { generate });
@@ -1026,6 +1026,27 @@ describe.skipIf(!enabled)(
         const again = (generate.mock.calls[1]![0] as { prompt: string }).prompt;
         expect(again).toContain(`Main subject: ${DIRECTION.motif}.`);
         expect((await record(second.id)).brief).toMatchObject(DIRECTION);
+      });
+
+      it("refuses an art direction for a chosen art (R31)", async () => {
+        const content = await newContent();
+        const creatives = (await runIn((tx) => list(tx, p.owner, CREATIVES)))
+          .length;
+        await expect(
+          produceCreative(p.editor, {
+            contentId: content.id,
+            template: "lifestyle",
+            copy: COPY,
+            artAssetId: assets.art.id,
+            artDirection: DIRECTION,
+          }),
+        ).rejects.toMatchObject({
+          code: "INVALID_TEMPLATE_INPUT",
+          status: 400,
+        });
+        expect((await runIn((tx) => list(tx, p.owner, CREATIVES))).length).toBe(
+          creatives,
+        );
       });
 
       it("refuses unsafe text and links before anything is stored or paid", async () => {
