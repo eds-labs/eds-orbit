@@ -54,23 +54,41 @@ export type PackageCreative =
   /** The draft has no usable image copy: it keeps the raw image (`CREATIVE_COPY_MISSING`). */
   | { kind: "missing" }
   /** The draft already carries this package's creative for this image and copy. */
-  | { kind: "current" };
+  | { kind: "current" }
+  /** The draft has image copy but the brand kit cannot compose it (`code`): the raw image. */
+  | { kind: "unavailable"; code: string };
+
+/** Whether a draft has image copy a creative can be composed from. */
+export const hasUsableCopy = (draft: EntityRow) =>
+  Boolean(parsedCreativeCopy(data(draft).creativeCopy)?.headline.trim());
 
 /**
- * The project's brand kit for composing, or null when the profile has no
- * primary logo (such a project keeps attaching the raw image). A logo that is
- * set but unusable is an error to fix (`APPROVED_LOGO_ASSET_REQUIRED`), not
- * a reason to attach unbranded images.
+ * 409 `CREATIVE_QA_FAILED` for a package: the findings of every draft whose
+ * creative did not pass its checks (`detail.failed`), so the owner sees all
+ * of them before deciding to accept them. Nothing was stored.
+ */
+export class PackageCreativeQaError extends DomainError {
+  constructor(
+    readonly detail: { failed: Array<{ contentId: string; codes: string[] }> },
+  ) {
+    super("CREATIVE_QA_FAILED", 409);
+  }
+}
+
+/**
+ * The project's brand kit for composing, or the code of what keeps it from
+ * composing: `PRIMARY_LOGO_REQUIRED` for a project without a primary logo
+ * (it keeps attaching the raw image), or the brand kit's other error such as
+ * `APPROVED_LOGO_ASSET_REQUIRED` for a logo that is set but unusable.
  */
 export async function packageBrandKit(
   tx: DbTx,
   scope: Scope,
-): Promise<BrandKitPlan | null> {
+): Promise<{ kit: BrandKitPlan } | { code: string }> {
   try {
-    return await resolveBrandKit(tx, scope);
+    return { kit: await resolveBrandKit(tx, scope) };
   } catch (error) {
-    if (error instanceof DomainError && error.code === "PRIMARY_LOGO_REQUIRED")
-      return null;
+    if (error instanceof DomainError) return { code: error.code };
     throw error;
   }
 }
@@ -115,8 +133,7 @@ export async function planPackageCreative(
   draft: EntityRow,
 ): Promise<PackageCreative> {
   const v = data(draft);
-  if (!parsedCreativeCopy(v.creativeCopy)?.headline.trim())
-    return { kind: "missing" };
+  if (!hasUsableCopy(draft)) return { kind: "missing" };
   const copy = creativeCopyOf(v.creativeCopy);
   if (await carriesCreative(tx, scope, input, draft, copy))
     return { kind: "current" };
@@ -163,13 +180,15 @@ export async function planPackageCreative(
  * caller's transaction: the re-check of profile, components and post, the
  * creative with its renditions (bound to the package), and the studio's
  * attach in `content` mode (the draft goes back to `draft` and is reviewed
- * again). A refusal or a creative that needs the owner (`CREATIVE_QA_FAILED`)
- * throws, which rolls the caller's whole transaction back.
+ * again). A refusal throws, and so does a creative that needs the owner
+ * (`CREATIVE_QA_FAILED`) unless the owner accepts its findings
+ * (`acceptQaFindings`, audited as `creative.qa_override`); a throw rolls the
+ * caller's whole transaction back.
  */
 export async function savePackageCreative(
   tx: DbTx,
   scope: Scope,
-  input: { packageId: string; art: EntityRow },
+  input: { packageId: string; art: EntityRow; acceptQaFindings?: true },
   plan: Plan,
   composed: ComposedCreative,
 ) {
@@ -210,6 +229,7 @@ export async function savePackageCreative(
   });
   const attached = await attachCreativeInTx(tx, scope, creative.id, {
     mode: "content",
+    ...(input.acceptQaFindings && { acceptQaFindings: true as const }),
   });
   await audit(tx, scope, "content_package.image_attached", draft.id, {
     packageId: input.packageId,

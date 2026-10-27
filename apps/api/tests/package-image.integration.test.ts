@@ -503,13 +503,198 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
       expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
     });
 
-    it("refuses a creative whose checks fail and changes nothing", async () => {
+    it("refuses creatives whose checks fail, names every draft and changes nothing", async () => {
       const { pkg, ids } = await readyPackage({ bytes: flat });
-      await expect(
-        attachPackageImage(project.owner, pkg.id, { deliverableKeys: both }),
-      ).rejects.toThrow("CREATIVE_QA_FAILED");
+      const error = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      }).catch((caught) => caught);
+      expect(error).toMatchObject({ code: "CREATIVE_QA_FAILED", status: 409 });
+      expect(
+        error.detail.failed.map((f: { contentId: string }) => f.contentId),
+      ).toEqual([ids[X], ids[TELEGRAM]]);
+      for (const failure of error.detail.failed)
+        expect(failure.codes.length).toBeGreaterThan(0);
       expect(data(await contentRow(ids[X]!)).assetId).toBeUndefined();
       expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("lets the owner accept the findings and records the override", async () => {
+      const { pkg, ids } = await readyPackage({ bytes: flat });
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+        acceptQaFindings: true,
+      });
+      expect(result.creative).toEqual({
+        composed: [ids[X], ids[TELEGRAM]],
+        skipped: [],
+      });
+      for (const key of both) {
+        const content = data(await contentRow(ids[key]!));
+        const creative = data(
+          await run((tx) =>
+            findCreative(tx, project.owner, content.creativeId),
+          ),
+        ) as CreativeRecord;
+        expect(creative).toMatchObject({
+          status: "attached",
+          qa: { verdict: "needs_owner" },
+        });
+        expect(creative.renditions.map((r) => r.assetId)).toContain(
+          content.assetId,
+        );
+        const audits = await run((tx) =>
+          tx.auditEvent.findMany({
+            where: {
+              projectId: project.owner.projectId,
+              action: "creative.qa_override",
+              resourceId: content.creativeId,
+            },
+          }),
+        );
+        expect(audits).toHaveLength(1);
+      }
+    });
+
+    it("leaves accepting findings to the owner", async () => {
+      const { pkg } = await readyPackage({ bytes: flat });
+      await expect(
+        attachPackageImage(project.editor, pkg.id, {
+          deliverableKeys: both,
+          acceptQaFindings: true,
+        }),
+      ).rejects.toMatchObject({ code: "OWNER_REQUIRED", status: 403 });
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    // The brand kit is only needed by drafts that have image copy.
+    const revokeLogo = () =>
+      run(async (tx) => {
+        const row = await entity(tx, project.owner, "assets", logo.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          usageApproved: false,
+          assetStatus: "reference",
+        });
+      });
+
+    it("attaches the raw image and reports why when the logo is no longer approved", async () => {
+      const { pkg, assetId, ids } = await readyPackage({
+        copy: { [X]: PACKAGE_CREATIVE_COPY },
+      });
+      await revokeLogo();
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result.creative).toEqual({
+        composed: [],
+        skipped: [
+          { contentId: ids[X], code: "APPROVED_LOGO_ASSET_REQUIRED" },
+          { contentId: ids[TELEGRAM], code: "CREATIVE_COPY_MISSING" },
+        ],
+      });
+      for (const key of both)
+        expect(data(await contentRow(ids[key]!))).toMatchObject({ assetId });
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("needs no usable logo for drafts without image copy", async () => {
+      const { pkg, assetId, ids } = await readyPackage({ copy: {} });
+      await revokeLogo();
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result.creative).toEqual({
+        composed: [],
+        skipped: [
+          { contentId: ids[X], code: "CREATIVE_COPY_MISSING" },
+          { contentId: ids[TELEGRAM], code: "CREATIVE_COPY_MISSING" },
+        ],
+      });
+      for (const key of both)
+        expect(data(await contentRow(ids[key]!))).toMatchObject({ assetId });
+    });
+
+    it("takes the creative off a draft that gets the raw image again", async () => {
+      const { pkg, assetId, ids } = await readyPackage();
+      await attachPackageImage(project.owner, pkg.id, { deliverableKeys: [X] });
+      const before = data(await contentRow(ids[X]!));
+      process.env.ORBIT_CREATIVE_STUDIO = "false";
+      await attachPackageImage(project.owner, pkg.id, { deliverableKeys: [X] });
+      const after = data(await contentRow(ids[X]!));
+      expect(after.assetId).toBe(assetId);
+      expect(after.creativeId).toBeUndefined();
+      // The creative and its renditions no longer count as the post's image.
+      expect(
+        data(
+          await run((tx) => findCreative(tx, project.owner, before.creativeId)),
+        ),
+      ).toMatchObject({ status: "superseded" });
+      expect(
+        data(
+          await run((tx) =>
+            entity(tx, project.owner, "assets", before.assetId),
+          ),
+        ),
+      ).toMatchObject({ assetStatus: "outdated", usageApproved: false });
+    });
+
+    // The first enabled template of a default brand kit is product_showcase.
+    const missionTemplate = async (contentId: string) => {
+      const { missionId } = data(await contentRow(contentId));
+      return data(
+        await run((tx) => entity(tx, project.owner, "missions", missionId)),
+      ).creativeTemplate;
+    };
+    const creativeOf = async (contentId: string) => {
+      const { creativeId } = data(await contentRow(contentId));
+      return data(
+        await run((tx) => findCreative(tx, project.owner, creativeId)),
+      ) as CreativeRecord;
+    };
+
+    it("falls back to lifestyle when the first template needs a product the brand kit lacks", async () => {
+      await addBrandKit(project, {
+        formatsByChannel: { telegram: ["square"] },
+      });
+      const { pkg, ids } = await readyPackage();
+      await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(await missionTemplate(ids[X]!)).toBe("product_showcase");
+      expect(await creativeOf(ids[X]!)).toMatchObject({
+        template: "lifestyle",
+        brief: { fallbackReason: "NO_PRODUCT_ASSETS" },
+        components: { products: [] },
+      });
+    });
+
+    it("draws the brand kit's product over the package image", async () => {
+      await addBrandKit(
+        project,
+        { formatsByChannel: { telegram: ["square"] } },
+        { screenshot: true },
+      );
+      const { pkg, assetId, ids } = await readyPackage();
+      await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(await missionTemplate(ids[X]!)).toBe("product_showcase");
+      for (const key of both) {
+        const creative = await creativeOf(ids[key]!);
+        expect(creative).toMatchObject({
+          template: "product_showcase",
+          components: { artAssetId: assetId },
+        });
+        expect(creative.components.products).toHaveLength(1);
+        const rendition = await run((tx) =>
+          entity(tx, project.owner, "assets", creative.renditions[0]!.assetId),
+        );
+        expect(
+          data(rendition).rightsSource.components.map(
+            (c: { role: string }) => c.role,
+          ),
+        ).toEqual(["logo", "art", "product"]);
+      }
     });
 
     it("refuses image copy over the template's limits", async () => {

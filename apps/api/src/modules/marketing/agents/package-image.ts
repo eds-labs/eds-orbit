@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   authorize,
+  PROJECT_OWN,
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -19,6 +20,7 @@ import {
   channelLimitExceeded,
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
+import { retirePrevious } from "../creative/attach.ts";
 import type { EntityRow } from "../creative/brand-kit.ts";
 import { artAsset } from "../creative/components.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
@@ -37,6 +39,8 @@ import {
   packageSnapshot,
 } from "./content-packages.ts";
 import {
+  hasUsableCopy,
+  PackageCreativeQaError,
   packageBrandKit,
   planPackageCreative,
   savePackageCreative,
@@ -47,11 +51,13 @@ import {
  * Package image in a post (Orbit Core J3.3). The package's generated image is
  * attached to chosen drafts only after an owner approved its usage rights; each
  * draft is reviewed again, and approvals or schedule proposals for the previous
- * version become stale.
+ * version become stale. `acceptQaFindings` (owner only) accepts the findings of
+ * composed creatives that did not pass their checks.
  */
 export const imageAttachment = z
   .object({
     deliverableKeys: z.array(z.string().trim().min(1).max(80)).min(1).max(4),
+    acceptQaFindings: z.literal(true).optional(),
   })
   .strict();
 
@@ -118,7 +124,11 @@ async function chosenDraft(
   return draft;
 }
 
-/** Attaches the raw package image to a draft and reviews it again. */
+/**
+ * Attaches the raw package image to a draft and reviews it again. A creative
+ * the draft carried no longer counts: it is superseded and its rendition
+ * outdated, as when another creative is attached.
+ */
 async function attachRawImage(
   tx: DbTx,
   scope: Scope,
@@ -136,7 +146,7 @@ async function attachRawImage(
     )
   )
     throw new DomainError("CAPTION_TOO_LONG", 409);
-  const { review: _review, ...rest } = v;
+  const { review: _review, creativeId: _creative, ...rest } = v;
   const attached = await update(tx, scope, draft, {
     ...rest,
     assetId: image.asset.id,
@@ -144,12 +154,24 @@ async function attachRawImage(
   });
   await invalidateContent(tx, scope, draft.id);
   await reviewContent(tx, scope, attached.id, attached.version);
+  await retirePrevious(tx, scope, v, {
+    contentId: draft.id,
+    assetId: image.asset.id,
+  });
   await audit(tx, scope, "content_package.image_attached", draft.id, {
     packageId: image.pkg.id,
     assetId: image.asset.id,
     assetVersion: image.asset.version,
   });
 }
+
+const snapshotOf = async (tx: DbTx, scope: Scope, packageId: string) =>
+  packageSnapshot(
+    tx,
+    scope,
+    await entity(tx, scope, "content_packages", packageId),
+  );
+type PackageSnapshot = Awaited<ReturnType<typeof packageSnapshot>>;
 
 /** The raw image on every chosen draft, in one transaction. */
 async function attachRawImages(
@@ -165,20 +187,14 @@ async function attachRawImages(
       image,
       await chosenDraft(tx, scope, image, key),
     );
-  return packageSnapshot(
-    tx,
-    scope,
-    await entity(tx, scope, "content_packages", image.pkg.id),
-  );
+  return snapshotOf(tx, scope, image.pkg.id);
 }
-
-type PackageSnapshot = Awaited<ReturnType<typeof packageSnapshot>>;
 
 /** What the attach did with each chosen draft's creative (Creative Studio on). */
 type CreativeReport = {
   /** Drafts that got a composed creative in this call. */
   composed: string[];
-  /** Drafts that kept the raw image, with why (`CREATIVE_COPY_MISSING`). */
+  /** Drafts that kept the raw image, with why (`CREATIVE_COPY_MISSING` or the brand kit's code). */
   skipped: Array<{ contentId: string; code: string }>;
 };
 
@@ -194,35 +210,48 @@ type Chosen = {
  * Creative Studio on: plans each chosen draft's creative in one
  * transaction, composes outside any transaction (free: no model call), and
  * saves and attaches them all in a second transaction that first re-checks
- * the package, the drafts' image copy, the profile and every component.
+ * the package, the drafts' image copy, the profile and every component. The
+ * brand kit is only read when a chosen draft has image copy.
  */
 async function attachCreatives(
   scope: Scope,
   packageId: string,
   keys: string[],
+  acceptQaFindings: true | undefined,
   deps: PipelineDeps,
 ): Promise<PackageSnapshot & { creative?: CreativeReport }> {
   const planned = await chatScoped(scope, async (tx) => {
     const image = await loadPackageImage(tx, scope, packageId);
-    const kit = await packageBrandKit(tx, scope);
-    // A project without a primary logo keeps the raw image.
-    if (!kit)
-      return { snapshot: await attachRawImages(tx, scope, image, keys) };
     const chosen: Chosen[] = [];
     for (const key of keys)
       chosen.push({
         key,
         draft: await chosenDraft(tx, scope, image, key),
-        creative: { kind: "current" },
+        creative: { kind: "missing" },
       });
-    const art = await artAsset(tx, scope, image.asset.id);
+    const brand = chosen.some((entry) => hasUsableCopy(entry.draft))
+      ? await packageBrandKit(tx, scope)
+      : null;
+    const kit = brand && "kit" in brand ? brand.kit : null;
+    const kitCode = brand && "code" in brand ? brand.code : null;
+    // A project without a primary logo keeps the raw image, unreported.
+    if (kitCode === "PRIMARY_LOGO_REQUIRED") {
+      for (const entry of chosen)
+        await attachRawImage(tx, scope, image, entry.draft);
+      return { snapshot: await snapshotOf(tx, scope, packageId) };
+    }
+    const art = kit ? await artAsset(tx, scope, image.asset.id) : null;
     for (const entry of chosen)
-      entry.creative = await planPackageCreative(
-        tx,
-        scope,
-        { packageId, art, kit },
-        entry.draft,
-      );
+      entry.creative = !hasUsableCopy(entry.draft)
+        ? { kind: "missing" }
+        : kit
+          ? await planPackageCreative(
+              tx,
+              scope,
+              { packageId, art: art!, kit },
+              entry.draft,
+            )
+          : { kind: "unavailable", code: kitCode! };
     return { chosen, art };
   });
   if (planned.snapshot) return planned.snapshot;
@@ -237,6 +266,19 @@ async function attachCreatives(
         entry.creative.plan.kit.config.maxArtCorrections,
         deps,
       );
+  // Every draft's findings are named at once, before anything is stored.
+  const failing = chosen.flatMap((entry) =>
+    entry.composed?.outcome.failed.length
+      ? [
+          {
+            contentId: entry.draft.id,
+            codes: [...entry.composed.outcome.failed],
+          },
+        ]
+      : [],
+  );
+  if (failing.length && !acceptQaFindings)
+    throw new PackageCreativeQaError({ failed: failing });
   return chatScoped(scope, async (tx) => {
     const image = await loadPackageImage(tx, scope, packageId);
     const report: CreativeReport = { composed: [], skipped: [] };
@@ -253,27 +295,23 @@ async function attachCreatives(
         await savePackageCreative(
           tx,
           scope,
-          { packageId, art },
+          { packageId, art: art!, acceptQaFindings },
           creative.plan,
           entry.composed!,
         );
         report.composed.push(draft.id);
-      } else if (creative.kind === "missing") {
+      } else if (creative.kind !== "current") {
         await attachRawImage(tx, scope, image, draft);
         report.skipped.push({
           contentId: draft.id,
-          code: "CREATIVE_COPY_MISSING",
+          code:
+            creative.kind === "missing"
+              ? "CREATIVE_COPY_MISSING"
+              : creative.code,
         });
       }
     }
-    return {
-      ...(await packageSnapshot(
-        tx,
-        scope,
-        await entity(tx, scope, "content_packages", packageId),
-      )),
-      creative: report,
-    };
+    return { ...(await snapshotOf(tx, scope, packageId)), creative: report };
   });
 }
 
@@ -283,12 +321,17 @@ async function attachCreatives(
  * kit, a draft with image copy gets its own composed creative in its
  * channel's format instead of the raw image, and the snapshot carries
  * `creative: {composed, skipped}`: a draft without image copy keeps the raw
- * image and is listed as `CREATIVE_COPY_MISSING`. A creative that fails its
- * checks (`CREATIVE_QA_FAILED`), is refused (`LOGO_INTEGRITY`, `ASSET_RIGHTS`),
- * has copy over the template's limits (`CREATIVE_TEXT_TOO_LONG`) or whose
- * profile or components changed meanwhile (`MARKETING_PROFILE_CHANGED`,
- * `BRAND_ASSET_CHANGED`) leaves every chosen draft unchanged. Off, the raw
- * image is attached as before.
+ * image and is listed as `CREATIVE_COPY_MISSING`, and when the brand kit
+ * cannot compose (a logo that is no longer approved) the drafts with copy
+ * keep it too, listed with the brand kit's code. A creative that fails its
+ * checks (`CREATIVE_QA_FAILED`; its `detail` lists every failing draft with
+ * its codes) refuses the whole attach unless the owner passes
+ * `acceptQaFindings` (`OWNER_REQUIRED` for an editor); a refused creative
+ * (`LOGO_INTEGRITY`, `ASSET_RIGHTS`), copy over the template's limits
+ * (`CREATIVE_TEXT_TOO_LONG`) or a profile or component that changed
+ * meanwhile (`MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED`) leave every
+ * chosen draft unchanged. A raw image replaces a creative the draft carried.
+ * Off, the raw image is attached as before.
  */
 export async function attachPackageImage(
   scope: Scope,
@@ -300,9 +343,17 @@ export async function attachPackageImage(
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const input = imageAttachment.parse(raw);
+  // Accepting findings is the owner's decision, as in the studio.
+  if (input.acceptQaFindings) authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const keys = [...new Set(input.deliverableKeys)];
   if (creativeStudioEnabled())
-    return attachCreatives(scope, packageId, keys, deps);
+    return attachCreatives(
+      scope,
+      packageId,
+      keys,
+      input.acceptQaFindings,
+      deps,
+    );
   // One transaction: a refused draft leaves every chosen draft unchanged.
   return chatScoped(scope, async (tx) =>
     attachRawImages(

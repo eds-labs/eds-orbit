@@ -1,6 +1,9 @@
 import { scoped } from "../../../../packages/db/src/index.ts";
 import { sha256Hex } from "../../../../packages/creative/src/index.ts";
-import { demoBrand } from "../../../../packages/creative/fixtures/demo-brands.ts";
+import {
+  demoBrand,
+  fixtureScreenshot,
+} from "../../../../packages/creative/fixtures/demo-brands.ts";
 import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
 import { create } from "../../src/shared.ts";
 import { lumoraProfile } from "./creative-profile.ts";
@@ -20,31 +23,50 @@ export const PACKAGE_CREATIVE_COPY = {
  * Adds the fictional "Lumora Home" brand kit to a package project: an
  * approved primary logo asset and the brand's visual identity, next to the
  * profile the project already has (its official link and CTAs stay). `creative`
- * replaces the brand kit's creative settings. Call it before a package is
+ * replaces the brand kit's creative settings; `screenshot` also adds an
+ * approved product screenshot to the brand kit. Call it before a package is
  * requested: the profile version is part of the package plan.
  */
 export async function addBrandKit(
   project: Project,
   creative: Record<string, unknown> = {},
+  options: { screenshot?: boolean } = {},
 ) {
   const { owner } = project;
-  const bytes = (await demoBrand("lumora")).logos[0]!.bytes;
+  const approvedAsset = (type: string, bytes: Buffer) => ({
+    name: `Synthetic ${type}`,
+    type,
+    mime: "image/png",
+    base64: bytes.toString("base64"),
+    sha256: sha256Hex(bytes),
+    bytes: bytes.length,
+    source: "Synthetic fixture",
+    license: "Synthetic rights fixture",
+    validUses: ["brand", "social"],
+    usageApproved: true,
+    assetStatus: "approved",
+    providerUse: false,
+    driveSyncStatus: "LOCAL_ONLY",
+  });
+  const logoBytes = (await demoBrand("lumora")).logos[0]!.bytes;
+  const screenshotBytes = options.screenshot
+    ? (await fixtureScreenshot("lumora")).bytes
+    : null;
   return scoped(owner.workspaceId, owner.projectId, async (tx) => {
-    const logo = await create(tx, owner, "assets", {
-      name: "Synthetic logo",
-      type: "logo",
-      mime: "image/png",
-      base64: bytes.toString("base64"),
-      sha256: sha256Hex(bytes),
-      bytes: bytes.length,
-      source: "Synthetic fixture",
-      license: "Synthetic rights fixture",
-      validUses: ["brand", "social"],
-      usageApproved: true,
-      assetStatus: "approved",
-      providerUse: false,
-      driveSyncStatus: "LOCAL_ONLY",
-    });
+    const logo = await create(
+      tx,
+      owner,
+      "assets",
+      approvedAsset("logo", logoBytes),
+    );
+    const screenshot = screenshotBytes
+      ? await create(
+          tx,
+          owner,
+          "assets",
+          approvedAsset("screenshot", screenshotBytes),
+        )
+      : null;
     const where = {
       workspaceId: owner.workspaceId,
       projectId: owner.projectId,
@@ -55,6 +77,7 @@ export async function addBrandKit(
     const { visualIdentity } = lumoraProfile({
       logoAssetId: logo.id,
       creative,
+      ...(screenshot && { productAssetIds: [screenshot.id] }),
     });
     const profile = marketingProfile.parse({
       ...(current.data as object),

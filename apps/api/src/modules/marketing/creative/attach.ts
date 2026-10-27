@@ -81,12 +81,14 @@ async function assertRenditionHolds(
 /**
  * What the post carried before an attach: a rendition of one of its
  * creatives becomes `outdated`, another creative of the post `superseded`.
+ * Without a `creativeId` the post gets an image that is no creative's (the
+ * raw package image), so every creative it carried is replaced.
  */
-async function retirePrevious(
+export async function retirePrevious(
   tx: DbTx,
   scope: Scope,
   before: Record<string, any>,
-  attached: { contentId: string; creativeId: string; assetId: string },
+  attached: { contentId: string; creativeId?: string; assetId: string },
 ) {
   if (before.assetId && before.assetId !== attached.assetId) {
     const previous = (
