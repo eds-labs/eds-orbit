@@ -27,8 +27,8 @@ test("owner builds a brand kit, produces a feature highlight from a screenshot, 
   await page.addInitScript(() => localStorage.setItem("orbit.locale", "en"));
   const project = `/api/projects/${account.projectId}`;
 
-  // 1. Upload the demo logo and screenshot (the upload route the library uses;
-  //    its form has no "screenshot" type), then approve their rights.
+  // 1. Upload the demo logo and screenshot through the upload route the
+  //    library's form uses, then approve their rights.
   const ids: Record<string, string> = {};
   for (const [key, file, type, name] of [
     ["logo", "lumora-logo.png", "logo", "Lumora logo"],

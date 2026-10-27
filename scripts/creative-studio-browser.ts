@@ -2,13 +2,28 @@
  * Synthetic Creative Studio browser fixture on this worktree's isolated test
  * database: a project, an owner account, a marketing profile without a brand
  * kit, one social post in a mission and the fictional demo PNGs. Serves the API
- * on 127.0.0.1:4311 with ORBIT_CREATIVE_STUDIO=true. No worker, no provider call
- * (image generation stays unconfigured). Run `pnpm exec tsx` with the repo's
- * local env; stop with SIGTERM to clean up.
+ * on 127.0.0.1:4311 with ORBIT_CREATIVE_STUDIO=true. No worker.
+ *
+ * No paid generation is possible by construction (R62): before the API is
+ * loaded, every AI provider key and model or image route variable
+ * (OPENAI_*, ANTHROPIC_*) is removed from this process's environment, and the
+ * synthetic project on the isolated test database has no saved key.
+ *
+ * Run recipe (from the worktree root, Node 24; one run per seed):
+ *   1. node scripts/test-db-for-worktree.ts            (once, and after new migrations)
+ *   2. set -a; . <main checkout>/.runtime/local.env; set +a
+ *      node --import tsx scripts/creative-studio-browser.ts
+ *      (seeds and serves the API on 4311; wait for "API ready")
+ *   3. in apps/web: node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 4310
+ *      (start it without provider keys too; the web app never calls a provider)
+ *   4. CREATIVE_STUDIO_E2E=true node node_modules/@playwright/test/cli.js test apps/web/tests/creative-studio.spec.ts
+ *   5. stop step 2 with SIGTERM (cleans up its project and account); a new run
+ *      needs a fresh seed (step 2 again).
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { loadWorktreeTestEnv } from "./test-database.ts";
+import { clearProviderAccess } from "./provider-free-env.ts";
 if (!loadWorktreeTestEnv())
   throw new Error("Create the isolated worktree test database first");
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -21,6 +36,8 @@ Object.assign(process.env, {
   ENABLE_EXTERNAL_WRITES: "false",
   ORBIT_CREATIVE_STUDIO: "true",
 });
+// No provider key or image route reaches the API (R62), whatever the env files set.
+clearProviderAccess();
 const { buildServer } = await import("../apps/api/src/server.ts");
 const { authDb, closeDatabase, scoped } =
   await import("../packages/db/src/index.ts");
