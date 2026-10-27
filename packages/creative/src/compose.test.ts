@@ -165,20 +165,18 @@ describe("composeCreative", () => {
     expect(result.renderer.sharp).toBe(sharp.versions.sharp);
   });
 
-  it("encodes losslessly with adaptive filtering, smaller than without", async () => {
+  it("encodes with adaptive filtering, smaller than without", async () => {
     const result = await composeCreative(await lifestyleInput("kestrel"));
     const { default: sharp } = await import("sharp");
     const pixels = await sharp(result.png).raw().toBuffer();
-    // The same pixels encoded as before adaptive filtering (Fix 4).
+    // The same pixels encoded as before adaptive filtering (R69). PNG is
+    // lossless either way; the pre-encode pixels are internal to compose.
     const unfiltered = await sharp(pixels, {
       raw: { width: result.width, height: result.height, channels: 3 },
     })
       .png({ compressionLevel: 9, adaptiveFiltering: false, palette: false })
       .toBuffer();
     expect(result.png.length).toBeLessThan(unfiltered.length);
-    expect((await sharp(unfiltered).raw().toBuffer()).equals(pixels)).toBe(
-      true,
-    );
   });
 
   it("refuses logo bytes that are not the approved ones", async () => {
