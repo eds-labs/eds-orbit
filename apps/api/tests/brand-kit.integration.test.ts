@@ -1,5 +1,15 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { z } from "zod";
 import {
   authDb,
   closeDatabase,
@@ -16,6 +26,7 @@ import {
   configurationChange,
   configurationTools,
 } from "../src/platform/configuration/configuration.ts";
+import { responsesTool } from "../src/platform/agents/tools/registry.ts";
 import { mayTransmitToProvider } from "../src/modules/marketing/brand/provider-use.ts";
 import { createPackageProject } from "./support/package-project.ts";
 
@@ -47,7 +58,74 @@ const brandKit = {
   },
 };
 
+// The configuration the API needs to start, so the switch can be read without a local env file.
+const REQUIRED = {
+  DATABASE_URL: "postgresql://a@b/c",
+  AUTH_DATABASE_URL: "postgresql://a@b/c",
+  REDIS_URL: "redis://redis:6379",
+  AUTH_SECRET: "x".repeat(32),
+  ORBIT_SETUP_TOKEN: "y".repeat(20),
+  CREDENTIAL_KEY: "0".repeat(64),
+};
+const stubSwitch = (on: boolean) => {
+  for (const [name, value] of Object.entries(REQUIRED))
+    vi.stubEnv(name, process.env[name] ?? value);
+  vi.stubEnv("ORBIT_CREATIVE_STUDIO", on ? "true" : "false");
+};
+const updateTool = () =>
+  configurationTools.find((t) => t.name === "project_configuration_update")!;
+
+// CS-D6 (R64): with the Creative Studio off, the MCP configuration tool is
+// the one from before it: no brand kit keys, no note about them. Partial
+// changes no longer carry defaults either way (the one intended change).
+describe("MCP configuration changes with the Creative Studio off", () => {
+  beforeEach(() => stubSwitch(false));
+  afterEach(() => vi.unstubAllEnvs());
+  const change = (visualIdentity: Record<string, unknown>) =>
+    configurationChange().safeParse({
+      expectedVersion: 1,
+      changes: { marketing: { visualIdentity } },
+    });
+
+  it("refuses the brand kit keys and accepts the identity's own fields", () => {
+    for (const key of [
+      "logos",
+      "productAssetIds",
+      "imagery",
+      "typography",
+      "forbiddenDesigns",
+    ])
+      expect(
+        change({ [key]: brandKit[key as keyof typeof brandKit] }).success,
+      ).toBe(false);
+    expect(change({ creative: { ctaStyle: "pill" } }).success).toBe(false);
+    const parsed = change({ primaryColor: "#445566" });
+    expect(parsed.success).toBe(true);
+    // No defaults for the fields left out (they would overwrite stored ones).
+    expect(parsed.data!.changes.marketing!.visualIdentity).toEqual({
+      primaryColor: "#445566",
+    });
+  });
+
+  it("offers neither the brand kit keys nor the note about the creative settings", () => {
+    const tool = updateTool();
+    expect(tool.description).not.toMatch(/visualIdentity\.creative/);
+    const identity = (z.toJSONSchema(tool.parameters, { io: "input" }) as any)
+      .properties.changes.properties.marketing.anyOf[0].properties
+      .visualIdentity.anyOf[0].properties;
+    expect(Object.keys(identity)).not.toContain("logos");
+    expect(Object.keys(identity)).not.toContain("imagery");
+    expect(Object.keys(identity)).toContain("primaryColor");
+    expect(JSON.stringify(responsesTool(tool).parameters)).not.toContain(
+      "productAssetIds",
+    );
+  });
+});
+
 describe("brand kit stays out of partial MCP changes", () => {
+  // The brand kit keys are offered over MCP with the Creative Studio on.
+  beforeEach(() => stubSwitch(true));
+  afterEach(() => vi.unstubAllEnvs());
   // The identity a project saved: its own colours, fonts and rules plus a brand kit.
   const storedIdentity = {
     primaryColor: "#112233",
@@ -76,7 +154,7 @@ describe("brand kit stays out of partial MCP changes", () => {
     (
       mergeProfile(
         stored,
-        configurationChange.parse({
+        configurationChange().parse({
           expectedVersion: 1,
           changes: { marketing: { visualIdentity } },
         }).changes.marketing!,
@@ -111,7 +189,7 @@ describe("brand kit stays out of partial MCP changes", () => {
 
   it("does not offer the creative settings (maps, replaced as a whole) to MCP changes", () => {
     const change = (visualIdentity: Record<string, unknown>) =>
-      configurationChange.safeParse({
+      configurationChange().safeParse({
         expectedVersion: 1,
         changes: { marketing: { visualIdentity } },
       }).success;
