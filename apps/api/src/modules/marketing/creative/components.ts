@@ -87,7 +87,11 @@ export async function productAsset(tx: DbTx, scope: Scope, id: string) {
   return row;
 }
 
-/** Art Orbit generated with an image model may be regenerated; uploaded art may not. */
+/**
+ * Art Orbit generated with an image model: only such art gets automatic art
+ * corrections (uploaded art is the owner's). The owner may still replace
+ * any art with new Orbit art (`regenerateCreativeArt`, R52).
+ */
 export const isOrbitArt = (row: EntityRow | null) =>
   Boolean(
     row &&

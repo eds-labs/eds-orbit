@@ -1,5 +1,6 @@
 import type { OverlayOptions } from "sharp";
-import { LINEAR_CHANNEL, contrastRatio } from "./color.ts";
+import { sha256Hex, type RasterSource } from "./brand.ts";
+import { LINEAR_CHANNEL, contrastRatio, parseHex } from "./color.ts";
 import type { Box } from "./templates.ts";
 
 // Raw-canvas helpers shared by composition and analysis: decoding with input
@@ -82,3 +83,22 @@ export const openRaster = (sharp: Sharp, bytes: Buffer) =>
     failOn: "warning",
     animated: false,
   });
+
+/**
+ * An opaque PNG of one `#RRGGBB` colour with its SHA-256: stand-in art for a
+ * free trial composition before paid art exists.
+ */
+export async function solidRaster(
+  color: string,
+  width: number,
+  height: number,
+): Promise<RasterSource> {
+  const { default: sharp } = await import("sharp");
+  const [r, g, b] = parseHex(color);
+  const bytes = await sharp({
+    create: { width, height, channels: 3, background: { r, g, b } },
+  })
+    .png()
+    .toBuffer();
+  return { bytes, sha256: sha256Hex(bytes) };
+}

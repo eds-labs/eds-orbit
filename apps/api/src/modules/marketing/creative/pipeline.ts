@@ -5,11 +5,13 @@ import {
   composeCreative,
   CreativeError,
   formatsForChannel,
+  solidRaster,
   TEMPLATE_COPY_LIMITS,
   TEMPLATE_NEEDS,
   type CreativeCopy,
   type ImageKind,
   type LogoPlacement,
+  type RasterSource,
   type TemplateId,
   type TextScale,
   type VariantId,
@@ -32,6 +34,7 @@ import {
   recordArtAttempt,
   settleArtAttempt,
   type ArtConfirmation,
+  type ArtRequest,
 } from "./art.ts";
 import type { ArtCorrection } from "./art-direction.ts";
 import { attachCreativeInTx } from "./attach.ts";
@@ -193,8 +196,9 @@ type ArtCheck = {
  * Completes a plan, before any byte is read: the copy within the template's
  * limits (Task 12's rule, `CREATIVE_TEXT_TOO_LONG`, R42), art where the
  * template needs it (`ART_REQUIRED`) and the rights of every component (a
- * refusal throws, R22). Before new art is paid for, it checks everything
- * else.
+ * refusal throws, R22). With `artToCome` (paid art follows) it checks the
+ * copy and the rights of the other components; what composing them can
+ * refuse is found by `trialComposition` before the art is paid for (R53).
  */
 export async function checkedPlan(
   tx: DbTx,
@@ -234,15 +238,24 @@ function newArtConfirmation(scope: Scope, request: ProduceRequest) {
   return confirmation;
 }
 
-/** Reads the bytes and composes every format, outside any transaction. */
+/**
+ * Reads the bytes and composes every format, outside any transaction. A
+ * `trial` composes over stand-in art instead of the plan's and skips the
+ * hook before saving (R53).
+ */
 export async function composePlan(
   scope: Scope,
   plan: Plan,
   artAttempts: number,
   deps: PipelineDeps,
+  trial?: { art: RasterSource },
 ): Promise<ComposedCreative> {
   const brand = await loadCreativeBrand(scope, plan.kit);
-  const art = plan.art ? await componentBytes(scope, plan.art) : undefined;
+  const art = trial
+    ? trial.art
+    : plan.art
+      ? await componentBytes(scope, plan.art)
+      : undefined;
   const products = await Promise.all(
     plan.products.map((row) => componentBytes(scope, row)),
   );
@@ -256,7 +269,7 @@ export async function composePlan(
       options: plan.options,
       variantFixed: plan.variantFixed,
       artState: {
-        orbitGenerated: isOrbitArt(plan.art),
+        orbitGenerated: !trial && isOrbitArt(plan.art),
         attempts: artAttempts,
         maxCorrections: plan.kit.config.maxArtCorrections,
       },
@@ -268,8 +281,50 @@ export async function composePlan(
   if (refused) throw new DomainError(refused, 409);
   // Copy that does not fit is the person's to shorten; nothing is saved.
   if (outcome.overflow.length) throw new DomainError("TEXT_OVERFLOW", 409);
-  await deps.afterCompose?.();
+  if (!trial) await deps.afterCompose?.();
   return { outcome, art, products };
+}
+
+/**
+ * Before new art is paid for (R53): one free composition of the plan over
+ * brand-coloured stand-in art of the image's size. Copy that does not fit
+ * (`TEXT_OVERFLOW`) and refusals (`LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`;
+ * `ASSET_RIGHTS` was checked with the plan) stop here, before anything is
+ * reserved; findings about the stand-in art itself are ignored.
+ */
+async function trialComposition(
+  scope: Scope,
+  plan: Plan,
+  art: ArtRequest,
+  deps: PipelineDeps,
+): Promise<void> {
+  const [width, height] = art.size.split("x").map(Number) as [number, number];
+  const standIn = await solidRaster(
+    plan.kit.profile.visualIdentity.primaryColor,
+    width,
+    height,
+  );
+  await composePlan(scope, plan, 0, deps, { art: standIn });
+}
+
+/**
+ * Work after new art was paid for (R53): its failure names the art in the
+ * error's detail (`artAssetId`); the art stays an unapproved reference the
+ * owner may still approve and use.
+ */
+async function afterPayment<T>(
+  artAssetId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (error instanceof DomainError) {
+      const { detail } = error as { detail?: Record<string, unknown> };
+      Object.assign(error, { detail: { ...detail, artAssetId } });
+    }
+    throw error;
+  }
 }
 
 /** The renditions of a plan, saved for a creative of its post by the person asking. */
@@ -395,17 +450,19 @@ export async function produceCreative(
         : null,
     };
   });
-  let plan = prep.plan;
-  if (prep.art && confirmation) {
-    const assetId = await generateArt(
-      scope,
-      { ...prep.art, requestId: randomUUID() },
-      confirmation,
-      deps.generate,
-    );
-    const { rights: _rights, ...rest } = plan;
+  if (!prep.art || !confirmation) return saveProduced(scope, prep.plan, deps);
+  await trialComposition(scope, prep.plan, prep.art, deps);
+  const assetId = await generateArt(
+    scope,
+    { ...prep.art, requestId: randomUUID() },
+    confirmation,
+    deps.generate,
+  );
+  const art = prep.art;
+  return afterPayment(assetId, async () => {
+    const { rights: _rights, ...rest } = prep.plan;
     // The new art waits for the owner's rights decision (spec §8).
-    plan = await scoped(scope.workspaceId, scope.projectId, async (tx) =>
+    const plan = await scoped(scope.workspaceId, scope.projectId, async (tx) =>
       checkedPlan(
         tx,
         scope,
@@ -413,7 +470,21 @@ export async function produceCreative(
         { pendingArtId: assetId },
       ),
     );
-  }
+    return saveProduced(scope, plan, deps, art);
+  });
+}
+
+/**
+ * Composes a planned creative and stores it with its renditions under the
+ * re-check of profile, components and post; `paidArt` is new art the plan
+ * draws, settled at its ceiling.
+ */
+async function saveProduced(
+  scope: Scope,
+  plan: Plan,
+  deps: PipelineDeps,
+  paidArt?: ArtRequest,
+): Promise<CreativeView> {
   const composed = await composePlan(scope, plan, 0, deps);
   const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await assertSourcesHold(tx, scope, plan);
@@ -424,10 +495,10 @@ export async function produceCreative(
       renditions: [],
       corrections: composed.outcome.corrections,
       // New art was settled at the confirmed ceiling.
-      cost: prep.art
+      cost: paidArt
         ? {
             reservationIds: [String(data(plan.art).budgetReservationId)],
-            settledMicros: prep.art.costMicros,
+            settledMicros: paidArt.costMicros,
             unknownMicros: 0,
           }
         : { reservationIds: [], settledMicros: 0, unknownMicros: 0 },
@@ -594,16 +665,18 @@ async function recompose(
 }
 
 /**
- * Regenerates a creative's art (spec §9; owner, one paid image): at most
+ * Regenerates a creative's art (spec §9; owner, one paid image): replaces
+ * its art, Orbit's or uploaded (R52), with new Orbit art. At most
  * `maxArtCorrections` attempts per creative (`ART_CORRECTION_LIMIT`, 409,
  * before anything is reserved). Everything else of the creative is checked
- * first; the prompt carries the owner's `correction`, else the change the
- * art findings ask for. The attempt is recorded on the creative in the
- * image's reservation transaction, so it counts once sent, with its cost or,
- * when the call's outcome is unknown, as unknown cost. The new art is stored
- * unapproved and the creative recomposed over it: `needs_rights` until the
- * owner approves the art and recomposes; the post keeps an attached
- * rendition until the next attach (R5).
+ * first, including a free trial composition (R53); the prompt carries the
+ * owner's `correction`, else the change the art findings ask for. The
+ * attempt is recorded on the creative in the image's reservation
+ * transaction, so it counts once sent, with its cost or, when the call's
+ * outcome is unknown, as unknown cost. The new art is stored unapproved and
+ * the creative recomposed over it: `needs_rights` until the owner approves
+ * the art and recomposes; the post keeps an attached rendition until the
+ * next attach (R5). A failure after payment names the art (`artAssetId`).
  * Errors: as `recomposeCreative`, plus `OWNER_REQUIRED` (403),
  * `ART_CORRECTION_LIMIT`, `IMAGE_COST_CONFIRMATION_STALE`,
  * `VERSION_CONFLICT` (409) and the image generation's own.
@@ -649,6 +722,7 @@ export async function regenerateCreativeArt(
       const change = correction ?? findingsCorrection(record.qa.checks);
       return {
         row,
+        plan,
         change,
         art: await planArt(
           tx,
@@ -661,6 +735,7 @@ export async function regenerateCreativeArt(
       };
     },
   );
+  await trialComposition(scope, planned.plan, planned.art, providers);
   const requestId = randomUUID();
   let assetId: string;
   try {
@@ -682,8 +757,10 @@ export async function regenerateCreativeArt(
     await settleArtAttempt(scope, creativeId, requestId).catch(() => undefined);
     throw error;
   }
-  await settleArtAttempt(scope, creativeId, requestId, assetId);
-  return recompose(scope, creativeId, {}, providers, assetId);
+  return afterPayment(assetId, async () => {
+    await settleArtAttempt(scope, creativeId, requestId, assetId);
+    return recompose(scope, creativeId, {}, providers, assetId);
+  });
 }
 
 /**

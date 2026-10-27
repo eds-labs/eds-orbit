@@ -11,7 +11,12 @@ import {
   type respond,
 } from "../../../packages/ai/src/index.ts";
 import { APIError } from "openai";
-import { sha256Hex } from "../../../packages/creative/src/index.ts";
+import {
+  composeCreative,
+  CreativeError,
+  sha256Hex,
+  type ComposeInput,
+} from "../../../packages/creative/src/index.ts";
 import {
   demoBrand,
   fixtureArt,
@@ -718,6 +723,131 @@ describe.skipIf(!enabled)(
       });
       expect(after.qa.vision).toBeUndefined();
       expect(after.status).toBe("composed");
+    });
+
+    it("pays for no art a creative cannot use (R53)", async () => {
+      const generate = imageProvider();
+      const before = (await reservations("image:")).length;
+      // One compound word wider than the text box at the smallest size.
+      await expect(
+        produceCreative(
+          p.owner,
+          {
+            contentId: (await newContent()).id,
+            template: "lifestyle",
+            copy: {
+              ...COPY,
+              headline:
+                "Donaudampfschifffahrtselektrizitaetenhauptbetriebswerk",
+            },
+            generateArt: CONFIRM,
+          },
+          { generate },
+        ),
+      ).rejects.toMatchObject({ code: "TEXT_OVERFLOW", status: 409 });
+      // A regeneration whose composition cannot fit stops the same way.
+      const creative = await produceFree();
+      const overflowing = async (): Promise<never> => {
+        throw new CreativeError("TEXT_OVERFLOW");
+      };
+      await expect(
+        regenerateCreativeArt(p.owner, creative.id, CONFIRM, {
+          generate,
+          compose: overflowing,
+        }),
+      ).rejects.toMatchObject({ code: "TEXT_OVERFLOW", status: 409 });
+      expect(generate).not.toHaveBeenCalled();
+      expect(await reservations("image:")).toHaveLength(before);
+      expect((await record(creative.id)).corrections).toEqual(
+        creative.corrections,
+      );
+    });
+
+    it("a failure after payment names the paid art (R53)", async () => {
+      const generate = imageProvider();
+      const failure = (await produceCreative(
+        p.owner,
+        {
+          contentId: (await newContent()).id,
+          template: "lifestyle",
+          copy: COPY,
+          generateArt: CONFIRM,
+        },
+        // Another tab saves the profile while the paid art is composed.
+        { generate, afterCompose: () => saveProfile({ visualReview: true }) },
+      ).catch((error: unknown) => error)) as { code: string; detail?: any };
+      expect(failure).toMatchObject({ code: "MARKETING_PROFILE_CHANGED" });
+      expect(generate).toHaveBeenCalledTimes(1);
+      const art = await runIn(async (tx) =>
+        data(await entity(tx, p.owner, "assets", failure.detail.artAssetId)),
+      );
+      expect(art).toMatchObject({
+        type: "generated_artwork",
+        assetStatus: "reference",
+        usageApproved: false,
+      });
+    });
+
+    it("an unknown regeneration outcome stays counted", async () => {
+      const creative = await produceFree();
+      const generate = vi.fn(async () => {
+        throw new Error("socket hang up");
+      }) as unknown as typeof generateImage & ReturnType<typeof vi.fn>;
+      await expect(
+        regenerateCreativeArt(p.owner, creative.id, CONFIRM, { generate }),
+      ).rejects.toThrow();
+      expect(generate).toHaveBeenCalledTimes(1);
+      const after = await record(creative.id);
+      const [attempt] = after.corrections.filter((c) => c.kind === "art");
+      expect(attempt).toBeDefined();
+      expect(attempt!.costMicros).toBeUndefined();
+      expect(after.cost).toMatchObject({
+        settledMicros: 0,
+        unknownMicros: IMAGE_MAX,
+      });
+      const [reservation] = await reservations(`image:${attempt!.requestId}`);
+      expect(reservation).toMatchObject({ state: "unknown" });
+      expect(after.cost.reservationIds).toEqual([reservation!.id]);
+      await expect(
+        regenerateCreativeArt(p.owner, creative.id, CONFIRM, { generate }),
+      ).rejects.toMatchObject({ code: "ART_CORRECTION_LIMIT", status: 409 });
+      expect(generate).toHaveBeenCalledTimes(1);
+    });
+
+    it("two regenerations at once pay once", async () => {
+      const creative = await produceFree();
+      const generate = imageProvider();
+      // Both regenerations finish planning before either reserves.
+      let arrived = 0;
+      let release!: () => void;
+      const planned = new Promise<void>((resolve) => (release = resolve));
+      const compose = async (input: ComposeInput) => {
+        if (arrived < 2) {
+          arrived += 1;
+          if (arrived === 2) release();
+          await planned;
+        }
+        return composeCreative(input);
+      };
+      const results = await Promise.allSettled([
+        regenerateCreativeArt(p.owner, creative.id, CONFIRM, {
+          generate,
+          compose,
+        }),
+        regenerateCreativeArt(p.owner, creative.id, CONFIRM, {
+          generate,
+          compose,
+        }),
+      ]);
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      const [refused] = results.filter((r) => r.status === "rejected");
+      expect((refused as PromiseRejectedResult).reason).toMatchObject({
+        code: "VERSION_CONFLICT",
+        status: 409,
+      });
+      const after = await record(creative.id);
+      expect(after.corrections.filter((c) => c.kind === "art")).toHaveLength(1);
     });
   },
 );
