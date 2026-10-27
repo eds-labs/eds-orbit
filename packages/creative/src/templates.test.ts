@@ -381,9 +381,11 @@ describe("layoutFor", () => {
       const bl = at("bottom_left");
       expect(bl.box.x).toBe(safe.left);
       expect(bl.box.y + bl.box.h).toBe(H - safe.bottom);
-      // 0.14·W × max(0.06·H, 0.05·W) (R19), whichever corner.
+      // 0.2·W (landscape 0.14·W, T20) × max(0.06·H, 0.05·W) (R19), whichever corner.
       for (const logo of [br, tl, tr, bl]) {
-        expect(logo.box.w).toBe(Math.round(0.14 * W));
+        expect(logo.box.w).toBe(
+          Math.round((formatId === "landscape" ? 0.14 : 0.2) * W),
+        );
         expect(logo.box.h).toBe(Math.round(Math.max(0.06 * H, 0.05 * W)));
       }
     }
@@ -403,7 +405,7 @@ describe("layoutFor", () => {
       ...options(),
       logoRole: "mark",
     });
-    expect(wide.logo.box.w).toBe(Math.round(0.14 * 1080));
+    expect(wide.logo.box.w).toBe(Math.round(0.2 * 1080));
     expect(mark.logo.box.w).toBe(Math.round(0.1 * 1080));
     expect(mark.logo.box.h).toBe(wide.logo.box.h);
   });

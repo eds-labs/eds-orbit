@@ -265,7 +265,8 @@ const TEMPLATES: Readonly<Record<TemplateId, TemplateSpec>> = {
     scrim: null,
     regions: {
       text_top: {
-        tall: { text: [0, 0.13, 1, 0.57], art: { edge: "bottom", cut: 0.74 } },
+        // The art strip stays below 3:1 on square, so a scene keeps its subject.
+        tall: { text: [0, 0.12, 1, 0.5], art: { edge: "bottom", cut: 0.68 } },
         wide: {
           text: [0, 0.15, 0.66, 0.85],
           art: { edge: "right", cut: 0.72 },
@@ -293,8 +294,9 @@ const TEMPLATES: Readonly<Record<TemplateId, TemplateSpec>> = {
           text: [0.04, 0.14, 0.92, 0.5],
           product: [0.14, 0.68, 0.72, 0.32],
         },
+        // Room for a heavy, wide face (four layers in DejaVu 800 overflowed 0.64 of the height).
         wide: {
-          text: [0.06, 0.14, 0.88, 0.64],
+          text: [0.06, 0.1, 0.88, 0.68],
           product: [0.3, 0.81, 0.4, 0.19],
         },
       },
@@ -344,6 +346,13 @@ const CORNERS: readonly Corner[] = [
   "bottom_left",
   "bottom_right",
 ];
+/**
+ * Width of the logo box, as a fraction of the canvas width (a mark gets 0.1).
+ * Tall formats give a wordmark 0.2·W (a 3.7:1 wordmark is then 0.054·W
+ * tall); landscape keeps 0.14·W beside its 0.8-wide text columns, where R19's
+ * 60 px height already carries the logo.
+ */
+const LOGO_WIDTH = { tall: 0.2, wide: 0.14 } as const;
 /** Clear space around the logo, as a fraction of the canvas width. */
 const LOGO_CLEARANCE = 0.025;
 /** How far a gradient scrim reaches past the text, as a fraction of the canvas side. */
@@ -428,7 +437,8 @@ function logoBoxAt(
   role: LogoRole | undefined,
 ): Box {
   const { width: W, height: H, safe } = format;
-  const w = Math.round((role === "mark" ? 0.1 : 0.14) * W);
+  const aspect = format.id === "landscape" ? "wide" : "tall";
+  const w = Math.round((role === "mark" ? 0.1 : LOGO_WIDTH[aspect]) * W);
   // At least 0.05·W tall, so a square logo stays legible on landscape (R19).
   const h = Math.round(Math.max(0.06 * H, 0.05 * W));
   return {

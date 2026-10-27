@@ -11,7 +11,7 @@ import {
   type CreativeBrand,
   type RasterSource,
 } from "./brand.ts";
-import { relativeLuminance } from "./color.ts";
+import { contrastRatio, relativeLuminance } from "./color.ts";
 import { CreativeError } from "./errors.ts";
 import {
   LOGO_ROLES,
@@ -115,7 +115,10 @@ export type ComposeResult = {
   renderer: { sharp: string; vips: string };
 };
 
-/** Art whose aspect differs from its region by more than this factor is contained, not cropped. */
+/**
+ * Art whose aspect differs from its region by more than this factor is
+ * cropped by this factor and contained over a blurred copy, not cropped to fit.
+ */
 const ART_ASPECT_TOLERANCE = 1.35;
 /** Share of contained art (along its open sides) that fades into the blurred copy. */
 const ART_FEATHER = 0.12;
@@ -123,6 +126,10 @@ const SCRIM_BOOST_STEP = 0.12;
 const SCRIM_RAISE_STEP = 0.1;
 /** Busyness raises a full (centred) tint at most this far, so a statement keeps its motif (R23). */
 const BUSY_SCRIM_CAP = 0.6;
+/** A secondary colour darker than this tints the scrim instead of the text colour. */
+const DEEP_SCRIM_LUMINANCE = 0.05;
+/** Below this contrast against its backdrop a pill CTA gets a ring. */
+const PILL_RING_CONTRAST = 1.6;
 const PNG_OPTIONS = {
   compressionLevel: 9,
   adaptiveFiltering: false,
@@ -154,7 +161,8 @@ function textColors(palette: BrandPalette) {
 
 /**
  * Cover-fits the art into its region around the salient subject; art whose
- * aspect is too far off is contained over a blurred cover copy of itself.
+ * aspect is too far off is cropped by the tolerance (centred) and contained
+ * over a blurred cover copy of itself.
  * Overlay positions are relative to the box's top-left corner.
  */
 async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
@@ -187,7 +195,20 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
     .blur(Math.max(8, 0.04 * Math.max(box.w, box.h)))
     .png()
     .toBuffer();
+  // Crop the art's long side by the tolerance first (centred, where the art
+  // direction puts the subject, R29), so the blurred bands stay narrow.
+  const target =
+    (box.w / box.h) *
+    (ratio < 1 ? 1 / ART_ASPECT_TOLERANCE : ART_ASPECT_TOLERANCE);
+  const cropW = ratio > 1 ? Math.round(height * target) : width;
+  const cropH = ratio > 1 ? height : Math.round(width / target);
   const contained = await openRaster(sharp, art.bytes)
+    .extract({
+      left: Math.round((width - cropW) / 2),
+      top: Math.round((height - cropH) / 2),
+      width: cropW,
+      height: cropH,
+    })
     .resize(box.w, box.h, { fit: "inside" })
     .png()
     .toBuffer({ resolveWithObject: true });
@@ -217,7 +238,7 @@ async function artLayers(sharp: Sharp, art: RasterSource, box: Box) {
         top: Math.round((box.h - h) / 2),
       },
     ],
-    record: { ...record, scale: w / width },
+    record: { ...record, scale: w / cropW },
   };
 }
 
@@ -552,10 +573,14 @@ export async function composeCreative(
       scrim?.direction === "full"
         ? Math.min(scrim.max, BUSY_SCRIM_CAP)
         : (scrim?.max ?? 0);
+    // A deep brand colour tints the art in the brand's hue; a neutral dark
+    // over a light sky reads as a grey veil.
     const scrimColor =
-      relativeLuminance(palette.textColor) < 0.2
-        ? palette.textColor
-        : "#000000";
+      relativeLuminance(palette.secondaryColor) < DEEP_SCRIM_LUMINANCE
+        ? palette.secondaryColor
+        : relativeLuminance(palette.textColor) < 0.2
+          ? palette.textColor
+          : "#000000";
     let opacity = scrim
       ? Math.min(
           scrim.max,
@@ -614,12 +639,26 @@ export async function composeCreative(
           CREATIVE_THRESHOLDS.largeContrast
             ? palette.accentColor
             : color;
+        // A pill that hardly stands off what lies behind it gets a ring.
+        const ring =
+          pill &&
+          contrastRatio(pill.color, luminanceStats(canvas!, frame).mean) <
+            PILL_RING_CONTRAST
+            ? contrastRatio(palette.accentColor, pill.color) >=
+              CREATIVE_THRESHOLDS.largeContrast
+              ? palette.accentColor
+              : pill.label
+            : null;
+        const ringWidth = Math.max(2, Math.round(0.06 * frame.h));
         textOverlays.push({
           input: svgImage(
             W,
             H,
             pill
-              ? `<rect x="${frame.x}" y="${frame.y}" width="${frame.w}" height="${frame.h}" rx="${frame.h / 2}" fill="${pill.color}"/>`
+              ? `<rect x="${frame.x}" y="${frame.y}" width="${frame.w}" height="${frame.h}" rx="${frame.h / 2}" fill="${pill.color}"/>` +
+                  (ring
+                    ? `<rect x="${frame.x + ringWidth / 2}" y="${frame.y + ringWidth / 2}" width="${frame.w - ringWidth}" height="${frame.h - ringWidth}" rx="${(frame.h - ringWidth) / 2}" fill="none" stroke="${ring}" stroke-width="${ringWidth}"/>`
+                    : "")
               : `<rect x="${frame.x + stroke / 2}" y="${frame.y + stroke / 2}" width="${frame.w - stroke}" height="${frame.h - stroke}" rx="${(frame.h - stroke) / 2}" fill="none" stroke="${outline}" stroke-width="${stroke}"/>`,
           ),
           left: 0,
