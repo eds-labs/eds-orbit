@@ -21,7 +21,10 @@ import {
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { retirePrevious } from "../creative/attach.ts";
-import type { EntityRow } from "../creative/brand-kit.ts";
+import {
+  projectCreativeAutomation,
+  type EntityRow,
+} from "../creative/brand-kit.ts";
 import { artAsset } from "../creative/components.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import {
@@ -326,8 +329,8 @@ async function attachCreatives(
 
 /**
  * Attaches the package image to every chosen draft, or to none when one
- * cannot take it. With the Creative Studio on and a primary logo in the brand
- * kit, a draft with image copy gets its own composed creative in its
+ * cannot take it. With the Creative Studio on, the project opted in (R65)
+ * and a primary logo in the brand kit, a draft with image copy gets its own composed creative in its
  * channel's format instead of the raw image, and the snapshot carries
  * `creative: {composed, skipped}`: a draft without image copy keeps the raw
  * image and is listed as `CREATIVE_COPY_MISSING`, and when the brand kit
@@ -340,7 +343,7 @@ async function attachCreatives(
  * (`CREATIVE_TEXT_TOO_LONG`) or a profile or component that changed
  * meanwhile (`MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED`) leave every
  * chosen draft unchanged. A raw image replaces a creative the draft carried.
- * Off, the raw image is attached as before.
+ * Off or not opted in, the raw image is attached as before.
  */
 export async function attachPackageImage(
   scope: Scope,
@@ -356,7 +359,11 @@ export async function attachPackageImage(
   // Accepting findings is the owner's decision, as in the studio.
   if (input.acceptQaFindings) authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const keys = [...new Set(input.deliverableKeys)];
-  if (creativeStudioEnabled())
+  // Composing needs the switch and the project's opt-in (R65).
+  if (
+    creativeStudioEnabled() &&
+    (await chatScoped(scope, (tx) => projectCreativeAutomation(tx, scope)))
+  )
     return attachCreatives(
       scope,
       packageId,

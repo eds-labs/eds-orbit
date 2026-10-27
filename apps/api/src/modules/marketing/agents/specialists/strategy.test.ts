@@ -7,6 +7,7 @@ import {
   STRATEGY_TEXT_LIMITS,
   strategyOutput,
   strategySpecialist,
+  strategySpecialistFor,
 } from "./strategy.ts";
 
 // The configuration the API needs to start: the specialist reads the Creative Studio flag when it is used.
@@ -225,17 +226,28 @@ describe("creative brief", () => {
     });
   });
 
+  // A creative task: its assignment carries a creative, which the runner
+  // passes only while the switch is on and the project opted in (R65).
+  const creativeTask = { assignment: { creative: { artPer: "post" } } };
+
   describe("with the Creative Studio on", () => {
     it("tells the model how to plan the image, and the limits it is checked against", () => {
       vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
-      expect(strategySpecialist.instructions).toContain(
+      const strategy = strategySpecialistFor(creativeTask);
+      expect(strategy.instructions).toContain(
         "If assignment.creative is set, also give each brief creative: keyMessage (the one message of the post's image), imageKind (scene for people and everyday situations, product when the post shows a feature through the product's own screenshots, graphic for typographic tips or announcements, combined for a real situation with the product's screenshot), motif (the main subject, concrete and visual), setting (place, light, time of day), template (one of assignment.creative.templates) and mood; otherwise creative is null. A motif never contains text, logos, interfaces or real persons.",
       );
       for (const [field, max] of Object.entries(CREATIVE_BRIEF_LIMITS))
-        expect(strategySpecialist.instructions).toContain(
-          `${field} at most ${max}`,
-        );
-      expect(strategySpecialist.outputSchema).toBe(strategyOutput);
+        expect(strategy.instructions).toContain(`${field} at most ${max}`);
+      expect(strategy.outputSchema).toBe(strategyOutput);
+    });
+
+    // R65: a task without a creative keeps the prompt and schema from before.
+    it("keeps the plain prompt and schema for a task without a creative", () => {
+      vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+      for (const input of [{}, { assignment: {} }, null])
+        expect(strategySpecialistFor(input)).toBe(strategySpecialist);
+      expect(strategySpecialist.instructions).not.toMatch(/creative/i);
     });
   });
 
@@ -243,6 +255,8 @@ describe("creative brief", () => {
   describe("with the Creative Studio off", () => {
     it("keeps the prompt and the answer's schema as before", () => {
       vi.stubEnv("ORBIT_CREATIVE_STUDIO", "false");
+      // Even a task that carries a creative gets the plain strategy.
+      expect(strategySpecialistFor(creativeTask)).toBe(strategySpecialist);
       expect(strategySpecialist.instructions).not.toMatch(/creative/i);
       const schema = strategySpecialist.outputSchema;
       const { creative: _omitted, ...plain } = brief();

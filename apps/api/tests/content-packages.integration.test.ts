@@ -1063,6 +1063,15 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       ]);
     });
 
+    // R65: the switch alone changes no package; the project opts in.
+    it("sets no template while the project has not opted in", async () => {
+      await addBrandKit(own, { enabled: false });
+      expect(templates((await startPackage()).missions)).toEqual([
+        undefined,
+        undefined,
+      ]);
+    });
+
     it("sets no template without a primary logo", async () => {
       expect(templates((await startPackage()).missions)).toEqual([
         undefined,

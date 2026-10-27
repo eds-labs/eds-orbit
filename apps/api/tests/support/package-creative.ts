@@ -23,7 +23,8 @@ export const PACKAGE_CREATIVE_COPY = {
  * Adds the fictional "Lumora Home" brand kit to a package project: an
  * approved primary logo asset and the brand's visual identity, next to the
  * profile the project already has (its official link and CTAs stay). `creative`
- * replaces the brand kit's creative settings; `screenshot` also adds an
+ * replaces the brand kit's creative settings, which opt the project in to
+ * automatic creatives (`enabled: true`, R65) unless they say otherwise; `screenshot` also adds an
  * approved product screenshot to the brand kit. Call it before a package is
  * requested: the profile version is part of the package plan.
  */
@@ -76,7 +77,7 @@ export async function addBrandKit(
     });
     const { visualIdentity } = lumoraProfile({
       logoAssetId: logo.id,
-      creative,
+      creative: { enabled: true, ...creative },
       ...(screenshot && { productAssetIds: [screenshot.id] }),
     });
     const profile = marketingProfile.parse({

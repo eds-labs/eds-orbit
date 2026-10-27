@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { creativeStudioEnabled } from "./flag.ts";
+import { creativeAutomationEnabled, creativeStudioEnabled } from "./flag.ts";
 
 // The configuration the API needs to start, so the test also runs without a local env file.
 const REQUIRED = {
@@ -33,5 +33,20 @@ describe("creativeStudioEnabled", () => {
   it("is on when the variable is true", () => {
     vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
     expect(creativeStudioEnabled()).toBe(true);
+  });
+
+  // R65: automatic behaviour needs the switch and the project's opt-in.
+  it("turns automatic creatives on only with the switch and the project's opt-in", () => {
+    const profile = (enabled?: unknown) => ({
+      visualIdentity: { creative: enabled === undefined ? {} : { enabled } },
+    });
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+    expect(creativeAutomationEnabled(profile(true))).toBe(true);
+    expect(creativeAutomationEnabled(profile(false))).toBe(false);
+    expect(creativeAutomationEnabled(profile())).toBe(false);
+    expect(creativeAutomationEnabled({ visualIdentity: {} })).toBe(false);
+    expect(creativeAutomationEnabled(null)).toBe(false);
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "false");
+    expect(creativeAutomationEnabled(profile(true))).toBe(false);
   });
 });

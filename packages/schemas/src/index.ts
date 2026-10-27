@@ -266,6 +266,10 @@ const templateChoice = z
   .strict();
 const creativeSettings = z
   .object({
+    // The project's opt-in to automatic creatives (R65): copy craft, the
+    // strategy's art plan, package composing and assignment creatives. Absent
+    // means off; the manual studio needs only the switch and a brand kit.
+    enabled: z.boolean().optional(),
     templates: z
       .partialRecord(z.enum(CREATIVE_TEMPLATE_IDS), templateChoice)
       .superRefine((templates, ctx) => {

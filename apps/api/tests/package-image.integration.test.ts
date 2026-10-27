@@ -449,6 +449,39 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
       expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
     });
 
+    // R65: the switch alone composes nothing; the project opts in.
+    it("attaches the raw image while the project has not opted in", async () => {
+      const { pkg, assetId, ids } = await readyPackage();
+      await run(async (tx) => {
+        const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+          where: { projectId: project.owner.projectId },
+        });
+        const value = profile.data as Record<string, any>;
+        await tx.projectMarketingProfile.update({
+          where: { id: profile.id },
+          data: {
+            data: {
+              ...value,
+              visualIdentity: {
+                ...value.visualIdentity,
+                creative: { ...value.visualIdentity.creative, enabled: false },
+              },
+            },
+          },
+        });
+      });
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result).not.toHaveProperty("creative");
+      for (const key of both) {
+        const row = await contentRow(ids[key]!);
+        expect(data(row)).toMatchObject({ assetId });
+        expect(data(row).creativeId).toBeUndefined();
+      }
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
     // CS-D6 (R64): accepting QA findings exists only with the Creative Studio.
     it("refuses acceptQaFindings with the Creative Studio off, as before", async () => {
       const { pkg, ids } = await readyPackage();

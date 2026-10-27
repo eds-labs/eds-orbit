@@ -37,7 +37,10 @@ import {
   IMAGE_KINDS,
 } from "../../../../../../packages/creative/src/index.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
-import { resolveBrandKit } from "../creative/brand-kit.ts";
+import {
+  projectCreativeAutomation,
+  resolveBrandKit,
+} from "../creative/brand-kit.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import { rightsCheck } from "../creative/quality.ts";
 import {
@@ -428,6 +431,8 @@ async function assertFormatFits(
 }
 
 export const CREATIVE_STUDIO_DISABLED = "CREATIVE_STUDIO_DISABLED";
+export const CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT =
+  "CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT";
 export const CREATIVE_SOCIAL_ONLY = "CREATIVE_SOCIAL_ONLY";
 export const CREATIVE_NEEDS_IMAGE = "CREATIVE_NEEDS_IMAGE";
 export const CREATIVE_AND_BANNER = "CREATIVE_AND_BANNER";
@@ -438,7 +443,8 @@ const LOGO_REFUSALS = ["PRIMARY_LOGO_REQUIRED", "APPROVED_LOGO_ASSET_REQUIRED"];
 /**
  * Refuses a creative the project cannot make (409), before anything is
  * confirmed or paid: the Creative Studio is off (`CREATIVE_STUDIO_DISABLED`),
- * the assignment is not social (`CREATIVE_SOCIAL_ONLY`), has no image consent
+ * the project did not opt in to automatic creatives
+ * (`CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT`, R65), the assignment is not social (`CREATIVE_SOCIAL_ONLY`), has no image consent
  * (`CREATIVE_NEEDS_IMAGE`) or a banner (`CREATIVE_AND_BANNER`), or the brand
  * kit has no approved raster logo whose rights cover social use
  * (`CREATIVE_LOGO_REQUIRED`); other brand kit refusals keep their own code.
@@ -458,6 +464,8 @@ export async function assertCreativeReady(
   if (!content.creative) return;
   if (!creativeStudioEnabled())
     throw new DomainError(CREATIVE_STUDIO_DISABLED, 409);
+  if (!(await projectCreativeAutomation(tx, scope)))
+    throw new DomainError(CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT, 409);
   if (content.contentType !== "social")
     throw new DomainError(CREATIVE_SOCIAL_ONLY, 409);
   if (content.image !== true) throw new DomainError(CREATIVE_NEEDS_IMAGE, 409);

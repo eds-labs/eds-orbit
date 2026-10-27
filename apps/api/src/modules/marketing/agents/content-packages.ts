@@ -37,7 +37,11 @@ import {
   currentMarketingProfile,
   officialTargetLink,
 } from "../brand/marketing-profile.ts";
-import { resolveBrandKit, type EntityRow } from "../creative/brand-kit.ts";
+import {
+  projectCreativeAutomation,
+  resolveBrandKit,
+  type EntityRow,
+} from "../creative/brand-kit.ts";
 import { findCreative, type CreativeRecord } from "../creative/store.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import { withinGuardrails } from "../policy/fact-guardrails.ts";
@@ -392,11 +396,12 @@ export async function revalidateContentPackage(
 /**
  * The creative template the drafts of a package with an image write their
  * image copy for: the brand kit's first enabled template while the Creative
- * Studio is on and the profile has a usable primary logo, else none (the
- * package keeps attaching its raw image).
+ * Studio is on, the project opted in to automatic creatives (R65) and the
+ * profile has a usable primary logo, else none (the package keeps attaching
+ * its raw image).
  */
 async function packageCreativeTemplate(tx: DbTx, scope: Scope) {
-  if (!creativeStudioEnabled()) return null;
+  if (!(await projectCreativeAutomation(tx, scope))) return null;
   try {
     return (
       (await resolveBrandKit(tx, scope)).config.enabledTemplates[0] ?? null

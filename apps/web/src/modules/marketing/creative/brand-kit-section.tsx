@@ -76,6 +76,14 @@ const T = {
   placement: ["Logo placement", "Logo-Platzierung"],
   cta: ["Button style", "Button-Stil"],
   corrections: ["Art corrections", "Korrekturen am Bild"],
+  automatic: [
+    "Automatic creatives for this project",
+    "Automatische Creatives für dieses Projekt",
+  ],
+  automaticHint: [
+    "When on, social drafts are written around one core message (copy craft), assignments with a creative get art planned and composed per post, and content package images are composed per draft. Off, Orbit writes and illustrates posts as before; the manual studio works either way.",
+    "Wenn aktiv, werden Social-Entwürfe um eine Kernbotschaft geschrieben (Copy Craft), Aufträge mit Creative bekommen je Beitrag geplante und zusammengesetzte Bilder, und Bilder von Content-Paketen werden je Entwurf zusammengesetzt. Aus: Orbit schreibt und bebildert Beiträge wie bisher; das manuelle Studio funktioniert in beiden Fällen.",
+  ],
   review: ["Vision review", "Bildprüfung durch das Modell"],
   reviewHint: [
     VISION_REVIEW_HINT,
@@ -166,6 +174,8 @@ export type KitDraft = {
   ctaStyle: string;
   maxArtCorrections: number | null;
   visualReview: boolean | null;
+  /** The project's opt-in to automatic creatives (`creative.enabled`, R65). */
+  automatic: boolean;
 };
 
 /** The editor's starting values from the stored identity. */
@@ -191,6 +201,7 @@ export function draftOf(identity: Identity | undefined): KitDraft {
     maxArtCorrections: creative.maxArtCorrections ?? null,
     visualReview:
       typeof creative.visualReview === "boolean" ? creative.visualReview : null,
+    automatic: creative.enabled === true,
   };
 }
 
@@ -244,6 +255,8 @@ export function mergeBrandKit(identity: Identity, draft: KitDraft): Identity {
     draft.maxArtCorrections !== null,
   );
   set("visualReview", draft.visualReview, draft.visualReview !== null);
+  // Off is the absent field (R65).
+  set("enabled", true, draft.automatic);
   if (Object.keys(next).length) out.creative = next;
   return out;
 }
@@ -423,6 +436,16 @@ export function BrandKitView({
         </div>
       </div>
       {!isOwner && <Alert>{t("ownersOnly", de)}</Alert>}
+      <label className="field-check">
+        <input
+          type="checkbox"
+          disabled={ro}
+          checked={draft.automatic}
+          onChange={(e) => onChange({ ...draft, automatic: e.target.checked })}
+        />{" "}
+        {t("automatic", de)}
+      </label>
+      <p className="panel-note">{t("automaticHint", de)}</p>
       {stale && (
         <Alert kind="warning">
           {t("stale", de)}{" "}

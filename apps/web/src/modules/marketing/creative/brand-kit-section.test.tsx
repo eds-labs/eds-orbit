@@ -160,6 +160,36 @@ describe("brand kit editor", () => {
     expect(view()).toContain("Save brand kit");
   });
 
+  // R65: the project's opt-in to automatic creatives, an owner's choice.
+  it("edits the project's opt-in to automatic creatives", () => {
+    expect(draftOf(identity).automatic).toBe(false);
+    const on = { ...draftOf(identity), automatic: true };
+    expect(mergeBrandKit(identity, on).creative).toEqual({ enabled: true });
+    // Off is the absent field, as before the opt-in existed.
+    const off = mergeBrandKit(
+      { ...identity, creative: { enabled: true, ctaStyle: "pill" } },
+      {
+        ...draftOf({
+          ...identity,
+          creative: { enabled: true, ctaStyle: "pill" },
+        }),
+        automatic: false,
+      },
+    );
+    expect(off.creative).toEqual({ ctaStyle: "pill" });
+    expect(
+      draftOf({ ...identity, creative: { enabled: true } }).automatic,
+    ).toBe(true);
+    const html = view({ draft: on });
+    expect(html).toContain("Automatic creatives for this project");
+    expect(html).toMatch(
+      /<input type="checkbox"[^>]*checked=""[^>]*\/> Automatic creatives/,
+    );
+    expect(view({ isOwner: false })).toMatch(
+      /<input type="checkbox" disabled=""[^>]*\/> Automatic creatives/,
+    );
+  });
+
   it("explains the cost of the vision review", () => {
     expect(view()).toContain(VISION_REVIEW_HINT);
   });

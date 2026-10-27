@@ -50,7 +50,7 @@ import {
   storedCreativeBrief,
 } from "../../creative/assignment.ts";
 import { resolveCreativeConfig } from "../../creative/brand-kit.ts";
-import { creativeStudioEnabled } from "../../creative/flag.ts";
+import { creativeAutomationEnabled } from "../../creative/flag.ts";
 
 /**
  * Copywriter step of an assignment run (Orbit Agents, spec §5): an executor,
@@ -129,7 +129,8 @@ async function missionCeiling(tx: DbTx, scope: Scope, task: AgentTask) {
 }
 
 /**
- * The creative fields of a mission (Creative Studio, only while it is on):
+ * The creative fields of a mission (Creative Studio, only while it is on and
+ * the project opted in, R65):
  * the template its image copy and creative are made for
  * (`creativeTemplateFor`: the strategy's, else the assignment's first, else
  * the brand kit's first enabled template) and the strategy's art plan
@@ -141,7 +142,7 @@ function creativeMission(
   profile: MarketingProfile,
   proposal: unknown,
 ) {
-  if (!assignment.creative || !creativeStudioEnabled()) return {};
+  if (!assignment.creative || !creativeAutomationEnabled(profile)) return {};
   const creativeBrief = storedCreativeBrief(proposal);
   const creativeTemplate = creativeTemplateFor(
     creativeBrief?.template,

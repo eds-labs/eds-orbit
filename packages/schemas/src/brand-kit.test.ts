@@ -273,6 +273,10 @@ describe("brand kit in the visual identity", () => {
     expect(parse({ creative: { ctaStyle: "button" } })).toBe(false);
     expect(parse({ creative: { visualReview: "yes" } })).toBe(false);
     expect(parse({ creative: {} })).toBe(true);
+    // The project's opt-in to automatic creatives (R65): a boolean, absent = off.
+    expect(parse({ creative: { enabled: true } })).toBe(true);
+    expect(parse({ creative: { enabled: false } })).toBe(true);
+    expect(parse({ creative: { enabled: "yes" } })).toBe(false);
   });
 
   it("refuses unknown keys in every brand kit object", () => {

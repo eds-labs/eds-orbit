@@ -337,25 +337,39 @@ const CREATIVE_INSTRUCTIONS = [
 ].join(" ");
 
 /**
- * The strategy specialist. While the Creative Studio is off, its prompt and
- * answer schema are exactly what they were before it (CS-D6), so both are
- * read at call time.
+ * The strategy specialist: its prompt and answer schema are exactly what
+ * they were before the Creative Studio (CS-D6).
  */
 export const strategySpecialist: Specialist = {
   role: "strategy",
   taskClass: "agent_strategy",
-  get instructions() {
-    return creativeStudioEnabled()
-      ? `${BASE_INSTRUCTIONS} ${CREATIVE_INSTRUCTIONS}`
-      : BASE_INSTRUCTIONS;
-  },
+  instructions: BASE_INSTRUCTIONS,
   tools: [agentKnowledgeSearch, ...channelTools],
   hostedTools: [],
-  get outputSchema() {
-    return creativeStudioEnabled() ? strategyOutput : plainStrategyOutput;
-  },
+  outputSchema: plainStrategyOutput,
   limits: { ...DEFAULT_SPECIALIST_LIMITS, maxWebSearches: 0 },
   refresh: syncHistory,
   prepareInput: withContext,
   finalize: checkBriefs,
 };
+
+/** The strategy that also plans each post's art (Creative Studio). */
+const creativeStrategySpecialist: Specialist = {
+  ...strategySpecialist,
+  instructions: `${BASE_INSTRUCTIONS} ${CREATIVE_INSTRUCTIONS}`,
+  outputSchema: strategyOutput,
+};
+
+/**
+ * The strategy specialist of one task, by its input: it plans each post's
+ * art only while the Creative Studio is on and the task's assignment carries
+ * a creative, which the runner passes only for a project that opted in to
+ * automatic creatives (R65); otherwise it is `strategySpecialist`.
+ */
+export function strategySpecialistFor(input: unknown): Specialist {
+  const assignment = (input as { assignment?: { creative?: unknown } } | null)
+    ?.assignment;
+  return creativeStudioEnabled() && assignment?.creative
+    ? creativeStrategySpecialist
+    : strategySpecialist;
+}

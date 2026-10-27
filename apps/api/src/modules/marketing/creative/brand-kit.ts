@@ -25,9 +25,25 @@ import {
   PRODUCT_ASSET_TYPES,
 } from "../brand/asset-rules.ts";
 import { assetContent } from "./asset-content.ts";
+import { creativeAutomationEnabled, creativeStudioEnabled } from "./flag.ts";
 
 /** An `Entity` row as the database returns it. */
 export type EntityRow = Awaited<ReturnType<typeof entity>>;
+
+/**
+ * Whether the project's automatic Creative Studio behaviour is on now (R65,
+ * `creativeAutomationEnabled` on the stored profile). With the switch off
+ * nothing is read.
+ */
+export async function projectCreativeAutomation(
+  tx: DbTx,
+  scope: Scope,
+): Promise<boolean> {
+  if (!creativeStudioEnabled()) return false;
+  return creativeAutomationEnabled(
+    (await currentMarketingProfile(tx, scope))?.data,
+  );
+}
 
 /** The project's creative settings with their defaults filled in. */
 export type ResolvedCreativeConfig = {

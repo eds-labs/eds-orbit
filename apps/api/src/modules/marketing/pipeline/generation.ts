@@ -68,7 +68,7 @@ import {
   type CreativeCopy,
   type TemplateId,
 } from "../../../../../../packages/creative/src/index.ts";
-import { creativeStudioEnabled } from "../creative/flag.ts";
+import { projectCreativeAutomation } from "../creative/brand-kit.ts";
 import {
   creativeCta,
   creativeTemplateOf,
@@ -505,6 +505,11 @@ async function generateMissionDraft(
       )
         throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
       const creativeTemplate = creativeTemplateOf(m);
+      // Copy craft for social posts of a project that opted in to automatic
+      // creatives (R65); otherwise the request is as before (CS-D6).
+      const copyCraft =
+        m.contentType === "social" &&
+        (await projectCreativeAutomation(tx, scope));
       const revision = m.revisionOf
         ? await revisionContext(
             tx,
@@ -609,10 +614,8 @@ async function generateMissionDraft(
               },
             }
           : {}),
-        // Copy craft for social posts while the Creative Studio is on (spec §10).
-        ...(creativeStudioEnabled() && m.contentType === "social"
-          ? { copyCraft: true as const }
-          : {}),
+        // Copy craft (spec §10), only for a project that opted in (R65).
+        ...(copyCraft ? { copyCraft: true as const } : {}),
         // The image copy for a mission with a creative template.
         ...(creativeTemplate
           ? {

@@ -63,7 +63,7 @@ import {
 } from "../assignments.ts";
 import { notify } from "../notifications.ts";
 import { scheduleFinishedRun } from "../veto.ts";
-import { creativeStudioEnabled } from "../../creative/flag.ts";
+import { projectCreativeAutomation } from "../../creative/brand-kit.ts";
 import type {
   AgentTask,
   AgentTaskData,
@@ -427,8 +427,9 @@ async function taskInput(
         ? { sharedAcrossChannels: true }
         : {}),
       ...(assignment.format ? { format: assignment.format } : {}),
-      // The strategy plans each post's art from it (R44); only while the Creative Studio is on (CS-D6).
-      ...(assignment.creative && creativeStudioEnabled()
+      // The strategy plans each post's art from it (R44); only while the
+      // Creative Studio is on and the project opted in (CS-D6, R65).
+      ...(assignment.creative && (await projectCreativeAutomation(tx, scope))
         ? { creative: assignment.creative }
         : {}),
     },

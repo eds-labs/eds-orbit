@@ -405,6 +405,88 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     );
   });
 
+  /** Sets the project's opt-in to automatic creatives (R65) on the stored profile. */
+  const optIn = (enabled: boolean) =>
+    h.run(async (tx) => {
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...value.visualIdentity,
+              creative: { ...value.visualIdentity.creative, enabled },
+            },
+          },
+        },
+      });
+    });
+
+  // R65: the switch alone changes nothing automatic; the project opts in.
+  it("refuses creative while the project has not opted in", async () => {
+    const assignment = await creativeAssignment({ schedule: ONE_SLOT });
+    await optIn(false);
+    await drafted();
+    expect(await h.task("visual")).toMatchObject({
+      status: "failed",
+      errorCode: "CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT",
+    });
+    expect(provider.generateImage).not.toHaveBeenCalled();
+    for (const contract of contracts()) {
+      expect(contract).not.toHaveProperty("creative");
+      expect(contract).not.toHaveProperty("copyCraft");
+    }
+    for (const mission of await h.rows("missions")) {
+      expect(mission).not.toHaveProperty("creativeTemplate");
+      expect(mission).not.toHaveProperty("creativeBrief");
+    }
+    await expect(resume(assignment.id)).rejects.toThrow(
+      "CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT",
+    );
+  });
+
+  it("writes drafts as with the switch off while the project has not opted in", async () => {
+    await h.makeAssignment({
+      channels: [X],
+      image: false,
+      delivery: "postiz_draft",
+      schedule: ONE_SLOT,
+    });
+    await optIn(false);
+    await drafted();
+    expect(provider.generate).toHaveBeenCalled();
+    for (const [params] of provider.generate.mock.calls) {
+      expect(params).not.toHaveProperty("copyCraft");
+      expect(params).not.toHaveProperty("creative");
+    }
+    for (const contract of contracts()) {
+      expect(contract).not.toHaveProperty("copyCraft");
+      expect(contract).not.toHaveProperty("creative");
+    }
+    for (const draft of await contents()) {
+      expect(draft).not.toHaveProperty("copyCraft");
+      expect(draft).not.toHaveProperty("coreMessage");
+    }
+  });
+
+  it("asks for copy craft once the project opted in", async () => {
+    await h.makeAssignment({
+      channels: [X],
+      image: false,
+      delivery: "postiz_draft",
+      schedule: ONE_SLOT,
+    });
+    await drafted();
+    expect(provider.generate).toHaveBeenCalled();
+    for (const [params] of provider.generate.mock.calls)
+      expect(params).toMatchObject({ copyCraft: true });
+    for (const contract of contracts()) expect(contract.copyCraft).toBe(true);
+  });
+
   it("keeps legacy confirmations", async () => {
     const legacy = {
       name: "Two posts a day",

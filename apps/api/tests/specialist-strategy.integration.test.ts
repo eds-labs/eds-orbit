@@ -142,6 +142,46 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
       }),
     );
   };
+  /**
+   * Gives the assignment a creative and sets the project's opt-in to
+   * automatic creatives (R65) before the strategy task is made.
+   */
+  const creativeProject = (optIn: boolean) =>
+    run(async (tx) => {
+      const row = (await list(tx, project.owner, "assignments"))[0]!;
+      const { confirmation, ...content } = data(row);
+      const next = {
+        ...content,
+        creative: {
+          templates: ["lifestyle"],
+          artPer: "post",
+          imageKind: "auto",
+        },
+      };
+      await update(tx, project.owner, row, {
+        ...next,
+        confirmation: {
+          ...confirmation,
+          assignmentHash: assignmentHash(next as any),
+        },
+      });
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...value.visualIdentity,
+              creative: { enabled: optIn },
+            },
+          },
+        },
+      });
+    });
   const tasks = () =>
     run((tx) => list(tx, project.owner, "agent_tasks")).then((rows) =>
       rows.map((row): Record<string, any> => ({ id: row.id, ...data(row) })),
@@ -419,8 +459,30 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     );
   });
 
+  // R65: the switch alone changes no prompt; the project opts in.
+  it("keeps the prompt and the answer schema while the project has not opted in", async () => {
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+    await creativeProject(false);
+    const [first, second] = await slots();
+    mocked.replies.push(() => ({
+      output: [message({ briefs: [brief(first!), brief(second!)] })],
+    }));
+    await runAgentTask(worker(), (await strategyTask()).id);
+
+    const [request] = mocked.requests;
+    expect(request.instructions).not.toMatch(/creative/i);
+    const item = request.outputSchema.properties.briefs.items;
+    expect(Object.keys(item.properties)).not.toContain("creative");
+    expect(JSON.parse(request.input[0].content).assignment).not.toHaveProperty(
+      "creative",
+    );
+    expect(await task("strategy")).toMatchObject({ status: "done" });
+  });
+
   it("plans the art of a post with the Creative Studio on", async () => {
     vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+    // The project opted in and the assignment has a creative (R65).
+    await creativeProject(true);
     const [first, second] = await slots();
     const creative = {
       keyMessage: "Teams get started on day one",

@@ -627,9 +627,32 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(provider.generate).toHaveBeenCalledTimes(2);
   });
 
-  /** A Telegram slot drafted with a long description fact; copy craft only with the Creative Studio on. */
+  /**
+   * A Telegram slot drafted with a long description fact; copy craft only
+   * with the Creative Studio on and the project opted in (R65).
+   */
   const longFactDraft = async (creativeStudio = true) => {
-    if (creativeStudio) process.env.ORBIT_CREATIVE_STUDIO = "true";
+    if (creativeStudio) {
+      process.env.ORBIT_CREATIVE_STUDIO = "true";
+      await h.run(async (tx) => {
+        const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+          where: { projectId: project.owner.projectId },
+        });
+        const value = profile.data as Record<string, any>;
+        await tx.projectMarketingProfile.update({
+          where: { id: profile.id },
+          data: {
+            data: {
+              ...value,
+              visualIdentity: {
+                ...value.visualIdentity,
+                creative: { enabled: true },
+              },
+            },
+          },
+        });
+      });
+    }
     await h.run((tx) =>
       setFact(tx, project.owner, {
         key: "product.description",
