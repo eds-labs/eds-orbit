@@ -364,13 +364,7 @@ export function GoogleDriveSettings() {
                             }
                           >
                             {(file.mimeType.startsWith("image/")
-                              ? [
-                                  "photo",
-                                  "logo",
-                                  "background",
-                                  "banner",
-                                  "icon",
-                                ]
+                              ? uploadAssetTypes(studio)
                               : ["document", "other"]
                             ).map((type) => (
                               <option key={type} value={type}>
