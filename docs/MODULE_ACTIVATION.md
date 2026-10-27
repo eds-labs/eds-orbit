@@ -91,15 +91,15 @@ The Creative Studio ([MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md
 
 | Layer | Rule |
 |---|---|
-| Installation | `ORBIT_CREATIVE_STUDIO=true` (default `false`). While off, every creative route answers 404 `NOT_FOUND`, the creative tools, prompts, schemas and UI are absent and existing paths behave as before. |
-| Project | Marketing must be active for the project (`MODULE_DISABLED` otherwise, after the membership check). A project opts in through its brand kit (primary logo) and, for automation, the assignment field `creative`. |
+| Installation | `ORBIT_CREATIVE_STUDIO=true` (default `false`). While off, every creative route answers 404 `NOT_FOUND`; the creative tools and UI are absent; the draft and strategy prompts and schemas and the assignment and MCP configuration tool schemas are those from before the studio (pinned by `creative/flag-off.test.ts`); Instagram and Facebook stay unknown providers. The one intended change with the flag off: a partial MCP configuration change no longer carries zod defaults (a data-loss fix, see [MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md#flag-scope-and-rollback)). |
+| Project | Marketing must be active for the project (`MODULE_DISABLED` otherwise, after the membership check). With the flag on, the manual studio needs the project's brand kit (an approved primary logo). Automatic creatives (copy craft, the strategy's art plan, composed package images, the assignment field `creative`) need the project's opt-in `visualIdentity.creative.enabled` (Settings → Brand, owner; else `CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT` for an assignment), and per assignment its `creative`. |
 | Member | Existing Marketing roles: any member reads; editor composes, recomposes and attaches; owner generates art, reviews and accepts findings. |
 
-Rollback: flag off and redeploy; stored creatives are ignored.
+Rollback: pause the assignments with `creative` first (with the flag off their review no longer holds a creative that failed its checks), then flag off and redeploy; stored creatives are ignored. See the guide for redeploying an older image.
 
 ## Rollout
 
-1. Merge with the flag off; no behaviour change.
+1. Merge with the flags off. No behaviour change, except the Creative Studio's one intended fix with its flag off: partial MCP configuration changes no longer carry zod defaults.
 2. Turn the flag on in staging. Turn marketing off and on again on a test project, and check the acceptance list above.
 3. Production: turning the flag on is a separate, approved step (`AGENTS.md`). Turning it on alone changes nothing until an owner disables a module.
 
