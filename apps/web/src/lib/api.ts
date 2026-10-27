@@ -224,6 +224,18 @@ export const usd = (micros: number | null | undefined) =>
 export const libraryAssets = (items: Entity[] | undefined) =>
   (items ?? []).filter((asset) => !asset.data.boundTo);
 /**
+ * The types an uploaded brand asset may have: with the Creative Studio on
+ * also product screenshots and images for its brand kit (R61).
+ */
+export const uploadAssetTypes = (creativeStudio: boolean) => [
+  "logo",
+  "photo",
+  "background",
+  "banner",
+  "icon",
+  ...(creativeStudio ? ["screenshot", "product"] : []),
+];
+/**
  * A DELETE whose success answers 204 with no body, which `api` would fail to
  * parse as JSON. Sends no Content-Type: there is no body to describe.
  */

@@ -13,17 +13,20 @@ import {
   startEdit,
   mergeBrandKit,
   templateVariants,
+  toKitAsset,
   type KitAsset,
 } from "./brand-kit-section";
 import type { CreativeOptions } from "./creative-api";
 
 const asset = (id: string, type: string, patch: Partial<KitAsset> = {}) => ({
   id,
+  version: 1,
   name: `Name ${id}`,
   type,
   approved: true,
   raster: true,
   hasHash: true,
+  providerUse: false,
   ...patch,
 });
 const assets: KitAsset[] = [
@@ -158,6 +161,44 @@ describe("brand kit editor", () => {
     expect(html).not.toContain("Save brand kit");
     expect(html).not.toMatch(/<select(?![^>]*disabled)/);
     expect(view()).toContain("Save brand kit");
+  });
+
+  // I2: provider use of the kit's logos and products, the owner's toggle.
+  it("shows the provider use of the primary logo and the kit's chosen assets", () => {
+    expect(
+      toKitAsset({
+        id: "a",
+        version: 3,
+        data: {
+          type: "logo",
+          usageApproved: true,
+          assetStatus: "approved",
+          providerUse: true,
+        },
+      }),
+    ).toMatchObject({ version: 3, providerUse: true, approved: true });
+    expect(
+      toKitAsset({ id: "b", version: 1, data: { type: "logo" } }).providerUse,
+    ).toBe(false);
+    const draft = { ...draftOf(identity), productAssetIds: ["shot-1"] };
+    const withUse = assets.map((a) =>
+      a.id === "logo-1" ? { ...a, providerUse: true } : a,
+    );
+    const html = view({
+      draft,
+      assets: withUse,
+      primaryLogoId: "logo-1",
+      onProviderUse: () => {},
+    });
+    expect(html).toContain("Sending to AI providers");
+    // The primary logo is on, the chosen screenshot is off.
+    expect(html).toMatch(
+      /Name logo-1[\s\S]*?<input type="checkbox"[^>]*checked=""[^>]*\/> May be sent to AI providers/,
+    );
+    expect(html).toContain("Name shot-1");
+    expect(view({ draft, isOwner: false, primaryLogoId: "logo-1" })).toContain(
+      "May be sent to AI providers: no",
+    );
   });
 
   // R65: the project's opt-in to automatic creatives, an owner's choice.

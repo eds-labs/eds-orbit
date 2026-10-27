@@ -1,6 +1,13 @@
 "use client";
-import { useState } from "react";
-import { api, post, useMutation, useResource } from "@/lib/api";
+import { useContext, useState } from "react";
+import {
+  api,
+  post,
+  uploadAssetTypes,
+  useMutation,
+  useResource,
+} from "@/lib/api";
+import { ShellContext } from "@/platform/shell/shell-context";
 import { useWorkspace } from "./workspace-context";
 import { Alert, Button, Empty, Modal } from "./ui/primitives";
 import { DataForm, str } from "@/platform/ui/form";
@@ -58,6 +65,8 @@ export function GoogleDriveSettings() {
   const [importTypes, setImportTypes] = useState<Record<string, string>>({});
   const [health, setHealth] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  // Product screenshots and images come with the Creative Studio (R61).
+  const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const files = useResource<{
     files: DriveFile[];
     folderId: string;
@@ -454,9 +463,10 @@ export function GoogleDriveSettings() {
                 label: "Asset type",
                 type: "select",
                 value: "photo",
-                options: ["logo", "photo", "background", "banner", "icon"].map(
-                  (value) => ({ value, label: value }),
-                ),
+                options: uploadAssetTypes(studio).map((value) => ({
+                  value,
+                  label: value,
+                })),
               },
               {
                 name: "file",

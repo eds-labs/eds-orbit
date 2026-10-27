@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { Download, Image as ImageIcon, Sparkles, Upload } from "lucide-react";
 import {
   action,
@@ -10,6 +10,7 @@ import {
   value,
   type Entity,
   libraryAssets,
+  uploadAssetTypes,
 } from "@/lib/api";
 import {
   Alert,
@@ -21,6 +22,8 @@ import {
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { useCollection } from "@/platform/ui/collection";
+import { ShellContext } from "@/platform/shell/shell-context";
+import { ProviderUseControl, providerUseBody } from "./creative/provider-use";
 import {
   brandTermsField,
   mergeVisualIdentity,
@@ -1001,7 +1004,9 @@ type OpenAiImageConfiguration = {
 };
 
 export function BrandAssetLibrary() {
-  const { project, isOwner, refresh } = useWorkspace();
+  const { project, isOwner, refresh, locale } = useWorkspace();
+  // Creative Studio: provider use and the product upload types (R61, I2).
+  const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const assets = useCollection("assets");
   const openAi = useResource<OpenAiImageConfiguration>(
     isOwner ? collectionPath(project.id, "openai-configuration") : null,
@@ -1144,6 +1149,38 @@ export function BrandAssetLibrary() {
                 )}
                 <Badge>{value(asset, "type")}</Badge>
               </div>
+              {studio && asset.data.type !== "original_logo" && (
+                <ProviderUseControl
+                  asset={{
+                    id: asset.id,
+                    version: asset.version,
+                    approved:
+                      asset.data.usageApproved === true &&
+                      asset.data.assetStatus === "approved",
+                    providerUse: asset.data.providerUse === true,
+                  }}
+                  isOwner={isOwner}
+                  de={locale === "de"}
+                  pending={mutation.pending}
+                  onChange={(next) =>
+                    mutation.run(() =>
+                      action(
+                        project.id,
+                        "asset-status",
+                        providerUseBody(
+                          {
+                            id: asset.id,
+                            version: asset.version,
+                            approved: true,
+                            providerUse: asset.data.providerUse === true,
+                          },
+                          next,
+                        ),
+                      ),
+                    )
+                  }
+                />
+              )}
             </div>
             {(asset.data.hasContent === true ||
               typeof asset.data.driveFileId === "string") && (
@@ -1235,9 +1272,10 @@ export function BrandAssetLibrary() {
                 label: "Asset type",
                 type: "select",
                 value: "photo",
-                options: ["logo", "photo", "background", "banner", "icon"].map(
-                  (value) => ({ value, label: value }),
-                ),
+                options: uploadAssetTypes(studio).map((value) => ({
+                  value,
+                  label: value,
+                })),
               },
               {
                 name: "file",

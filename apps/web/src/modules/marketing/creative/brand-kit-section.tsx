@@ -1,7 +1,14 @@
 "use client";
 import { useContext, useState } from "react";
+import { ProviderUseControl, providerUseBody } from "./provider-use";
 import { Alert, Button, Loading } from "@/components/ui/primitives";
-import { api, collectionPath, useMutation, useResource } from "@/lib/api";
+import {
+  action,
+  api,
+  collectionPath,
+  useMutation,
+  useResource,
+} from "@/lib/api";
 import { useWorkspace } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import {
@@ -53,6 +60,11 @@ const T = {
   productsHint: [
     "Approved screenshots, product images and photos.",
     "Freigegebene Screenshots, Produktbilder und Fotos.",
+  ],
+  providerUse: ["Sending to AI providers", "Senden an KI-Anbieter"],
+  providerUseHint: [
+    "Only assets marked here are ever sent to an AI provider: as reference images, or inside a finished image for the vision review. Saved at once.",
+    "Nur hier markierte Assets werden je an einen KI-Anbieter gesendet: als Referenzbild oder im fertigen Bild für die Bildprüfung. Wird sofort gespeichert.",
   ],
   imagery: ["Imagery", "Bildsprache"],
   imageryKind: ["Kind", "Art"],
@@ -130,25 +142,31 @@ const words = (id: string) => id.replaceAll("_", " ");
 /** The asset fields the editor needs. */
 export type KitAsset = {
   id: string;
+  version: number;
   name: string;
   type: string;
   approved: boolean;
   raster: boolean;
   hasHash: boolean;
+  /** The owner allows sending the asset to AI providers (R28). */
+  providerUse: boolean;
 };
 
 export function toKitAsset(item: {
   id: string;
+  version?: number;
   data: Record<string, unknown>;
 }): KitAsset {
   const d = item.data;
   return {
     id: item.id,
+    version: item.version ?? 0,
     name: String(d.name ?? d.filename ?? item.id),
     type: String(d.type ?? ""),
     approved: d.usageApproved === true && d.assetStatus === "approved",
     raster: RASTER.includes(String(d.mime ?? "")),
     hasHash: typeof d.sha256 === "string" && d.sha256 !== "",
+    providerUse: d.providerUse === true,
   };
 }
 
@@ -380,6 +398,9 @@ export function BrandKitView({
   onSave,
   stale = false,
   onReload,
+  primaryLogoId,
+  onProviderUse,
+  providerUsePending = false,
 }: {
   de: boolean;
   isOwner: boolean;
@@ -394,6 +415,11 @@ export function BrandKitView({
   /** The profile changed since the edit started (see `isStale`). */
   stale?: boolean;
   onReload?: () => void;
+  /** The profile's primary logo (set in the form below), for its provider use. */
+  primaryLogoId?: string;
+  /** Sets an asset's provider use (owner); saved at once, apart from the kit. */
+  onProviderUse?: (asset: KitAsset, next: boolean) => void;
+  providerUsePending?: boolean;
 }) {
   const ro = !isOwner || pending;
   const logos = assets.filter(usableLogo);
@@ -416,6 +442,14 @@ export function BrandKitView({
     options.defaultChannelFormats[channel] ??
     [];
   const labelOf = (id: string) => assets.find((a) => a.id === id)?.name ?? id;
+  // The assets a creative may show: what the vision review would send.
+  const shown = [
+    ...new Set([
+      ...(primaryLogoId ? [primaryLogoId] : []),
+      ...LOGO_ROLES.flatMap((role) => draft.logos[role] ?? []),
+      ...draft.productAssetIds,
+    ]),
+  ].flatMap((id) => assets.find((a) => a.id === id && a.approved) ?? []);
   const dropBroken = (b: BrokenReference) =>
     onChange(
       b.kind === "logo"
@@ -533,6 +567,24 @@ export function BrandKitView({
           {a.name}
         </label>
       ))}
+      {shown.length > 0 && (
+        <>
+          <h3>{t("providerUse", de)}</h3>
+          <p className="panel-note">{t("providerUseHint", de)}</p>
+          {shown.map((a) => (
+            <div key={a.id} className="brand-kit-template">
+              <span>{a.name}</span>
+              <ProviderUseControl
+                asset={a}
+                isOwner={isOwner && !!onProviderUse}
+                de={de}
+                pending={providerUsePending}
+                onChange={(next) => onProviderUse?.(a, next)}
+              />
+            </div>
+          ))}
+        </>
+      )}
       <h3>{t("imagery", de)}</h3>
       <Select
         label={t("imageryKind", de)}
@@ -854,8 +906,14 @@ function BrandKitLoaded() {
   } | null>(`/projects/${project.id}/marketing-profile`);
   const options = useCreativeOptions(project.id);
   const assets = useResource<{
-    items: Array<{ id: string; data: Record<string, unknown> }>;
+    items: Array<{
+      id: string;
+      version?: number;
+      data: Record<string, unknown>;
+    }>;
   }>(collectionPath(project.id, "assets"));
+  // Provider use is saved on the asset at once, apart from the kit's save.
+  const providerUse = useMutation(() => assets.refresh());
   const [edit, setEdit] = useState<KitEdit | null>(null);
   const mutation = useMutation(() => {
     setEdit(null);
@@ -911,10 +969,21 @@ function BrandKitLoaded() {
       assets={(assets.data?.items ?? []).map(toKitAsset)}
       options={options.data!}
       pending={mutation.pending}
-      error={saveErrorText(mutation.error, de)}
+      error={saveErrorText(mutation.error ?? providerUse.error, de)}
       saved={mutation.success}
       stale={stale}
       onReload={() => setEdit(null)}
+      primaryLogoId={
+        typeof stored.data.visualIdentity?.logoAssetId === "string"
+          ? stored.data.visualIdentity.logoAssetId
+          : undefined
+      }
+      providerUsePending={providerUse.pending}
+      onProviderUse={(asset, next) =>
+        void providerUse.run(() =>
+          action(project.id, "asset-status", providerUseBody(asset, next)),
+        )
+      }
       onSave={() =>
         void mutation.run(() =>
           api(`/projects/${project.id}/marketing-profile`, {
