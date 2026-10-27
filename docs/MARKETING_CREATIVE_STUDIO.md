@@ -129,6 +129,8 @@ See [API_CONTRACT.md](API_CONTRACT.md#creative-studio) for bodies and errors.
 | `POST …/creatives/:creativeId/review` | owner (vision call) |
 | `POST …/creatives/:creativeId/attach` | editor; owner for `acceptQaFindings` |
 
+**Art direction (R71).** With new art, the produce form and the regenerate dialog offer optional fields Motif, Setting (place, light, time of day) and Mood (`artDirection: {motif, setting?, mood?}`, the strategy's limits 400/300/160). Without a motif a manual creative's art shows the post's title, which can make a weak picture; a regeneration without one keeps the stored art plan. The art direction is stored in the creative's `brief`, kept by every recomposition (also with another template) and replaced only by a regeneration that brings a new one. It follows the image copy's character and link rules (409 `CREATIVE_TEXT_UNSAFE` / `CREATIVE_LINK_NOT_ALLOWED` with `detail.codes`, before anything is read, paid or stored); the art prompt keeps its fixed no-text, no-logo and no-real-person rules. The paid path is unchanged: free trial composition first (R53), the client's `requestId` (R51) and the owner's confirmation.
+
 Request bodies are strict and no body can choose how a creative is attached (R45). Error `detail` carries ids and codes only (R56). The routes are in the access matrix. The web has a creative panel in the content detail (replaces the old Creative modal when the flag is on; rendition tabs per format, components and rights, QA checklist, cost, actions) and the Brand section described above.
 
 ## Verification and demo

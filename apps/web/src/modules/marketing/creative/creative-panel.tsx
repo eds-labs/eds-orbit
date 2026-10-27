@@ -17,6 +17,7 @@ import {
   useContentCreative,
   useCreativeAction,
   useCreativeOptions,
+  type ArtDirection,
   type CreativeCopy,
   type CreativeOptions,
   type CreativeStatus,
@@ -153,6 +154,24 @@ const T = {
     "Der Höchstpreis ist nicht bekannt; richten Sie zuerst die Bilderzeugung ein.",
   ],
   unclear: ["unclear outcome", "Ausgang unklar"],
+  motif: ["Motif", "Motiv"],
+  setting: [
+    "Setting (place, light, time of day)",
+    "Szene (Ort, Licht, Tageszeit)",
+  ],
+  mood: ["Mood", "Stimmung"],
+  artDirectionHint: [
+    "Optional: what the picture shows. Without a motif the post's title is used; the image never contains text or logos.",
+    "Optional: was das Bild zeigt. Ohne Motiv dient der Titel des Beitrags; das Bild enthält nie Text oder Logos.",
+  ],
+  artDirectionKeep: [
+    "Optional: a new motif for the new art. Without one the current motif is kept.",
+    "Optional: ein neues Motiv für das neue Bild. Ohne Angabe bleibt das bisherige Motiv.",
+  ],
+  motifNeeded: [
+    "Enter a motif to go with the setting or mood.",
+    "Geben Sie ein Motiv zu Szene oder Stimmung an.",
+  ],
   working: ["Working…", "Läuft…"],
 } satisfies Record<string, Pair>;
 
@@ -385,12 +404,82 @@ function Components({
   );
 }
 
+/** The art direction form fields; empty strings are fields left out. */
+export type ArtDirectionDraft = {
+  motif: string;
+  setting: string;
+  mood: string;
+};
+const NO_DIRECTION: ArtDirectionDraft = { motif: "", setting: "", mood: "" };
+const DIRECTION_LIMITS = { motif: 400, setting: 300, mood: 160 } as const;
+
+/** A setting or mood without a motif: it cannot be sent alone. */
+export const artDirectionIncomplete = (draft: ArtDirectionDraft) =>
+  !draft.motif.trim() && Boolean(draft.setting.trim() || draft.mood.trim());
+
+/** `artDirection` for a request: trimmed, empty fields left out, nothing without a motif. */
+export function artDirectionBody(draft: ArtDirectionDraft): {
+  artDirection?: ArtDirection;
+} {
+  const motif = draft.motif.trim();
+  if (!motif) return {};
+  const setting = draft.setting.trim();
+  const mood = draft.mood.trim();
+  return {
+    artDirection: {
+      motif,
+      ...(setting ? { setting } : {}),
+      ...(mood ? { mood } : {}),
+    },
+  };
+}
+
+/** Motif, setting and mood of new art; `current` shows the stored ones as hints. */
+export function ArtDirectionFields({
+  value,
+  onChange,
+  de,
+  current,
+}: {
+  value: ArtDirectionDraft;
+  onChange: (next: ArtDirectionDraft) => void;
+  de: boolean;
+  current?: Partial<ArtDirectionDraft>;
+}) {
+  const incomplete = artDirectionIncomplete(value);
+  return (
+    <div className="creative-art-direction">
+      <p className="creative-meta">
+        {label(current ? "artDirectionKeep" : "artDirectionHint", de)}
+      </p>
+      {(["motif", "setting", "mood"] as const).map((key) => (
+        <label className="field creative-field" key={key}>
+          <span className="field-label">{label(key, de)}</span>
+          <Input
+            value={value[key]}
+            maxLength={DIRECTION_LIMITS[key]}
+            placeholder={current?.[key] || undefined}
+            aria-invalid={key === "motif" && incomplete ? true : undefined}
+            onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+          />
+        </label>
+      ))}
+      {incomplete && (
+        <p className="creative-meta" role="alert">
+          {label("motifNeeded", de)}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The paid-art confirmation: the maximum cost and where the prompt goes. */
 export function RegenerateConfirm({
   de,
   maxCostMicros,
   pending,
   error,
+  current,
   onConfirm,
   onCancel,
 }: {
@@ -398,16 +487,26 @@ export function RegenerateConfirm({
   maxCostMicros: number | null;
   pending: boolean;
   error: unknown;
-  onConfirm: () => void;
+  /** The creative's stored art plan, shown as hints. */
+  current?: Partial<ArtDirectionDraft>;
+  /** Called with the art direction to send (empty: keep the stored one). */
+  onConfirm: (direction: { artDirection?: ArtDirection }) => void;
   onCancel: () => void;
 }) {
   const [sure, setSure] = useState(false);
+  const [direction, setDirection] = useState(NO_DIRECTION);
   const cost = formatUsd(maxCostMicros);
   return (
     <div className="creative-confirm">
       <p>{label("confirmCost", de).replace("{cost}", cost)}</p>
       <p>{label("confirmPrompt", de)}</p>
       <p>{label("confirmRights", de)}</p>
+      <ArtDirectionFields
+        value={direction}
+        onChange={setDirection}
+        de={de}
+        current={current ?? {}}
+      />
       {maxCostMicros === null && (
         <Alert kind="warning">{label("costUnknownMax", de)}</Alert>
       )}
@@ -427,8 +526,13 @@ export function RegenerateConfirm({
           {label("cancel", de)}
         </Button>
         <Button
-          onClick={onConfirm}
-          disabled={pending || !sure || maxCostMicros === null}
+          onClick={() => onConfirm(artDirectionBody(direction))}
+          disabled={
+            pending ||
+            !sure ||
+            maxCostMicros === null ||
+            artDirectionIncomplete(direction)
+          }
         >
           {pending
             ? label("working", de)
@@ -539,6 +643,7 @@ function ProduceForm({
   const [productId, setProductId] = useState("");
   const [newArt, setNewArt] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
+  const [direction, setDirection] = useState(NO_DIRECTION);
   const [copy, setCopy] = useState<CreativeCopy>(
     content.creativeCopy ?? { headline: "" },
   );
@@ -571,6 +676,7 @@ function ProduceForm({
                 copy: trimmed(copy),
                 ...(artId && !askNew ? { artAssetId: artId } : {}),
                 ...productIds(offer, productId),
+                ...(askNew ? artDirectionBody(direction) : {}),
                 ...(askNew && maxArtCostMicros
                   ? {
                       generateArt: {
@@ -677,6 +783,11 @@ function ProduceForm({
             />
             <span>{label("confirmPromptCheck", de)}</span>
           </label>
+          <ArtDirectionFields
+            value={direction}
+            onChange={setDirection}
+            de={de}
+          />
         </div>
       )}
       <CopyFields
@@ -689,7 +800,12 @@ function ProduceForm({
         <Button
           type="submit"
           disabled={
-            locked || !template || (askNew && (!confirmed || !maxArtCostMicros))
+            locked ||
+            !template ||
+            (askNew &&
+              (!confirmed ||
+                !maxArtCostMicros ||
+                artDirectionIncomplete(direction)))
           }
         >
           {action.pending ? label("working", de) : label("produce", de)}
@@ -900,8 +1016,9 @@ function Actions({
             maxCostMicros={maxArtCostMicros}
             pending={locked}
             error={action.error}
+            current={creative.brief}
             onCancel={() => setRegenerate(null)}
-            onConfirm={() =>
+            onConfirm={(direction) =>
               maxArtCostMicros &&
               void action
                 .run(() =>
@@ -909,6 +1026,7 @@ function Actions({
                     confirmMaximumCostMicros: maxArtCostMicros,
                     confirmPromptMayBeSentToProvider: true,
                     requestId: regenerate,
+                    ...direction,
                   }),
                 )
                 .then((result) => result && setRegenerate(null))

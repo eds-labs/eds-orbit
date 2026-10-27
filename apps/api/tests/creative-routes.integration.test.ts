@@ -757,7 +757,41 @@ describe.skipIf(!enabled)("Creative Studio routes", () => {
             generateArt: { ...CONFIRM, requestId: "nope" },
           },
         ],
+        [
+          "creatives",
+          {
+            ...produceBody(content.id),
+            artDirection: { motif: "A candle", imageKind: "scene" },
+          },
+        ],
+        ["creatives", { ...produceBody(content.id), artDirection: {} }],
+        [
+          "creatives",
+          { ...produceBody(content.id), artDirection: { motif: "" } },
+        ],
+        [
+          "creatives",
+          {
+            ...produceBody(content.id),
+            artDirection: { motif: "x".repeat(401) },
+          },
+        ],
         [`creatives/${creative.id}/recompose`, { variant: "sideways" }],
+        [
+          `creatives/${creative.id}/recompose`,
+          { artDirection: { motif: "A candle" } },
+        ],
+        [
+          `creatives/${creative.id}/regenerate-art`,
+          { ...CONFIRM, artDirection: { motif: "A candle", extra: 1 } },
+        ],
+        [
+          `creatives/${creative.id}/regenerate-art`,
+          {
+            ...CONFIRM,
+            artDirection: { motif: "A candle", mood: "x".repeat(161) },
+          },
+        ],
         [`creatives/${creative.id}/recompose`, { assetId: randomUUID() }],
         [`creatives/${creative.id}/regenerate-art`, { ...CONFIRM, note: "x" }],
         [
@@ -784,6 +818,29 @@ describe.skipIf(!enabled)("Creative Studio routes", () => {
       expect(await creativesOf(a, content.id)).toHaveLength(0);
       const after = await call("owner", "GET", `creatives/${creative.id}`);
       expect(after.json()).toEqual(before);
+    });
+
+    it("takes an art direction on produce and refuses an unsafe one with its codes", async () => {
+      const direction = {
+        motif: "A glass teapot glowing on a windowsill",
+        setting: "Living room at dusk",
+      };
+      const content = await newContent();
+      const made = await call("editor", "POST", "creatives", {
+        ...produceBody(content.id),
+        artDirection: direction,
+      });
+      expect(made.statusCode, made.body).toBe(201);
+      expect(made.json().brief).toMatchObject(direction);
+      const refused = await call("editor", "POST", "creatives", {
+        ...produceBody((await newContent()).id),
+        artDirection: { motif: "See https://example.com" },
+      });
+      expect(refused.statusCode, refused.body).toBe(409);
+      expect(refused.json().error).toMatchObject({
+        code: "CREATIVE_LINK_NOT_ALLOWED",
+        detail: { codes: "CREATIVE_LINK_NOT_ALLOWED" },
+      });
     });
 
     it("takes a missing body as an empty one where nothing is asked", async () => {

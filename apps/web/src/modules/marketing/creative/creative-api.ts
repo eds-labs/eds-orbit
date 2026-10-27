@@ -17,6 +17,8 @@ export type CreativeCopy = {
   subline?: string;
   cta?: string;
 };
+/** A person's art direction for new art (the strategy's limits: 400, 300, 160). */
+export type ArtDirection = { motif: string; setting?: string; mood?: string };
 export type CreativeCheck = {
   code: string;
   passed: boolean;
@@ -42,6 +44,8 @@ export type CreativeView = {
   variant: string;
   options: { logoPlacement: LogoPlacement; textScale: TextScale };
   copy: CreativeCopy;
+  /** The brief the creative was made from; the art plan is shown as a hint. */
+  brief?: { motif?: string; setting?: string; mood?: string };
   components: {
     artAssetId?: string;
     logo: { assetId: string; sha256: string };

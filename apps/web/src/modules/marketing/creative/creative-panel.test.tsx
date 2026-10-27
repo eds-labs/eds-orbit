@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  ArtDirectionFields,
   CreativePanelView,
   RegenerateConfirm,
+  artDirectionBody,
+  artDirectionIncomplete,
   creativeErrorMessage,
   formatUsd,
   productIds,
@@ -300,5 +303,61 @@ describe("sendProduce", () => {
       ),
     ).rejects.toThrow("RESERVATION_ALREADY_USED");
     expect(renew).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Art direction for new art: what the picture shows, where, and its mood.
+describe("art direction", () => {
+  const blank = { motif: "", setting: "", mood: "" };
+
+  it("sends only filled fields, trimmed, and nothing without a motif", () => {
+    expect(artDirectionBody(blank)).toEqual({});
+    expect(artDirectionBody({ ...blank, motif: "  A glass teapot " })).toEqual({
+      artDirection: { motif: "A glass teapot" },
+    });
+    expect(
+      artDirectionBody({
+        motif: "A glass teapot",
+        setting: " Windowsill at dusk ",
+        mood: "",
+      }),
+    ).toEqual({
+      artDirection: { motif: "A glass teapot", setting: "Windowsill at dusk" },
+    });
+    // A setting or mood alone has no motif to go with: incomplete, not sent.
+    expect(artDirectionBody({ ...blank, setting: "Dusk" })).toEqual({});
+    expect(artDirectionIncomplete({ ...blank, setting: "Dusk" })).toBe(true);
+    expect(artDirectionIncomplete({ ...blank, mood: "calm" })).toBe(true);
+    expect(artDirectionIncomplete(blank)).toBe(false);
+    expect(artDirectionIncomplete({ ...blank, motif: "A teapot" })).toBe(false);
+  });
+
+  it("labels the fields in English and German", () => {
+    const fields = (de: boolean) =>
+      renderToStaticMarkup(
+        <ArtDirectionFields value={blank} onChange={() => {}} de={de} />,
+      );
+    expect(fields(false)).toContain("Motif");
+    expect(fields(false)).toContain("Setting (place, light, time of day)");
+    expect(fields(false)).toContain("Mood");
+    expect(fields(true)).toContain("Motiv");
+    expect(fields(true)).toContain("Szene (Ort, Licht, Tageszeit)");
+    expect(fields(true)).toContain("Stimmung");
+  });
+
+  it("offers it in the regenerate dialog with the current motif as a hint", () => {
+    const html = renderToStaticMarkup(
+      <RegenerateConfirm
+        de={false}
+        maxCostMicros={1_000_000}
+        pending={false}
+        error={null}
+        current={{ motif: "A mug in daylight", setting: "", mood: "" }}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(html).toContain("Motif");
+    expect(html).toContain('placeholder="A mug in daylight"');
   });
 });

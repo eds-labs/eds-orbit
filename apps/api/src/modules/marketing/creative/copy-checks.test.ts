@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  artDirectionProblems,
   copyCraftInstruction,
   copyCraftProblems,
   CORE_MESSAGE_MISSING,
@@ -310,5 +311,44 @@ describe("creativeTemplateOf", () => {
     expect(creativeTemplateOf({ creativeTemplate: "toString" })).toBeNull();
     expect(creativeTemplateOf({})).toBeNull();
     expect(creativeTemplateOf(null)).toBeNull();
+  });
+});
+
+describe("artDirectionProblems", () => {
+  const direction = {
+    motif: "Eine Teekanne aus Glas auf der Fensterbank",
+    setting: "Wohnzimmer in der Dämmerung",
+  };
+
+  it("accepts plain text, also with a name that looks like a host", () => {
+    expect(artDirectionProblems(direction)).toEqual([]);
+    expect(
+      artDirectionProblems({ motif: "A laptop with a Node.js sticker" }),
+    ).toEqual([]);
+  });
+
+  it("refuses invisible, bidi and control characters", () => {
+    for (const motif of [
+      "A tea\u200Bpot",
+      "A teapot \u202Eright to left",
+      "A teapot\u0007",
+      "A teapot\nwith a second line",
+    ])
+      expect(artDirectionProblems({ motif })).toEqual([CREATIVE_TEXT_UNSAFE]);
+    expect(artDirectionProblems({ ...direction, mood: "calm\u2060" })).toEqual([
+      CREATIVE_TEXT_UNSAFE,
+    ]);
+  });
+
+  it("refuses explicit links in any field", () => {
+    expect(
+      artDirectionProblems({
+        ...direction,
+        setting: "Like on https://example.com/room",
+      }),
+    ).toEqual([CREATIVE_LINK_NOT_ALLOWED]);
+    expect(artDirectionProblems({ motif: "See www.example.com" })).toEqual([
+      CREATIVE_LINK_NOT_ALLOWED,
+    ]);
   });
 });

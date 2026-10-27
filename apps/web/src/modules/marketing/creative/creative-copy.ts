@@ -84,8 +84,8 @@ export const ERROR_LABELS: Record<string, Pair> = {
     "Der Text enthält unsichtbare oder ähnlich aussehende Zeichen. Tippen Sie ihn neu.",
   ],
   CREATIVE_LINK_NOT_ALLOWED: [
-    "The image text contains a link. The post's link belongs in the post text.",
-    "Der Bildtext enthält einen Link. Der Link gehört in den Beitragstext.",
+    "The image text or art direction contains a link. The post's link belongs in the post text.",
+    "Der Bildtext oder die Bildvorgabe enthält einen Link. Der Link gehört in den Beitragstext.",
   ],
   CREATIVE_COPY_REQUIRED: [
     "Enter at least a headline.",

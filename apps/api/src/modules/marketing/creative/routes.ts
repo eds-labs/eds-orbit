@@ -27,6 +27,7 @@ import {
 import { DomainError } from "../../../shared.ts";
 import { artConfirmation, artCorrectionInput } from "./art.ts";
 import { resolveBrandKit } from "./brand-kit.ts";
+import { artDirectionInput } from "./brief.ts";
 import { projectRow } from "./components.ts";
 import { creativeStudioEnabled } from "./flag.ts";
 import {
@@ -82,6 +83,8 @@ const produceBody = z
     productAssetIds: z.array(idSchema).max(10).optional(),
     options: optionsBody.optional(),
     generateArt: artBody.optional(),
+    // The person's motif, setting and mood for the art (stored in the brief).
+    artDirection: artDirectionInput.optional(),
   })
   .strict();
 const recomposeBody = z
@@ -94,6 +97,7 @@ const recomposeBody = z
   .strict();
 const regenerateBody = artBody.extend({
   correction: artCorrectionInput.optional(),
+  artDirection: artDirectionInput.optional(),
 });
 const noBody = z.object({}).strict();
 // Only the owner's acceptance of findings; never the attach mode (R45).

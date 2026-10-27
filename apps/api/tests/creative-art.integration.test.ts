@@ -936,5 +936,145 @@ describe.skipIf(!enabled)(
         await saveProfile();
       }
     });
+
+    describe("art direction", () => {
+      const DIRECTION = {
+        motif: "A glass teapot glowing on a windowsill",
+        setting: "Living room at dusk, warm lamp light",
+      };
+
+      it("produce with art direction stores it and sends it as the main subject", async () => {
+        const generate = imageProvider();
+        const creative = await produceCreative(
+          p.owner,
+          {
+            contentId: (await newContent()).id,
+            template: "lifestyle",
+            copy: COPY,
+            generateArt: CONFIRM,
+            artDirection: DIRECTION,
+          },
+          { generate },
+        );
+        expect(generate).toHaveBeenCalledTimes(1);
+        const { prompt } = generate.mock.calls[0]![0] as { prompt: string };
+        expect(prompt).toContain(`Main subject: ${DIRECTION.motif}.`);
+        expect(prompt).toContain(`Setting: ${DIRECTION.setting}.`);
+        expect(prompt).not.toContain("Main subject: Evenings feel softer");
+        // The fixed no-text, no-logo, no-real-person rules stay.
+        expect(prompt).toContain(ART_NEGATIVES);
+        const stored = await record(creative.id);
+        expect(stored.brief).toMatchObject({
+          ...DIRECTION,
+          // An absent mood is the brand kit's imagery mood.
+          mood: "warm, calm, optimistic",
+          keyMessage: "Evenings feel softer",
+        });
+
+        // A recomposition with another template keeps the art direction.
+        await setStatus(creative.components.artAssetId!, {
+          assetStatus: "approved",
+        });
+        const recomposed = await recomposeCreative(p.editor, creative.id, {
+          template: "brand_message",
+        });
+        expect(recomposed.template).toBe("brand_message");
+        expect((await record(creative.id)).brief).toMatchObject(DIRECTION);
+      });
+
+      it("regenerate with art direction replaces it; without, the stored one is used", async () => {
+        const generate = imageProvider();
+        const first = await produceCreative(
+          p.editor,
+          {
+            contentId: (await newContent()).id,
+            template: "lifestyle",
+            copy: COPY,
+            artAssetId: assets.art.id,
+            artDirection: DIRECTION,
+          },
+          { generate },
+        );
+        expect(generate).not.toHaveBeenCalled();
+        expect((await record(first.id)).brief).toMatchObject(DIRECTION);
+        const next = { motif: "A candle on a wooden tray", mood: "hushed" };
+        await regenerateCreativeArt(
+          p.owner,
+          first.id,
+          { ...CONFIRM, artDirection: next },
+          { generate },
+        );
+        const { prompt } = generate.mock.calls[0]![0] as { prompt: string };
+        expect(prompt).toContain(`Main subject: ${next.motif}.`);
+        expect(prompt).not.toContain(DIRECTION.motif);
+        expect(prompt).not.toContain("Setting:");
+        expect((await record(first.id)).brief).toMatchObject({
+          ...next,
+          setting: "",
+        });
+
+        // Without one, the stored art direction makes the prompt.
+        const second = await produceCreative(p.editor, {
+          contentId: (await newContent()).id,
+          template: "lifestyle",
+          copy: COPY,
+          artAssetId: assets.art.id,
+          artDirection: DIRECTION,
+        });
+        await regenerateCreativeArt(p.owner, second.id, CONFIRM, { generate });
+        expect(generate).toHaveBeenCalledTimes(2);
+        const again = (generate.mock.calls[1]![0] as { prompt: string }).prompt;
+        expect(again).toContain(`Main subject: ${DIRECTION.motif}.`);
+        expect((await record(second.id)).brief).toMatchObject(DIRECTION);
+      });
+
+      it("refuses unsafe text and links before anything is stored or paid", async () => {
+        const generate = imageProvider();
+        const creative = await produceFree();
+        const before = (await reservations("image:")).length;
+        const content = await newContent();
+        const creatives = (await runIn((tx) => list(tx, p.owner, CREATIVES)))
+          .length;
+        for (const [artDirection, code] of [
+          [{ motif: "A tea\u200Bpot" }, "CREATIVE_TEXT_UNSAFE"],
+          [
+            { motif: "A teapot", setting: "As on https://example.com" },
+            "CREATIVE_LINK_NOT_ALLOWED",
+          ],
+        ] as const) {
+          await expect(
+            produceCreative(
+              p.owner,
+              {
+                contentId: content.id,
+                template: "lifestyle",
+                copy: COPY,
+                generateArt: CONFIRM,
+                artDirection,
+              },
+              { generate },
+            ),
+          ).rejects.toMatchObject({
+            code,
+            status: 409,
+            detail: { codes: code },
+          });
+          await expect(
+            regenerateCreativeArt(
+              p.owner,
+              creative.id,
+              { ...CONFIRM, artDirection },
+              { generate },
+            ),
+          ).rejects.toMatchObject({ code, status: 409 });
+        }
+        expect(generate).not.toHaveBeenCalled();
+        expect(await reservations("image:")).toHaveLength(before);
+        expect((await record(creative.id)).version).toBe(creative.version);
+        expect((await runIn((tx) => list(tx, p.owner, CREATIVES))).length).toBe(
+          creatives,
+        );
+      });
+    });
   },
 );

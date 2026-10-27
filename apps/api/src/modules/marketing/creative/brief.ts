@@ -34,6 +34,17 @@ export const creativeBrief = z
   .strict();
 export type StrategyCreative = z.infer<typeof creativeBrief>;
 
+/**
+ * A person's art direction for a manual creative (Creative Studio): what the
+ * picture shows (`motif`) and, optionally, where (`setting`: place, light,
+ * time of day) and its `mood`, with the strategy's limits.
+ */
+export const artDirectionInput = creativeBrief
+  .pick({ motif: true, setting: true, mood: true })
+  .partial({ setting: true })
+  .strict();
+export type ArtDirection = z.infer<typeof artDirectionInput>;
+
 /** The proposal completed with the brand kit, the channels' formats and the layout's zones. */
 export type ResolvedBrief = {
   goal: string;
@@ -165,13 +176,50 @@ function imageryNotes(imagery: MarketingProfile["visualIdentity"]["imagery"]) {
   );
 }
 
+/**
+ * The art plan of a brief: the art direction's when one is given (as a
+ * whole: an absent setting is none, an absent mood the brand kit's imagery
+ * mood), else the proposal's, else the content's title as the motif.
+ */
+function artPlan(
+  direction: ArtDirection | undefined,
+  proposal: StrategyCreative | null,
+  title: string,
+  imagery: MarketingProfile["visualIdentity"]["imagery"],
+): Pick<ResolvedBrief, "motif" | "setting" | "mood"> {
+  const plan = direction ?? proposal;
+  return {
+    motif: oneLine(plan?.motif ?? title, 400),
+    setting: oneLine(plan?.setting ?? "", 300),
+    mood: oneLine(plan?.mood ?? imagery?.mood ?? "", 300),
+  };
+}
+
+/**
+ * A stored brief with a person's new art direction (a regeneration): motif,
+ * setting and mood as in `resolveCreativeBrief`; everything else unchanged.
+ */
+export function withArtDirection(
+  brief: ResolvedBrief,
+  direction: ArtDirection,
+  profile: MarketingProfile,
+): ResolvedBrief {
+  return {
+    ...brief,
+    ...artPlan(direction, null, "", profile.visualIdentity.imagery),
+  };
+}
+
 /** Who asks: a person in the Creative Studio, or an automated path (assignment, package, default). */
 export type BriefOrigin = "manual" | "automated";
 
 /**
  * Completes the strategy's proposal (or, without one, the content's title) into
  * the brief the studio works from. Deterministic: the brand kit decides the
- * style, the disabled templates, the variant and the formats.
+ * style, the disabled templates, the variant and the formats. A person's
+ * `artDirection` replaces the art plan (motif, setting, mood) of the proposal
+ * or the title (`artPlan`); the key message, image kind and template follow
+ * the rules below either way.
  *
  * Automated requests adapt silently:
  * - A disabled template is replaced by the first enabled one that fits the image
@@ -203,6 +251,7 @@ export function resolveCreativeBrief(input: {
   origin: BriefOrigin;
   template?: TemplateId;
   variant?: VariantId;
+  artDirection?: ArtDirection;
 }): ResolvedBrief {
   const { proposal, content, profile, config } = input;
   const formats = [...new Set(input.channelFormats)];
@@ -272,9 +321,7 @@ export function resolveCreativeBrief(input: {
       200,
     ),
     imageKind,
-    motif: oneLine(proposal?.motif ?? content.title, 400),
-    setting: oneLine(proposal?.setting ?? "", 300),
-    mood: oneLine(proposal?.mood ?? imagery?.mood ?? "", 300),
+    ...artPlan(input.artDirection, proposal, content.title, imagery),
     template,
     variant,
     formats,

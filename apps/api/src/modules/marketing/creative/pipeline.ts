@@ -47,7 +47,13 @@ import {
   resolveBrandKit,
   type EntityRow,
 } from "./brand-kit.ts";
-import { resolveCreativeBrief, type ResolvedBrief } from "./brief.ts";
+import {
+  artDirectionInput,
+  resolveCreativeBrief,
+  withArtDirection,
+  type ArtDirection,
+  type ResolvedBrief,
+} from "./brief.ts";
 import {
   artAsset,
   componentBytes,
@@ -59,6 +65,7 @@ import {
   projectRow,
 } from "./components.ts";
 import {
+  artDirectionProblems,
   CREATIVE_LINK_NOT_ALLOWED,
   CREATIVE_PROHIBITED_LANGUAGE,
   CREATIVE_TEXT_TOO_LONG,
@@ -108,6 +115,12 @@ export type ProduceRequest = {
   copy?: CreativeCopy;
   /** An approved art asset (photo, background, banner or generated artwork). */
   artAssetId?: string;
+  /**
+   * The person's motif, setting and mood for the art; without it the post's
+   * title is the motif. Stored in the brief, so a later regeneration and
+   * every recomposition keep it.
+   */
+  artDirection?: ArtDirection;
   /** The approved screenshot or product image to show; without it the brand kit's first. */
   productAssetIds?: string[];
   options?: Partial<{ logoPlacement: LogoPlacement; textScale: TextScale }>;
@@ -299,6 +312,23 @@ export async function checkedPlan(
 }
 
 /**
+ * A person's art direction, checked before anything is read, paid or stored:
+ * the strict input shape (400 otherwise) and the image copy's character and
+ * link rules (`artDirectionProblems`): `CREATIVE_TEXT_UNSAFE` or
+ * `CREATIVE_LINK_NOT_ALLOWED`, 409 with every code in `detail.codes` (R66).
+ */
+function checkedArtDirection(raw: unknown): ArtDirection | undefined {
+  if (raw === undefined) return undefined;
+  const direction = artDirectionInput.parse(raw);
+  const problems = artDirectionProblems(direction);
+  if (problems.length)
+    throw Object.assign(new DomainError(problems[0]!, 409), {
+      detail: { codes: problems.join(",") },
+    });
+  return direction;
+}
+
+/**
  * New art is the owner's decision (`OWNER_REQUIRED`, 403) with a valid
  * confirmation, and replaces a named art (`INVALID_TEMPLATE_INPUT`, 400).
  */
@@ -452,8 +482,8 @@ const renditionsOf = (
  * creative `needs_owner`.
  * Errors: `EDITOR_REQUIRED`, `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
  * `CREATIVE_SOCIAL_ONLY`, `CREATIVE_COPY_REQUIRED`, `CREATIVE_TEXT_TOO_LONG`,
- * `CREATIVE_TEXT_UNSAFE`, `CREATIVE_LINK_NOT_ALLOWED`, `ART_REQUIRED`,
- * `TEXT_OVERFLOW`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`,
+ * `CREATIVE_TEXT_UNSAFE`, `CREATIVE_LINK_NOT_ALLOWED` (also for the
+ * `artDirection`), `ART_REQUIRED`, `TEXT_OVERFLOW`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`,
  * `MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED`, `CONTENT_CHANGED`
  * (409), besides the brand kit's and brief's own.
  */
@@ -464,6 +494,7 @@ export async function produceCreative(
 ): Promise<CreativeView> {
   assertStudio(scope);
   const confirmation = newArtConfirmation(scope, request);
+  const artDirection = checkedArtDirection(request.artDirection);
   const prep = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const content = await projectRow(tx, scope, "content", request.contentId);
     const v = data(content);
@@ -501,6 +532,7 @@ export async function produceCreative(
       origin: "manual",
       template: request.template,
       variant: request.variant,
+      artDirection,
     });
     const products = shownProducts(brief, candidates);
     // Named products the layout does not show would be dropped silently (R31).
@@ -614,7 +646,9 @@ export async function recomposeCreative(
 /**
  * The recomposition of `recomposeCreative`. With `newArtId` the creative's
  * new art (a regeneration) replaces the kept art; like a creative's own art
- * that `needs_rights`, it may wait for the owner's rights decision.
+ * that `needs_rights`, it may wait for the owner's rights decision. The
+ * brief's art plan (motif, setting, mood) stays the stored one, unless the
+ * regeneration brings a new `artDirection`, which is then stored.
  */
 async function recompose(
   scope: Scope,
@@ -622,6 +656,7 @@ async function recompose(
   changes: RecomposeChanges,
   deps: PipelineDeps,
   newArtId?: string,
+  artDirection?: ArtDirection,
 ): Promise<CreativeView> {
   const { row, record, plan } = await scoped(
     scope.workspaceId,
@@ -640,7 +675,9 @@ async function recompose(
           : [];
       const products = await keptAssets(tx, scope, record.components.products);
       const kit = await resolveBrandKit(tx, scope);
-      let brief = record.brief;
+      let brief = artDirection
+        ? withArtDirection(record.brief, artDirection, kit.profile)
+        : record.brief;
       if (changes.template !== undefined || changes.variant !== undefined) {
         const resolved = resolveCreativeBrief({
           proposal: null,
@@ -656,11 +693,12 @@ async function recompose(
             changes.variant ??
             (changes.template === undefined ? record.brief.variant : undefined),
         });
-        // The layout changes; what the brief says about the image stays.
+        // The layout changes; what the brief says about the image (its key
+        // message and art plan, a person's art direction included) stays.
         const { template, variant, imageKind, reservedZones, fallbackReason } =
           resolved;
         brief = {
-          ...record.brief,
+          ...brief,
           template,
           variant,
           imageKind,
@@ -744,7 +782,9 @@ async function recompose(
  * the art and recomposes; the post keeps an attached rendition until the
  * next attach (R5). A failure after payment names the art (`artAssetId`).
  * The optional `requestId` is the client's id for the image (R51), as in
- * `ProduceRequest`.
+ * `ProduceRequest`. An `artDirection` (checked as in `produceCreative`)
+ * replaces the brief's motif, setting and mood for the new art and is stored
+ * with it; without one the stored art plan is used.
  * Errors: as `recomposeCreative`, plus `OWNER_REQUIRED` (403),
  * `ART_CORRECTION_LIMIT`, `IMAGE_COST_CONFIRMATION_STALE`,
  * `RESERVATION_ALREADY_USED`, `VERSION_CONFLICT` (409) and the image
@@ -753,14 +793,24 @@ async function recompose(
 export async function regenerateCreativeArt(
   scope: Scope,
   creativeId: string,
-  input: ArtConfirmation & { correction?: ArtCorrection; requestId?: string },
+  input: ArtConfirmation & {
+    correction?: ArtCorrection;
+    requestId?: string;
+    artDirection?: ArtDirection;
+  },
   providers: PipelineDeps = {},
 ): Promise<CreativeView> {
   assertStudio(scope);
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
-  const { correction: asked, requestId: clientRequestId, ...rest } = input;
+  const {
+    correction: asked,
+    requestId: clientRequestId,
+    artDirection: askedDirection,
+    ...rest
+  } = input;
   const confirmation = artConfirmation.parse(rest);
   const correction = asked && artCorrectionInput.parse(asked);
+  const artDirection = checkedArtDirection(askedDirection);
   const planned = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -772,6 +822,9 @@ export async function regenerateCreativeArt(
         throw new DomainError("ART_CORRECTION_LIMIT", 409);
       const content = await projectRow(tx, scope, "content", record.contentId);
       const products = await keptAssets(tx, scope, record.components.products);
+      const brief = artDirection
+        ? withArtDirection(record.brief, artDirection, kit.profile)
+        : record.brief;
       // The rest of the creative must stand before new art is paid for.
       const plan = await checkedPlan(
         tx,
@@ -779,12 +832,12 @@ export async function regenerateCreativeArt(
         {
           kit,
           content,
-          brief: record.brief,
+          brief,
           copy: record.copy,
           options: record.options,
           variantFixed: record.variantFixed === true,
           art: null,
-          products: shownProducts(record.brief, products),
+          products: shownProducts(brief, products),
         },
         { artToCome: true },
       );
@@ -837,7 +890,7 @@ export async function regenerateCreativeArt(
   }
   return afterPayment(assetId, async () => {
     await settleArtAttempt(scope, creativeId, requestId, assetId);
-    return recompose(scope, creativeId, {}, providers, assetId);
+    return recompose(scope, creativeId, {}, providers, assetId, artDirection);
   });
 }
 

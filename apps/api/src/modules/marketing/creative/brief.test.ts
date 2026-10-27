@@ -3,9 +3,11 @@ import { lumoraProfile } from "../../../../tests/support/creative-profile.ts";
 import { DomainError } from "../../../shared.ts";
 import { resolveCreativeConfig } from "./brand-kit.ts";
 import {
+  artDirectionInput,
   briefLayout,
   creativeBrief,
   resolveCreativeBrief,
+  withArtDirection,
   type StrategyCreative,
 } from "./brief.ts";
 
@@ -470,5 +472,69 @@ describe("creativeBrief (strategy output)", () => {
       { ...proposal, extra: true },
     ])
       expect(creativeBrief.safeParse(bad).success).toBe(false);
+  });
+});
+
+describe("art direction (a person's motif, setting and mood)", () => {
+  const direction = {
+    motif: "A glass teapot glowing on a windowsill",
+    setting: "Living room at dusk, warm lamp light",
+    mood: "cosy and quiet",
+  };
+
+  it("overrides the motif, setting and mood of a manual brief", () => {
+    const brief = resolve({
+      proposal: null,
+      origin: "manual",
+      content: { title: "Evenings feel softer", coreMessage: "Warm light" },
+      artDirection: direction,
+    });
+    expect(brief).toMatchObject({ ...direction, keyMessage: "Warm light" });
+  });
+
+  it("replaces a proposal's art plan as a whole; absent fields take the defaults", () => {
+    const brief = resolve({ artDirection: { motif: direction.motif } });
+    expect(brief).toMatchObject({
+      motif: direction.motif,
+      setting: "",
+      // The brand kit's imagery mood, as without a proposal.
+      mood: "warm, calm, optimistic",
+      // What the image says stays the proposal's.
+      keyMessage: proposal.keyMessage,
+    });
+  });
+
+  it("is applied to a stored brief without touching the layout", () => {
+    const stored = resolve({ proposal: null, origin: "manual" });
+    const next = withArtDirection(stored, direction, lumoraProfile());
+    expect(next).toEqual({ ...stored, ...direction });
+    expect(
+      withArtDirection(stored, { motif: "A candle" }, lumoraProfile()),
+    ).toEqual({
+      ...stored,
+      motif: "A candle",
+      setting: "",
+      mood: "warm, calm, optimistic",
+    });
+  });
+
+  it("takes the strategy's limits and nothing else", () => {
+    expect(artDirectionInput.parse(direction)).toEqual(direction);
+    expect(artDirectionInput.parse({ motif: "  A candle " })).toEqual({
+      motif: "A candle",
+    });
+    for (const bad of [
+      {},
+      { motif: "" },
+      { motif: "x".repeat(401) },
+      { motif: "A candle", setting: "x".repeat(301) },
+      { motif: "A candle", mood: "x".repeat(161) },
+      { motif: "A candle", imageKind: "scene" },
+      { motif: "A candle", template: "lifestyle" },
+    ])
+      expect(
+        artDirectionInput.safeParse(bad).success,
+        JSON.stringify(bad),
+      ).toBe(false);
   });
 });

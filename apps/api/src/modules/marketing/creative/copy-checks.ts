@@ -189,6 +189,27 @@ export function creativeCopyProblems(
 }
 
 /**
+ * Problems of a person's art direction (motif, setting, mood; Creative
+ * Studio): with the image copy's character rules, control characters, line
+ * breaks, invisible or bidi characters and letters of another script
+ * (`CREATIVE_TEXT_UNSAFE`; nothing else is checked then), and explicit links
+ * (`CREATIVE_LINK_NOT_ALLOWED`). A bare host may also be a name ("Node.js")
+ * and is left alone: the art prompt forbids text in the picture anyway.
+ */
+export function artDirectionProblems(direction: {
+  motif: string;
+  setting?: string;
+  mood?: string;
+}): string[] {
+  const text = [direction.motif, direction.setting ?? "", direction.mood ?? ""];
+  if (text.some((field) => UNDRAWABLE.test(field) || unsafeText(field)))
+    return [CREATIVE_TEXT_UNSAFE];
+  return bodyLinkProblems(text.join("\n"), []).includes("LINK_NOT_ALLOWED")
+    ? [CREATIVE_LINK_NOT_ALLOWED]
+    : [];
+}
+
+/**
  * The copywriter's revision instruction for image copy: write the missing
  * copy within the template's limits, shorten layers over them, and remove
  * the words an image cannot carry, naming them. Nothing new.
