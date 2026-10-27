@@ -132,9 +132,11 @@ const BUSY_SCRIM_CAP = 0.6;
 const DEEP_SCRIM_LUMINANCE = 0.05;
 /** Below this contrast against its backdrop a pill CTA gets a ring. */
 const PILL_RING_CONTRAST = 1.6;
+// Lossless: adaptive row filtering makes photographic renditions about a
+// third smaller with the same pixels; no palette, so no colour is lost.
 const PNG_OPTIONS = {
   compressionLevel: 9,
-  adaptiveFiltering: false,
+  adaptiveFiltering: true,
   palette: false,
 } as const;
 
