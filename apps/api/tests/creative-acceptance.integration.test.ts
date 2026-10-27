@@ -759,18 +759,47 @@ describe.skipIf(!enabled)(
         "ASSET_NOT_APPROVED_OR_UNSUPPORTED",
       );
 
-      // Without the approval: publishing and scheduling are refused ...
-      const publish = (scheduledAt?: string) =>
+      // Without the approval: publishing now is refused ...
+      const publish = (version: number, scheduledAt?: string) =>
         action("publish", {
           contentId: draft.id,
-          version: withImage.contentVersion,
+          version,
           ...(scheduledAt ? { scheduledAt } : {}),
         });
-      const refused = await publish();
-      expect(refused.statusCode).toBe(409);
-      expect(JSON.stringify(refused.json())).toContain("APPROVAL_REQUIRED");
+      const refusedNow = await publish(withImage.contentVersion);
+      expect(refusedNow.statusCode).toBe(409);
+      expect(refusedNow.json().error.code).toBe("APPROVAL_REQUIRED");
+      // ... and so is scheduling: the saved slot is part of the package.
+      const slot = await runIn(project(), async (tx) => {
+        const mission = data(
+          await entity(tx, project().owner, "missions", data(draft).missionId),
+        );
+        const at = Math.min(
+          Date.now() + 2 * 3600000,
+          Date.parse(mission.endAt) - 60000,
+        );
+        return new Date(Math.floor(at / 60000) * 60000).toISOString();
+      });
+      await runIn(project(), async (tx) => {
+        const row = await entity(tx, project().owner, "content", draft.id);
+        await update(tx, project().owner, row, {
+          ...data(row),
+          scheduledAt: slot,
+        });
+      });
+      const scheduled = await preflight();
+      expect(scheduled.blockers).toEqual(["APPROVAL_REQUIRED"]);
+      expect(scheduled.packageHash).not.toBe(withImage.packageHash);
+      const refusedSchedule = await publish(scheduled.contentVersion, slot);
+      expect(refusedSchedule.statusCode).toBe(409);
+      expect(refusedSchedule.json().error.code).toBe("APPROVAL_REQUIRED");
       expect(await publicationsOf(project(), draft.id)).toEqual([]);
-      // ... and the Postiz draft handoff is the owner's confirmed decision alone.
+
+      // The owner-confirmed Postiz draft handoff of a post outside an
+      // assignment is not package-gated: postiz-draft.ts checks the human
+      // approval only for human_each assignment drafts
+      // (assertHumanHandoffCurrent). Its guards are the owner role, the
+      // draft-only confirmation and a reviewed post.
       vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
       const uploads: Buffer[] = [];
       const posts: unknown[] = [];
@@ -796,30 +825,35 @@ describe.skipIf(!enabled)(
           scope,
           {
             contentId: draft.id,
-            version: withImage.contentVersion,
+            version: scheduled.contentVersion,
             ...(confirm ? { confirmDraftOnly: true } : {}),
           },
           deps,
         );
       await expect(handoff(project().editor)).rejects.toMatchObject({
+        code: "OWNER_REQUIRED",
         status: 403,
       });
-      await expect(handoff(project().owner, false)).rejects.toThrow();
+      await expect(handoff(project().owner, false)).rejects.toMatchObject({
+        name: "ZodError",
+        issues: [expect.objectContaining({ path: ["confirmDraftOnly"] })],
+      });
       expect(posts).toEqual([]);
 
-      // After the owner's approval of the package with the image, both proceed (test mode).
+      // After the owner's approval of the scheduled package with the image,
+      // scheduling proceeds (test mode), and so does the owner's handoff.
       const approved = await action("approve", {
         contentId: draft.id,
-        version: withImage.contentVersion,
-        packageHash: withImage.packageHash,
+        version: scheduled.contentVersion,
+        packageHash: scheduled.packageHash,
       });
       expect(approved.statusCode).toBe(200);
       expect((await preflight()).allowed).toBe(true);
-      const published = await publish();
+      const published = await publish(scheduled.contentVersion, slot);
       expect(published.statusCode).toBe(200);
       const [publication] = await publicationsOf(project(), draft.id);
       expect(data(publication!)).toMatchObject({
-        packageHash: withImage.packageHash,
+        packageHash: scheduled.packageHash,
       });
       const sent = await handoff(project().owner);
       expect(data(sent).status).toBe("accepted");
