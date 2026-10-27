@@ -27,6 +27,7 @@ import {
   assignmentHumanApprovalBlocker,
   assignmentNeedsHumanApproval,
 } from "../policy/policy.ts";
+import { renditionComponentsHold } from "../policy/rendition-rights.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
 import { exportAssetContent } from "../pipeline/content-export.ts";
@@ -238,15 +239,23 @@ export async function draftSend(
   const k = data(target.connector);
   const c = target.c;
   const access = await connectionAccess(tx, scope, k);
+  const asset = c.assetId
+    ? data(await entity(tx, scope, "assets", c.assetId))
+    : null;
+  // A creative rendition leaves Orbit only while its components stay approved
+  // and unchanged (R48, as in preflight, R36); this handoff has no preflight.
+  if (
+    typeof asset?.boundTo?.creativeId === "string" &&
+    !(await renditionComponentsHold(tx, scope, asset))
+  )
+    throw new DomainError("ASSET_NOT_APPROVED_OR_UNSUPPORTED", 409);
   return {
     baseUrl: (access.baseUrl ?? k.baseUrl) as string,
     token: access.credential,
     integrationId: target.integration.id as string,
     identifier: target.integration.identifier as string,
     text: finalPostText(c.body, c.targetUrl),
-    asset: c.assetId
-      ? data(await entity(tx, scope, "assets", c.assetId))
-      : null,
+    asset,
     date,
   };
 }

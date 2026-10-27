@@ -981,6 +981,43 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     for (const draft of slotOf(fine.id)) expect(draft.status).toBe("reviewed");
   });
 
+  it("leaves a failed banner on an Instagram channel for the owner and names only the banner (MEDIA_REQUIRED)", async () => {
+    await linkBot();
+    // Telegram becomes Instagram, which rejects a post without an image.
+    await h.run(async (tx) => {
+      const connector = (await list(tx, project.owner, "connectors")).find(
+        (row) => data(row).provider === "postiz",
+      )!;
+      await update(tx, project.owner, connector, {
+        ...data(connector),
+        channels: data(connector).channels.map((channel: any) =>
+          channel.id === TELEGRAM
+            ? { ...channel, identifier: "instagram" }
+            : channel,
+        ),
+      });
+    });
+    await shared();
+    provider.beforeRender = async () => {
+      throw new Error("SYNTHETIC_RENDER_FAILURE");
+    };
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    const instagram = drafts.filter((c) => c.channel === TELEGRAM);
+    expect(instagram).toHaveLength(2);
+    for (const draft of instagram) {
+      // The banner is the reason; the owner decides, nothing is rejected.
+      expect(draft.status).toBe("needs_review");
+      expect(draft.agentReviewDecision).toMatchObject({
+        verdict: "needs_owner",
+        deterministicProblems: ["BANNER_RENDER_FAILED"],
+      });
+      expect(draft.assetId).toBeUndefined();
+    }
+  });
+
   it("leaves a text whose banner changed during the review for the owner", async () => {
     await linkBot();
     await shared();

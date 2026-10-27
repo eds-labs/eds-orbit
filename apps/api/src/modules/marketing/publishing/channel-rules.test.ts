@@ -61,7 +61,7 @@ describe("channel rules", () => {
   it.each([
     ["instagram", 2200, true],
     ["instagram-standalone", 2200, true],
-    ["facebook", 63206, false],
+    ["facebook", 50_000, false],
   ] as const)(
     "%s: character limit, UTF-16 counting, known capability",
     async (identifier, characterLimit, mediaRequired) => {
@@ -123,6 +123,12 @@ describe("channel rules", () => {
     expect(channelLimitExceeded("\u{1F600}".repeat(1101), null, rules)).toBe(
       true,
     );
+  });
+
+  it("limits a Facebook post to what the Postiz client sends (50,000)", async () => {
+    const rules = await rulesFor("facebook");
+    expect(channelLimitExceeded("a".repeat(50_000), null, rules)).toBe(false);
+    expect(channelLimitExceeded("a".repeat(50_001), null, rules)).toBe(true);
   });
 
   it("knows no rules for a channel that is not a social post", async () => {

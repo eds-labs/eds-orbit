@@ -832,6 +832,65 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     );
   });
 
+  it("holds back only the Instagram post that has no image; the text goes on to X (MEDIA_REQUIRED)", async () => {
+    await linkBot();
+    // Telegram becomes Instagram, which rejects a post without an image.
+    await h.run(async (tx) => {
+      const connector = (await list(tx, project.owner, "connectors")).find(
+        (row) => data(row).provider === "postiz",
+      )!;
+      await update(tx, project.owner, connector, {
+        ...data(connector),
+        channels: data(connector).channels.map((channel: any) =>
+          channel.id === TELEGRAM
+            ? { ...channel, identifier: "instagram" }
+            : channel,
+        ),
+      });
+    });
+    await shared({ delivery: "postiz_draft" });
+    const { review, slots } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    // The model judged both texts: a missing image is no fault of the text.
+    expect(provider.requests).toHaveLength(1);
+    expect(
+      JSON.parse(provider.requests[0].input[0].content).drafts,
+    ).toHaveLength(2);
+    const drafts = await contents();
+    const instagram = drafts.filter((c) => c.channel === TELEGRAM);
+    expect(instagram).toHaveLength(2);
+    for (const draft of instagram) {
+      // Left for the owner on its own channel, its text approved for the others.
+      expect(draft.status).toBe("needs_review");
+      expect(draft.agentReviewDecision).toMatchObject({
+        verdict: "needs_owner",
+        deterministicProblems: ["MEDIA_REQUIRED"],
+        channelProblems: ["MEDIA_REQUIRED"],
+        textApproved: true,
+      });
+    }
+    const x = drafts.filter((c) => c.channel === X);
+    expect(x).toHaveLength(2);
+    for (const draft of x) expect(draft.status).toBe("reviewed");
+    expect(
+      (await h.rows("postiz_drafts"))
+        .map((row) => `${row.integrationId}@${row.slotAt}`)
+        .sort(),
+    ).toEqual(
+      slots
+        .filter((slot) => slot.channel === X)
+        .map((slot) => `${slot.channel}@${slot.at}`)
+        .sort(),
+    );
+    // Running the review again changes nothing and calls no model.
+    await reviewAgain(review.id);
+    expect(provider.requests).toHaveLength(1);
+    expect((await contents()).map((c) => `${c.id}@${c.version}`)).toEqual(
+      drafts.map((c) => `${c.id}@${c.version}`),
+    );
+  });
+
   it("names every channel of the slot when a text is dropped (I3)", async () => {
     await linkBot();
     await shared({ delivery: "postiz_draft" });

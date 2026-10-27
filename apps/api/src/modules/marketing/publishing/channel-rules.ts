@@ -8,6 +8,9 @@ import {
 } from "./postiz-assignment.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
 
+/** Preflight blocker: a post on a channel that rejects text-only posts has no image. */
+export const MEDIA_REQUIRED = "MEDIA_REQUIRED";
+
 type CountingMethod = "conservative_x_weighted" | "utf16_units";
 export type ChannelRules = {
   providerIdentifier: string | null;
@@ -99,8 +102,9 @@ export async function resolveChannelRules(
     case "facebook":
       return {
         ...common,
-        // Postiz: Facebook posts may be text only, with photos or with a video.
-        characterLimit: 63_206,
+        // Postiz allows 63,206, but its client sends at most 50,000 characters
+        // (createSchema in packages/connectors): the stricter bound is the limit.
+        characterLimit: 50_000,
         countingMethod: "utf16_units",
         liveCapabilityKnown: true,
         mediaRequired: false,

@@ -30,6 +30,7 @@ import {
   withinConfirmation,
   type AgentReview,
 } from "../agent-review.ts";
+import { MEDIA_REQUIRED } from "../../publishing/channel-rules.ts";
 import { recentChannelPosts } from "../channel-posts.ts";
 import {
   formatInstruction,
@@ -135,6 +136,8 @@ const LEFT_FOR_OWNER = new Set([
   BANNER_MEDIA_REFUSED,
   // The profile's product name or link domain does not fit the banner (R78): not the draft's fault.
   BANNER_BRAND_OVERFLOW,
+  // The channel needs an image the draft does not have (no banner or creative asked for): the owner decides.
+  MEDIA_REQUIRED,
 ]);
 // Problems of one channel and slot, not of the text (R76): in a shared run
 // they hold back only that channel's post, never the text on the others.
@@ -147,6 +150,15 @@ export const CHANNEL_PROBLEMS = new Set([
   "SCOPE_NOT_ALLOWED",
   "ASSIGNMENT_SCOPE_NOT_ALLOWED",
   // This channel cannot carry the slot's banner; the others keep it (R78).
+  BANNER_MEDIA_REFUSED,
+  // This channel needs an image; the text is fine for the channels that do not.
+  MEDIA_REQUIRED,
+]);
+// Why a draft has no image, when its banner was asked for: the specific code
+// decides, not the channel's generic need for one.
+const BANNER_IMAGE_STATE = new Set([
+  BANNER_IMAGE_MISSING,
+  BANNER_RENDER_FAILED,
   BANNER_MEDIA_REFUSED,
 ]);
 /** The text changed after the review model judged it (R76): its verdict covers another text. */
@@ -351,7 +363,11 @@ export async function deterministicProblems(
         { cta: mission?.targetAction },
       ),
     );
-  return [...new Set(problems)];
+  // A missing banner is already named by its own code.
+  const named = problems.some((code) => BANNER_IMAGE_STATE.has(code));
+  return [...new Set(problems)].filter(
+    (code) => !(named && code === MEDIA_REQUIRED),
+  );
 }
 
 /**

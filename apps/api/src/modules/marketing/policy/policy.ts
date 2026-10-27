@@ -13,6 +13,7 @@ import { profileGuardrailProblems } from "../brand/marketing-profile.ts";
 import {
   channelLimitExceeded,
   finalPostText,
+  MEDIA_REQUIRED,
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { renditionComponentsHold } from "./rendition-rights.ts";
@@ -640,7 +641,7 @@ export async function preflight(
       .mediaRequired
   )
     // Instagram rejects a post without an image.
-    blockers.push("MEDIA_REQUIRED");
+    blockers.push(MEDIA_REQUIRED);
   if (c.status !== "reviewed") blockers.push("REVIEW_REQUIRED");
   if (!options.test) {
     if (c.type !== "social")

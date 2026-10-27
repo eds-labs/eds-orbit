@@ -787,6 +787,95 @@ describe.skipIf(!enabled)(
         expect(posts[0].posts[0].value[0].image).toEqual([]);
         vi.unstubAllEnvs();
       });
+      it("hands over a creative rendition only while its components stay approved (R48)", async () => {
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const reviewed = await reviewedDraft();
+        const sha256 = "a".repeat(64);
+        const logo = await run((tx) =>
+          create(tx, s, "assets", {
+            type: "logo",
+            mime: "image/png",
+            base64: "iVBORw0KGgo=",
+            sha256,
+            usageApproved: true,
+            assetStatus: "approved",
+          }),
+        );
+        const rendition = await run((tx) =>
+          create(tx, s, "assets", {
+            type: "generated_artwork",
+            mime: "image/png",
+            base64: "iVBORw0KGgo=",
+            usageApproved: true,
+            assetStatus: "approved",
+            rightsSource: {
+              components: [{ role: "logo", assetId: logo.id, sha256 }],
+            },
+            boundTo: { creativeId: randomUUID(), contentId: reviewed.id },
+          }),
+        );
+        const withImage = await run((tx) =>
+          update(tx, s, reviewed, {
+            ...data(reviewed),
+            assetId: rendition.id,
+          }),
+        );
+        const input = {
+          contentId: withImage.id,
+          version: withImage.version,
+          confirmDraftOnly: true,
+        };
+        const uploaded: unknown[] = [];
+        const posts: any[] = [];
+        const deps = {
+          createClient: (() => ({
+            uploadMedia: async (media: unknown) => {
+              uploaded.push(media);
+              return { id: "media-1", path: "https://postiz.example.invalid/m.png" };
+            },
+            createPost: async (post: any) => {
+              posts.push(post);
+              return accepted();
+            },
+          })) as any,
+          readAsset: async () => ({ bytes: Buffer.from("png"), mime: "image/png" }),
+        };
+        // The owner takes the rights back from the logo: nothing leaves Orbit.
+        const revoked = await run((tx) =>
+          update(tx, s, logo, {
+            ...data(logo),
+            usageApproved: false,
+            assetStatus: "reference",
+          }),
+        );
+        await expect(handoffPostizDraft(s, input, deps)).rejects.toThrow(
+          "ASSET_NOT_APPROVED_OR_UNSUPPORTED",
+        );
+        expect(uploaded).toHaveLength(0);
+        expect(posts).toHaveLength(0);
+        // No handoff was recorded for the refusal.
+        expect(
+          await run((tx) =>
+            tx.entity.count({
+              where: { projectId: s.projectId, kind: "postiz_drafts" },
+            }),
+          ),
+        ).toBe(0);
+        // Approved again with the same bytes, the rendition goes with its image.
+        await run((tx) =>
+          update(tx, s, revoked, {
+            ...data(revoked),
+            usageApproved: true,
+            assetStatus: "approved",
+          }),
+        );
+        expect(data(await handoffPostizDraft(s, input, deps)).status).toBe(
+          "accepted",
+        );
+        expect(uploaded).toHaveLength(1);
+        expect(posts[0].posts[0].value[0].image).toHaveLength(1);
+        vi.unstubAllEnvs();
+      });
       it("lets the owner resolve an unclear post creation after checking Postiz", async () => {
         vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
         const reviewed = await reviewedDraft();
