@@ -278,7 +278,7 @@ export function artPrompt(
         ? `Imagery kind: ${imagery.kind}, ${IMAGERY_STYLE[imagery.kind]}.`
         : "Style: polished, modern and professional."
     }`,
-    sentence("Main subject", oneLine(brief.motif, 300)),
+    sentence("Main subject", oneLine(brief.motif, 400)),
     sentence("Setting", oneLine(brief.setting, 300)),
     sentence(
       "Mood and lighting",

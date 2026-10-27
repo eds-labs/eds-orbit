@@ -55,6 +55,18 @@ function setup(
 }
 
 describe("artPrompt", () => {
+  it("sends a motif of the full 400 characters", () => {
+    const motif =
+      `${"A lantern on a mossy stone ".repeat(15)}`.slice(0, 399) + "Z";
+    expect(Array.from(motif)).toHaveLength(400);
+    const { profile, brief, layout } = setup({
+      proposal: { ...proposal, motif },
+    });
+    expect(artPrompt(brief, profile, layout)).toContain(
+      `Main subject: ${motif}.`,
+    );
+  });
+
   it("describes a large, concrete subject with the brand's imagery and palette", () => {
     const { profile, brief, layout } = setup();
     const prompt = artPrompt(brief, profile, layout);
