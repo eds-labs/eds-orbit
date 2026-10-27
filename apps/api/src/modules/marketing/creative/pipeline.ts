@@ -69,6 +69,7 @@ import {
   storedCreativeCopy,
 } from "./copy-checks.ts";
 import { creativeStudioEnabled } from "./flag.ts";
+import { errorCode } from "../../../platform/ai/telemetry.ts";
 import {
   assertContentHolds,
   assertSourcesHold,
@@ -140,6 +141,8 @@ export type RecomposeChanges = {
 };
 
 const SHOWS_PRODUCT: readonly ImageKind[] = ["product", "combined"];
+/** Refusals of a regeneration whose attempt belongs to another request (M1). */
+const NOT_OWNED = ["VERSION_CONFLICT", "RESERVATION_ALREADY_USED"];
 /** Engine refusals that are bad input or a render fault; the others are conflicts (409). */
 const ENGINE_STATUS: Readonly<Record<string, number>> = {
   INVALID_TEMPLATE_INPUT: 400,
@@ -819,8 +822,17 @@ export async function regenerateCreativeArt(
         }),
     );
   } catch (error) {
-    // A sent attempt keeps its cost on the creative, or stays unknown.
-    await settleArtAttempt(scope, creativeId, requestId).catch(() => undefined);
+    // A request refused because another one holds the attempt (a racing
+    // regeneration, or the same request id still running, R51) never owned
+    // it: completing it here would book the other's cost as unknown (M1).
+    if (!(error instanceof DomainError && NOT_OWNED.includes(error.code)))
+      // A sent attempt keeps its cost on the creative, or stays unknown.
+      await settleArtAttempt(scope, creativeId, requestId).catch((failure) =>
+        console.error(
+          "Orbit creative art attempt settle failed",
+          errorCode(failure),
+        ),
+      );
     throw error;
   }
   return afterPayment(assetId, async () => {

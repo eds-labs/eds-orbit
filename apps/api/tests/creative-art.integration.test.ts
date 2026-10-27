@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   authDb,
@@ -848,6 +849,60 @@ describe.skipIf(!enabled)(
       });
       const after = await record(creative.id);
       expect(after.corrections.filter((c) => c.kind === "art")).toHaveLength(1);
+    });
+
+    // M1: a retried request (the same request id, R51) that is refused
+    // while the first one is still running never owned the attempt: it must
+    // not complete it, or the first one's real cost and art get lost.
+    it("a duplicate request refused meanwhile leaves the attempt to the first", async () => {
+      await saveProfile({ maxArtCorrections: 2 });
+      try {
+        const creative = await produceFree();
+        const requestId = randomUUID();
+        let open!: () => void;
+        const gate = new Promise<void>((resolve) => (open = resolve));
+        const image = imageProvider();
+        const generate = vi.fn(async (request) => {
+          await gate;
+          return image(request);
+        }) as unknown as typeof generateImage & ReturnType<typeof vi.fn>;
+        const first = regenerateCreativeArt(
+          p.owner,
+          creative.id,
+          { ...CONFIRM, requestId },
+          { generate },
+        );
+        await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
+        const error = vi.spyOn(console, "error").mockImplementation(() => {});
+        await expect(
+          regenerateCreativeArt(
+            p.owner,
+            creative.id,
+            { ...CONFIRM, requestId },
+            { generate },
+          ),
+        ).rejects.toMatchObject({ code: "RESERVATION_ALREADY_USED" });
+        error.mockRestore();
+        open();
+        const done = await first;
+        expect(generate).toHaveBeenCalledTimes(1);
+        const after = await record(creative.id);
+        const art = after.corrections.filter((c) => c.kind === "art");
+        expect(art).toEqual([
+          expect.objectContaining({
+            requestId,
+            costMicros: IMAGE_MAX,
+            assetId: done.components.artAssetId,
+          }),
+        ]);
+        expect(after.cost).toMatchObject({
+          settledMicros: IMAGE_MAX,
+          unknownMicros: 0,
+        });
+        expect(after.cost.reservationIds).toHaveLength(1);
+      } finally {
+        await saveProfile();
+      }
     });
   },
 );
