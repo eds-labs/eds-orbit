@@ -4378,6 +4378,19 @@ body:has(dialog[open]) {
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
+.approval-item-thumbnail {
+  width: 160px;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius, 6px);
+  border: 1px solid var(--border);
+}
+.brand-kit-template {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
 .approval-item-body {
   white-space: pre-wrap;
   font: inherit;

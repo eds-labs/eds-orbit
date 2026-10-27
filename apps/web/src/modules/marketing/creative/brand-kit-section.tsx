@@ -105,6 +105,16 @@ const T = {
     "Speichern Sie zuerst das Marketing-Profil; das Marken-Kit gehört dazu.",
   ],
   loading: ["Loading brand kit…", "Marken-Kit wird geladen…"],
+  stale: [
+    "The profile was changed elsewhere after you started editing. Reload to continue from the current version; your edits here are discarded.",
+    "Das Profil wurde nach Beginn Ihrer Bearbeitung anderswo geändert. Laden Sie neu, um mit der aktuellen Version weiterzumachen; Ihre Änderungen hier gehen verloren.",
+  ],
+  reload: ["Reload", "Neu laden"],
+  loadFailed: [
+    "The brand kit could not be loaded:",
+    "Das Marken-Kit konnte nicht geladen werden:",
+  ],
+  retry: ["Try again", "Erneut versuchen"],
 } satisfies Record<string, Pair>;
 const t = (key: keyof typeof T, de: boolean) => T[key][de ? 1 : 0];
 const words = (id: string) => id.replaceAll("_", " ");
@@ -355,6 +365,8 @@ export function BrandKitView({
   error,
   saved,
   onSave,
+  stale = false,
+  onReload,
 }: {
   de: boolean;
   isOwner: boolean;
@@ -366,6 +378,9 @@ export function BrandKitView({
   error: string | null;
   saved: boolean;
   onSave: () => void;
+  /** The profile changed since the edit started (see `isStale`). */
+  stale?: boolean;
+  onReload?: () => void;
 }) {
   const ro = !isOwner || pending;
   const logos = assets.filter(usableLogo);
@@ -408,6 +423,14 @@ export function BrandKitView({
         </div>
       </div>
       {!isOwner && <Alert>{t("ownersOnly", de)}</Alert>}
+      {stale && (
+        <Alert kind="warning">
+          {t("stale", de)}{" "}
+          <Button size="sm" variant="outline" onClick={onReload}>
+            {t("reload", de)}
+          </Button>
+        </Alert>
+      )}
       {broken.length > 0 && (
         <Alert kind="warning">
           <strong>{t("brokenTitle", de)}</strong> {t("brokenHint", de)}
@@ -721,13 +744,72 @@ export function BrandKitView({
       {saved && !error && <Alert kind="success">{t("saved", de)}</Alert>}
       {isOwner && (
         <div className="form-actions">
-          <Button disabled={pending} onClick={onSave}>
+          <Button disabled={pending || stale} onClick={onSave}>
             {t("save", de)}
           </Button>
         </div>
       )}
     </section>
   );
+}
+
+/** An edit in progress: the profile version and data it started from, and the kit being edited. */
+export type KitEdit = {
+  baseVersion: number;
+  baseData: Record<string, any>;
+  kit: KitDraft;
+};
+
+type Load = { loading: boolean; error: unknown; hasData: boolean };
+export type LoadGate =
+  | { kind: "loading" }
+  | { kind: "error"; failed: Array<"profile" | "options" | "assets"> }
+  | { kind: "no-profile" }
+  | { kind: "ready" };
+
+/**
+ * What the container may render: a failed load is an error state, never a
+ * missing profile or broken references (the editor shows only complete data).
+ */
+export function loadGate(loads: {
+  profile: Load;
+  options: Load;
+  assets: Load;
+}): LoadGate {
+  const failed = (["profile", "options", "assets"] as const).filter(
+    (key) => loads[key].error,
+  );
+  if (failed.length) return { kind: "error", failed };
+  if (Object.values(loads).some((l) => l.loading)) return { kind: "loading" };
+  if (!loads.profile.hasData) return { kind: "no-profile" };
+  if (!loads.options.hasData || !loads.assets.hasData)
+    return { kind: "error", failed: [] };
+  return { kind: "ready" };
+}
+
+/** Starts an edit from the stored profile. */
+export const startEdit = (stored: {
+  version: number;
+  data: Record<string, any>;
+}): KitEdit => ({
+  baseVersion: stored.version,
+  baseData: stored.data,
+  kit: draftOf(stored.data.visualIdentity),
+});
+
+/** Whether the stored profile moved on since the edit started. */
+export const isStale = (storedVersion: number, edit: KitEdit | null) =>
+  edit !== null && storedVersion !== edit.baseVersion;
+
+/** The save body: merged onto the version the edit started from, so a newer one is refused. */
+export const editSaveBody = (edit: KitEdit) =>
+  brandKitSaveBody(edit.baseData, edit.baseVersion, edit.kit);
+
+/** The text of a failed save. */
+export function saveErrorText(error: string | null, de: boolean) {
+  return error === "MARKETING_PROFILE_VERSION_CONFLICT"
+    ? t("stale", de)
+    : error;
 }
 
 /**
@@ -751,41 +833,70 @@ function BrandKitLoaded() {
   const assets = useResource<{
     items: Array<{ id: string; data: Record<string, unknown> }>;
   }>(collectionPath(project.id, "assets"));
-  const [draft, setDraft] = useState<KitDraft | null>(null);
+  const [edit, setEdit] = useState<KitEdit | null>(null);
   const mutation = useMutation(() => {
+    setEdit(null);
     profile.refresh();
     refresh();
     // The profile form below reloads on focus.
     window.dispatchEvent(new Event("focus"));
   });
-  if (profile.loading || options.loading || assets.loading)
-    return <Loading label={t("loading", de)} />;
+  const reloadAll = () => {
+    profile.refresh();
+    options.refresh();
+    assets.refresh();
+  };
+  const gate = loadGate({
+    profile: {
+      loading: profile.loading,
+      error: profile.error,
+      hasData: !!profile.data,
+    },
+    options: {
+      loading: options.loading,
+      error: options.error,
+      hasData: !!options.data,
+    },
+    assets: {
+      loading: assets.loading,
+      error: assets.error,
+      hasData: !!assets.data,
+    },
+  });
+  // The edit survives a reload in progress; only the view waits.
+  if (gate.kind === "loading") return <Loading label={t("loading", de)} />;
+  if (gate.kind === "error")
+    return (
+      <Alert kind="error">
+        {t("loadFailed", de)} {gate.failed.join(", ") || "—"}{" "}
+        <Button size="sm" variant="outline" onClick={reloadAll}>
+          {t("retry", de)}
+        </Button>
+      </Alert>
+    );
   const stored = profile.data;
-  if (!stored) return <Alert>{t("noProfile", de)}</Alert>;
-  if (!options.data) return null;
-  const current = draft ?? draftOf(stored.data.visualIdentity);
+  if (gate.kind === "no-profile" || !stored)
+    return <Alert>{t("noProfile", de)}</Alert>;
+  const current = edit ?? startEdit(stored);
+  const stale = isStale(stored.version, edit);
   return (
     <BrandKitView
       de={de}
       isOwner={isOwner}
-      draft={current}
-      onChange={setDraft}
+      draft={current.kit}
+      onChange={(kit) => setEdit({ ...current, kit })}
       assets={(assets.data?.items ?? []).map(toKitAsset)}
-      options={options.data}
+      options={options.data!}
       pending={mutation.pending}
-      error={
-        mutation.error === "MARKETING_PROFILE_VERSION_CONFLICT"
-          ? t("conflict", de)
-          : mutation.error
-      }
+      error={saveErrorText(mutation.error, de)}
       saved={mutation.success}
+      stale={stale}
+      onReload={() => setEdit(null)}
       onSave={() =>
         void mutation.run(() =>
           api(`/projects/${project.id}/marketing-profile`, {
             method: "PUT",
-            body: JSON.stringify(
-              brandKitSaveBody(stored.data, stored.version, current),
-            ),
+            body: JSON.stringify(editSaveBody(current)),
           }),
         )
       }

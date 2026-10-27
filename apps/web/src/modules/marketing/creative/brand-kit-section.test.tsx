@@ -6,6 +6,11 @@ import {
   brandKitSaveBody,
   brokenReferences,
   draftOf,
+  editSaveBody,
+  isStale,
+  loadGate,
+  saveErrorText,
+  startEdit,
   mergeBrandKit,
   templateVariants,
   type KitAsset,
@@ -178,5 +183,81 @@ describe("brand kit editor", () => {
     const merged = mergeBrandKit(identity, cleaned);
     expect(merged).not.toHaveProperty("logos");
     expect(merged).not.toHaveProperty("productAssetIds");
+  });
+});
+
+describe("brand kit container logic", () => {
+  const stored = { version: 3, data: profile };
+  const ok = { loading: false, error: null, hasData: true };
+
+  it("sends the version the edit started from and merges onto that base", () => {
+    const edit = startEdit(stored);
+    edit.kit.maxArtCorrections = 2;
+    // Someone else saves version 4 with a new colour and kit field meanwhile.
+    expect(isStale(4, edit)).toBe(true);
+    expect(isStale(3, edit)).toBe(false);
+    expect(isStale(4, null)).toBe(false);
+    const body = editSaveBody(edit) as any;
+    expect(body.expectedVersion).toBe(3);
+    expect(body.visualIdentity).toMatchObject({
+      primaryColor: "#112233",
+      creative: { maxArtCorrections: 2 },
+    });
+  });
+
+  it("names a version conflict in words", () => {
+    expect(
+      saveErrorText("MARKETING_PROFILE_VERSION_CONFLICT", false),
+    ).toContain("changed elsewhere");
+    expect(saveErrorText("OTHER", false)).toBe("OTHER");
+    expect(saveErrorText(null, false)).toBeNull();
+  });
+
+  it("shows an error, not broken references, while a load failed", () => {
+    expect(
+      loadGate({
+        profile: ok,
+        options: ok,
+        assets: { loading: false, error: new Error("x"), hasData: false },
+      }),
+    ).toEqual({ kind: "error", failed: ["assets"] });
+    expect(
+      loadGate({
+        profile: { loading: false, error: new Error("x"), hasData: false },
+        options: ok,
+        assets: ok,
+      }),
+    ).toEqual({ kind: "error", failed: ["profile"] });
+    expect(
+      loadGate({
+        profile: ok,
+        options: { loading: false, error: new Error("x"), hasData: false },
+        assets: ok,
+      }),
+    ).toEqual({ kind: "error", failed: ["options"] });
+  });
+
+  it("waits, reports a missing profile and is ready otherwise", () => {
+    const loading = { loading: true, error: null, hasData: false };
+    expect(loadGate({ profile: loading, options: ok, assets: ok })).toEqual({
+      kind: "loading",
+    });
+    expect(
+      loadGate({
+        profile: { loading: false, error: null, hasData: false },
+        options: ok,
+        assets: ok,
+      }),
+    ).toEqual({ kind: "no-profile" });
+    expect(loadGate({ profile: ok, options: ok, assets: ok })).toEqual({
+      kind: "ready",
+    });
+  });
+
+  it("offers a reload when the profile moved on", () => {
+    const html = view({ stale: true, onReload: () => {} });
+    expect(html).toContain("changed elsewhere");
+    expect(html).toContain("Reload");
+    expect(html).toMatch(/<button[^>]*disabled[^>]*>Save brand kit/);
   });
 });

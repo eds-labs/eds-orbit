@@ -294,6 +294,7 @@ describe("AwaitingOwnerDraftList", () => {
     renderToStaticMarkup(
       <AwaitingOwnerDraftList
         items={items}
+        projectId="p1"
         de
         timezone="Europe/Berlin"
         canRelease={canRelease}

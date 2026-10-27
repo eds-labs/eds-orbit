@@ -640,7 +640,7 @@ export function AwaitingOwnerDraftList({
 }: {
   items: AwaitingOwnerDraft[];
   /** Needed for the thumbnails of drafts with an image. */
-  projectId?: string;
+  projectId: string;
   de: boolean;
   timezone: string;
   canRelease: boolean;
@@ -676,7 +676,7 @@ export function AwaitingOwnerDraftList({
               </span>
             ))}
           </p>
-          {item.assetId && projectId && (
+          {item.assetId && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               className="approval-item-thumbnail"
@@ -684,7 +684,6 @@ export function AwaitingOwnerDraftList({
               alt={de ? "Bild des Entwurfs" : "Draft image"}
               width={160}
               loading="lazy"
-              style={{ maxWidth: 160, height: "auto", borderRadius: 6 }}
             />
           )}
           <pre className="approval-item-body">{item.excerpt}</pre>
