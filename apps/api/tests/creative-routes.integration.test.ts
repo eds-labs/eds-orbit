@@ -931,5 +931,30 @@ describe.skipIf(!enabled)("Creative Studio routes", () => {
         );
       expect(free).toEqual([400, 400, 400, 400, 400, 400]);
     });
+
+    // M4: a free creative is an ordinary write: it counts against the
+    // client's write limit (100 a minute), not a bucket of its own.
+    it("counts a free creative against the client's write limit", async () => {
+      const ip = freshIp();
+      const unknown = randomUUID();
+      for (let i = 0; i < 99; i++)
+        expect(
+          (
+            await call(
+              "owner",
+              "POST",
+              `creatives/${unknown}/recompose`,
+              {},
+              { ip },
+            )
+          ).statusCode,
+        ).toBe(404);
+      const free: number[] = [];
+      for (let i = 0; i < 2; i++)
+        free.push(
+          (await call("owner", "POST", "creatives", {}, { ip })).statusCode,
+        );
+      expect(free).toEqual([400, 429]);
+    });
   });
 });

@@ -143,18 +143,16 @@ const asksForArt = (req: FastifyRequest) =>
     (req.body as { generateArt?: unknown } | null | undefined)?.generateArt,
   );
 /**
- * Creatives with new art are paid: three a minute per client, counted apart
- * from the free ones, which keep the default limit. The limit runs after the
- * body is parsed, because the body says whether the image is paid.
+ * Creatives with new art are paid: three a minute per client in a bucket of
+ * their own (`<ip>:paid`). Every produce request, free or paid, is also an
+ * ordinary write under the server's write limit (`<ip>:write`, M4). The
+ * paid limit runs after the body is parsed, because the body says whether
+ * the image is paid.
  */
-const PRODUCE_RATE = {
-  rateLimit: {
-    hook: "preHandler" as const,
-    max: (req: FastifyRequest) => (asksForArt(req) ? 3 : 100),
-    timeWindow: "1 minute",
-    keyGenerator: (req: FastifyRequest) =>
-      `${clientIp(req)}:${asksForArt(req) ? "paid" : "free"}`,
-  },
+const PAID_PRODUCE_RATE = {
+  max: 3,
+  timeWindow: "1 minute",
+  keyGenerator: (req: FastifyRequest) => `${clientIp(req)}:paid`,
 };
 const PAID_RATE = { rateLimit: { max: 3, timeWindow: "1 minute" } };
 
@@ -166,6 +164,7 @@ type CreativeParams = ProjectParams & { creativeId: string };
  * post, recompose, regenerate the art, vision review and attach.
  */
 export const creativeRoutes: RoutesContribution = ({ app, auth }) => {
+  const paidProduce = app.createRateLimit(PAID_PRODUCE_RATE);
   app.get("/api/projects/:projectId/creative/options", async (req) => {
     studio();
     const { projectId } = req.params as ProjectParams;
@@ -178,7 +177,15 @@ export const creativeRoutes: RoutesContribution = ({ app, auth }) => {
 
   app.post(
     "/api/projects/:projectId/creatives",
-    { config: PRODUCE_RATE },
+    {
+      preHandler: async (req, reply) => {
+        if (!asksForArt(req)) return;
+        const limit = await paidProduce(req);
+        if (limit.isAllowed || !limit.isExceeded) return;
+        reply.header("retry-after", String(limit.ttlInSeconds));
+        throw new DomainError("RATE_LIMITED", 429);
+      },
+    },
     async (req, reply) => {
       studio();
       const { projectId } = req.params as ProjectParams;
