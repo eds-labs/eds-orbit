@@ -50,6 +50,11 @@ export const CREATIVE_THRESHOLDS = {
   busyCell: 4,
   /** Largest busyness behind a text layer (R17). */
   busyText: 0.015,
+  /**
+   * Busyness behind a transparent logo from which compose puts a plate
+   * behind it (spec §9); the same calm as text needs. Not a QA check.
+   */
+  busyLogo: 0.015,
 } as const;
 
 /**

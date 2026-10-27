@@ -1,4 +1,4 @@
-import { CREATIVE_THRESHOLDS } from "./analysis.ts";
+import { backdropBusyness, CREATIVE_THRESHOLDS } from "./analysis.ts";
 import type { CreativeBrand, CreativeLogo } from "./brand.ts";
 import { contrastRatio, parseHex, relativeLuminance } from "./color.ts";
 import type { LogoRole } from "./ids.ts";
@@ -16,10 +16,14 @@ import {
 import type { Box, LayoutSpec } from "./templates.ts";
 
 // The approved logo: variant choice by backdrop, proportional scaling into its
-// anchor, and a plate behind it when no variant is visible on its own.
+// anchor, and a plate behind it when it does not read comfortably on its own.
 
 /** QA's logo contrast requirement (spec §9). */
 const LOGO_CONTRAST = CREATIVE_THRESHOLDS.logoContrast;
+/** Contrast from which a transparent logo reads comfortably without a plate (spec §9). */
+const LOGO_COMFORT_CONTRAST = 3;
+/** Busyness behind a transparent logo from which it gets a plate (spec §9). */
+const LOGO_BUSY = CREATIVE_THRESHOLDS.busyLogo;
 /** Mean luminance below which the logo backdrop counts as dark. */
 const DARK_BACKDROP = 0.4;
 const PLATE_OPACITY = 0.9;
@@ -157,10 +161,14 @@ function inkColor(rgba: Buffer, counts: (index: number) => boolean) {
 /**
  * Chooses the logo variant by the luminance behind the anchor (or the forced
  * role) and keeps it visible: another variant when that reads better, else a
- * plate behind the unchanged logo. A logo with its own opaque background is
- * its own backdrop and is never plated. The plate is surface-coloured first;
- * when the logo still does not reach `LOGO_CONTRAST` on it, the text colour,
- * white and black are tried, and the best plate is kept.
+ * plate behind the unchanged logo. A plate is tried when no variant reaches
+ * QA's `LOGO_CONTRAST` (2:1), and also when the chosen transparent variant
+ * stays below `LOGO_COMFORT_CONTRAST` (3:1) or the backdrop behind it is
+ * busier than `CREATIVE_THRESHOLDS.busyLogo` (spec §9). A logo with its own
+ * opaque background is its own backdrop and is never plated. The plate is
+ * surface-coloured first; when the logo does not reach the comfort contrast
+ * on it, the text colour, white and black are tried, and the best plate is
+ * kept, but only when it improves on the unplated logo's contrast.
  */
 export async function placeLogo(
   sharp: Sharp,
@@ -204,15 +212,21 @@ export async function placeLogo(
       ? scored[0]!
       : scored.reduce((a, b) => (b.contrast > a.contrast ? b : a));
   const plateable = options.filter((placed) => !placed.backing);
-  if (choice.contrast >= LOGO_CONTRAST || !plateable.length)
-    return {
-      placed: choice.placed,
-      backdrop: choice.backdrop,
-      canvas,
-      plate: null,
-    };
+  const unplated: LogoLayers = {
+    placed: choice.placed,
+    backdrop: choice.backdrop,
+    canvas,
+    plate: null,
+  };
+  // An opaque-backed choice is its own backdrop: plated only when it fails QA.
+  const uncomfortable =
+    !choice.placed.backing &&
+    (choice.contrast < LOGO_COMFORT_CONTRAST ||
+      backdropBusyness(canvas, choice.placed.box) > LOGO_BUSY);
+  if (!plateable.length || (choice.contrast >= LOGO_CONTRAST && !uncomfortable))
+    return unplated;
 
-  // No variant reads on this backdrop: put the variant that reads best on the plate on a plate.
+  // The logo does not read comfortably here: put the variant that reads best on the plate on a plate.
   // Padding relative to the anchor height, so a short (landscape) anchor keeps the logo large (R19).
   const inset = Math.round(PLATE_PADDING * layout.logo.box.h);
   const insetLogos = new Map<CreativeLogo, Promise<PlacedLogo>>();
@@ -263,8 +277,12 @@ export async function placeLogo(
       canvas: plated,
       plate: { box, color },
     };
-    if (attempt.contrast >= LOGO_CONTRAST) return attempt;
+    if (attempt.contrast >= LOGO_COMFORT_CONTRAST) {
+      best = attempt;
+      break;
+    }
     if (!best || attempt.contrast > best.contrast) best = attempt;
   }
-  return best!;
+  // A plate that does not improve the logo's contrast is left out.
+  return best!.contrast > choice.contrast ? best! : unplated;
 }

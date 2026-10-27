@@ -353,6 +353,17 @@ never asks for paid art. A band behind or beside text is mostly background by
 design; the demo set measured 0.53–0.55 flat share on a well composed scene
 cropped into the 2.9:1 tips band.
 
+**Logo plate (R70).** Compose draws a plate (90 % opacity, padding 0.12 of the
+logo anchor's height per side, R19) behind a transparent logo when no variant
+reaches the 2:1 of `LOGO_CONTRAST_LOW`, and also when the chosen variant stays
+below a comfort contrast of 3:1 or the backdrop behind it is busier than
+`busyLogo` (0.015, the same measure and value as `busyText`). The plate is
+tried in the surface colour, then the text colour, white and black; the first
+reaching 3:1 is kept, else the best one, and only when it improves the logo's
+contrast over the unplated choice. A logo with its own opaque backing is its
+own backdrop and is never plated. QA is unchanged: `LOGO_CONTRAST_LOW` still
+blocks below 2:1.
+
 Known limits (R27), accepted because they err on the lenient side and cost no
 money: a smooth gradient or vignette that differs from the border colour
 counts as subject, so a motif-less gradient can pass `SUBJECT_TOO_SMALL`;
