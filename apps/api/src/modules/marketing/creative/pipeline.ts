@@ -76,6 +76,7 @@ import {
   type CreativeRecord,
   type CreativeView,
 } from "./store.ts";
+import { withVision } from "./vision-review.ts";
 
 // The manual Creative Studio (spec §8, §11): produce a creative for a social
 // post from approved assets or new art, recompose it for free, regenerate its
@@ -573,7 +574,8 @@ async function recompose(
       await outdateRendition(tx, scope, rendition);
     const next: CreativeRecord = {
       ...record,
-      ...composedFields(plan, composed),
+      // A failing vision verdict stays the owner's until a new review (R49).
+      ...withVision(composedFields(plan, composed), record.qa.vision),
       renditions: await renditionsOf(tx, scope, row.id, plan, composed),
       // Corrections are history: art regenerations count against the limit.
       corrections: [...record.corrections, ...composed.outcome.corrections],

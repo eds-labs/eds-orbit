@@ -10,6 +10,7 @@ import {
   type generateImage,
   type respond,
 } from "../../../packages/ai/src/index.ts";
+import { APIError } from "openai";
 import { sha256Hex } from "../../../packages/creative/src/index.ts";
 import {
   demoBrand,
@@ -542,7 +543,8 @@ describe.skipIf(!enabled)(
         `creative-review:${creative.id}:`,
       );
       expect(reservation).toMatchObject({
-        key: `${p.owner.projectId}:creative-review:${creative.id}:${creative.version}`,
+        // Keyed on the rendition reviewed (R50).
+        key: `${p.owner.projectId}:creative-review:${creative.id}:${creative.renditions[0]!.sha256}`,
         category: "creative_review",
         state: "settled",
         settledMicros: BigInt(REVIEW_COST),
@@ -579,7 +581,7 @@ describe.skipIf(!enabled)(
       const after = await record(creative.id);
       expect(after.version).toBe(creative.version);
       expect(after.qa.vision).toBeUndefined();
-      // The same version is never sent again.
+      // The same rendition is never sent again.
       await expect(
         visionReviewCreative(p.owner, creative.id, {}, { respond: review }),
       ).rejects.toMatchObject({
@@ -587,6 +589,135 @@ describe.skipIf(!enabled)(
         status: 409,
       });
       expect(review).toHaveBeenCalledTimes(1);
+    });
+
+    /** Turns the review on and lets the logo and art go to a provider. */
+    const reviewReady = async () => {
+      await saveProfile({ visualReview: true });
+      for (const id of [assets.logo.id, assets.art.id])
+        await setStatus(id, { assetStatus: "approved", providerUse: true });
+    };
+    const reviewWith = (id: string, answer: unknown) =>
+      visionReviewCreative(p.owner, id, {}, { respond: answering(answer) });
+
+    it("a failing vision verdict survives a free recompose (R49)", async () => {
+      await reviewReady();
+      const creative = await produceFree();
+      const failed = await reviewWith(creative.id, failing);
+      expect(failed.status).toBe("needs_owner");
+      // The same pixels again, and another layout: still the owner's call.
+      const same = await recomposeCreative(p.editor, creative.id, {});
+      expect(same.renditions[0]!.sha256).toBe(failed.renditions[0]!.sha256);
+      const moved = await recomposeCreative(p.editor, creative.id, {
+        variant: "text_top",
+      });
+      for (const view of [same, moved]) {
+        expect(view.status).toBe("needs_owner");
+        expect(view.qa.verdict).toBe("needs_owner");
+        expect(view.qa.vision).toMatchObject({ verdict: "needs_correction" });
+      }
+      await expect(
+        attachCreative(p.editor, creative.id, {}),
+      ).rejects.toMatchObject({ code: "CREATIVE_QA_FAILED", status: 409 });
+      await expect(
+        attachCreative(p.editor, creative.id, { acceptQaFindings: true }),
+      ).rejects.toMatchObject({ code: "OWNER_REQUIRED", status: 403 });
+      await expect(
+        attachCreative(p.owner, creative.id, { acceptQaFindings: true }),
+      ).resolves.toMatchObject({ assetId: moved.renditions[0]!.assetId });
+    });
+
+    it("a passing review of the new rendition clears the vision finding (R49)", async () => {
+      await reviewReady();
+      const creative = await produceFree();
+      expect(creative.qa.verdict).toBe("pass");
+      await reviewWith(creative.id, failing);
+      const moved = await recomposeCreative(p.editor, creative.id, {
+        variant: "text_top",
+      });
+      expect(moved.status).toBe("needs_owner");
+      const passed = await reviewWith(creative.id, passing);
+      expect(passed.status).toBe("composed");
+      expect(passed.qa.verdict).toBe(moved.qa.vision!.compositionVerdict);
+      expect(passed.qa.verdict).not.toBe("needs_owner");
+      await expect(attachCreative(p.editor, creative.id, {})).resolves.toEqual(
+        expect.objectContaining({ assetId: moved.renditions[0]!.assetId }),
+      );
+    });
+
+    it("an attached creative stays attached with a failing verdict (R5a)", async () => {
+      await reviewReady();
+      const creative = await produceFree();
+      await attachCreative(p.editor, creative.id, {});
+      const reviewed = await reviewWith(creative.id, failing);
+      expect(reviewed.status).toBe("attached");
+      expect(reviewed.qa.verdict).toBe("needs_owner");
+    });
+
+    it("a second review of the same rendition is free (R50)", async () => {
+      await reviewReady();
+      const creative = await produceFree();
+      const first = await reviewWith(creative.id, failing);
+      const again = answering(passing);
+      const second = await visionReviewCreative(
+        p.owner,
+        creative.id,
+        {},
+        { respond: again },
+      );
+      expect(again).not.toHaveBeenCalled();
+      expect(second.qa.vision).toEqual(first.qa.vision);
+      expect(second.version).toBe(first.version);
+      expect(
+        await reservations(`creative-review:${creative.id}:`),
+      ).toHaveLength(1);
+    });
+
+    it("a refused review request costs nothing", async () => {
+      await reviewReady();
+      const creative = await produceFree();
+      const review = vi.fn(async () => {
+        throw new APIError(400, { message: "bad image" }, "bad", undefined);
+      }) as unknown as typeof respond & ReturnType<typeof vi.fn>;
+      await expect(
+        visionReviewCreative(p.owner, creative.id, {}, { respond: review }),
+      ).rejects.toMatchObject({
+        code: "MODEL_REQUEST_NOT_ACCEPTED",
+        status: 502,
+      });
+      const [reservation] = await reservations(
+        `creative-review:${creative.id}:`,
+      );
+      expect(reservation).toMatchObject({
+        state: "settled",
+        settledMicros: BigInt(0),
+      });
+      expect((await record(creative.id)).version).toBe(creative.version);
+    });
+
+    it("an invalid review answer is paid for and refused", async () => {
+      await reviewReady();
+      const creative = await produceFree();
+      await expect(
+        reviewWith(creative.id, { scores: { subject: 9 }, issues: [] }),
+      ).rejects.toMatchObject({
+        code: "VISION_REVIEW_OUTPUT_INVALID",
+        status: 502,
+      });
+      const [reservation] = await reservations(
+        `creative-review:${creative.id}:`,
+      );
+      expect(reservation).toMatchObject({
+        state: "settled",
+        settledMicros: BigInt(REVIEW_COST),
+      });
+      const after = await record(creative.id);
+      expect(after.cost).toMatchObject({
+        settledMicros: REVIEW_COST,
+        reservationIds: [reservation!.id],
+      });
+      expect(after.qa.vision).toBeUndefined();
+      expect(after.status).toBe("composed");
     });
   },
 );

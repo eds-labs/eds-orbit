@@ -224,6 +224,8 @@ export async function attachCreativeInTx(
     await audit(tx, scope, "creative.qa_override", row.id, {
       contentId: content.id,
       failed,
+      // A failing vision verdict the owner accepted (R49).
+      vision: record.qa.vision?.verdict ?? null,
     });
   await audit(tx, scope, "creative.attached", row.id, {
     contentId: content.id,

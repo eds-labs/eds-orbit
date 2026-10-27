@@ -41,6 +41,7 @@ import {
   creativeView,
   findCreative,
   type CreativeRecord,
+  type CreativeStatus,
   type CreativeView,
 } from "./store.ts";
 
@@ -100,6 +101,60 @@ export type VisionVerdict = {
   issues: { kind: "art" | "layout" | "copy" | "logo"; note: string }[];
   verdict: "pass" | "needs_correction";
 };
+
+/**
+ * A vision verdict as stored in `qa.vision`: the rendition it judged, when,
+ * and the composition's own verdict it may have overruled (R49).
+ */
+export type StoredVision = VisionVerdict & {
+  format: string;
+  renditionSha256: string;
+  reviewedAt: string;
+  compositionVerdict: CreativeRecord["qa"]["verdict"];
+};
+
+type Judged = Pick<CreativeRecord, "qa" | "status">;
+
+/**
+ * A creative's QA verdict and status with a vision verdict (R49, R5a): a
+ * failing one makes `qa.verdict` `needs_owner` and a `composed` creative
+ * `needs_owner` (an attached creative stays attached, one awaiting rights
+ * stays so); the composition's own verdict is kept in the vision record.
+ * Recomposition carries the vision verdict forward, so a failing one stays
+ * until a new review passes or the owner accepts the findings at attach.
+ */
+export function withVision<T extends Judged>(
+  fields: T,
+  vision: Record<string, unknown> | undefined,
+): T {
+  if (!vision) return fields;
+  const failing = vision.verdict !== "pass";
+  return {
+    ...fields,
+    qa: {
+      ...fields.qa,
+      vision: { ...vision, compositionVerdict: fields.qa.verdict },
+      ...(failing && { verdict: "needs_owner" as const }),
+    },
+    status:
+      failing && fields.status === "composed" ? "needs_owner" : fields.status,
+  };
+}
+
+/** The verdict and status a creative has without its vision verdict. */
+function withoutVision(fields: Judged): Judged {
+  const vision = fields.qa.vision;
+  if (!vision || vision.verdict === "pass")
+    return { qa: fields.qa, status: fields.status };
+  const verdict =
+    (vision.compositionVerdict as Judged["qa"]["verdict"] | undefined) ??
+    fields.qa.verdict;
+  const status: CreativeStatus =
+    fields.status === "needs_owner" && verdict !== "needs_owner"
+      ? "composed"
+      : fields.status;
+  return { qa: { ...fields.qa, verdict }, status };
+}
 
 /**
  * The verdict of an answer, decided by Orbit: `pass` when every score is at
@@ -225,17 +280,20 @@ function finalText(output: unknown[]) {
  * Runs the vision review of a creative (spec §9; owner, paid). The finished
  * rendition of its first format goes to the `creative_review` route as an
  * image with the brief, through spend mandate, reservation
- * `creative-review:<creativeId>:<version>` (category `creative_review`,
- * within `options.runKey`'s budget when given), transmission, settlement
- * with the usage cost and a span. `options.authorize` runs in the
- * reservation transaction after every other check, with the call's
- * estimate; its throw stops before any cost.
+ * `creative-review:<creativeId>:<rendition SHA-256>` (R50; category
+ * `creative_review`, within `options.runKey`'s budget when given),
+ * transmission, settlement with the usage cost and a span. A rendition
+ * already reviewed is not sent again: its stored verdict is returned.
+ * `options.authorize` runs in the reservation transaction after every other
+ * check, with the call's estimate; its throw stops before any cost.
  *
- * The verdict is stored in `qa.vision` with the cost. A failing verdict
- * leaves the creative for the owner: `qa.verdict` and a `composed` status
- * become `needs_owner` (an attached creative stays on its post). A provider
- * that throws settles the reservation as unknown (a refused request at 0),
- * leaves the creative unchanged and that version is never sent again.
+ * The verdict is stored in `qa.vision` with the cost (`withVision`). A
+ * failing verdict leaves the creative for the owner: `qa.verdict` and a
+ * `composed` status become `needs_owner` (an attached creative stays on its
+ * post, R5a); a passing one of the current rendition lifts an earlier
+ * failing one. A provider that throws settles the reservation as unknown (a
+ * refused request at 0), leaves the creative unchanged and that rendition
+ * is never sent again.
  *
  * Errors: `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
  * `VISION_REVIEW_DISABLED`, `PROVIDER_USE_REQUIRED`, `PROJECT_PAUSED`,
@@ -258,6 +316,9 @@ export async function visionReviewCreative(
   const target = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     reviewTarget(tx, scope, creativeId),
   );
+  // This rendition was judged already: no second payment (R50).
+  if (target.record.qa.vision?.renditionSha256 === target.rendition.sha256)
+    return creativeView(target.row, scope);
   const png = await componentBytes(scope, target.asset);
   const text = JSON.stringify(reviewBrief(target));
   const content = [
@@ -273,7 +334,7 @@ export async function visionReviewCreative(
     Buffer.byteLength(text) +
     Buffer.byteLength(JSON.stringify(outputSchema)) +
     attachmentInputTokens([{ kind: "image" }]);
-  const key = `creative-review:${creativeId}:${target.row.version}`;
+  const key = `creative-review:${creativeId}:${target.rendition.sha256}`;
   const routeVersion = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     openAiConfigurationVersion(tx, scope),
   );
@@ -296,7 +357,7 @@ export async function visionReviewCreative(
       // Everything still holds for the bytes read above.
       const now = await reviewTarget(tx, scope, creativeId);
       if (
-        now.row.version !== target.row.version ||
+        now.rendition.sha256 !== target.rendition.sha256 ||
         assetSha(now.asset) !== png.sha256
       )
         throw new DomainError("VERSION_CONFLICT", 409);
@@ -430,9 +491,15 @@ export async function visionReviewCreative(
   const saved = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const row = await findCreative(tx, scope, creativeId);
     const record = data(row) as CreativeRecord;
-    // The verdict belongs to the version reviewed; the cost to the creative.
-    const current = row.version === target.row.version ? verdict : null;
-    const failed = current?.verdict === "needs_correction";
+    // The verdict belongs to the rendition reviewed; the cost to the creative.
+    const current =
+      record.renditions[0]?.sha256 === target.rendition.sha256 ? verdict : null;
+    const vision: Omit<StoredVision, "compositionVerdict"> | null = current && {
+      ...current,
+      format: target.rendition.format,
+      renditionSha256: target.rendition.sha256,
+      reviewedAt: new Date().toISOString(),
+    };
     const next: CreativeRecord = {
       ...record,
       cost: {
@@ -440,19 +507,7 @@ export async function visionReviewCreative(
         reservationIds: [...record.cost.reservationIds, prepared.reservationId],
         settledMicros: record.cost.settledMicros + costMicros,
       },
-      ...(current && {
-        qa: {
-          ...record.qa,
-          vision: {
-            ...current,
-            format: target.rendition.format,
-            reviewedAt: new Date().toISOString(),
-          },
-          ...(failed && { verdict: "needs_owner" as const }),
-        },
-      }),
-      status:
-        failed && record.status === "composed" ? "needs_owner" : record.status,
+      ...(vision && withVision(withoutVision(record), vision)),
     };
     const updated = await update(tx, scope, row, next);
     await audit(tx, scope, "creative.vision_reviewed", row.id, {

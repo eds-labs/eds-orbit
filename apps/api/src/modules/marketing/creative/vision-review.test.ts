@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { visionAnswer, visionVerdict } from "./vision-review.ts";
+import type { CreativeRecord } from "./store.ts";
+import { visionAnswer, visionVerdict, withVision } from "./vision-review.ts";
 
 const scores = (values: number[]) => {
   const [
@@ -74,5 +75,46 @@ describe("vision verdict", () => {
     expect(
       visionAnswer.safeParse({ ...ok, verdict: "pass", extra: true }).success,
     ).toBe(false);
+  });
+});
+
+describe("a vision verdict on a creative (R49, R5a)", () => {
+  const judged = (
+    status: CreativeRecord["status"],
+    verdict: CreativeRecord["qa"]["verdict"] = "pass",
+  ): Pick<CreativeRecord, "qa" | "status"> => ({
+    qa: { checks: [], verdict },
+    status,
+  });
+  const failing = { verdict: "needs_correction", renditionSha256: "a" };
+
+  it("leaves a failing verdict to the owner and keeps the composition's own", () => {
+    expect(withVision(judged("composed", "corrected"), failing)).toEqual({
+      qa: {
+        checks: [],
+        verdict: "needs_owner",
+        vision: { ...failing, compositionVerdict: "corrected" },
+      },
+      status: "needs_owner",
+    });
+    // Status is the lifecycle: attached stays attached, rights come first.
+    for (const status of ["attached", "needs_rights", "needs_owner"] as const)
+      expect(withVision(judged(status), failing)).toMatchObject({
+        status,
+        qa: { verdict: "needs_owner" },
+      });
+  });
+
+  it("changes nothing for a passing verdict or none", () => {
+    const fields = judged("composed", "corrected");
+    expect(withVision(fields, undefined)).toBe(fields);
+    expect(withVision(fields, { verdict: "pass" })).toEqual({
+      qa: {
+        checks: [],
+        verdict: "corrected",
+        vision: { verdict: "pass", compositionVerdict: "corrected" },
+      },
+      status: "composed",
+    });
   });
 });
