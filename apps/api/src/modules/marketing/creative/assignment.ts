@@ -593,8 +593,10 @@ async function recordFailure(
  * stay), and attached in `run` mode unless the draft is scheduled or its
  * channel cannot carry the image (`attachRefusal`), which the review reports.
  * A composition that fails is recorded on its draft as `creativeFailure`
- * (`CREATIVE_RENDER_FAILED`), as is a unit whose art the budget refused
- * (`refused`, or the finished visual step's `skippedUnits`), with its code.
+ * (`CREATIVE_RENDER_FAILED`), as are a save of this draft alone that fails
+ * (its code, e.g. `CONTENT_CHANGED`) and a unit whose art the budget refused
+ * (`refused`, or the finished visual step's `skippedUnits`); a stored
+ * creative clears it.
  * Without a creative assignment, or with the Creative Studio off, nothing
  * happens.
  */
@@ -784,14 +786,14 @@ export async function composeRunCreatives(
           rightsSource: plan.rightsSource,
         });
         const v = data(content);
-        // A scheduled draft or a channel without media keeps its text alone; the review names it.
-        if (!(await attachRefusal(tx, scope, contentId, v))) {
-          if (v.creativeFailure) {
-            const { creativeFailure: _failure, ...rest } = v;
-            await update(tx, scope, content, rest);
-          }
-          await attachCreativeInTx(tx, scope, row.id, { mode: "run" });
+        // A stored creative ends an earlier failure, attached or not.
+        if (v.creativeFailure) {
+          const { creativeFailure: _failure, ...rest } = v;
+          await update(tx, scope, content, rest);
         }
+        // A scheduled draft or a channel without media keeps its text alone; the review names it.
+        if (!(await attachRefusal(tx, scope, contentId, v)))
+          await attachCreativeInTx(tx, scope, row.id, { mode: "run" });
         return row.id;
       });
       if (saved) composed.push(saved);
@@ -800,6 +802,11 @@ export async function composeRunCreatives(
       // A changed source stops this run's creatives; those stored stay.
       if (SOURCE_CHANGES.includes(code))
         return { composed, failed, error: code };
+      // Only this draft goes without: its cause is recorded for the owner
+      // (a removed draft has nothing to record it on).
+      await recordFailure(scope, contentId, { code, key }).catch((failure) => {
+        if (!(failure instanceof DomainError)) throw failure;
+      });
       failed.push({ contentId, code });
     }
   }

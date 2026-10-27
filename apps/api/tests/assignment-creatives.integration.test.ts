@@ -20,6 +20,8 @@ const provider = vi.hoisted(() => ({
   replies: [] as Array<(request: any) => Reply | Promise<Reply>>,
   // The fixture art the image model returns for its n-th call (1-based).
   artKind: (_call: number): "good" | "tiny_subject" => "good",
+  // Runs between a run creative's composition and its save.
+  afterCompose: null as null | (() => Promise<void>),
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
@@ -51,6 +53,24 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
     }),
   };
 });
+// The run's composition with a hook between composing and saving.
+vi.mock(
+  "../src/modules/marketing/creative/pipeline.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/creative/pipeline.ts")
+      >();
+    return {
+      ...actual,
+      composePlan: async (...args: Parameters<typeof actual.composePlan>) => {
+        const composed = await actual.composePlan(...args);
+        await provider.afterCompose?.();
+        return composed;
+      },
+    };
+  },
+);
 // The strategy's channel history sync reads an empty Postiz.
 vi.mock("../../../packages/connectors/src/index.ts", async (original) => ({
   ...(await original<
@@ -81,6 +101,7 @@ import {
 } from "../src/modules/agents/assignments.ts";
 import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
 import { CREATIVES } from "../src/modules/marketing/creative/store.ts";
+import { composeRunCreatives } from "../src/modules/marketing/creative/assignment.ts";
 import {
   createPackageProject,
   IMAGE_MODEL,
@@ -167,6 +188,7 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
   const drafted = async (
     briefChanges: (index: number) => Record<string, unknown> = () => ({}),
     channel?: string,
+    beforeVisual?: () => Promise<void>,
   ) => {
     const planned = await h.planWithBriefs((slots) =>
       slots
@@ -175,11 +197,13 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
           h.brief(slot, { creative: CREATIVE_BRIEF, ...briefChanges(index) }),
         ),
     );
-    for (const role of ["copywriter", "visual"])
+    for (const role of ["copywriter", "visual"]) {
+      if (role === "visual") await beforeVisual?.();
       for (const step of (await h.rows("agent_tasks")).filter(
         (t) => t.role === role,
       ))
         await runAgentTask(h.worker(), step.id);
+    }
     return { review: await h.task("review"), ...planned };
   };
   const approveAll = (request: any): Reply => ({
@@ -215,6 +239,7 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     provider.requests = [];
     provider.replies = [];
     provider.artKind = () => "good";
+    provider.afterCompose = null;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
@@ -487,9 +512,20 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
       expect(draft.creativeCopy).toEqual({ ...IMAGE_COPY, cta: "Learn more" });
     }
     expect(new Set(creatives.map((c) => c.components.artAssetId)).size).toBe(2);
-    // Composing again changes nothing: one creative per draft.
-    await runAgentTask(h.worker(), (await h.task("visual")).id);
+    // Composing again changes nothing: one creative and rendition per draft.
+    const bound = async () =>
+      (await h.rows("assets")).filter((a) => a.boundTo?.creativeId).length;
+    expect(await bound()).toBe(2);
+    expect(await composeRunCreatives(project.owner, runId)).toEqual({
+      composed: [],
+      failed: [],
+      error: null,
+    });
     expect(await h.rows(CREATIVES)).toHaveLength(2);
+    expect(await bound()).toBe(2);
+    expect((await contents()).map((c) => c.assetId)).toEqual(
+      drafts.map((c) => c.assetId),
+    );
 
     provider.replies.push(approveAll);
     await runAgentTask(h.worker(), review.id);
@@ -687,6 +723,60 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
       expect(budgetRun.reservationIds).toContain(id);
   });
 
+  it("composes again only when what a creative shows changed", async () => {
+    await creativeAssignment({ schedule: ONE_SLOT });
+    const { runId } = await drafted();
+    const [before] = await h.rows(CREATIVES);
+    // A new profile version changes the brand key: the draft is composed
+    // again and the new creative replaces the old one on it.
+    await h.run((tx) =>
+      tx.projectMarketingProfile.updateMany({
+        where: { projectId: project.owner.projectId },
+        data: { version: { increment: 1 } },
+      }),
+    );
+    const again = await composeRunCreatives(project.owner, runId);
+    expect(again.composed).toHaveLength(1);
+    expect(again.error).toBeNull();
+    const creatives = await h.rows(CREATIVES);
+    const old = creatives.find((c) => c.id === before!.id)!;
+    const fresh = creatives.find((c) => c.id === again.composed[0])!;
+    expect(old.status).toBe("superseded");
+    expect(fresh.status).toBe("attached");
+    expect(fresh.composeKey).not.toBe(old.composeKey);
+    const [draft] = await contents();
+    expect(draft!.creativeId).toBe(fresh.id);
+    const assets = await h.rows("assets");
+    expect(
+      assets.find((a) => a.id === old.renditions[0].assetId)!.assetStatus,
+    ).toBe("outdated");
+    // No new art: composing is free.
+    expect(provider.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it("records why a creative could not be saved on its draft", async () => {
+    await creativeAssignment({ schedule: ONE_SLOT });
+    // The draft moves to another channel between composing and saving.
+    provider.afterCompose = async () => {
+      provider.afterCompose = null;
+      await h.run(async (tx) => {
+        const [row] = await list(tx, project.owner, "content");
+        await update(tx, project.owner, row!, {
+          ...data(row!),
+          channel: TELEGRAM,
+        });
+      });
+    };
+    await drafted();
+    const visual = await h.task("visual");
+    expect(visual.output.creativeFailures).toEqual([
+      { contentId: expect.any(String), code: "CONTENT_CHANGED" },
+    ]);
+    const [draft] = await contents();
+    expect(draft!.creativeFailure).toMatchObject({ code: "CONTENT_CHANGED" });
+    expect(await h.rows(CREATIVES)).toEqual([]);
+  });
+
   it("budget bounds art", async () => {
     // A run pool of 80,000 micros: one image at the 50,000 ceiling.
     await creativeAssignment({ monthlyBudgetMicros: 30 * 80_000 });
@@ -812,7 +902,18 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
       schedule: ONE_SLOT,
       channels: [X, TELEGRAM, UNKNOWN],
     });
-    const { review } = await drafted();
+    // An earlier render failure on the unknown channel's draft is stale once a creative is stored.
+    const { review } = await drafted(undefined, undefined, () =>
+      h.run(async (tx) => {
+        const row = (await list(tx, project.owner, "content")).find(
+          (c) => data(c).channel === UNKNOWN,
+        )!;
+        await update(tx, project.owner, row, {
+          ...data(row),
+          creativeFailure: { code: "CREATIVE_RENDER_FAILED", key: "stale" },
+        });
+      }),
+    );
     expect(provider.generateImage).toHaveBeenCalledTimes(3);
     const assets = await h.rows("assets");
     const creatives = await h.rows(CREATIVES);
@@ -836,6 +937,7 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     // Composed in its square format, but its channel cannot carry an image.
     const unknown = byChannel(UNKNOWN);
     expect(unknown.assetId).toBeUndefined();
+    expect(unknown).not.toHaveProperty("creativeFailure");
     const stored = creatives.find((c) => c.contentId === unknown.id)!;
     expect(stored.status).not.toBe("attached");
     expect(stored.renditions.map((r: Record<string, any>) => r.format)).toEqual(
@@ -848,6 +950,9 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     expect(left.status).toBe("needs_review");
     expect(left.agentReviewDecision.deterministicProblems).toContain(
       "CREATIVE_MEDIA_REFUSED",
+    );
+    expect(left.agentReviewDecision.deterministicProblems).not.toContain(
+      "CREATIVE_RENDER_FAILED",
     );
     for (const channel of [X, TELEGRAM])
       expect(after.find((c) => c.channel === channel)!.status).toBe("reviewed");

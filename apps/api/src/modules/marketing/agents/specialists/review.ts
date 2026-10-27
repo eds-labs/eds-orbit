@@ -814,6 +814,8 @@ async function visionReviews(
     } catch (error) {
       const code = errorCode(error);
       if (code === ASSIGNMENT_BUDGET_EXHAUSTED) state.exhausted = true;
+      if (code === "UNEXPECTED")
+        console.error("Orbit assignment vision review failed", code);
       reviewed.set(id, code === "UNEXPECTED" ? "AGENT_FAILED" : code);
     }
   return reviewed;
