@@ -493,6 +493,21 @@ function variantsOf(
   return [...new Set(formats.flatMap((f) => offer.variants[f] ?? []))];
 }
 
+/**
+ * Sends a produce request; after a paid one succeeded, `renew` draws the
+ * form's next request id, so its next paid image is a new request. A failed
+ * request keeps the id: sending it again never pays twice (R51, M9).
+ */
+export async function sendProduce<T>(
+  send: () => Promise<T>,
+  paid: boolean,
+  renew: () => void,
+): Promise<T> {
+  const result = await send();
+  if (paid) renew();
+  return result;
+}
+
 function ProduceForm({
   projectId,
   content,
@@ -527,8 +542,8 @@ function ProduceForm({
   const [copy, setCopy] = useState<CreativeCopy>(
     content.creativeCopy ?? { headline: "" },
   );
-  // One id for this form: sending the same request again never pays twice (R51).
-  const [requestId] = useState(() => crypto.randomUUID());
+  // One id per paid image: sending the same request again never pays twice (R51).
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const formats = channelFormats(options, content);
   const offer = templates.find((t) => t.id === template);
   const variants = variantsOf(options, template, formats);
@@ -545,24 +560,30 @@ function ProduceForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (!copy.headline.trim() && !content.creativeCopy) return;
+        const paid = Boolean(askNew && maxArtCostMicros);
         void action.run(() =>
-          creativePost(collectionPath(projectId, "creatives"), {
-            contentId: content.id,
-            template,
-            ...(variant ? { variant } : {}),
-            copy: trimmed(copy),
-            ...(artId && !askNew ? { artAssetId: artId } : {}),
-            ...productIds(offer, productId),
-            ...(askNew && maxArtCostMicros
-              ? {
-                  generateArt: {
-                    confirmMaximumCostMicros: maxArtCostMicros,
-                    confirmPromptMayBeSentToProvider: true,
-                    requestId,
-                  },
-                }
-              : {}),
-          }),
+          sendProduce(
+            () =>
+              creativePost(collectionPath(projectId, "creatives"), {
+                contentId: content.id,
+                template,
+                ...(variant ? { variant } : {}),
+                copy: trimmed(copy),
+                ...(artId && !askNew ? { artAssetId: artId } : {}),
+                ...productIds(offer, productId),
+                ...(askNew && maxArtCostMicros
+                  ? {
+                      generateArt: {
+                        confirmMaximumCostMicros: maxArtCostMicros,
+                        confirmPromptMayBeSentToProvider: true,
+                        requestId,
+                      },
+                    }
+                  : {}),
+              }),
+            paid,
+            () => setRequestId(crypto.randomUUID()),
+          ),
         );
       }}
     >

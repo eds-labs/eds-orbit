@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   CreativePanelView,
@@ -6,6 +6,7 @@ import {
   creativeErrorMessage,
   formatUsd,
   productIds,
+  sendProduce,
 } from "./creative-panel";
 import {
   CreativeRequestError,
@@ -277,5 +278,27 @@ describe("channel formats and form state", () => {
     expect(formatUsd(4000)).toBe("$0.0040");
     expect(formatUsd(1_000_000)).toBe("$1.00");
     expect(formatUsd(null)).toBe("—");
+  });
+});
+
+// M9: after a paid creative was made, the form's next paid image is a new
+// request; a failed or free one keeps the id, so a retry never pays twice (R51).
+describe("sendProduce", () => {
+  it("draws a new request id only after a paid request succeeded", async () => {
+    const renew = vi.fn();
+    expect(await sendProduce(async () => "made", true, renew)).toBe("made");
+    expect(renew).toHaveBeenCalledTimes(1);
+    await sendProduce(async () => "made", false, renew);
+    expect(renew).toHaveBeenCalledTimes(1);
+    await expect(
+      sendProduce(
+        async () => {
+          throw new Error("RESERVATION_ALREADY_USED");
+        },
+        true,
+        renew,
+      ),
+    ).rejects.toThrow("RESERVATION_ALREADY_USED");
+    expect(renew).toHaveBeenCalledTimes(1);
   });
 });
