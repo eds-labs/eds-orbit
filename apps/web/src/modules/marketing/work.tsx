@@ -1124,6 +1124,27 @@ export function ContentEditor({
     </Modal>
   );
 }
+/** Platform identifier and name of a post's Postiz channel id, when known. */
+function postizChannelOf(
+  connectors: Entity[] | undefined,
+  channelId: unknown,
+): { channelIdentifier?: string; channelName?: string } {
+  for (const connector of connectors ?? []) {
+    if (connector.data.provider !== "postiz") continue;
+    const channels = Array.isArray(connector.data.channels)
+      ? (connector.data.channels as Record<string, unknown>[])
+      : [];
+    const found = channels.find((channel) => channel.id === channelId);
+    if (found)
+      return {
+        ...(found.identifier
+          ? { channelIdentifier: String(found.identifier) }
+          : {}),
+        ...(found.name ? { channelName: String(found.name) } : {}),
+      };
+  }
+  return {};
+}
 export function ContentDetail({
   entity,
   onClose,
@@ -1132,6 +1153,7 @@ export function ContentDetail({
   onClose: () => void;
 }) {
   const { project, t, locale, canEdit, isOwner, refresh } = useWorkspace();
+  const connectors = useCollection("connectors");
   const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const [creative, setCreative] = useState(false);
   const [humanConfirm, setHumanConfirm] = useState(false),
@@ -1260,6 +1282,7 @@ export function ContentDetail({
             id: current.id,
             body: String(current.data.body ?? ""),
             channel: String(current.data.channel ?? ""),
+            ...postizChannelOf(connectors.data?.items, current.data.channel),
             creativeCopy: current.data.creativeCopy as never,
           }}
           access={isOwner ? "owner" : canEdit ? "editor" : "viewer"}

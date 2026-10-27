@@ -4,6 +4,8 @@ import {
   CreativePanelView,
   RegenerateConfirm,
   creativeErrorMessage,
+  formatUsd,
+  productIds,
 } from "./creative-panel";
 import {
   CreativeRequestError,
@@ -49,7 +51,7 @@ const options: CreativeOptions = {
     {
       id: "announcement",
       variants: { landscape: ["text_top"], square: ["text_top", "centered"] },
-      needs: { art: true, product: false },
+      needs: { art: "optional", product: "none" },
       copyLimits: { eyebrow: 30, headline: 60, subline: 90, cta: 20 },
     },
   ],
@@ -198,5 +200,66 @@ describe("creativeErrorMessage", () => {
       err("ASSET_RIGHTS", { assetIds: "a1,a2", reasons: "unapproved" }),
     ).toContain("a1, a2");
     expect(err("SOMETHING_NEW")).toContain("SOMETHING NEW");
+  });
+});
+
+describe("channel formats and form state", () => {
+  const withInstagram: CreativeOptions = {
+    ...options,
+    templates: [
+      {
+        ...options.templates[0],
+        variants: { feed_portrait: ["text_bottom"], square: ["centered"] },
+      },
+    ],
+    defaultChannelFormats: { instagram: ["feed_portrait"] },
+  };
+  it("resolves variants and name from the channel's platform identifier", () => {
+    const html = render("editor", null, {
+      options: withInstagram,
+      content: {
+        ...content,
+        channel: "cm9x1",
+        channelIdentifier: "instagram",
+        channelName: "Brand IG",
+      },
+    });
+    expect(html).toContain("Text at the bottom");
+    expect(html).not.toContain("Centered");
+    const unknown = render("editor", null, { options: withInstagram });
+    expect(unknown).toContain("Centered");
+  });
+
+  it("shows the channel name and identifier, not the id", () => {
+    const html = render("editor", creative(), {
+      content: {
+        ...content,
+        channel: "cm9x1",
+        channelIdentifier: "linkedin",
+        channelName: "Brand LI",
+      },
+    });
+    expect(html).toContain("Brand LI · linkedin");
+    expect(html).not.toContain("cm9x1");
+  });
+
+  it("sends products only for templates that take them", () => {
+    expect(productIds({ needs: { product: "none" } }, "p1")).toEqual({});
+    expect(productIds({ needs: { product: "optional" } }, "p1")).toEqual({
+      productAssetIds: ["p1"],
+    });
+    expect(productIds({ needs: { product: "optional" } }, "")).toEqual({});
+  });
+
+  it("preselects the creative's current variant when recomposing", () => {
+    expect(render("editor", creative())).toMatch(
+      /<option value="text_top" selected/,
+    );
+  });
+
+  it("keeps sub-cent maxima readable", () => {
+    expect(formatUsd(4000)).toBe("$0.0040");
+    expect(formatUsd(1_000_000)).toBe("$1.00");
+    expect(formatUsd(null)).toBe("—");
   });
 });

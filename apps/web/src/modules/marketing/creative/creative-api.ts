@@ -62,10 +62,11 @@ export type CreativeView = {
   };
   status: CreativeStatus;
 };
+export type Need = "none" | "optional" | "required";
 export type CreativeTemplateOffer = {
   id: string;
   variants: Record<string, string[]>;
-  needs: { art: boolean; product: boolean };
+  needs: { art: Need; product: Need };
   copyLimits: Record<keyof CreativeCopy, number>;
 };
 export type CreativeOptions = {
@@ -76,6 +77,7 @@ export type CreativeOptions = {
   config: {
     enabledTemplates?: string[];
     maxArtCorrections?: number;
+    formatsByChannel?: Record<string, FormatId[]>;
     [key: string]: unknown;
   } | null;
 };

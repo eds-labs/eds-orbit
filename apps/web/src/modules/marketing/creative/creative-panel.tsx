@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Badge,
@@ -33,12 +33,17 @@ export { creativeErrorMessage } from "./creative-copy";
 // post text, their components and rights, QA findings, cost and status, and
 // the actions each role may take. The server checks every role again.
 
+type CreativeAction = ReturnType<typeof useCreativeAction>;
 type Access = "viewer" | "editor" | "owner";
 type Pair = readonly [string, string];
 type PanelContent = {
   id: string;
   body: string;
+  /** The Postiz channel id as stored on the post. */
   channel: string;
+  /** The channel's platform identifier (`linkedin`, `x`, …) and display name. */
+  channelIdentifier?: string;
+  channelName?: string;
   creativeCopy?: CreativeCopy;
 };
 /** The asset fields the panel needs from the assets collection. */
@@ -214,12 +219,41 @@ const PRODUCT_TYPES = ["screenshot", "product", "photo"];
 export function formatUsd(micros: number | null | undefined): string {
   if (micros === null || micros === undefined || !Number.isFinite(micros))
     return "—";
-  return `$${(micros / 1_000_000).toFixed(2)}`;
+  const usd = micros / 1_000_000;
+  // Sub-cent amounts keep their precision (a $0.004 maximum is not "$0.00").
+  return `$${usd > 0 && usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}`;
 }
 const word = (pair: Pair, de: boolean) => pair[de ? 1 : 0];
 const label = (key: keyof typeof T, de: boolean) => word(T[key], de);
 const pick = (map: Record<string, Pair>, key: string, de: boolean) =>
   map[key] ? word(map[key], de) : key.replaceAll("_", " ");
+
+/** `productAssetIds` for a request: only a template that takes products gets one. */
+export function productIds(
+  offer: { needs: { product: string } } | undefined,
+  productId: string,
+): { productAssetIds?: string[] } {
+  return productId && offer && offer.needs.product !== "none"
+    ? { productAssetIds: [productId] }
+    : {};
+}
+
+/** Formats of a post's channel: project override, default, else square. */
+function channelFormats(
+  options: CreativeOptions,
+  content: PanelContent,
+): string[] {
+  const key = content.channelIdentifier;
+  if (!key) return ["square"];
+  return (
+    options.config?.formatsByChannel?.[key] ??
+    options.defaultChannelFormats[key] ?? ["square"]
+  );
+}
+const channelText = (content: PanelContent) =>
+  content.channelName && content.channelIdentifier
+    ? `${content.channelName} · ${content.channelIdentifier}`
+    : (content.channelName ?? content.channelIdentifier ?? "—");
 
 function Dot({ tone }: { tone: string }) {
   return <span className={`creative-dot creative-dot-${tone}`} aria-hidden />;
@@ -467,7 +501,8 @@ function ProduceForm({
   isOwner,
   maxArtCostMicros,
   de,
-  onChanged,
+  action,
+  locked,
 }: {
   projectId: string;
   content: PanelContent;
@@ -476,7 +511,8 @@ function ProduceForm({
   isOwner: boolean;
   maxArtCostMicros: number | null;
   de: boolean;
-  onChanged: () => void;
+  action: CreativeAction;
+  locked: boolean;
 }) {
   const enabled = options.config?.enabledTemplates;
   const templates = options.templates.filter(
@@ -493,8 +529,7 @@ function ProduceForm({
   );
   // One id for this form: sending the same request again never pays twice (R51).
   const [requestId] = useState(() => crypto.randomUUID());
-  const action = useCreativeAction(onChanged);
-  const formats = options.defaultChannelFormats[content.channel] ?? ["square"];
+  const formats = channelFormats(options, content);
   const offer = templates.find((t) => t.id === template);
   const variants = variantsOf(options, template, formats);
   const arts = assets.filter(
@@ -517,7 +552,7 @@ function ProduceForm({
             ...(variant ? { variant } : {}),
             copy: trimmed(copy),
             ...(artId && !askNew ? { artAssetId: artId } : {}),
-            ...(productId ? { productAssetIds: [productId] } : {}),
+            ...productIds(offer, productId),
             ...(askNew && maxArtCostMicros
               ? {
                   generateArt: {
@@ -533,7 +568,15 @@ function ProduceForm({
     >
       <label className="field creative-field">
         <span className="field-label">{label("template", de)}</span>
-        <select value={template} onChange={(e) => setTemplate(e.target.value)}>
+        <select
+          value={template}
+          onChange={(e) => {
+            // A variant or product of the old template may not exist in the new one.
+            setTemplate(e.target.value);
+            setVariant("");
+            setProductId("");
+          }}
+        >
           {templates.map((t) => (
             <option key={t.id} value={t.id}>
               {pick(TEMPLATE_LABEL, t.id, de)}
@@ -567,7 +610,7 @@ function ProduceForm({
           ))}
         </select>
       </label>
-      {offer?.needs.product && (
+      {offer && offer.needs.product !== "none" && (
         <label className="field creative-field">
           <span className="field-label">{label("product", de)}</span>
           <select
@@ -621,16 +664,11 @@ function ProduceForm({
         onChange={setCopy}
         de={de}
       />
-      {action.error ? (
-        <Alert kind="error">{creativeErrorMessage(action.error, de)}</Alert>
-      ) : null}
       <div className="form-actions">
         <Button
           type="submit"
           disabled={
-            action.pending ||
-            !template ||
-            (askNew && (!confirmed || !maxArtCostMicros))
+            locked || !template || (askNew && (!confirmed || !maxArtCostMicros))
           }
         >
           {action.pending ? label("working", de) : label("produce", de)}
@@ -645,24 +683,27 @@ function RecomposeForm({
   creative,
   options,
   de,
-  onChanged,
+  action,
+  locked,
 }: {
   projectId: string;
   creative: CreativeView;
   options: CreativeOptions;
   de: boolean;
-  onChanged: () => void;
+  action: CreativeAction;
+  locked: boolean;
 }) {
   const formats = renditionFormats(creative);
   const variants = variantsOf(options, creative.template, formats);
   const offer = options.templates.find((t) => t.id === creative.template);
-  const [variant, setVariant] = useState("");
+  const [variant, setVariant] = useState(
+    variants.includes(creative.variant) ? creative.variant : "",
+  );
   const [placement, setPlacement] = useState<LogoPlacement>(
     creative.options.logoPlacement,
   );
   const [scale, setScale] = useState<TextScale>(creative.options.textScale);
   const [copy, setCopy] = useState<CreativeCopy>(creative.copy);
-  const action = useCreativeAction(onChanged);
   return (
     <form
       className="creative-form"
@@ -724,14 +765,11 @@ function RecomposeForm({
         onChange={setCopy}
         de={de}
       />
-      {action.error ? (
-        <Alert kind="error">{creativeErrorMessage(action.error, de)}</Alert>
-      ) : null}
       <div className="form-actions">
         <Button
           type="submit"
           variant="outline"
-          disabled={action.pending || !copy.headline.trim()}
+          disabled={locked || !copy.headline.trim()}
         >
           {action.pending ? label("working", de) : label("recompose", de)}
         </Button>
@@ -746,23 +784,25 @@ function Actions({
   isOwner,
   maxArtCostMicros,
   de,
-  onChanged,
+  action,
+  locked,
+  regenerate,
+  setRegenerate,
 }: {
   projectId: string;
   creative: CreativeView;
   isOwner: boolean;
   maxArtCostMicros: number | null;
   de: boolean;
-  onChanged: () => void;
+  action: CreativeAction;
+  locked: boolean;
+  /** The request id of the open regenerate dialog, or null while it is closed. */
+  regenerate: string | null;
+  setRegenerate: (id: string | null) => void;
 }) {
   const [accept, setAccept] = useState(false);
-  const [regenerate, setRegenerate] = useState<string | null>(null);
-  const attach = useCreativeAction(onChanged);
-  const review = useCreativeAction(onChanged);
-  const regen = useCreativeAction(() => {
-    setRegenerate(null);
-    onChanged();
-  });
+  // The acceptance belongs to the findings it was given for (R-fix 3).
+  useEffect(() => setAccept(false), [creative.id, creative.version]);
   const path = (tail: string) =>
     collectionPath(projectId, `creatives/${creative.id}/${tail}`);
   const needsAccept =
@@ -772,7 +812,7 @@ function Actions({
   const gone = creative.status === "superseded";
   const canAttach =
     !blocked && !done && !gone && (!needsAccept || (isOwner && accept));
-  const busy = attach.pending || review.pending || regen.pending;
+  const busy = locked;
   return (
     <div className="creative-actions">
       {needsAccept && !blocked && !done && !gone && isOwner && (
@@ -805,17 +845,17 @@ function Actions({
               variant="outline"
               disabled={busy}
               onClick={() =>
-                void review.run(() => creativePost(path("review"), {}))
+                void action.run(() => creativePost(path("review"), {}))
               }
             >
-              {review.pending ? label("working", de) : label("review", de)}
+              {label("review", de)}
             </Button>
           </>
         )}
         <Button
           disabled={busy || !canAttach}
           onClick={() =>
-            void attach.run(() =>
+            void action.run(() =>
               creativePost(
                 path("attach"),
                 needsAccept && isOwner ? { acceptQaFindings: true } : {},
@@ -829,33 +869,28 @@ function Actions({
       {!done && !gone && (
         <p className="creative-meta">{label("attachNote", de)}</p>
       )}
-      {[attach.error, review.error].map((error, i) =>
-        error ? (
-          <Alert kind="error" key={i}>
-            {creativeErrorMessage(error, de)}
-          </Alert>
-        ) : null,
-      )}
       {regenerate && (
         <Modal
           title={label("confirmTitle", de)}
-          onClose={() => !regen.pending && setRegenerate(null)}
+          onClose={() => !locked && setRegenerate(null)}
         >
           <RegenerateConfirm
             de={de}
             maxCostMicros={maxArtCostMicros}
-            pending={regen.pending}
-            error={regen.error}
+            pending={locked}
+            error={action.error}
             onCancel={() => setRegenerate(null)}
             onConfirm={() =>
               maxArtCostMicros &&
-              void regen.run(() =>
-                creativePost(path("regenerate-art"), {
-                  confirmMaximumCostMicros: maxArtCostMicros,
-                  confirmPromptMayBeSentToProvider: true,
-                  requestId: regenerate,
-                }),
-              )
+              void action
+                .run(() =>
+                  creativePost(path("regenerate-art"), {
+                    confirmMaximumCostMicros: maxArtCostMicros,
+                    confirmPromptMayBeSentToProvider: true,
+                    requestId: regenerate,
+                  }),
+                )
+                .then((result) => result && setRegenerate(null))
             }
           />
         </Modal>
@@ -875,6 +910,7 @@ export function CreativePanelView({
   assets,
   maxArtCostMicros,
   onChanged,
+  refreshing = false,
   initialFormat,
 }: {
   projectId: string;
@@ -886,8 +922,14 @@ export function CreativePanelView({
   assets: PanelAsset[];
   maxArtCostMicros: number | null;
   onChanged: () => void;
+  /** A reload after an action is still running: actions stay locked until it ends. */
+  refreshing?: boolean;
   initialFormat?: FormatId;
 }) {
+  // One lock for every write: produce, recompose, attach, regenerate, review.
+  const action = useCreativeAction(onChanged);
+  const locked = action.pending || refreshing;
+  const [regenerate, setRegenerate] = useState<string | null>(null);
   const canEdit = access !== "viewer";
   const isOwner = access === "owner";
   const formats = creative ? renditionFormats(creative) : [];
@@ -914,7 +956,8 @@ export function CreativePanelView({
                 isOwner={isOwner}
                 maxArtCostMicros={maxArtCostMicros}
                 de={de}
-                onChanged={onChanged}
+                action={action}
+                locked={locked}
               />
             ) : (
               <Alert kind="warning">{label("noBrandKit", de)}</Alert>
@@ -933,7 +976,7 @@ export function CreativePanelView({
               <blockquote className="creative-post">{content.body}</blockquote>
               <dl className="creative-facts">
                 <dt>{label("channel", de)}</dt>
-                <dd>{content.channel || "—"}</dd>
+                <dd>{channelText(content)}</dd>
                 <dt>{label("formats", de)}</dt>
                 <dd>
                   {formats
@@ -976,7 +1019,10 @@ export function CreativePanelView({
                 isOwner={isOwner}
                 maxArtCostMicros={maxArtCostMicros}
                 de={de}
-                onChanged={onChanged}
+                action={action}
+                locked={locked}
+                regenerate={regenerate}
+                setRegenerate={setRegenerate}
               />
               <details className="creative-recompose">
                 <summary>{label("recompose", de)}</summary>
@@ -985,13 +1031,17 @@ export function CreativePanelView({
                   creative={creative}
                   options={options}
                   de={de}
-                  onChanged={onChanged}
+                  action={action}
+                  locked={locked}
                 />
               </details>
             </>
           )}
         </>
       )}
+      {action.error && !regenerate ? (
+        <Alert kind="error">{creativeErrorMessage(action.error, de)}</Alert>
+      ) : null}
     </section>
   );
 }
@@ -1069,6 +1119,7 @@ export function CreativePanel({
       options={options.data}
       assets={items}
       maxArtCostMicros={max && max > 0 ? max : null}
+      refreshing={creative.loading || assets.loading}
       onChanged={() => {
         creative.refresh();
         assets.refresh();
