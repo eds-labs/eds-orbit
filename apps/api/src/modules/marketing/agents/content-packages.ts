@@ -733,7 +733,11 @@ async function carriesPackageImage(
   if (!imageId || typeof assetId !== "string") return false;
   if (assetId === imageId) return true;
   if (typeof creativeId !== "string") return false;
-  const row = await findCreative(tx, scope, creativeId).catch(() => null);
+  // A creative that no longer exists carries nothing; other errors stay errors (M5).
+  const row = await findCreative(tx, scope, creativeId).catch((error) => {
+    if (error instanceof DomainError) return null;
+    throw error;
+  });
   if (!row) return false;
   const record = data(row) as CreativeRecord;
   return (
