@@ -12,7 +12,7 @@ import {
   CommunityQuestions,
   type BriefProposal,
 } from "./editorial";
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import {
   Target,
   CircleCheck,
@@ -60,6 +60,8 @@ import {
   type FormValues,
 } from "@/platform/ui/form";
 import { CreativeRenderer } from "./advanced";
+import { CreativePanel } from "./creative/creative-panel";
+import { ShellContext } from "@/platform/shell/shell-context";
 import { useWorkspace } from "@/components/workspace-context";
 import {
   EntityRows,
@@ -1130,6 +1132,7 @@ export function ContentDetail({
   onClose: () => void;
 }) {
   const { project, t, locale, canEdit, isOwner, refresh } = useWorkspace();
+  const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const [creative, setCreative] = useState(false);
   const [humanConfirm, setHumanConfirm] = useState(false),
     [edit, setEdit] = useState(false),
@@ -1250,6 +1253,18 @@ export function ContentDetail({
           {Array.isArray(preflight.blockers) && preflight.blockers.join(", ")}
         </Alert>
       )}
+      {studio && (
+        <CreativePanel
+          projectId={project.id}
+          content={{
+            id: current.id,
+            body: String(current.data.body ?? ""),
+            channel: String(current.data.channel ?? ""),
+            creativeCopy: current.data.creativeCopy as never,
+          }}
+          access={isOwner ? "owner" : canEdit ? "editor" : "viewer"}
+        />
+      )}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       {mutation.success && (
         <Alert kind="success">
@@ -1289,9 +1304,11 @@ export function ContentDetail({
                 Create social variant
               </Button>
             )}
-            <Button variant="outline" onClick={() => setCreative(true)}>
-              Creative
-            </Button>
+            {!studio && (
+              <Button variant="outline" onClick={() => setCreative(true)}>
+                Creative
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setEdit(true)}>
               {t("edit")}
             </Button>

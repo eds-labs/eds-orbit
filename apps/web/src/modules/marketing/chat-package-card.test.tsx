@@ -43,4 +43,42 @@ describe("PackageCard image status", () => {
     expect(html).not.toContain("Rechteprüfung offen");
     expect(html).toContain("Erzeugt, Rechte bestätigt");
   });
+
+  it("offers the package image only to drafts that do not carry it yet", () => {
+    const withDraft = (carriesPackageImage?: boolean) => {
+      const base = pkg(true);
+      base.deliverables = [
+        {
+          key: "d1",
+          channelId: "c1",
+          channelName: "LinkedIn",
+          platform: "linkedin",
+          plannedSlotAt: null,
+          status: "drafted",
+          errorCode: null,
+          content: {
+            id: "post1",
+            body: "Text",
+            status: "draft",
+            assetId: "rendition",
+            carriesPackageImage,
+          },
+          review: null,
+        } as never,
+      ];
+      return renderToStaticMarkup(
+        <PackageCard
+          pkg={base}
+          de={false}
+          canStart
+          pending={false}
+          onStart={() => {}}
+          onCancel={() => {}}
+          onAttachImage={() => {}}
+        />,
+      );
+    };
+    expect(withDraft()).toContain("Attach package image");
+    expect(withDraft(true)).not.toContain("Attach package image");
+  });
 });

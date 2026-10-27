@@ -1,0 +1,202 @@
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import {
+  CreativePanelView,
+  RegenerateConfirm,
+  creativeErrorMessage,
+} from "./creative-panel";
+import {
+  CreativeRequestError,
+  type CreativeOptions,
+  type CreativeView,
+} from "./creative-api";
+
+const rendition = (format: string, w: number, h: number) => ({
+  format: format as never,
+  assetId: `asset-${format}`,
+  width: w,
+  height: h,
+  bytes: 1000,
+  sha256: "x",
+  channel: "linkedin",
+  href: `/api/projects/p1/assets/asset-${format}/content`,
+});
+const creative = (patch: Partial<CreativeView> = {}): CreativeView => ({
+  id: "c1",
+  version: 1,
+  contentId: "post1",
+  template: "announcement",
+  variant: "text_top",
+  options: { logoPlacement: "auto", textScale: "m" },
+  copy: { headline: "Spring launch", cta: "Join" },
+  components: {
+    artAssetId: "art1",
+    logo: { assetId: "logo1", sha256: "a" },
+    products: [],
+  },
+  renditions: [
+    rendition("landscape", 1200, 630),
+    rendition("square", 1080, 1080),
+  ],
+  qa: { checks: [], verdict: "pass" },
+  corrections: [],
+  cost: { reservationIds: [], settledMicros: 40000, unknownMicros: 0 },
+  status: "composed",
+  ...patch,
+});
+const options: CreativeOptions = {
+  templates: [
+    {
+      id: "announcement",
+      variants: { landscape: ["text_top"], square: ["text_top", "centered"] },
+      needs: { art: true, product: false },
+      copyLimits: { eyebrow: 30, headline: 60, subline: 90, cta: 20 },
+    },
+  ],
+  formats: {},
+  defaultChannelFormats: { linkedin: ["landscape"] },
+  config: { enabledTemplates: ["announcement"], maxArtCorrections: 1 },
+};
+const content = {
+  id: "post1",
+  body: "Our spring launch is here.",
+  channel: "linkedin",
+};
+const render = (
+  access: "viewer" | "editor" | "owner",
+  value: CreativeView | null,
+  extra: Record<string, unknown> = {},
+) =>
+  renderToStaticMarkup(
+    <CreativePanelView
+      projectId="p1"
+      content={content}
+      access={access}
+      de={false}
+      creative={value}
+      options={options}
+      assets={[
+        { id: "art1", name: "Hero", type: "photo", usageApproved: true },
+        { id: "logo1", name: "Logo", type: "logo", usageApproved: true },
+      ]}
+      maxArtCostMicros={1_000_000}
+      onChanged={() => {}}
+      {...extra}
+    />,
+  );
+
+describe("CreativePanelView", () => {
+  it("shows a rendition per format and switches with arrow keys", () => {
+    const html = render("editor", creative());
+    expect(html.match(/role="tab"/g)).toHaveLength(2);
+    expect(html).toContain('aria-selected="true"');
+    expect(html).toContain("/assets/asset-landscape/content");
+    expect(html).not.toContain("/assets/asset-square/content");
+    expect(html).toContain('alt="Spring launch"');
+    // The tab bar is the shared Tabs primitive: arrows, Home and End.
+    const second = render("editor", creative(), { initialFormat: "square" });
+    expect(second).toContain("/assets/asset-square/content");
+    expect(second).not.toContain("/assets/asset-landscape/content");
+  });
+
+  it("lists failed QA checks in words", () => {
+    const html = render(
+      "editor",
+      creative({
+        status: "needs_owner",
+        qa: {
+          verdict: "needs_owner",
+          checks: [
+            {
+              code: "EMPTY_AREA_EXCESSIVE",
+              passed: false,
+              severity: "blocker",
+            },
+            { code: "ASSET_UPSCALED", passed: false, severity: "warning" },
+            { code: "TEXT_CONTRAST_LOW", passed: true, severity: "blocker" },
+          ],
+        },
+      }),
+    );
+    expect(html).toContain("Too much empty space in the picture");
+    expect(html).toContain("Image was enlarged");
+    expect(html).not.toContain("EMPTY_AREA_EXCESSIVE");
+    expect(html).not.toContain("Text is hard to read");
+  });
+
+  it("hides actions from viewers", () => {
+    const html = render("viewer", creative());
+    expect(html).not.toContain("<form");
+    expect(html).not.toContain("Recompose");
+    expect(html).not.toContain("Attach");
+    expect(html).toContain("Spring launch");
+    expect(render("viewer", null)).not.toContain("Produce creative");
+  });
+
+  it("editor can recompose but not regenerate", () => {
+    const html = render("editor", creative());
+    expect(html).toContain("Recompose");
+    expect(html).toContain("Attach to post");
+    expect(html).not.toContain("Regenerate art");
+    expect(html).not.toContain("Vision review");
+    const owner = render("owner", creative());
+    expect(owner).toContain("Regenerate art");
+    expect(owner).toContain("Vision review");
+  });
+
+  it("owner regenerate asks for the cost confirmation", () => {
+    const html = renderToStaticMarkup(
+      <RegenerateConfirm
+        de={false}
+        maxCostMicros={1_000_000}
+        pending={false}
+        error={null}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    expect(html).toContain("$1.00");
+    expect(html).toContain("prompt goes to the image provider");
+  });
+
+  it("shows a warning for needs_owner", () => {
+    const html = render(
+      "owner",
+      creative({
+        status: "attached",
+        qa: { verdict: "needs_owner", checks: [] },
+      }),
+    );
+    // R5a: the lifecycle stays "attached", the quality is shown separately.
+    expect(html).toContain("Attached");
+    expect(html).toContain("Needs owner review");
+    expect(html).toContain("alert-warning");
+  });
+
+  it("shows — for unknown cost", () => {
+    const html = render("editor", creative({ cost: undefined }));
+    expect(html).toMatch(/Cost<\/dt><dd[^>]*>—</);
+    expect(render("editor", creative())).toContain("$0.04");
+  });
+
+  it("renders the empty state", () => {
+    const html = render("editor", null);
+    expect(html).toContain("No creative yet");
+    expect(html).toContain("Produce creative");
+    expect(render("viewer", null)).toContain("No creative yet");
+  });
+});
+
+describe("creativeErrorMessage", () => {
+  it("explains manual errors in words and names the failing asset", () => {
+    const err = (code: string, detail: Record<string, unknown> | null = null) =>
+      creativeErrorMessage(new CreativeRequestError(code, 409, detail), false);
+    expect(err("CREATIVE_VARIANT_NOT_AVAILABLE")).toContain("variant");
+    expect(err("PRODUCT_ASSET_REQUIRED")).toContain("approved product");
+    expect(err("CREATIVE_TEXT_TOO_LONG")).toContain("too long");
+    expect(
+      err("ASSET_RIGHTS", { assetIds: "a1,a2", reasons: "unapproved" }),
+    ).toContain("a1, a2");
+    expect(err("SOMETHING_NEW")).toContain("SOMETHING NEW");
+  });
+});

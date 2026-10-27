@@ -7063,3 +7063,127 @@ a.support-row {
     transition: none;
   }
 }
+
+/* Creative panel in the content detail (Creative Studio). */
+.creative-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.creative-panel h3,
+.creative-panel h4,
+.creative-panel h5 {
+  margin: 0 0 6px;
+}
+.creative-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.creative-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 420px;
+  object-fit: contain;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--muted);
+}
+.creative-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.creative-post {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.creative-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+.creative-facts dt {
+  color: var(--muted-foreground);
+}
+.creative-facts dd {
+  margin: 0;
+}
+.creative-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.creative-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+.creative-dot-success {
+  background: var(--success);
+}
+.creative-dot-warning {
+  background: #b7851a;
+}
+.creative-dot-danger {
+  background: var(--danger);
+}
+.creative-checks,
+.creative-components {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.creative-checks li,
+.creative-components li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.creative-components li {
+  justify-content: space-between;
+}
+.creative-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.creative-field select,
+.creative-field input {
+  width: 100%;
+}
+.creative-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.creative-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.creative-recompose summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 6px 0;
+}
+@media (max-width: 720px) {
+  .creative-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

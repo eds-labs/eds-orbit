@@ -43,6 +43,12 @@ export type ContentPackage = {
       status: string;
       reused?: boolean;
       assetId?: string | null;
+      /**
+       * The draft already carries this package's composed creative (a
+       * rendition, not the raw image). The snapshot does not report it yet;
+       * absent means unknown and keeps the button.
+       */
+      carriesPackageImage?: boolean;
     } | null;
     review: { valid: boolean; problems: string[] } | null;
     revisions?: number;
@@ -183,6 +189,7 @@ export function PackageCard({
           (deliverable) =>
             deliverable.content &&
             !deliverable.content.reused &&
+            !deliverable.content.carriesPackageImage &&
             deliverable.content.assetId !== image.assetId &&
             !["scheduled", "sending", "published", "published_test"].includes(
               deliverable.schedule?.status ?? "",
