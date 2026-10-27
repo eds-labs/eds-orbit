@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { CreativeRecord } from "./store.ts";
-import { visionAnswer, visionVerdict, withVision } from "./vision-review.ts";
+import {
+  VISION_INSTRUCTIONS,
+  visionAnswer,
+  visionVerdict,
+  withVision,
+} from "./vision-review.ts";
 
 const scores = (values: number[]) => {
   const [
@@ -116,5 +121,16 @@ describe("a vision verdict on a creative (R49, R5a)", () => {
       },
       status: "composed",
     });
+  });
+});
+
+describe("vision instructions", () => {
+  it("say that the art never carries text, logos or screens, so no issue asks for them", () => {
+    expect(VISION_INSTRUCTIONS).toContain(
+      "Orbit's artwork never contains text, numbers, logos, user interfaces or screens with content",
+    );
+    expect(VISION_INSTRUCTIONS).toMatch(
+      /never suggest adding (?:any of )?them to the art/u,
+    );
   });
 });
