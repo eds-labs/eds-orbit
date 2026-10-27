@@ -140,7 +140,7 @@ Request bodies are strict and no body can choose how a creative is attached (R45
 
 ## Known limits and follow-ups
 
-- Task 22 (live acceptance, one real image per demo brand, at most 1 USD) is not run: it needs Mario's go-ahead and key.
+- Task 22 (live acceptance) passed on 2026-10-27: one real image per demo brand, QA and vision review pass, USD 0.51 booked. `scripts/creative-live-run.ts` runs it again on the worktree's isolated database (free dry run by default; `--pay` needs `OPENAI_API_KEY` in the launch environment and is capped at USD 1).
 - **CS-D3 follow-up:** uLiquid still uses the hard-coded `brand_landscape` banner. Moving it to a generic template through its profile, then removing the hard-coded template, is a later step.
 - Fonts are Inter and DejaVu only; more fonts need font packages in the image (new dependency).
 - No video, carousels or animated formats; no new image providers (adapter-ready, needs a decision).
