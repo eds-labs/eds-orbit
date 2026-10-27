@@ -328,4 +328,96 @@ describe("rightsCheck", () => {
       },
     });
   });
+
+  describe("the creative's own new art (pending rights)", () => {
+    const orbitArt = {
+      type: "generated_artwork",
+      generationId: "request",
+      assetStatus: "reference",
+      usageApproved: false,
+    };
+
+    it("lets only that art wait for the owner's rights decision", async () => {
+      const own = asset("own art", orbitArt);
+      expect(
+        await rightsCheck(txWith([own]).tx, scope, [own], "social", {
+          pendingArtId: own.id,
+        }),
+      ).toEqual({
+        code: "ASSET_RIGHTS",
+        passed: true,
+        severity: "blocker",
+        detail: { pendingAssetIds: own.id },
+      });
+      // Approved meanwhile: an ordinary pass.
+      const approved = asset("approved own art", {
+        ...orbitArt,
+        assetStatus: "approved",
+        usageApproved: true,
+      });
+      expect(
+        await rightsCheck(txWith([approved]).tx, scope, [approved], "social", {
+          pendingArtId: approved.id,
+        }),
+      ).toEqual({ code: "ASSET_RIGHTS", passed: true, severity: "blocker" });
+    });
+
+    it("gives no exemption to other art and keeps every other rule", async () => {
+      const own = asset("pending own", orbitArt);
+      const other = asset("other generated art", orbitArt);
+      const uploaded = asset("uploaded photo", {
+        type: "photo",
+        assetStatus: "reference",
+        usageApproved: false,
+      });
+      for (const row of [other, uploaded])
+        expect(
+          await rightsCheck(
+            txWith([own, row]).tx,
+            scope,
+            [own, row],
+            "social",
+            {
+              pendingArtId: own.id,
+            },
+          ),
+        ).toMatchObject({
+          passed: false,
+          detail: { assetIds: row.id, reasons: "not_approved" },
+        });
+      // An uploaded photo named as the creative's art is not Orbit's art.
+      expect(
+        (
+          await rightsCheck(
+            txWith([uploaded]).tx,
+            scope,
+            [uploaded],
+            "social",
+            {
+              pendingArtId: uploaded.id,
+            },
+          )
+        ).passed,
+      ).toBe(false);
+      const blog = asset("blog art", { ...orbitArt, validUses: ["blog"] });
+      const unhashed = asset("unhashed art", {
+        ...orbitArt,
+        sha256: undefined,
+      });
+      const bound = asset("bound art", {
+        ...orbitArt,
+        boundTo: { creativeId: "c", contentId: "x" },
+      });
+      for (const [row, reason] of [
+        [blog, "use_not_approved"],
+        [unhashed, "no_sha256"],
+        [bound, "bound"],
+      ] as const)
+        expect(
+          await rightsCheck(txWith([row]).tx, scope, [row], "social", {
+            pendingArtId: row.id,
+          }),
+        ).toMatchObject({ passed: false, detail: { reasons: reason } });
+    });
+  });
 });
