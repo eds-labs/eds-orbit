@@ -322,7 +322,7 @@ Deterministic checks (`creative/quality.ts`), codes:
 | `LOGO_INTEGRITY` | logo bytes ≠ approved SHA-256, aspect changed, below minimum size (longer side < 0.06 of the canvas's shorter side, R19) | refuse (never render) |
 | `SCREENSHOT_INTEGRITY` | screenshot bytes ≠ approved SHA-256 or aspect changed | refuse |
 | `SUBJECT_TOO_SMALL` | bounding box of all connected subjects of at least 64 cells < 25 % of the drawn art (subject: colour distance to the border median > 0.15, or 3×3 luma range > 0.12; R26); not judged for a decorative strip beyond 4:1 (R24) | art correction |
-| `EMPTY_AREA_EXCESSIVE` | flat cells (background colour, 3×3 luma range < 0.03) outside the reserved zones > 45 % of the drawn art (R25); not judged for a decorative strip beyond 4:1 (R24) | art correction or tighter crop |
+| `EMPTY_AREA_EXCESSIVE` | flat cells (background colour, 3×3 luma range < 0.03) outside the reserved zones > 45 % of the drawn art (R25); not judged for a decorative strip beyond 4:1 (R24); a warning only for a band beyond 2.5:1 (R60) | art correction or tighter crop |
 | `SAFE_AREA_VIOLATION`, `LAYER_OVERLAP` | layer boxes against safe area and each other | render bug → `needs_owner` |
 | `ASSET_UPSCALED` | an art, screenshot or logo layer drawn at more than 1.5× its source size | warning only (shown, never blocks) |
 | `ASSET_RIGHTS` | every component approved, `validUses` covers the use, not outdated, same project | refuse |
@@ -345,7 +345,13 @@ specks and do not widen the subject's box (`subjectMinCells`, R26): two 80 px
 dots in opposite corners of a 1000 px field stay a small subject, two 400 px
 discs there are one composition. A drawn art box beyond 4:1 either way
 (`maxArtAspect`, R24) is a decorative strip; both art checks pass with
-`detail.skipped = "ART_STRIP"`.
+`detail.skipped = "ART_STRIP"`. Art drawn in a band beyond 2.5:1 either way
+(`maxBlockingEmptyAspect`, R60; for example the tips band of the square and
+portrait formats, 2.9:1) is judged for `SUBJECT_TOO_SMALL` only:
+`EMPTY_AREA_EXCESSIVE` there is a warning with `detail.band = "ART_BAND"` and
+never asks for paid art. A band behind or beside text is mostly background by
+design; the demo set measured 0.53–0.55 flat share on a well composed scene
+cropped into the 2.9:1 tips band.
 
 Known limits (R27), accepted because they err on the lenient side and cost no
 money: a smooth gradient or vignette that differs from the border colour

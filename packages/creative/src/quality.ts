@@ -273,7 +273,9 @@ async function rasterSize(bytes: Buffer) {
  * (R21): `png` is `drawnArt(art, layout)` and `reserved` is
  * `artZones(layout)` (fractions of the drawn art). A drawn art box beyond
  * `maxArtAspect` (4:1 either way) is a decorative strip: both checks pass
- * with `detail.skipped = "ART_STRIP"` (R24).
+ * with `detail.skipped = "ART_STRIP"` (R24). Art in a band beyond
+ * `maxBlockingEmptyAspect` (2.5:1) is judged for its subject only: its
+ * empty area is a warning with `detail.band = "ART_BAND"` (R60).
  */
 export async function checkArt(
   png: Buffer,
@@ -288,15 +290,30 @@ export async function checkArt(
       check("EMPTY_AREA_EXCESSIVE", true, { skipped: "ART_STRIP" }),
     ];
   const { subjectCoverage, flatShare } = await analyzeArt(png, reserved);
+  const band =
+    width > T.maxBlockingEmptyAspect * height ||
+    height > T.maxBlockingEmptyAspect * width;
   return [
     check("SUBJECT_TOO_SMALL", subjectCoverage >= T.subjectMinCoverage, {
       subjectCoverage: round(subjectCoverage),
       minimum: T.subjectMinCoverage,
     }),
-    check("EMPTY_AREA_EXCESSIVE", flatShare <= T.flatMaxShare, {
-      flatShare: round(flatShare),
-      maximum: T.flatMaxShare,
-    }),
+    // A band behind or beside text is mostly background by design (R60).
+    band
+      ? check(
+          "EMPTY_AREA_EXCESSIVE",
+          flatShare <= T.flatMaxShare,
+          {
+            flatShare: round(flatShare),
+            maximum: T.flatMaxShare,
+            band: "ART_BAND",
+          },
+          "warning",
+        )
+      : check("EMPTY_AREA_EXCESSIVE", flatShare <= T.flatMaxShare, {
+          flatShare: round(flatShare),
+          maximum: T.flatMaxShare,
+        }),
   ];
 }
 

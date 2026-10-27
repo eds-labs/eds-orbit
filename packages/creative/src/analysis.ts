@@ -35,6 +35,11 @@ export const CREATIVE_THRESHOLDS = {
   subjectMinCells: 64,
   /** Aspect beyond which a drawn art box is a decorative strip and is not judged (R24). */
   maxArtAspect: 4,
+  /**
+   * Aspect beyond which drawn art is a band: its empty area is a warning
+   * only, its subject is still judged (R60).
+   */
+  maxBlockingEmptyAspect: 2.5,
   /** Colour distance from the background (Euclidean RGB / 255) from which a cell is subject. */
   subjectColor: 0.15,
   /** Luminance range of a cell's 3×3 neighbourhood from which it is subject (structure). */

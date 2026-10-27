@@ -334,6 +334,38 @@ describe("checkArt", () => {
     ]);
   });
 
+  it("judges band art beyond 2.5:1 for its subject only (R60)", async () => {
+    for (const [width, height] of [
+      [900, 300],
+      [300, 900],
+    ]) {
+      const checks = await checkArt(await field(width!, height!), []);
+      // A flat band still has no subject: that stays a blocker.
+      expect(find(checks, "SUBJECT_TOO_SMALL")).toMatchObject({
+        passed: false,
+        severity: "blocker",
+      });
+      // Its empty area is a warning only, so it never asks for paid art.
+      expect(find(checks, "EMPTY_AREA_EXCESSIVE")).toMatchObject({
+        passed: false,
+        severity: "warning",
+        detail: { band: "ART_BAND" },
+      });
+      expect(failedBlockers(checks)).toEqual(["SUBJECT_TOO_SMALL"]);
+    }
+    // Up to 2.5:1 the empty area is a blocker as before.
+    const field25 = await checkArt(await field(750, 300), []);
+    expect(find(field25, "EMPTY_AREA_EXCESSIVE")).toMatchObject({
+      passed: false,
+      severity: "blocker",
+    });
+    // The tips band of the square format is such a band.
+    const band = layoutFor("tips", "text_top", "square", OPTIONS);
+    expect(band.art!.w / band.art!.h).toBeGreaterThan(
+      CREATIVE_THRESHOLDS.maxBlockingEmptyAspect,
+    );
+  });
+
   it("counts every significant subject, not only the largest (R26)", async () => {
     // Two 400 px discs at opposite corners are one composition, not a small subject.
     const two = await checkArt(
@@ -608,7 +640,8 @@ describe("checkComposition", () => {
     expect(failedBlockers(checks)).toEqual([]);
   });
 
-  it.each(["feed_portrait", "landscape"] as const)(
+  // Square holds the tips band (2.9:1) whose empty area is a warning (R60).
+  it.each(["feed_portrait", "square", "landscape"] as const)(
     "calibration: both demo brands pass every template (%s)",
     async (format) => {
       for (const brandName of ["lumora", "kestrel"] as const)
