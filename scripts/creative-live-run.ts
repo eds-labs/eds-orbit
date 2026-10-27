@@ -86,7 +86,8 @@ export const COPY: Record<BrandName, Record<string, string>> = {
     cta: "Start free trial",
   },
 };
-// Kestrel's visual identity as in the acceptance test (no imagery notes).
+// Kestrel's visual identity as in the acceptance test, plus imagery notes so
+// the paid art has a concrete motif (the test's identity has none).
 const KESTREL_IDENTITY = {
   primaryColor: "#0F4C5C",
   secondaryColor: "#082F38",
@@ -97,6 +98,17 @@ const KESTREL_IDENTITY = {
   headingFont: "DejaVu Sans",
   bodyFont: "DejaVu Sans",
   designRules: ["Preserve the approved logo unchanged."],
+  imagery: {
+    kind: "3d",
+    mood: "focused, confident, clear",
+    subjects:
+      "Abstract 3D forms that suggest data: layered translucent glass panels, rising bars and flowing light lines",
+    avoid: [
+      "People at laptops",
+      "Screens or charts with readable numbers",
+      "Generic stock office scenes",
+    ],
+  },
 };
 /** The post each creative is made for; its title is the art's motif (manual brief). */
 const POSTS: Record<BrandName, { title: string; body: string }> = {
@@ -105,7 +117,7 @@ const POSTS: Record<BrandName, { title: string; body: string }> = {
     body: "Evenings feel softer in warm light: lamps, throws and textures for a calm retreat. Shop the collection.",
   },
   kestrel: {
-    title: "Monday mornings start with answers",
+    title: "Clarity rises from your data",
     body: "See every metric that moves your team with dashboards that update themselves. Start free trial.",
   },
 };
