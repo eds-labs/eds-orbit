@@ -1,6 +1,7 @@
 import { marketingReportRoutes } from "./analytics/report-routes.ts";
 import { prepareContentNovelty, commitTopic } from "./agents/novelty.ts";
 import { marketingPlanRoutes } from "./plans/routes.ts";
+import { creativeRoutes } from "./creative/routes.ts";
 import { z } from "zod";
 import { jsonSafe, scoped } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
@@ -72,6 +73,7 @@ export const marketingRoutes: RoutesContribution = (context) => {
   const { app, auth } = context;
   marketingPlanRoutes(context);
   marketingReportRoutes(context);
+  creativeRoutes(context);
   app.post(
     "/api/slack/:workspaceId/:projectId/interactions",
     async (req, reply) => {

@@ -107,6 +107,12 @@ export type ProduceRequest = {
    * `needs_rights` until the owner approves the art and recomposes.
    */
   generateArt?: ArtConfirmation;
+  /**
+   * The client's id for the paid image (R51): a retried request names the
+   * same image request and is refused (`RESERVATION_ALREADY_USED`) instead
+   * of paying twice. A new one is drawn when it is absent.
+   */
+  requestId?: string;
 };
 
 /** Test seam: the composer, the image provider and a hook between composing and saving. */
@@ -454,7 +460,7 @@ export async function produceCreative(
   await trialComposition(scope, prep.plan, prep.art, deps);
   const assetId = await generateArt(
     scope,
-    { ...prep.art, requestId: randomUUID() },
+    { ...prep.art, requestId: request.requestId ?? randomUUID() },
     confirmation,
     deps.generate,
   );
@@ -677,19 +683,22 @@ async function recompose(
  * the creative recomposed over it: `needs_rights` until the owner approves
  * the art and recomposes; the post keeps an attached rendition until the
  * next attach (R5). A failure after payment names the art (`artAssetId`).
+ * The optional `requestId` is the client's id for the image (R51), as in
+ * `ProduceRequest`.
  * Errors: as `recomposeCreative`, plus `OWNER_REQUIRED` (403),
  * `ART_CORRECTION_LIMIT`, `IMAGE_COST_CONFIRMATION_STALE`,
- * `VERSION_CONFLICT` (409) and the image generation's own.
+ * `RESERVATION_ALREADY_USED`, `VERSION_CONFLICT` (409) and the image
+ * generation's own.
  */
 export async function regenerateCreativeArt(
   scope: Scope,
   creativeId: string,
-  input: ArtConfirmation & { correction?: ArtCorrection },
+  input: ArtConfirmation & { correction?: ArtCorrection; requestId?: string },
   providers: PipelineDeps = {},
 ): Promise<CreativeView> {
   assertStudio(scope);
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
-  const { correction: asked, ...rest } = input;
+  const { correction: asked, requestId: clientRequestId, ...rest } = input;
   const confirmation = artConfirmation.parse(rest);
   const correction = asked && artCorrectionInput.parse(asked);
   const planned = await scoped(
@@ -736,7 +745,7 @@ export async function regenerateCreativeArt(
     },
   );
   await trialComposition(scope, planned.plan, planned.art, providers);
-  const requestId = randomUUID();
+  const requestId = clientRequestId ?? randomUUID();
   let assetId: string;
   try {
     assetId = await generateArt(

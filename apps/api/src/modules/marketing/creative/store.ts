@@ -120,3 +120,27 @@ export function creativeView(row: EntityRow, scope: Scope): CreativeView {
     })),
   };
 }
+
+/**
+ * The newest creative of a post that no newer attach replaced, or null. The
+ * post itself must be checked by the caller; a creative of another project
+ * never matches.
+ */
+export async function latestCreativeOfContent(
+  tx: DbTx,
+  scope: Scope,
+  contentId: string,
+) {
+  return tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: CREATIVES,
+      AND: [
+        { data: { path: ["contentId"], equals: contentId } },
+        { NOT: { data: { path: ["status"], equals: "superseded" } } },
+      ],
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+}

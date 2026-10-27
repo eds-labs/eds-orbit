@@ -167,7 +167,8 @@ export async function recordArtAttempt(
  * over: a settled image adds its cost (and the new art when it was stored), a
  * call whose outcome is unknown stays counted with its reserved amount as
  * unknown cost. An attempt that was never recorded (refused before anything
- * was reserved) changes nothing.
+ * was reserved) changes nothing, and neither does one that was completed
+ * before.
  */
 export async function settleArtAttempt(
   scope: Scope,
@@ -188,7 +189,10 @@ export async function settleArtAttempt(
         key: `${scope.projectId}:image:${requestId}`,
       },
     });
-    if (!reservation) return;
+    // A retried request (the client's request id, R51) finds its attempt
+    // counted already: the reservation is added to the creative once.
+    if (!reservation || record.cost.reservationIds.includes(reservation.id))
+      return;
     const settled =
       reservation.state === "settled"
         ? Number(reservation.settledMicros ?? 0)

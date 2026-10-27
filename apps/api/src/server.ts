@@ -226,6 +226,18 @@ function zodCode(error: z.ZodError) {
   );
   return custom?.message ?? "VALIDATION_FAILED";
 }
+/**
+ * The `detail` a DomainError carries for the client (R56): the ids and codes
+ * of what it refused (an asset, a draft, a paid image), never content or
+ * secrets. Only a plain object counts; any other error has none.
+ */
+function errorDetail(error: unknown): Record<string, unknown> | undefined {
+  if (!(error instanceof DomainError)) return undefined;
+  const { detail } = error as { detail?: unknown };
+  return detail && typeof detail === "object" && !Array.isArray(detail)
+    ? (detail as Record<string, unknown>)
+    : undefined;
+}
 // The owner's Telegram bot routes, by registered pattern (on with telegramEnabled()).
 const TELEGRAM_ROUTES = new Set([
   "/api/telegram/:projectId/:connectionId",
@@ -454,9 +466,16 @@ export async function buildServer(
       { code, status, ...(known ? {} : { errorName: (error as Error)?.name }) },
       "request failed",
     );
-    reply.code(status).send({
-      error: { code, message: code.replaceAll("_", " ").slice(0, 200) },
-    });
+    const message = code.replaceAll("_", " ").slice(0, 200);
+    const detail = errorDetail(error);
+    // The routes' error schema declares code and message only and would
+    // drop the detail, so a detail is sent as the JSON text it is.
+    if (detail)
+      return reply
+        .code(status)
+        .type("application/json; charset=utf-8")
+        .send(JSON.stringify({ error: { code, message, detail } }));
+    reply.code(status).send({ error: { code, message } });
   });
   // Orbit Telegram bot webhook (Orbit Agents): public, authenticated only by
   // the per-connection secret header and the bound chat (spec §10).

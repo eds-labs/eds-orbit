@@ -49,6 +49,8 @@ Object.assign(process.env, {
   // Central connections, AI profiles and knowledge shares (ADR 0014).
   ORBIT_CONNECTIONS: "true",
   ORBIT_KNOWLEDGE_SHARES: "true",
+  // Marketing Creative Studio: its routes answer 404 while it is off.
+  ORBIT_CREATIVE_STUDIO: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
