@@ -24,6 +24,8 @@ export const taskClasses = [
   "knowledge_evaluation",
   // Issue center (ADR 0018): AI triage suggestions for a new issue.
   "issue_triage",
+  // Creative Studio: the optional vision review of a composed creative.
+  "creative_review",
 ] as const;
 export type TaskClass = (typeof taskClasses)[number];
 export const reasoningEfforts = [
@@ -58,6 +60,7 @@ export const taskRoutesSchema = z
     pm_analysis: modelRouteSchema.optional(),
     knowledge_evaluation: modelRouteSchema.optional(),
     issue_triage: modelRouteSchema.optional(),
+    creative_review: modelRouteSchema.optional(),
   })
   .strict();
 /** The tier models of a second provider (Anthropic); the OpenAI tiers stay `modelRoutes`. */
@@ -86,6 +89,8 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   // About 15 passages per call, one to three questions each, with thinking.
   knowledge_evaluation: 6000,
   issue_triage: 1500,
+  // Seven scores and a few short issues for one image.
+  creative_review: 1500,
 };
 // Tier used when no explicit task route is configured.
 export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
@@ -103,6 +108,7 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   pm_analysis: "standard",
   knowledge_evaluation: "standard",
   issue_triage: "standard",
+  creative_review: "standard",
 };
 
 // Blog drafts use the blog route; every other content type uses the social route.

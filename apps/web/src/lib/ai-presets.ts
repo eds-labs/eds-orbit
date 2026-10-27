@@ -72,6 +72,8 @@ export const aiTasks = [
   { id: "knowledge_evaluation", en: "Knowledge test questions", de: "Wissensprüfung: Testfragen", tokens: 6000 },
   // Issue center (ADR 0018).
   { id: "issue_triage", en: "Issue triage", de: "Issue-Einordnung", tokens: 1500 },
+  // Creative Studio: the optional vision review of a composed creative.
+  { id: "creative_review", en: "Creative vision review", de: "Creative: Bildprüfung", tokens: 1500 },
 ] as const;
 export const taskName = (task: (typeof aiTasks)[number], locale: Locale) =>
   locale === "de" ? task.de : task.en;

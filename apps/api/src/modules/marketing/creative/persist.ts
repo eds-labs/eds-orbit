@@ -12,7 +12,7 @@ import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import type { BrandKitPlan, EntityRow } from "./brand-kit.ts";
 import type { ResolvedBrief } from "./brief.ts";
 import { assetSha, projectAssets } from "./components.ts";
-import { creativeRefusal } from "./quality.ts";
+import { creativeRefusal, CreativeRightsError } from "./quality.ts";
 import type { CompositionOutcome } from "./renditions.ts";
 import type { CreativeRecord } from "./store.ts";
 
@@ -31,9 +31,21 @@ export type CreativePlan = {
   art: EntityRow | null;
   /** The product shown (at most one), or none. */
   products: EntityRow[];
-  /** The passed `ASSET_RIGHTS` check of the components. */
+  /**
+   * The passed `ASSET_RIGHTS` check of the components; its detail's
+   * `pendingAssetIds` names new art that waits for the owner's rights
+   * decision (`awaitsArtRights`).
+   */
   rights: CreativeCheck;
 };
+
+/**
+ * The plan's art is Orbit's new art awaiting the owner's rights decision:
+ * the renditions are stored as unapproved references and the creative
+ * `needs_rights` until the owner approves the art and recomposes.
+ */
+export const awaitsArtRights = (plan: Pick<CreativePlan, "rights">) =>
+  Boolean(plan.rights.detail?.pendingAssetIds);
 
 /** The composition of a plan and the component bytes it was drawn from. */
 export type ComposedCreative = {
@@ -94,8 +106,18 @@ export async function assertContentHolds(
   return content;
 }
 
-/** A refused composition (R34) is never stored, whoever saves it. */
-function assertNotRefused(composed: ComposedCreative) {
+/**
+ * A refused composition (R34) is never stored, whoever saves it: neither one
+ * whose plan failed its rights check (R46; callers that skip the pipeline's
+ * own plan check, such as assignment runs and packages, still get the
+ * refusal) nor one with an integrity finding.
+ */
+function assertNotRefused(
+  plan: Pick<CreativePlan, "rights">,
+  composed: ComposedCreative,
+) {
+  if (plan.rights.code !== "ASSET_RIGHTS" || !plan.rights.passed)
+    throw new CreativeRightsError(plan.rights.detail ?? {});
   const refused = creativeRefusal(composed.outcome.failed);
   if (refused) throw new DomainError(refused, 409);
 }
@@ -107,8 +129,10 @@ function assertNotRefused(composed: ComposedCreative) {
  * with the role it was drawn as). `boundTo` and `rightsSource` take a flow's
  * own fields (an assignment run, a consent) next to Orbit's, which win.
  * `approvedBy` is who stands for the rights: the person composing, or for
- * an assignment run the owner whose confirmation carries the consent. A
- * refused composition (R34) throws its code (409) and stores nothing.
+ * an assignment run the owner whose confirmation carries the consent. Art
+ * awaiting the owner's rights decision makes every rendition an unapproved
+ * reference (`awaitsArtRights`). A refused composition (R34, R46) throws its
+ * code (409) and stores nothing.
  */
 export async function saveRenditions(
   tx: DbTx,
@@ -129,7 +153,15 @@ export async function saveRenditions(
   },
 ): Promise<CreativeRecord["renditions"]> {
   const { plan, composed } = input;
-  assertNotRefused(composed);
+  assertNotRefused(plan, composed);
+  // Renditions count as approved only once every component is (spec §8).
+  const approval = awaitsArtRights(plan)
+    ? { usageApproved: false, assetStatus: "reference" }
+    : {
+        usageApproved: true,
+        assetStatus: "approved",
+        approvedBy: input.approvedBy,
+      };
   const component = (
     role: string,
     row: EntityRow,
@@ -163,9 +195,7 @@ export async function saveRenditions(
       bytes: result.png.length,
       source: "template",
       sourceType: "TEMPLATE_GENERATED",
-      usageApproved: true,
-      assetStatus: "approved",
-      approvedBy: input.approvedBy,
+      ...approval,
       license:
         "Composed by Orbit from approved brand assets; rights follow its components",
       rightsSource: {
@@ -204,8 +234,10 @@ export async function saveRenditions(
 /**
  * The composition part of a creative record: the brief, the variant drawn in
  * the first format (the brief keeps the one asked for), whether a person
- * fixed it, the components with their bytes and the QA. `composed` without
- * a failed blocker, else `needs_owner`; a refusal (R34) throws its code.
+ * fixed it, the components with their bytes and the QA. `needs_rights` while
+ * the art awaits the owner's rights decision, else `composed` without a
+ * failed blocker and `needs_owner` with one; a refusal (R34, R46) throws its
+ * code.
  */
 export function composedFields(
   plan: CreativePlan,
@@ -219,7 +251,7 @@ export function composedFields(
   | "corrections"
   | "cost"
 > {
-  assertNotRefused(composed);
+  assertNotRefused(plan, composed);
   const { outcome } = composed;
   const first = outcome.renditions[0]!;
   const logo = plan.kit.logos[first.result.logoRole]!;
@@ -244,6 +276,10 @@ export function composedFields(
       })),
     },
     qa: { checks: [plan.rights, ...outcome.checks], verdict: outcome.verdict },
-    status: outcome.failed.length ? "needs_owner" : "composed",
+    status: awaitsArtRights(plan)
+      ? "needs_rights"
+      : outcome.failed.length
+        ? "needs_owner"
+        : "composed",
   };
 }

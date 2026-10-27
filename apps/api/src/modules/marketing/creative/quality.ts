@@ -13,7 +13,7 @@ import { data, DomainError } from "../../../shared.ts";
 import { isApprovedAsset } from "../brand/asset-rules.ts";
 import type { ArtCorrection } from "./art-direction.ts";
 import type { EntityRow } from "./brand-kit.ts";
-import { projectAssets } from "./components.ts";
+import { isOrbitArt, projectAssets } from "./components.ts";
 
 // The service's part of creative QA (spec §9): the rights of the components
 // and the choice of the next free correction. The engine's checks
@@ -23,28 +23,49 @@ import { projectAssets } from "./components.ts";
 export type CreativeUse = "social";
 
 /**
+ * New art Orbit generated for a creative that waits for the owner's rights
+ * decision: an unapproved reference, as image generation stores it.
+ */
+function awaitsRights(row: EntityRow | undefined): boolean {
+  const d = data(row);
+  return (
+    isOrbitArt(row ?? null) &&
+    d.assetStatus === "reference" &&
+    d.usageApproved !== true
+  );
+}
+
+/**
  * `ASSET_RIGHTS`: every component, read again in `tx`, is an asset of this
  * project, approved with its usage rights, not bound to a post (a composed
  * rendition or banner), approved for `use` and stored with the SHA-256 of
  * its bytes. The detail lists each refused asset with its reason
  * (`not_found`, `not_approved`, `bound`, `use_not_approved`, `no_sha256`), in
  * the order given.
+ *
+ * `pendingArtId` names the creative's own new art (spec §8): while it is
+ * Orbit's unapproved reference it passes as pending, listed in the detail's
+ * `pendingAssetIds`, so the creative is composed but `needs_rights`; every
+ * other rule applies to it as to any component.
  */
 export async function rightsCheck(
   tx: DbTx,
   scope: Scope,
   rows: EntityRow[],
   use: CreativeUse,
+  options: { pendingArtId?: string } = {},
 ): Promise<CreativeCheck> {
   const ids = [...new Set(rows.map((row) => row.id))];
   const current = await projectAssets(tx, scope, ids);
   const refused: Array<{ id: string; reason: string }> = [];
+  const pending: string[] = [];
   for (const id of ids) {
     const row = current.get(id);
     const d = data(row);
+    const waiting = id === options.pendingArtId && awaitsRights(row);
     const reason = !row
       ? "not_found"
-      : !isApprovedAsset(d)
+      : !isApprovedAsset(d) && !waiting
         ? "not_approved"
         : d.boundTo
           ? "bound"
@@ -55,18 +76,26 @@ export async function rightsCheck(
               ? "no_sha256"
               : null;
     if (reason) refused.push({ id, reason });
+    else if (waiting) pending.push(id);
   }
-  return refused.length
-    ? {
-        code: "ASSET_RIGHTS",
-        passed: false,
-        severity: "blocker",
-        detail: {
-          assetIds: refused.map((r) => r.id).join(","),
-          reasons: refused.map((r) => r.reason).join(","),
-        },
-      }
-    : { code: "ASSET_RIGHTS", passed: true, severity: "blocker" };
+  if (refused.length)
+    return {
+      code: "ASSET_RIGHTS",
+      passed: false,
+      severity: "blocker",
+      detail: {
+        assetIds: refused.map((r) => r.id).join(","),
+        reasons: refused.map((r) => r.reason).join(","),
+      },
+    };
+  return {
+    code: "ASSET_RIGHTS",
+    passed: true,
+    severity: "blocker",
+    ...(pending.length
+      ? { detail: { pendingAssetIds: pending.join(",") } }
+      : {}),
+  };
 }
 
 /** 409 `ASSET_RIGHTS`: a refusal, never corrected (R22); `detail` names the assets. */

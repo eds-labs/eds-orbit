@@ -136,12 +136,14 @@ export type AttachMode = "content" | "run";
  *   owner's acceptance of the findings in `content` mode (audited
  *   `creative.qa_override`), and is attached as it is in `run` mode.
  *   Integrity and rights findings are refusals in both (R34), and the
- *   rendition's components and brand are checked again.
+ *   rendition's components and brand are checked again. One whose new art
+ *   `needs_rights` waits for the owner to approve the art and recompose.
  * - The post's previous rendition becomes `outdated` and a creative it
  *   replaces `superseded`; this one becomes `attached` (R5). Repeating the
  *   attach changes nothing.
  *
- * Errors: `CREATIVE_QA_FAILED`, `CREATIVE_NOT_ATTACHABLE`, `CONTENT_CHANGED`,
+ * Errors: `CREATIVE_QA_FAILED`, `CREATIVE_RIGHTS_REQUIRED`,
+ * `CREATIVE_NOT_ATTACHABLE`, `CONTENT_CHANGED`,
  * `DRAFT_SUPERSEDED`, `ALREADY_SCHEDULED`, `CAPTION_TOO_LONG`,
  * `BRAND_ASSET_CHANGED`, `ASSET_RIGHTS`, `LOGO_INTEGRITY`,
  * `SCREENSHOT_INTEGRITY` (409), `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
@@ -179,6 +181,9 @@ export async function attachCreativeInTx(
   // Integrity and rights findings are refusals no one accepts (R34).
   const refused = creativeRefusal(failed);
   if (refused) throw new DomainError(refused, 409);
+  // Its renditions are unapproved references until the art's rights are.
+  if (record.status === "needs_rights")
+    throw new DomainError("CREATIVE_RIGHTS_REQUIRED", 409);
   const override = mode === "content" && record.status === "needs_owner";
   if (override) {
     if (opts.acceptQaFindings !== true)

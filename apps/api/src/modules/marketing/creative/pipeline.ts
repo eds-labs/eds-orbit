@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { generateImage } from "../../../../../../packages/ai/src/index.ts";
 import {
   composeCreative,
   CreativeError,
@@ -15,10 +17,23 @@ import {
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   authorize,
+  PROJECT_OWN,
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
 import { audit, create, data, DomainError, update } from "../../../shared.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
+import {
+  artAttempts,
+  artConfirmation,
+  artCorrectionInput,
+  findingsCorrection,
+  generateArt,
+  planArt,
+  recordArtAttempt,
+  settleArtAttempt,
+  type ArtConfirmation,
+} from "./art.ts";
+import type { ArtCorrection } from "./art-direction.ts";
 import { attachCreativeInTx } from "./attach.ts";
 import {
   loadCreativeBrand,
@@ -63,11 +78,12 @@ import {
 } from "./store.ts";
 
 // The manual Creative Studio (spec §8, §11): produce a creative for a social
-// post from approved assets, recompose it for free and attach it to the post.
-// Producing and recomposing run in three steps: plan in one transaction,
-// read bytes and compose outside any transaction, save in a second
-// transaction only while the profile, every component and the post's
-// channel are unchanged.
+// post from approved assets or new art, recompose it for free, regenerate its
+// art (paid, bounded) and attach it to the post. Producing and recomposing
+// run in three steps: plan in one transaction, read bytes and compose outside
+// any transaction, save in a second transaction only while the profile,
+// every component and the post's channel are unchanged. New art is generated
+// between the plan and the composition.
 
 /** A person's request for a creative of one post (the Creative Studio). */
 export type ProduceRequest = {
@@ -81,11 +97,18 @@ export type ProduceRequest = {
   /** The approved screenshot or product image to show; without it the brand kit's first. */
   productAssetIds?: string[];
   options?: Partial<{ logoPlacement: LogoPlacement; textScale: TextScale }>;
+  /**
+   * New art instead of `artAssetId` (owner, one paid image at the confirmed
+   * per-image ceiling). The art is stored unapproved and the creative
+   * `needs_rights` until the owner approves the art and recomposes.
+   */
+  generateArt?: ArtConfirmation;
 };
 
-/** Test seam: the composer, and a hook between composing and saving. */
+/** Test seam: the composer, the image provider and a hook between composing and saving. */
 export type PipelineDeps = {
   compose?: typeof composeCreative;
+  generate?: typeof generateImage;
   afterCompose?: () => Promise<void>;
 };
 
@@ -157,16 +180,26 @@ function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
 /** A creative plan of one post. */
 type Plan = CreativePlan & { content: EntityRow };
 
+/** How a plan's art is checked: new art to come, or the creative's own new art. */
+type ArtCheck = {
+  /** Paid art is generated after this check (the plan has none yet). */
+  artToCome?: boolean;
+  /** The creative's own new art, which may wait for the owner's rights decision. */
+  pendingArtId?: string;
+};
+
 /**
  * Completes a plan, before any byte is read: the copy within the template's
  * limits (Task 12's rule, `CREATIVE_TEXT_TOO_LONG`, R42), art where the
  * template needs it (`ART_REQUIRED`) and the rights of every component (a
- * refusal throws, R22).
+ * refusal throws, R22). Before new art is paid for, it checks everything
+ * else.
  */
 async function checkedPlan(
   tx: DbTx,
   scope: Scope,
   plan: Omit<Plan, "rights">,
+  art: ArtCheck = {},
 ): Promise<Plan> {
   const { template } = plan.brief;
   if (
@@ -175,11 +208,29 @@ async function checkedPlan(
     }).includes(CREATIVE_TEXT_TOO_LONG)
   )
     throw new DomainError(CREATIVE_TEXT_TOO_LONG, 409);
-  if (TEMPLATE_NEEDS[template].art === "required" && !plan.art)
+  if (
+    TEMPLATE_NEEDS[template].art === "required" &&
+    !plan.art &&
+    !art.artToCome
+  )
     throw new DomainError("ART_REQUIRED", 409);
-  const rights = await rightsCheck(tx, scope, sourceRows(plan), "social");
+  const rights = await rightsCheck(tx, scope, sourceRows(plan), "social", {
+    pendingArtId: art.pendingArtId,
+  });
   assertRights(rights);
   return { ...plan, rights };
+}
+
+/**
+ * New art is the owner's decision (`OWNER_REQUIRED`, 403) with a valid
+ * confirmation, and replaces a named art (`INVALID_TEMPLATE_INPUT`, 400).
+ */
+function newArtConfirmation(scope: Scope, request: ProduceRequest) {
+  if (!request.generateArt) return null;
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const confirmation = artConfirmation.parse(request.generateArt);
+  if (request.artAssetId) throw new DomainError("INVALID_TEMPLATE_INPUT", 400);
+  return confirmation;
 }
 
 /** Reads the bytes and composes every format, outside any transaction. */
@@ -255,8 +306,12 @@ const auditFacts = (record: CreativeRecord, outcome: CompositionOutcome) => ({
  * rendition per channel format with free corrections and art checks, and
  * stores the creative with its bound renditions under the re-check of
  * profile, components and post. `composed` when no failed blocker remains,
- * else `needs_owner` with the findings. Free: no model call.
- * Errors: `EDITOR_REQUIRED` (403), `NOT_FOUND` (404),
+ * else `needs_owner` with the findings. Free: no model call, except with
+ * `generateArt`: after every other check one image is generated through the
+ * owner's image generation (reserved at the confirmed ceiling before it is
+ * sent, `IMAGE_COST_CONFIRMATION_STALE` otherwise); the art and the
+ * renditions are stored unapproved and the creative `needs_rights`.
+ * Errors: `EDITOR_REQUIRED`, `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
  * `CREATIVE_SOCIAL_ONLY`, `CREATIVE_COPY_REQUIRED`, `CREATIVE_TEXT_TOO_LONG`,
  * `ART_REQUIRED`,
  * `TEXT_OVERFLOW`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`,
@@ -269,7 +324,8 @@ export async function produceCreative(
   deps: PipelineDeps = {},
 ): Promise<CreativeView> {
   assertStudio(scope);
-  const plan = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+  const confirmation = newArtConfirmation(scope, request);
+  const prep = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const content = await projectRow(tx, scope, "content", request.contentId);
     const v = data(content);
     if (v.type !== "social") throw new DomainError("CREATIVE_SOCIAL_ONLY", 409);
@@ -311,21 +367,52 @@ export async function produceCreative(
     // Named products the layout does not show would be dropped silently (R31).
     if (explicit.length && !products.length)
       throw new DomainError("INVALID_TEMPLATE_INPUT", 400);
-    return checkedPlan(tx, scope, {
-      kit,
-      content,
-      brief,
-      copy,
-      options: {
-        logoPlacement:
-          request.options?.logoPlacement ?? kit.config.logoPlacement,
-        textScale: request.options?.textScale ?? "m",
+    const plan = await checkedPlan(
+      tx,
+      scope,
+      {
+        kit,
+        content,
+        brief,
+        copy,
+        options: {
+          logoPlacement:
+            request.options?.logoPlacement ?? kit.config.logoPlacement,
+          textScale: request.options?.textScale ?? "m",
+        },
+        variantFixed: request.variant !== undefined,
+        art,
+        products,
       },
-      variantFixed: request.variant !== undefined,
-      art,
-      products,
-    });
+      { artToCome: confirmation !== null },
+    );
+    // The paid image is planned, and its terms checked, before anything is sent.
+    return {
+      plan,
+      art: confirmation
+        ? await planArt(tx, scope, plan, String(v.title ?? ""), confirmation)
+        : null,
+    };
   });
+  let plan = prep.plan;
+  if (prep.art && confirmation) {
+    const assetId = await generateArt(
+      scope,
+      { ...prep.art, requestId: randomUUID() },
+      confirmation,
+      deps.generate,
+    );
+    const { rights: _rights, ...rest } = plan;
+    // The new art waits for the owner's rights decision (spec §8).
+    plan = await scoped(scope.workspaceId, scope.projectId, async (tx) =>
+      checkedPlan(
+        tx,
+        scope,
+        { ...rest, art: await artAsset(tx, scope, assetId) },
+        { pendingArtId: assetId },
+      ),
+    );
+  }
   const composed = await composePlan(scope, plan, 0, deps);
   const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await assertSourcesHold(tx, scope, plan);
@@ -335,7 +422,14 @@ export async function produceCreative(
       ...composedFields(plan, composed),
       renditions: [],
       corrections: composed.outcome.corrections,
-      cost: { reservationIds: [], settledMicros: 0, unknownMicros: 0 },
+      // New art was settled at the confirmed ceiling.
+      cost: prep.art
+        ? {
+            reservationIds: [String(data(plan.art).budgetReservationId)],
+            settledMicros: prep.art.costMicros,
+            unknownMicros: 0,
+          }
+        : { reservationIds: [], settledMicros: 0, unknownMicros: 0 },
     };
     // The renditions are bound to the creative, so it is created first.
     const creative = await create(tx, scope, CREATIVES, record);
@@ -376,6 +470,21 @@ export async function recomposeCreative(
   deps: PipelineDeps = {},
 ): Promise<CreativeView> {
   assertStudio(scope);
+  return recompose(scope, creativeId, changes, deps);
+}
+
+/**
+ * The recomposition of `recomposeCreative`. With `newArtId` the creative's
+ * new art (a regeneration) replaces the kept art; like a creative's own art
+ * that `needs_rights`, it may wait for the owner's rights decision.
+ */
+async function recompose(
+  scope: Scope,
+  creativeId: string,
+  changes: RecomposeChanges,
+  deps: PipelineDeps,
+  newArtId?: string,
+): Promise<CreativeView> {
   const { row, record, plan } = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -384,11 +493,13 @@ export async function recomposeCreative(
       const record = data(row) as CreativeRecord;
       const content = await projectRow(tx, scope, "content", record.contentId);
       const { artAssetId, artSha256 } = record.components;
-      const [art = null] = artAssetId
-        ? await keptAssets(tx, scope, [
-            { assetId: artAssetId, sha256: artSha256 },
-          ])
-        : [];
+      const [art = null] = newArtId
+        ? [await artAsset(tx, scope, newArtId)]
+        : artAssetId
+          ? await keptAssets(tx, scope, [
+              { assetId: artAssetId, sha256: artSha256 },
+            ])
+          : [];
       const products = await keptAssets(tx, scope, record.components.products);
       const kit = await resolveBrandKit(tx, scope);
       let brief = record.brief;
@@ -419,24 +530,32 @@ export async function recomposeCreative(
           fallbackReason,
         };
       }
-      const plan = await checkedPlan(tx, scope, {
-        kit,
-        content,
-        brief,
-        copy: changes.copy ? creativeCopyOf(changes.copy) : record.copy,
-        options: { ...record.options, ...changes.options },
-        // A person's variant stays theirs until a new template replaces it.
-        variantFixed:
-          changes.variant !== undefined ||
-          (changes.template === undefined && record.variantFixed === true),
-        art,
-        products: shownProducts(brief, products),
-      });
+      const plan = await checkedPlan(
+        tx,
+        scope,
+        {
+          kit,
+          content,
+          brief,
+          copy: changes.copy ? creativeCopyOf(changes.copy) : record.copy,
+          options: { ...record.options, ...changes.options },
+          // A person's variant stays theirs until a new template replaces it.
+          variantFixed:
+            changes.variant !== undefined ||
+            (changes.template === undefined && record.variantFixed === true),
+          art,
+          products: shownProducts(brief, products),
+        },
+        {
+          pendingArtId:
+            newArtId ??
+            (record.status === "needs_rights" ? artAssetId : undefined),
+        },
+      );
       return { row, record, plan };
     },
   );
-  const artAttempts = record.corrections.filter((c) => c.kind === "art").length;
-  const composed = await composePlan(scope, plan, artAttempts, deps);
+  const composed = await composePlan(scope, plan, artAttempts(record), deps);
   const saved = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await assertSourcesHold(tx, scope, plan);
     const carried = data(
@@ -463,13 +582,106 @@ export async function recomposeCreative(
     await audit(
       tx,
       scope,
-      "creative.recomposed",
+      newArtId ? "creative.art_regenerated" : "creative.recomposed",
       row.id,
       auditFacts(next, composed.outcome),
     );
     return updated;
   });
   return creativeView(saved, scope);
+}
+
+/**
+ * Regenerates a creative's art (spec §9; owner, one paid image): at most
+ * `maxArtCorrections` attempts per creative (`ART_CORRECTION_LIMIT`, 409,
+ * before anything is reserved). Everything else of the creative is checked
+ * first; the prompt carries the owner's `correction`, else the change the
+ * art findings ask for. The attempt is recorded on the creative in the
+ * image's reservation transaction, so it counts once sent, with its cost or,
+ * when the call's outcome is unknown, as unknown cost. The new art is stored
+ * unapproved and the creative recomposed over it: `needs_rights` until the
+ * owner approves the art and recomposes; the post keeps an attached
+ * rendition until the next attach (R5).
+ * Errors: as `recomposeCreative`, plus `OWNER_REQUIRED` (403),
+ * `ART_CORRECTION_LIMIT`, `IMAGE_COST_CONFIRMATION_STALE`,
+ * `VERSION_CONFLICT` (409) and the image generation's own.
+ */
+export async function regenerateCreativeArt(
+  scope: Scope,
+  creativeId: string,
+  input: ArtConfirmation & { correction?: ArtCorrection },
+  providers: PipelineDeps = {},
+): Promise<CreativeView> {
+  assertStudio(scope);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const { correction: asked, ...rest } = input;
+  const confirmation = artConfirmation.parse(rest);
+  const correction = asked && artCorrectionInput.parse(asked);
+  const planned = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => {
+      const row = await findCreative(tx, scope, creativeId);
+      const record = data(row) as CreativeRecord;
+      const kit = await resolveBrandKit(tx, scope);
+      if (artAttempts(record) >= kit.config.maxArtCorrections)
+        throw new DomainError("ART_CORRECTION_LIMIT", 409);
+      const content = await projectRow(tx, scope, "content", record.contentId);
+      const products = await keptAssets(tx, scope, record.components.products);
+      // The rest of the creative must stand before new art is paid for.
+      const plan = await checkedPlan(
+        tx,
+        scope,
+        {
+          kit,
+          content,
+          brief: record.brief,
+          copy: record.copy,
+          options: record.options,
+          variantFixed: record.variantFixed === true,
+          art: null,
+          products: shownProducts(record.brief, products),
+        },
+        { artToCome: true },
+      );
+      const change = correction ?? findingsCorrection(record.qa.checks);
+      return {
+        row,
+        change,
+        art: await planArt(
+          tx,
+          scope,
+          plan,
+          String(data(content).title ?? ""),
+          confirmation,
+          change,
+        ),
+      };
+    },
+  );
+  const requestId = randomUUID();
+  let assetId: string;
+  try {
+    assetId = await generateArt(
+      scope,
+      { ...planned.art, requestId },
+      confirmation,
+      providers.generate,
+      (tx) =>
+        recordArtAttempt(tx, scope, planned.row, {
+          kind: "art",
+          reason: planned.change?.kind ?? "owner_request",
+          at: new Date().toISOString(),
+          requestId,
+        }),
+    );
+  } catch (error) {
+    // A sent attempt keeps its cost on the creative, or stays unknown.
+    await settleArtAttempt(scope, creativeId, requestId).catch(() => undefined);
+    throw error;
+  }
+  await settleArtAttempt(scope, creativeId, requestId, assetId);
+  return recompose(scope, creativeId, {}, providers, assetId);
 }
 
 /**

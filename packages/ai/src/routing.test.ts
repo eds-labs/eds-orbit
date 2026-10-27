@@ -100,6 +100,7 @@ describe("resolveRoute", () => {
       "pm_analysis",
       "knowledge_evaluation",
       "issue_triage",
+      "creative_review",
     ]);
   });
   it("rejects unverified models", () => {
@@ -141,6 +142,30 @@ describe("finance_extraction", () => {
     ).toEqual({ finance_extraction: { model: "m", maxOutputTokens: 4000 } });
     expect(defaultOutputTokens.finance_extraction).toBe(4000);
     expect(legacyTier.finance_extraction).toBe(legacyTier.support_triage);
+  });
+});
+
+describe("creative_review", () => {
+  it("routing: creative_review resolves a route", () => {
+    const runtime = {
+      verifiedModels: ["f", "s", "q", "e", "v"],
+      modelRoutes: { fast: "f", standard: "s", quality: "q", escalation: "e" },
+    };
+    // The vision review of a creative: standard tier, 1,500 output tokens.
+    expect(resolveRoute("creative_review", runtime)).toEqual({
+      model: "s",
+      maxOutputTokens: 1500,
+    });
+    expect(
+      resolveRoute("creative_review", {
+        ...runtime,
+        taskRoutes: taskRoutesSchema.parse({
+          creative_review: { model: "v", maxOutputTokens: 2000 },
+        }),
+      }),
+    ).toEqual({ model: "v", maxOutputTokens: 2000 });
+    expect(defaultOutputTokens.creative_review).toBe(1500);
+    expect(legacyTier.creative_review).toBe("standard");
   });
 });
 

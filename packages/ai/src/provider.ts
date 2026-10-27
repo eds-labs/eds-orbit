@@ -144,6 +144,7 @@ export const anthropicCatalog = {
     pm_analysis: "claude-haiku-5-5",
     knowledge_evaluation: "claude-haiku-5-5",
     issue_triage: "claude-haiku-5-5",
+    creative_review: "claude-sonnet-5-5",
   },
   tiers: {
     fast: "claude-haiku-5-5",

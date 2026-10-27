@@ -1120,6 +1120,7 @@ const taskClasses = [
   { id: "pm_analysis", label: "Project manager reports", defaultTokens: 3000 },
   { id: "knowledge_evaluation", label: "Knowledge test questions", defaultTokens: 6000 },
   { id: "issue_triage", label: "Issue triage", defaultTokens: 1500 },
+  { id: "creative_review", label: "Creative vision review", defaultTokens: 1500 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
 const reasoningEffortValues = [

@@ -68,11 +68,19 @@ export type CreativeRecord = {
     vision?: Record<string, unknown>;
     verdict: "pass" | "corrected" | "needs_owner";
   };
+  /**
+   * Free corrections and paid art attempts. An art attempt is recorded with
+   * its image request before anything is sent and counts against
+   * `maxArtCorrections` from then on; `costMicros` and the new `assetId`
+   * follow once the image returned (no cost: outcome unknown).
+   */
   corrections: Array<{
     kind: string;
     reason: string;
     at: string;
     costMicros?: number;
+    requestId?: string;
+    assetId?: string;
   }>;
   cost: {
     reservationIds: string[];
