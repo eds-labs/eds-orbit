@@ -165,8 +165,12 @@ const T = {
     "Optional: was das Bild zeigt. Ohne Motiv dient der Titel des Beitrags; das Bild enthält nie Text oder Logos.",
   ],
   artDirectionKeep: [
-    "Optional: a new motif for the new art. Without one the current motif is kept.",
-    "Optional: ein neues Motiv für das neue Bild. Ohne Angabe bleibt das bisherige Motiv.",
+    "The current art direction is filled in. What you see here is sent for the new art: change it as needed; an emptied setting or mood is left out.",
+    "Die bisherige Bildvorgabe ist eingetragen. Was hier steht, wird für das neue Bild gesendet: ändern Sie sie nach Bedarf; eine geleerte Szene oder Stimmung entfällt.",
+  ],
+  artDirectionTooLong: [
+    "A field is longer than allowed; shorten it.",
+    "Ein Feld ist länger als erlaubt; kürzen Sie es.",
   ],
   motifNeeded: [
     "Enter a motif to go with the setting or mood.",
@@ -413,6 +417,19 @@ export type ArtDirectionDraft = {
 const NO_DIRECTION: ArtDirectionDraft = { motif: "", setting: "", mood: "" };
 const DIRECTION_LIMITS = { motif: 400, setting: 300, mood: 160 } as const;
 
+/** A field over its limit (a stored mood can be longer than a person may enter). */
+export const artDirectionTooLong = (draft: ArtDirectionDraft) =>
+  (["motif", "setting", "mood"] as const).some(
+    (key) => draft[key].trim().length > DIRECTION_LIMITS[key],
+  );
+
+/** The draft of a stored art plan; absent fields are empty. */
+const draftOf = (current?: Partial<ArtDirectionDraft>): ArtDirectionDraft => ({
+  motif: current?.motif ?? "",
+  setting: current?.setting ?? "",
+  mood: current?.mood ?? "",
+});
+
 /** A setting or mood without a motif: it cannot be sent alone. */
 export const artDirectionIncomplete = (draft: ArtDirectionDraft) =>
   !draft.motif.trim() && Boolean(draft.setting.trim() || draft.mood.trim());
@@ -434,23 +451,37 @@ export function artDirectionBody(draft: ArtDirectionDraft): {
   };
 }
 
-/** Motif, setting and mood of new art; `current` shows the stored ones as hints. */
+/**
+ * The art direction a regeneration sends: nothing while the dialog still
+ * shows the stored one (the server keeps it), else what the dialog shows.
+ */
+export function regenerateDirectionBody(
+  draft: ArtDirectionDraft,
+  stored: ArtDirectionDraft,
+): { artDirection?: ArtDirection } {
+  const same = (["motif", "setting", "mood"] as const).every(
+    (key) => draft[key].trim() === stored[key].trim(),
+  );
+  return same ? {} : artDirectionBody(draft);
+}
+
+/** Motif, setting and mood of new art; `regenerate` explains the prefilled stored ones. */
 export function ArtDirectionFields({
   value,
   onChange,
   de,
-  current,
+  regenerate = false,
 }: {
   value: ArtDirectionDraft;
   onChange: (next: ArtDirectionDraft) => void;
   de: boolean;
-  current?: Partial<ArtDirectionDraft>;
+  regenerate?: boolean;
 }) {
   const incomplete = artDirectionIncomplete(value);
   return (
     <div className="creative-art-direction">
       <p className="creative-meta">
-        {label(current ? "artDirectionKeep" : "artDirectionHint", de)}
+        {label(regenerate ? "artDirectionKeep" : "artDirectionHint", de)}
       </p>
       {(["motif", "setting", "mood"] as const).map((key) => (
         <label className="field creative-field" key={key}>
@@ -458,8 +489,12 @@ export function ArtDirectionFields({
           <Input
             value={value[key]}
             maxLength={DIRECTION_LIMITS[key]}
-            placeholder={current?.[key] || undefined}
-            aria-invalid={key === "motif" && incomplete ? true : undefined}
+            aria-invalid={
+              (key === "motif" && incomplete) ||
+              value[key].trim().length > DIRECTION_LIMITS[key]
+                ? true
+                : undefined
+            }
             onChange={(e) => onChange({ ...value, [key]: e.target.value })}
           />
         </label>
@@ -467,6 +502,11 @@ export function ArtDirectionFields({
       {incomplete && (
         <p className="creative-meta" role="alert">
           {label("motifNeeded", de)}
+        </p>
+      )}
+      {artDirectionTooLong(value) && (
+        <p className="creative-meta" role="alert">
+          {label("artDirectionTooLong", de)}
         </p>
       )}
     </div>
@@ -487,14 +527,15 @@ export function RegenerateConfirm({
   maxCostMicros: number | null;
   pending: boolean;
   error: unknown;
-  /** The creative's stored art plan, shown as hints. */
+  /** The creative's stored art plan, prefilled as editable values. */
   current?: Partial<ArtDirectionDraft>;
   /** Called with the art direction to send (empty: keep the stored one). */
   onConfirm: (direction: { artDirection?: ArtDirection }) => void;
   onCancel: () => void;
 }) {
   const [sure, setSure] = useState(false);
-  const [direction, setDirection] = useState(NO_DIRECTION);
+  const stored = draftOf(current);
+  const [direction, setDirection] = useState(stored);
   const cost = formatUsd(maxCostMicros);
   return (
     <div className="creative-confirm">
@@ -505,7 +546,7 @@ export function RegenerateConfirm({
         value={direction}
         onChange={setDirection}
         de={de}
-        current={current ?? {}}
+        regenerate
       />
       {maxCostMicros === null && (
         <Alert kind="warning">{label("costUnknownMax", de)}</Alert>
@@ -526,12 +567,15 @@ export function RegenerateConfirm({
           {label("cancel", de)}
         </Button>
         <Button
-          onClick={() => onConfirm(artDirectionBody(direction))}
+          onClick={() => onConfirm(regenerateDirectionBody(direction, stored))}
           disabled={
             pending ||
             !sure ||
             maxCostMicros === null ||
-            artDirectionIncomplete(direction)
+            artDirectionIncomplete(direction) ||
+            (regenerateDirectionBody(direction, stored).artDirection !==
+              undefined &&
+              artDirectionTooLong(direction))
           }
         >
           {pending
@@ -805,7 +849,8 @@ function ProduceForm({
             (askNew &&
               (!confirmed ||
                 !maxArtCostMicros ||
-                artDirectionIncomplete(direction)))
+                artDirectionIncomplete(direction) ||
+                artDirectionTooLong(direction)))
           }
         >
           {action.pending ? label("working", de) : label("produce", de)}

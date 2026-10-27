@@ -6,6 +6,8 @@ import {
   RegenerateConfirm,
   artDirectionBody,
   artDirectionIncomplete,
+  regenerateDirectionBody,
+  artDirectionTooLong,
   creativeErrorMessage,
   formatUsd,
   productIds,
@@ -345,19 +347,60 @@ describe("art direction", () => {
     expect(fields(true)).toContain("Stimmung");
   });
 
-  it("offers it in the regenerate dialog with the current motif as a hint", () => {
-    const html = renderToStaticMarkup(
-      <RegenerateConfirm
-        de={false}
-        maxCostMicros={1_000_000}
-        pending={false}
-        error={null}
-        current={{ motif: "A mug in daylight", setting: "", mood: "" }}
-        onConfirm={() => {}}
-        onCancel={() => {}}
-      />,
+  it("prefills the regenerate dialog with the stored art direction as values", () => {
+    const dialog = (de: boolean) =>
+      renderToStaticMarkup(
+        <RegenerateConfirm
+          de={de}
+          maxCostMicros={1_000_000}
+          pending={false}
+          error={null}
+          current={{
+            motif: "A mug in daylight",
+            setting: "Kitchen table",
+            mood: "calm",
+          }}
+          onConfirm={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+    const html = dialog(false);
+    expect(html).toContain('value="A mug in daylight"');
+    expect(html).toContain('value="Kitchen table"');
+    expect(html).toContain('value="calm"');
+    expect(html).not.toContain("placeholder=");
+    expect(html).toContain("What you see here is sent");
+    expect(dialog(true)).toContain(
+      "Was hier steht, wird für das neue Bild gesendet",
     );
-    expect(html).toContain("Motif");
-    expect(html).toContain('placeholder="A mug in daylight"');
+  });
+
+  it("sends what the regenerate dialog shows, nothing when it is unchanged", () => {
+    const stored = {
+      motif: "A mug in daylight",
+      setting: "Kitchen table",
+      mood: "calm",
+    };
+    expect(regenerateDirectionBody(stored, stored)).toEqual({});
+    // A new motif keeps the shown setting and mood.
+    expect(
+      regenerateDirectionBody({ ...stored, motif: "A candle" }, stored),
+    ).toEqual({
+      artDirection: {
+        motif: "A candle",
+        setting: "Kitchen table",
+        mood: "calm",
+      },
+    });
+    // A field emptied on purpose is left out.
+    expect(regenerateDirectionBody({ ...stored, setting: "" }, stored)).toEqual(
+      { artDirection: { motif: "A mug in daylight", mood: "calm" } },
+    );
+  });
+
+  it("flags a stored mood over the input limit before it is sent", () => {
+    const long = { motif: "A mug", setting: "", mood: "x".repeat(161) };
+    expect(artDirectionTooLong(long)).toBe(true);
+    expect(artDirectionTooLong({ ...long, mood: "calm" })).toBe(false);
   });
 });
