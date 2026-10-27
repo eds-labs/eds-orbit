@@ -37,6 +37,8 @@ import {
   currentMarketingProfile,
   officialTargetLink,
 } from "../brand/marketing-profile.ts";
+import { resolveBrandKit } from "../creative/brand-kit.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 import { withinGuardrails } from "../policy/fact-guardrails.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
@@ -386,6 +388,25 @@ export async function revalidateContentPackage(
   if (hash(current) !== hash(plan)) throw new DomainError("PACKAGE_STALE", 409);
 }
 
+/**
+ * The creative template the drafts of a package with an image write their
+ * image copy for: the brand kit's first enabled template while the Creative
+ * Studio is on and the profile has a usable primary logo, else none (the
+ * package keeps attaching its raw image).
+ */
+async function packageCreativeTemplate(tx: DbTx, scope: Scope) {
+  if (!creativeStudioEnabled()) return null;
+  try {
+    return (
+      (await resolveBrandKit(tx, scope)).config.enabledTemplates[0] ?? null
+    );
+  } catch (error) {
+    // A missing or unusable brand kit never blocks a package.
+    if (error instanceof DomainError) return null;
+    throw error;
+  }
+}
+
 /** Runs on approval: one ready draft-only mission and generation job per channel, starting now. */
 export async function startContentPackage(
   tx: DbTx,
@@ -399,6 +420,10 @@ export async function startContentPackage(
   if (!policyRow) throw new DomainError("POLICY_REQUIRED", 409);
   const now = new Date();
   const steps = [];
+  // The drafts write their image copy for it; attaching the image composes it.
+  const creativeTemplate = plan.image
+    ? await packageCreativeTemplate(tx, scope)
+    : null;
   for (const deliverable of plan.deliverables) {
     const mission = await create(tx, scope, "missions", {
       ...deliverable.mission,
@@ -412,6 +437,7 @@ export async function startContentPackage(
       budgetRunKey: `package:${plan.packageId}`,
       chatCostCeilingMicros: deliverable.ceilingMicros,
       mediaPlanned: Boolean(plan.image),
+      ...(creativeTemplate ? { creativeTemplate } : {}),
     });
     // Same key as the project sweep, so the draft is queued once.
     const job = await enqueue(
@@ -1049,6 +1075,10 @@ export async function reviseDeliverable(
       },
       facts.map((fact) => fact.id),
     );
+    // The revised draft carries image copy like the first one.
+    const creativeTemplate = plan.image
+      ? await packageCreativeTemplate(tx, scope)
+      : null;
     const mission = await create(tx, scope, "missions", {
       ...checked.parsed,
       ...(deliverable.plannedSlotAt
@@ -1060,6 +1090,7 @@ export async function reviseDeliverable(
       budgetRunKey: `package:${pkg.id}`,
       chatCostCeilingMicros: deliverable.ceilingMicros,
       mediaPlanned: Boolean(plan.image),
+      ...(creativeTemplate ? { creativeTemplate } : {}),
       revisionOf: {
         contentId: current.draft.id,
         version: current.draft.version,

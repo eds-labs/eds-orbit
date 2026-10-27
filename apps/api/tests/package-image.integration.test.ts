@@ -12,7 +12,11 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { renderRasterTemplate } from "../../../packages/creative/src/index.ts";
+import {
+  CREATIVE_FORMATS,
+  renderRasterTemplate,
+} from "../../../packages/creative/src/index.ts";
+import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
 import { createConversation } from "../src/modules/chat.ts";
 import {
@@ -29,6 +33,15 @@ import {
 import { proposeSchedule } from "../src/modules/agents/package-schedule.ts";
 import { attachPackageImage } from "../src/modules/agents/package-image.ts";
 import {
+  CREATIVES,
+  findCreative,
+  type CreativeRecord,
+} from "../src/modules/marketing/creative/store.ts";
+import {
+  addBrandKit,
+  PACKAGE_CREATIVE_COPY,
+} from "./support/package-creative.ts";
+import {
   createPackageProject,
   IMAGE_MODEL,
   TELEGRAM,
@@ -44,6 +57,7 @@ const IMAGE_BRIEF =
 describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
   let project: Awaited<ReturnType<typeof createPackageProject>>;
   let png: Buffer;
+  const studioFlag = process.env.ORBIT_CREATIVE_STUDIO;
   const run = <T>(work: (tx: DbTx) => Promise<T>) =>
     scoped(project.owner.workspaceId, project.owner.projectId, work);
   const worker = () => ({
@@ -72,7 +86,7 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
       });
     });
   // An owner's started X and Telegram package with drafts and a generated image.
-  const packageWithImage = async () => {
+  const packageWithImage = async (bytes = png) => {
     const { owner } = project;
     const thread = await createConversation(owner);
     const { package: pkg, actionRequest } = await requestContentPackage(
@@ -110,7 +124,7 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
       imageRequestId,
       imageJob.id,
       (async () => ({
-        bytes: png,
+        bytes,
         model: IMAGE_MODEL,
         size: "1024x1024",
         quality: "medium",
@@ -140,6 +154,8 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
   });
   afterEach(async () => {
     delete process.env.ORBIT_CONTENT_PACKAGES;
+    if (studioFlag === undefined) delete process.env.ORBIT_CREATIVE_STUDIO;
+    else process.env.ORBIT_CREATIVE_STUDIO = studioFlag;
     await project.cleanup();
   });
   afterAll(async () => {
@@ -282,5 +298,311 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
     await expect(
       attachPackageImage(project.viewer, pkg.id, { deliverableKeys: [X] }),
     ).rejects.toThrow("EDITOR_REQUIRED");
+  });
+
+  // With the Creative Studio on and a primary logo, a draft with image copy
+  // gets its composed creative instead of the raw package image.
+  describe("with the Creative Studio", () => {
+    let good: Buffer;
+    let flat: Buffer;
+    let logo: { id: string };
+    const both = [X, TELEGRAM];
+    const copies: Record<string, Record<string, unknown>> = {
+      [X]: PACKAGE_CREATIVE_COPY,
+      [TELEGRAM]: PACKAGE_CREATIVE_COPY,
+    };
+
+    const setCopy = (
+      contentId: string,
+      creativeCopy: Record<string, unknown> | undefined,
+    ) =>
+      run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", contentId);
+        const { creativeCopy: _old, ...rest } = data(row);
+        await update(
+          tx,
+          project.owner,
+          row,
+          creativeCopy ? { ...rest, creativeCopy } : rest,
+        );
+      });
+    const contentRow = (id: string) =>
+      run((tx) => entity(tx, project.owner, "content", id));
+    /** An approved package whose drafts carry the given image copy (none: no copy). */
+    const readyPackage = async (
+      options: {
+        bytes?: Buffer;
+        copy?: Partial<Record<string, Record<string, unknown>>>;
+      } = {},
+    ) => {
+      const made = await packageWithImage(options.bytes ?? good);
+      await approveRights(made.assetId);
+      const ids: Record<string, string> = {};
+      for (const key of both) {
+        ids[key] = (await deliverable(made.pkg.id, key)).content!.id as string;
+        await setCopy(ids[key]!, (options.copy ?? copies)[key]);
+      }
+      return { ...made, ids };
+    };
+    /** What a refused attach must leave unchanged: creatives and their renditions. */
+    const stored = () =>
+      run(async (tx) => ({
+        creatives: (await list(tx, project.owner, CREATIVES)).length,
+        renditions: (await list(tx, project.owner, "assets")).filter(
+          (row) => data(row).boundTo?.creativeId,
+        ).length,
+      }));
+    const profileUpdate = (change: Record<string, unknown>) =>
+      run((tx) =>
+        tx.projectMarketingProfile.updateMany({
+          where: {
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+          },
+          data: change as any,
+        }),
+      );
+
+    beforeAll(async () => {
+      good = (await fixtureArt("good", "lumora")).bytes;
+      flat = (await fixtureArt("flat", "lumora")).bytes;
+    });
+    beforeEach(async () => {
+      process.env.ORBIT_CREATIVE_STUDIO = "true";
+      logo = await addBrandKit(project, {
+        // Lifestyle is the first template left enabled; Telegram takes a square.
+        templates: {
+          product_showcase: { enabled: false },
+          feature_highlight: { enabled: false },
+          problem_solution: { enabled: false },
+        },
+        formatsByChannel: { telegram: ["square"] },
+      });
+    });
+
+    it("attaches each draft's composed creative in its channel's format", async () => {
+      const { pkg, assetId, ids } = await readyPackage();
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result.creative).toEqual({
+        composed: [ids[X], ids[TELEGRAM]],
+        skipped: [],
+      });
+      for (const [key, format] of [
+        [X, "landscape"],
+        [TELEGRAM, "square"],
+      ] as const) {
+        const content = await contentRow(ids[key]!);
+        const rendition = await run((tx) =>
+          entity(tx, project.owner, "assets", data(content).assetId),
+        );
+        expect(rendition.id).not.toBe(assetId);
+        expect(data(rendition)).toMatchObject({
+          assetStatus: "approved",
+          usageApproved: true,
+          creativeFormat: format,
+          width: CREATIVE_FORMATS[format].width,
+          height: CREATIVE_FORMATS[format].height,
+          boundTo: {
+            creativeId: data(content).creativeId,
+            contentId: content.id,
+            packageId: pkg.id,
+          },
+        });
+        const creative = data(
+          await run((tx) =>
+            findCreative(tx, project.owner, data(content).creativeId),
+          ),
+        ) as CreativeRecord;
+        expect(creative).toMatchObject({
+          status: "attached",
+          contentId: content.id,
+          packageId: pkg.id,
+          template: "lifestyle",
+          copy: PACKAGE_CREATIVE_COPY,
+          components: { artAssetId: assetId },
+        });
+        expect(creative.renditions.map((r) => r.assetId)).toContain(
+          rendition.id,
+        );
+      }
+      expect(await stored()).toEqual({ creatives: 2, renditions: 2 });
+      // Reviewed again with its image, like the raw attach.
+      const after = await deliverable(pkg.id, X);
+      expect(after.review).toMatchObject({ valid: expect.any(Boolean) });
+      expect(after.content!.status).not.toBe("draft");
+    });
+
+    it("attaches the raw image with the Creative Studio off, as before", async () => {
+      const { pkg, assetId, ids } = await readyPackage();
+      process.env.ORBIT_CREATIVE_STUDIO = "false";
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result).not.toHaveProperty("creative");
+      for (const key of both) {
+        const row = await contentRow(ids[key]!);
+        expect(data(row)).toMatchObject({ assetId });
+        expect(data(row).creativeId).toBeUndefined();
+      }
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("keeps the raw image for a draft without image copy and reports it", async () => {
+      const { pkg, assetId, ids } = await readyPackage({
+        copy: { [X]: PACKAGE_CREATIVE_COPY },
+      });
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result.creative).toEqual({
+        composed: [ids[X]],
+        skipped: [{ contentId: ids[TELEGRAM], code: "CREATIVE_COPY_MISSING" }],
+      });
+      expect(data(await contentRow(ids[TELEGRAM]!))).toMatchObject({ assetId });
+      expect(data(await contentRow(ids[X]!)).assetId).not.toBe(assetId);
+      expect(await stored()).toEqual({ creatives: 1, renditions: 1 });
+    });
+
+    it("keeps the raw image without a primary logo", async () => {
+      const kit = await run((tx) =>
+        tx.projectMarketingProfile.findFirstOrThrow({
+          where: { projectId: project.owner.projectId },
+        }),
+      );
+      const { visualIdentity, ...rest } = kit.data as Record<string, any>;
+      const { logoAssetId: _logo, ...identity } = visualIdentity;
+      await profileUpdate({
+        data: { ...rest, visualIdentity: identity },
+        version: { increment: 1 },
+      });
+      const { pkg, assetId, ids } = await readyPackage();
+      const result = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(result).not.toHaveProperty("creative");
+      expect(data(await contentRow(ids[X]!))).toMatchObject({ assetId });
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("attaches nothing when one draft cannot take its creative", async () => {
+      const { pkg, ids } = await readyPackage();
+      await run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", ids[TELEGRAM]!);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          body: `${data(row).body} ${"More detail. ".repeat(90)}`,
+        });
+      });
+      await expect(
+        attachPackageImage(project.owner, pkg.id, { deliverableKeys: both }),
+      ).rejects.toThrow("CAPTION_TOO_LONG");
+      // Not even the X draft, composed first, was stored or attached.
+      expect(data(await contentRow(ids[X]!)).assetId).toBeUndefined();
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("refuses a creative whose checks fail and changes nothing", async () => {
+      const { pkg, ids } = await readyPackage({ bytes: flat });
+      await expect(
+        attachPackageImage(project.owner, pkg.id, { deliverableKeys: both }),
+      ).rejects.toThrow("CREATIVE_QA_FAILED");
+      expect(data(await contentRow(ids[X]!)).assetId).toBeUndefined();
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("refuses image copy over the template's limits", async () => {
+      const { pkg, ids } = await readyPackage({
+        copy: {
+          [X]: { ...PACKAGE_CREATIVE_COPY, headline: "Long ".repeat(40) },
+          [TELEGRAM]: PACKAGE_CREATIVE_COPY,
+        },
+      });
+      await expect(
+        attachPackageImage(project.owner, pkg.id, { deliverableKeys: both }),
+      ).rejects.toThrow("CREATIVE_TEXT_TOO_LONG");
+      expect(data(await contentRow(ids[TELEGRAM]!)).assetId).toBeUndefined();
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("stores nothing when a logo changed while composing", async () => {
+      const { pkg, ids } = await readyPackage();
+      await expect(
+        attachPackageImage(
+          project.owner,
+          pkg.id,
+          { deliverableKeys: both },
+          {
+            afterCompose: () =>
+              run(async (tx) => {
+                const row = await entity(tx, project.owner, "assets", logo.id);
+                await update(tx, project.owner, row, {
+                  ...data(row),
+                  name: "Renamed logo",
+                });
+              }),
+          },
+        ),
+      ).rejects.toThrow("BRAND_ASSET_CHANGED");
+      expect(data(await contentRow(ids[X]!)).assetId).toBeUndefined();
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("stores nothing when the profile changed while composing", async () => {
+      const { pkg, ids } = await readyPackage();
+      await expect(
+        attachPackageImage(
+          project.owner,
+          pkg.id,
+          { deliverableKeys: both },
+          {
+            afterCompose: () =>
+              profileUpdate({ version: { increment: 1 } }).then(
+                () => undefined,
+              ),
+          },
+        ),
+      ).rejects.toThrow("MARKETING_PROFILE_CHANGED");
+      expect(data(await contentRow(ids[X]!)).assetId).toBeUndefined();
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+    });
+
+    it("attaching again changes nothing", async () => {
+      const { pkg, ids } = await readyPackage();
+      await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      const before = await contentRow(ids[X]!);
+      const again = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+      });
+      expect(again.creative).toEqual({ composed: [], skipped: [] });
+      expect((await contentRow(ids[X]!)).version).toBe(before.version);
+      expect(await stored()).toEqual({ creatives: 2, renditions: 2 });
+    });
+
+    it("schedules a post with its composed creative", async () => {
+      const { thread, pkg, ids } = await readyPackage();
+      await attachPackageImage(project.owner, pkg.id, { deliverableKeys: [X] });
+      const renditionId = data(await contentRow(ids[X]!)).assetId;
+      const proposed = await proposeSchedule(project.owner, thread.id, {
+        deliverableKey: X,
+      });
+      const item = (
+        await run((tx) => listActionRequests(tx, project.owner))
+      ).find((candidate) => candidate.id === proposed.actionRequestId)!;
+      expect(item.summary).toMatchObject({ assetId: renditionId });
+      await run((tx) =>
+        decideActionRequest(tx, project.owner, item.id, {
+          version: item.version,
+          packageHash: item.packageHash,
+          decision: "approve",
+        }),
+      );
+      expect((await deliverable(pkg.id, X)).schedule).toMatchObject({
+        status: "scheduled",
+      });
+    });
   });
 });

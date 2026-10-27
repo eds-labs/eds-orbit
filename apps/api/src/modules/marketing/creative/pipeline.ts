@@ -138,7 +138,7 @@ const ENGINE_STATUS: Readonly<Record<string, number>> = {
  * `CREATIVE_COPY_REQUIRED` when it is missing, malformed or without a
  * headline.
  */
-function creativeCopyOf(raw: unknown): CreativeCopy {
+export function creativeCopyOf(raw: unknown): CreativeCopy {
   const copy = parsedCreativeCopy(raw);
   if (!copy?.headline.trim())
     throw new DomainError("CREATIVE_COPY_REQUIRED", 409);
@@ -164,13 +164,13 @@ function engineError(error: unknown): never {
 }
 
 /** The post's title and core message as the brief reads them. */
-const briefContent = (v: Record<string, any>) => ({
+export const briefContent = (v: Record<string, any>) => ({
   title: String(v.title ?? ""),
   ...(typeof v.coreMessage === "string" && { coreMessage: v.coreMessage }),
 });
 
 /** The products the layout shows (the template's frame, at most one). */
-function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
+export function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
   return TEMPLATE_NEEDS[brief.template].product !== "none" &&
     SHOWS_PRODUCT.includes(brief.imageKind)
     ? candidates.slice(0, 1)
@@ -178,7 +178,7 @@ function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
 }
 
 /** A creative plan of one post. */
-type Plan = CreativePlan & { content: EntityRow };
+export type Plan = CreativePlan & { content: EntityRow };
 
 /** How a plan's art is checked: new art to come, or the creative's own new art. */
 type ArtCheck = {
@@ -195,7 +195,7 @@ type ArtCheck = {
  * refusal throws, R22). Before new art is paid for, it checks everything
  * else.
  */
-async function checkedPlan(
+export async function checkedPlan(
   tx: DbTx,
   scope: Scope,
   plan: Omit<Plan, "rights">,
@@ -234,7 +234,7 @@ function newArtConfirmation(scope: Scope, request: ProduceRequest) {
 }
 
 /** Reads the bytes and composes every format, outside any transaction. */
-async function composePlan(
+export async function composePlan(
   scope: Scope,
   plan: Plan,
   artAttempts: number,

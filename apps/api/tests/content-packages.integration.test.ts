@@ -2,6 +2,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -36,6 +37,7 @@ import {
 } from "../src/modules/action-requests.ts";
 import { deterministicDraft } from "../src/modules/workflow.ts";
 import { zonedTime } from "../src/modules/posting-slots.ts";
+import { addBrandKit } from "./support/package-creative.ts";
 import {
   createPackageProject,
   IMAGE_MAX,
@@ -952,6 +954,116 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
         generateMissionLive(worker(), mission.id, job.id),
       ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
       expect(provider.generate).not.toHaveBeenCalled();
+    });
+  });
+
+  // Missions of a package with an image write the image copy for a creative
+  // template while the Creative Studio is on and the brand kit has a primary logo.
+  describe("creative template of the missions", () => {
+    const studioFlag = process.env.ORBIT_CREATIVE_STUDIO;
+    let own: Awaited<ReturnType<typeof createPackageProject>>;
+    const ownRun = <T>(work: (tx: DbTx) => Promise<T>) =>
+      scoped(own.owner.workspaceId, own.owner.projectId, work);
+    const ownMissions = (packageId: string) =>
+      ownRun(async (tx) =>
+        (await list(tx, own.owner, "missions")).filter(
+          (mission) => data(mission).packageId === packageId,
+        ),
+      );
+    /** Starts an owner's X and Telegram package in the own project. */
+    const startPackage = async (overrides: Record<string, unknown> = {}) => {
+      const thread = await createConversation(own.owner);
+      const { package: pkg, actionRequest } = await requestContentPackage(
+        own.owner,
+        thread.id,
+        request({ imageBrief: IMAGE_BRIEF, ...overrides }),
+      );
+      await ownRun((tx) =>
+        decideActionRequest(tx, own.owner, actionRequest.id, {
+          version: actionRequest.version,
+          packageHash: data(actionRequest).packageHash,
+          decision: "approve",
+        }),
+      );
+      return { thread, pkg, missions: await ownMissions(pkg.id) };
+    };
+    const templates = (missions: Array<{ data: unknown }>) =>
+      missions.map((mission) => data(mission).creativeTemplate);
+
+    beforeEach(async () => {
+      process.env.ORBIT_CREATIVE_STUDIO = "true";
+      own = await createPackageProject();
+    });
+    afterEach(async () => {
+      if (studioFlag === undefined) delete process.env.ORBIT_CREATIVE_STUDIO;
+      else process.env.ORBIT_CREATIVE_STUDIO = studioFlag;
+      await own.cleanup();
+    });
+
+    it("gives every mission the brand kit's first enabled template", async () => {
+      await addBrandKit(own);
+      expect(templates((await startPackage()).missions)).toEqual([
+        "product_showcase",
+        "product_showcase",
+      ]);
+    });
+
+    it("skips templates the owner disabled", async () => {
+      await addBrandKit(own, {
+        templates: {
+          product_showcase: { enabled: false },
+          feature_highlight: { enabled: false },
+          problem_solution: { enabled: false },
+        },
+      });
+      expect(templates((await startPackage()).missions)).toEqual([
+        "lifestyle",
+        "lifestyle",
+      ]);
+    });
+
+    it("sets no template without a package image", async () => {
+      await addBrandKit(own);
+      const { missions } = await startPackage({ imageBrief: undefined });
+      expect(missions).toHaveLength(2);
+      expect(templates(missions)).toEqual([undefined, undefined]);
+    });
+
+    it("sets no template with the Creative Studio off", async () => {
+      await addBrandKit(own);
+      process.env.ORBIT_CREATIVE_STUDIO = "false";
+      expect(templates((await startPackage()).missions)).toEqual([
+        undefined,
+        undefined,
+      ]);
+    });
+
+    it("sets no template without a primary logo", async () => {
+      expect(templates((await startPackage()).missions)).toEqual([
+        undefined,
+        undefined,
+      ]);
+    });
+
+    it("gives a revision the template of the brand kit", async () => {
+      await addBrandKit(own);
+      const { thread, pkg, missions } = await startPackage();
+      await ownRun(async (tx) => {
+        for (const mission of missions) {
+          const job = (await list(tx, own.owner, "jobs")).find(
+            (row) => data(row).resourceId === mission.id,
+          )!;
+          await deterministicDraft(tx, own.owner, mission.id, job.id);
+        }
+      });
+      await reviseDeliverable(own.owner, thread.id, {
+        deliverableKey: X,
+        instruction: "Make it shorter.",
+      });
+      const revisions = (await ownMissions(pkg.id)).filter(
+        (mission) => data(mission).revisionOf,
+      );
+      expect(templates(revisions)).toEqual(["product_showcase"]);
     });
   });
 });
