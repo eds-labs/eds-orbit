@@ -17,6 +17,7 @@ import {
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { renditionComponentsHold } from "./rendition-rights.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 import { channelPostsNear } from "../agents/channel-posts.ts";
 import { agentReviewAccepted, confirmedHash } from "../agents/agent-review.ts";
 import {
@@ -637,6 +638,8 @@ export async function preflight(
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
   } else if (
     c.type === "social" &&
+    // Only with the Creative Studio on (R64); off, the check is as before.
+    creativeStudioEnabled() &&
     (await resolveChannelRules(tx, scope, c.channel, c.type, false))
       .mediaRequired
   )

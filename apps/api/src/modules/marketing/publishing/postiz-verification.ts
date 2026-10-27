@@ -29,6 +29,7 @@ import {
   connectionVerified,
   connectionAccess,
 } from "../../../platform/connections/connections.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 
 export const postizVerificationInput = z
   .object({
@@ -334,7 +335,10 @@ export async function executePostizVerification(
         {
           integration: { id: p.integrationId },
           value: [{ content: p.body, image: images }],
-          settings: postizProviderSettings(p.integrationIdentifier),
+          // The Instagram post type comes with the Creative Studio (R64).
+          settings: postizProviderSettings(p.integrationIdentifier, {
+            instagramFeedPost: creativeStudioEnabled(),
+          }),
         },
       ],
     });

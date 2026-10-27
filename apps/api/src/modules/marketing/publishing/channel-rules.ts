@@ -7,8 +7,9 @@ import {
   postingTimeFor,
 } from "./postiz-assignment.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 
-/** Preflight blocker: a post on a channel that rejects text-only posts has no image. */
+/** Preflight blocker: a post on a channel that rejects text-only posts has no image (Creative Studio on). */
 export const MEDIA_REQUIRED = "MEDIA_REQUIRED";
 
 type CountingMethod = "conservative_x_weighted" | "utf16_units";
@@ -19,10 +20,14 @@ export type ChannelRules = {
   characterLimit: number | null;
   countingMethod: CountingMethod | null;
   liveCapabilityKnown: boolean;
-  /** The provider rejects a post without an image (Instagram). */
+  /** The provider rejects a post without an image (Instagram, with the Creative Studio on). */
   mediaRequired: boolean;
   postingTime?: string | null;
 };
+
+// Providers whose rules come with the Creative Studio (R64): while it is off
+// they stay unknown providers, as before it (CS-D6).
+const STUDIO_PROVIDERS = ["instagram", "instagram-standalone", "facebook"];
 
 /** Resolve the actual assigned Postiz provider, never the integration ID or display name. */
 export async function resolveChannelRules(
@@ -62,6 +67,11 @@ export async function resolveChannelRules(
     connectorVersion: row.version,
     postingTime: postingTimeFor(data(row), channel.id),
   };
+  if (
+    STUDIO_PROVIDERS.includes(providerIdentifier ?? "") &&
+    !creativeStudioEnabled()
+  )
+    return { ...unknown, ...common };
   switch (providerIdentifier) {
     case "x":
       return {

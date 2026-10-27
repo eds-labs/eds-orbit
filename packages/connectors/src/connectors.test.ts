@@ -351,16 +351,41 @@ describe("Postiz provider settings", () => {
     expect(postizProviderSettings("telegram")).toEqual({ __type: "telegram" });
   });
 
-  it("adds the post type Instagram requires, for both Instagram providers", () => {
+  it("adds the post type Instagram requires, for both Instagram providers, when the caller asks for it", () => {
     // Postiz integrationSchema (2026-10-27): `post_type` is required, "post" | "story".
-    expect(postizProviderSettings("instagram")).toEqual({
+    expect(
+      postizProviderSettings("instagram", { instagramFeedPost: true }),
+    ).toEqual({
       __type: "instagram",
       post_type: "post",
     });
-    expect(postizProviderSettings("instagram-standalone")).toEqual({
+    expect(
+      postizProviderSettings("instagram-standalone", {
+        instagramFeedPost: true,
+      }),
+    ).toEqual({
       __type: "instagram-standalone",
       post_type: "post",
     });
+    // X and the others are the same either way.
+    expect(postizProviderSettings("x", { instagramFeedPost: true })).toEqual(
+      postizProviderSettings("x"),
+    );
+    expect(
+      postizProviderSettings("telegram", { instagramFeedPost: true }),
+    ).toEqual({ __type: "telegram" });
+  });
+
+  // CS-D6 (R64): the API asks for the post type only with the Creative Studio on.
+  it("sends Instagram only its type, as before, unless the caller asks for the post type", () => {
+    expect(postizProviderSettings("instagram")).toEqual({
+      __type: "instagram",
+    });
+    expect(
+      postizProviderSettings("instagram-standalone", {
+        instagramFeedPost: false,
+      }),
+    ).toEqual({ __type: "instagram-standalone" });
   });
 
   it("sends nothing but the type to Facebook, whose settings are all optional", () => {

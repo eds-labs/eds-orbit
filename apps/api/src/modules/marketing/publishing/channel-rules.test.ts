@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
@@ -57,7 +57,44 @@ async function rulesFor(identifier: string, hasAsset = false) {
   return resolveChannelRules(tx, scope, "channel-1", "social", hasAsset);
 }
 
+// The configuration the API needs to start, so the flag can be read without a local env file.
+const REQUIRED = {
+  DATABASE_URL: "postgresql://a@b/c",
+  AUTH_DATABASE_URL: "postgresql://a@b/c",
+  REDIS_URL: "redis://redis:6379",
+  AUTH_SECRET: "x".repeat(32),
+  ORBIT_SETUP_TOKEN: "y".repeat(20),
+  CREDENTIAL_KEY: "0".repeat(64),
+};
+
 describe("channel rules", () => {
+  beforeEach(() => {
+    for (const [name, value] of Object.entries(REQUIRED))
+      vi.stubEnv(name, process.env[name] ?? value);
+    // Instagram and Facebook rules come with the Creative Studio (R64).
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  // CS-D6 (R64): with the Creative Studio off, Instagram and Facebook are
+  // unknown providers as before: no limit, no counting, no media requirement.
+  it.each(["instagram", "instagram-standalone", "facebook"])(
+    "%s: knows no rules while the Creative Studio is off",
+    async (identifier) => {
+      vi.stubEnv("ORBIT_CREATIVE_STUDIO", "false");
+      expect(await rulesFor(identifier)).toEqual({
+        providerIdentifier: identifier,
+        connectorId: "connector-1",
+        connectorVersion: 3,
+        characterLimit: null,
+        countingMethod: null,
+        liveCapabilityKnown: false,
+        mediaRequired: false,
+        postingTime: null,
+      });
+    },
+  );
+
   it.each([
     ["instagram", 2200, true],
     ["instagram-standalone", 2200, true],

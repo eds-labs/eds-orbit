@@ -851,6 +851,9 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     await shared({ delivery: "postiz_draft" });
     const { review, slots } = await drafted();
     provider.replies.push(approveAll);
+    // Instagram's media rule comes with the Creative Studio (R64); the
+    // drafts were written with it off, so only the review sees it.
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
     await runAgentTask(h.worker(), review.id);
     // The model judged both texts: a missing image is no fault of the text.
     expect(provider.requests).toHaveLength(1);

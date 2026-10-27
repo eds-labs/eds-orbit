@@ -36,6 +36,7 @@ import {
   connectionVerified,
   connectionAccess,
 } from "../../../platform/connections/connections.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 
 /**
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a
@@ -86,7 +87,10 @@ export function postizDraftPayload(p: DraftPayload) {
       {
         integration: { id: p.integrationId },
         value: [{ content: p.text, image: p.images }],
-        settings: postizProviderSettings(p.identifier),
+        // The Instagram post type comes with the Creative Studio (R64).
+        settings: postizProviderSettings(p.identifier, {
+          instagramFeedPost: creativeStudioEnabled(),
+        }),
       },
     ],
   };

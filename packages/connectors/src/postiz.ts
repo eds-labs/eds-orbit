@@ -150,11 +150,20 @@ function jsonBody(value: unknown): RequestInit {
 /**
  * Provider settings Postiz validates per post: X rejects a post without a
  * reply audience, Instagram without a post type (feed post, not a story).
+ * The Instagram post type is sent only when the caller asks for it
+ * (`instagramFeedPost`: the API's Creative Studio switch, which this package
+ * cannot read); every other provider gets the same settings either way.
  */
-export function postizProviderSettings(identifier: string) {
+export function postizProviderSettings(
+  identifier: string,
+  options: { instagramFeedPost?: boolean } = {},
+) {
   if (identifier === "x")
     return { __type: identifier, who_can_reply_post: "everyone" };
-  if (identifier === "instagram" || identifier === "instagram-standalone")
+  if (
+    options.instagramFeedPost === true &&
+    (identifier === "instagram" || identifier === "instagram-standalone")
+  )
     return { __type: identifier, post_type: "post" };
   return { __type: identifier };
 }

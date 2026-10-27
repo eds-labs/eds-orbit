@@ -24,6 +24,7 @@ import {
   enqueue,
 } from "../pipeline/workflow.ts";
 import { connectionAccess } from "../../../platform/connections/connections.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
     scope.workspaceId,
@@ -165,7 +166,10 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         {
           integration: { id: credentials.integration.id },
           value: [{ content: publishedText, image: images }],
-          settings: postizProviderSettings(credentials.integration.identifier),
+          // The Instagram post type comes with the Creative Studio (R64).
+          settings: postizProviderSettings(credentials.integration.identifier, {
+            instagramFeedPost: creativeStudioEnabled(),
+          }),
         },
       ],
     });

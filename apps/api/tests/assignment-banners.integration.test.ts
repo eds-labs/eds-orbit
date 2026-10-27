@@ -1003,6 +1003,9 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     };
     const { review } = await drafted();
     provider.replies.push(approveAll);
+    // Instagram's media rule comes with the Creative Studio (R64); the
+    // drafts were written with it off, so only the review sees it.
+    vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
     await runAgentTask(h.worker(), review.id);
     const drafts = await contents();
     const instagram = drafts.filter((c) => c.channel === TELEGRAM);

@@ -226,6 +226,8 @@ describe.skipIf(!enabled)(
     ] as const)(
       "%s: text-only content is blocked with MEDIA_REQUIRED only where the provider needs an image",
       async (identifier, required) => {
+        // Instagram's media rule comes with the Creative Studio (R64).
+        vi.stubEnv("ORBIT_CREATIVE_STUDIO", "true");
         const c = await draft();
         await run((tx) =>
           create(tx, scope, "connectors", {
@@ -259,6 +261,34 @@ describe.skipIf(!enabled)(
           return preflight(tx, scope, saved.id, { test: true });
         });
         expect(withImage.blockers).not.toContain("MEDIA_REQUIRED");
+        vi.unstubAllEnvs();
+      },
+    );
+    // CS-D6 (R64): with the Creative Studio off, an Instagram post without an
+    // image is checked as before (no MEDIA_REQUIRED).
+    it.each(["instagram", "instagram-standalone"])(
+      "%s: text-only content is not blocked while the Creative Studio is off",
+      async (identifier) => {
+        vi.stubEnv("ORBIT_CREATIVE_STUDIO", "false");
+        try {
+          const c = await draft();
+          await run((tx) =>
+            create(tx, scope, "connectors", {
+              provider: "postiz",
+              status: "read_verified",
+              channels: [
+                { id: "test-social", name: "Display name", identifier },
+              ],
+              assignedIntegrationIds: ["test-social"],
+            }),
+          );
+          expect(
+            (await run((tx) => preflight(tx, scope, c.id, { test: true })))
+              .blockers,
+          ).not.toContain("MEDIA_REQUIRED");
+        } finally {
+          vi.unstubAllEnvs();
+        }
       },
     );
     it("MEDIA_REQUIRED is not raised for a channel no connector knows", async () => {
