@@ -47427,6 +47427,19 @@ export interface operations {
                                 template: "brand_landscape";
                                 style?: string;
                             };
+                            creative?: {
+                                templates?: ("product_showcase" | "feature_highlight" | "problem_solution" | "lifestyle" | "tips" | "announcement" | "brand_message")[];
+                                /**
+                                 * @default post
+                                 * @enum {string}
+                                 */
+                                artPer?: "run" | "post";
+                                /**
+                                 * @default auto
+                                 * @enum {string}
+                                 */
+                                imageKind?: "auto" | "scene" | "product" | "graphic" | "combined";
+                            };
                         };
                         existing?: {
                             /** Format: uuid */

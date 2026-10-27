@@ -78570,6 +78570,48 @@
                                 "template"
                               ],
                               "additionalProperties": false
+                            },
+                            "creative": {
+                              "type": "object",
+                              "properties": {
+                                "templates": {
+                                  "minItems": 1,
+                                  "maxItems": 7,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "product_showcase",
+                                      "feature_highlight",
+                                      "problem_solution",
+                                      "lifestyle",
+                                      "tips",
+                                      "announcement",
+                                      "brand_message"
+                                    ]
+                                  }
+                                },
+                                "artPer": {
+                                  "default": "post",
+                                  "type": "string",
+                                  "enum": [
+                                    "run",
+                                    "post"
+                                  ]
+                                },
+                                "imageKind": {
+                                  "default": "auto",
+                                  "type": "string",
+                                  "enum": [
+                                    "auto",
+                                    "scene",
+                                    "product",
+                                    "graphic",
+                                    "combined"
+                                  ]
+                                }
+                              },
+                              "additionalProperties": false
                             }
                           },
                           "required": [
