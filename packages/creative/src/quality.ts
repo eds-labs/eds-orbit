@@ -27,9 +27,20 @@ export type CreativeCheckCode =
   | "LAYER_OVERLAP"
   | "ASSET_UPSCALED";
 
-/** One check's outcome; `ASSET_RIGHTS` is checked by the service. */
+/**
+ * Findings the service checks itself: the rights of the components
+ * (`ASSET_RIGHTS`) and the image copy's wording (the banner copy rules: a
+ * figure or status word, a promise or prohibited wording, a bare host).
+ */
+export type ServiceCheckCode =
+  | "ASSET_RIGHTS"
+  | "CREATIVE_UNSUPPORTED_CLAIM"
+  | "CREATIVE_PROHIBITED_LANGUAGE"
+  | "LINK_UNVERIFIED";
+
+/** One check's outcome; the `ServiceCheckCode`s are checked by the service. */
 export type CreativeCheck = {
-  code: CreativeCheckCode | "ASSET_RIGHTS";
+  code: CreativeCheckCode | ServiceCheckCode;
   passed: boolean;
   severity: "blocker" | "warning";
   detail?: Record<string, number | string>;

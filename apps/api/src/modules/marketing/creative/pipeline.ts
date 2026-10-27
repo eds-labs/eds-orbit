@@ -8,6 +8,7 @@ import {
   solidRaster,
   TEMPLATE_COPY_LIMITS,
   TEMPLATE_NEEDS,
+  type CreativeCheck,
   type CreativeCopy,
   type ImageKind,
   type LogoPlacement,
@@ -16,7 +17,10 @@ import {
   type TextScale,
   type VariantId,
 } from "../../../../../../packages/creative/src/index.ts";
-import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  id as idSchema,
+  type Scope,
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   authorize,
   PROJECT_OWN,
@@ -55,7 +59,11 @@ import {
   projectRow,
 } from "./components.ts";
 import {
+  CREATIVE_LINK_NOT_ALLOWED,
+  CREATIVE_PROHIBITED_LANGUAGE,
   CREATIVE_TEXT_TOO_LONG,
+  CREATIVE_TEXT_UNSAFE,
+  CREATIVE_UNSUPPORTED_CLAIM,
   creativeCopyProblems,
   parsedCreativeCopy,
   storedCreativeCopy,
@@ -191,6 +199,62 @@ export function shownProducts(brief: ResolvedBrief, candidates: EntityRow[]) {
 /** A creative plan of one post. */
 export type Plan = CreativePlan & { content: EntityRow };
 
+// Image copy refused before anything is read or stored (R42, R66): over the
+// template's limits, invisible or look-alike characters, an explicit link.
+const COPY_REFUSALS = [
+  CREATIVE_TEXT_TOO_LONG,
+  CREATIVE_TEXT_UNSAFE,
+  CREATIVE_LINK_NOT_ALLOWED,
+];
+// Image copy wording the owner decides on (R66): blocker findings.
+const COPY_FINDINGS = [
+  CREATIVE_UNSUPPORTED_CLAIM,
+  CREATIVE_PROHIBITED_LANGUAGE,
+  "LINK_UNVERIFIED",
+] as const;
+
+/** The CTA of the post's mission (its `targetAction`), or null without one. */
+async function missionCta(tx: DbTx, scope: Scope, content: EntityRow) {
+  const id = data(content).missionId;
+  if (typeof id !== "string" || !idSchema.safeParse(id).success) return null;
+  const mission = await tx.entity.findFirst({
+    where: {
+      id,
+      kind: "missions",
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+    },
+  });
+  return mission ? (data(mission).targetAction ?? null) : null;
+}
+
+/**
+ * The image copy checked with the banner copy rules (spec §10, R66, Task
+ * 12's `creativeCopyProblems`; the CTA is exempt only when it is the post's
+ * mission CTA): a refusal throws its code (409, every problem's code in
+ * `detail.codes`); wording the owner decides on comes back as failed blocker
+ * findings.
+ */
+async function checkedCopy(
+  tx: DbTx,
+  scope: Scope,
+  plan: Pick<Plan, "brief" | "copy" | "content">,
+): Promise<CreativeCheck[]> {
+  const problems = creativeCopyProblems(
+    plan.copy,
+    TEMPLATE_COPY_LIMITS[plan.brief.template],
+    { cta: await missionCta(tx, scope, plan.content) },
+  );
+  const refused = COPY_REFUSALS.find((code) => problems.includes(code));
+  if (refused)
+    throw Object.assign(new DomainError(refused, 409), {
+      detail: { codes: problems.join(",") },
+    });
+  return COPY_FINDINGS.filter((code) => problems.includes(code)).map(
+    (code) => ({ code, passed: false, severity: "blocker" as const }),
+  );
+}
+
 /** How a plan's art is checked: new art to come, or the creative's own new art. */
 type ArtCheck = {
   /** Paid art is generated after this check (the plan has none yet). */
@@ -200,26 +264,24 @@ type ArtCheck = {
 };
 
 /**
- * Completes a plan, before any byte is read: the copy within the template's
- * limits (Task 12's rule, `CREATIVE_TEXT_TOO_LONG`, R42), art where the
- * template needs it (`ART_REQUIRED`) and the rights of every component (a
- * refusal throws, R22). With `artToCome` (paid art follows) it checks the
- * copy and the rights of the other components; what composing them can
- * refuse is found by `trialComposition` before the art is paid for (R53).
+ * Completes a plan, before any byte is read: the copy with the banner copy
+ * rules (`checkedCopy`, R42, R66: copy over the template's limits
+ * `CREATIVE_TEXT_TOO_LONG`, invisible characters `CREATIVE_TEXT_UNSAFE` and
+ * links `CREATIVE_LINK_NOT_ALLOWED` are refused; figures, promises and bare
+ * hosts become blocker findings, `copyChecks`), art where the template
+ * needs it (`ART_REQUIRED`) and the rights of every component (a refusal
+ * throws, R22). With `artToCome` (paid art follows) it checks the copy and
+ * the rights of the other components; what composing them can refuse is
+ * found by `trialComposition` before the art is paid for (R53).
  */
 export async function checkedPlan(
   tx: DbTx,
   scope: Scope,
-  plan: Omit<Plan, "rights">,
+  plan: Omit<Plan, "rights" | "copyChecks">,
   art: ArtCheck = {},
 ): Promise<Plan> {
   const { template } = plan.brief;
-  if (
-    creativeCopyProblems(plan.copy, TEMPLATE_COPY_LIMITS[template], {
-      cta: plan.copy.cta,
-    }).includes(CREATIVE_TEXT_TOO_LONG)
-  )
-    throw new DomainError(CREATIVE_TEXT_TOO_LONG, 409);
+  const copyChecks = await checkedCopy(tx, scope, plan);
   if (
     TEMPLATE_NEEDS[template].art === "required" &&
     !plan.art &&
@@ -230,7 +292,7 @@ export async function checkedPlan(
     pendingArtId: art.pendingArtId,
   });
   assertRights(rights);
-  return { ...plan, rights };
+  return { ...plan, rights, copyChecks };
 }
 
 /**
@@ -288,8 +350,28 @@ export async function composePlan(
   if (refused) throw new DomainError(refused, 409);
   // Copy that does not fit is the person's to shorten; nothing is saved.
   if (outcome.overflow.length) throw new DomainError("TEXT_OVERFLOW", 409);
-  if (!trial) await deps.afterCompose?.();
-  return { outcome, art, products };
+  if (trial) return { outcome, art, products };
+  await deps.afterCompose?.();
+  return { outcome: withCopyFindings(outcome, plan.copyChecks), art, products };
+}
+
+/**
+ * The composition with the image copy's wording findings (R66): they are
+ * failed blockers no correction fixes, so the creative needs the owner.
+ */
+function withCopyFindings(
+  outcome: ComposedCreative["outcome"],
+  copyChecks: CreativeCheck[] = [],
+): ComposedCreative["outcome"] {
+  if (!copyChecks.length) return outcome;
+  return {
+    ...outcome,
+    checks: [...copyChecks, ...outcome.checks],
+    failed: [
+      ...new Set([...outcome.failed, ...copyChecks.map((check) => check.code)]),
+    ],
+    verdict: "needs_owner",
+  };
 }
 
 /**
@@ -363,9 +445,11 @@ const renditionsOf = (
  * owner's image generation (reserved at the confirmed ceiling before it is
  * sent, `IMAGE_COST_CONFIRMATION_STALE` otherwise); the art and the
  * renditions are stored unapproved and the creative `needs_rights`.
+ * Copy with a figure, a promise or a bare host (R66) is composed and the
+ * creative `needs_owner`.
  * Errors: `EDITOR_REQUIRED`, `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
  * `CREATIVE_SOCIAL_ONLY`, `CREATIVE_COPY_REQUIRED`, `CREATIVE_TEXT_TOO_LONG`,
- * `ART_REQUIRED`,
+ * `CREATIVE_TEXT_UNSAFE`, `CREATIVE_LINK_NOT_ALLOWED`, `ART_REQUIRED`,
  * `TEXT_OVERFLOW`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`,
  * `MARKETING_PROFILE_CHANGED`, `BRAND_ASSET_CHANGED`, `CONTENT_CHANGED`
  * (409), besides the brand kit's and brief's own.

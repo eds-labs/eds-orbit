@@ -449,6 +449,58 @@ describe.skipIf(!enabled)("Package image in a post (J3.3)", () => {
       expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
     });
 
+    // R66: a package's image copy follows the banner copy rules too.
+    it("leaves image copy with a figure for the owner (R66)", async () => {
+      const { pkg, ids } = await readyPackage({
+        copy: {
+          [X]: {
+            ...PACKAGE_CREATIVE_COPY,
+            headline: "Save 30% on beta access",
+          },
+          [TELEGRAM]: PACKAGE_CREATIVE_COPY,
+        },
+      });
+      await expect(
+        attachPackageImage(project.owner, pkg.id, { deliverableKeys: both }),
+      ).rejects.toMatchObject({
+        code: "CREATIVE_QA_FAILED",
+        detail: {
+          failed: [
+            {
+              contentId: ids[X],
+              codes: expect.arrayContaining(["CREATIVE_UNSUPPORTED_CLAIM"]),
+            },
+          ],
+        },
+      });
+      expect(await stored()).toEqual({ creatives: 0, renditions: 0 });
+      // The owner may accept the finding.
+      const accepted = await attachPackageImage(project.owner, pkg.id, {
+        deliverableKeys: both,
+        acceptQaFindings: true,
+      });
+      expect(accepted.creative?.composed).toHaveLength(2);
+    });
+
+    it("refuses image copy with a link before anything is stored (R66)", async () => {
+      const linked = await readyPackage({
+        copy: {
+          [X]: {
+            ...PACKAGE_CREATIVE_COPY,
+            subline: "More at https://lumora.example/lamp",
+          },
+          [TELEGRAM]: PACKAGE_CREATIVE_COPY,
+        },
+      });
+      const before = await stored();
+      await expect(
+        attachPackageImage(project.owner, linked.pkg.id, {
+          deliverableKeys: both,
+        }),
+      ).rejects.toMatchObject({ code: "CREATIVE_LINK_NOT_ALLOWED" });
+      expect(await stored()).toEqual(before);
+    });
+
     // R65: the switch alone composes nothing; the project opts in.
     it("attaches the raw image while the project has not opted in", async () => {
       const { pkg, assetId, ids } = await readyPackage();

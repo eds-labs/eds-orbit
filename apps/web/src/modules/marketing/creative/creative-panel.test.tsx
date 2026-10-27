@@ -201,6 +201,22 @@ describe("creativeErrorMessage", () => {
     ).toContain("a1, a2");
     expect(err("SOMETHING_NEW")).toContain("SOMETHING NEW");
   });
+
+  // R66: refused image copy and the owner's copy findings in words.
+  it("explains refused image copy and names copy findings", () => {
+    const err = (code: string) =>
+      creativeErrorMessage(new CreativeRequestError(code, 409, null), false);
+    expect(err("CREATIVE_TEXT_UNSAFE")).toContain("invisible");
+    expect(err("CREATIVE_LINK_NOT_ALLOWED")).toContain("link");
+    expect(
+      creativeErrorMessage(
+        new CreativeRequestError("CREATIVE_QA_FAILED", 409, {
+          failed: [{ contentId: "c1", codes: ["CREATIVE_UNSUPPORTED_CLAIM"] }],
+        }),
+        false,
+      ),
+    ).toContain("figure");
+  });
 });
 
 describe("channel formats and form state", () => {

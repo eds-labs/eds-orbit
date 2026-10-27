@@ -44,6 +44,12 @@ export type CreativePlan = {
    * decision (`awaitsArtRights`).
    */
   rights: CreativeCheck;
+  /**
+   * The image copy's wording findings (R66: a figure or status word, a
+   * promise or prohibited wording, a bare host), failed blockers the owner
+   * decides on; none when the copy passed.
+   */
+  copyChecks?: CreativeCheck[];
 };
 
 /**

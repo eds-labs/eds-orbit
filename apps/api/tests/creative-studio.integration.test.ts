@@ -1047,6 +1047,98 @@ describe.skipIf(!enabled)(
       expect(composed).toBe(0);
     });
 
+    // R66: a person's image copy follows the banner copy rules (spec §10).
+    it("leaves a person's copy with a figure, a promise or a bare host for the owner (R66)", async () => {
+      for (const [copy, code] of [
+        [
+          { ...COPY, headline: "Save 30% on warm evenings" },
+          "CREATIVE_UNSUPPORTED_CLAIM",
+        ],
+        [
+          { ...COPY, subline: "Guaranteed calm in every room." },
+          "CREATIVE_PROHIBITED_LANGUAGE",
+        ],
+        [{ ...COPY, subline: "Order at lumora.example" }, "LINK_UNVERIFIED"],
+        // A CTA that is not the mission's is checked like any other copy.
+        [{ ...COPY, cta: "Get 2 lamps" }, "CREATIVE_UNSUPPORTED_CLAIM"],
+      ] as const) {
+        const content = await newContent(a);
+        const creative = await produceCreative(a.editor, {
+          contentId: content.id,
+          template: "lifestyle",
+          copy,
+          artAssetId: assets.goodArt.id,
+        });
+        expect(creative.status).toBe("needs_owner");
+        expect(creative.qa.verdict).toBe("needs_owner");
+        expect(creative.qa.checks).toContainEqual({
+          code,
+          passed: false,
+          severity: "blocker",
+        });
+        // An editor cannot attach it; the owner decides.
+        await expect(
+          attachCreative(a.editor, creative.id, {}),
+        ).rejects.toMatchObject({ code: "CREATIVE_QA_FAILED" });
+      }
+      // A recomposition with clean copy passes again; with a figure it does not.
+      const content = await newContent(a);
+      const clean = await produceGood(a.editor, content.id);
+      expect(clean.status).toBe("composed");
+      const figure = await recomposeCreative(a.editor, clean.id, {
+        copy: { ...COPY, headline: "Three lamps, one calm room" },
+      });
+      expect(figure.status).toBe("needs_owner");
+      expect(figure.qa.checks).toContainEqual({
+        code: "CREATIVE_UNSUPPORTED_CLAIM",
+        passed: false,
+        severity: "blocker",
+      });
+      expect(
+        (await recomposeCreative(a.editor, clean.id, { copy: COPY })).status,
+      ).toBe("composed");
+    });
+
+    it("refuses invisible characters and links on the image before anything is stored (R66)", async () => {
+      const content = await newContent(a);
+      const before = await stored(a);
+      for (const [copy, code] of [
+        [
+          { ...COPY, headline: "Evenings\u200B feel softer" },
+          "CREATIVE_TEXT_UNSAFE",
+        ],
+        [
+          { ...COPY, subline: "More at https://lumora.example/lamp" },
+          "CREATIVE_LINK_NOT_ALLOWED",
+        ],
+      ] as const)
+        await expect(
+          produceCreative(a.editor, {
+            contentId: content.id,
+            template: "lifestyle",
+            copy,
+            artAssetId: assets.goodArt.id,
+          }),
+        ).rejects.toMatchObject({
+          code,
+          status: 409,
+          detail: { codes: code },
+        });
+      expect(await stored(a)).toEqual(before);
+      // The route names the codes in the error's detail.
+      const r = await request(a, "POST", "creatives", {
+        contentId: content.id,
+        template: "lifestyle",
+        copy: { ...COPY, subline: "More at https://lumora.example/lamp" },
+        artAssetId: assets.goodArt.id,
+      });
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error).toMatchObject({
+        code: "CREATIVE_LINK_NOT_ALLOWED",
+        detail: { codes: "CREATIVE_LINK_NOT_ALLOWED" },
+      });
+    });
+
     it("attaches in an assignment run without the content review (R42)", async () => {
       const content = await newContent(a);
       const weak = await produceCreative(a.editor, {

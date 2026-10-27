@@ -126,9 +126,9 @@ export function confirmedHash(assignment: Record<string, any>) {
  * covers its content and is the one the review was made under; the
  * confirmation covers the content's type and channel; the text names no link
  * outside the policy; a Telegram chat was linked to the project before the
- * review was made; a post with banner copy (R79) or with a creative's image
- * copy (CS-D7) is delivered as a Postiz draft, and that copy is the one
- * reviewed. The veto
+ * review was made; a post with banner copy (R79), with a creative's image
+ * copy or with a creative attached (CS-D7, R66) is delivered as a Postiz
+ * draft, and that copy is the one reviewed. The veto
  * deadline belongs to the publication and is checked at handoff (R4).
  */
 export async function agentReviewAccepted(
@@ -159,8 +159,13 @@ export async function agentReviewAccepted(
     return false;
   // Agent review authority does not cover creatives that are published
   // (CS-D7): the owner publishes a Postiz draft himself, or approves the
-  // post. The image copy must be the one reviewed.
-  if (content.creativeCopy !== undefined && content.delivery !== "postiz_draft")
+  // post. That holds for any creative, also one a person attached in the
+  // studio (R66). The image copy must be the one reviewed.
+  if (
+    (content.creativeCopy !== undefined ||
+      typeof content.creativeId === "string") &&
+    content.delivery !== "postiz_draft"
+  )
     return false;
   if (
     review.creativeHash !==

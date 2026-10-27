@@ -47,6 +47,19 @@ export const CHECK_LABELS: Record<string, Pair> = {
     "Usage rights of a component are not approved",
     "Nutzungsrechte einer Komponente sind nicht freigegeben",
   ],
+  // The image copy's wording (R66): the owner decides.
+  CREATIVE_UNSUPPORTED_CLAIM: [
+    "The image text states a figure, number or status",
+    "Der Bildtext nennt eine Zahl, Menge oder einen Status",
+  ],
+  CREATIVE_PROHIBITED_LANGUAGE: [
+    "The image text makes a promise or uses forbidden wording",
+    "Der Bildtext verspricht etwas oder nutzt verbotene Wörter",
+  ],
+  LINK_UNVERIFIED: [
+    "The image text names a web address",
+    "Der Bildtext nennt eine Webadresse",
+  ],
 };
 
 export const ERROR_LABELS: Record<string, Pair> = {
@@ -65,6 +78,14 @@ export const ERROR_LABELS: Record<string, Pair> = {
   TEXT_OVERFLOW: [
     "The text does not fit even at the smallest size. Shorten it or use a smaller text size.",
     "Der Text passt auch in der kleinsten Größe nicht. Kürzen Sie ihn.",
+  ],
+  CREATIVE_TEXT_UNSAFE: [
+    "The text contains invisible or look-alike characters. Retype it.",
+    "Der Text enthält unsichtbare oder ähnlich aussehende Zeichen. Tippen Sie ihn neu.",
+  ],
+  CREATIVE_LINK_NOT_ALLOWED: [
+    "The image text contains a link. The post's link belongs in the post text.",
+    "Der Bildtext enthält einen Link. Der Link gehört in den Beitragstext.",
   ],
   CREATIVE_COPY_REQUIRED: [
     "Enter at least a headline.",

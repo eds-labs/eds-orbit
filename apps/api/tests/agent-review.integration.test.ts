@@ -94,6 +94,11 @@ import { reviewContent } from "../src/modules/workflow.ts";
 import { setFact } from "../src/platform/knowledge/engine.ts";
 import { TEMPLATE_COPY_LIMITS } from "../../../packages/creative/src/index.ts";
 import {
+  attachCreative,
+  produceCreative,
+} from "../src/modules/marketing/creative/pipeline.ts";
+import { addBrandKit } from "./support/package-creative.ts";
+import {
   createPackageProject,
   TELEGRAM,
   X,
@@ -957,6 +962,61 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
       });
     });
     expect(await blockers(draft!.id)).toContain(HUMAN);
+  });
+
+  // CS-D7 (R66): agent authority covers no creative that is published, also
+  // one a person attached in the studio to a draft of an assignment without one.
+  it("lets no agent approval stand in once an editor attaches a studio creative (CS-D7)", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const review = await drafted();
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    expect(draft!.delivery ?? "publish").toBe("publish");
+    expect(await blockers(draft!.id)).not.toContain(HUMAN);
+    const approval = draft!.agentReview;
+    // The approved post was scheduled; its schedule is withdrawn first.
+    await h.run(async (tx) => {
+      for (const row of await tx.entity.findMany({
+        where: { projectId: project.owner.projectId, kind: "publications" },
+      }))
+        if (data(row).contentId === draft!.id)
+          await update(tx, project.owner, row, {
+            ...data(row),
+            status: "canceled",
+          });
+    });
+
+    process.env.ORBIT_CREATIVE_STUDIO = "true";
+    await addBrandKit(project);
+    const creative = await produceCreative(project.editor, {
+      contentId: draft!.id,
+      template: "announcement",
+      copy: { headline: "Beta access is open" },
+    });
+    expect(creative.status).toBe("composed");
+    await attachCreative(project.editor, creative.id, {});
+    const attached = (await contents()).find((c) => c.id === draft!.id)!;
+    expect(attached.creativeId).toBe(creative.id);
+    // The studio's attach drops the agent's review: the owner decides.
+    expect(attached).not.toHaveProperty("agentReview");
+    expect(await blockers(draft!.id)).toContain(HUMAN);
+    // Even with the old review kept, a published creative needs the owner.
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "content", draft!.id);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        agentReview: approval,
+      });
+    });
+    const kept = await h.run((tx) =>
+      entity(tx, project.owner, "content", draft!.id),
+    );
+    expect(data(kept)).not.toHaveProperty("creativeCopy");
+    expect(
+      await h.run((tx) => agentReviewAccepted(tx, project.owner, data(kept))),
+    ).toBe(false);
   });
 
   it("accepts an agent review only while ORBIT_AGENT_REVIEW_AUTHORITY is on (R70)", async () => {

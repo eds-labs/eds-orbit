@@ -209,7 +209,13 @@ export async function attachCreativeInTx(
   // Telegram sends text with media as a caption with a smaller limit.
   if (channelLimitExceeded(String(v.body ?? ""), v.targetUrl, rules))
     throw new DomainError("CAPTION_TOO_LONG", 409);
-  const { review: _review, ...rest } = v;
+  // A person's attach also drops an agent's review (CS-D7, R66): the review
+  // did not see this image; a run's own review comes next (R42).
+  const { review: _review, agentReview, ...others } = v;
+  const rest =
+    mode === "content" || agentReview === undefined
+      ? others
+      : { ...others, agentReview };
   const attached = await update(tx, scope, content, {
     ...rest,
     assetId: rendition.assetId,
