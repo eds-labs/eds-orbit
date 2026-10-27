@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AssignmentCard, type AssignmentContent } from "./assignment-card";
+import {
+  AssignmentCard,
+  CREATIVE_CONSENT,
+  type AssignmentContent,
+} from "./assignment-card";
 
 const CONSENT =
   "Generierte Bilder dürfen für diesen Auftrag verwendet werden (keine Logos, keine echten Personen, kein Text im Bild)";
@@ -200,6 +204,40 @@ describe("AssignmentCard", () => {
       "Banner: generierter Hintergrund, dazu das freigegebene Logo und geprüfter Text",
     );
     expect(html({})).not.toContain("Banner: generierter Hintergrund");
+  });
+
+  it("shows the creative and its consent", () => {
+    const html = (changes: Partial<AssignmentContent>, canDecide = true) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), image: true, ...changes }}
+          status="draft"
+          request={{
+            id: "request-1",
+            version: 1,
+            packageHash: "hash",
+            status: "pending",
+          }}
+          de={false}
+          canDecide={canDecide}
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    const withCreative = html({
+      creative: { artPer: "post", imageKind: "auto", templates: ["tips"] },
+    });
+    expect(withCreative).toContain(CREATIVE_CONSENT);
+    expect(withCreative).toContain("Art per post");
+    expect(withCreative).toContain("Templates: tips");
+    expect(html({ creative: { artPer: "run", imageKind: "scene" } })).toContain(
+      "Art per run",
+    );
+    // Cards without a creative read as before.
+    const plain = html({});
+    expect(plain).not.toContain(CREATIVE_CONSENT);
+    expect(plain).not.toContain("Art per");
   });
 
   it("lets only a person who may decide confirm", () => {

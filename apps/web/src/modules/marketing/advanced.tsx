@@ -23,6 +23,7 @@ import { useWorkspace } from "@/components/workspace-context";
 import { useCollection } from "@/platform/ui/collection";
 import {
   brandTermsField,
+  mergeVisualIdentity,
   officialLinkCandidates,
   profileCampaignTypes,
 } from "./profile-fields";
@@ -349,7 +350,10 @@ export function MarketingProfileConfiguration() {
       type: "textarea",
       required: true,
       value: current?.productStrategy,
-      showWhen: { name: "campaignTypes", values: ["product", "presale,product"] },
+      showWhen: {
+        name: "campaignTypes",
+        values: ["product", "presale,product"],
+      },
     },
     {
       name: "presaleStrategy",
@@ -357,7 +361,10 @@ export function MarketingProfileConfiguration() {
       type: "textarea",
       required: true,
       value: current?.presaleStrategy,
-      showWhen: { name: "campaignTypes", values: ["presale", "presale,product"] },
+      showWhen: {
+        name: "campaignTypes",
+        values: ["presale", "presale,product"],
+      },
     },
     {
       name: "voice",
@@ -626,7 +633,7 @@ export function MarketingProfileConfiguration() {
                       ...brandTermsField(str(v, "brandTerms")),
                       notificationPreference: str(v, "notificationPreference"),
                       officialLinks,
-                      visualIdentity: {
+                      visualIdentity: mergeVisualIdentity(visual, {
                         primaryColor: str(v, "primaryColor"),
                         secondaryColor: str(v, "secondaryColor"),
                         accentColor: str(v, "accentColor"),
@@ -639,7 +646,7 @@ export function MarketingProfileConfiguration() {
                           ? { logoAssetId: str(v, "logoAssetId") }
                           : {}),
                         designRules: profileCsv(str(v, "designRules")),
-                      },
+                      }),
                       assetPolicy: "approved_only",
                     }),
                   }),

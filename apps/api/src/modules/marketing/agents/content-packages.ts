@@ -37,7 +37,8 @@ import {
   currentMarketingProfile,
   officialTargetLink,
 } from "../brand/marketing-profile.ts";
-import { resolveBrandKit } from "../creative/brand-kit.ts";
+import { resolveBrandKit, type EntityRow } from "../creative/brand-kit.ts";
+import { findCreative, type CreativeRecord } from "../creative/store.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import { withinGuardrails } from "../policy/fact-guardrails.ts";
 import { activePolicy } from "../policy/policy.ts";
@@ -498,6 +499,7 @@ export async function packageSnapshot(
   const r = data(request);
   const canceled = d.status === "canceled";
   const steps = (d.steps ?? []) as Array<Record<string, any>>;
+  const image = d.image ? await imageState(tx, scope, d.image, steps) : null;
   const deliverables = [];
   for (const deliverable of d.deliverables ?? []) {
     const step = steps.find(
@@ -542,6 +544,12 @@ export async function packageSnapshot(
           status: data(draft).status,
           scheduledAt: data(draft).scheduledAt ?? null,
           assetId: data(draft).assetId ?? null,
+          carriesPackageImage: await carriesPackageImage(
+            tx,
+            scope,
+            draft,
+            image?.assetId ?? null,
+          ),
           reused,
         };
         review = data(draft).review ?? null;
@@ -563,7 +571,6 @@ export async function packageSnapshot(
       schedule,
     });
   }
-  const image = d.image ? await imageState(tx, scope, d.image, steps) : null;
   const states = deliverables.map((deliverable) => deliverable.status);
   const waiting =
     states.some((state) => ["queued", "running", "revising"].includes(state)) ||
@@ -700,6 +707,29 @@ export async function conversationPackages(
   const snapshots = [];
   for (const row of rows) snapshots.push(await packageSnapshot(tx, scope, row));
   return snapshots;
+}
+
+/**
+ * Whether the draft carries the package image: its asset is that image, or a
+ * rendition of a creative composed from it (the creative's art is the image).
+ */
+async function carriesPackageImage(
+  tx: DbTx,
+  scope: Scope,
+  draft: EntityRow,
+  imageId: string | null,
+): Promise<boolean> {
+  const { assetId, creativeId } = data(draft);
+  if (!imageId || typeof assetId !== "string") return false;
+  if (assetId === imageId) return true;
+  if (typeof creativeId !== "string") return false;
+  const row = await findCreative(tx, scope, creativeId).catch(() => null);
+  if (!row) return false;
+  const record = data(row) as CreativeRecord;
+  return (
+    record.components?.artAssetId === imageId &&
+    (record.renditions ?? []).some((r) => r.assetId === assetId)
+  );
 }
 
 /** Image step state from its request, job, reservation and asset; never a model claim. */

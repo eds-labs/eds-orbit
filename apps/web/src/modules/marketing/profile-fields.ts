@@ -94,9 +94,25 @@ export function officialLinkCandidates(
  * presale only when a presale strategy is stored, else product.
  */
 export function profileCampaignTypes(
-  profile: { campaignTypes?: unknown; presaleStrategy?: unknown } | null | undefined,
+  profile:
+    { campaignTypes?: unknown; presaleStrategy?: unknown } | null | undefined,
 ): string[] {
   if (Array.isArray(profile?.campaignTypes) && profile.campaignTypes.length)
     return profile.campaignTypes.map(String);
   return profile?.presaleStrategy ? ["product", "presale"] : ["product"];
+}
+
+/**
+ * The visual identity a profile save sends: what the stored one holds
+ * (brand kit logos, product images, imagery, typography, creative settings,
+ * forbidden designs, ...) with the form's own fields replacing theirs. The
+ * primary logo is the exception: a cleared picker removes it.
+ */
+export function mergeVisualIdentity(
+  stored: Record<string, unknown> | undefined,
+  edited: Record<string, unknown>,
+): Record<string, unknown> {
+  const { logoAssetId, ...kept } = stored ?? {};
+  void logoAssetId;
+  return { ...kept, ...edited };
 }

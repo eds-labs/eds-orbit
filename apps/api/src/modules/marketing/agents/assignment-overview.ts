@@ -375,6 +375,8 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
       excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
+      // The draft's image or creative rendition, shown as a thumbnail.
+      assetId: typeof d.assetId === "string" ? d.assetId : null,
       assignmentId: d.assignmentId,
       assignmentName: data(assignment).name ?? null,
       // What the release does: schedule the post, or book a Postiz draft (R73).

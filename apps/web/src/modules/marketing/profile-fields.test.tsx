@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   brandTermsField,
+  mergeVisualIdentity,
   officialLinkCandidates,
   profileCampaignTypes,
 } from "./profile-fields";
@@ -83,13 +84,61 @@ describe("official target links from the project links", () => {
 
 describe("campaign types of a profile", () => {
   it("uses the stored list", () => {
-    expect(profileCampaignTypes({ campaignTypes: ["product"], presaleStrategy: "kept" })).toEqual(["product"]);
+    expect(
+      profileCampaignTypes({
+        campaignTypes: ["product"],
+        presaleStrategy: "kept",
+      }),
+    ).toEqual(["product"]);
   });
   it("keeps presale for profiles that store its strategy without a list", () => {
-    expect(profileCampaignTypes({ presaleStrategy: "Launch plan" })).toEqual(["product", "presale"]);
+    expect(profileCampaignTypes({ presaleStrategy: "Launch plan" })).toEqual([
+      "product",
+      "presale",
+    ]);
   });
   it("offers product campaigns only otherwise", () => {
     expect(profileCampaignTypes({})).toEqual(["product"]);
     expect(profileCampaignTypes(null)).toEqual(["product"]);
+  });
+});
+
+describe("profile editor keeps brand kit fields", () => {
+  const stored = {
+    primaryColor: "#111111",
+    logoAssetId: "logo-1",
+    logos: { onDark: "logo-2" },
+    productAssetIds: ["shot-1"],
+    imagery: { kind: "photo", mood: "calm", subjects: "", avoid: ["people"] },
+    typography: { headingWeight: 700, headingCase: "upper" },
+    forbiddenDesigns: ["neon"],
+    creative: { visualReview: true, maxArtCorrections: 2 },
+  };
+
+  it("sends imagery and creative unchanged when the form saves", () => {
+    const saved = mergeVisualIdentity(stored, {
+      primaryColor: "#222222",
+      logoAssetId: "logo-1",
+      designRules: ["Keep the logo unchanged."],
+    });
+    expect(saved).toEqual({
+      ...stored,
+      primaryColor: "#222222",
+      designRules: ["Keep the logo unchanged."],
+    });
+  });
+
+  it("removes the primary logo when the picker is cleared", () => {
+    const saved = mergeVisualIdentity(stored, { primaryColor: "#111111" });
+    expect(saved).not.toHaveProperty("logoAssetId");
+    expect(saved.logos).toEqual(stored.logos);
+  });
+
+  it("works for a profile without a stored identity", () => {
+    expect(mergeVisualIdentity(undefined, { primaryColor: "#000000" })).toEqual(
+      {
+        primaryColor: "#000000",
+      },
+    );
   });
 });

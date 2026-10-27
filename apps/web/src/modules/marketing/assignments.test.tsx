@@ -302,6 +302,26 @@ describe("AwaitingOwnerDraftList", () => {
       />,
     );
 
+  it("shows the thumbnail of a draft with an image", () => {
+    const html = (assetId?: string | null) =>
+      renderToStaticMarkup(
+        <AwaitingOwnerDraftList
+          items={[draft({ assetId })]}
+          projectId="p1"
+          de={false}
+          timezone="Europe/Berlin"
+          canRelease
+          pending={false}
+          onRelease={() => {}}
+        />,
+      );
+    expect(html("asset-9")).toContain(
+      'src="/api/projects/p1/assets/asset-9/content"',
+    );
+    expect(html(null)).not.toContain("<img");
+    expect(html()).not.toContain("<img");
+  });
+
   it("lists drafts left for the owner with their slot and a release button for the owner", () => {
     const html = render([draft()]);
     expect(html).toContain("Wartet auf deine Freigabe");

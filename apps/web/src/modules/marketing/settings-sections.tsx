@@ -14,6 +14,7 @@ import { RecordDetail } from "@/platform/ui/record-detail";
 import type { SettingsSection } from "@/platform/shell/types";
 import { PolicyEditor } from "./policy-editor";
 import { BrandApproval, MarketingProfileConfiguration } from "./advanced";
+import { BrandKitSection } from "./creative/brand-kit-section";
 
 // Marketing's sections of the project settings (WP2.3b): the versioned
 // operating policy and the brand. The assignments are a Marketing page
@@ -91,6 +92,8 @@ export const marketingSettings: readonly SettingsSection[] = [
         <>
           <BrandApproval />
           <MarketingProfileConfiguration />
+          {/* Renders nothing while the Creative Studio is off. */}
+          <BrandKitSection />
         </>
       ),
     }),

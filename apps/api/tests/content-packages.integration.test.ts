@@ -624,6 +624,19 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
         usageApproved: false,
       });
       expect(fake.calls.count).toBe(1);
+      // R58: only a draft whose asset is the package image carries it.
+      expect(
+        result.deliverables.map((d) => d.content?.carriesPackageImage),
+      ).toEqual([false, false]);
+      const first = result.deliverables[0]!.content!;
+      await run(async (tx) => {
+        const row = await entity(tx, owner, "content", String(first.id));
+        await update(tx, owner, row, { ...data(row), assetId: asset.id });
+      });
+      const withImage = await snapshot(pkg.id);
+      expect(
+        withImage.deliverables.map((d) => d.content?.carriesPackageImage),
+      ).toEqual([true, false]);
       const runRow = await run((tx) =>
         tx.entity.findFirstOrThrow({
           where: {

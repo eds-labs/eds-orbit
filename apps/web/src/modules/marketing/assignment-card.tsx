@@ -37,7 +37,14 @@ export type AssignmentContent = {
   format?: AssignmentFormat;
   // A 16:9 banner per slot in the brand style (R78); absent means a free image.
   banner?: AssignmentBanner;
+  // A composed creative per post (Creative Studio); absent for none.
+  creative?: AssignmentCreative;
   actionRequestId?: string | null;
+};
+export type AssignmentCreative = {
+  templates?: string[];
+  artPer?: "run" | "post";
+  imageKind?: string;
 };
 export type AssignmentBanner = { template: "brand_landscape"; style?: string };
 export type AssignmentFormat = {
@@ -65,6 +72,39 @@ export const BANNER_CONSENT: [string, string] = [
   "Banner: a generated background, with the approved logo and reviewed text added by Orbit",
   "Banner: generierter Hintergrund, dazu das freigegebene Logo und geprüfter Text",
 ];
+
+/** What a creative adds to the image consent: only the art is generated, logos and screenshots never leave Orbit. */
+export const CREATIVE_CONSENT =
+  "Orbit generates the image art with your configured image model and composes it with your approved logo and product images. Logos and screenshots are never sent to the image provider.";
+const CREATIVE_CONSENT_DE =
+  "Orbit erzeugt das Bild mit Ihrem konfigurierten Bildmodell und setzt es mit Ihrem freigegebenen Logo und Ihren freigegebenen Produktbildern zusammen. Logos und Screenshots gehen nie an den Bildanbieter.";
+
+/** "Art per post · Image kind: auto · Templates: …" for the creative a card confirms. */
+export function creativeText(
+  creative: AssignmentCreative | undefined,
+  de: boolean,
+) {
+  if (!creative) return de ? "Kein Creative" : "No creative";
+  const art =
+    creative.artPer === "run"
+      ? de
+        ? "Bild je Lauf"
+        : "Art per run"
+      : de
+        ? "Bild je Beitrag"
+        : "Art per post";
+  return [
+    art,
+    `${de ? "Bildart" : "Image kind"}: ${creative.imageKind ?? "auto"}`,
+    `${de ? "Vorlagen" : "Templates"}: ${
+      creative.templates?.length
+        ? creative.templates.join(", ")
+        : de
+          ? "alle aktiven"
+          : "all enabled"
+    }`,
+  ].join(" · ");
+}
 
 export const assignmentStatusLabels: Record<string, [string, string]> = {
   draft: ["Confirmation required", "Bestätigung erforderlich"],
@@ -333,6 +373,12 @@ export function AssignmentCard({
               <dt>Banner</dt>
               <dd>{bannerText(assignment.banner, assignment.image, de)}</dd>
             </div>
+            {assignment.creative && (
+              <div>
+                <dt>Creative</dt>
+                <dd>{creativeText(assignment.creative, de)}</dd>
+              </div>
+            )}
           </>
         )}
         <div>
@@ -396,6 +442,12 @@ export function AssignmentCard({
                   <>
                     <br />
                     {BANNER_CONSENT[de ? 1 : 0]}
+                  </>
+                )}
+                {assignment.creative && (
+                  <>
+                    <br />
+                    {de ? CREATIVE_CONSENT_DE : CREATIVE_CONSENT}
                   </>
                 )}
               </span>

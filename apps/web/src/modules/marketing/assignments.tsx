@@ -93,6 +93,8 @@ export type AwaitingOwnerDraft = {
   channelName: string | null;
   slotAt: string;
   excerpt: string;
+  // The draft's image or creative rendition (thumbnail); absent or null: none.
+  assetId?: string | null;
   assignmentId: string;
   assignmentName: string | null;
   agentApproved: boolean;
@@ -629,6 +631,7 @@ export function UpcomingPostList({
  */
 export function AwaitingOwnerDraftList({
   items,
+  projectId,
   de,
   timezone,
   canRelease,
@@ -636,6 +639,8 @@ export function AwaitingOwnerDraftList({
   onRelease,
 }: {
   items: AwaitingOwnerDraft[];
+  /** Needed for the thumbnails of drafts with an image. */
+  projectId?: string;
   de: boolean;
   timezone: string;
   canRelease: boolean;
@@ -671,6 +676,17 @@ export function AwaitingOwnerDraftList({
               </span>
             ))}
           </p>
+          {item.assetId && projectId && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              className="approval-item-thumbnail"
+              src={`/api/projects/${projectId}/assets/${item.assetId}/content`}
+              alt={de ? "Bild des Entwurfs" : "Draft image"}
+              width={160}
+              loading="lazy"
+              style={{ maxWidth: 160, height: "auto", borderRadius: 6 }}
+            />
+          )}
           <pre className="approval-item-body">{item.excerpt}</pre>
           {item.delivery === "postiz_draft" && (
             <p className="panel-note">
@@ -780,6 +796,7 @@ export function UpcomingAssignmentPosts() {
       )}
       <AwaitingOwnerDraftList
         items={drafts}
+        projectId={project.id}
         de={de}
         timezone={project.timezone}
         canRelease={isOwner}
