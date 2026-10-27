@@ -27,6 +27,7 @@ import {
   generateAssignmentImage,
 } from "../../brand/image-generation.ts";
 import { mayTransmitToProvider } from "../../brand/provider-use.ts";
+import { isApprovedAsset } from "../../brand/asset-rules.ts";
 import { assetContent } from "../../creative/asset-content.ts";
 import { renderRasterBanner } from "../../../../../../../packages/creative/src/index.ts";
 import { assignmentHash } from "../assignments.ts";
@@ -457,10 +458,10 @@ function describeStyle(rows: Array<{ data: unknown }>) {
 
 /**
  * The approved style references of an assignment (R6: uploaded or Orbit
- * generated assets with approved usage, raster images only). They go to the
- * image provider (bytes) and into its prompt (the stored description), so
- * only assets the owner marked for provider use qualify, whatever their
- * type (R28).
+ * generated assets with approved usage, raster images only). Their stored
+ * description goes into the prompt as before; their bytes go to the image
+ * provider only for assets the owner marked for provider use
+ * (`referenceImages`, R28 as narrowed by R64).
  */
 async function styleAssets(tx: DbTx, scope: Scope, ids: string[]) {
   if (!ids.length) return [];
@@ -476,7 +477,7 @@ async function styleAssets(tx: DbTx, scope: Scope, ids: string[]) {
     const row = rows.find((candidate) => candidate.id === id);
     const d = data(row);
     return row &&
-      mayTransmitToProvider(d) &&
+      isApprovedAsset(d) &&
       // A composed banner is bound to its post (R78), never a style reference.
       !d.boundTo &&
       ["image/png", "image/jpeg", "image/webp"].includes(d.mime)
@@ -523,7 +524,10 @@ async function storedStyleDescription(
   return value.text;
 }
 
-/** Reference image bytes; a reference that cannot be read is left out. */
+/**
+ * Reference image bytes of the references the owner marked for provider use
+ * (R28, whatever their type); a reference that cannot be read is left out.
+ */
 async function referenceImages(
   scope: Scope,
   rows: Array<{ id: string; data: unknown }>,
@@ -531,6 +535,7 @@ async function referenceImages(
   const references: ImageReference[] = [];
   for (const row of rows) {
     const d = data(row);
+    if (!mayTransmitToProvider(d)) continue;
     try {
       const content =
         d.driveFileId && !d.base64

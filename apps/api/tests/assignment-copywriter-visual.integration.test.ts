@@ -1157,6 +1157,30 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     ).toHaveLength(3);
   });
 
+  // R64 (R28 narrowed): providerUse gates only the bytes sent as references;
+  // the written style description keeps its behaviour from before it.
+  it("describes every approved style reference in the prompt, provider use or not", async () => {
+    const banner = await run((tx) =>
+      create(tx, project.owner, "assets", {
+        name: "Approved banner",
+        type: "generated_artwork",
+        mime: "image/png",
+        base64: png.toString("base64"),
+        sha256: createHash("sha256").update(png).digest("hex"),
+        usageApproved: true,
+        assetStatus: "approved",
+        prompt: "Soft morning light over a quiet harbour",
+      }),
+    );
+    await makeAssignment({ styleAssetIds: [banner.id] });
+    await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
+    await runAgentTask(worker(), (await task("visual")).id);
+    expect(provider.generateImageWithReferences).not.toHaveBeenCalled();
+    expect(provider.generateImage.mock.calls[0]![0].prompt).toContain(
+      "Soft morning light over a quiet harbour",
+    );
+  });
+
   it("uses no reference images by default", async () => {
     const banner = await run((tx) =>
       create(tx, project.owner, "assets", {
