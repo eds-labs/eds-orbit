@@ -69,10 +69,27 @@ import {
   creativeTemplateOf,
 } from "../../creative/copy-checks.ts";
 import { TEMPLATE_COPY_LIMITS } from "../../../../../../../packages/creative/src/index.ts";
+import {
+  attachOwnCreative,
+  CREATIVE_MEDIA_REFUSED,
+  CREATIVE_MISSING,
+  CREATIVE_QA_FAILED,
+  CREATIVE_RENDER_FAILED,
+  creativeProblem,
+} from "../../creative/assignment.ts";
+import { resolveBrandKit } from "../../creative/brand-kit.ts";
+import { parsedCreativeCopy } from "../../creative/copy-checks.ts";
+import { creativeStudioEnabled } from "../../creative/flag.ts";
+import { visionReviewCreative } from "../../creative/vision-review.ts";
 import { attachOwnBanner, bannerState, mediaRefusal } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
-import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
+import {
+  ASSIGNMENT_BUDGET_EXHAUSTED,
+  assertTaskBudget,
+  runBudgetKey,
+  runSpecialist,
+} from "./runner.ts";
 import {
   DEFAULT_SPECIALIST_LIMITS,
   type AgentTask,
@@ -99,7 +116,10 @@ import {
  * problems are the assignment's format (R77), its banner copy (R78), a fact
  * claim that does not match its fact, text addressed to a reviewer, its copy
  * craft (no core message, a fact too long for a social post) or its image
- * copy (Creative Studio) is revised once without the model;
+ * copy (Creative Studio) is revised once without the model; a creative
+ * assignment's draft whose creative is missing, failed to compose, failed
+ * its checks or its optional vision review, or cannot go on its channel is
+ * left for the owner;
  * a shared run's settled draft is copied for its slot group's other
  * channels, each copy checked on its own channel (R76, `shareDraft`).
  */
@@ -138,6 +158,12 @@ const LEFT_FOR_OWNER = new Set([
   BANNER_BRAND_OVERFLOW,
   // The channel needs an image the draft does not have (no banner or creative asked for): the owner decides.
   MEDIA_REQUIRED,
+  // The draft's creative (Creative Studio) is missing, failed to compose,
+  // failed its checks or cannot go on its channel: the owner decides.
+  CREATIVE_MISSING,
+  CREATIVE_RENDER_FAILED,
+  CREATIVE_QA_FAILED,
+  CREATIVE_MEDIA_REFUSED,
 ]);
 // Problems of one channel and slot, not of the text (R76): in a shared run
 // they hold back only that channel's post, never the text on the others.
@@ -151,15 +177,21 @@ export const CHANNEL_PROBLEMS = new Set([
   "ASSIGNMENT_SCOPE_NOT_ALLOWED",
   // This channel cannot carry the slot's banner; the others keep it (R78).
   BANNER_MEDIA_REFUSED,
+  // This channel cannot carry the slot's creative; the others keep it.
+  CREATIVE_MEDIA_REFUSED,
   // This channel needs an image; the text is fine for the channels that do not.
   MEDIA_REQUIRED,
 ]);
-// Why a draft has no image, when its banner was asked for: the specific code
-// decides, not the channel's generic need for one.
+// Why a draft has no image, when its banner or creative was asked for: the
+// specific code decides, not the channel's generic need for one.
 const BANNER_IMAGE_STATE = new Set([
   BANNER_IMAGE_MISSING,
   BANNER_RENDER_FAILED,
   BANNER_MEDIA_REFUSED,
+  CREATIVE_MISSING,
+  CREATIVE_RENDER_FAILED,
+  CREATIVE_QA_FAILED,
+  CREATIVE_MEDIA_REFUSED,
 ]);
 /** The text changed after the review model judged it (R76): its verdict covers another text. */
 export const AGENT_REVIEW_TEXT_CHANGED = "AGENT_REVIEW_TEXT_CHANGED";
@@ -233,9 +265,11 @@ export type ReviewDecision = {
   revisionError?: string | null;
   // A copy of a shared run's draft for another channel (R76): the original it was settled from.
   sharedFrom?: string;
-  // The text the model judged (R76): a decision covers exactly this body and banner copy.
+  // The text the model judged (R76): a decision covers exactly this body,
+  // banner copy and image copy (Creative Studio).
   bodyHash?: string;
   bannerHash?: string;
+  creativeHash?: string;
   // Problems of the draft's own channel and slot in a shared run (R76).
   channelProblems?: string[];
   // A shared run's draft held back on its own channel while its text was approved for the others.
@@ -355,14 +389,23 @@ export async function deterministicProblems(
   problems.push(...copyCraftProblems(v));
   // A creative's image copy is reviewed content too; its CTA is the mission CTA.
   const creativeTemplate = creativeTemplateOf(mission);
-  if (creativeTemplate)
-    problems.push(
-      ...creativeCopyProblems(
-        v.creativeCopy,
-        TEMPLATE_COPY_LIMITS[creativeTemplate],
-        { cta: mission?.targetAction },
-      ),
+  if (creativeTemplate) {
+    const copy = creativeCopyProblems(
+      v.creativeCopy,
+      TEMPLATE_COPY_LIMITS[creativeTemplate],
+      { cta: mission?.targetAction },
     );
+    problems.push(...copy);
+    // A creative assignment's draft carries its composed creative; copy
+    // with a problem gets none, so the copy is the reason, not the image.
+    if (
+      assignment.creative &&
+      copy.every((code) => code === "LINK_UNVERIFIED")
+    ) {
+      const creative = await creativeProblem(tx, scope, contentId, v);
+      if (creative) problems.push(creative);
+    }
+  }
   // A missing banner is already named by its own code.
   const named = problems.some((code) => BANNER_IMAGE_STATE.has(code));
   return [...new Set(problems)].filter(
@@ -550,10 +593,22 @@ function splitProblems(problems: string[], shared: boolean) {
   };
 }
 
-/** The body and banner copy of a draft as hashes: what a review verdict covers. */
+/** The body, banner copy and image copy of a draft as hashes: what a review verdict covers. */
 const judgedText = (v: Record<string, any>) => ({
   bodyHash: hash(v.body),
   ...(v.banner !== undefined ? { bannerHash: hash(v.banner) } : {}),
+  ...(v.creativeCopy !== undefined
+    ? { creativeHash: hash(v.creativeCopy) }
+    : {}),
+});
+
+/** A draft's image copy, core message and hook (Creative Studio), those it has. */
+const craftedCopy = (v: Record<string, any>) => ({
+  ...(parsedCreativeCopy(v.creativeCopy)
+    ? { creativeCopy: parsedCreativeCopy(v.creativeCopy) }
+    : {}),
+  ...(typeof v.coreMessage === "string" ? { coreMessage: v.coreMessage } : {}),
+  ...(typeof v.hook === "string" ? { hook: v.hook } : {}),
 });
 
 /** What the review model sees: the assignment, the brand, the drafts with their facts and brief, and recent posts. No credential, no internal state. */
@@ -590,6 +645,10 @@ async function reviewInput(
       brief: mission?.brief ?? null,
       // The banner copy shown on the post's image (R78), reviewed with the text.
       ...(parsedBanner(v.banner) ? { banner: parsedBanner(v.banner) } : {}),
+      // The image copy of its creative and the post's core message and hook
+      // (Creative Studio, only while it is on: CS-D6), reviewed with the
+      // text as data like the banner copy.
+      ...(creativeStudioEnabled() ? craftedCopy(v) : {}),
       // A shared text (R76) goes out unchanged on these channels too.
       ...(Array.isArray(mission?.sharedChannels)
         ? { sharedChannels: mission.sharedChannels as string[] }
@@ -711,20 +770,105 @@ function modelDecision(
 }
 
 /**
+ * The optional vision review (spec §9) of the creatives of a creative
+ * assignment's clean drafts, when the brand kit turns it on: one paid call
+ * per rendition (R50) in the task's run budget (`assertTaskBudget` with the
+ * call's estimate). Returns, per draft reviewed, null or the code of the
+ * review that could not run; a used-up month is noted in `state`.
+ */
+async function visionReviews(
+  scope: Scope,
+  task: AgentTask,
+  ids: string[],
+  state: { exhausted: boolean },
+) {
+  const reviewed = new Map<string, string | null>();
+  if (!ids.length) return reviewed;
+  const targets = await inScope(scope, async (tx) => {
+    const assignment = data(
+      await entity(tx, scope, "assignments", task.assignmentId),
+    );
+    if (!assignment.creative) return [];
+    const kit = await resolveBrandKit(tx, scope).catch((error) => {
+      // Without a usable brand kit there is no creative to review.
+      if (error instanceof DomainError) return null;
+      throw error;
+    });
+    if (!kit?.config.visualReview) return [];
+    const found: Array<{ id: string; creativeId: string }> = [];
+    for (const id of ids) {
+      const v = data(await entity(tx, scope, "content", id));
+      if (typeof v.creativeId === "string")
+        found.push({ id, creativeId: v.creativeId });
+    }
+    return found;
+  });
+  for (const { id, creativeId } of targets)
+    try {
+      await visionReviewCreative(scope, creativeId, {
+        runKey: runBudgetKey(task.runId),
+        authorize: (tx, estimateMicros) =>
+          assertTaskBudget(tx, scope, task, estimateMicros),
+      });
+      reviewed.set(id, null);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === ASSIGNMENT_BUDGET_EXHAUSTED) state.exhausted = true;
+      reviewed.set(id, code === "UNEXPECTED" ? "AGENT_FAILED" : code);
+    }
+  return reviewed;
+}
+
+/**
  * Decides one round: drafts already decided by this task keep their
- * decision; the deterministic checks reject what they can; the model judges
- * the rest in one call. Decisions are stored before anything is applied.
+ * decision; the deterministic checks reject what they can; a creative's
+ * optional vision review runs next and leaves a failing creative, or one
+ * whose review could not run, for the owner (`CREATIVE_QA_FAILED`); the
+ * model judges the rest in one call. Decisions are stored before anything
+ * is applied.
  */
 async function decideRound(
   scope: Scope,
   task: AgentTask,
   ids: string[],
   round: 1 | 2,
+  state: { exhausted: boolean },
 ) {
   const decisions = new Map<string, ReviewDecision>();
-  const clean: string[] = [];
+  let clean: string[] = [];
   // Shared texts whose only problems are their own channel's (R76).
   const channelOnly = new Map<string, string[]>();
+  const record = async (tx: DbTx, id: string, decision: ReviewDecision) => {
+    await recordDecision(tx, scope, id, decision);
+    decisions.set(id, decision);
+  };
+  /** The deterministic checks of one draft: a decision for its problems, else clean. */
+  const check = async (tx: DbTx, id: string) => {
+    const problems = await deterministicProblems(tx, scope, task, id);
+    const v = data(await entity(tx, scope, "content", id));
+    const { text, channel } = splitProblems(
+      problems,
+      (await textChannels(tx, scope, v)).length > 1,
+    );
+    // A shared text blocked only on its own channel is still judged for the others.
+    if (!text.length) {
+      clean.push(id);
+      if (channel.length) channelOnly.set(id, channel);
+      return;
+    }
+    const instruction = await deterministicRevision(tx, scope, id, text, round);
+    await record(tx, id, {
+      taskId: task.id,
+      round,
+      verdict: instruction ? "revise" : verdictFor(text),
+      modelVerdict: null,
+      reasons: [],
+      revisionInstructions: instruction,
+      deterministicProblems: problems,
+      ...(channel.length ? { channelProblems: channel } : {}),
+      checkedAt: new Date().toISOString(),
+    });
+  };
   await inScope(scope, async (tx) => {
     for (const id of ids) {
       const prior = storedDecision(
@@ -735,40 +879,31 @@ async function decideRound(
         decisions.set(id, prior);
         continue;
       }
-      const problems = await deterministicProblems(tx, scope, task, id);
-      const v = data(await entity(tx, scope, "content", id));
-      const { text, channel } = splitProblems(
-        problems,
-        (await textChannels(tx, scope, v)).length > 1,
-      );
-      // A shared text blocked only on its own channel is still judged for the others.
-      if (!text.length) {
-        clean.push(id);
-        if (channel.length) channelOnly.set(id, channel);
-        continue;
-      }
-      const instruction = await deterministicRevision(
-        tx,
-        scope,
-        id,
-        text,
-        round,
-      );
-      const decision: ReviewDecision = {
-        taskId: task.id,
-        round,
-        verdict: instruction ? "revise" : verdictFor(text),
-        modelVerdict: null,
-        reasons: [],
-        revisionInstructions: instruction,
-        deterministicProblems: problems,
-        ...(channel.length ? { channelProblems: channel } : {}),
-        checkedAt: new Date().toISOString(),
-      };
-      await recordDecision(tx, scope, id, decision);
-      decisions.set(id, decision);
+      await check(tx, id);
     }
   });
+  // A failing vision verdict leaves the creative for the owner: checked again.
+  const reviewed = await visionReviews(scope, task, clean, state);
+  if (reviewed.size) {
+    clean = clean.filter((id) => !reviewed.has(id));
+    await inScope(scope, async (tx) => {
+      for (const [id, error] of reviewed) {
+        channelOnly.delete(id);
+        if (!error) await check(tx, id);
+        else
+          await record(tx, id, {
+            taskId: task.id,
+            round,
+            verdict: "needs_owner",
+            modelVerdict: null,
+            reasons: [error],
+            revisionInstructions: null,
+            deterministicProblems: [CREATIVE_QA_FAILED],
+            checkedAt: new Date().toISOString(),
+          });
+      }
+    });
+  }
   if (clean.length) {
     // The texts as the model sees them: its verdicts cover exactly these.
     const judged = new Map<string, ReturnType<typeof judgedText>>();
@@ -906,7 +1041,8 @@ async function approve(
   if (
     decision.bodyHash &&
     (decision.bodyHash !== judged.bodyHash ||
-      decision.bannerHash !== judged.bannerHash)
+      decision.bannerHash !== judged.bannerHash ||
+      decision.creativeHash !== judged.creativeHash)
   ) {
     await leaveForOwner(tx, scope, contentId, {
       ...decision,
@@ -960,9 +1096,8 @@ async function approve(
     assignmentId: task.assignmentId,
     assignmentVersion: assignmentRow.version,
     assignmentHash: confirmedHash(data(assignmentRow))!,
-    bodyHash: hash(v.body),
-    // The banner copy is approved with the text (R78).
-    ...(v.banner !== undefined ? { bannerHash: hash(v.banner) } : {}),
+    // The banner copy (R78) and the image copy are approved with the text.
+    ...judgedText(v),
     checkedAt: new Date().toISOString(),
     deterministicProblems: [],
   };
@@ -1186,7 +1321,11 @@ async function shareDraft(
   // A decision without the judged text (recorded before R76's fix round, or
   // by the deterministic checks) approves no copy: the copies wait for the owner.
   const judged = decision.bodyHash
-    ? { bodyHash: decision.bodyHash, bannerHash: decision.bannerHash }
+    ? {
+        bodyHash: decision.bodyHash,
+        bannerHash: decision.bannerHash,
+        creativeHash: decision.creativeHash,
+      }
     : null;
   const {
     channelProblems: _channelProblems,
@@ -1209,9 +1348,12 @@ async function shareDraft(
       outcomes.push(sharedOutcome(copy.id, contentId, prior));
       continue;
     }
-    // The slot's banner reaches a media-capable channel even when the
-    // original's own channel refused it (R78).
-    if (await attachOwnBanner(tx, scope, copy))
+    // The slot's banner (R78) or creative reaches a media-capable channel,
+    // in its own format, even when the original's own channel refused it.
+    if (
+      (await attachOwnBanner(tx, scope, copy)) ||
+      (await attachOwnCreative(tx, scope, copy))
+    )
       copy = await entity(tx, scope, "content", copy.id);
     const problems = await deterministicProblems(tx, scope, task, copy.id);
     const base: ReviewDecision = {
@@ -1233,7 +1375,8 @@ async function shareDraft(
       text === "approve" &&
       judged !== null &&
       own.bodyHash === judged.bodyHash &&
-      own.bannerHash === judged.bannerHash
+      own.bannerHash === judged.bannerHash &&
+      own.creativeHash === judged.creativeHash
     ) {
       settled = { ...base, verdict: "approve" };
       await approveCopy(tx, scope, task, copy.id, settled, contentId);
@@ -1319,8 +1462,10 @@ export const reviewStep: StepHandler = async (scope, task) => {
   const drafts = writtenDrafts(task);
   if (drafts.length > MAX_DRAFTS) throw new DomainError("AGENT_LIMIT");
   const outcomes: Outcome[] = [];
+  // A used-up month seen by a creative's vision review (Creative Studio).
+  const budget = { exhausted: false };
   let exhausted = false;
-  const first = await decideRound(scope, task, drafts, 1);
+  const first = await decideRound(scope, task, drafts, 1, budget);
   // Revisions first: their image attach must not touch a draft this task already approved.
   const second: string[] = [];
   for (const { contentId, decision } of first) {
@@ -1363,10 +1508,11 @@ export const reviewStep: StepHandler = async (scope, task) => {
   await settleRound(
     scope,
     task,
-    await decideRound(scope, task, second, 2),
+    await decideRound(scope, task, second, 2, budget),
     outcomes,
   );
   // Everything decided is applied; a used-up month still pauses the assignment (R25).
-  if (exhausted) throw new DomainError(ASSIGNMENT_BUDGET_EXHAUSTED);
+  if (exhausted || budget.exhausted)
+    throw new DomainError(ASSIGNMENT_BUDGET_EXHAUSTED);
   return { decisions: outcomes };
 };

@@ -33,6 +33,11 @@ export type CreativeRecord = {
   contentId?: string;
   assignmentRunId?: string;
   packageId?: string;
+  /**
+   * An assignment run's creative: what it was composed from (art bytes,
+   * copy, layout, formats, brand), so a run composes each post once.
+   */
+  composeKey?: string;
   profileVersion: number;
   /** The resolved creative brief the creative was made from. */
   brief: ResolvedBrief;

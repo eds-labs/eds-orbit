@@ -24,6 +24,8 @@ export type AgentReview = {
   bodyHash: string;
   // The banner copy reviewed with the text (R78); present only for a draft with a banner.
   bannerHash?: string;
+  // The image copy of its creative reviewed with the text (Creative Studio); present only with one.
+  creativeHash?: string;
   checkedAt: string;
   deterministicProblems: string[];
 };
@@ -124,8 +126,9 @@ export function confirmedHash(assignment: Record<string, any>) {
  * covers its content and is the one the review was made under; the
  * confirmation covers the content's type and channel; the text names no link
  * outside the policy; a Telegram chat was linked to the project before the
- * review was made; a post with banner copy is delivered as a Postiz draft
- * (R79). The veto
+ * review was made; a post with banner copy (R79) or with a creative's image
+ * copy (CS-D7) is delivered as a Postiz draft, and that copy is the one
+ * reviewed. The veto
  * deadline belongs to the publication and is checked at handoff (R4).
  */
 export async function agentReviewAccepted(
@@ -152,6 +155,18 @@ export async function agentReviewAccepted(
   if (
     review.bannerHash !==
     (content.banner !== undefined ? hash(content.banner) : undefined)
+  )
+    return false;
+  // Agent review authority does not cover creatives that are published
+  // (CS-D7): the owner publishes a Postiz draft himself, or approves the
+  // post. The image copy must be the one reviewed.
+  if (content.creativeCopy !== undefined && content.delivery !== "postiz_draft")
+    return false;
+  if (
+    review.creativeHash !==
+    (content.creativeCopy !== undefined
+      ? hash(content.creativeCopy)
+      : undefined)
   )
     return false;
   if (
@@ -194,12 +209,17 @@ export async function agentReviewAccepted(
   if (!confirmed || review.assignmentHash !== confirmed) return false;
   if (!withinConfirmation(data(assignment), content)) return false;
   const policy = await activePolicy(tx, scope);
+  // The text with its banner and image copy, which name no link either.
+  const shown =
+    content.banner !== undefined
+      ? `${content.body}\n${Object.values(content.banner ?? {}).join("\n")}`
+      : content.body;
   if (
     !policy ||
     bodyLinkProblems(
-      content.banner !== undefined
-        ? `${content.body}\n${Object.values(content.banner ?? {}).join("\n")}`
-        : content.body,
+      content.creativeCopy !== undefined
+        ? `${shown}\n${Object.values(content.creativeCopy ?? {}).join("\n")}`
+        : shown,
       data(policy).allowedOrigins ?? [],
     ).length
   )

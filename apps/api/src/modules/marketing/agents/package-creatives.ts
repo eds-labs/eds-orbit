@@ -1,14 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import { formatsForChannel } from "../../../../../../packages/creative/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import {
-  audit,
-  create,
-  data,
-  DomainError,
-  hash,
-  update,
-} from "../../../shared.ts";
+import { audit, data, DomainError, hash } from "../../../shared.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
 import { attachCreativeInTx } from "../creative/attach.ts";
 import {
@@ -31,15 +24,10 @@ import {
 import {
   assertContentHolds,
   assertSourcesHold,
-  composedFields,
-  saveRenditions,
+  storeComposed,
   type ComposedCreative,
 } from "../creative/persist.ts";
-import {
-  CREATIVES,
-  findCreative,
-  type CreativeRecord,
-} from "../creative/store.ts";
+import { findCreative, type CreativeRecord } from "../creative/store.ts";
 
 // Composed creatives of a content package (Creative Studio): attaching the
 // package's image gives each draft with image copy its own rendition in its
@@ -194,38 +182,15 @@ export async function savePackageCreative(
 ) {
   await assertSourcesHold(tx, scope, plan);
   const draft = await assertContentHolds(tx, scope, plan.content);
-  const record: CreativeRecord = {
-    contentId: draft.id,
-    packageId: input.packageId,
-    ...composedFields(plan, composed),
-    renditions: [],
-    corrections: composed.outcome.corrections,
-    // The package image was paid for by the package; composing is free.
-    cost: { reservationIds: [], settledMicros: 0, unknownMicros: 0 },
-  };
-  // The renditions are bound to the creative, so it is created first.
-  const creative = await create(tx, scope, CREATIVES, record);
-  record.renditions = await saveRenditions(tx, scope, {
-    creativeId: creative.id,
-    contentId: draft.id,
-    channel: data(draft).channel,
-    title: String(data(draft).title ?? ""),
+  // The package image was paid for by the package; composing is free.
+  const creative = await storeComposed(tx, scope, {
+    content: draft,
     plan,
     composed,
     approvedBy: scope.userId,
+    record: { packageId: input.packageId },
     boundTo: { packageId: input.packageId },
     rightsSource: { packageId: input.packageId },
-  });
-  await update(tx, scope, creative, record);
-  await audit(tx, scope, "creative.produced", creative.id, {
-    contentId: draft.id,
-    packageId: input.packageId,
-    template: record.template,
-    variant: record.variant,
-    status: record.status,
-    renditionIds: record.renditions.map((rendition) => rendition.assetId),
-    failed: composed.outcome.failed,
-    corrections: composed.outcome.corrections.length,
   });
   const attached = await attachCreativeInTx(tx, scope, creative.id, {
     mode: "content",

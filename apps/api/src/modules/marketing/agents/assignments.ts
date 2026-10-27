@@ -32,7 +32,14 @@ import {
   mcpRequester,
   type McpProposalOrigin,
 } from "../../../platform/mcp/proposals.ts";
+import {
+  CREATIVE_TEMPLATE_IDS,
+  IMAGE_KINDS,
+} from "../../../../../../packages/creative/src/index.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
+import { resolveBrandKit } from "../creative/brand-kit.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
+import { rightsCheck } from "../creative/quality.ts";
 import {
   channelTextLength,
   finalPostText,
@@ -111,6 +118,24 @@ export const assignmentSchedule = z
   })
   .strict();
 
+/**
+ * A composed creative per post instead of a free image (Creative Studio,
+ * spec §11): Orbit generates art from the strategy's creative brief, one per
+ * post or one per run, and composes a branded rendition per channel format
+ * with the approved logo and the copywriter's image copy. `templates` are
+ * the layouts the strategy may choose from (absent: every enabled one),
+ * `imageKind` fixes the kind of picture (`auto`: the strategy's choice).
+ * Social assignments with `image: true` only, never with a banner.
+ */
+export const assignmentCreative = z
+  .object({
+    templates: z.array(z.enum(CREATIVE_TEMPLATE_IDS)).min(1).max(7).optional(),
+    artPer: z.enum(["run", "post"]).default("post"),
+    imageKind: z.enum(["auto", ...IMAGE_KINDS]).default("auto"),
+  })
+  .strict();
+export type AssignmentCreative = z.output<typeof assignmentCreative>;
+
 const assignmentFields = z
   .object({
     name: z.string().trim().min(1).max(120),
@@ -139,15 +164,19 @@ const assignmentFields = z
     // A 16:9 banner per slot in the brand style instead of a free image
     // (R78). Absent means the free image as before R78.
     banner: assignmentBanner.optional(),
+    // A composed creative per post (Creative Studio); absent means the free
+    // image or banner as before. Hashed only when set.
+    creative: assignmentCreative.optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
 const CONTENT_KEYS = Object.keys(assignmentFields.shape) as (keyof Content)[];
 /**
- * Optional fields a change may clear with an explicit null (R77, R78); an
- * absent field stays unchanged. The chat tool sends them as `clear`.
+ * Optional fields a change may clear with an explicit null (R77, R78, the
+ * Creative Studio's `creative`); an absent field stays unchanged. The chat
+ * tool sends them as `clear`.
  */
-export const CLEARABLE = ["format", "banner"] as const;
+export const CLEARABLE = ["format", "banner", "creative"] as const;
 
 export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
   const { rhythm, weekdays, date } = value.schedule;
@@ -255,7 +284,8 @@ const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
 
 // Normalized as stored (JSON drops undefined), so a hash is the same before
 // and after saving. Defaults that keep the old behaviour (delivery "publish",
-// R73; sharedAcrossChannels false, R76; no format, R77; no banner, R78) are left out, so rows
+// R73; sharedAcrossChannels false, R76; no format, R77; no banner, R78; no
+// creative, Creative Studio) are left out, so rows
 // from before them keep their hash and confirmation, while any other value
 // changes it.
 const contentOf = (source: Record<string, any>) =>
@@ -397,6 +427,53 @@ async function assertFormatFits(
   }
 }
 
+export const CREATIVE_STUDIO_DISABLED = "CREATIVE_STUDIO_DISABLED";
+export const CREATIVE_SOCIAL_ONLY = "CREATIVE_SOCIAL_ONLY";
+export const CREATIVE_NEEDS_IMAGE = "CREATIVE_NEEDS_IMAGE";
+export const CREATIVE_AND_BANNER = "CREATIVE_AND_BANNER";
+export const CREATIVE_LOGO_REQUIRED = "CREATIVE_LOGO_REQUIRED";
+// The brand kit's own refusals that mean "no usable approved logo".
+const LOGO_REFUSALS = ["PRIMARY_LOGO_REQUIRED", "APPROVED_LOGO_ASSET_REQUIRED"];
+
+/**
+ * Refuses a creative the project cannot make (409), before anything is
+ * confirmed or paid: the Creative Studio is off (`CREATIVE_STUDIO_DISABLED`),
+ * the assignment is not social (`CREATIVE_SOCIAL_ONLY`), has no image consent
+ * (`CREATIVE_NEEDS_IMAGE`) or a banner (`CREATIVE_AND_BANNER`), or the brand
+ * kit has no approved raster logo whose rights cover social use
+ * (`CREATIVE_LOGO_REQUIRED`); other brand kit refusals keep their own code.
+ * Checked at propose, change, confirm and resume, and by the run's visual
+ * step before any image is generated. Without `creative` nothing is checked.
+ */
+export async function assertCreativeReady(
+  tx: DbTx,
+  scope: Scope,
+  content: {
+    creative?: unknown;
+    contentType?: unknown;
+    image?: unknown;
+    banner?: unknown;
+  },
+) {
+  if (!content.creative) return;
+  if (!creativeStudioEnabled())
+    throw new DomainError(CREATIVE_STUDIO_DISABLED, 409);
+  if (content.contentType !== "social")
+    throw new DomainError(CREATIVE_SOCIAL_ONLY, 409);
+  if (content.image !== true) throw new DomainError(CREATIVE_NEEDS_IMAGE, 409);
+  if (content.banner) throw new DomainError(CREATIVE_AND_BANNER, 409);
+  const kit = await resolveBrandKit(tx, scope).catch((error) => {
+    if (error instanceof DomainError && LOGO_REFUSALS.includes(error.code))
+      throw new DomainError(CREATIVE_LOGO_REQUIRED, 409);
+    throw error;
+  });
+  // Every logo is drawn from its approved bytes; a refused one would only fail after the art is paid for.
+  const logos = Object.values(kit.logos).filter((row) => row !== undefined);
+  if (!(await rightsCheck(tx, scope, logos, "social")).passed)
+    throw new DomainError(CREATIVE_LOGO_REQUIRED, 409);
+  return kit;
+}
+
 export async function assertWithinMandate(
   tx: DbTx,
   scope: Scope,
@@ -409,6 +486,9 @@ export async function assertWithinMandate(
   // Draft delivery needs the Postiz draft handoff switched on (R73).
   if (deliveryOf(content) === "postiz_draft" && !postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
+  // A creative (Creative Studio) needs the studio, a social assignment with
+  // image consent and an approved logo, and never a banner too.
+  await assertCreativeReady(tx, scope, content);
   const policy = await activePolicy(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const mandate = data(policy);

@@ -41,6 +41,10 @@ import {
   parsedBanner,
 } from "../banner.ts";
 import { errorCode } from "../../../telemetry.ts";
+import {
+  composeRunCreatives,
+  creativeVisualStep,
+} from "../../creative/assignment.ts";
 import { assertTaskBudget, runBudgetKey } from "./runner.ts";
 import type { AgentTask, StepHandler } from "./types.ts";
 
@@ -55,7 +59,10 @@ import type { AgentTask, StepHandler } from "./types.ts";
  * finishes second attaches (the visual to existing drafts, a copywriter to an
  * existing image), so both orders end with the same drafts illustrated.
  * With a banner (R78) the image is only the background: each draft gets its
- * own banner composed over it (`composeRunBanners`), one per slot.
+ * own banner composed over it (`composeRunBanners`), one per slot. With a
+ * creative (Creative Studio) the step makes art per post or run instead
+ * (`creativeVisualStep`) and each draft gets its own composed creative
+ * (`composeRunCreatives`), never the raw art.
  */
 export const ASSET_RIGHTS_REQUIRED = "ASSET_RIGHTS_REQUIRED";
 const STYLES = "assignment_style_descriptions";
@@ -92,9 +99,10 @@ export function imageRightsSource(row: { id: string; data: unknown }) {
 
 /**
  * The run's assets in creation order: its image (a banner run's background,
- * R78) first, then its composed banners (`bannerKey`).
+ * R78) first, then its composed banners (`bannerKey`); a creative run's art
+ * (`creativeArt`, Creative Studio).
  */
-function runAssets(tx: DbTx, scope: Scope, runId: string) {
+export function runAssets(tx: DbTx, scope: Scope, runId: string) {
   return tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -228,7 +236,10 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
   const attached: string[] = [];
   const skipped: Array<{ contentId: string; code: string }> = [];
   const assets = await runAssets(tx, scope, runId);
-  const image = assets.find((row) => !data(row).bannerKey);
+  // A creative run's art is never attached raw: each draft gets its composed creative.
+  const image = assets.find(
+    (row) => !data(row).bannerKey && data(row).creativeArt !== true,
+  );
   if (!image) return { assetId: null, attached, skipped };
   const bannerRun = data(image).bannerBackground === true;
   const brand = bannerRun ? await currentBrand(tx, scope) : null;
@@ -270,7 +281,7 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
       ? ASSET_RIGHTS_REQUIRED
       : v.assetId && !stale
         ? "ASSET_ALREADY_ATTACHED"
-        : await refusal(tx, scope, draft.id, v);
+        : await attachRefusal(tx, scope, draft.id, v);
     if (code) {
       skipped.push({ contentId: draft.id, code });
       continue;
@@ -380,8 +391,8 @@ export async function attachOwnBanner(
   return true;
 }
 
-/** Why a draft cannot take the image, or null. */
-async function refusal(
+/** Why a draft cannot take an image: it is scheduled, or its channel cannot carry one; else null. */
+export async function attachRefusal(
   tx: DbTx,
   scope: Scope,
   contentId: string,
@@ -578,10 +589,26 @@ export async function recoverPersistedVisual(
 }
 
 export const visualStep: StepHandler = async (scope, task) => {
-  const idea = imageIdea(task);
-  const requestId = runImageRequestId(task.id);
   const inScope = <T>(work: (tx: DbTx) => Promise<T>) =>
     scoped(scope.workspaceId, scope.projectId, work);
+  // An assignment with a creative (Creative Studio) gets art per post or run, composed per draft.
+  const assignment = await inScope((tx) =>
+    entity(tx, scope, "assignments", task.assignmentId),
+  );
+  if (data(assignment).creative) {
+    const { assetIds, skipped, correctionErrors } = await creativeVisualStep(
+      scope,
+      task,
+    );
+    return {
+      assetIds,
+      ...(skipped.length ? { skippedUnits: skipped } : {}),
+      ...(correctionErrors.length ? { correctionErrors } : {}),
+      ...(await attach(scope, task, skipped)),
+    };
+  }
+  const idea = imageIdea(task);
+  const requestId = runImageRequestId(task.id);
   // A restarted task finds its image instead of generating a second one (R26).
   const existing = await inScope((tx) =>
     tx.entity.findFirst({
@@ -682,13 +709,18 @@ export const visualStep: StepHandler = async (scope, task) => {
 };
 
 /**
- * Composes the run's banners (R78) and attaches the run image in its own
- * transaction. A failure never touches the stored image: it is reported, and
- * the next attach of the run (a later copywriter or a restarted task) puts
- * the image on the drafts. A banner failure never stops the attach of the
- * banners already composed.
+ * Composes the run's banners (R78) and creatives (Creative Studio; with the
+ * art units this step skipped, `refused`) and attaches the run image in its
+ * own transaction. A failure never touches the stored image: it is
+ * reported, and the next attach of the run (a later copywriter or a
+ * restarted task) puts the image on the drafts. A banner or creative
+ * failure never stops the attach of those already composed.
  */
-async function attach(scope: Scope, task: AgentTask) {
+async function attach(
+  scope: Scope,
+  task: AgentTask,
+  refused: Array<{ unit: string; code: string }> = [],
+) {
   let banners: Awaited<ReturnType<typeof composeRunBanners>> | null = null;
   let bannerError: string | null = null;
   try {
@@ -697,10 +729,21 @@ async function attach(scope: Scope, task: AgentTask) {
   } catch (error) {
     bannerError = errorCode(error);
   }
+  let creatives: Awaited<ReturnType<typeof composeRunCreatives>> | null = null;
+  let creativeError: string | null = null;
+  try {
+    creatives = await composeRunCreatives(scope, task.runId, { refused });
+    creativeError = creatives.error;
+  } catch (error) {
+    creativeError = errorCode(error);
+  }
   const reported = {
     ...(banners?.composed.length ? { banners: banners.composed } : {}),
     ...(banners?.failed.length ? { bannerFailures: banners.failed } : {}),
     ...(bannerError ? { bannerError } : {}),
+    ...(creatives?.composed.length ? { creatives: creatives.composed } : {}),
+    ...(creatives?.failed.length ? { creativeFailures: creatives.failed } : {}),
+    ...(creativeError ? { creativeError } : {}),
   };
   try {
     const result = await scoped(scope.workspaceId, scope.projectId, (tx) =>
@@ -723,8 +766,8 @@ async function imageBytes(scope: Scope, d: Record<string, any>) {
   return `data:${content.mime};base64,${content.bytes.toString("base64")}`;
 }
 
-/** Serializes the banner saves of one run (parallel copywriters and the visual step). */
-const lockRun = (tx: DbTx, scope: Scope, runId: string) =>
+/** Serializes the banner and creative saves of one run (parallel copywriters and the visual step). */
+export const lockRun = (tx: DbTx, scope: Scope, runId: string) =>
   tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${runId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
 
 /**

@@ -458,11 +458,15 @@ describe("creativeBrief (strategy output)", () => {
     expect(
       creativeBrief.safeParse({ ...proposal, mood: undefined }).success,
     ).toBe(true);
+    // The strategy's motif limit (R44): 400 characters.
+    expect(
+      creativeBrief.safeParse({ ...proposal, motif: "x".repeat(400) }).success,
+    ).toBe(true);
     for (const bad of [
       { ...proposal, template: "unknown" },
       { ...proposal, imageKind: "video" },
       { ...proposal, motif: "" },
-      { ...proposal, motif: "x".repeat(301) },
+      { ...proposal, motif: "x".repeat(401) },
       { ...proposal, extra: true },
     ])
       expect(creativeBrief.safeParse(bad).success).toBe(false);

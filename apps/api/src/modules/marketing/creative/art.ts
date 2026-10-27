@@ -8,6 +8,7 @@ import {
 import {
   failedBlockers,
   type CreativeCheck,
+  type LayoutSpec,
 } from "../../../../../../packages/creative/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, DomainError, update } from "../../../shared.ts";
@@ -92,16 +93,24 @@ export async function planArt(
   )
     throw new DomainError("IMAGE_COST_CONFIRMATION_STALE", 409);
   const layout = briefLayout(plan.brief, plan.options.logoPlacement);
+  return {
+    name: `Creative art: ${title}`.slice(0, 160),
+    prompt: artPrompt(plan.brief, plan.kit.profile, layout, correction),
+    size: artSize(imageConfig.model, layout),
+    costMicros: imageConfig.maxCostMicrosPerImage,
+  };
+}
+
+/** The model's source size closest to the art box a layout draws (the canvas without one). */
+export function artSize(
+  model: Parameters<typeof sourceSizeFor>[0],
+  layout: LayoutSpec,
+): ImageSize {
   const frame = layout.art ?? {
     w: layout.format.width,
     h: layout.format.height,
   };
-  return {
-    name: `Creative art: ${title}`.slice(0, 160),
-    prompt: artPrompt(plan.brief, plan.kit.profile, layout, correction),
-    size: sourceSizeFor(imageConfig.model, frame.w / frame.h),
-    costMicros: imageConfig.maxCostMicrosPerImage,
-  };
+  return sourceSizeFor(model, frame.w / frame.h);
 }
 
 /**

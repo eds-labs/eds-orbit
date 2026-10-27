@@ -51,7 +51,8 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
     }),
   };
 });
-// Missions get `creativeTemplate` with Task 14's assignments; until then a
+// Missions get `creativeTemplate` from an assignment's `creative` (covered,
+// without this seam, by assignment-creatives.integration.test.ts); here a
 // test names the template every mission writes image copy for.
 const creativeSeam = vi.hoisted(() => ({ template: null as string | null }));
 vi.mock(
@@ -790,7 +791,12 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(shown(provider.requests[0]).map((d) => d.contentId)).toEqual([
       revisedId,
     ]);
-    expect(all[revisedId]!.status).toBe("reviewed");
+    // Approved with its image copy, but agent authority does not cover image
+    // copy that is published (CS-D7): the post waits for the owner.
+    expect(all[revisedId]!.agentReview.creativeHash).toBe(
+      hash(all[revisedId]!.creativeCopy),
+    );
+    expect(all[revisedId]!.status).toBe("needs_review");
   });
 
   // Production uLiquid, 2026-10-17 (run f610945b): a paragraph addressed the

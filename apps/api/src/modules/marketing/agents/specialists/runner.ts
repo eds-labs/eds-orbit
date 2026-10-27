@@ -63,6 +63,7 @@ import {
 } from "../assignments.ts";
 import { notify } from "../notifications.ts";
 import { scheduleFinishedRun } from "../veto.ts";
+import { creativeStudioEnabled } from "../../creative/flag.ts";
 import type {
   AgentTask,
   AgentTaskData,
@@ -426,6 +427,10 @@ async function taskInput(
         ? { sharedAcrossChannels: true }
         : {}),
       ...(assignment.format ? { format: assignment.format } : {}),
+      // The strategy plans each post's art from it (R44); only while the Creative Studio is on (CS-D6).
+      ...(assignment.creative && creativeStudioEnabled()
+        ? { creative: assignment.creative }
+        : {}),
     },
     run: {
       id: task.runId,

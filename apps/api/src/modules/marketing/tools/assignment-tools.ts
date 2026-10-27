@@ -1,5 +1,10 @@
 import { runOperation } from "../agents/run-operation.ts";
 import { z } from "zod";
+import {
+  CREATIVE_TEMPLATE_IDS,
+  IMAGE_KINDS,
+} from "../../../../../../packages/creative/src/index.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 import { runReadTool } from "../assistant/chat-tools.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import {
@@ -123,60 +128,89 @@ const banner = z
     "Social with image true only; null for a free image per run (as before). brand_landscape: Orbit generates one background per run (no text, no logos) and composes each slot's banner over it with the approved logo, a two-line headline, a subline, an outlined button and the link's domain, written by the copywriter and reviewed with the post. Needs an approved logo in the marketing profile",
   );
 
-const proposeParameters = z
+// Creative Studio: a composed creative per post instead of a free image or banner.
+const creative = z
   .object({
-    name: z.string(),
-    kind,
-    schedule,
-    contentType,
-    channels: z
-      .array(z.string())
-      .describe("Policy channel IDs from project_status, at least one"),
-    topicFrame: z
-      .string()
-      .describe("What the posts are about, in the user's words"),
-    tone: z.string().nullable(),
-    image: z
-      .boolean()
-      .describe(
-        "Whether each run gets an image; the owner must accept image rights",
-      ),
-    styleAssetIds: z
-      .array(z.string())
-      .describe("Approved asset IDs the images should look like; [] if none"),
-    vetoMinutes: z
-      .number()
-      .int()
+    templates: z
+      .array(z.enum(CREATIVE_TEMPLATE_IDS))
       .nullable()
       .describe(
-        "Minutes the owner can stop a post before its slot; 180 when null",
+        "Layout templates the strategy may choose from; null for every template the brand kit enables",
       ),
-    monthlyBudgetMicros: z
-      .number()
-      .int()
-      .describe("USD millionths per month, within the project's model budget"),
-    delivery,
-    pendingReviewLimit: z
-      .number()
-      .int()
+    artPer: z
+      .enum(["run", "post"])
       .nullable()
-      .optional()
       .describe(
-        "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+        "post (default when null): new art for every post; run: one art for all posts of a run",
       ),
-    approvalMode,
-    sharedAcrossChannels,
-    format,
-    banner,
-    requestedLanguage: z
-      .enum(["en", "de"])
+    imageKind: z
+      .enum(["auto", ...IMAGE_KINDS])
       .nullable()
-      .optional()
       .describe(
-        "Requested content language; must match the current marketing profile. null uses that profile.",
+        "auto (default when null): the strategy chooses per post; else scene, product, graphic or combined for every post",
       ),
   })
-  .strict();
+  .strict()
+  .nullable()
+  .describe(
+    "Social with image true only, never with a banner; null for a free image per run (as before). Orbit generates art from each post's creative brief and composes a branded image per channel format with the approved logo and the image copy the copywriter writes, reviewed with the post. Needs an approved primary logo in the marketing profile",
+  );
+
+const proposeShape = {
+  name: z.string(),
+  kind,
+  schedule,
+  contentType,
+  channels: z
+    .array(z.string())
+    .describe("Policy channel IDs from project_status, at least one"),
+  topicFrame: z
+    .string()
+    .describe("What the posts are about, in the user's words"),
+  tone: z.string().nullable(),
+  image: z
+    .boolean()
+    .describe(
+      "Whether each run gets an image; the owner must accept image rights",
+    ),
+  styleAssetIds: z
+    .array(z.string())
+    .describe("Approved asset IDs the images should look like; [] if none"),
+  vetoMinutes: z
+    .number()
+    .int()
+    .nullable()
+    .describe(
+      "Minutes the owner can stop a post before its slot; 180 when null",
+    ),
+  monthlyBudgetMicros: z
+    .number()
+    .int()
+    .describe("USD millionths per month, within the project's model budget"),
+  delivery,
+  pendingReviewLimit: z
+    .number()
+    .int()
+    .nullable()
+    .optional()
+    .describe(
+      "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+    ),
+  approvalMode,
+  sharedAcrossChannels,
+  format,
+  banner,
+  requestedLanguage: z
+    .enum(["en", "de"])
+    .nullable()
+    .optional()
+    .describe(
+      "Requested content language; must match the current marketing profile. null uses that profile.",
+    ),
+};
+const proposeParameters = z.object(proposeShape).strict();
+// With the Creative Studio on (CS-D6: off, the tool is exactly as before).
+const proposeWithCreative = z.object({ ...proposeShape, creative }).strict();
 
 // The tool's name for MCP clients (module prefix), part of the proposal's dedupe key.
 const MCP_PROPOSE_NAME = "marketing_assignment_propose";
@@ -197,57 +231,88 @@ const mcpProposeOutput = z
   })
   .strict();
 
-const changeParameters = z
-  .object({
-    assignmentId: z.string(),
-    version: z
-      .number()
-      .int()
-      .nullable()
-      .describe("From assignment_list or its card; required for action change"),
-    action: z.enum(["pause", "resume", "end", "change"]),
-    changes: z
-      .object({
-        name: z.string().nullable(),
-        kind: kind.nullable(),
-        schedule: schedule
-          .nullable()
-          .describe("The whole schedule, also the parts that stay the same"),
-        contentType: contentType.nullable(),
-        channels: z.array(z.string()).nullable(),
-        topicFrame: z.string().nullable(),
-        tone: z.string().nullable(),
-        image: z.boolean().nullable(),
-        styleAssetIds: z.array(z.string()).nullable(),
-        vetoMinutes: z.number().int().nullable(),
-        monthlyBudgetMicros: z.number().int().nullable(),
-        delivery,
-        pendingReviewLimit: z
-          .number()
-          .int()
-          .nullable()
-          .optional()
-          .describe(
-            "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
-          ),
-        approvalMode,
-        sharedAcrossChannels,
-        format,
-        banner,
-        // Strict tool schemas need every key, so null means "unchanged" here;
-        // clearing an optional field is asked for by name (sent to the server as an explicit null).
-        clear: z
-          .array(z.enum(CLEARABLE))
-          .nullable()
-          .describe(
-            "Optional fields to remove (format: no length or hashtag rule; banner: a free image per run instead); null for none",
-          ),
-      })
-      .strict()
-      .nullable()
-      .describe("Only for action change; leave unchanged fields null"),
-  })
-  .strict();
+/** The change tool's parameters, with the Creative Studio's `creative` while it is on. */
+const changeSchema = (withCreative: boolean) =>
+  z
+    .object({
+      assignmentId: z.string(),
+      version: z
+        .number()
+        .int()
+        .nullable()
+        .describe(
+          "From assignment_list or its card; required for action change",
+        ),
+      action: z.enum(["pause", "resume", "end", "change"]),
+      changes: changeFields(withCreative),
+    })
+    .strict();
+
+const changeFields = (withCreative: boolean) =>
+  z
+    .object({
+      name: z.string().nullable(),
+      kind: kind.nullable(),
+      schedule: schedule
+        .nullable()
+        .describe("The whole schedule, also the parts that stay the same"),
+      contentType: contentType.nullable(),
+      channels: z.array(z.string()).nullable(),
+      topicFrame: z.string().nullable(),
+      tone: z.string().nullable(),
+      image: z.boolean().nullable(),
+      styleAssetIds: z.array(z.string()).nullable(),
+      vetoMinutes: z.number().int().nullable(),
+      monthlyBudgetMicros: z.number().int().nullable(),
+      delivery,
+      pendingReviewLimit: z
+        .number()
+        .int()
+        .nullable()
+        .optional()
+        .describe(
+          "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+        ),
+      approvalMode,
+      sharedAcrossChannels,
+      format,
+      banner,
+      ...(withCreative ? { creative } : {}),
+      // Strict tool schemas need every key, so null means "unchanged" here;
+      // clearing an optional field is asked for by name (sent to the server as an explicit null).
+      clear: withCreative
+        ? z
+            .array(z.enum(CLEARABLE))
+            .nullable()
+            .describe(
+              "Optional fields to remove (format: no length or hashtag rule; banner: a free image per run instead; creative: no composed creative); null for none",
+            )
+        : z
+            .array(z.enum(["format", "banner"]))
+            .nullable()
+            .describe(
+              "Optional fields to remove (format: no length or hashtag rule; banner: a free image per run instead); null for none",
+            ),
+    })
+    .strict()
+    .nullable()
+    .describe("Only for action change; leave unchanged fields null");
+const changeParameters = changeSchema(false);
+const changeWithCreative = changeSchema(true);
+
+/**
+ * Whether the tools offer `creative` (the Creative Studio switch, CS-D6).
+ * Tool definitions are also read where the API's configuration is
+ * incomplete (at import, in unit tests): there the switch counts as off.
+ */
+function offersCreative() {
+  try {
+    return creativeStudioEnabled();
+  } catch (error) {
+    if (error instanceof z.ZodError) return false;
+    throw error;
+  }
+}
 
 const label = (text: string, name: unknown) =>
   `${text}: ${String(name ?? "").slice(0, 120)}`;
@@ -289,6 +354,7 @@ export function assignmentCardOf(row: {
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
     ...(d.format ? { format: d.format } : {}),
     ...(d.banner ? { banner: d.banner } : {}),
+    ...(d.creative ? { creative: d.creative } : {}),
     actionRequestId: d.status === "draft" ? (d.actionRequestId ?? null) : null,
   };
 }
@@ -442,7 +508,10 @@ export const assignmentTools: readonly OrbitTool[] = [
     namespace: "assignments",
     description:
       "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. New assignments default to human_each: each post waits for the owner before either delivery; propose delegated_review only when explicitly requested. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
-    parameters: proposeParameters,
+    // Read per call: with the Creative Studio off the tool is exactly as before (CS-D6).
+    get parameters() {
+      return offersCreative() ? proposeWithCreative : proposeParameters;
+    },
     risk: "P_proposal",
     permission: PROJECT_WRITE,
     feature: "agents",
@@ -588,6 +657,8 @@ export const assignmentTools: readonly OrbitTool[] = [
               sharedAcrossChannels: sharedAcrossChannelsOf(d),
               format: d.format ?? null,
               banner: d.banner ?? null,
+              // Only when set: the output of other assignments stays as it was (CS-D6).
+              ...(d.creative ? { creative: d.creative } : {}),
               pendingActionRequestId:
                 d.status === "draft" ? (d.actionRequestId ?? null) : null,
             };
@@ -607,13 +678,17 @@ export const assignmentTools: readonly OrbitTool[] = [
     namespace: "assignments",
     description:
       "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
-    parameters: changeParameters,
+    get parameters() {
+      return offersCreative() ? changeWithCreative : changeParameters;
+    },
     risk: "P_proposal",
     permission: PROJECT_WRITE,
     feature: "agents",
     deferLoading: true,
     async execute(context, args) {
-      const input = changeParameters.parse(args);
+      const input = (
+        offersCreative() ? changeWithCreative : changeParameters
+      ).parse(args);
       const { clear, ...changes } = input.changes ?? { clear: null };
       const patch = dropNullFields(changes) as Record<string, unknown>;
       // An explicit null clears the field on the server (R77, R78).

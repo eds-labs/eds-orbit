@@ -24,11 +24,13 @@ import { saveDraftDocument } from "../../brand/drive-assets.ts";
 import {
   currentMarketingProfile,
   officialTargetLink,
+  type MarketingProfile,
 } from "../../brand/marketing-profile.ts";
 import { activePolicy } from "../../policy/policy.ts";
 import { errorCode } from "../../../telemetry.ts";
 import { listUsableFacts } from "../content-packages.ts";
 import {
+  assignmentCreative,
   confirmedDelivery,
   deliveryOf,
   type AssignmentFormat,
@@ -42,6 +44,13 @@ import {
 } from "./runner.ts";
 import type { AgentTask, StepHandler } from "./types.ts";
 import { attachRunImage, composeRunBanners } from "./visual.ts";
+import {
+  composeRunCreatives,
+  creativeTemplateFor,
+  storedCreativeBrief,
+} from "../../creative/assignment.ts";
+import { resolveCreativeConfig } from "../../creative/brand-kit.ts";
+import { creativeStudioEnabled } from "../../creative/flag.ts";
 
 /**
  * Copywriter step of an assignment run (Orbit Agents, spec §5): an executor,
@@ -71,6 +80,8 @@ export type Brief = {
   cta: string;
   imageIdea: string | null;
   notARepeatBecause: string;
+  // The post's art plan with the Creative Studio on (null without a creative).
+  creative?: unknown;
 };
 
 /** A brief's key within a run: its channel and slot. */
@@ -114,6 +125,32 @@ async function missionCeiling(tx: DbTx, scope: Scope, task: AgentTask) {
   return {
     ceilingMicros: Math.min(left.taskMicros, left.monthMicros),
     monthBound: left.monthMicros < left.taskMicros,
+  };
+}
+
+/**
+ * The creative fields of a mission (Creative Studio, only while it is on):
+ * the template its image copy and creative are made for
+ * (`creativeTemplateFor`: the strategy's, else the assignment's first, else
+ * the brand kit's first enabled template) and the strategy's art plan
+ * (`creativeBrief`, null when the strategy gave none). None without the
+ * assignment's `creative`.
+ */
+function creativeMission(
+  assignment: Record<string, any>,
+  profile: MarketingProfile,
+  proposal: unknown,
+) {
+  if (!assignment.creative || !creativeStudioEnabled()) return {};
+  const creativeBrief = storedCreativeBrief(proposal);
+  const creativeTemplate = creativeTemplateFor(
+    creativeBrief?.template,
+    assignmentCreative.parse(assignment.creative),
+    resolveCreativeConfig(profile).enabledTemplates,
+  );
+  return {
+    ...(creativeTemplate ? { creativeTemplate } : {}),
+    creativeBrief,
   };
 }
 
@@ -273,6 +310,9 @@ async function briefMission(
     ...(assignment.banner?.template
       ? { bannerTemplate: assignment.banner.template }
       : {}),
+    // The draft writes image copy for its creative (Creative Studio), in the
+    // template its art and creative are made for.
+    ...creativeMission(assignment, profile, brief.creative),
     ...extra,
   });
   return { missionId: mission.id, monthBound: ceiling.monthBound };
@@ -299,6 +339,18 @@ async function draft(
       console.error("Orbit assignment banner compose stopped", banners.error);
   } catch (error) {
     console.error("Orbit assignment banner compose failed", errorCode(error));
+  }
+  // A creative run (Creative Studio) composes and attaches the draft's
+  // creative once its art exists; the visual step composes the others.
+  try {
+    const creatives = await composeRunCreatives(scope, task.runId);
+    if (creatives.error)
+      console.error(
+        "Orbit assignment creative compose stopped",
+        creatives.error,
+      );
+  } catch (error) {
+    console.error("Orbit assignment creative compose failed", errorCode(error));
   }
   try {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
@@ -453,6 +505,14 @@ export async function reviseAssignmentDraft(
             version: parent.version,
             instruction: input.instruction,
           },
+          // The revision writes image copy for the same creative as its
+          // original (its contract's creative and previousCreative).
+          ...(original.creativeTemplate
+            ? { creativeTemplate: original.creativeTemplate }
+            : {}),
+          ...("creativeBrief" in original
+            ? { creativeBrief: original.creativeBrief }
+            : {}),
         },
       );
       return created.missionId;

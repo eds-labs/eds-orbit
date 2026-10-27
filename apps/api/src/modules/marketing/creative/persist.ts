@@ -7,14 +7,21 @@ import type {
   TextScale,
 } from "../../../../../../packages/creative/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { create, data, DomainError, entity } from "../../../shared.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  entity,
+  update,
+} from "../../../shared.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import type { BrandKitPlan, EntityRow } from "./brand-kit.ts";
 import type { ResolvedBrief } from "./brief.ts";
 import { assetSha, projectAssets } from "./components.ts";
 import { creativeRefusal, CreativeRightsError } from "./quality.ts";
 import type { CompositionOutcome } from "./renditions.ts";
-import type { CreativeRecord } from "./store.ts";
+import { CREATIVES, type CreativeRecord } from "./store.ts";
 
 // Saving a creative (R35): the re-check of its sources, the rendition assets
 // and the record's composition fields, shared by the manual studio,
@@ -282,4 +289,87 @@ export function composedFields(
         ? "needs_owner"
         : "composed",
   };
+}
+
+/** Content-free audit facts of a composition: ids, layout, status and findings, never copy. */
+export const auditFacts = (
+  record: CreativeRecord,
+  outcome: CompositionOutcome,
+) => ({
+  contentId: record.contentId,
+  ...(record.packageId !== undefined && { packageId: record.packageId }),
+  ...(record.assignmentRunId !== undefined && {
+    assignmentRunId: record.assignmentRunId,
+  }),
+  template: record.template,
+  variant: record.variant,
+  status: record.status,
+  renditionIds: record.renditions.map((r) => r.assetId),
+  failed: outcome.failed,
+  corrections: outcome.corrections.length,
+});
+
+/**
+ * Stores a new creative of a post in the caller's save transaction (R55),
+ * the one path of the studio, content packages and assignment runs: the
+ * record with its composition (`composedFields`; a refusal throws and stores
+ * nothing), its renditions bound to it and the post (`saveRenditions`, with
+ * the flow's own `boundTo` and `rightsSource` fields), and the audit
+ * `creative.produced`. The caller re-checked the sources and the post
+ * first (`assertSourcesHold`, `assertContentHolds`). `record` takes the
+ * flow's links (package, run, compose key) and its cost; composing itself is
+ * free.
+ */
+export async function storeComposed(
+  tx: DbTx,
+  scope: Scope,
+  input: {
+    /** The post as re-checked in this transaction. */
+    content: EntityRow;
+    plan: CreativePlan;
+    composed: ComposedCreative;
+    /** Who stands for the rights decision: the person, or the consenting owner. */
+    approvedBy: string;
+    record?: Partial<
+      Pick<
+        CreativeRecord,
+        "packageId" | "assignmentRunId" | "composeKey" | "cost"
+      >
+    >;
+    boundTo?: Record<string, string>;
+    rightsSource?: Record<string, unknown>;
+  },
+): Promise<EntityRow> {
+  const { content, plan, composed } = input;
+  const { cost, ...links } = input.record ?? {};
+  const record: CreativeRecord = {
+    contentId: content.id,
+    ...links,
+    ...composedFields(plan, composed),
+    renditions: [],
+    corrections: composed.outcome.corrections,
+    cost: cost ?? { reservationIds: [], settledMicros: 0, unknownMicros: 0 },
+  };
+  // The renditions are bound to the creative, so it is created first.
+  const creative = await create(tx, scope, CREATIVES, record);
+  record.renditions = await saveRenditions(tx, scope, {
+    creativeId: creative.id,
+    contentId: content.id,
+    channel: data(content).channel,
+    title: String(data(content).title ?? ""),
+    plan,
+    composed,
+    approvedBy: input.approvedBy,
+    boundTo: input.boundTo,
+    rightsSource: input.rightsSource,
+  });
+  const saved = await update(tx, scope, creative, record);
+  await audit(
+    tx,
+    scope,
+    "creative.produced",
+    creative.id,
+    auditFacts(record, composed.outcome),
+  );
+  return saved;
 }

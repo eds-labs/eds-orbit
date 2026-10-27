@@ -22,7 +22,7 @@ import {
   PROJECT_OWN,
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
-import { audit, create, data, DomainError, update } from "../../../shared.ts";
+import { audit, data, DomainError, update } from "../../../shared.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
 import {
   artAttempts,
@@ -64,16 +64,17 @@ import { creativeStudioEnabled } from "./flag.ts";
 import {
   assertContentHolds,
   assertSourcesHold,
+  auditFacts,
   composedFields,
   saveRenditions,
   sourceRows,
+  storeComposed,
   type ComposedCreative,
   type CreativePlan,
 } from "./persist.ts";
 import { assertRights, creativeRefusal, rightsCheck } from "./quality.ts";
-import { composeRenditions, type CompositionOutcome } from "./renditions.ts";
+import { composeRenditions } from "./renditions.ts";
 import {
-  CREATIVES,
   creativeView,
   findCreative,
   type CreativeRecord,
@@ -351,17 +352,6 @@ const renditionsOf = (
     approvedBy: scope.userId,
   });
 
-/** Content-free audit facts of a composition. */
-const auditFacts = (record: CreativeRecord, outcome: CompositionOutcome) => ({
-  contentId: record.contentId,
-  template: record.template,
-  variant: record.variant,
-  status: record.status,
-  renditionIds: record.renditions.map((r) => r.assetId),
-  failed: outcome.failed,
-  corrections: outcome.corrections.length,
-});
-
 /**
  * Produces a creative for a social post (spec §8): plans the brand kit,
  * brief and approved components (`ASSET_RIGHTS` refuses, R22), composes one
@@ -494,39 +484,22 @@ async function saveProduced(
   const composed = await composePlan(scope, plan, 0, deps);
   const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await assertSourcesHold(tx, scope, plan);
-    await assertContentHolds(tx, scope, plan.content);
-    const record: CreativeRecord = {
-      contentId: plan.content.id,
-      ...composedFields(plan, composed),
-      renditions: [],
-      corrections: composed.outcome.corrections,
+    return storeComposed(tx, scope, {
+      content: await assertContentHolds(tx, scope, plan.content),
+      plan,
+      composed,
+      approvedBy: scope.userId,
       // New art was settled at the confirmed ceiling.
-      cost: paidArt
-        ? {
+      ...(paidArt && {
+        record: {
+          cost: {
             reservationIds: [String(data(plan.art).budgetReservationId)],
             settledMicros: paidArt.costMicros,
             unknownMicros: 0,
-          }
-        : { reservationIds: [], settledMicros: 0, unknownMicros: 0 },
-    };
-    // The renditions are bound to the creative, so it is created first.
-    const creative = await create(tx, scope, CREATIVES, record);
-    record.renditions = await renditionsOf(
-      tx,
-      scope,
-      creative.id,
-      plan,
-      composed,
-    );
-    const saved = await update(tx, scope, creative, record);
-    await audit(
-      tx,
-      scope,
-      "creative.produced",
-      creative.id,
-      auditFacts(record, composed.outcome),
-    );
-    return saved;
+          },
+        },
+      }),
+    });
   });
   return creativeView(row, scope);
 }

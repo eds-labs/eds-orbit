@@ -25,8 +25,8 @@ export const creativeBrief = z
   .object({
     keyMessage: z.string().trim().min(1).max(200),
     imageKind: z.enum(IMAGE_KINDS),
-    // What the picture shows, and where.
-    motif: z.string().trim().min(1).max(300),
+    // What the picture shows, and where; the strategy's limit (R44).
+    motif: z.string().trim().min(1).max(400),
     setting: z.string().trim().min(1).max(300),
     template: z.enum(CREATIVE_TEMPLATE_IDS),
     mood: z.string().trim().min(1).max(160).optional(),
@@ -272,7 +272,7 @@ export function resolveCreativeBrief(input: {
       200,
     ),
     imageKind,
-    motif: oneLine(proposal?.motif ?? content.title, 300),
+    motif: oneLine(proposal?.motif ?? content.title, 400),
     setting: oneLine(proposal?.setting ?? "", 300),
     mood: oneLine(proposal?.mood ?? imagery?.mood ?? "", 300),
     template,
