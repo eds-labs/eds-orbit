@@ -80,9 +80,11 @@ export type LayerRecord = {
   /**
    * Text or CTA label colour; for the logo its ink (the pixel at the
    * alpha-weighted median luminance, of the mark only when the logo brings its
-   * own opaque background); for the plate its fill.
+   * own opaque background); for the plate its fill; for the scrim its tint.
    */
   color?: string;
+  /** For a pill CTA that hardly stands off its backdrop: the colour of its ring. */
+  ring?: string;
   role?: LogoRole;
 };
 
@@ -612,7 +614,8 @@ export async function composeCreative(
         Math.round((opacity + SCRIM_RAISE_STEP) * 100) / 100,
       );
     }
-    if (scrim && opacity > 0) layers.push({ kind: "scrim", box: scrim.box });
+    if (scrim && opacity > 0)
+      layers.push({ kind: "scrim", box: scrim.box, color: scrimColor });
     if (product) layers.push(product.record);
 
     // 5. Text in its final colours, and the CTA button.
@@ -632,6 +635,7 @@ export async function composeCreative(
       )
         throw new CreativeError("RASTER_RENDER_FAILED");
       const { frame } = block;
+      let ring: string | null = null;
       if (block.kind === "cta") {
         const stroke = Math.max(2, Math.round(0.08 * size));
         const outline =
@@ -640,7 +644,7 @@ export async function composeCreative(
             ? palette.accentColor
             : color;
         // A pill that hardly stands off what lies behind it gets a ring.
-        const ring =
+        ring =
           pill &&
           contrastRatio(pill.color, luminanceStats(canvas!, frame).mean) <
             PILL_RING_CONTRAST
@@ -670,7 +674,13 @@ export async function composeCreative(
         left: frame.x + (block.label?.x ?? 0),
         top: frame.y + (block.label?.y ?? 0),
       });
-      layers.push({ kind: block.kind, box: frame, fontSize: size, color });
+      layers.push({
+        kind: block.kind,
+        box: frame,
+        fontSize: size,
+        color,
+        ...(ring && { ring }),
+      });
     }
     const texted = await flatten(sharp, canvas!, textOverlays);
 

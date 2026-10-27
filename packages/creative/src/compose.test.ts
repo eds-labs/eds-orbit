@@ -727,3 +727,106 @@ function defaultVariant(template: TemplateId, format: FormatId) {
   }
   return variants[0]!;
 }
+
+describe("brand scrim, pill ring and band art (T20)", () => {
+  /** Kestrel with another palette; everything else (logos, CTA style) stays. */
+  const kestrelWith = async (palette: Partial<CreativeBrand["palette"]>) => {
+    const brand = await demoBrand("kestrel");
+    return { ...brand, palette: { ...brand.palette, ...palette } };
+  };
+
+  it("tints the scrim with a deep secondary colour and falls back otherwise", async () => {
+    const input = await lifestyleInput("kestrel");
+    const deep = await composeCreative(input);
+    // Kestrel's secondary #082F38 is deep (luminance < 0.05): the scrim is teal.
+    expect(relativeLuminance(input.brand.palette.secondaryColor)).toBeLessThan(
+      0.05,
+    );
+    expect(layer(deep, "scrim").color).toBe("#082F38");
+    // Every text layer still meets QA's contrast over the tinted scrim.
+    for (const record of deep.layers.filter((l) =>
+      TEXT_KINDS.includes(l.kind as never),
+    ))
+      expect(
+        backdropContrast(deep, record),
+        record.kind,
+      ).toBeGreaterThanOrEqual(required(record));
+    // A lighter secondary leaves the dark text colour as the scrim ...
+    const light = await composeCreative({
+      ...input,
+      brand: await kestrelWith({ secondaryColor: "#8C3B2C" }),
+    });
+    expect(layer(light, "scrim").color).toBe("#0B1F24");
+    // ... and with light text too, the scrim is black.
+    const neutral = await composeCreative({
+      ...input,
+      brand: await kestrelWith({
+        secondaryColor: "#8C3B2C",
+        textColor: "#E6E6E6",
+      }),
+    });
+    expect(layer(neutral, "scrim").color).toBe("#000000");
+  });
+
+  it("rings a pill that hardly stands off its backdrop", async () => {
+    // Kestrel's teal pill over its teal-tinted scrim: ringed in the lime accent.
+    const kestrel = await composeCreative(await lifestyleInput("kestrel"));
+    expect(kestrel.ctaStyleApplied).toBe("pill");
+    expect(layer(kestrel, "cta").ring).toBe("#B5E655");
+    // An accent too close to the pill colour: the ring takes the label colour.
+    const input = await lifestyleInput("kestrel");
+    const closeAccent = await composeCreative({
+      ...input,
+      brand: await kestrelWith({ accentColor: "#14596B" }),
+    });
+    const cta = layer(closeAccent, "cta");
+    expect(contrastRatio("#14596B", "#0F4C5C")).toBeLessThan(3);
+    expect(cta.ring).toBe(cta.color);
+    // Lumora's coral pill on its cream brand field stands off: no ring.
+    const lumora = await composeCreative({
+      template: "tips",
+      variant: "text_top",
+      format: "square",
+      brand: await demoBrand("lumora"),
+      copy: COPY,
+      options: OPTIONS,
+    });
+    expect(lumora.ctaStyleApplied).toBe("pill");
+    expect(layer(lumora, "cta").ring).toBeUndefined();
+  });
+
+  it("crops band art by the aspect tolerance before containing it", async () => {
+    // The tips band of the square format (2.9:1) with 3:2 art: off by 1.94.
+    const art = await fixtureArt("good", "kestrel", {
+      width: 1536,
+      height: 1024,
+    });
+    const result = await composeCreative({
+      template: "tips",
+      variant: "text_top",
+      format: "square",
+      brand: await demoBrand("kestrel"),
+      copy: COPY,
+      art,
+      options: OPTIONS,
+    });
+    const box = layoutFor("tips", "text_top", "square", OPTIONS).art!;
+    expect(box.w / box.h / (1536 / 1024)).toBeGreaterThan(1.35);
+    // Cropped to 1.35 × off from the box (centred), then contained: the art
+    // is drawn box-high and (box aspect / 1.35)-wide.
+    const cropHeight = Math.round(1536 / (box.w / box.h / 1.35));
+    const drawnWidth = Math.round((box.h * 1536) / cropHeight);
+    const record = layer(result, "art");
+    expect(record.scale!).toBeCloseTo(drawnWidth / 1536, 2);
+    // Containing the uncropped art would have drawn it only 3:2 wide.
+    expect(record.scale!).toBeGreaterThan((box.h * 1.5) / 1536 + 0.05);
+    // drawnArt shares the fit: the band shows exactly what QA judges.
+    const drawn = await drawnArt(
+      art,
+      layoutFor("tips", "text_top", "square", OPTIONS),
+    );
+    const { default: sharp } = await import("sharp");
+    const meta = await sharp(drawn).metadata();
+    expect([meta.width, meta.height]).toEqual([box.w, box.h]);
+  });
+});
