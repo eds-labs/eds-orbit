@@ -41,6 +41,7 @@ import {
   projectCreativeAutomation,
   resolveBrandKit,
 } from "../creative/brand-kit.ts";
+import { mayTransmitToProvider } from "../brand/provider-use.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import { rightsCheck } from "../creative/quality.ts";
 import {
@@ -437,6 +438,8 @@ export const CREATIVE_SOCIAL_ONLY = "CREATIVE_SOCIAL_ONLY";
 export const CREATIVE_NEEDS_IMAGE = "CREATIVE_NEEDS_IMAGE";
 export const CREATIVE_AND_BANNER = "CREATIVE_AND_BANNER";
 export const CREATIVE_LOGO_REQUIRED = "CREATIVE_LOGO_REQUIRED";
+export const VISION_REVIEW_PROVIDER_USE_REQUIRED =
+  "VISION_REVIEW_PROVIDER_USE_REQUIRED";
 // The brand kit's own refusals that mean "no usable approved logo".
 const LOGO_REFUSALS = ["PRIMARY_LOGO_REQUIRED", "APPROVED_LOGO_ASSET_REQUIRED"];
 
@@ -447,7 +450,10 @@ const LOGO_REFUSALS = ["PRIMARY_LOGO_REQUIRED", "APPROVED_LOGO_ASSET_REQUIRED"];
  * (`CREATIVE_STUDIO_NOT_ENABLED_FOR_PROJECT`, R65), the assignment is not social (`CREATIVE_SOCIAL_ONLY`), has no image consent
  * (`CREATIVE_NEEDS_IMAGE`) or a banner (`CREATIVE_AND_BANNER`), or the brand
  * kit has no approved raster logo whose rights cover social use
- * (`CREATIVE_LOGO_REQUIRED`); other brand kit refusals keep their own code.
+ * (`CREATIVE_LOGO_REQUIRED`), or its vision review is on while a logo may
+ * not be sent to a provider (`VISION_REVIEW_PROVIDER_USE_REQUIRED`, M3: the
+ * review could never run and every draft would wait for the owner); other
+ * brand kit refusals keep their own code.
  * Checked at propose, change, confirm and resume, and by the run's visual
  * step before any image is generated. Without `creative` nothing is checked.
  */
@@ -479,6 +485,12 @@ export async function assertCreativeReady(
   const logos = Object.values(kit.logos).filter((row) => row !== undefined);
   if (!(await rightsCheck(tx, scope, logos, "social")).passed)
     throw new DomainError(CREATIVE_LOGO_REQUIRED, 409);
+  // Every logo may be drawn, so the review sends any of them (R28).
+  if (
+    kit.config.visualReview &&
+    logos.some((row) => !mayTransmitToProvider(data(row)))
+  )
+    throw new DomainError(VISION_REVIEW_PROVIDER_USE_REQUIRED, 409);
   return kit;
 }
 

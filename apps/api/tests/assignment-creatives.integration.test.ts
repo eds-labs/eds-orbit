@@ -708,6 +708,50 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     ).toBe(false);
   });
 
+  // M3: a vision review that could never run would leave every draft of the
+  // run for the owner (CREATIVE_QA_FAILED): refused before anything is paid.
+  it("refuses a vision review whose logo may not go to a provider", async () => {
+    const logoId = await h.run(async (tx) => {
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      const identity = value.visualIdentity;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...identity,
+              creative: { ...identity.creative, visualReview: true },
+            },
+          },
+        },
+      });
+      return identity.logoAssetId as string;
+    });
+    const assignment = await creativeAssignment({ schedule: ONE_SLOT });
+    await drafted();
+    expect(await h.task("visual")).toMatchObject({
+      status: "failed",
+      errorCode: "VISION_REVIEW_PROVIDER_USE_REQUIRED",
+    });
+    expect(provider.generateImage).not.toHaveBeenCalled();
+    await expect(resume(assignment.id)).rejects.toThrow(
+      "VISION_REVIEW_PROVIDER_USE_REQUIRED",
+    );
+    // With the owner's provider use on the logo it may run.
+    await h.run(async (tx) => {
+      const logo = await entity(tx, project.owner, "assets", logoId);
+      await update(tx, project.owner, logo, {
+        ...data(logo),
+        providerUse: true,
+      });
+    });
+    expect(data(await resume(assignment.id)).status).toBe("active");
+  });
+
   it("runs the optional vision review before the model review", async () => {
     await linkBot();
     // Vision review on; the logo may go to a provider (R28), the art is Orbit's own.
