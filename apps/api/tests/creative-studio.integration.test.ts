@@ -31,6 +31,7 @@ import {
   CREATIVES,
   findCreative,
 } from "../src/modules/marketing/creative/store.ts";
+import { preflight } from "../src/modules/marketing/policy/policy.ts";
 import { lumoraProfile } from "./support/creative-profile.ts";
 import { createPackageProject } from "./support/package-project.ts";
 
@@ -1112,6 +1113,49 @@ describe.skipIf(!enabled)(
       await expect(
         attachCreative(a.editor, creative.id, {}),
       ).rejects.toMatchObject({ code: "CONTENT_CHANGED", status: 409 });
+    });
+
+    it("preflight counts an attached rendition only while its components stay approved (R36)", async () => {
+      const own = await setStatus(
+        a,
+        await upload(a, "photo", await art("good", "lumora"), "image/webp"),
+        "approved",
+      );
+      // A synthetic post: preflight needs no mission window for this check.
+      const content = await newContent(a, {
+        missionId: undefined,
+        synthetic: true,
+      });
+      const creative = await produceCreative(a.editor, {
+        contentId: content.id,
+        template: "lifestyle",
+        copy: COPY,
+        artAssetId: own.id,
+      });
+      await attachCreative(a.editor, creative.id, {});
+      const BLOCKER = "ASSET_NOT_APPROVED_OR_UNSUPPORTED";
+      const blockers = async () =>
+        (
+          await runIn(a, (tx) =>
+            preflight(tx, a.owner, content.id, { test: true }),
+          )
+        ).blockers;
+      expect(await blockers()).not.toContain(BLOCKER);
+      // The owner takes the rights back from the art: the attached image no longer counts.
+      const taken = await setStatus(a, own, "reference");
+      expect(await assetData(a, creative.renditions[0]!.assetId)).toMatchObject(
+        { assetStatus: "approved", usageApproved: true },
+      );
+      expect(await blockers()).toContain(BLOCKER);
+      // Approved again with the same bytes (a new version), it counts again.
+      await setStatus(a, taken, "approved");
+      expect(await blockers()).not.toContain(BLOCKER);
+      // The same holds for the logo it shows.
+      const logo = assets.lumoraLogo;
+      const revokedLogo = await setStatus(a, logo, "reference");
+      expect(await blockers()).toContain(BLOCKER);
+      assets.lumoraLogo = await setStatus(a, revokedLogo, "approved");
+      expect(await blockers()).not.toContain(BLOCKER);
     });
 
     it("viewer cannot produce", async () => {

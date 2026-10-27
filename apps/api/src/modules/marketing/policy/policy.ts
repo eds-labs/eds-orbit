@@ -15,6 +15,7 @@ import {
   finalPostText,
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
+import { renditionComponentsHold } from "./rendition-rights.ts";
 import { channelPostsNear } from "../agents/channel-posts.ts";
 import { agentReviewAccepted, confirmedHash } from "../agents/agent-review.ts";
 import {
@@ -626,10 +627,20 @@ export async function preflight(
       !data(asset).usageApproved ||
       data(asset).assetStatus !== "approved" ||
       data(asset).mime !== "image/png" ||
-      (!data(asset).base64 && !data(asset).driveFileId)
+      (!data(asset).base64 && !data(asset).driveFileId) ||
+      // A creative rendition counts only while its components stay approved
+      // and unchanged (R36); banners (bound to a run) keep their own rule.
+      (typeof data(asset).boundTo?.creativeId === "string" &&
+        !(await renditionComponentsHold(tx, scope, data(asset))))
     )
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
-  }
+  } else if (
+    c.type === "social" &&
+    (await resolveChannelRules(tx, scope, c.channel, c.type, false))
+      .mediaRequired
+  )
+    // Instagram rejects a post without an image.
+    blockers.push("MEDIA_REQUIRED");
   if (c.status !== "reviewed") blockers.push("REVIEW_REQUIRED");
   if (!options.test) {
     if (c.type !== "social")

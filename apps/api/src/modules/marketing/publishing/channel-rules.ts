@@ -16,6 +16,8 @@ export type ChannelRules = {
   characterLimit: number | null;
   countingMethod: CountingMethod | null;
   liveCapabilityKnown: boolean;
+  /** The provider rejects a post without an image (Instagram). */
+  mediaRequired: boolean;
   postingTime?: string | null;
 };
 
@@ -34,6 +36,7 @@ export async function resolveChannelRules(
     characterLimit: null,
     countingMethod: null,
     liveCapabilityKnown: false,
+    mediaRequired: false,
   };
   if (contentType !== "social") return unknown;
   const matches = (await list(tx, scope, "connectors"))
@@ -64,6 +67,7 @@ export async function resolveChannelRules(
         characterLimit: hasXLongPosts(data(row), channel.id) ? 4_000 : 280,
         countingMethod: "conservative_x_weighted",
         liveCapabilityKnown: true,
+        mediaRequired: false,
       };
     case "telegram":
       return {
@@ -72,6 +76,7 @@ export async function resolveChannelRules(
         characterLimit: hasAsset ? 1024 : 4096,
         countingMethod: "utf16_units",
         liveCapabilityKnown: true,
+        mediaRequired: false,
       };
     case "linkedin":
       return {
@@ -79,6 +84,26 @@ export async function resolveChannelRules(
         characterLimit: 3000,
         countingMethod: "utf16_units",
         liveCapabilityKnown: true,
+        mediaRequired: false,
+      };
+    case "instagram":
+    case "instagram-standalone":
+      return {
+        ...common,
+        // Postiz: "Instagram should have at least one attachment", caption up to 2,200.
+        characterLimit: 2200,
+        countingMethod: "utf16_units",
+        liveCapabilityKnown: true,
+        mediaRequired: true,
+      };
+    case "facebook":
+      return {
+        ...common,
+        // Postiz: Facebook posts may be text only, with photos or with a video.
+        characterLimit: 63_206,
+        countingMethod: "utf16_units",
+        liveCapabilityKnown: true,
+        mediaRequired: false,
       };
     default:
       return { ...unknown, ...common };

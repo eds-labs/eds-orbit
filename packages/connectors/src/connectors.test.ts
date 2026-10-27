@@ -350,6 +350,22 @@ describe("Postiz provider settings", () => {
     });
     expect(postizProviderSettings("telegram")).toEqual({ __type: "telegram" });
   });
+
+  it("adds the post type Instagram requires, for both Instagram providers", () => {
+    // Postiz integrationSchema (2026-10-27): `post_type` is required, "post" | "story".
+    expect(postizProviderSettings("instagram")).toEqual({
+      __type: "instagram",
+      post_type: "post",
+    });
+    expect(postizProviderSettings("instagram-standalone")).toEqual({
+      __type: "instagram-standalone",
+      post_type: "post",
+    });
+  });
+
+  it("sends nothing but the type to Facebook, whose settings are all optional", () => {
+    expect(postizProviderSettings("facebook")).toEqual({ __type: "facebook" });
+  });
 });
 
 describe("Matomo read scope", () => {

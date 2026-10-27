@@ -30,7 +30,7 @@ import {
   enqueue,
   analyze,
 } from "../src/modules/workflow.ts";
-import { packageFor, approve } from "../src/modules/policy.ts";
+import { packageFor, approve, preflight } from "../src/modules/policy.ts";
 import { reserve, markTransmitted, settle } from "../src/modules/budget.ts";
 import {
   correctMetric,
@@ -216,6 +216,114 @@ describe.skipIf(!enabled)(
       expect(
         (await run((tx) => packageFor(tx, scope, c.id))).packageHash,
       ).not.toBe(before.packageHash);
+    });
+    it.each([
+      ["instagram", true],
+      ["instagram-standalone", true],
+      ["facebook", false],
+      ["x", false],
+      ["telegram", false],
+    ] as const)(
+      "%s: text-only content is blocked with MEDIA_REQUIRED only where the provider needs an image",
+      async (identifier, required) => {
+        const c = await draft();
+        await run((tx) =>
+          create(tx, scope, "connectors", {
+            provider: "postiz",
+            status: "read_verified",
+            channels: [
+              { id: "test-social", name: "Display name", identifier },
+            ],
+            assignedIntegrationIds: ["test-social"],
+          }),
+        );
+        const textOnly = await run((tx) =>
+          preflight(tx, scope, c.id, { test: true }),
+        );
+        expect(textOnly.blockers.includes("MEDIA_REQUIRED")).toBe(required);
+        // With an approved image the post is no longer text-only.
+        const asset = await run((tx) =>
+          create(tx, scope, "assets", {
+            type: "generated_artwork",
+            mime: "image/png",
+            base64: "iVBORw0KGgo=",
+            usageApproved: true,
+            assetStatus: "approved",
+          }),
+        );
+        const withImage = await run(async (tx) => {
+          const saved = await update(tx, scope, c, {
+            ...data(c),
+            assetId: asset.id,
+          });
+          return preflight(tx, scope, saved.id, { test: true });
+        });
+        expect(withImage.blockers).not.toContain("MEDIA_REQUIRED");
+      },
+    );
+    it("MEDIA_REQUIRED is not raised for a channel no connector knows", async () => {
+      const c = await draft();
+      expect(
+        (await run((tx) => preflight(tx, scope, c.id, { test: true })))
+          .blockers,
+      ).not.toContain("MEDIA_REQUIRED");
+    });
+    it("R36: a creative rendition needs its recorded components, a banner only its own approval", async () => {
+      const c = await draft();
+      const part = await run((tx) =>
+        create(tx, scope, "assets", {
+          type: "logo",
+          mime: "image/png",
+          base64: "iVBORw0KGgo=",
+          sha256: "a".repeat(64),
+          usageApproved: false,
+          assetStatus: "reference",
+        }),
+      );
+      const image = (boundTo: Record<string, string>) =>
+        run((tx) =>
+          create(tx, scope, "assets", {
+            type: "generated_artwork",
+            mime: "image/png",
+            base64: "iVBORw0KGgo=",
+            usageApproved: true,
+            assetStatus: "approved",
+            rightsSource: {
+              components: [
+                { role: "logo", assetId: part.id, sha256: "a".repeat(64) },
+              ],
+            },
+            boundTo,
+          }),
+        );
+      const blockersWith = async (assetId: string) => {
+        const saved = await run(async (tx) =>
+          update(tx, scope, await entity(tx, scope, "content", c.id), {
+            ...data(c),
+            assetId,
+          }),
+        );
+        return (
+          await run((tx) => preflight(tx, scope, saved.id, { test: true }))
+        ).blockers;
+      };
+      const BLOCKER = "ASSET_NOT_APPROVED_OR_UNSUPPORTED";
+      const banner = await image({ runId: randomUUID() });
+      const rendition = await image({
+        creativeId: randomUUID(),
+        contentId: c.id,
+      });
+      expect(await blockersWith(banner.id)).not.toContain(BLOCKER);
+      expect(await blockersWith(rendition.id)).toContain(BLOCKER);
+      // Its component approved with the recorded bytes, the rendition counts.
+      await run((tx) =>
+        update(tx, scope, part, {
+          ...data(part),
+          usageApproved: true,
+          assetStatus: "approved",
+        }),
+      );
+      expect(await blockersWith(rendition.id)).not.toContain(BLOCKER);
     });
     it("SR01/A12: in-flight or settled reservation never authorizes a second transmission", async () => {
       const r = await run((tx) =>

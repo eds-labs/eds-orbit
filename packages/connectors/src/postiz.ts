@@ -147,11 +147,16 @@ function jsonBody(value: unknown): RequestInit {
 }
 
 /** Accept a host, legacy /public/v1, or canonical /api/public/v1 without duplicating the API prefix. */
-/** Provider settings Postiz validates per post; X rejects a post without a reply audience. */
+/**
+ * Provider settings Postiz validates per post: X rejects a post without a
+ * reply audience, Instagram without a post type (feed post, not a story).
+ */
 export function postizProviderSettings(identifier: string) {
-  return identifier === "x"
-    ? { __type: identifier, who_can_reply_post: "everyone" }
-    : { __type: identifier };
+  if (identifier === "x")
+    return { __type: identifier, who_can_reply_post: "everyone" };
+  if (identifier === "instagram" || identifier === "instagram-standalone")
+    return { __type: identifier, post_type: "post" };
+  return { __type: identifier };
 }
 
 export function normalizePostizBaseUrl(input: string): string {
