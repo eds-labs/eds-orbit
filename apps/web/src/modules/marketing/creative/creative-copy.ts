@@ -164,6 +164,10 @@ export const ERROR_LABELS: Record<string, Pair> = {
     "The limit for new art attempts is reached.",
     "Das Limit für neue Bildversuche ist erreicht.",
   ],
+  CREATIVE_NOT_REVIEWABLE: [
+    "This creative was replaced or waits for its art's rights; it cannot be reviewed.",
+    "Dieses Creative wurde ersetzt oder wartet auf die Rechte am Bild; es kann nicht geprüft werden.",
+  ],
   VISION_REVIEW_DISABLED: [
     "The vision review is switched off in the brand kit.",
     "Die Bildprüfung ist im Marken-Kit ausgeschaltet.",

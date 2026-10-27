@@ -198,7 +198,9 @@ function assertReviewer(scope: Scope) {
 }
 
 /**
- * What a review sends, read in `tx`: the brand kit turns the review on
+ * What a review sends, read in `tx`: the creative is one the owner decides
+ * on, neither replaced nor waiting for its new art's rights
+ * (`CREATIVE_NOT_REVIEWABLE`, M2), the brand kit turns the review on
  * (`VISION_REVIEW_DISABLED`), the rendition of the creative's first format
  * is there as recorded (`NOT_FOUND`), and every component it was composed
  * from may be sent to a provider (`PROVIDER_USE_REQUIRED`, R28).
@@ -206,6 +208,8 @@ function assertReviewer(scope: Scope) {
 async function reviewTarget(tx: DbTx, scope: Scope, creativeId: string) {
   const row = await findCreative(tx, scope, creativeId);
   const record = data(row) as CreativeRecord;
+  if (record.status === "superseded" || record.status === "needs_rights")
+    throw new DomainError("CREATIVE_NOT_REVIEWABLE", 409);
   const kit = await resolveBrandKit(tx, scope);
   if (!kit.config.visualReview)
     throw new DomainError("VISION_REVIEW_DISABLED", 409);
@@ -296,7 +300,8 @@ function finalText(output: unknown[]) {
  * is never sent again.
  *
  * Errors: `OWNER_REQUIRED` (403), `NOT_FOUND` (404),
- * `VISION_REVIEW_DISABLED`, `PROVIDER_USE_REQUIRED`, `PROJECT_PAUSED`,
+ * `CREATIVE_NOT_REVIEWABLE`, `VISION_REVIEW_DISABLED`,
+ * `PROVIDER_USE_REQUIRED`, `PROJECT_PAUSED`,
  * `VERSION_CONFLICT`, `RESERVATION_ALREADY_USED` and budget refusals (409),
  * `VISION_REVIEW_OUTCOME_UNKNOWN`, `MODEL_REQUEST_NOT_ACCEPTED`,
  * `VISION_REVIEW_OUTPUT_INVALID` (502).

@@ -560,6 +560,38 @@ describe.skipIf(!enabled)(
       expect(reviewed.cost.reservationIds).toEqual([reservation!.id]);
     });
 
+    // M2: a replaced creative, or one whose new art awaits its rights, is
+    // not what the owner decides on: no review, no reservation.
+    it("refuses to review a superseded creative or one that needs rights", async () => {
+      await saveProfile({ visualReview: true });
+      await setStatus(assets.logo.id, {
+        assetStatus: "approved",
+        providerUse: true,
+      });
+      await setStatus(assets.art.id, {
+        assetStatus: "approved",
+        providerUse: true,
+      });
+      const review = answering(passing);
+      for (const status of ["superseded", "needs_rights"]) {
+        const creative = await produceFree();
+        await runIn(async (tx) => {
+          const row = await findCreative(tx, p.owner, creative.id);
+          await update(tx, p.owner, row, { ...data(row), status });
+        });
+        await expect(
+          visionReviewCreative(p.owner, creative.id, {}, { respond: review }),
+        ).rejects.toMatchObject({
+          code: "CREATIVE_NOT_REVIEWABLE",
+          status: 409,
+        });
+        expect(await reservations(`creative-review:${creative.id}:`)).toEqual(
+          [],
+        );
+      }
+      expect(review).not.toHaveBeenCalled();
+    });
+
     it("an unknown vision outcome stays counted", async () => {
       await saveProfile({ visualReview: true });
       await setStatus(assets.logo.id, {
