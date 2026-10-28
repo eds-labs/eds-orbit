@@ -13,6 +13,19 @@ Mario's acceptance tests A–E from the [design](superpowers/specs/2026-10-26-ma
 | CS-E | A finished creative is published only with the approvals required today | `creative/attach.ts`, `publishing/policy`, `publishing/postiz-draft.ts`, `agents/specialists/review.ts`, `agents/agent-review.ts` | `creative-acceptance.integration.test.ts` (E: `APPROVAL_REQUIRED` stays, `publish` 409 without approval, handoff owner only); `assignment-creatives.integration.test.ts` (CS-D7: agent authority does not cover creatives); `agent-review.integration.test.ts` (CS-D7 for a creative attached in the studio, R66); `safety.integration.test.ts` (`MEDIA_REQUIRED` with the flag on, R36) | PASS_TEST |
 | CS-F | Flag off changes nothing (one intended MCP default fix); browser flow works | `creative/flag.ts`, `apps/web/src/modules/marketing/creative/` | `flag.test.ts`, `creative/flag-off.test.ts` (prompts and tool schemas pinned to `ad29a197`), route tests (404 while off), flag-off cases of the channel rules, preflight, Postiz settings, package and assignment tests; `apps/web/tests/creative-studio.spec.ts` (gated by `CREATIVE_STUDIO_E2E`) | PASS_TEST (local stack run once before the final fix wave) |
 
+## Creative previews over MCP (2026-10-28, local)
+
+Mario's tests A–F for the MCP Creative Studio integration. Guide: [MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md#internal-previews-over-mcp-and-the-assistant-2026-10-28).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| CP-A | One internal preview: finished layout, original logo, text and image, nothing published, full result over MCP | `creative/preview.ts`, `creative/mcp-tools.ts`, `platform/mcp/adapter.ts` | `creative-preview-mcp.integration.test.ts` (logo asset = profile logo, LOGO_INTEGRITY check, post text and copy, image content, no post/mission/assignment/package/publication/Postiz row); `mcp-gateway.integration.test.ts` (image content) | PASS_TEST; live: open |
+| CP-B | Instagram 4:5 at 1080×1350 | `formatsForChannel`, `CREATIVE_FORMATS` | same test: `feed_portrait`, 1080×1350, aspect ratio, JPEG preview 576×720 | PASS_TEST; live: open |
+| CP-C | Two projects keep their brand kits and assets | scoped transactions, `projectRow` | same test: foreign art asset 404, B's preview draws B's logo, A cannot read B's preview | PASS_TEST |
+| CP-D | No run without approval, limits held, no duplicate runs, no publishing | `approvedOperation`, `previewTerms`, `runCreativePreview` | same test: awaiting_approval before the decision, same idempotency key deduplicated, second job run pays nothing, `PREVIEW_BUDGET_TOO_LOW`, `OWNER_REQUIRED` for an editor's paid art | PASS_TEST |
+| CP-E | Assistant control | `assistant/prompt.ts` (feature `creative_studio`, instructions) | tools offered to the assistant by the same registry | live: open |
+| CP-F | Regression of assignments, Postiz, campaigns, packages, publishing | `persist.ts`, `pipeline.ts` refactor | full suite | see run |
+
 ## Issue center phase 3 (ADR 0018, 2026-10-26, local; flag off)
 
 | Requirement | Evidence | State |

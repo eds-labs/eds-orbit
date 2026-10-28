@@ -40,7 +40,9 @@ export type ToolFeature =
   // The AI project manager's tools (ADR 0017), while ORBIT_WORK_PM is on.
   | "work_pm"
   // Issue center tools (ADR 0018), offered while the module is on.
-  | "issues";
+  | "issues"
+  // Creative Studio previews and options, while ORBIT_CREATIVE_STUDIO is on.
+  | "creative_studio";
 export type ToolContext = {
   scope: Scope;
   runId: string;
@@ -58,7 +60,14 @@ export type ToolContext = {
     requestId: string;
   };
 };
-export type ToolResult = { output: unknown; cards: ChatCard[] };
+/** An image a tool returns to an outside client (MCP image content), base64. */
+export type ToolImage = { data: string; mimeType: "image/png" | "image/jpeg" };
+export type ToolResult = {
+  output: unknown;
+  cards: ChatCard[];
+  /** Sent over MCP next to the JSON output; the assistant never sees them. */
+  images?: ToolImage[];
+};
 export type OrbitTool = {
   name: string;
   namespace: ToolNamespace;

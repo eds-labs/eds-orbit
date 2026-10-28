@@ -1,6 +1,7 @@
 import type { AssistantContribution } from "../../../platform/assistant/types.ts";
 import { contentPackagesEnabled } from "../agents/content-packages.ts";
 import { agentsEnabled } from "../agents/assignments.ts";
+import { creativeStudioEnabled } from "../creative/flag.ts";
 
 // Marketing contributes this fragment to the shared Orbit Assistant. Assignment
 // intake is evaluated with offline orchestration fixtures; it adds no runtime.
@@ -39,6 +40,11 @@ const packageInstructions = [
   "Describe drafts and their status only from package_status.",
   "When the user wants one channel's draft changed, call revise_package_deliverable with that channelId and their instruction; the other channels and the image stay unchanged.",
 ].join(" ");
+// Added only while the Creative Studio is on.
+const creativeInstructions = [
+  "For a one-off branded image with post text that the user wants to see before anything else happens (an internal preview), do not create an assignment or package: call marketing_creative_options for the brand kit, primary logo, templates and channel formats, write the post text and the short image copy yourself from verified facts (knowledge_search) and avoid repeating recent posts, then call marketing_creative_preview_create with the channel identifier (for example instagram), an art source and a budget limit.",
+  "It saves an owner approval with the exact image cost; nothing runs before that. Read progress with marketing_creative_preview_status and the finished image, text, QA, assets and cost with marketing_creative_preview_result. A preview is never published, scheduled or sent to Postiz; its approval is not a publishing approval. Wait for the user's next decision.",
+].join(" ");
 // Added only while Orbit Agents are on and the run uses tool search.
 const assignmentInstructions = [
   REVIEW_CAPACITY_GUIDANCE,
@@ -66,9 +72,10 @@ const assignmentsUnavailable =
 /** Marketing's part of the assistant (WP2.2). */
 export const marketingAssistant: AssistantContribution = {
   features({ toolSearch, fullTools, all }) {
-    if (all) return ["content_packages", "agents"];
+    if (all) return ["content_packages", "agents", "creative_studio"];
     return [
       ...(contentPackagesEnabled() ? ["content_packages" as const] : []),
+      ...(creativeStudioEnabled() ? ["creative_studio" as const] : []),
       // Deferred assignment tools: through tool search, or in full for Claude.
       ...(agentsEnabled() && (toolSearch || fullTools)
         ? ["agents" as const]
@@ -76,10 +83,17 @@ export const marketingAssistant: AssistantContribution = {
     ];
   },
   instructions({ toolSearch, fullTools, all }) {
-    if (all) return [instructions, packageInstructions, assignmentInstructions];
+    if (all)
+      return [
+        instructions,
+        packageInstructions,
+        creativeInstructions,
+        assignmentInstructions,
+      ];
     return [
       instructions,
       ...(contentPackagesEnabled() ? [packageInstructions] : []),
+      ...(creativeStudioEnabled() ? [creativeInstructions] : []),
       ...(agentsEnabled()
         ? [
             toolSearch

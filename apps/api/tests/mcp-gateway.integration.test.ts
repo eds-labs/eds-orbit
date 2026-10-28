@@ -1059,6 +1059,25 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       });
     });
 
+    it("sends a tool's images as image content after the JSON, within their cap", async () => {
+      const small = Buffer.from("synthetic-jpeg").toString("base64");
+      vi.spyOn(taskDigest, "execute").mockResolvedValueOnce({
+        output: { total: 1 },
+        cards: [],
+        images: [
+          { data: small, mimeType: "image/jpeg" },
+          // Over MCP_IMAGE_LIMIT_BYTES together with the first: left out.
+          { data: "A".repeat(600 * 1024), mimeType: "image/png" },
+        ],
+      });
+      const content = rpcBody(await call("tasks_task_digest", {})).result
+        .content;
+      expect(content).toEqual([
+        { type: "text", text: JSON.stringify({ total: 1 }) },
+        { type: "image", data: small, mimeType: "image/jpeg" },
+      ]);
+    });
+
     it("invalid arguments name paths, not values", async () => {
       const spy = vi.spyOn(suggestTask, "execute");
       const cases: Json[] = [

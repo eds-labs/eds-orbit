@@ -99,6 +99,11 @@ export const marketingModule: ServerModule = {
       kind: "creatives",
       description: "Composed creatives of posts; renditions are bound assets",
     },
+    // Internal creative previews (MCP, assistant); read through their tools.
+    {
+      kind: "creative_previews",
+      description: "One-off internal creative previews; never published",
+    },
   ],
   tables: ["ProjectMarketingProfile", "ProjectMarketingProfileVersion"],
   permissions: marketingPermissions,

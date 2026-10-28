@@ -31,6 +31,8 @@ export type CreativeStatus =
 /** One creative as stored (spec §8). */
 export type CreativeRecord = {
   contentId?: string;
+  /** An internal preview's creative (MCP): it belongs to no post. */
+  previewId?: string;
   assignmentRunId?: string;
   packageId?: string;
   /**

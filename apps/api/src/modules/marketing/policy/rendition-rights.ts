@@ -16,6 +16,8 @@ export async function renditionComponentsHold(
   scope: Scope,
   rendition: Record<string, any>,
 ): Promise<boolean> {
+  // An internal preview's rendition never leaves Orbit (MCP previews).
+  if (rendition.boundTo?.previewId !== undefined) return false;
   const recorded: unknown = rendition.rightsSource?.components;
   if (!Array.isArray(recorded) || recorded.length === 0) return false;
   const components = recorded.map((c) =>

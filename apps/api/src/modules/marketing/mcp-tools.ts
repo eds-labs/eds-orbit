@@ -16,6 +16,7 @@ import { data, entity, DomainError, create, update } from "../../shared.ts";
 import { requestContentPackageInTx } from "./agents/content-packages.ts";
 import { reviseDeliverable } from "./agents/content-packages.ts";
 import { actionPermissions } from "../../platform/tenancy/permissions.ts";
+import { creativeReads, creativeWrites } from "./creative/mcp-tools.ts";
 
 const page = z
   .object({
@@ -223,7 +224,12 @@ const writes = [
     },
   }),
 ];
-export const marketingMcpTools = [...reads, ...writes.map((w) => w.tool)];
+const allWrites = [...writes, ...creativeWrites];
+export const marketingMcpTools = [
+  ...reads,
+  ...creativeReads,
+  ...allWrites.map((w) => w.tool),
+];
 export const marketingMcpActions = Object.fromEntries(
-  writes.map((w) => [w.actionType, w.action]),
+  allWrites.map((w) => [w.actionType, w.action]),
 );

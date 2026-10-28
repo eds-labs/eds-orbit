@@ -627,3 +627,21 @@ export async function encodeWebp(bytes: Buffer) {
     .webp({ quality: 90 })
     .toBuffer();
 }
+
+/**
+ * A small JPEG of a raster for a client's preview (MCP image content): at
+ * most `maxSide` pixels on its longer side, never enlarged, no metadata.
+ */
+export async function encodePreviewJpeg(bytes: Buffer, maxSide = 720) {
+  const { default: sharp } = await import("sharp");
+  return sharp(bytes, { limitInputPixels: 16_000_000, animated: false })
+    .resize({
+      width: maxSide,
+      height: maxSide,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .flatten({ background: "#ffffff" })
+    .jpeg({ quality: 82, mozjpeg: true })
+    .toBuffer();
+}

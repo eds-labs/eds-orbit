@@ -25,6 +25,7 @@ import {
   mcpExposureProblem,
   TOOL_NAME,
   type OrbitTool,
+  type ToolImage,
   type ToolRisk,
 } from "../../modules/agents/tools/registry.ts";
 import {
@@ -41,7 +42,11 @@ import {
   toolFailure,
   unauthenticatedResult,
 } from "./errors.ts";
-import { MCP_OUTPUT_LIMIT_BYTES, type McpProjectSlots } from "./limits.ts";
+import {
+  MCP_IMAGE_LIMIT_BYTES,
+  MCP_OUTPUT_LIMIT_BYTES,
+  type McpProjectSlots,
+} from "./limits.ts";
 import { nativeTools, type NativeToolContext } from "./native-tools.ts";
 import type { McpPrincipal } from "./principal.ts";
 import {
@@ -141,6 +146,8 @@ type CallTrace = {
   runStart: Promise<string | null> | null;
   /** The call has been answered (finished or timed out): its attribution is closed. */
   settled: boolean;
+  /** Images the tool returned, sent as image content after the JSON. */
+  images?: ToolImage[];
 };
 
 /**
@@ -344,7 +351,7 @@ async function runCall(
       } else
         result = {
           structuredContent: parsed.data,
-          content: [{ type: "text", text }],
+          content: [{ type: "text", text }, ...imageContent(call.images)],
         };
     }
   } catch (error) {
@@ -383,6 +390,21 @@ async function runCall(
     args,
   });
   return result;
+}
+
+/**
+ * A tool's images as MCP image content, in order, while their base64 data
+ * together stays within MCP_IMAGE_LIMIT_BYTES; the rest are left out.
+ */
+function imageContent(images: ToolImage[] = []) {
+  const content: Array<{ type: "image"; data: string; mimeType: string }> = [];
+  let total = 0;
+  for (const image of images) {
+    total += image.data.length;
+    if (total > MCP_IMAGE_LIMIT_BYTES) break;
+    content.push({ type: "image", data: image.data, mimeType: image.mimeType });
+  }
+  return content;
 }
 
 /**
@@ -583,7 +605,7 @@ async function executeInProject(
   const agentRunId = await startCallRun(state, call, toolName, projectId);
   let output: unknown;
   try {
-    ({ output } = await allowed.execute(
+    ({ output, images: call.images } = await allowed.execute(
       {
         // The tool runs with the member's role in its module (as chat-runner).
         scope: moduleScope(scope, registeredToolOwner(allowed.name)),

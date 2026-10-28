@@ -252,15 +252,14 @@ async function missionCta(tx: DbTx, scope: Scope, content: EntityRow) {
  * `detail.codes`); wording the owner decides on comes back as failed blocker
  * findings.
  */
-async function checkedCopy(
-  tx: DbTx,
-  scope: Scope,
-  plan: Pick<Plan, "brief" | "copy" | "content">,
-): Promise<CreativeCheck[]> {
+function checkedCopy(
+  plan: Pick<Plan, "brief" | "copy">,
+  cta: string | null,
+): CreativeCheck[] {
   const problems = creativeCopyProblems(
     plan.copy,
     TEMPLATE_COPY_LIMITS[plan.brief.template],
-    { cta: await missionCta(tx, scope, plan.content) },
+    { cta },
   );
   const refused = COPY_REFUSALS.find((code) => problems.includes(code));
   if (refused)
@@ -297,8 +296,28 @@ export async function checkedPlan(
   plan: Omit<Plan, "rights" | "copyChecks">,
   art: ArtCheck = {},
 ): Promise<Plan> {
+  const cta = await missionCta(tx, scope, plan.content);
+  return {
+    ...plan,
+    ...(await checkedCreativePlan(tx, scope, plan, cta, art)),
+  };
+}
+
+/**
+ * `checkedPlan` for a plan without a post (an internal preview): `cta` is
+ * the CTA the copy rules exempt, or null.
+ */
+export async function checkedCreativePlan<
+  T extends Omit<CreativePlan, "rights" | "copyChecks">,
+>(
+  tx: DbTx,
+  scope: Scope,
+  plan: T,
+  cta: string | null,
+  art: ArtCheck = {},
+): Promise<T & Pick<CreativePlan, "rights" | "copyChecks">> {
   const { template } = plan.brief;
-  const copyChecks = await checkedCopy(tx, scope, plan);
+  const copyChecks = checkedCopy(plan, cta);
   if (
     TEMPLATE_NEEDS[template].art === "required" &&
     !plan.art &&
@@ -318,7 +337,7 @@ export async function checkedPlan(
  * link rules (`artDirectionProblems`): `CREATIVE_TEXT_UNSAFE` or
  * `CREATIVE_LINK_NOT_ALLOWED`, 409 with every code in `detail.codes` (R66).
  */
-function checkedArtDirection(raw: unknown): ArtDirection | undefined {
+export function checkedArtDirection(raw: unknown): ArtDirection | undefined {
   if (raw === undefined) return undefined;
   const direction = artDirectionInput.parse(raw);
   const problems = artDirectionProblems(direction);
@@ -348,7 +367,7 @@ function newArtConfirmation(scope: Scope, request: ProduceRequest) {
  */
 export async function composePlan(
   scope: Scope,
-  plan: Plan,
+  plan: CreativePlan,
   artAttempts: number,
   deps: PipelineDeps,
   trial?: { art: RasterSource },
@@ -415,9 +434,9 @@ function withCopyFindings(
  * `ASSET_RIGHTS` was checked with the plan) stop here, before anything is
  * reserved; findings about the stand-in art itself are ignored.
  */
-async function trialComposition(
+export async function trialComposition(
   scope: Scope,
-  plan: Plan,
+  plan: CreativePlan,
   art: ArtRequest,
   deps: PipelineDeps,
 ): Promise<void> {

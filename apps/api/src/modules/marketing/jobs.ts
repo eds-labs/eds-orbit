@@ -22,6 +22,11 @@ import {
   markPostizDraftOutcomeUnknown,
 } from "./agents/draft-delivery.ts";
 import { runAgentTask } from "./agents/specialists/runner.ts";
+import {
+  markPreviewOutcomeUnknown,
+  PREVIEW_QUEUE,
+  runCreativePreview,
+} from "./creative/preview.ts";
 
 /**
  * The marketing module's worker queues (WP1.6). The handlers and the per-queue
@@ -126,6 +131,16 @@ export const marketingJobs: JobDef[] = [
       runImageJob(scope, job.actorId, job.resourceId, jobId).then(
         () => undefined,
       ),
+  },
+  {
+    // Internal creative previews (MCP, assistant): one owner-approved run,
+    // at most one paid image; records its own outcome on the preview.
+    queueClass: PREVIEW_QUEUE,
+    leaseMs: 300000,
+    handler: ({ scope, job }) => runCreativePreview(scope, job.resourceId),
+    // An image that may have been paid for is never generated again.
+    onLeaseExpired: (tx, scope, job) =>
+      markPreviewOutcomeUnknown(tx, scope, job.resourceId),
   },
   {
     // Specialist tasks of assignment runs (Orbit Agents). Records its own

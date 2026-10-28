@@ -7,6 +7,7 @@ import {
   defineTool,
   type ToolContext,
   type ToolFeature,
+  type ToolImage,
 } from "../../modules/agents/tools/registry.ts";
 import {
   createActionRequest,
@@ -67,6 +68,8 @@ type Operation = {
   /** What must be active to propose it (ADR 0015); see ActionDefinition. */
   requires?: readonly ActionRequirement[];
   output?: z.ZodType;
+  /** Read tools: images of the result for outside clients (MCP calls only). */
+  images?(tx: DbTx, scope: Scope, result: any): Promise<ToolImage[]>;
   validate?(tx: DbTx, scope: Scope, args: any): Promise<void>;
   approvalContext?(tx: DbTx, scope: Scope, args: any): Promise<unknown>;
   revalidateContext?(
@@ -199,9 +202,16 @@ export function readOperation(op: Operation) {
     ...contentScopes(op),
     async execute(ctx, raw) {
       const args = serviceArgs(op.input, raw);
-      const result = await userScoped(ctx.scope, async (tx) => {
+      const { result, images } = await userScoped(ctx.scope, async (tx) => {
         await check(tx, ctx.scope, op);
-        return op.run(tx, ctx.scope, args);
+        const result = await op.run(tx, ctx.scope, args);
+        return {
+          result,
+          images:
+            op.images && ctx.channel?.kind === "mcp"
+              ? await op.images(tx, ctx.scope, result)
+              : [],
+        };
       });
       const serialized = JSON.parse(JSON.stringify(result));
       return {
@@ -210,6 +220,7 @@ export function readOperation(op: Operation) {
           result: op.output ? op.output.parse(serialized) : serialized,
         },
         cards: [],
+        ...(images.length ? { images } : {}),
       };
     },
   });

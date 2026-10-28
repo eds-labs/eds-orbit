@@ -58,6 +58,8 @@ export const MCP_PROPOSAL_DAY_CACHE_MAX = 10_000;
 export const MCP_VERIFIED_TOKENS_MAX = 10_000;
 /** Largest JSON result a tool may return (09 §5.1, ADR 0007 §2). */
 export const MCP_OUTPUT_LIMIT_BYTES = 64 * 1024;
+/** Largest base64 image data a result may carry next to its JSON (all images). */
+export const MCP_IMAGE_LIMIT_BYTES = 512 * 1024;
 /**
  * Concurrent tool executions per project and gateway process (R-10, D-M5-6):
  * every `scoped()` call takes the project's advisory lock, so a burst of

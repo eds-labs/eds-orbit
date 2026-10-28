@@ -13,7 +13,12 @@ import type { EntityRow } from "./brand-kit.ts";
 // always read inside this project.
 
 /** Asset types an art may have; logos and screenshots are never art. */
-const ART_ASSET_TYPES = ["photo", "background", "banner", "generated_artwork"];
+export const ART_ASSET_TYPES = [
+  "photo",
+  "background",
+  "banner",
+  "generated_artwork",
+];
 
 /** An entity of this project; a malformed or foreign id is `NOT_FOUND`. */
 export function projectRow(tx: DbTx, scope: Scope, kind: string, id: unknown) {

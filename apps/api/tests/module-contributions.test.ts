@@ -59,7 +59,8 @@ describe("module contributions", () => {
           (t) =>
             t.feature !== "mcp_tasks" &&
             t.feature !== "project_configuration" &&
-            t.feature !== "project_administration",
+            t.feature !== "project_administration" &&
+            t.feature !== "creative_studio",
         )
         .map((t) => t.name),
     ).toEqual(chatTools.map((t) => t.name));
@@ -79,6 +80,7 @@ describe("module contributions", () => {
         "agent",
         "analytics",
         "chat",
+        "creative_preview",
         "domain_event",
         "email_archive",
         "email_send",

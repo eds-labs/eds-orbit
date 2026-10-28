@@ -152,7 +152,8 @@ export async function saveRenditions(
   scope: Scope,
   input: {
     creativeId: string;
-    contentId: string;
+    /** The post the renditions are for; none for an internal preview. */
+    contentId?: string;
     /** The post's channel (integration id) the renditions are for. */
     channel?: string;
     /** The post's title, for the assets' names. */
@@ -167,14 +168,16 @@ export async function saveRenditions(
 ): Promise<CreativeRecord["renditions"]> {
   const { plan, composed } = input;
   assertNotRefused(plan, composed);
-  // Renditions count as approved only once every component is (spec §8).
-  const approval = awaitsArtRights(plan)
-    ? { usageApproved: false, assetStatus: "reference" }
-    : {
-        usageApproved: true,
-        assetStatus: "approved",
-        approvedBy: input.approvedBy,
-      };
+  // Renditions count as approved only once every component is (spec §8);
+  // an internal preview's are references only: never a post's image.
+  const approval =
+    awaitsArtRights(plan) || input.boundTo?.previewId !== undefined
+      ? { usageApproved: false, assetStatus: "reference" }
+      : {
+          usageApproved: true,
+          assetStatus: "approved",
+          approvedBy: input.approvedBy,
+        };
   const component = (
     role: string,
     row: EntityRow,
@@ -220,7 +223,7 @@ export async function saveRenditions(
       boundTo: {
         ...input.boundTo,
         creativeId: input.creativeId,
-        contentId: input.contentId,
+        ...(input.contentId !== undefined && { contentId: input.contentId }),
       },
       creativeFormat: format,
       creativeVariant: variant,
@@ -258,6 +261,7 @@ export function composedFields(
 ): Omit<
   CreativeRecord,
   | "contentId"
+  | "previewId"
   | "assignmentRunId"
   | "packageId"
   | "renditions"
@@ -297,12 +301,23 @@ export function composedFields(
   };
 }
 
+/**
+ * An internal creative preview (MCP): no post, only the channel identifier
+ * its format was chosen for and a title for the renditions' names.
+ */
+export type PreviewSubject = {
+  previewId: string;
+  channel: string;
+  title: string;
+};
+
 /** Content-free audit facts of a composition: ids, layout, status and findings, never copy. */
 export const auditFacts = (
   record: CreativeRecord,
   outcome: CompositionOutcome,
 ) => ({
   contentId: record.contentId,
+  ...(record.previewId !== undefined && { previewId: record.previewId }),
   ...(record.packageId !== undefined && { packageId: record.packageId }),
   ...(record.assignmentRunId !== undefined && {
     assignmentRunId: record.assignmentRunId,
@@ -330,8 +345,8 @@ export async function storeComposed(
   tx: DbTx,
   scope: Scope,
   input: {
-    /** The post as re-checked in this transaction. */
-    content: EntityRow;
+    /** The post as re-checked in this transaction, or the internal preview it is for. */
+    content: EntityRow | PreviewSubject;
     plan: CreativePlan;
     composed: ComposedCreative;
     /** Who stands for the rights decision: the person, or the consenting owner. */
@@ -348,8 +363,10 @@ export async function storeComposed(
 ): Promise<EntityRow> {
   const { content, plan, composed } = input;
   const { cost, ...links } = input.record ?? {};
+  const preview = "previewId" in content ? content : null;
+  const post = preview ? null : (content as EntityRow);
   const record: CreativeRecord = {
-    contentId: content.id,
+    ...(post ? { contentId: post.id } : { previewId: preview!.previewId }),
     ...links,
     ...composedFields(plan, composed),
     renditions: [],
@@ -360,13 +377,19 @@ export async function storeComposed(
   const creative = await create(tx, scope, CREATIVES, record);
   record.renditions = await saveRenditions(tx, scope, {
     creativeId: creative.id,
-    contentId: content.id,
-    channel: data(content).channel,
-    title: String(data(content).title ?? ""),
+    ...(post
+      ? {
+          contentId: post.id,
+          channel: data(post).channel,
+          title: String(data(post).title ?? ""),
+        }
+      : { channel: preview!.channel, title: preview!.title }),
     plan,
     composed,
     approvedBy: input.approvedBy,
-    boundTo: input.boundTo,
+    boundTo: preview
+      ? { ...input.boundTo, previewId: preview.previewId }
+      : input.boundTo,
     rightsSource: input.rightsSource,
   });
   const saved = await update(tx, scope, creative, record);

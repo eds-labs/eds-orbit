@@ -123,6 +123,9 @@ the gateway's 64 KiB cap; lists expose opaque pagination cursors.
 | `marketing_prepare_package` | Prepare the existing multi-channel copy/artwork package |
 | `marketing_request_image` | Prepare the native exact-prompt/image-ceiling request |
 | `marketing_schedule_content` | Prepare native exact-content/date scheduling |
+| `marketing_creative_options` | Brand kit, primary logo, templates, formats per channel and image cost (while `ORBIT_CREATIVE_STUDIO` is on) |
+| `marketing_creative_preview_create` | Owner-approved internal creative preview: one finished brand image with the client's post text; never published |
+| `marketing_creative_preview_status` / `marketing_creative_preview_result` | Preview progress; finished result with the image as MCP image content |
 | `knowledge_sources` | Source rights, sync and freshness metadata |
 | `knowledge_facts` | Facts passing the same K-1 and audience rules as MCP fetch |
 | `knowledge_add_source` | Owner-approved source with explicit rights |
