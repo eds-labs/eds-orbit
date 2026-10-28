@@ -1,6 +1,8 @@
 # Implementation status
 
-## Approval UX v2 and agent mandates (2026-10-28, branch `claude/orbit-approval-ux-v2-7daf3e`, local; `ORBIT_AGENT_MANDATES` off)
+## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` off)
+
+**Pushed to main on 2026-10-28 with Mario's approval** (fast-forward `aaed3d47..fa13f631`). The Coolify webhook deployed `fa13f631`, and the deployment finished at 17:43 UTC. Afterwards `/api/health/ready` reported database ok and worker ready, `/mcp/healthz` answered 200, and the new routes answered 401 without a session. The flag stays off, so no mandate can be granted. Live as of this deploy: the Support fix (G5), per-operation risk classes, the approval UX and the cross-project summary.
 
 Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-mandates.md](adr/0019-agent-mandates.md) (proposed; needs Mario's acceptance). Nothing is deployed or switched on, and no mandate exists until an owner grants one.
 
