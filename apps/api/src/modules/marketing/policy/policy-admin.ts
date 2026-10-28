@@ -128,6 +128,9 @@ export async function readPolicy(tx: DbTx, scope: Scope) {
           perRun: usd(policy.perRunBudgetMicros),
         }
       : null,
+    // The values above are the Marketing record's own copy (ADR 0015); the
+    // limits paid calls are reserved against are ai_spend_policy_get's.
+    budgetsAuthoritative: !(await activeSpendPolicyRecord(tx, scope)),
     options: {
       // Postiz channels assigned to this project; a policy may use these only.
       channels: (await assignedSocialChannels(tx, scope)).map((c) => ({
@@ -234,6 +237,7 @@ const getTool = readOperation({
 });
 
 const updateTool = approvedOperation({
+  riskClass: "G",
   name: "marketing_policy_update",
   // For outside clients (ChatGPT over MCP); the assistant reads only.
   assistant: false,

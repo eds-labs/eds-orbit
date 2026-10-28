@@ -28,6 +28,7 @@ import { UnclearAiCost } from "./unclear-ai-cost";
 import { blockerReason } from "@/lib/readiness-text";
 import { AiSettings } from "./ai-settings";
 import { SpendPolicySettings } from "./spend-policy";
+import { AgentMandateSettings } from "./agent-mandates";
 import { GoogleDriveSettings } from "./google-drive";
 import {
   ConnectedApps,
@@ -723,6 +724,7 @@ export function ProjectSettings() {
           {tab === "ai" && (
             <>
               <SpendPolicySettings />
+              <AgentMandateSettings />
               <AiSettings />
             </>
           )}

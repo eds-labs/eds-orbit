@@ -389,6 +389,7 @@ const getTool = readOperation({
 });
 
 const update = approvedOperation({
+  riskClass: "G",
   name: "ai_models_update",
   // For outside clients (ChatGPT over MCP); the assistant reads only.
   assistant: false,

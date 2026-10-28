@@ -264,6 +264,7 @@ async function currentMessageReceipt(tx: DbTx, scope: Scope, saved: any) {
 const replyOperations = [{ name: "support_send_reply", field: "bodyText" }].map(
   ({ name, field }) =>
     approvedOperation({
+      riskClass: "W1",
       ...shared,
       ...destinationApproval,
       name,
@@ -298,6 +299,9 @@ const replyOperations = [{ name: "support_send_reply", field: "bodyText" }].map(
 const noteOperations = [{ name: "support_add_note", field: "bodyText" }].map(
   ({ name, field }) =>
     approvedOperation({
+      riskClass: "W0",
+      // Internal only (ADR 0019): an owner may let agents do it without asking.
+      mandate: { maxCostMicrosPerAction: 0 },
       ...shared,
       name,
       permission: SUPPORT_NOTES_WRITE,
@@ -317,6 +321,7 @@ const noteOperations = [{ name: "support_add_note", field: "bodyText" }].map(
 );
 const writes = [
   approvedOperation({
+    riskClass: "W0",
     ...shared,
     name: "support_update_ticket",
     // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): a ticket's own
@@ -354,6 +359,9 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "W0",
+    // Internal only (ADR 0019): an owner may let agents do it without asking.
+    mandate: { maxCostMicrosPerAction: 0 },
     ...shared,
     name: "support_prepare_reply",
     validate: validateTicket,
@@ -383,6 +391,7 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "C1",
     ...shared,
     name: "support_generate_reply",
     validate: validateTicket,

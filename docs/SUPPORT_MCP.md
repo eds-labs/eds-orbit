@@ -155,6 +155,8 @@ The existing action-status/result tools return the durable decision/receipt.
 
 ## Exact owner approval and durable delivery
 
+Delegated work orders (MCP 2.0, `orbit_create_task`) never use the inbox rule. Their runs carry an MCP channel, but their requests are recorded with the task (`requestedBy.taskId`), and every such reply waits for an individual approval. This was fixed on 2026-10-28 (Approval UX v2, G5); before the fix, an owner's delegated reply could be sent under the rule. Agent mandates (ADR 0019) may cover only the internal `support_add_note` and `support_prepare_reply`, never a reply.
+
 A reply call validates the current project/module permission and ticket, then
 creates a hash-bound native ActionRequest. The existing approval inbox shows
 `bodyText` (the complete normalized message) and `approvalContext`, including

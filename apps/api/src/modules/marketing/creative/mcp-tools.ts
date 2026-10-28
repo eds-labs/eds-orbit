@@ -271,6 +271,30 @@ export const creativeWrites = [
       "Propose one internal creative preview: Orbit composes a finished brand image (the configured original logo, brand colours and fonts, template, the channel's or the chosen format) with the post text and image copy you provide, runs its QA and stores it in Orbit only. art: generate (one paid image, owner only), asset (an approved art asset) or none. maxBudgetMicros caps this preview (USD millionths); the project's AI spending policy still applies. Creates no assignment, package, schedule, publication or Postiz draft; its approval is not a publishing approval. Track it with marketing_creative_preview_status.",
     permission: PROJECT_WRITE,
     proposable: creativeStudioEnabled,
+    // Paid image generation, kept internal (ADR 0008 §1).
+    riskClass: "C2",
+    // An owner may cover it with an agent mandate (ADR 0019): which art
+    // modes, how much per preview and, for new art, a rights consent bound
+    // to the image route's model and ceiling at grant time.
+    mandate: {
+      maxCostMicrosPerAction: PREVIEW_BUDGET_MAX,
+      options: { art: ["none", "asset", "generate"] },
+      check: (args: PreviewInput, terms) => [
+        ...(terms.options.art && !terms.options.art.includes(args.art)
+          ? ["ART_MODE_NOT_COVERED"]
+          : []),
+        ...(args.maxBudgetMicros > terms.maxCostMicrosPerAction
+          ? ["COST_OVER_MANDATE"]
+          : []),
+      ],
+      rightsTerms: async (tx, scope) => {
+        const { imageConfig } = await currentImageTerms(tx, scope);
+        return {
+          model: imageConfig.model,
+          maxCostMicrosPerImage: imageConfig.maxCostMicrosPerImage,
+        };
+      },
+    },
     input: previewInput,
     summary: (args: PreviewInput) => ({
       channel: args.channel,
@@ -296,7 +320,8 @@ export const creativeWrites = [
     },
     spendCeiling: (tx, scope, args) =>
       previewCeiling(tx, scope, previewInput.parse(args)),
-    run: (tx, scope, args) => queuePreview(tx, scope, args),
+    run: (tx, scope, args, _requester, request) =>
+      queuePreview(tx, scope, args, request?.mandate ?? null),
     executionResult: async (tx, scope, saved) => {
       if (typeof saved?.previewId !== "string") return saved;
       const row = await tx.entity.findFirst({

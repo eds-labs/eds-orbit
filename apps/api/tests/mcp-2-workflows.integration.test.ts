@@ -34,6 +34,7 @@ import {
 import { moduleScope } from "../src/platform/tenancy/module-roles.ts";
 import { createMailInbox } from "./fixtures/mailbox.ts";
 import { createTicket } from "../src/modules/support/tickets.ts";
+import { loadInbox, updateInbox } from "../src/modules/support/inboxes.ts";
 import { supportMcpTools } from "../src/modules/support/mcp-tools.ts";
 import { knowledgeMcpTools } from "../src/modules/knowledge/mcp-tools.ts";
 import { retrieve } from "../../../packages/knowledge/src/index.ts";
@@ -419,6 +420,69 @@ describe.skipIf(!enabled)(
           (a) => a.id === replyMessage.id && a.kind === "operation_result",
         ),
       ).toBe(true);
+    });
+
+    it("Support: a delegated work order never sends under the owner's inbox reply rule", async () => {
+      // The rule covers the owner's own MCP calls; a delegated run carries
+      // an MCP channel too, but is recorded with its task and keeps approval.
+      const setRule = (enabled: boolean) =>
+        run(async (tx) => {
+          const current = await loadInbox(tx, project.owner, inboxId);
+          return updateInbox(tx, project.owner, inboxId, {
+            version: current.version,
+            rules: {
+              ...(current.rules as Record<string, unknown>),
+              mcpOwnerRepliesWithoutApproval: enabled,
+            },
+          });
+        });
+      await setRule(true);
+      try {
+        const made = await run((tx) =>
+          createTicket(tx, project.owner, {
+            inboxId,
+            channel: "email",
+            inbound: {
+              externalId: randomUUID(),
+              contact: { email: `${randomUUID()}@example.invalid` },
+              subject: "Delegated reply under the inbox rule",
+              bodyText: "Please answer.",
+              attachments: [],
+            },
+          }),
+        );
+        model.tool = "support_send_reply";
+        model.called = false;
+        model.args = {
+          ticketId: made.ticketId,
+          bodyText: "A delegated answer that must wait.",
+          idempotencyKey: randomUUID(),
+        };
+        const created = await native("orbit_create_task", {
+          description: "Answer the ticket",
+          modules: ["support"],
+          idempotencyKey: randomUUID(),
+        });
+        await decide(created.actionRequestId);
+        const queued = await readTask(project.owner, created.taskId);
+        await runChatJob(project.owner, project.owner.userId, queued.runId);
+        const awaiting = await readTask(project.owner, created.taskId);
+        const reply = awaiting.approvals.find(
+          (a) => a.actionType === "support.mcp.support_send_reply",
+        );
+        expect(reply).toMatchObject({ status: "pending" });
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: made.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(0);
+        await decide(reply!.actionRequestId, "reject");
+      } finally {
+        model.tool = "";
+        await setRule(false);
+      }
     });
 
     it("A/B: a support-only main-agent task prepares a native reply draft through the same approval path", async () => {

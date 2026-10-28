@@ -515,6 +515,7 @@ async function assertExtractable(
 }
 
 export const financeRetryExtraction = approvedOperation({
+  riskClass: "C1",
   name: "finance_retry_extraction",
   module: "finance",
   // For outside clients; people start it with the Retry button in Orbit.

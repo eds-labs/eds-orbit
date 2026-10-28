@@ -20,6 +20,10 @@ export const platformDeclaration: PlatformDeclaration = {
       description: "The project's AI spending authority (ADR 0015)",
     },
     {
+      kind: "agent_mandates",
+      description: "Owner-granted, bounded agent mandates for internal actions (ADR 0019)",
+    },
+    {
       kind: "openai_configuration",
       description: "Per-project AI provider keys and routes",
     },

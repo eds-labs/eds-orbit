@@ -51,6 +51,8 @@ Object.assign(process.env, {
   ORBIT_KNOWLEDGE_SHARES: "true",
   // Marketing Creative Studio: its routes answer 404 while it is off.
   ORBIT_CREATIVE_STUDIO: "true",
+  // Agent mandates (ADR 0019): owner-only routes; nothing is granted here.
+  ORBIT_AGENT_MANDATES: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });

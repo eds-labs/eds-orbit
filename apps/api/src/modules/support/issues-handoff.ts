@@ -180,6 +180,7 @@ export const issueReleasedSubscriber: EventSubscription = {
  * orbit:support and orbit:issues, and the issues permission at approval.
  */
 export const supportReportIssue = approvedOperation({
+  riskClass: "W0",
   module: "support",
   sensitive: true,
   mcpScopes: [ISSUES_SCOPE],

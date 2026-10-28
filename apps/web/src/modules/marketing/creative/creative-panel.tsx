@@ -61,12 +61,18 @@ const T = {
   channel: ["Channel", "Kanal"],
   formats: ["Formats", "Formate"],
   status: ["Status", "Status"],
-  quality: ["Quality", "Qualität"],
+  quality: ["Technical quality", "Technische Qualität"],
+  rights: ["Usage rights", "Nutzungsrechte"],
+  rightsPending: [
+    "Waiting for the owner: the new art's usage rights are not approved yet. A passed technical check does not approve them.",
+    "Wartet auf den Owner: Die Nutzungsrechte des neuen Bildes sind noch nicht freigegeben. Eine bestandene technische Prüfung ersetzt diese Freigabe nicht.",
+  ],
+  rightsAllOk: ["All drawn assets are approved.", "Alle verwendeten Assets sind freigegeben."],
   cost: ["Cost", "Kosten"],
   components: ["Components", "Komponenten"],
   checks: ["Checks", "Prüfungen"],
   warnings: ["Warnings", "Hinweise"],
-  checksOk: ["All checks passed.", "Alle Prüfungen bestanden."],
+  checksOk: ["All technical checks passed.", "Alle technischen Prüfungen bestanden."],
   none: ["No creative yet", "Noch kein Creative"],
   noneHint: [
     "Produce a branded image for this post from its image copy.",
@@ -1179,6 +1185,18 @@ export function CreativePanelView({
                   <Badge tone={VERDICT[creative.qa.verdict].tone}>
                     {word(VERDICT[creative.qa.verdict].label, de)}
                   </Badge>
+                </dd>
+                <dt>{label("rights", de)}</dt>
+                <dd>
+                  <span className="creative-status">
+                    <Dot
+                      tone={creative.status === "needs_rights" ? "danger" : "success"}
+                    />
+                    {label(
+                      creative.status === "needs_rights" ? "rightsPending" : "rightsAllOk",
+                      de,
+                    )}
+                  </span>
                 </dd>
                 <dt>{label("cost", de)}</dt>
                 <dd>{costText(creative, de)}</dd>

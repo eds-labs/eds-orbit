@@ -15,6 +15,7 @@ import { data, DomainError, update } from "../../../shared.ts";
 import {
   currentImageTerms,
   generateProjectImage,
+  type ImageGrant,
 } from "../brand/image-generation.ts";
 import { artPrompt, type ArtCorrection } from "./art-direction.ts";
 import type { EntityRow } from "./brand-kit.ts";
@@ -127,7 +128,7 @@ export async function generateArt(
   request: ArtRequest & { requestId: string },
   confirmation: ArtConfirmation,
   provider: typeof generateImage = generateImage,
-  authorize?: (tx: DbTx) => Promise<void>,
+  authorize?: (tx: DbTx) => Promise<void | ImageGrant>,
 ): Promise<string> {
   const asset = await generateProjectImage(
     scope,

@@ -85,3 +85,7 @@ External MCP clients can propose an action; only an Orbit-side decision carries 
 - **Status.** A client can read only the status of requests its user made through it in the workspace (`orbit_action_status`; any of their grants, so a re-selection does not hide them): type, status (with `expired` derived for a pending request), times and the approval link; never the payload, hash, policy or user ids.
 
 See `docs/IMPLEMENTATION_STATUS.md` ("Track M WP-M4").
+
+## Addendum 2026-10-28: agent mandates (proposed)
+
+[ADR 0019](0019-agent-mandates.md) proposes the first mode looser than `approval_required`: `auto_within_policy` under an owner-granted, bounded agent mandate for internal classes (`W0`, `C1`, `C2`) only. It would replace the WP-M4 sentence "a looser mode … must stay one step stricter for MCP requests" with a separate MCP opt-in per mandate. It also gives every assistant/MCP operation its own risk class instead of `W2`. It is behind `ORBIT_AGENT_MANDATES` (off) until Mario accepts it.

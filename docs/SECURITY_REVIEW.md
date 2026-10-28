@@ -1,5 +1,13 @@
 # Security Review
 
+
+## Approval UX v2 and agent mandates (ADR 0019, prepared 2026-10-28, local only)
+
+- **Scope:** a standing, owner-granted authorization for internal action types (`W0`, `C1`, `C2` only). Hard floors are code constants, and a test pins the mandatable list. Granting is web-only for owners (`ui_only`), with no MCP or assistant tool. Every automatic approval goes through the unchanged `decideActionRequest` (role, hash, version, expiry, MCP grant guard, revalidation, single use) and is audited without the payload.
+- **Not covered:** delegated MCP 2.0 orders, other members' requests, MCP clients unless separately opted in (optionally per client), and grants that no longer propose. Cost is bounded per action, per day and by the spending authority at payment.
+- **Fixed finding (G5, medium):** a delegated work order ran with an MCP channel, so an owner's delegated `support_send_reply` passed the Support inbox rule meant for the owner's own MCP calls. Requests with a `taskId` are now excluded. Regression test in `mcp-2-workflows.integration.test.ts`. Production exposure required `ORBIT_MCP_TASKS` on plus the inbox rule on; check the audit log for `mcp_setting` decisions of requests with a `taskId` before closing it.
+- **Residual risks:** the per-day count relies on the project advisory lock of `scoped()`; a mandate replaced while its work is queued stops that work (conservative); the rights consent is bound to the image model and ceiling, not to provider terms text.
+
 ## Native Support MCP completion — local source/test review (2026-10-19)
 
 Scope: canonical Support tools, native query filtering and operation approvals.

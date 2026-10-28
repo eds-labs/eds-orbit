@@ -1,11 +1,18 @@
 "use client";
 import Image from "next/image";
 import { Component, useContext, useState, type ReactNode } from "react";
-import { collectionPath, useResource, usd } from "@/lib/api";
+import { collectionPath, useResource } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 import { useDecideActionRequest } from "@/platform/assistant/decide";
 import { ShellContext } from "@/platform/shell/shell-context";
+import {
+  ApprovalContext,
+  ApprovalDiagnostics,
+  approvalTitle,
+  OperationFields,
+  type Presentation,
+} from "@/platform/shell/approval-presentation";
 
 /**
  * Keeps one request whose module renderer fails from taking the whole
@@ -90,10 +97,13 @@ type ActionRequestItem = {
   id: string;
   version: number;
   actionType: string;
+  riskClass?: string;
   packageHash: string;
   costCeilingMicros: number;
   expiresAt: string;
   requestedBy: Requester;
+  /** Module, effect and mandate eligibility (Approval UX v2); absent from older APIs. */
+  presentation?: Presentation;
   summary: {
     task?: { description: string; mode: string; modules: string[] };
     operation?: Record<string, unknown>;
@@ -142,7 +152,7 @@ export function decisionErrorText(cause: unknown, de: boolean) {
 export function ActionRequestInbox({
   showEmpty = false,
 }: { showEmpty?: boolean } = {}) {
-  const { locale, project, canEdit } = useWorkspace();
+  const { locale, project, canEdit, isOwner } = useWorkspace();
   const de = locale === "de";
   const requests = useResource<{ items: ActionRequestItem[] }>(
     canEdit ? collectionPath(project.id, "action-requests") : null,
@@ -210,7 +220,8 @@ export function ActionRequestInbox({
       {items.map((item) => {
         const view = renderers[item.actionType];
         return view?.accepts(item) ? (
-          <div key={item.id}>
+          <div key={item.id} className="action-request-frame">
+            <ApprovalContext item={item} de={de} isOwner={isOwner} />
             <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
             <RequestBoundary de={de} actionType={item.actionType}>
               <view.component
@@ -222,22 +233,13 @@ export function ActionRequestInbox({
                 }
               />
             </RequestBoundary>
+            <ApprovalDiagnostics item={item} de={de} />
           </div>
         ) : (
           <article key={item.id} className="action-request">
             <div className="chat-proposal-head">
-              <strong>
-                {item.actionType === "image.generate"
-                  ? de
-                    ? "Bild erzeugen"
-                    : "Generate image"
-                  : item.actionType === "content.schedule"
-                    ? de
-                      ? "Beitrag terminieren"
-                      : "Schedule post"
-                    : item.actionType}
-              </strong>
-              {item.actionType === "content.schedule" ? (
+              <strong>{approvalTitle(item.actionType, de)}</strong>
+              {item.actionType === "content.schedule" && (
                 <Badge
                   tone={
                     item.summary.executionMode === "live" ? "danger" : "warning"
@@ -251,12 +253,9 @@ export function ActionRequestInbox({
                       ? "Testmodus"
                       : "Test mode"}
                 </Badge>
-              ) : (
-                <Badge tone="warning">
-                  {de ? "höchstens" : "at most"} {usd(item.costCeilingMicros)}
-                </Badge>
               )}
             </div>
+            <ApprovalContext item={item} de={de} isOwner={isOwner} />
             <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
             {item.summary.task && (
               <div>
@@ -268,16 +267,10 @@ export function ActionRequestInbox({
               </div>
             )}
             {item.summary.operation && (
-              <details>
-                <summary>
-                  {de ? "Genaue Änderung prüfen" : "Review exact change"}
-                </summary>
-                <pre
-                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-                >
-                  {JSON.stringify(item.summary.operation, null, 2)}
-                </pre>
-              </details>
+              <>
+                <h4>{de ? "Genaue Änderung" : "Exact change"}</h4>
+                <OperationFields operation={item.summary.operation} />
+              </>
             )}
             {item.summary.packageGoal && (
               <p>
@@ -320,17 +313,18 @@ export function ActionRequestInbox({
                 {item.summary.prompt}
               </blockquote>
             )}
-            <p className="chat-package-note">
-              {[item.summary.model, item.summary.size, item.summary.quality]
-                .filter(Boolean)
-                .join(" · ")}{" "}
-              · {de ? "gültig bis" : "valid until"}{" "}
-              <time dateTime={item.expiresAt}>
-                {new Date(item.expiresAt).toLocaleString(
-                  de ? "de-DE" : "en-GB",
-                )}
-              </time>
-            </p>
+            {(item.summary.model || item.summary.size || item.summary.quality) && (
+              <p className="chat-package-note">
+                {[item.summary.model, item.summary.size, item.summary.quality]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+            <ApprovalDiagnostics
+              item={item}
+              de={de}
+              operation={item.summary.operation}
+            />
             <div className="chat-links">
               <Button
                 onClick={() => decide(item, "approve")}

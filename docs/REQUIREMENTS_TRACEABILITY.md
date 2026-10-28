@@ -1,5 +1,21 @@
 # Requirements traceability
 
+## Approval UX v2 and agent mandates (2026-10-28, local; `ORBIT_AGENT_MANDATES` off)
+
+Plan [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md), ADR [0019](adr/0019-agent-mandates.md) (proposed).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AM-A | With a valid mandate, an internal creative preview is made without another approval | `governance/authorization.ts`, `tasks/operation-tools.ts`, `creative/mcp-tools.ts`, `creative/preview.ts` | `agent-mandates.integration.test.ts` (A/G: `consumed`, `approvedBy: mandate`, decision channel `mandate`, audit `action_request.auto_approved` without payload, one paid image, no post/mission/publication/Postiz draft) | PASS_TEST |
+| AM-B | Without a mandate the approval flow is unchanged | same | `agent-mandates` (B, `NO_AGENT_MANDATE`); `creative-preview-mcp.integration.test.ts` unchanged and green | PASS_TEST |
+| AM-C | Publishing keeps its exact per-post approval | `action-requests.ts` `MANDATABLE_RISK_CLASSES`, registry | `agent-mandates` (registry: `content.schedule`, `image.generate`, `assignment.confirm`, `platform.task.start`, Support reply, spend policy never mandatable; the mandatable list is pinned); publishing suites green | PASS_TEST |
+| AM-D | Mandate limits, daily count under parallel calls, spending authority at payment | `authorization.ts`, `ai/budget.ts` `reserve` | `agent-mandates` (D: 4 parallel calls → 2 approved; daily budget below one image → `BUDGET_EXCEEDED`, no provider call; paid use off → `SPEND_AUTHORITY_INACTIVE`; cost over mandate); existing `core`/`ai-org-budget` reservation tests green | PASS_TEST |
+| AM-E | Revoked or expired mandates authorize nothing; approved work stops before payment | `agent-mandates.ts`, `authorization.ts` `assertMandateStillAuthorizes`, `preview.ts` | `agent-mandates` (E: revoke → `AGENT_MANDATE_ENDED`, no image; expired grant; flag off → inert, grant 404) | PASS_TEST |
+| AM-F | Unclear rights block further use without changing the technical QA | `preview.ts` `mandateArtRights`, `brand/image-generation.ts` grant fields, `creative-panel.tsx` | `agent-mandates` (F: consent → approved art with `rightsSource`; changed ceiling → `needs_rights`, same QA verdict; rendition stays reference); `creative-panel` shows rights apart from QA | PASS_TEST |
+| AM-G | A signed-in MCP client creates an internal creative under a mandate; the result is readable; nothing is published | `platform/mcp/visibility.ts` `authorizeMcpCall`, tools above | `agent-mandates` (A/G with a real grant/principal, result and MCP image content) | PASS_TEST (in-process; live client run open) |
+| AM-H | Support approvals, publishing, PM decisions, OAuth grant checks and single use unchanged | `operation-tools.ts`, `action-requests.ts` | `support-mcp`, `mcp-2-workflows` (+ G5: delegated order never sends under the inbox rule), `work-mcp`, `work-pm-mcp`, `mcp-*`, `content-packages`, access and RLS matrices; full suite | PASS_TEST |
+| AM-UX | Inbox: titles, reason, internal/external, cost and expiry, images and content, module views, collapsed diagnostics; cross-project overview | `approval-presentation.tsx`, `action-request-inbox.tsx`, `creative/preview-request.tsx`, `decisions.tsx`, `agent-mandates.tsx`, `server.ts` summary route | `decisions.test.tsx`, `preview-request.test.tsx`, existing inbox and renderer tests | PASS_TEST |
+
 ## Marketing Creative Studio acceptance (2026-10-27, local; flag off)
 
 Mario's acceptance tests A–E from the [design](superpowers/specs/2026-10-26-marketing-creative-studio-design.md) (section 12), offline with two fictional demo brands and fixture art (0 USD); the live run with real art (Task 22, `scripts/creative-live-run.ts`) passed on 2026-10-27 for both brands at USD 0.51. Guide: [MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md).

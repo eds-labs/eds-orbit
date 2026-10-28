@@ -1,6 +1,6 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { openOwnerRequests } from "../../modules/action-requests.ts";
+import { openDecidableRequests } from "../../modules/action-requests.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
 import { activePolicyRecord, platformSpendLimits } from "../ai/spend-mandate.ts";
 import { providerBudgetStatus } from "../ai/provider-budget.ts";
@@ -110,6 +110,29 @@ export async function platformAttention(
       params: {},
       ...OPERATIONS,
     });
+  // The decisions this member may take, as the approvals list shows them:
+  // owners' types for owners, editor-decided types for their editors.
+  const requests = await openDecidableRequests(tx, scope, now);
+  if (requests.length) {
+    const expiries = requests
+      .map((row) => Date.parse(data(row).expiresAt))
+      .filter((at) => !Number.isNaN(at));
+    items.push({
+      id: "platform:action-requests",
+      moduleId: "platform",
+      kind: "platform_action_request",
+      severity: "warning",
+      count: requests.length,
+      // Due when the first request expires; waiting since the oldest one.
+      ...(expiries.length
+        ? { dueAt: new Date(Math.min(...expiries)).toISOString() }
+        : {}),
+      since: requests.at(-1)!.createdAt.toISOString(),
+      params: {},
+      navKey: "decisions",
+      link: "/decisions",
+    });
+  }
   if (!can(scope, PROJECT_OWN)) return items;
   const unknown = context.month.unknown;
   if (unknown)
@@ -144,27 +167,6 @@ export async function platformAttention(
         navKey: "operations",
         link: "/settings?section=ai",
       });
-  }
-  const requests = await openOwnerRequests(tx, scope, now);
-  if (requests.length) {
-    const expiries = requests
-      .map((row) => Date.parse(data(row).expiresAt))
-      .filter((at) => !Number.isNaN(at));
-    items.push({
-      id: "platform:action-requests",
-      moduleId: "platform",
-      kind: "platform_action_request",
-      severity: "warning",
-      count: requests.length,
-      // Due when the first request expires; waiting since the oldest one.
-      ...(expiries.length
-        ? { dueAt: new Date(Math.min(...expiries)).toISOString() }
-        : {}),
-      since: requests.at(-1)!.createdAt.toISOString(),
-      params: {},
-      navKey: "decisions",
-      link: "/decisions",
-    });
   }
   return items;
 }

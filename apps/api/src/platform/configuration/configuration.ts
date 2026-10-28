@@ -209,6 +209,7 @@ const UPDATE_DESCRIPTION =
   "Proposes a partial change to the project configuration: changes = {marketing: {field: value}} with only the fields to change, against expectedVersion from project_configuration_get.";
 const updateOperation = (creative: boolean) =>
   approvedOperation({
+    riskClass: "G",
     name: "project_configuration_update",
     // For outside clients (ChatGPT over MCP); the assistant reads only.
     assistant: false,

@@ -22,6 +22,8 @@ import {
   PROJECT_OWN,
 } from "../../../platform/tenancy/permissions.ts";
 import { create, data, DomainError, entity, update } from "../../../shared.ts";
+import { assertMandateStillAuthorizes } from "../../../platform/governance/authorization.ts";
+import type { AgentMandateRecord } from "../../../platform/governance/agent-mandates.ts";
 import { currentImageTerms } from "../brand/image-generation.ts";
 import { generateArt, planArt, type ArtRequest } from "./art.ts";
 import { assetBytes } from "../../assets.ts";
@@ -119,6 +121,11 @@ export type PreviewRecord = {
   profileVersion: number;
   /** Posts of this project with exactly this text (duplicate check). */
   duplicateContentIds: string[];
+  /**
+   * The agent mandate that approved the proposal (ADR 0019), or null for a
+   * person's approval. Its work stops before payment once it ended.
+   */
+  mandate?: { id: string; version: number } | null;
   creativeId?: string;
   artAssetId?: string;
   errorCode?: string;
@@ -269,6 +276,7 @@ export async function queuePreview(
   tx: DbTx,
   scope: Scope,
   input: PreviewInput,
+  mandate: { id: string; version: number } | null = null,
 ) {
   const terms = await previewTerms(tx, scope, input);
   const record: PreviewRecord = {
@@ -280,6 +288,7 @@ export async function queuePreview(
     artPrompt: terms.artPrompt,
     profileVersion: terms.profileVersion,
     duplicateContentIds: await duplicatePosts(tx, scope, input.postText),
+    mandate,
     cost: { settledMicros: 0, unknownMicros: 0 },
   };
   const row = await create(tx, scope, CREATIVE_PREVIEWS, record);
@@ -314,7 +323,47 @@ const BLOCKING = new Set([
   "BUDGET_EXCEEDED",
   "NO_CREATIVE_TEMPLATE_ENABLED",
   "PRODUCT_ASSET_REQUIRED",
+  "AGENT_MANDATE_ENDED",
 ]);
+
+/**
+ * The asset fields of the mandate's rights consent for new art (ADR 0019
+ * §7): only when the owner gave it and the image route still has the model
+ * and ceiling it was given for; otherwise none, and the art waits for the
+ * owner's rights decision as before.
+ */
+async function mandateArtRights(
+  tx: DbTx,
+  scope: Scope,
+  mandate: { id: string; version: number },
+  record: AgentMandateRecord,
+  previewId: string,
+) {
+  const terms = record.rightsTerms;
+  if (!record.generatedImageRights || !terms) return undefined;
+  const { imageConfig } = await currentImageTerms(tx, scope);
+  if (
+    terms.model !== imageConfig.model ||
+    terms.maxCostMicrosPerImage !== imageConfig.maxCostMicrosPerImage
+  )
+    return undefined;
+  return {
+    usageApproved: true,
+    assetStatus: "approved",
+    approvedBy: record.grantedBy,
+    approvedAt: new Date().toISOString(),
+    license:
+      "AI-generated under the owner's standing rights consent of an agent mandate",
+    rightsSource: {
+      kind: "agent_mandate",
+      mandateId: mandate.id,
+      mandateVersion: mandate.version,
+      model: imageConfig.model,
+      maxCostMicrosPerImage: imageConfig.maxCostMicrosPerImage,
+      previewId,
+    },
+  };
+}
 
 /** The preview's image cost from its reservation: settled, or unknown while open. */
 async function imageCost(tx: DbTx, scope: Scope, previewId: string) {
@@ -387,6 +436,12 @@ export async function runCreativePreview(
     if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
     const scope = moduleScope(actor, "marketing");
     const request = started.request;
+    const mandate = started.mandate ?? null;
+    // Work a mandate approved stops before anything once it ended (ADR 0019 §6).
+    if (mandate)
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        assertMandateStillAuthorizes(tx, scope, mandate.id, "marketing"),
+      );
     const prep = await scoped(scope.workspaceId, scope.projectId, (tx) =>
       planPreview(tx, scope, request, { ceilingMicros: started.ceilingMicros }),
     );
@@ -410,6 +465,27 @@ export async function runCreativePreview(
           confirmMaximumCostMicros: prep.art.costMicros,
           confirmPromptMayBeSentToProvider: true,
         },
+        undefined,
+        // Again in the reservation transaction, right before payment.
+        mandate
+          ? async (tx) => {
+              const record = await assertMandateStillAuthorizes(
+                tx,
+                scope,
+                mandate.id,
+                "marketing",
+              );
+              return {
+                assetFields: await mandateArtRights(
+                  tx,
+                  scope,
+                  mandate,
+                  record,
+                  previewId,
+                ),
+              };
+            }
+          : undefined,
       );
       await advance(worker, previewId, async () => ({ artAssetId }));
       plan = (
@@ -573,6 +649,8 @@ export async function previewResult(tx: DbTx, scope: Scope, id: string) {
     artAssetId: creative.components.artAssetId ?? null,
     productAssetIds: creative.components.products.map((p) => p.assetId),
     qa: {
+      // Layout, legibility and logo checks; never usage rights.
+      scope: "technical",
       verdict: creative.qa.verdict,
       checks: creative.qa.checks.map((check) => ({
         code: check.code,
@@ -586,9 +664,18 @@ export async function previewResult(tx: DbTx, scope: Scope, id: string) {
           ? "awaiting_owner_rights_decision"
           : "approved_components",
       pendingAssetIds: pending ? pending.split(",") : [],
+      // Rights are their own decision: a passed QA never approves them.
+      explanation:
+        creative.status === "needs_rights"
+          ? "The image is composed and its technical QA ran, but the new art's usage rights wait for the owner's decision. It cannot be attached or published until then."
+          : "Every drawn asset is approved for this use.",
     },
     duplicateContentIds: record.duplicateContentIds,
-    approval: { generation: "approved", publishing: "not_requested" },
+    approval: {
+      generation: "approved",
+      generationApprovedBy: record.mandate ? "agent_mandate" : "person",
+      publishing: "not_requested",
+    },
     cost: {
       settledMicros: record.cost.settledMicros,
       unknownMicros: record.cost.unknownMicros,

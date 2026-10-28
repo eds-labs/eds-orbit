@@ -4143,6 +4143,69 @@ body:has(dialog[open]) {
   background: #fffaf0;
   padding: 12px;
 }
+/* Approval UX v2: the frame of every request, and its collapsed details. */
+.action-request-frame {
+  display: grid;
+  gap: 6px;
+}
+.approval-context .approval-context-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.approval-diagnostics {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+}
+.approval-diagnostics dl,
+.approval-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 12px;
+  margin: 6px 0;
+}
+.approval-fields > div {
+  display: contents;
+}
+.approval-diagnostics dt,
+.approval-fields dt {
+  color: var(--muted-foreground);
+}
+.approval-diagnostics dd,
+.approval-fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .approval-diagnostics dl,
+  .approval-fields {
+    grid-template-columns: 1fr;
+  }
+}
+.agent-mandate-form {
+  padding: 12px 0 0;
+}
+.agent-mandate-form fieldset {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.agent-mandate-form label {
+  display: grid;
+  gap: 4px;
+}
+.agent-mandate-form label:has(> input[type="checkbox"]) {
+  display: block;
+}
+.creative-request-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
 .chat-package-image {
   border: 1px solid var(--border);
   border-radius: 12px;

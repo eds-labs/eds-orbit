@@ -5,6 +5,7 @@ import { assetTools } from "../brand/asset-tools.ts";
 import { projectReadiness } from "../../../platform/governance/readiness.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { data, DomainError, list } from "../../../shared.ts";
+import { requireSpendMandate } from "../../../platform/ai/spend-mandate.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { marketingProfile } from "../../../../../../packages/schemas/src/index.ts";
 import {
@@ -71,6 +72,20 @@ export async function runReadTool(
           status: data(c).status,
         }));
       const state = await projectReadiness(tx, scope);
+      // The limits paid calls are reserved against (ADR 0015): the platform
+      // spending authority, not the Marketing policy's legacy budget fields,
+      // which can be stale until the next Marketing save.
+      const spend = active
+        ? await requireSpendMandate(tx, scope).catch(() => null)
+        : null;
+      const limits = spend?.limits ?? {
+        approvedPaidTests: false,
+        startAt: data(active).startAt,
+        endAt: data(active).endAt,
+        dailyBudgetMicros: 0,
+        monthlyBudgetMicros: 0,
+        perRunBudgetMicros: 0,
+      };
       const profileRow = await currentMarketingProfile(tx, scope);
       const profile = profileRow
         ? marketingProfile.parse(profileRow.data)
@@ -104,20 +119,20 @@ export async function runReadTool(
                 contentTypes: data(active).contentTypes,
                 modelBudget: {
                   currency: "USD",
-                  approvedPaidTests: data(active).approvedPaidTests,
+                  approvedPaidTests: limits.approvedPaidTests,
                   mandateActiveNow: Boolean(
-                    data(active).approvedPaidTests &&
-                    Date.parse(data(active).startAt) <= Date.now() &&
-                    Date.parse(data(active).endAt) > Date.now() &&
-                    data(active).dailyBudgetMicros > 0 &&
-                    data(active).monthlyBudgetMicros > 0 &&
-                    data(active).perRunBudgetMicros > 0,
+                    limits.approvedPaidTests &&
+                    Date.parse(limits.startAt) <= Date.now() &&
+                    Date.parse(limits.endAt) > Date.now() &&
+                    limits.dailyBudgetMicros > 0 &&
+                    limits.monthlyBudgetMicros > 0 &&
+                    limits.perRunBudgetMicros > 0,
                   ),
-                  dailyLimitMicros: data(active).dailyBudgetMicros,
-                  monthlyLimitMicros: data(active).monthlyBudgetMicros,
-                  perRunLimitMicros: data(active).perRunBudgetMicros,
-                  startAt: data(active).startAt,
-                  endAt: data(active).endAt,
+                  dailyLimitMicros: limits.dailyBudgetMicros,
+                  monthlyLimitMicros: limits.monthlyBudgetMicros,
+                  perRunLimitMicros: limits.perRunBudgetMicros,
+                  startAt: limits.startAt,
+                  endAt: limits.endAt,
                   scope:
                     "AI provider spend limits, not a campaign or advertising budget",
                 },

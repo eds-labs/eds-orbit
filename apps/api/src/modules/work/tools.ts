@@ -247,6 +247,9 @@ const initiativeInput = z
   .strict();
 
 export const workProposeInitiative = approvedOperation({
+  riskClass: "W0",
+  // Internal only (ADR 0019): an owner may let agents do it without asking.
+  mandate: { maxCostMicrosPerAction: 0 },
   ...proposal,
   name: "work_propose_initiative",
   description:
@@ -295,6 +298,9 @@ const tasksInput = z
   .strict();
 
 export const workProposeTasks = approvedOperation({
+  riskClass: "W0",
+  // Internal only (ADR 0019): an owner may let agents do it without asking.
+  mandate: { maxCostMicrosPerAction: 0 },
   ...proposal,
   name: "work_propose_tasks",
   description:
@@ -365,6 +371,9 @@ const updateInput = z
   .strict();
 
 export const workProposeTaskUpdate = approvedOperation({
+  riskClass: "W0",
+  // Internal only (ADR 0019): an owner may let agents do it without asking.
+  mandate: { maxCostMicrosPerAction: 0 },
   ...proposal,
   name: "work_propose_task_update",
   description:
@@ -407,6 +416,9 @@ const commentInput = z
   .strict();
 
 export const workProposeComment = approvedOperation({
+  riskClass: "W0",
+  // Internal only (ADR 0019): an owner may let agents do it without asking.
+  mandate: { maxCostMicrosPerAction: 0 },
   ...proposal,
   name: "work_propose_comment",
   description: "Propose a comment on one task by number.",

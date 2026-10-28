@@ -64,6 +64,7 @@ const writes = kinds.flatMap((kind) =>
             ? supportTagSchema.partial({ label: true, color: true })
             : definition;
     return approvedOperation({
+      riskClass: "W0",
       ...shared,
       name: `support_${action}_${kind}`,
       permission: SUPPORT_SETTINGS_MANAGE,

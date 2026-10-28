@@ -104,11 +104,17 @@ export function buildBrandImagePrompt(
 
 type Provider = typeof generateImage;
 type ImageOptions = {
-  /** Runs in the reservation transaction after every other check; a throw stops before any cost. */
-  authorize?: (tx: DbTx) => Promise<void>;
+  /**
+   * Runs in the reservation transaction after every other check; a throw
+   * stops before any cost. It may return asset fields of a rights decision
+   * that already covers this image (an agent mandate's consent, ADR 0019).
+   */
+  authorize?: (tx: DbTx) => Promise<void | ImageGrant>;
   /** Budget run shared with other calls; defaults to this image request alone. */
   runKey?: string;
 };
+/** Asset fields a standing rights decision sets on the new image. */
+export type ImageGrant = { assetFields?: Record<string, unknown> };
 type ImageInput = Omit<z.infer<typeof imageGenerationInput>, "requestId"> & {
   requestId: string;
 };
@@ -272,7 +278,7 @@ async function generateProjectImageTraced(
           ),
         ),
       );
-      await options.authorize?.(tx);
+      const grant = await options.authorize?.(tx);
       const reservation = await reserve(
         tx,
         scope,
@@ -306,6 +312,8 @@ async function generateProjectImageTraced(
         profileVersion: profileRow.version,
         providerPrompt: buildBrandImagePrompt(input.prompt, profileData),
         imageConfig,
+        // Never for an assignment image, which carries its own confirmation.
+        grantedFields: assignment ? undefined : grant?.assetFields,
       };
     },
   );
@@ -396,6 +404,7 @@ async function generateProjectImageTraced(
                 ...assignment.assetFields,
               }
             : {}),
+          ...(prepared.grantedFields ?? {}),
         });
         await audit(tx, scope, "asset.generate_openai", asset.id, {
           model: generated.model,

@@ -14,6 +14,10 @@ import { labels } from "@/lib/i18n";
 import type { Label, WebModule } from "@/platform/shell/types";
 import { marketingAttention } from "./attention";
 import { assignmentConfirmRenderer, marketingChat } from "./chat-extension";
+import {
+  creativePreviewRenderer,
+  PREVIEW_ACTION,
+} from "./creative/preview-request";
 import { marketingSettings, PolicySetupLink } from "./settings-sections";
 import {
   marketingConnectorExtras,
@@ -54,6 +58,7 @@ export const marketingWeb: WebModule = {
     "assignment.confirm": assignmentConfirmRenderer,
     "marketing_plan.review": planReviewRenderer,
     "marketing_plan.activate": planActivationRenderer,
+    [PREVIEW_ACTION]: creativePreviewRenderer,
   },
   attention: marketingAttention,
   settings: marketingSettings,

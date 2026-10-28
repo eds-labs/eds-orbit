@@ -51,6 +51,7 @@ const planInput = z
   .strict();
 
 export const workPmProposePlan = approvedOperation({
+  riskClass: "C1",
   ...base,
   name: "work_pm_propose_plan",
   description:
@@ -86,6 +87,7 @@ export const workPmProposePlan = approvedOperation({
 const reportInput = z.object({ initiativeKey }).strict();
 
 export const workPmProposeReport = approvedOperation({
+  riskClass: "C1",
   ...base,
   name: "work_pm_propose_report",
   description:
@@ -146,6 +148,7 @@ async function boundChanges(tx: DbTx, scope: Scope, input: z.infer<typeof change
 }
 
 export const workPmProposeChanges = approvedOperation({
+  riskClass: "W0",
   ...base,
   name: "work_pm_propose_changes",
   description:
@@ -178,6 +181,7 @@ const codingInput = codingBriefInput
   .strict();
 
 export const workPmProposeCodingRun = approvedOperation({
+  riskClass: "W1",
   ...base,
   name: "work_pm_propose_coding_run",
   description:

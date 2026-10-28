@@ -282,6 +282,7 @@ const getTool = readOperation({
 });
 
 const evaluate = approvedOperation({
+  riskClass: "C1",
   name: "knowledge_evaluate",
   // For outside clients (ChatGPT over MCP); the assistant reads only.
   assistant: false,

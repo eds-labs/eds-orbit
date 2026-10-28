@@ -162,6 +162,7 @@ const reportInput = z
   .strict();
 
 export const issuesProposeReport = approvedOperation({
+  riskClass: "W0",
   ...proposal,
   name: "issues_propose_report",
   description:
@@ -213,6 +214,7 @@ const updateInput = z
   .strict();
 
 export const issuesProposeUpdate = approvedOperation({
+  riskClass: "W0",
   ...proposal,
   name: "issues_propose_update",
   description:
@@ -244,6 +246,7 @@ export const issuesProposeUpdate = approvedOperation({
 const mergeInput = z.object({ number, intoNumber: number, expectedVersion: z.int().min(1) }).strict();
 
 export const issuesProposeMerge = approvedOperation({
+  riskClass: "W0",
   ...proposal,
   name: "issues_propose_merge",
   description:
@@ -275,6 +278,7 @@ export const issuesProposeMerge = approvedOperation({
 const taskInput = z.object({ number, initiativeId: z.uuid().optional() }).strict();
 
 export const issuesProposeTask = approvedOperation({
+  riskClass: "W0",
   ...proposal,
   mcpScopes: [ISSUES_SCOPE, WORK_SCOPE],
   name: "issues_propose_task",

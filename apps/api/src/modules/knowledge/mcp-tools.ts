@@ -141,6 +141,7 @@ const reads = [
 ];
 const writes = [
   approvedOperation({
+    riskClass: "W0",
     ...shared,
     name: "knowledge_add_source",
     description:
@@ -161,6 +162,7 @@ const writes = [
       create(tx, scope, "sources", sourceSchema.parse(args)),
   }),
   approvedOperation({
+    riskClass: "C1",
     ...shared,
     name: "knowledge_add_document",
     description:
@@ -199,6 +201,7 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "C1",
     ...shared,
     name: "knowledge_import_url",
     description:
@@ -228,6 +231,9 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "W0",
+    // Internal only (ADR 0019): an owner may let agents do it without asking.
+    mandate: { maxCostMicrosPerAction: 0 },
     ...shared,
     name: "knowledge_propose_fact",
     // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): it records a
@@ -241,6 +247,7 @@ const writes = [
       setFact(tx, scope, { ...args, status: "candidate" }),
   }),
   approvedOperation({
+    riskClass: "W0",
     ...shared,
     name: "knowledge_verify_fact",
     description:
@@ -251,6 +258,7 @@ const writes = [
       setFact(tx, scope, { ...args, status: "verified" }),
   }),
   approvedOperation({
+    riskClass: "W0",
     ...shared,
     name: "knowledge_withdraw_fact",
     // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): withdrawing must

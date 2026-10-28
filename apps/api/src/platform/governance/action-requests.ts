@@ -78,9 +78,67 @@ export const actionDecision = z
   })
   .strict();
 
+/**
+ * Risk classes of ADR 0008 §1. `W0_internal` is the legacy spelling of `W0`
+ * that stored requests and older types still carry.
+ */
+export const RISK_CLASSES = [
+  "R0",
+  "W0",
+  "W0_internal",
+  "C1",
+  "C2",
+  "W1",
+  "W2",
+  "D1",
+  "D2",
+  "F1",
+  "F2",
+  "G",
+] as const;
+export type RiskClass = (typeof RISK_CLASSES)[number];
+
+/**
+ * The only classes an agent mandate may cover (ADR 0019 §2): internal
+ * writes and internal paid work. Every other class is a hard floor.
+ */
+export const MANDATABLE_RISK_CLASSES: readonly RiskClass[] = [
+  "W0",
+  "W0_internal",
+  "C1",
+  "C2",
+];
+
+/** What a stored agent mandate grants, as the decision reads it (ADR 0019). */
+export type AgentMandateTerms = {
+  maxCostMicrosPerAction: number;
+  options: Record<string, string[]>;
+};
+
+/**
+ * Code-owned marker that an owner may cover a type with an agent mandate
+ * (ADR 0019 §2). Only internal classes may set it; a test checks the
+ * registry. `options` names the payload choices an owner can limit (for
+ * example the art modes of a preview); `check` returns the codes of what a
+ * payload does outside the mandate's terms, an empty list when it fits.
+ */
+export type ActionMandateDescriptor<P> = {
+  /** The largest cost one action may name under any mandate (USD millionths). */
+  maxCostMicrosPerAction: number;
+  options?: Record<string, readonly string[]>;
+  check?: (payload: P, terms: AgentMandateTerms) => string[];
+  /**
+   * For types that generate images: the image terms a separate rights
+   * consent is bound to, read when the owner grants it (ADR 0019 §7).
+   */
+  rightsTerms?: (tx: DbTx, scope: Scope) => Promise<Record<string, unknown>>;
+};
+
 export type ActionDefinition<P> = {
-  riskClass: "C1" | "C2" | "W2" | "W0_internal";
+  riskClass: RiskClass;
   approvalMode: "approval_required";
+  /** Present only for types an agent mandate may cover (ADR 0019). */
+  mandate?: ActionMandateDescriptor<P>;
   deciderRole: "owner" | "editor";
   /**
    * `editors`: an editor-decided type the approvals list shows to the
@@ -409,17 +467,36 @@ export async function mcpGrantStillProposes(
   return !ended && !stopped;
 }
 
+/**
+ * Where a decision came from: a member in the web UI, the Support inbox rule
+ * for the owner's own MCP replies, or an agent mandate (ADR 0019; only
+ * `approveUnderMandate` in authorization.ts builds this one, after
+ * `resolveAuthorization` accepted the request).
+ */
+export type DecisionSource =
+  | { channel: "web" }
+  | { channel: "mcp_setting"; inboxId: string; inboxVersion: number }
+  | { channel: "mandate"; mandateId: string; mandateVersion: number };
+
+/** The decision fields a source adds to the request and its audit event. */
+function sourceFields(source: DecisionSource) {
+  if (source.channel === "mcp_setting")
+    return { inboxId: source.inboxId, inboxVersion: source.inboxVersion };
+  if (source.channel === "mandate")
+    return {
+      mandateId: source.mandateId,
+      mandateVersion: source.mandateVersion,
+    };
+  return {};
+}
+
 /** Records an authenticated user's decision on the exact version and hash that were shown. */
 export async function decideActionRequest(
   tx: DbTx,
   member: Scope,
   id: string,
   raw: unknown,
-  source:
-    | { channel: "web" }
-    | { channel: "mcp_setting"; inboxId: string; inboxVersion: number } = {
-    channel: "web",
-  },
+  source: DecisionSource = { channel: "web" },
 ) {
   const input = actionDecision.parse(raw);
   if (member.userId === "worker")
@@ -461,6 +538,9 @@ export async function decideActionRequest(
     throw new DomainError("MCP_GRANT_ENDED", 409);
   if (approve && d.requestedBy?.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
+  // A standing decision only approves; a refusal is always a person's.
+  if (source.channel !== "web" && !approve)
+    throw new DomainError("DECISION_USER_REQUIRED", 403);
   if (approve) await type.revalidate(tx, scope, type.payload.parse(d.payload));
   const decided = await update(tx, scope, row, {
     ...d,
@@ -470,13 +550,21 @@ export async function decideActionRequest(
       decision: input.decision,
       decidedAt: new Date().toISOString(),
       channel: source.channel,
-      ...(source.channel === "mcp_setting"
-        ? { inboxId: source.inboxId, inboxVersion: source.inboxVersion }
-        : {}),
+      ...sourceFields(source),
       ...(input.imageRightsConsent === undefined
         ? {}
         : { imageRightsConsent: input.imageRightsConsent }),
     },
+    // The resolved mode of ADR 0008 §5 for a request a mandate approved.
+    ...(source.channel === "mandate"
+      ? {
+          authorization: {
+            mode: "auto_within_policy",
+            mandateId: source.mandateId,
+            mandateVersion: source.mandateVersion,
+          },
+        }
+      : {}),
   });
   await audit(
     tx,
@@ -486,13 +574,9 @@ export async function decideActionRequest(
     {
       actionType: d.actionType,
       packageHash: d.packageHash,
-      ...(source.channel === "mcp_setting"
-        ? {
-            decisionSource: source.channel,
-            inboxId: source.inboxId,
-            inboxVersion: source.inboxVersion,
-          }
-        : {}),
+      ...(source.channel === "web"
+        ? {}
+        : { decisionSource: source.channel, ...sourceFields(source) }),
     },
   );
   if (approve) await type.onApproved(tx, scope, decided);
@@ -677,6 +761,42 @@ export async function cancelMcpProposals(
   return { canceled, failed: failed.length };
 }
 
+/** What an approval does, as the inbox explains it (from the risk class, ADR 0008 §1). */
+export type ActionEffect =
+  | "internal"
+  | "paid"
+  | "external"
+  | "public"
+  | "deletion"
+  | "governance";
+
+export function actionEffect(riskClass: string): ActionEffect {
+  if (riskClass === "C1" || riskClass === "C2") return "paid";
+  if (riskClass === "W1") return "external";
+  if (riskClass === "W2") return "public";
+  if (riskClass === "D1" || riskClass === "D2") return "deletion";
+  if (["F1", "F2", "G"].includes(riskClass)) return "governance";
+  return "internal";
+}
+
+/**
+ * How the inbox presents a request (Approval UX v2): the owning module, the
+ * effect of approving it, whether it stays inside Orbit, and whether an owner
+ * could cover the type with an agent mandate instead of deciding each one.
+ */
+export function actionPresentation(actionType: string, riskClass: string) {
+  const type = registeredActionType(actionType);
+  const effect = actionEffect(String(type?.riskClass ?? riskClass));
+  return {
+    module: registeredActionTypeOwner(actionType) ?? "platform",
+    effect,
+    internal: effect === "internal" || effect === "paid",
+    mandatable: Boolean(
+      type?.mandate && MANDATABLE_RISK_CLASSES.includes(type.riskClass),
+    ),
+  };
+}
+
 /** The trimmed requester of the inbox list (platform/shared.ts). */
 export { listedRequester };
 
@@ -788,6 +908,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
       expiresAt: d.expiresAt,
       createdAt: row.createdAt,
       requestedBy: listedRequester(d.requestedBy),
+      presentation: actionPresentation(String(d.actionType), String(d.riskClass)),
       summary: {
         ...registeredActionType(String(d.actionType))?.summary?.(d.payload),
         ...(d.actionType === "platform.task.start"

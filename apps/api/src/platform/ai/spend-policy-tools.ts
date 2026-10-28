@@ -84,6 +84,7 @@ const getTool = readOperation({
 });
 
 const update = approvedOperation({
+  riskClass: "F2",
   name: "ai_spend_policy_update",
   assistant: false,
   module: "platform",

@@ -1,5 +1,42 @@
 # Implementation status
 
+## Approval UX v2 and agent mandates (2026-10-28, branch `claude/orbit-approval-ux-v2-7daf3e`, local; `ORBIT_AGENT_MANDATES` off)
+
+Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-mandates.md](adr/0019-agent-mandates.md) (proposed; needs Mario's acceptance). Nothing is deployed or switched on, and no mandate exists until an owner grants one.
+
+- **Authorization core:**
+  - `ActionDefinition.riskClass` has the full ADR 0008 set.
+  - Every assistant/MCP operation states its class: 37 operations, previously all `W2`; `riskClass` is required for `approvedOperation`.
+  - The new `mandate` descriptor is allowed only for `W0`/`C1`/`C2`.
+  - New entity kind `agent_mandates` (no migration), with the service in `platform/governance/agent-mandates.ts` (grant, revoke, read; audit `agent_mandate.granted`/`revoked`).
+  - One decision function, `resolveAuthorization`/`approveUnderMandate` in `platform/governance/authorization.ts`, returns `auto_within_policy` or `approval_required` with reason codes.
+  - It is applied in `approvedOperation` to new requests only. The existing `decideActionRequest` runs with the channel `mandate`. The request records `authorization`, and the audit event is `action_request.auto_approved`.
+  - Owner-only web routes: `GET/POST …/agent-mandates` and `POST …/agent-mandates/:id/revoke`. There is no MCP or assistant tool for them.
+- **Security fix (G5):** a delegated MCP 2.0 work order carries an MCP channel (`chat-runner.ts`). An owner's delegated `support_send_reply` therefore ran under the inbox rule `mcpOwnerRepliesWithoutApproval`, although the rule covers only the owner's own MCP calls (`docs/SUPPORT_MCP.md`). Requests recorded with a `taskId` now keep their approval. Regression test: `mcp-2-workflows.integration.test.ts` (it failed without the fix: the reply was `consumed`).
+- **Creative pilot:**
+  - `marketing_creative_preview_create` is `C2` and mandatable. A grant can limit the art modes, sets a cost limit per preview (at most USD 2) and the actions per day. It can also carry a separate rights consent, bound to the image model and ceiling at grant time.
+  - Under a mandate, the preview job checks the mandate again before it starts and in the reservation transaction (`AGENT_MANDATE_ENDED`, nothing paid).
+  - Generated art becomes approved only with the consent and an unchanged image route (`rightsSource.kind = "agent_mandate"`); otherwise it stays `needs_rights`. The preview renditions stay internal references.
+  - The result adds `qa.scope: "technical"`, `rights.explanation` and `approval.generationApprovedBy`. The MCP proposal output adds `approvedBy` (all additive).
+- **Further mandatable internal types (reviewed list, pinned by a test):**
+  - `support_add_note`, `support_prepare_reply`;
+  - `knowledge_propose_fact`;
+  - `marketing_create_campaign`, `marketing_update_campaign`;
+  - `work_propose_initiative`, `work_propose_tasks`, `work_propose_task_update`, `work_propose_comment`.
+
+  Publishing, sending, external writes, coding dispatch, verification, budget, model, policy and configuration changes stay unmandatable. So do `platform.task.start` and delegated orders.
+- **Approval UX:**
+  - Inbox items carry `presentation {module, effect, internal, mandatable}`.
+  - Every request now shows a readable title (no raw action type), module and effect badges (inside Orbit, paid, leaves Orbit, public, rules and budget), why it waits, the cost limit and the remaining time. Technical facts are in a collapsed area. Operation arguments appear as labelled values instead of raw JSON.
+  - New Marketing renderer for creative previews: exact post text, image copy, the chosen image or the exact art prompt, and what the approval does not do.
+  - The attention badge counts the same decidable requests as the list, so editors see their editor-decided items too.
+  - New cross-project overview: `GET /api/action-requests/summary` returns counts per project, each read in that project's own transaction. The Approvals page lists the other projects with links; decisions stay on the project route.
+  - Settings → AI & budget → Agent permissions.
+  - The creative panel shows usage rights apart from technical quality.
+- **Budget cleanup:** the assistant's `project_status.policy.modelBudget` showed the Marketing policy's legacy budget copy. It now shows the effective spending authority (`requireSpendMandate`); the shape is unchanged. `marketing_policy_get` adds `budgetsAuthoritative`. No limit changed. The Marketing heuristics that read their own monthly value (assignment and plan fit, batch sizing) are unchanged; `reserve` stays the authority.
+- **Verification:** see the final report of this task in the session. In short: the new `agent-mandates.integration.test.ts` (12 tests: A, B, D incl. parallel, E, F, G, H, flag off, registry), the G5 regression, the web tests for the inbox frame, the creative renderer and the cross-project list, the access matrix (3 owner-only routes added) and OpenAPI (3 paths added, none removed).
+- **Open:** Mario's acceptance of ADR 0019 and decisions D-1 to D-5 (plan §7); the flag; a live MCP run with a real client against a deployed stack (G was covered in-process through `authorizeMcpCall`).
+
 ## Creative previews over MCP and the assistant (2026-10-28, branch `claude/orbit-creative-studio-v2-3ae0b3`, local)
 
 Cause of the missing capability: the Creative Studio was reachable only through its HTTP routes (web UI) and needed an existing post; no MCP tool wrapped it. `marketing_prepare_package` composes creatives only for projects with the automatic opt-in (`visualIdentity.creative.enabled`, off) and then still needs the owner's image rights and a manual attach; `marketing_assignment_propose` only offers `publish` and `postiz_draft`; no MCP tool listed assets, named the usable primary logo or returned an image (MCP results were text only). Not a cache or deployment issue: the gateway builds its catalog per request.

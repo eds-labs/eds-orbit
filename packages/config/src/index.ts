@@ -100,6 +100,11 @@ const baseConfigSchema = z.object({
   // and prompts and tool schemas are those from before it (docs/
   // MARKETING_CREATIVE_STUDIO.md names the one intended MCP fix).
   ORBIT_CREATIVE_STUDIO: z.enum(["false", "true"]).default("false"),
+  // Agent mandates (ADR 0019): an owner may let the assistant or MCP clients
+  // run one internal action type within limits without a per-request
+  // approval. While "false" every stored mandate is inert and every request
+  // waits for its decision as before.
+  ORBIT_AGENT_MANDATES: z.enum(["false", "true"]).default("false"),
   // Owners may switch modules per project (WP1.4). Activation is recorded but
   // not yet enforced; every module keeps working while this is "false".
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),

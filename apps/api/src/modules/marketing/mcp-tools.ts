@@ -84,6 +84,9 @@ const reads = [
 ];
 const writes = [
   approvedOperation({
+    riskClass: "W0",
+    // Internal only (ADR 0019): an owner may let agents do it without asking.
+    mandate: { maxCostMicrosPerAction: 0 },
     ...shared,
     name: "marketing_create_campaign",
     description:
@@ -107,6 +110,9 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "W0",
+    // Internal only (ADR 0019): an owner may let agents do it without asking.
+    mandate: { maxCostMicrosPerAction: 0 },
     ...shared,
     name: "marketing_update_campaign",
     description:
@@ -138,6 +144,7 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "C2",
     ...shared,
     name: "marketing_request_image",
     description:
@@ -155,6 +162,7 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "W2",
     ...shared,
     name: "marketing_schedule_content",
     description:
@@ -185,6 +193,7 @@ const writes = [
     },
   }),
   approvedOperation({
+    riskClass: "C1",
     ...shared,
     name: "marketing_prepare_package",
     description:

@@ -14,8 +14,12 @@ import {
   decideActionRequest,
   type ActionDefinition,
   type ActionRequirement,
+  type AgentMandateTerms,
   type RequestedBy,
+  type RiskClass,
 } from "../../modules/action-requests.ts";
+import { approveUnderMandate } from "../governance/authorization.ts";
+import { agentMandatesEnabled } from "../governance/agent-mandates.ts";
 import { userScoped } from "../tenancy/scope.ts";
 import { actorScope } from "../tenancy/member-scope.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
@@ -44,6 +48,22 @@ type Operation = {
   mcpScopes?: readonly string[];
   /** Content-free summary for the native approval renderer (ids only). */
   summary?(args: any): Record<string, unknown>;
+  /**
+   * The operation's risk class (ADR 0008 §1), stated per operation; read
+   * operations ignore it. Proposals record it, and the approvals list
+   * explains it (internal, paid, external, public, governance).
+   */
+  riskClass?: RiskClass;
+  /**
+   * Marks the operation as one an owner may cover with an agent mandate
+   * (ADR 0019); only internal classes. `check` receives the arguments.
+   */
+  mandate?: {
+    maxCostMicrosPerAction: number;
+    options?: Record<string, readonly string[]>;
+    check?(args: any, terms: AgentMandateTerms): string[];
+    rightsTerms?(tx: DbTx, scope: Scope): Promise<Record<string, unknown>>;
+  };
   /** Code-owned, default-off standing authorization for this owner's MCP calls only. */
   ownerMcpAutoApproval?(
     tx: DbTx,
@@ -85,7 +105,13 @@ type Operation = {
     scope: Scope,
     args: any,
     requester?: RequestedBy,
+    request?: ApprovedRequest,
   ): Promise<unknown>;
+};
+/** The approved request an operation runs for, with the mandate that approved it. */
+export type ApprovedRequest = {
+  actionRequestId: string;
+  mandate: { id: string; version: number } | null;
 };
 /** Model strict schemas use null for omitted optional fields; native service schemas retain defaults. */
 function modelField(value: z.ZodType): z.ZodType {
@@ -162,6 +188,8 @@ const proposalOutput = z
     approveUrl: z.string(),
     status: z.string(),
     requiresApproval: z.boolean(),
+    // Who approved it: a person, the Support inbox rule or an agent mandate.
+    approvedBy: z.enum(["person", "inbox_setting", "mandate"]).optional(),
     result: z.unknown().optional(),
   })
   .strict();
@@ -226,7 +254,9 @@ export function readOperation(op: Operation) {
   });
 }
 
-export function approvedOperation(op: Operation) {
+export function approvedOperation(
+  op: Operation & { riskClass: RiskClass },
+) {
   const actionType = `${op.module}.mcp.${op.name}`;
   const input = op.input
     .extend({ idempotencyKey: z.string().min(1).max(128) })
@@ -241,8 +271,25 @@ export function approvedOperation(op: Operation) {
     })
     .strict();
   const action: ActionDefinition<z.infer<typeof payload>> = {
-    riskClass: "W2",
+    riskClass: op.riskClass!,
     approvalMode: "approval_required",
+    ...(op.mandate
+      ? {
+          mandate: {
+            maxCostMicrosPerAction: op.mandate.maxCostMicrosPerAction,
+            ...(op.mandate.options ? { options: op.mandate.options } : {}),
+            ...(op.mandate.rightsTerms
+              ? { rightsTerms: op.mandate.rightsTerms }
+              : {}),
+            // Unreadable stored args are outside every mandate.
+            check: (p: z.infer<typeof payload>, terms: AgentMandateTerms) => {
+              const args = op.input.safeParse(p.args);
+              if (!args.success) return ["PAYLOAD_NOT_COVERED"];
+              return op.mandate!.check?.(args.data, terms) ?? [];
+            },
+          },
+        }
+      : {}),
     deciderRole: op.deciderRole ?? "owner",
     // Editor-decided operations come from outside clients or the assistant:
     // the approvals list shows them to the members who may decide.
@@ -312,7 +359,14 @@ export function approvedOperation(op: Operation) {
       const args = op.input.parse(p.args);
       await op.validate?.(tx, asModule, args);
       await op.revalidateContext?.(tx, asModule, args, p.approvalContext);
-      const result = await op.run(tx, asModule, args, data(row).requestedBy);
+      const auth = data(row).authorization;
+      const result = await op.run(tx, asModule, args, data(row).requestedBy, {
+        actionRequestId: row.id,
+        mandate:
+          auth?.mode === "auto_within_policy"
+            ? { id: String(auth.mandateId), version: Number(auth.mandateVersion) }
+            : null,
+      });
       await update(tx, asModule, row, {
         ...data(row),
         status: "consumed",
@@ -335,7 +389,10 @@ export function approvedOperation(op: Operation) {
       op.description +
       (op.ownerMcpAutoApproval
         ? " Sends without another Orbit approval only when the owner has enabled direct MCP replies for the ticket inbox and makes the call personally through MCP; otherwise saves an owner approval request. Read requiresApproval/status and the delivery receipt; queued does not mean delivered. Retry with the same idempotencyKey."
-        : op.deciderRole === "editor"
+        : // Worded by the switch at start, so tool definitions stay as before while it is off.
+          op.mandate && agentMandatesEnabled()
+          ? " Runs without another approval only when the owner has granted an agent mandate for this action that covers the caller and its limits; otherwise saves an exact owner approval request. Read requiresApproval/status. Retry with the same idempotencyKey."
+          : op.deciderRole === "editor"
           ? " Saves an exact approval request an owner or editor decides; executes only after approval in Orbit. Retry with the same idempotencyKey."
           : " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey."),
     parameters: modelParameters(input),
@@ -415,9 +472,15 @@ export function approvedOperation(op: Operation) {
           }));
         // Only new exact proposals by the deciding owner can use the setting.
         // A retry never auto-sends an older pending proposal or executes twice.
-        // Delegated/in-app tools have no gateway channel and retain approval.
+        // In-app tools have no gateway channel and retain approval; delegated
+        // work orders carry one (chat-runner) but are recorded with their
+        // task, and retain approval too (docs/SUPPORT_MCP.md).
+        const delegated = Boolean(data(row).requestedBy?.taskId);
         const currentActor =
-          !old && ctx.channel?.kind === "mcp" && op.ownerMcpAutoApproval
+          !old &&
+          !delegated &&
+          ctx.channel?.kind === "mcp" &&
+          op.ownerMcpAutoApproval
             ? await actorScope(
                 ctx.scope.workspaceId,
                 ctx.scope.projectId,
@@ -449,6 +512,12 @@ export function approvedOperation(op: Operation) {
           );
           row = await entity(tx, ctx.scope, "action_requests", row.id);
         }
+        // An agent mandate (ADR 0019) covers only new requests too; the
+        // one decision function reads the stored request, never the caller.
+        // A specialist's task (an assignment run) is not the owner's
+        // assistant: its proposals keep their approval.
+        if (!old && !standingApproval && op.mandate && !ctx.agentTask)
+          row = (await approveUnderMandate(tx, ctx.scope, row)).row;
         const state = data(row);
         const result =
           state.status === "consumed" && op.executionResult
@@ -461,6 +530,16 @@ export function approvedOperation(op: Operation) {
             approveUrl: mcpApproveUrl(ctx.scope.projectId),
             status: state.status,
             requiresApproval: state.status === "pending",
+            ...(state.decision?.decision === "approve"
+              ? {
+                  approvedBy:
+                    state.decision.channel === "mandate"
+                      ? ("mandate" as const)
+                      : state.decision.channel === "mcp_setting"
+                        ? ("inbox_setting" as const)
+                        : ("person" as const),
+                }
+              : {}),
             ...(result === undefined ? {} : { result }),
           },
           cards: [

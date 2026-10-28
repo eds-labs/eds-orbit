@@ -5,6 +5,7 @@ import {
 import { registerTaskRoutes } from "./platform/tasks/routes.ts";
 import {
   authorize,
+  can,
   PROJECT_OWN,
   PROJECT_WRITE,
   platformActionPermissions,
@@ -72,12 +73,18 @@ import {
 import {
   decideActionRequest,
   listActionRequests,
+  openDecidableRequests,
 } from "./modules/action-requests.ts";
 import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import { projectReadiness } from "./platform/governance/readiness.ts";
 import { projectAiConfigurationView } from "./modules/openai-configuration.ts";
 import { readSpendPolicy } from "./platform/ai/spend-policy.ts";
+import {
+  grantAgentMandate,
+  readAgentMandates,
+  revokeAgentMandate,
+} from "./platform/governance/agent-mandates.ts";
 import { platformSpendLimits } from "./platform/ai/spend-mandate.ts";
 import { providerBudgetStatus } from "./platform/ai/provider-budget.ts";
 import {
@@ -706,6 +713,50 @@ export async function buildServer(
       }),
     };
   });
+  // Open decisions across the member's projects (Approval UX v2): counts
+  // only, each read in its own project transaction with the member's scope
+  // there, so no project's rules leak into another. Deciding stays on the
+  // project route; this adds no second decision path.
+  app.get("/api/action-requests/summary", async (req) => {
+    const user = await userFor(auth, req);
+    const projects = await authDb.project.findMany({
+      where: {
+        OR: [
+          {
+            workspace: {
+              members: { some: { userId: user.id, role: "owner" } },
+            },
+          },
+          { members: { some: { userId: user.id } } },
+        ],
+      },
+      select: { id: true, name: true, workspaceId: true },
+      orderBy: { createdAt: "asc" },
+      take: 100,
+    });
+    const items = [];
+    for (const project of projects) {
+      const scope = await scopeFor(auth, req, project.id).catch(() => null);
+      if (!scope || !can({ role: highestRole(scope) }, PROJECT_WRITE)) continue;
+      const rows = await scoped(scope.workspaceId, project.id, (tx) =>
+        openDecidableRequests(tx, scope),
+      );
+      if (!rows.length) continue;
+      const expiries = rows
+        .map((row) => Date.parse(data(row).expiresAt))
+        .filter((at) => !Number.isNaN(at));
+      items.push({
+        projectId: project.id,
+        projectName: project.name,
+        workspaceId: project.workspaceId,
+        count: rows.length,
+        firstExpiresAt: expiries.length
+          ? new Date(Math.min(...expiries)).toISOString()
+          : null,
+      });
+    }
+    return { items };
+  });
   app.post("/api/projects", async (req, reply) => {
     const user = await userFor(auth, req);
     const input = z
@@ -940,6 +991,34 @@ export async function buildServer(
       readSpendPolicy(tx, scope),
     );
   });
+  // Agent mandates (ADR 0019): owners only, through the web session; no MCP
+  // or assistant tool can grant, widen or revoke one.
+  app.get("/api/projects/:projectId/agent-mandates", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      readAgentMandates(tx, scope),
+    );
+  });
+  app.post("/api/projects/:projectId/agent-mandates", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const row = await scoped(scope.workspaceId, projectId, (tx) =>
+      grantAgentMandate(tx, scope, req.body),
+    );
+    return { id: row.id, version: row.version, ...(data(row) as object) };
+  });
+  app.post(
+    "/api/projects/:projectId/agent-mandates/:id/revoke",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const row = await scoped(scope.workspaceId, projectId, (tx) =>
+        revokeAgentMandate(tx, scope, z.uuid().parse(id), req.body),
+      );
+      return { id: row.id, version: row.version, ...(data(row) as object) };
+    },
+  );
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
