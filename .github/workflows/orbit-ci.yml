@@ -20,6 +20,7 @@ jobs:
       - run: pnpm local:setup
       - run: ORBIT_CONFIG_FILE=.runtime/local.env pnpm api:generate
       - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
+      - run: pnpm test:coolify-compose
       - run: pnpm test:migration-profile
       - run: python3 scripts/check-secrets.py && node scripts/dependency-inventory.mjs
       - run: pnpm audit --audit-level high

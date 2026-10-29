@@ -69,3 +69,25 @@ For a release record, capture:
 4. The current backup/recovery state, owner/change reference, and any blocked live connector/model gates.
 
 Coolify documentation: [Docker Compose](https://coolify.io/docs/applications/builds/docker-compose), [Compose networking](https://coolify.io/docs/core/networking-in-coolify), [Traefik routing](https://coolify.io/docs/core/networking/proxy/traefik/overview), and [health checks](https://coolify.io/docs/applications/configuration/health-checks).
+
+
+## VM102: restore Git deployments after the server migration
+
+The migrated `Orbit Production` resource is a user-defined Coolify Service with fixed local migration images. It runs Compose but has no Git source or push deployment pipeline. A GitHub App alone does not convert it into a Git application.
+
+The replacement must be a GitHub Application using `eds-labs/eds-orbit`, branch `main`, the Docker Compose build pack, base `/`, and **`/docker-compose.pve.yml`**. Keep automatic deployments and previews off, leave domains empty, and do not deploy the preparation resource until the production change is approved. Keep Raw Compose Deployment off.
+
+`docker-compose.pve.yml` is generated from the canonical root definition by `node scripts/render-pve-compose.mjs`. It retains builds, migration gating, flags, commands, images, health checks and isolation. The only runtime adaptations are the five existing VM102 internal host mappings and the existing bind-mounted PostgreSQL and Redis data paths under `/data/orbit-production`. Missing directories must fail instead of silently creating an empty database. Never run both resources against these data directories. The Compose check also rejects a stale generated adapter after changes to the canonical file; regenerate and review both together.
+
+Before cutover:
+
+1. Copy the existing runtime variable values directly within the server into the inactive application. Preserve database role passwords, authentication/encryption keys, feature flags and provider credentials. Do not use newly generated replacement credentials and do not print values.
+2. Compare rendered environments against the running services. Confirm both bind paths, five internal host mappings, worker queue identity and database/auth roles. Keep all production domains off the draft.
+3. Build the reviewed commit without stopping production. Validate against isolated database/Redis copies with worker/provider actions disabled and no public route. A healthy container alone does not establish authenticated feature acceptance.
+4. Obtain explicit production-change approval. Pause/drain workers, take a fresh protected backup, stop the current resource, and ensure no process still mounts the data directories before starting the Git application. Keep data and the fixed migration images available for rollback.
+5. Move the existing domain routes and backup job target to the replacement, check HTTPS, authentication, API readiness, MCP health, worker readiness and all internal service connections, and test backup invocation against the correct new container. No public DNS change is needed.
+6. Enable push deployments only after the owner approves that deployment policy. Keep the configured revision pinned during preparation; change to `HEAD` only when activating branch deployments. The old server's Orbit automatic deployment stays disabled.
+
+`ORBIT_RELEASE_APPROVAL` is a human release reference, not a permanent blanket approval for arbitrary future database migrations. Before enabling unattended pushes, define how schema changes are reviewed and authorized. Do not remove the migrate service, bypass its role/RLS checks or silently enable feature flags to make a deployment pass.
+
+Rollback: prevent further automatic deployments, stop the replacement and restore the previous service and route/backup target using the retained migration images and unchanged data paths. If a new schema migration has run, assess compatibility first; never downgrade or overwrite a live database merely to roll back code.

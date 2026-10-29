@@ -23,7 +23,7 @@
     "eval:agent-review": "vitest run --config evals/agents/vitest.eval.config.ts",
     "eval:support": "vitest run --config evals/support/vitest.eval.config.ts",
     "eval:work-pm": "vitest run --config evals/work-pm/vitest.eval.config.ts",
-    "test:coolify-compose": "node scripts/check-coolify-compose.mjs",
+    "test:coolify-compose": "node scripts/check-coolify-compose.mjs && node scripts/check-pve-compose.mjs",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration",
     "test:e2e": "playwright test",
