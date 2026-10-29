@@ -19,7 +19,9 @@ jobs:
       - run: pnpm db:generate
       - run: pnpm local:setup
       # Load the isolated local config before module evaluation, not after imports.
-      - run: NODE_OPTIONS="--env-file=.runtime/local.env" ORBIT_CONFIG_FILE=.runtime/local.env pnpm api:generate
+      - run: |
+          ORBIT_CONFIG_FILE=.runtime/local.env node --env-file=.runtime/local.env --import tsx scripts/openapi.ts
+          pnpm exec openapi-typescript packages/schemas/openapi.json -o packages/api-client/src/generated.ts
       - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
       - run: pnpm test:coolify-compose
       - run: pnpm test:migration-profile
