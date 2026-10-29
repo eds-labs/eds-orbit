@@ -17,13 +17,13 @@ jobs:
       - run: corepack enable && corepack prepare pnpm@11.19.0 --activate
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
+      - run: pnpm test:coolify-compose
       - run: pnpm local:setup
       # Load the isolated local config before module evaluation, not after imports.
       - run: |
           ORBIT_CONFIG_FILE=.runtime/local.env node --env-file=.runtime/local.env --import tsx scripts/openapi.ts
           pnpm exec openapi-typescript packages/schemas/openapi.json -o packages/api-client/src/generated.ts
       - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
-      - run: pnpm test:coolify-compose
       - run: pnpm test:migration-profile
       - run: python3 scripts/check-secrets.py && node scripts/dependency-inventory.mjs
       - run: pnpm audit --audit-level high

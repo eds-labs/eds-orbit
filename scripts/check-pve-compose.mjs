@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  cpSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -110,4 +119,89 @@ assert.notEqual(
 assert.match(denied.stderr, /ORBIT_RELEASE_APPROVAL/);
 console.log(
   "PVE adapter preserves the canonical stack, existing data paths and release gate; no host ports",
+);
+
+const schemaHash = execFileSync(
+  "sh",
+  ["scripts/check-pve-schema.sh", "--print-hash"],
+  { cwd: root, encoding: "utf8" },
+).trim();
+assert.match(schemaHash, /^[a-f0-9]{64}$/);
+const schemaEnv = {
+  PATH: process.env.PATH,
+  ORBIT_APPROVED_SCHEMA_SHA256: schemaHash,
+};
+execFileSync("sh", ["scripts/check-pve-schema.sh"], {
+  cwd: root,
+  env: schemaEnv,
+  stdio: "pipe",
+});
+for (const approval of [undefined, "0".repeat(64)]) {
+  const environment = { PATH: process.env.PATH };
+  if (approval) environment.ORBIT_APPROVED_SCHEMA_SHA256 = approval;
+  const denied = spawnSync("sh", ["scripts/check-pve-schema.sh"], {
+    cwd: root,
+    env: environment,
+    encoding: "utf8",
+  });
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /PVE_SCHEMA_APPROVAL_REQUIRED/);
+}
+const fixture = mkdtempSync(join(tmpdir(), "orbit-pve-schema-"));
+try {
+  mkdirSync(join(fixture, "packages/db"), { recursive: true });
+  mkdirSync(join(fixture, "scripts"));
+  cpSync(
+    join(root, "packages/db/prisma"),
+    join(fixture, "packages/db/prisma"),
+    { recursive: true },
+  );
+  for (const name of [
+    "packages/db/prisma.config.ts",
+    "scripts/db-deploy.ts",
+    "scripts/check-pve-schema.sh",
+    "docker-compose.yml",
+    "docker-compose.pve.yml",
+  ])
+    cpSync(join(root, name), join(fixture, name));
+  for (const name of [
+    "packages/db/prisma/schema.prisma",
+    "scripts/db-deploy.ts",
+  ]) {
+    const original = readFileSync(join(fixture, name), "utf8");
+    writeFileSync(
+      join(fixture, name),
+      original + "\n// synthetic database change\n",
+    );
+    const denied = spawnSync("sh", ["scripts/check-pve-schema.sh"], {
+      cwd: fixture,
+      env: schemaEnv,
+      encoding: "utf8",
+    });
+    assert.notEqual(denied.status, 0);
+    assert.match(denied.stderr, /PVE_SCHEMA_APPROVAL_REQUIRED/);
+    writeFileSync(join(fixture, name), original);
+  }
+  mkdirSync(
+    join(fixture, "packages/db/prisma/migrations/99999999999999_synthetic"),
+  );
+  writeFileSync(
+    join(
+      fixture,
+      "packages/db/prisma/migrations/99999999999999_synthetic/migration.sql",
+    ),
+    "-- synthetic migration\n",
+  );
+  const denied = spawnSync("sh", ["scripts/check-pve-schema.sh"], {
+    cwd: fixture,
+    env: schemaEnv,
+    encoding: "utf8",
+  });
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /PVE_SCHEMA_APPROVAL_REQUIRED/);
+} finally {
+  rmSync(fixture, { recursive: true, force: true });
+}
+console.log(
+  "PVE schema guard blocks missing approvals, schema/grant changes and added migrations before deployment",
 );
