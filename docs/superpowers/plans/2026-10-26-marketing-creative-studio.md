@@ -842,7 +842,7 @@ Precondition: local stack with `ORBIT_CREATIVE_STUDIO=true` (API and worker env)
 ### Task 22: Live acceptance run (gated on Mario's go-ahead, ≤ 1 USD)
 
 **Files:**
-- Create: `scripts/creative-demo-seed.ts`. It runs on the local database only and refuses any `DATABASE_URL` host other than 127.0.0.1/localhost. It creates two demo projects (Lumora, Kestrel) with brand kits, assets and content.
+- Planned, not implemented: create `creative-demo-seed.ts` in the scripts directory. It runs on the local database only and refuses any `DATABASE_URL` host other than 127.0.0.1/localhost. It creates two demo projects (Lumora, Kestrel) with brand kits, assets and content.
 - Modify: `docs/IMPLEMENTATION_STATUS.md` (result)
 
 - [ ] **Step 1: Ask Mario for the go-ahead.** Name the cost ceiling: 2 art images at the project's `maxCostMicrosPerImage` (≤ 0.25 USD each), plus at most 2 vision reviews. Hard limit: project monthly budget 1 USD. He provides the image key through Settings → AI on the local stack.

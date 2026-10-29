@@ -18,7 +18,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm db:generate
       - run: pnpm local:setup
-      - run: ORBIT_CONFIG_FILE=.runtime/local.env pnpm api:generate
+      # Load the isolated local config before module evaluation, not after imports.
+      - run: NODE_OPTIONS="--env-file=.runtime/local.env" ORBIT_CONFIG_FILE=.runtime/local.env pnpm api:generate
       - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
       - run: pnpm test:coolify-compose
       - run: pnpm test:migration-profile

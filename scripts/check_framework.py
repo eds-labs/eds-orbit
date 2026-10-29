@@ -617,12 +617,21 @@ def check_hygiene(reporter: Reporter) -> None:
     temporary_dirs: list[str] = []
     suspicious_files: list[str] = []
     allowed_policy_names = {"backup-policy.md"}
+    # These are implemented copywriting modules, not copied/temporary files.
+    allowed_source_paths = {
+        "docs/BACKUP_RESTORE.md",
+        "docs/BACKUP_RESTORE_TEST_RESULT.json",
+        "scripts/backup-restore-test.ts",
+        "apps/web/src/modules/marketing/creative/creative-copy.ts",
+        "apps/api/src/modules/marketing/creative/copy-checks.ts",
+        "apps/api/src/modules/marketing/creative/copy-checks.test.ts",
+    }
     for path in source_paths():
         if ".git" in path.parts:
             continue
         if path.is_dir() and (path.name.lower() in temporary_names or path.name.lower().endswith(".egg-info")):
             temporary_dirs.append(relative(path))
-        if path.is_file() and path.name not in allowed_policy_names and relative(path) not in {"docs/BACKUP_RESTORE.md", "docs/BACKUP_RESTORE_TEST_RESULT.json", "scripts/backup-restore-test.ts"} and (
+        if path.is_file() and path.name not in allowed_policy_names and relative(path) not in allowed_source_paths and (
             suspicious_token.search(path.name) or duplicate_suffix.search(path.name)
         ):
             suspicious_files.append(relative(path))

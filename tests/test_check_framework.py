@@ -53,6 +53,22 @@ class FrameworkCheckTests(unittest.TestCase):
         quietly(check_framework.check_hygiene, reporter)
         self.assertTrue(any("guide-backup.md" in message for message in reporter.errors))
 
+    def test_copywriting_sources_are_not_duplicate_files(self) -> None:
+        for path in (
+            "apps/web/src/modules/marketing/creative/creative-copy.ts",
+            "apps/api/src/modules/marketing/creative/copy-checks.ts",
+            "apps/api/src/modules/marketing/creative/copy-checks.test.ts",
+        ):
+            self.write(path, "// Original copywriting source")
+        reporter = check_framework.Reporter()
+        quietly(check_framework.check_hygiene, reporter)
+        self.assertEqual([], reporter.errors)
+        self.write("apps/api/unrelated-copy.ts", "// Accidental duplicate")
+        reporter = check_framework.Reporter()
+        quietly(check_framework.check_hygiene, reporter)
+        self.assertEqual(1, len(reporter.errors))
+        self.assertIn("unrelated-copy.ts", reporter.errors[0])
+
     def setUp(self) -> None:
         self.original_root = check_framework.ROOT
         self.temp_directory = tempfile.TemporaryDirectory()
