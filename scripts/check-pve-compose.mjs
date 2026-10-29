@@ -168,8 +168,26 @@ try {
     "scripts/check-pve-schema.sh",
     "docker-compose.yml",
     "docker-compose.pve.yml",
+    "docker-compose.pve.source.sha256",
   ])
     cpSync(join(root, name), join(fixture, name));
+  // Coolify normalizes/replaces the selected YAML before running custom builds.
+  writeFileSync(join(fixture, "docker-compose.pve.yml"), "services: {}\n");
+  execFileSync("sh", ["scripts/check-pve-schema.sh"], {
+    cwd: fixture,
+    env: schemaEnv,
+    stdio: "pipe",
+  });
+  const canonical = readFileSync(join(fixture, "docker-compose.yml"), "utf8");
+  writeFileSync(join(fixture, "docker-compose.yml"), canonical + "\n# changed\n");
+  const stale = spawnSync("sh", ["scripts/check-pve-schema.sh"], {
+    cwd: fixture,
+    env: schemaEnv,
+    encoding: "utf8",
+  });
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stderr, /PVE_COMPOSE_REGENERATION_REQUIRED/);
+  writeFileSync(join(fixture, "docker-compose.yml"), canonical);
   for (const name of [
     "packages/db/prisma/schema.prisma",
     "scripts/db-deploy.ts",

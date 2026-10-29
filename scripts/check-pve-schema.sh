@@ -15,7 +15,8 @@ if [ "${1:-}" = "--print-hash" ]; then
   exit 0
 fi
 canonical=$(sha256sum docker-compose.yml | cut -d ' ' -f 1)
-recorded=$(sed -n 's/^# Canonical docker-compose.yml SHA256: //p' docker-compose.pve.yml)
+# Coolify replaces the selected Compose YAML, including comments, before this hook.
+recorded=$(cat docker-compose.pve.source.sha256)
 if [ -z "$recorded" ] || [ "$canonical" != "$recorded" ]; then
   echo "PVE_COMPOSE_REGENERATION_REQUIRED: review and regenerate the VM102 adapter before deployment." >&2
   exit 1
