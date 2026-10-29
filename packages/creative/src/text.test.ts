@@ -116,7 +116,20 @@ describe("fitText", () => {
       ...style,
       uppercase: true,
     });
-    expect(upper.width).toBeGreaterThan(plain.width);
+    const explicit = await fitText("PLAN YOUR WEEK", box, style);
+    // A wider uppercase phrase can wrap and produce a narrower block, depending
+    // on the installed font. Compare the actual uppercase layout and pixels.
+    expect({
+      width: upper.width,
+      height: upper.height,
+      size: upper.size,
+    }).toEqual({
+      width: explicit.width,
+      height: explicit.height,
+      size: explicit.size,
+    });
+    expect(upper.png.equals(explicit.png)).toBe(true);
+    expect(upper.png.equals(plain.png)).toBe(false);
   });
 
   it("centres the lines of a block when asked", async () => {

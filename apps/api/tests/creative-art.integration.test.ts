@@ -904,19 +904,27 @@ describe.skipIf(!enabled)(
           { ...CONFIRM, requestId },
           { generate },
         );
-        await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
         const error = vi.spyOn(console, "error").mockImplementation(() => {});
-        await expect(
-          regenerateCreativeArt(
-            p.owner,
-            creative.id,
-            { ...CONFIRM, requestId },
-            { generate },
-          ),
-        ).rejects.toMatchObject({ code: "RESERVATION_ALREADY_USED" });
-        error.mockRestore();
-        open();
-        const done = await first;
+        let done!: Awaited<typeof first>;
+        try {
+          // The database-backed reservation can exceed waitFor's 1s default on CI.
+          await vi.waitFor(() => expect(generate).toHaveBeenCalledTimes(1), {
+            timeout: 10_000,
+          });
+          await expect(
+            regenerateCreativeArt(
+              p.owner,
+              creative.id,
+              { ...CONFIRM, requestId },
+              { generate },
+            ),
+          ).rejects.toMatchObject({ code: "RESERVATION_ALREADY_USED" });
+        } finally {
+          error.mockRestore();
+          // Release and settle the first request even when an assertion fails.
+          open();
+          done = await first;
+        }
         expect(generate).toHaveBeenCalledTimes(1);
         const after = await record(creative.id);
         const art = after.corrections.filter((c) => c.kind === "art");
