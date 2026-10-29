@@ -73,6 +73,12 @@ const hosts = Object.fromEntries(
 for (const [name, service] of Object.entries(pve.services)) {
   assert.ok(!service.ports?.length, `${name} must not publish host ports`);
   if (["postgres", "redis"].includes(name)) {
+    // Compose versions either omit explicit false defaults or retain them.
+    for (const mount of service.volumes) {
+      assert.equal(mount.bind?.create_host_path ?? false, false);
+      mount.bind = { ...mount.bind };
+      delete mount.bind.create_host_path;
+    }
     assert.deepEqual(service.volumes, [
       {
         type: "bind",
