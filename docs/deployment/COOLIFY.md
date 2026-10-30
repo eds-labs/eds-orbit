@@ -4,6 +4,10 @@ This document prepares the private `eds-labs/eds-orbit` repository for a **new, 
 
 The repository root [`docker-compose.yml`](../../docker-compose.yml) is the canonical Coolify definition. It starts exactly five durable application dependencies: `web`, `api`, `worker`, `postgres`, and `redis`, plus the one-shot `migrate` job. No Caddy container, host path, host port, or external database/Redis endpoint is included. Coolify's integrated Traefik owns public routing and TLS.
 
+## Current production (2026-10-30)
+
+Orbit production runs on **`https://coolify-pve.eds-labs.io`** (server VM102), project EDS Orbit, environment production. The resource is the Git application `Orbit Production (GitHub)`: repository `eds-labs/eds-orbit`, branch `main`, compose `/docker-compose.pve.yml`. A push to `main` starts a webhook deployment. The VM102 section below explains how that application builds, including the schema approval hash. The previous Coolify at `coolify.eds-labs.io` and the migrated service `Orbit Production` (stopped, kept for rollback) no longer serve production. Never run them against the production data.
+
 ## Architecture and isolation
 
 - `web` is the only service assigned a Coolify domain. It listens internally on port `4310` and proxies application API requests to `http://api:4311` through Docker DNS.

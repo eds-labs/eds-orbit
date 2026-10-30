@@ -1,10 +1,12 @@
 # Implementation status
 
-## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` off)
+## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` on since 2026-10-30)
 
 **Pushed to main on 2026-10-28 with Mario's approval** (fast-forward `aaed3d47..fa13f631`). The Coolify webhook deployed `fa13f631`, and the deployment finished at 17:43 UTC. Afterwards `/api/health/ready` reported database ok and worker ready, `/mcp/healthz` answered 200, and the new routes answered 401 without a session. The flag stays off, so no mandate can be granted. Live as of this deploy: the Support fix (G5), per-operation risk classes, the approval UX and the cross-project summary.
 
-Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-mandates.md](adr/0019-agent-mandates.md) (proposed; needs Mario's acceptance). Nothing is deployed or switched on, and no mandate exists until an owner grants one.
+**Flag on in production, 2026-10-30, at Mario's request** (D-1 and D-2). `ORBIT_AGENT_MANDATES=true` was set on the coolify-pve application `Orbit Production (GitHub)` and went live with the webhook deployment of this record's commit. D-3 and D-5 keep the implemented defaults: a mandate covers only the owner who grants it, and the mandatable list is the pinned one below. No mandate exists until an owner grants one under Settings → AI & budget → Agent permissions. Rollback: set the variable to `false` and redeploy; stored mandates then stay inert.
+
+Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-mandates.md](adr/0019-agent-mandates.md) (accepted 2026-10-30).
 
 - **Authorization core:**
   - `ActionDefinition.riskClass` has the full ADR 0008 set.
@@ -37,7 +39,7 @@ Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-m
   - The creative panel shows usage rights apart from technical quality.
 - **Budget cleanup:** the assistant's `project_status.policy.modelBudget` showed the Marketing policy's legacy budget copy. It now shows the effective spending authority (`requireSpendMandate`); the shape is unchanged. `marketing_policy_get` adds `budgetsAuthoritative`. No limit changed. The Marketing heuristics that read their own monthly value (assignment and plan fit, batch sizing) are unchanged; `reserve` stays the authority.
 - **Verification:** see the final report of this task in the session. In short: the new `agent-mandates.integration.test.ts` (12 tests: A, B, D incl. parallel, E, F, G, H, flag off, registry), the G5 regression, the web tests for the inbox frame, the creative renderer and the cross-project list, the access matrix (3 owner-only routes added) and OpenAPI (3 paths added, none removed).
-- **Open:** Mario's acceptance of ADR 0019 and decisions D-1 to D-5 (plan §7); the flag; a live MCP run with a real client against a deployed stack (G was covered in-process through `authorizeMcpCall`).
+- **Open:** D-6, the read-only production audit check for G5 (plan §7); a live MCP run with a real client against a deployed stack (G was covered in-process through `authorizeMcpCall`).
 
 ## Creative previews over MCP and the assistant (2026-10-28, branch `claude/orbit-creative-studio-v2-3ae0b3`, local)
 

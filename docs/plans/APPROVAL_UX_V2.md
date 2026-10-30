@@ -101,9 +101,9 @@ Findings and changes are recorded in IMPLEMENTATION_STATUS with the phase 4 docs
 
 ## 7. Open decisions for Mario
 
-- D-1: Accept ADR 0019 (mandates; MCP as a separate opt-in; delegated orders excluded).
-- D-2: Turning on `ORBIT_AGENT_MANDATES` in production, and when.
+- D-1: Accept ADR 0019 (mandates; MCP as a separate opt-in; delegated orders excluded). **Decided 2026-10-30: accepted.**
+- D-2: Turning on `ORBIT_AGENT_MANDATES` in production, and when. **Decided 2026-10-30: on.**
 - D-3: Whether an owner may cover other members (editors) in a creative mandate. The current default is the grantor only; new art is owner-only anyway.
-- D-4: Delivery to `main` (it deploys).
+- D-4: Delivery to `main` (it deploys). **Done 2026-10-28 (`fa13f631`).**
 - D-5: Whether the first set of internal types may be marked mandatable (pinned in the test): `support_add_note` and `support_prepare_reply` (Support content stays internal; replies never), `knowledge_propose_fact`, the Marketing campaign drafts and the four `work_propose_*` operations. Removing any of them is one line plus the pinned list.
 - D-6: The G5 production check. Look for `mcp_setting` decisions on requests with `requestedBy.taskId` in production audit data (read only).

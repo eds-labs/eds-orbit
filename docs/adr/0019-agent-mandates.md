@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, 2026-10-28 (Approval UX v2, plan [`docs/plans/APPROVAL_UX_V2.md`](../plans/APPROVAL_UX_V2.md)). Implemented locally behind `ORBIT_AGENT_MANDATES` (default `false`). Nothing is deployed, and no mandate exists until an owner creates one. Acceptance, the flag and every production step need Mario's explicit decision. This ADR extends [ADR 0008](0008-action-approvals.md) and [ADR 0002](0002-owner-mandates.md). It uses the spending authority of [ADR 0015](0015-ai-spend-policy.md) and changes no hard floor.
+Accepted, 2026-10-30. Proposed 2026-10-28 (Approval UX v2, plan [`docs/plans/APPROVAL_UX_V2.md`](../plans/APPROVAL_UX_V2.md)). Mario had the flag `ORBIT_AGENT_MANDATES` (code default `false`) switched on in production on 2026-10-30. No mandate exists until an owner creates one. This ADR extends [ADR 0008](0008-action-approvals.md) and [ADR 0002](0002-owner-mandates.md). It uses the spending authority of [ADR 0015](0015-ai-spend-policy.md) and changes no hard floor.
 
 ## Context
 
