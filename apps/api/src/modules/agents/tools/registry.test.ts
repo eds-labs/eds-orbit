@@ -508,6 +508,27 @@ describe("client-executed tool search", () => {
     ).toBeLessThanOrEqual(3);
   });
 
+  it("loads every tool the goal names, beyond three, in one search", () => {
+    // Each search costs a model call of the turn (CHAT_TOOL_LIMIT, 2026-10-30).
+    expect(
+      names(
+        searchTools(
+          deferred,
+          "Load schedule_options, propose_schedule, recent_content and analytics_memory",
+        ),
+      ),
+    ).toEqual([
+      "schedule_options",
+      "propose_schedule",
+      "recent_content",
+      "analytics_memory",
+    ]);
+    // A name inside a longer word is not a name.
+    expect(names(searchTools(deferred, "recent_content_v2 posts"))).toEqual([
+      "recent_content",
+    ]);
+  });
+
   it("returns every deferred tool when nothing matches, for example a German goal", () => {
     expect(names(searchTools(deferred, "Termin für morgen finden"))).toEqual(
       names(deferred),

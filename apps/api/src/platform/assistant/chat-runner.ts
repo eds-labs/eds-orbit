@@ -544,7 +544,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
           ]),
       ...(deferred.length
         ? [
-            `Load these tools with tool_search before calling them: ${deferred.map((tool) => tool.name).join(", ")}.`,
+            `Load these tools with tool_search before calling them: ${deferred.map((tool) => tool.name).join(", ")}. Name every tool the task needs in one tool_search goal, and call independent tools in the same step: each step uses one of the turn's few model calls.`,
           ]
         : []),
     ].join(" ");

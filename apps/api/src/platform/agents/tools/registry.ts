@@ -288,7 +288,11 @@ export const TOOL_SEARCH = {
   parameters: {
     type: "object",
     properties: {
-      goal: { type: "string", description: "What you need to do next" },
+      goal: {
+        type: "string",
+        description:
+          "What you need to do next, or the exact names of every tool to load",
+      },
     },
     required: ["goal"],
     additionalProperties: false,
@@ -301,11 +305,16 @@ export function deferredDefinition(tool: OrbitTool) {
 }
 
 /**
- * Deterministic search over the deferred tools a run may use: goal words found
- * in a tool's name, namespace or description. Returns at most three tools with
- * at least half the best score, or every candidate when nothing matches.
+ * Deterministic search over the deferred tools a run may use. A tool the goal
+ * names exactly always loads, so one search can load a whole flow (each search
+ * costs a model call of the turn). Otherwise goal words found in a tool's
+ * name, namespace or description: at most three tools with at least half the
+ * best score, or every candidate when nothing matches.
  */
 export function searchTools(candidates: readonly OrbitTool[], goal: string) {
+  const tokens = new Set(goal.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []);
+  const named = candidates.filter((tool) => tokens.has(tool.name));
+  if (named.length) return named;
   const words = [
     ...new Set(goal.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []),
   ];

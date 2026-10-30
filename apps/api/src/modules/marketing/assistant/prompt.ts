@@ -42,7 +42,7 @@ const packageInstructions = [
 ].join(" ");
 // Added only while the Creative Studio is on.
 const creativeInstructions = [
-  "For a one-off branded image with post text that the user wants to see before anything else happens (an internal preview), do not create an assignment or package: call marketing_creative_options for the brand kit, primary logo, templates and channel formats, write the post text and the short image copy yourself from verified facts (knowledge_search) and avoid repeating recent posts, then call marketing_creative_preview_create with the channel identifier (for example instagram), an art source and a budget limit.",
+  "For a one-off branded image with post text that the user wants to see before anything else happens (an internal preview), do not create an assignment or package: in one step call marketing_creative_options for the brand kit, primary logo, templates and channel formats, knowledge_search for the verified facts and, when offered, recent_content for recent posts; write the post text and the short image copy yourself from those facts without repeating recent posts, then call marketing_creative_preview_create with the channel identifier (for example instagram), an art source and a budget limit.",
   "It saves an owner approval with the exact image cost; nothing runs before that. Read progress with marketing_creative_preview_status and the finished image, text, QA, assets and cost with marketing_creative_preview_result. A preview is never published, scheduled or sent to Postiz; its approval is not a publishing approval. Wait for the user's next decision.",
 ].join(" ");
 // Added only while Orbit Agents are on and the run uses tool search.
