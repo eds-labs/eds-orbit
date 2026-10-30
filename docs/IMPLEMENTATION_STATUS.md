@@ -6,6 +6,12 @@
 
 **Flag on in production, 2026-10-30, at Mario's request** (D-1 and D-2). `ORBIT_AGENT_MANDATES=true` was set on the coolify-pve application `Orbit Production (GitHub)` and went live with the webhook deployment of this record's commit. D-3 and D-5 keep the implemented defaults: a mandate covers only the owner who grants it, and the mandatable list is the pinned one below. No mandate exists until an owner grants one under Settings → AI & budget → Agent permissions. Rollback: set the variable to `false` and redeploy; stored mandates then stay inert.
 
+**Live test, 2026-10-30, project uLiquid (Mario's session in Chrome, with his OK):**
+- Mandate `fb4cb46d`: creative preview, assistant only, no MCP, art `none` only, at most USD 0.50 per preview, 1 per day, 1 day, no rights consent.
+- First request in Orbit Chat: the run stopped with `CHAT_TOOL_LIMIT` (16 tool calls) before it proposed the preview. Tool search, options and knowledge checks used them up. The mandate was not used (`usedToday` 0).
+- Second, more direct request: the assistant reported that the mandate approved the preview without a separate approval. Preview `1903dd6b` finished (`completed`) at USD 0 and was not published, scheduled or sent to Postiz. The approvals list had no open request, and the mandate counted 1/1.
+- The mandate was revoked afterwards (13:58 UTC; `inForce: false`).
+
 Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-mandates.md](adr/0019-agent-mandates.md) (accepted 2026-10-30).
 
 - **Authorization core:**
@@ -39,7 +45,7 @@ Plan: [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md). ADR: [adr/0019-agent-m
   - The creative panel shows usage rights apart from technical quality.
 - **Budget cleanup:** the assistant's `project_status.policy.modelBudget` showed the Marketing policy's legacy budget copy. It now shows the effective spending authority (`requireSpendMandate`); the shape is unchanged. `marketing_policy_get` adds `budgetsAuthoritative`. No limit changed. The Marketing heuristics that read their own monthly value (assignment and plan fit, batch sizing) are unchanged; `reserve` stays the authority.
 - **Verification:** see the final report of this task in the session. In short: the new `agent-mandates.integration.test.ts` (12 tests: A, B, D incl. parallel, E, F, G, H, flag off, registry), the G5 regression, the web tests for the inbox frame, the creative renderer and the cross-project list, the access matrix (3 owner-only routes added) and OpenAPI (3 paths added, none removed).
-- **Open:** D-6, the read-only production audit check for G5 (plan §7); a live MCP run with a real client against a deployed stack (G was covered in-process through `authorizeMcpCall`).
+- **Open:** D-6, the read-only production audit check for G5 (plan §7); the assistant's creative preview flow can exceed the chat's 16 tool calls (`CHAT_TOOL_LIMIT`, see the live test); a live MCP run with a real client against a deployed stack (G was covered in-process through `authorizeMcpCall`).
 
 ## Creative previews over MCP and the assistant (2026-10-28, branch `claude/orbit-creative-studio-v2-3ae0b3`, local)
 
