@@ -1,4 +1,5 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
+import { socialOAuthStateCleanup } from "./accounts/oauth-state.ts";
 import { socialConnectionProviders } from "./accounts/providers.ts";
 import { socialSwitchedOn } from "./gate.ts";
 import { socialRoutes } from "./routes.ts";
@@ -14,4 +15,5 @@ export const socialContributions: ModuleContributions = {
   // Developer apps (administration) and the module-managed account
   // connections (accounts/providers.ts).
   connections: { providers: socialConnectionProviders },
+  periodic: [socialOAuthStateCleanup],
 };
