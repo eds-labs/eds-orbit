@@ -9,6 +9,7 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { redirectUri } from "./accounts/apps.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
 import { consumeOAuthState, projectOfState } from "./accounts/oauth-state.ts";
+import { connectTelegramChannel } from "./accounts/telegram.ts";
 import { requireSocial } from "./gate.ts";
 import { socialModule } from "./manifest.ts";
 import { SOCIAL_ACCOUNTS_MANAGE, SOCIAL_READ, SOCIAL_SETTINGS } from "./permissions.ts";
@@ -70,6 +71,12 @@ export const socialRoutes: RoutesContribution = (context) => {
       connectHandler(appParam.parse(params).app).begin(tx, scope),
     ),
   );
+  // Permission and module first; the provider calls run outside the project
+  // transaction, which they would otherwise hold open.
+  app.post(`${BASE}/accounts/telegram`, async (req) => {
+    const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
+    return connectTelegramChannel(scope, req.body);
+  });
   // The provider sends the browser here (outside the project path, so the
   // project comes from the state). The member must be the signed-in owner
   // who started the flow; the state is used once, before any token exchange.

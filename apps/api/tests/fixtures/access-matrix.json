@@ -4015,6 +4015,14 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "POST /api/projects/{projectId}/social/accounts/telegram": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/sources": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
