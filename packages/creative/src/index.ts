@@ -645,3 +645,4 @@ export async function encodePreviewJpeg(bytes: Buffer, maxSide = 720) {
     .jpeg({ quality: 82, mozjpeg: true })
     .toBuffer();
 }
+export { prepareSocialImage, type PreparedSocialImage } from "./social-image.ts";
