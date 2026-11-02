@@ -6,6 +6,7 @@ import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { audit, DomainError, exception } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { markReconnectRequired } from "../accounts/vault.ts";
+import { markWriteVerified } from "../accounts/verify-write.ts";
 import type { SendResult } from "../adapters/registry.ts";
 import { publicMediaEnabled } from "../media/public-url.ts";
 import { packageOf } from "../posts/posts.ts";
@@ -164,6 +165,8 @@ export async function finishPublication(
           version: { increment: 1 },
         },
       });
+      // A live verification post that went out: the account may post live.
+      if (mode === "live" && post.originType === "write_verification") await markWriteVerified(tx, scope, account.id);
       await refreshPostStatus(tx, scope, post.id);
       await event(tx, scope, "social.publication.published", id, post.id, account.platform);
       return;

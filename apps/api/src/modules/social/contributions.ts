@@ -6,6 +6,7 @@ import { socialAttention } from "./attention.ts";
 import { socialSwitchedOn } from "./gate.ts";
 import { socialUserNotifications } from "./notifications.ts";
 import { socialActionTypes } from "./posts/approval.ts";
+import { VERIFY_WRITE_ACTION, verifyWriteAction } from "./accounts/verify-write.ts";
 import { socialJobs } from "./dispatch/jobs.ts";
 import { resumeBlocked } from "./dispatch/control.ts";
 import { socialRoutes } from "./routes.ts";
@@ -23,7 +24,8 @@ export const socialContributions: ModuleContributions = {
   connections: { providers: socialConnectionProviders },
   periodic: [socialOAuthStateCleanup, socialAccountHealth],
   // Owner approvals of a post's schedule or immediate publication (S4).
-  actionTypes: socialActionTypes,
+  // and the owner's approval of a write verification post (S5).
+  actionTypes: { ...socialActionTypes, [VERIFY_WRITE_ACTION]: verifyWriteAction },
   // Sending approved posts on the Orbit worker (S5).
   jobs: socialJobs,
   // Deliveries a pause blocked go out again if they are recent (S5).
