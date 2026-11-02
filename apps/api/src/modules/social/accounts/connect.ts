@@ -1,8 +1,8 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { DomainError } from "../../../shared.ts";
 import type { SocialApp } from "./apps.ts";
 import type { consumeOAuthState, OAuthPlatform } from "./oauth-state.ts";
+import { metaConnect } from "./meta.ts";
 import { xConnect } from "./x.ts";
 
 // Connecting accounts over OAuth (ADR 0020): one handler per developer app.
@@ -19,16 +19,7 @@ export type ConnectHandler = {
   ): Promise<{ accounts: number }>;
 };
 
-const unavailable: ConnectHandler = {
-  async begin() {
-    throw new DomainError("SOCIAL_APP_NOT_AVAILABLE", 409);
-  },
-  async finish() {
-    throw new DomainError("SOCIAL_APP_NOT_AVAILABLE", 409);
-  },
-};
-
-const handlers: Record<SocialApp, ConnectHandler> = { meta: unavailable, x: xConnect };
+const handlers: Record<SocialApp, ConnectHandler> = { meta: metaConnect, x: xConnect };
 const overrides: Partial<Record<SocialApp, ConnectHandler>> = {};
 
 /** The OAuth state platform of a developer app. */
