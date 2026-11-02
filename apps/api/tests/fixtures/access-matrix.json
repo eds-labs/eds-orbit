@@ -1959,6 +1959,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/public/social/media/{token}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/public/support/{publicKey}/conversations": {
     "anonymous": "not_found",
     "outsider": "not_found",

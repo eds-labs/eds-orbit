@@ -19,6 +19,7 @@ import { assertModuleEnabledFor } from "../../platform/modules/enforcement.ts";
 import { authorize } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { listMedia, mediaContent, removeMedia, updateMedia, uploadMedia } from "./media/library.ts";
+import { servePublicMedia } from "./media/public-url.ts";
 import { requireSocial } from "./gate.ts";
 import { socialModule } from "./manifest.ts";
 import { SOCIAL_ACCOUNTS_MANAGE, SOCIAL_COMPOSE, SOCIAL_READ, SOCIAL_SETTINGS } from "./permissions.ts";
@@ -200,6 +201,25 @@ export const socialRoutes: RoutesContribution = (context) => {
       .header("Cache-Control", "private, no-store")
       .send(Buffer.from(content.bytes));
   });
+  // Signed public media (public ingress only): a platform fetches a post's
+  // image while the post is being sent.
+  app.get(
+    "/api/public/social/media/:token",
+    { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { token } = z.object({ token: z.string().max(300) }).parse(req.params);
+      const media = await servePublicMedia(token);
+      return reply
+        .header("Content-Type", media.mime)
+        .header("Content-Length", String(media.bytes.byteLength))
+        .header("Content-Disposition", contentDisposition("inline", media.name))
+        .header("X-Content-Type-Options", "nosniff")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("Cache-Control", "private, no-store")
+        .send(Buffer.from(media.bytes));
+    },
+  );
   app.patch(`${BASE}/media/:mediaId`, (req) =>
     inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) =>
       updateMedia(tx, scope, mediaParam.parse(req.params).mediaId, req.body),
