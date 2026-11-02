@@ -416,6 +416,13 @@ describe("module contributions", () => {
       "n8n",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
+      // The social module's developer apps and managed accounts (ADR 0020).
+      "social.app.meta",
+      "social.app.x",
+      "social.account.x",
+      "social.account.facebook",
+      "social.account.instagram",
+      "social.account.telegram",
       "postiz",
       "matomo",
       "slack",
@@ -425,7 +432,9 @@ describe("module contributions", () => {
       "platform",
     );
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(6))
+    for (const id of registeredConnectionProviderIds().slice(6, 12))
+      expect(registeredConnectionProvider(id)?.owner).toBe("social");
+    for (const id of registeredConnectionProviderIds().slice(12))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();
