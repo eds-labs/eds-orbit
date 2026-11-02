@@ -7,6 +7,7 @@ import {
   type ActionDefinition,
 } from "../../../platform/governance/action-requests.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
+import { startDelivery } from "../dispatch/dispatch.ts";
 import { SocialDetailError } from "../errors.ts";
 import {
   APPROVAL_BEARING,
@@ -127,6 +128,7 @@ function definition(): ActionDefinition<SocialApprovalPayload> {
         },
       });
       await consumeActionRequest(tx, scope, request.id, `social-post:${post.id}`, d.packageHash);
+      await startDelivery(tx, scope, post.id);
       await audit(tx, scope, "social.post.approved", post.id, { requestId: request.id, packageHash: payload.packageHash });
     },
   };
@@ -218,6 +220,7 @@ async function submit(
       },
     });
     await audit(tx, scope, "social.post.approved", post.id, { channel: "owner_direct", packageHash: hash });
+    await startDelivery(tx, scope, post.id);
     return getPost(tx, scope, post.id);
   }
   const view = await getPost(tx, scope, post.id);

@@ -6,6 +6,7 @@ import { cancelActionRequest } from "../../../platform/governance/action-request
 import { audit, data, DomainError, hash } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { computePackage, type SocialPackage } from "./package-hash.ts";
+import { stopDelivery } from "../dispatch/dispatch.ts";
 import { validationContext } from "../dispatch/gates.ts";
 import { validateVariant, type ValidationIssue } from "./validation.ts";
 
@@ -439,6 +440,8 @@ export async function resetApproval(tx: DbTx, scope: Scope, post: SocialPostRow,
     await cancelActionRequest(tx, scope, post.approvalRequestId, reason, { pendingOnly: true });
   if (post.approvalRequestId || post.approvedAt)
     await audit(tx, scope, "social.post.approval_reset", post.id, { reason });
+  // An approved post waits for its dispatch job; that approval just ended.
+  await stopDelivery(tx, scope, post.id, reason);
   return { approvalRequestId: null, approvedAt: null, approvedBy: null, packageHash: null };
 }
 

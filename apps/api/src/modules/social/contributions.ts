@@ -6,6 +6,7 @@ import { socialAttention } from "./attention.ts";
 import { socialSwitchedOn } from "./gate.ts";
 import { socialUserNotifications } from "./notifications.ts";
 import { socialActionTypes } from "./posts/approval.ts";
+import { socialJobs } from "./dispatch/jobs.ts";
 import { socialRoutes } from "./routes.ts";
 
 /** What the social module plugs into the platform; later phases add to it. */
@@ -22,6 +23,8 @@ export const socialContributions: ModuleContributions = {
   periodic: [socialOAuthStateCleanup, socialAccountHealth],
   // Owner approvals of a post's schedule or immediate publication (S4).
   actionTypes: socialActionTypes,
+  // Sending approved posts on the Orbit worker (S5).
+  jobs: socialJobs,
   attention: socialAttention,
   userNotifications: socialUserNotifications,
 };

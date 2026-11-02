@@ -100,6 +100,7 @@ describe("module contributions", () => {
         "reconciliation",
         "reindex",
         "slack_notification",
+        "social_dispatch",
         "support_draft",
         "support_email_inbound",
         "support_triage",
