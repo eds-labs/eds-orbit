@@ -27,6 +27,8 @@ export type SocialAccount = {
   connectedAt: string;
   lastCheckedAt: string | null;
   lastCheckCode: string | null;
+  /** What posts may do on the account (S4); long posts only on X. */
+  settings: { xLongPosts: boolean };
   version: number;
 };
 export type SocialAccounts = { items: SocialAccount[] };

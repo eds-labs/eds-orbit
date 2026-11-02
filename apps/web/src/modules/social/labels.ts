@@ -41,6 +41,9 @@ const en = {
     never: "never",
     connected: (n: number) => (n === 1 ? "1 account connected." : `${n} accounts connected.`),
     checkOk: "The account works.",
+    longPosts: "Long posts (X Premium, up to 25,000 characters)",
+    longPostsOn: "Long posts allowed",
+    saved: "Saved.",
     metaNote:
       "While the Meta app is in development mode, only members of the Meta app see posts. Public posts need the Meta app to be live.",
   },
@@ -139,6 +142,9 @@ const de: SocialText = {
     never: "nie",
     connected: (n: number) => (n === 1 ? "1 Konto verbunden." : `${n} Konten verbunden.`),
     checkOk: "Das Konto funktioniert.",
+    longPosts: "Lange Posts (X Premium, bis 25.000 Zeichen)",
+    longPostsOn: "Lange Posts erlaubt",
+    saved: "Gespeichert.",
     metaNote:
       "Solange die Meta-App im Entwicklungsmodus ist, sehen nur Mitglieder der Meta-App die Beiträge. Für öffentliche Beiträge muss die Meta-App live sein.",
   },

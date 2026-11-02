@@ -34,7 +34,7 @@ describe.skipIf(!enabled)("social accounts", () => {
   let revoke: () => Response;
   let cleanupApp: () => Promise<unknown>;
 
-  const call = (who: keyof typeof ids, method: "GET" | "POST", url: string, payload?: object) =>
+  const call = (who: keyof typeof ids, method: "GET" | "POST" | "PATCH", url: string, payload?: object) =>
     app.inject({
       method,
       url: `/api/projects/${projectId}/social${url}`,
@@ -129,10 +129,42 @@ describe.skipIf(!enabled)("social accounts", () => {
     const item = response.json().items.find((i: { id: string }) => i.id === accountId);
     expect(item).toMatchObject({ platform: "telegram", handle: "Channel -1001", status: "active", capability: "read_verified", version: 1 });
     expect(Object.keys(item).sort()).toEqual(
-      ["capability", "connectedAt", "displayName", "handle", "id", "lastCheckCode", "lastCheckedAt", "platform", "status", "version"].sort(),
+      ["capability", "connectedAt", "displayName", "handle", "id", "lastCheckCode", "lastCheckedAt", "platform", "settings", "status", "version"].sort(),
     );
+    expect(item.settings).toEqual({ xLongPosts: false });
     expect(response.body).not.toContain(BOT);
     expect(response.body).not.toMatch(/token|secret|connectionId/i);
+  });
+
+  it("lets the owner allow long posts on an X account only", async () => {
+    const x = await saveConnectedAccount(owner, {
+      platform: "x",
+      externalId: randomUUID(),
+      handle: "@orbit_x",
+      displayName: "Orbit X",
+      secret: JSON.stringify({ accessToken: "synthetic", refreshToken: null }),
+      config: {},
+    });
+    const update = { version: 1, settings: { xLongPosts: true } };
+    expect((await call("editor", "PATCH", `/accounts/${x.accountId}`, update)).statusCode).toBe(403);
+    const saved = await call("owner", "PATCH", `/accounts/${x.accountId}`, update);
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ id: x.accountId, settings: { xLongPosts: true }, version: 2 });
+    const stale = await call("owner", "PATCH", `/accounts/${x.accountId}`, update);
+    expect([stale.statusCode, stale.json().error?.code]).toEqual([409, "SOCIAL_VERSION_CONFLICT"]);
+    const { accountId } = await telegram("-1009");
+    const wrong = await call("owner", "PATCH", `/accounts/${accountId}`, update);
+    expect([wrong.statusCode, wrong.json().error?.code]).toEqual([422, "SOCIAL_SETTING_INVALID"]);
+    const unknown = await call("owner", "PATCH", `/accounts/${randomUUID()}`, update);
+    expect(unknown.statusCode).toBe(404);
+    const audits = await scoped(workspaceId, projectId, (tx) =>
+      tx.auditEvent.findMany({ where: { projectId, action: "social.account.settings_changed", resourceId: x.accountId } }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([{ keys: ["xLongPosts"] }]);
+    // Out of the periodic health check of the tests below.
+    await scoped(workspaceId, projectId, (tx) =>
+      tx.socialAccount.update({ where: { id: x.accountId }, data: { status: "disabled" } }),
+    );
   });
 
   it("lets only owners check and disconnect", async () => {

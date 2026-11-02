@@ -135,13 +135,19 @@ describe.skipIf(!enabled)("social module routes", () => {
     await setModule(true);
     const before = (await call("owner", "GET", "/social/status")).json();
     const update = {
-      settings: { ...defaultSocialSettings(), approval: "editor_each" },
+      settings: { ...defaultSocialSettings(), mcpOwnerPublishWithoutApproval: true },
       version: before.settingsVersion,
     };
     expect((await call("editor", "PUT", "/social/settings", update)).statusCode).toBe(403);
+    // Editors deciding needs a platform hook that does not exist yet (S4).
+    const editors = await call("owner", "PUT", "/social/settings", {
+      settings: { ...defaultSocialSettings(), approval: "editor_each" },
+      version: before.settingsVersion,
+    });
+    expect([editors.statusCode, code(editors)]).toEqual([409, "SOCIAL_SETTING_NOT_AVAILABLE"]);
     const saved = await call("owner", "PUT", "/social/settings", update);
     expect(saved.statusCode).toBe(200);
-    expect(saved.json().settings.approval).toBe("editor_each");
+    expect(saved.json().settings.mcpOwnerPublishWithoutApproval).toBe(true);
     const stale = await call("owner", "PUT", "/social/settings", update);
     expect([stale.statusCode, code(stale)]).toEqual([409, "SETTINGS_VERSION_CONFLICT"]);
     const invalid = await call("owner", "PUT", "/social/settings", {

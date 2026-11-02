@@ -71,8 +71,8 @@ function render(node: React.ReactNode, { locale = "en" as Locale, access = "owne
 
 const accounts = {
   items: [
-    { id: "a1", platform: "x", handle: "@orbit_hq", displayName: "Orbit HQ", status: "active", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", lastCheckedAt: null, lastCheckCode: null, version: 1 },
-    { id: "a2", platform: "instagram", handle: "@orbit_ig", displayName: "Orbit IG", status: "reconnect_required", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", lastCheckedAt: "2026-11-02T11:00:00.000Z", lastCheckCode: "SOCIAL_META_TOKEN_INVALID", version: 2 },
+    { id: "a1", platform: "x", handle: "@orbit_hq", displayName: "Orbit HQ", status: "active", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", lastCheckedAt: null, lastCheckCode: null, settings: { xLongPosts: true }, version: 1 },
+    { id: "a2", platform: "instagram", handle: "@orbit_ig", displayName: "Orbit IG", status: "reconnect_required", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", lastCheckedAt: "2026-11-02T11:00:00.000Z", lastCheckCode: "SOCIAL_META_TOKEN_INVALID", settings: { xLongPosts: false }, version: 2 },
   ],
 };
 const buttons = (html: string) => [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)];
@@ -93,6 +93,19 @@ describe("social accounts view (ADR 0020, S2)", () => {
     const html = render(<AccountsView />);
     for (const text of ["Connect X", "Connect Facebook and Instagram", "Add Telegram channel", "Check", "Disconnect"])
       expect(html).toContain(text);
+  });
+
+  it("lets the owner allow long posts on X accounts only", () => {
+    answers["/social/accounts"] = accounts;
+    const html = render(<AccountsView />);
+    const boxes = [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)].map((m) => m[0]);
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0]).toContain("checked");
+    expect(html).toContain("Long posts (X Premium, up to 25,000 characters)");
+    const viewer = render(<AccountsView />, { access: "viewer" });
+    expect(viewer).not.toMatch(/type="checkbox"/);
+    expect(viewer).toContain("Long posts allowed");
+    expect(render(<AccountsView />, { locale: "de" })).toContain("Lange Posts (X Premium, bis 25.000 Zeichen)");
   });
 
   it("names every button", () => {

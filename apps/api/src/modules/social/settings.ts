@@ -5,6 +5,7 @@ import {
   readModuleSettings,
   writeModuleSettings,
 } from "../../platform/modules/settings.ts";
+import { DomainError } from "../../shared.ts";
 
 // The social module's project settings (ADR 0020, S-D9). The platform
 // stores and versions them in the module's ProjectModule row.
@@ -29,7 +30,13 @@ export function readSocialSettings(tx: DbTx, scope: Scope) {
   return readModuleSettings(tx, scope, "social", socialSettingsSchema, defaultSocialSettings);
 }
 
-/** Saves the settings when `version` is the stored one. */
+/**
+ * Saves the settings when `version` is the stored one. `editor_each` is
+ * refused for now: who may decide an approval is fixed per action type, and
+ * the platform has no per-project hook to let editors decide (S4 ruling).
+ */
 export function saveSocialSettings(tx: DbTx, scope: Scope, raw: unknown, version: number) {
+  if (socialSettingsSchema.parse(raw).approval === "editor_each")
+    throw new DomainError("SOCIAL_SETTING_NOT_AVAILABLE", 409);
   return writeModuleSettings(tx, scope, "social", socialSettingsSchema, raw, version);
 }

@@ -6,7 +6,7 @@ import type { RoutesContribution } from "../../platform/http/routes.ts";
 import type { Auth } from "../../platform/tenancy/auth.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
-import { disconnectAccount, listAccounts } from "./accounts/accounts.ts";
+import { disconnectAccount, listAccounts, updateAccountSettings } from "./accounts/accounts.ts";
 import { redirectUri } from "./accounts/apps.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
 import { handleMetaDataDeletion } from "./accounts/data-deletion.ts";
@@ -86,6 +86,11 @@ export const socialRoutes: RoutesContribution = (context) => {
     ),
   );
   app.get(`${BASE}/accounts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listAccounts(tx, scope)));
+  app.patch(`${BASE}/accounts/:accountId`, (req) =>
+    inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, (tx, scope) =>
+      updateAccountSettings(tx, scope, accountParam.parse(req.params).accountId, req.body),
+    ),
+  );
   app.post(`${BASE}/accounts/:accountId/check`, async (req) => {
     const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
     return checkAccount(scope, accountParam.parse(req.params).accountId, { manual: true });

@@ -98,6 +98,29 @@ function AccountRow({
           {t.lastCheck}: {account.lastCheckedAt ? new Date(account.lastCheckedAt).toLocaleString(locale) : t.never}
           {account.lastCheckCode ? ` · ${accountMessage(account.lastCheckCode, locale)}` : ""}
         </p>
+        {account.platform === "x" &&
+          (owner && account.status !== "disabled" ? (
+            <label className="field-hint">
+              <input
+                type="checkbox"
+                checked={account.settings.xLongPosts}
+                onChange={async (event) => {
+                  try {
+                    await api(socialPath(project.id, `/accounts/${account.id}`), {
+                      method: "PATCH",
+                      body: JSON.stringify({ version: account.version, settings: { xLongPosts: event.target.checked } }),
+                    });
+                    onMessage("success", t.saved);
+                  } catch (e) {
+                    onMessage("error", accountMessage(codeOf(e), locale));
+                  }
+                }}
+              />{" "}
+              {t.longPosts}
+            </label>
+          ) : (
+            account.settings.xLongPosts && <p className="field-hint">{t.longPostsOn}</p>
+          ))}
       </div>
       {owner && account.status !== "disabled" && (
         <div>
