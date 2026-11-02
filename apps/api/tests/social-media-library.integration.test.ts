@@ -9,6 +9,7 @@ import {
   removeMedia,
   updateMedia,
   uploadMedia,
+  withMediaSlot,
 } from "../src/modules/social/media/library.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
@@ -20,7 +21,6 @@ const image = async (format: "png" | "jpeg" | "webp", _width?: number, _height?:
     new URL(`./fixtures/social/photo-800x600.${format === "jpeg" ? "jpg" : format}`, import.meta.url),
   );
 const isJpeg = (bytes: Uint8Array) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-const isPng = (bytes: Uint8Array) => bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
 
 /**
  * The social media library (ADR 0020, S3): images become a normalized
@@ -49,11 +49,11 @@ describe.skipIf(!enabled)("social media library", () => {
 
   const files = () => p.run((tx) => tx.file.findMany({ where: { projectId: p.owner.projectId, deletedAt: null } }));
 
-  it("stores a PNG as original and JPEG rendition and reports the dimensions", async () => {
+  it("stores an opaque PNG as JPEG original and rendition and reports the dimensions", async () => {
     const view = await uploadMedia(p.editor, { bytes: await image("png"), mime: "image/png", name: "Launch Banner.png" });
     expect(view).toMatchObject({
-      name: "Launch Banner.png",
-      mime: "image/png",
+      name: "Launch Banner.jpg",
+      mime: "image/jpeg",
       width: 800,
       height: 600,
       jpegWidth: 800,
@@ -65,13 +65,13 @@ describe.skipIf(!enabled)("social media library", () => {
     expect(content.mime).toBe("image/jpeg");
     expect(isJpeg(content.bytes)).toBe(true);
     const original = await mediaContent(p.viewer, view.id, "original");
-    expect(isPng(original.bytes)).toBe(true);
+    expect(isJpeg(original.bytes)).toBe(true);
     expect((await files()).filter((f) => f.moduleId === "social").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("turns a WebP into a PNG original", async () => {
+  it("turns an opaque WebP into a JPEG original", async () => {
     const view = await uploadMedia(p.editor, { bytes: await image("webp"), mime: "image/webp", name: "x.webp" });
-    expect(view.mime).toBe("image/png");
+    expect(view.mime).toBe("image/jpeg");
   });
 
   it("refuses video and other types, and broken images, without storing anything", async () => {
@@ -85,9 +85,33 @@ describe.skipIf(!enabled)("social media library", () => {
       status: 415,
     });
     await expect(
-      uploadMedia(p.editor, { bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), mime: "image/png" }),
+      uploadMedia(p.editor, {
+        bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
+        mime: "image/png",
+      }),
     ).rejects.toMatchObject({ code: "SOCIAL_MEDIA_INVALID", status: 422 });
+    // The bytes decide, not the declared type: a PDF called PNG is refused
+    // before any decoder sees it.
+    await expect(uploadMedia(p.editor, { bytes: Buffer.from("%PDF-1.4 ..."), mime: "image/png" })).rejects.toMatchObject({
+      code: "SOCIAL_MEDIA_TYPE",
+      status: 415,
+    });
     expect((await files()).length).toBe(before);
+  });
+
+  it("accepts an image whose browser sent no type", async () => {
+    const view = await uploadMedia(p.editor, { bytes: await image("png"), mime: "" });
+    expect(view.width).toBe(800);
+  });
+
+  it("prepares at most two images at the same time", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const held = [withMediaSlot(() => gate), withMediaSlot(() => gate)];
+    await expect(withMediaSlot(async () => "third")).rejects.toMatchObject({ code: "SOCIAL_MEDIA_BUSY", status: 503 });
+    release();
+    await Promise.all(held);
+    expect(await withMediaSlot(async () => "free again")).toBe("free again");
   });
 
   it("lists the library and updates the alt text with the current version only", async () => {

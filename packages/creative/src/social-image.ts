@@ -1,9 +1,10 @@
 // Images for the social module (ADR 0020, S3): every upload becomes a
-// normalized original (orientation applied, no metadata, PNG or JPEG, a
-// bounded long side) and a JPEG rendition at most 1440 pixels wide in sRGB,
-// the form Instagram accepts. WebP becomes PNG, because X takes only JPEG
-// and PNG. Animated images and anything over the pixel limit are refused
-// before they are decoded.
+// normalized original (orientation applied, no metadata, a bounded long
+// side) and a JPEG rendition at most 1440 pixels wide in sRGB, the form
+// Instagram accepts. The original is JPEG unless the image has transparency
+// (then PNG, while it stays under 10 MiB): X takes only JPEG and PNG, and a
+// lossless PNG of a photo would be several times its upload. Animated images
+// and anything over the pixel limit are refused before they are decoded.
 
 export type PreparedSocialImage = {
   original: { bytes: Buffer; mime: "image/png" | "image/jpeg"; width: number; height: number };
@@ -12,6 +13,8 @@ export type PreparedSocialImage = {
 
 const INVALID = "SOCIAL_MEDIA_INVALID";
 const RENDITION_WIDTH = 1440;
+const MAX_PNG_BYTES = 10 * 1024 * 1024;
+let configured = false;
 
 export async function prepareSocialImage(
   bytes: Buffer,
@@ -20,6 +23,13 @@ export async function prepareSocialImage(
   const maxPixels = options.maxPixels ?? 40_000_000;
   const maxSide = options.maxSide ?? 4096;
   const { default: sharp } = await import("sharp");
+  if (!configured) {
+    // One upload at a time should not hold libvips' operation cache or
+    // all cores: the process serves everything else too.
+    sharp.cache(false);
+    sharp.concurrency(2);
+    configured = true;
+  }
   const open = () => sharp(bytes, { limitInputPixels: maxPixels, failOn: "warning", animated: false });
   let metadata: import("sharp").Metadata;
   try {
@@ -41,10 +51,18 @@ export async function prepareSocialImage(
       open()
         .rotate()
         .resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true });
-    const original =
-      format === "jpeg"
-        ? await bounded().toColorspace("srgb").jpeg({ quality: 92, mozjpeg: true }).toBuffer({ resolveWithObject: true })
-        : await bounded().png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true });
+    const toJpeg = () =>
+      bounded()
+        .flatten({ background: "#ffffff" })
+        .toColorspace("srgb")
+        .jpeg({ quality: 92, mozjpeg: true })
+        .toBuffer({ resolveWithObject: true });
+    let original;
+    if (format === "jpeg" || !metadata.hasAlpha) original = await toJpeg();
+    else {
+      const png = await bounded().png({ compressionLevel: 9 }).toBuffer({ resolveWithObject: true });
+      original = png.data.length <= MAX_PNG_BYTES ? png : await toJpeg();
+    }
     const jpeg = await open()
       .rotate()
       .resize({ width: RENDITION_WIDTH, withoutEnlargement: true })
@@ -55,7 +73,7 @@ export async function prepareSocialImage(
     return {
       original: {
         bytes: original.data,
-        mime: format === "jpeg" ? "image/jpeg" : "image/png",
+        mime: original.info.format === "png" ? "image/png" : "image/jpeg",
         width: original.info.width,
         height: original.info.height,
       },

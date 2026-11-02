@@ -111,7 +111,7 @@ describe.skipIf(!enabled)("social media routes", () => {
     const created = await upload("editor");
     expect(created.statusCode).toBe(201);
     const media = created.json();
-    expect(media).toMatchObject({ name: "Launch Banner.png", mime: "image/png", width: 800, height: 600 });
+    expect(media).toMatchObject({ name: "Launch Banner.jpg", mime: "image/jpeg", width: 800, height: 600 });
     const list = await call("viewer", "GET", "/media");
     expect(list.json().items.map((i: { id: string }) => i.id)).toContain(media.id);
     const content = await call("viewer", "GET", `/media/${media.id}/content?rendition=jpeg`);

@@ -87,6 +87,7 @@ const en = {
     hintX: "X: larger than 5 MB",
     errors: {
       SOCIAL_MEDIA_INVALID: "This file is not a usable image.",
+      SOCIAL_MEDIA_BUSY: "Other images are being prepared. Try again in a moment.",
       SOCIAL_MEDIA_TYPE: "Upload a PNG, JPEG or WebP image.",
       SOCIAL_VIDEO_NOT_AVAILABLE: "Videos are not supported yet.",
       FILE_TOO_LARGE: "The image is too large.",
@@ -184,6 +185,7 @@ const de: SocialText = {
     hintX: "X: größer als 5 MB",
     errors: {
       SOCIAL_MEDIA_INVALID: "Diese Datei ist kein verwendbares Bild.",
+      SOCIAL_MEDIA_BUSY: "Gerade werden andere Bilder vorbereitet. Bitte gleich noch einmal versuchen.",
       SOCIAL_MEDIA_TYPE: "Lade ein PNG-, JPEG- oder WebP-Bild hoch.",
       SOCIAL_VIDEO_NOT_AVAILABLE: "Videos werden noch nicht unterstützt.",
       FILE_TOO_LARGE: "Das Bild ist zu groß.",

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { prepareSocialImage } from "./index.ts";
@@ -16,7 +17,7 @@ const solid = (width: number, height: number, alpha = false) =>
   });
 
 describe("prepareSocialImage", () => {
-  it("keeps a PNG as PNG and adds a JPEG rendition without alpha", async () => {
+  it("keeps a PNG with transparency as PNG and adds a JPEG rendition without alpha", async () => {
     const png = await solid(800, 600, true).png().toBuffer();
     const result = await prepareSocialImage(png);
     expect(result.original).toMatchObject({ mime: "image/png", width: 800, height: 600 });
@@ -43,11 +44,24 @@ describe("prepareSocialImage", () => {
     }
   });
 
-  it("turns a WebP into a PNG original", async () => {
-    const webp = await solid(400, 400).webp().toBuffer();
-    const result = await prepareSocialImage(webp);
+  it("turns an opaque WebP or PNG into a JPEG original, so photos stay small", async () => {
+    for (const input of [await solid(400, 400).webp().toBuffer(), await solid(400, 400).png().toBuffer()]) {
+      const result = await prepareSocialImage(input);
+      expect(result.original.mime).toBe("image/jpeg");
+      expect((await sharp(result.original.bytes).metadata()).format).toBe("jpeg");
+    }
+  });
+
+  it("keeps transparency as PNG while the PNG stays under 10 MiB", async () => {
+    const result = await prepareSocialImage(await solid(400, 400, true).webp().toBuffer());
     expect(result.original.mime).toBe("image/png");
-    expect((await sharp(result.original.bytes).metadata()).format).toBe("png");
+    // Noise with transparency compresses badly: above 10 MiB it becomes JPEG.
+    const noise = randomBytes(2600 * 2600 * 4);
+    for (let i = 3; i < noise.length; i += 4) noise[i] = 128;
+    const big = await sharp(noise, { raw: { width: 2600, height: 2600, channels: 4 } }).png({ compressionLevel: 1 }).toBuffer();
+    const fallback = await prepareSocialImage(big);
+    expect(fallback.original.mime).toBe("image/jpeg");
+    expect(fallback.original.bytes.length).toBeLessThan(10 * 1024 * 1024);
   });
 
   it("scales the rendition to at most 1440 pixels wide and keeps the ratio", async () => {

@@ -347,6 +347,33 @@ export async function deleteFile(scope: Scope, id: string) {
   return { id, deleted: true };
 }
 
+/**
+ * Marks files deleted inside the caller's transaction, so a module can
+ * decide and make them unreadable atomically; `purgeMarkedFiles` removes
+ * them after the commit. Retained files are refused with 409.
+ */
+export async function markFilesDeleted(tx: DbTx, scope: Scope, ids: string[]) {
+  for (const id of ids) {
+    const found = await fileRow(tx, scope, id);
+    if (found.retainUntil && found.retainUntil > new Date())
+      throw new DomainError("FILE_RETAINED", 409);
+    await tx.file.update({ where: { id }, data: { deletedAt: new Date() } });
+    await audit(tx, scope, "file.deleted", id, { moduleId: found.moduleId });
+  }
+}
+
+/** Removes objects and rows of files marked deleted; the cleanup retries failures. */
+export async function purgeMarkedFiles(scope: Scope, ids: string[]) {
+  const config = requireFiles();
+  const rows = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.file.findMany({
+      where: { id: { in: ids }, projectId: scope.projectId, deletedAt: { not: null } },
+    }),
+  );
+  const store = config.store(scope);
+  for (const row of rows) await purge(scope, store, row);
+}
+
 // One cleanup per project at most this often.
 const CLEANUP_MS = 3_600_000;
 const lastCleanup = new Map<string, number>();

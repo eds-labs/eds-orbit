@@ -3,7 +3,14 @@ import { z } from "zod";
 import { prepareSocialImage } from "../../../../../../packages/creative/src/index.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { cleanFileName, deleteFile, readFile, storeFile } from "../../../platform/files/files.ts";
+import {
+  cleanFileName,
+  deleteFile,
+  markFilesDeleted,
+  purgeMarkedFiles,
+  readFile,
+  storeFile,
+} from "../../../platform/files/files.ts";
 import { audit, DomainError } from "../../../shared.ts";
 
 // The social module's media library (ADR 0020, S3): every image is stored
@@ -13,7 +20,32 @@ import { audit, DomainError } from "../../../shared.ts";
 // only archived, so the post keeps its media.
 
 const MODULE = "social";
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+// Decoding is CPU- and memory-heavy: at most this many images per process
+// at a time; more answer 503 SOCIAL_MEDIA_BUSY instead of queueing.
+const MEDIA_SLOTS = 2;
+let busy = 0;
+
+const starts = (bytes: Uint8Array, signature: number[], at = 0) =>
+  signature.every((value, i) => bytes[at + i] === value);
+
+/** The image type the bytes start with; the declared type is not trusted. */
+function sniffImage(bytes: Uint8Array): "png" | "jpeg" | "webp" | null {
+  if (starts(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "png";
+  if (starts(bytes, [0xff, 0xd8, 0xff])) return "jpeg";
+  if (starts(bytes, [0x52, 0x49, 0x46, 0x46]) && starts(bytes, [0x57, 0x45, 0x42, 0x50], 8)) return "webp";
+  return null;
+}
+
+/** Runs `work` in one of the media slots, or refuses with 503 when all are taken. */
+export async function withMediaSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (busy >= MEDIA_SLOTS) throw new DomainError("SOCIAL_MEDIA_BUSY", 503);
+  busy += 1;
+  try {
+    return await work();
+  } finally {
+    busy -= 1;
+  }
+}
 
 type AssetRow = {
   id: string;
@@ -58,15 +90,22 @@ export async function uploadMedia(
 ): Promise<MediaView> {
   const mime = input.mime.toLowerCase().split(";")[0]!.trim();
   if (mime.startsWith("video/")) throw new DomainError("SOCIAL_VIDEO_NOT_AVAILABLE", 415);
-  if (!IMAGE_TYPES.has(mime)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
-  let prepared;
-  try {
-    prepared = await prepareSocialImage(Buffer.from(input.bytes));
-  } catch {
-    throw new DomainError("SOCIAL_MEDIA_INVALID", 422);
-  }
+  if (!sniffImage(input.bytes)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
+  const bytes = Buffer.isBuffer(input.bytes)
+    ? input.bytes
+    : Buffer.from(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength);
+  const prepared = await withMediaSlot(async () => {
+    try {
+      return await prepareSocialImage(bytes);
+    } catch {
+      throw new DomainError("SOCIAL_MEDIA_INVALID", 422);
+    }
+  });
   const ext = prepared.original.mime === "image/png" ? "png" : "jpg";
-  const name = cleanFileName(input.name, prepared.original.mime) ?? `image.${ext}`;
+  // The stored type may differ from the upload's (an opaque PNG becomes a
+  // JPEG), so the name takes the stored type's extension.
+  const stem = typeof input.name === "string" ? input.name.replace(/\.(png|jpe?g|webp)$/i, "") : input.name;
+  const name = cleanFileName(stem, prepared.original.mime) ?? `image.${ext}`;
   const original = await storeFile(scope, {
     moduleId: MODULE,
     bytes: prepared.original.bytes,
@@ -141,11 +180,19 @@ export async function updateMedia(tx: DbTx, scope: Scope, id: string, raw: unkno
   return view(row);
 }
 
-/** Deletes an unused image with its files; archives one a post uses. */
+/**
+ * Deletes an unused image with its files; archives one a post uses. The
+ * usage check, the entry and marking both files deleted are one
+ * transaction, so no post can attach the image in between; the stored
+ * objects are purged after the commit.
+ */
 export async function removeMedia(scope: Scope, id: string): Promise<{ id: string; removed: "archived" | "deleted" }> {
   const outcome = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const row = await tx.socialMediaAsset.findFirst({ where: { id, projectId: scope.projectId } });
     if (!row) throw notFound();
+    // Locking the file rows waits for (and then blocks) a post inserting a
+    // reference to them, so the count below sees every committed use.
+    await tx.$queryRaw`SELECT id FROM "File" WHERE id IN (${row.fileId}::uuid, ${row.jpegFileId}::uuid) AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
     const used = await tx.socialPostMedia.count({
       where: { projectId: scope.projectId, fileId: { in: [row.fileId, row.jpegFileId] } },
     });
@@ -157,14 +204,12 @@ export async function removeMedia(scope: Scope, id: string): Promise<{ id: strin
       await audit(tx, scope, "social.media.archived", row.id, {});
       return { row, removed: "archived" as const };
     }
+    await tx.socialMediaAsset.delete({ where: { id: row.id } });
+    await markFilesDeleted(tx, scope, [row.fileId, row.jpegFileId]);
     await audit(tx, scope, "social.media.deleted", row.id, {});
     return { row, removed: "deleted" as const };
   });
-  // The asset row goes with its files (ON DELETE CASCADE).
-  if (outcome.removed === "deleted") {
-    await deleteFile(scope, outcome.row.fileId);
-    await deleteFile(scope, outcome.row.jpegFileId);
-  }
+  if (outcome.removed === "deleted") await purgeMarkedFiles(scope, [outcome.row.fileId, outcome.row.jpegFileId]);
   return { id, removed: outcome.removed };
 }
 

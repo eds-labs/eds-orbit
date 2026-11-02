@@ -100,6 +100,11 @@ describe("social media library view (ADR 0020, S3)", () => {
     const html = render(<MediaView />, { access: "editor" });
     expect(html).toContain("Upload image");
     expect(html).toContain('accept="image/png,image/jpeg,image/webp"');
+    // The file input stays reachable by keyboard: visually hidden, not `hidden`.
+    const input = html.match(/<input[^>]*type="file"[^>]*>/)?.[0] ?? "";
+    expect(input).toContain('class="sr-only"');
+    expect(input).not.toMatch(/\shidden(=|\s|>|\/)/);
+    expect(html).toContain('class="button button-primary media-upload"');
     for (const text of ["Save description", "Remove"]) expect(html).toContain(text);
     for (const [, inner] of buttons(html)) expect(inner!.replace(/<[^>]+>/g, "").trim()).not.toBe("");
   });
@@ -115,7 +120,7 @@ describe("social media library view (ADR 0020, S3)", () => {
   });
 
   it("translates the upload errors", () => {
-    for (const code of ["SOCIAL_MEDIA_INVALID", "SOCIAL_MEDIA_TYPE", "SOCIAL_VIDEO_NOT_AVAILABLE", "FILE_TOO_LARGE", "FILES_QUOTA_EXCEEDED", "FILES_NOT_CONFIGURED"]) {
+    for (const code of ["SOCIAL_MEDIA_BUSY", "SOCIAL_MEDIA_INVALID", "SOCIAL_MEDIA_TYPE", "SOCIAL_VIDEO_NOT_AVAILABLE", "FILE_TOO_LARGE", "FILES_QUOTA_EXCEEDED", "FILES_NOT_CONFIGURED"]) {
       expect(mediaMessage(code, "en")).not.toBe(mediaMessage("UNKNOWN", "en"));
       expect(mediaMessage(code, "de")).not.toBe(mediaMessage("UNKNOWN", "de"));
     }

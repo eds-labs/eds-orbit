@@ -82,6 +82,11 @@ summary:focus-visible {
   outline: 3px solid #0969ff;
   outline-offset: 3px;
 }
+/* A file input inside a button-styled label: the label shows the focus. */
+.media-upload:has(input:focus-visible) {
+  outline: 3px solid #0969ff;
+  outline-offset: 3px;
+}
 h1,
 h2,
 h3,

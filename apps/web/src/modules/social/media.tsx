@@ -128,12 +128,12 @@ export function MediaView() {
     <div className="support-page">
       <PageHead title={t.title} description={t.intro}>
         {canEdit && (
-          <label className="button button-primary">
+          <label className="button button-primary media-upload">
             {busy ? t.uploading : t.upload}
             <input
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              hidden
+              className="sr-only"
               disabled={busy}
               onChange={(event) => {
                 const file = event.target.files?.[0];
