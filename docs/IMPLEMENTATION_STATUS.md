@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S1 (2026-11-02, branch `claude/social-module-plan`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (programme, decisions S-D1–S-D9 by Mario on 2026-11-02) and [superpowers/plans/2026-11-02-social-s1-module-skeleton.md](superpowers/plans/2026-11-02-social-s1-module-skeleton.md). ADR: [adr/0020-social-module.md](adr/0020-social-module.md) (proposed). Module doc: [SOCIAL.md](SOCIAL.md).
+
+- **Built (S1):** opt-in module `social` (manifest, seven permissions, gate, versioned settings with `owner_each` default, `GET …/social/status`, `PUT …/social/settings`); installation switch `ORBIT_SOCIAL` in config, both Compose files, `.env.example` and the Compose checks; ten `Social*` tables with forced RLS (migration `202611020001_social_core`, grants in `db-deploy.ts`); boundary zones and the `forbiddenImportPrefixes` guard against `@opencoredev/social-sdk/cloud…`; web module with an overview and five placeholder views.
+- **Not built:** platform adapters, OAuth, media, posts, dispatcher, calendar, MCP tools, analytics, Marketing integration, Postiz migration (S2–S12). No dependency was added.
+- **Production:** nothing deployed. The migration changes the approved schema hash to `714faf5a7a4da8624c6dc421404221ef36aa0ed8087df4e26393a5c760e2cb11` (`scripts/check-pve-schema.sh --print-hash`); a deploy needs Mario's approval of that hash in Coolify. Rollback before deploy: drop the branch; after deploy the tables stay empty and inert while the flag is off.
+
 ## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` on since 2026-10-30)
 
 **Pushed to main on 2026-10-28 with Mario's approval** (fast-forward `aaed3d47..fa13f631`). The Coolify webhook deployed `fa13f631`, and the deployment finished at 17:43 UTC. Afterwards `/api/health/ready` reported database ok and worker ready, `/mcp/healthz` answered 200, and the new routes answered 401 without a session. The flag stays off, so no mandate can be granted. Live as of this deploy: the Support fix (G5), per-operation risk classes, the approval UX and the cross-project summary.
