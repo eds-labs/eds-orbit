@@ -2,7 +2,7 @@ import { createTelegramClient } from "../../../../../../packages/connectors/src/
 import { scoped, type Prisma } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { PeriodicTask } from "../../../platform/jobs/types.ts";
-import { DomainError } from "../../../shared.ts";
+import { audit, DomainError } from "../../../shared.ts";
 import { socialActive } from "../gate.ts";
 import { appCredentials } from "./apps.ts";
 import { providerFailure, responseFailure } from "./errors.ts";
@@ -21,8 +21,8 @@ const PER_RUN = 20;
 
 type Result = { ok: true } | { ok: false; code: string };
 
-async function probe(scope: Scope, accountId: string): Promise<Result> {
-  const credentials = await accountCredentials(scope, accountId);
+async function probe(scope: Scope, accountId: string, manual: boolean): Promise<Result> {
+  const credentials = await accountCredentials(scope, accountId, { allowReconnect: manual });
   if (credentials.platform === "x") {
     const response = await socialFetch(X_USER, {
       headers: { Authorization: `Bearer ${credentials.accessToken}`, Accept: "application/json" },
@@ -56,15 +56,26 @@ async function record(scope: Scope, accountId: string, result: Result, refused: 
       },
     });
     if (refused && !result.ok) await markReconnectRequired(tx, scope, accountId, result.code);
+    if (result.ok) {
+      const restored = await tx.socialAccount.updateMany({
+        where: { id: accountId, status: "reconnect_required" },
+        data: { status: "active", version: { increment: 1 } },
+      });
+      if (restored.count === 1) await audit(tx, scope, "social.account.restored", accountId, {});
+    }
   });
 }
 
-/** Checks one account; never throws for a provider answer. */
-export async function checkAccount(scope: Scope, accountId: string): Promise<Result> {
+/**
+ * Checks one account; never throws for a provider answer. An owner's check
+ * (`manual`) also probes an account that awaits a reconnect and restores it
+ * when the cause is gone (e.g. a Telegram bot got its posting right back).
+ */
+export async function checkAccount(scope: Scope, accountId: string, options: { manual?: boolean } = {}): Promise<Result> {
   let result: Result;
   let refused = false;
   try {
-    result = await probe(scope, accountId);
+    result = await probe(scope, accountId, options.manual === true);
     refused = !result.ok;
   } catch (error) {
     const failure = providerFailure(error);

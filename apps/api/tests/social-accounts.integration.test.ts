@@ -156,6 +156,17 @@ describe.skipIf(!enabled)("social accounts", () => {
     expect(await account(accountId)).toMatchObject({ status: "reconnect_required" });
   });
 
+  it("restores an account on an owner's check once its cause is fixed", async () => {
+    const { accountId } = await telegram("-1005");
+    member = { status: "left", user: { id: 2222, is_bot: true, first_name: "Pub" } };
+    await call("owner", "POST", `/accounts/${accountId}/check`);
+    expect(await account(accountId)).toMatchObject({ status: "reconnect_required" });
+    member = { status: "administrator", can_post_messages: true, user: { id: 2222, is_bot: true, first_name: "Pub" } };
+    const restored = await call("owner", "POST", `/accounts/${accountId}/check`);
+    expect(restored.json()).toEqual({ ok: true });
+    expect(await account(accountId)).toMatchObject({ status: "active" });
+  });
+
   it("disconnects with the current version only, revokes the connection and keeps the account", async () => {
     const { accountId } = await telegram("-1004");
     const stale = await call("owner", "POST", `/accounts/${accountId}/disconnect`, { version: 9 });

@@ -120,6 +120,14 @@ describe.skipIf(!enabled)("social account tokens", () => {
     expect(JSON.stringify(notices)).not.toMatch(/access-1|refresh-1/);
   });
 
+  it("keeps the account active when X refuses the developer app (401)", async () => {
+    reply = () => new Response(JSON.stringify({ error: "invalid_client" }), { status: 401 });
+    const id = await x("4b", tokens(MINUTE));
+    await expect(accountCredentials(p.owner, id)).rejects.toMatchObject({ code: "SOCIAL_APP_INVALID" });
+    expect(await account(id)).toMatchObject({ status: "active" });
+    expect((await secret(id)).version).toBe(1);
+  });
+
   it("needs a reconnect for an expiring token without a refresh token", async () => {
     const id = await x("5", tokens(MINUTE, null));
     await expect(accountCredentials(p.owner, id)).rejects.toMatchObject({ code: "SOCIAL_ACCOUNT_RECONNECT_REQUIRED" });

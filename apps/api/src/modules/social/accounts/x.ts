@@ -6,7 +6,7 @@ import { DomainError } from "../../../shared.ts";
 import { appCredentials, redirectUri, type XAppSecret } from "./apps.ts";
 import type { ConnectHandler } from "./connect.ts";
 import { providerFailure, responseFailure } from "./errors.ts";
-import { socialFetch } from "./http.ts";
+import { socialFetch, statusRecordingFetch } from "./http.ts";
 import { beginOAuthState } from "./oauth-state.ts";
 import { saveConnectedAccount } from "./store.ts";
 
@@ -36,12 +36,17 @@ export function xAccountSecretOf(token: OAuthTokenSet): XAccountSecret {
   };
 }
 
-function provider(app: XAppSecret, callback: string, sink?: (token: OAuthTokenSet) => void) {
+function provider(
+  app: XAppSecret,
+  callback: string,
+  sink?: (token: OAuthTokenSet) => void,
+  fetch: typeof globalThis.fetch = socialFetch,
+) {
   return xOAuth({
     clientId: app.clientId,
     clientSecret: app.clientSecret,
     redirectUri: callback,
-    fetch: socialFetch,
+    fetch,
     ...(sink ? { credentialSink: { save: async ({ token }) => sink(token) } } : {}),
   });
 }
@@ -90,8 +95,9 @@ export const xConnect: ConnectHandler = {
     const callback = redirectUri(loadConfig(), "x");
     let token: OAuthTokenSet | undefined;
     let userId: string;
+    const recorder = statusRecordingFetch();
     try {
-      const accounts = await provider(app.x!, callback, (t) => (token = t)).complete({
+      const accounts = await provider(app.x!, callback, (t) => (token = t), recorder.fetch).complete({
         callbackUrl,
         attempt: {
           id: attempt.id,
@@ -109,7 +115,7 @@ export const xConnect: ConnectHandler = {
       });
       userId = accounts[0]!.ref.accountId;
     } catch (error) {
-      throw providerFailure(error);
+      throw providerFailure(error, recorder.lastStatus());
     }
     if (!token) throw new DomainError("SOCIAL_PROVIDER_UNAVAILABLE", 503);
     const user = await readProfile(token.accessToken);

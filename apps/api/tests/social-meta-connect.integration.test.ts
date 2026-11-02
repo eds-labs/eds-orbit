@@ -191,9 +191,12 @@ describe.skipIf(!enabled)("connecting Facebook Pages and Instagram accounts", ()
     expect(await metaHealth(META_APP_SECRET, "page-token-101", "instagram", "ig-501")).toEqual({ ok: false, code: "SOCIAL_META_PERMISSION_MISSING" });
     debug = { data: { is_valid: false, error: { code: 190, subcode: 463 } } };
     expect(await metaHealth(META_APP_SECRET, "page-token-101", "facebook", "101")).toEqual({ ok: false, code: "SOCIAL_META_TOKEN_INVALID" });
+    // An HTTP-level 190 concerns the token of the call itself: the app token.
     debug = { error: { code: 190, error_subcode: 460 } };
     status = 400;
-    expect(await metaHealth(META_APP_SECRET, "page-token-101", "facebook", "101")).toEqual({ ok: false, code: "SOCIAL_META_TOKEN_INVALID" });
+    await expect(metaHealth(META_APP_SECRET, "page-token-101", "facebook", "101")).rejects.toMatchObject({
+      code: "SOCIAL_APP_INVALID",
+    });
     debug = { error: { code: 4 } };
     status = 400;
     await expect(metaHealth(META_APP_SECRET, "page-token-101", "facebook", "101")).rejects.toMatchObject({ code: "SOCIAL_RATE_LIMITED" });

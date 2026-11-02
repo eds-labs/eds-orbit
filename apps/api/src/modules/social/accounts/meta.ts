@@ -225,7 +225,9 @@ export async function metaHealth(
   });
   if (!result.ok) {
     const error = graphError(result.body);
-    if (error.code === 190) return { ok: false, code: "SOCIAL_META_TOKEN_INVALID" };
+    // An HTTP-level 190 refuses the token of this call: the app token. A bad
+    // Page token comes back as 200 with is_valid=false.
+    if (error.code === 190) throw new DomainError("SOCIAL_APP_INVALID", 409);
     throw metaFailure(result.status, error);
   }
   const parsed = debugResponse.safeParse(result.body);

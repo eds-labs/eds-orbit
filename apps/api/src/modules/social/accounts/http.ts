@@ -24,3 +24,18 @@ export const socialFetch: typeof fetch = async (input, init = {}) => {
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   return transport(url, { ...options, signal });
 };
+
+/**
+ * A socialFetch that remembers the last HTTP status. The SDK reports a 401
+ * at a token endpoint (a refused client: the developer app) like a refused
+ * grant, without the status, so callers read it here.
+ */
+export function statusRecordingFetch() {
+  let last: number | undefined;
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const response = await socialFetch(input, init);
+    last = response.status;
+    return response;
+  };
+  return { fetch, lastStatus: () => last };
+}

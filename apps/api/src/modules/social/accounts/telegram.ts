@@ -36,7 +36,14 @@ export async function connectTelegramChannel(
   let bot, info, member;
   try {
     bot = await client.getMe();
-    info = await client.getChat(chat.startsWith("@") ? (chat as `@${string}`) : chat);
+    info = await client
+      .getChat(chat.startsWith("@") ? (chat as `@${string}`) : chat)
+      .catch((error: unknown) => {
+        // Telegram answers an unknown or inaccessible chat with 400.
+        if ((error as { status?: number }).status === 400)
+          throw new DomainError("SOCIAL_TELEGRAM_CHAT_INVALID", 400);
+        throw error;
+      });
     if (info.type !== "channel") throw new DomainError("SOCIAL_TELEGRAM_NOT_A_CHANNEL", 409);
     member = await client.getChatMember(info.id, bot.id);
   } catch (error) {

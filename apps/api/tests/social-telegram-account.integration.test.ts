@@ -93,6 +93,18 @@ describe.skipIf(!enabled)("connecting Telegram channels", () => {
     expect(methods).toEqual([]);
   });
 
+  it("reports an unknown channel as an input problem, not an outage", async () => {
+    setSocialFetchForTests(async (url) => {
+      const method = String(url).split("/").pop()!;
+      methods.push(method);
+      if (method === "getMe") return ok({ id: 2222, is_bot: true, first_name: "Pub", username: "orbit_pub_bot" });
+      return new Response(JSON.stringify({ ok: false, error_code: 400, description: "Bad Request: chat not found" }), { status: 400 });
+    });
+    await expect(connectTelegramChannel(p.owner, { botToken: PUBLISHING_BOT, chat: "@orbit_typo" })).rejects.toMatchObject({
+      code: "SOCIAL_TELEGRAM_CHAT_INVALID",
+    });
+  });
+
   it("refuses a group", async () => {
     chat = { id: -100777, type: "supergroup", title: "A group" };
     fakeTelegram();

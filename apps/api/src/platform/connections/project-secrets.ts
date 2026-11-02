@@ -12,6 +12,9 @@ import { openSecret, sealSecret } from "./secrets.ts";
 // project grant makes them readable inside the project's transaction
 // (central.ts connectionSecret). Secret updates take an advisory lock per
 // connection, so concurrent token refreshes run one after the other.
+// Lock order: a caller may hold a project transaction when it takes the
+// connection lock, but `work` must never open one (scoped() waits for the
+// project-wide lock while this auth connection and the lock are held).
 
 export type JsonConfig = Record<string, string | number | boolean | null | string[]>;
 
@@ -182,6 +185,12 @@ export async function revokeProjectConnection(
     await atx.connectionSecret.updateMany({
       where: { connectionId: connection.id, state: "active" },
       data: { state: "retired", retiredAt: now },
+    });
+    // A revoked module-managed connection forgets its tokens (a Page token,
+    // for one, never expires): only the version history stays.
+    await atx.connectionSecret.updateMany({
+      where: { connectionId: connection.id },
+      data: { keyId: "wiped", ciphertext: "" },
     });
     await atx.connectionGrant.updateMany({
       where: { connectionId: connection.id, revokedAt: null },

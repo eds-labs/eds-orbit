@@ -146,6 +146,9 @@ describe.skipIf(!enabled)("project connections managed by a module", () => {
     expect(
       await authDb.connectionSecret.count({ where: { connectionId, state: "active" } }),
     ).toBe(0);
+    // A module-managed connection's tokens are forgotten, not only retired.
+    const wiped = await authDb.connectionSecret.findMany({ where: { connectionId } });
+    expect(wiped.map((w) => w.ciphertext)).toEqual([""]);
     await expect(
       withProjectSecret(a.owner, { moduleId: "vault", connectionId }, async () => ({ result: 1 })),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });

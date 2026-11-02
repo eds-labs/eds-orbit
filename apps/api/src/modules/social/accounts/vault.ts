@@ -7,7 +7,7 @@ import { audit, DomainError } from "../../../shared.ts";
 import { notifyReconnectRequired } from "../notifications.ts";
 import { appCredentials } from "./apps.ts";
 import { providerFailure } from "./errors.ts";
-import { socialFetch } from "./http.ts";
+import { statusRecordingFetch } from "./http.ts";
 import type { SocialPlatform } from "./store.ts";
 import { xAccountSecret, xAccountSecretOf, type XAccountSecret } from "./x.ts";
 
@@ -51,20 +51,20 @@ export async function markReconnectRequired(tx: DbTx, scope: Scope, accountId: s
 
 async function refreshX(scope: Scope, accountId: string, connectionId: string): Promise<XAccountSecret> {
   try {
+    // Lock order: project before connection. The app is read before the
+    // connection lock, so no project transaction waits inside it.
+    const app = await scoped(scope.workspaceId, scope.projectId, (tx) => appCredentials(tx, scope, "x"));
     return await withProjectSecret(scope, { moduleId: "social", connectionId }, async (current) => {
       const secret = xAccountSecret.parse(parse(current.secret));
-      // Another caller may have refreshed or failed while this one waited.
+      // Another caller may have refreshed while this one waited.
       if (!expiring(secret)) return { result: secret };
-      const status = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-        tx.socialAccount.findUnique({ where: { id: accountId }, select: { status: true } }),
-      );
-      if (status?.status !== "active" || !secret.refreshToken) throw reconnect();
-      const app = await scoped(scope.workspaceId, scope.projectId, (tx) => appCredentials(tx, scope, "x"));
+      if (!secret.refreshToken) throw reconnect();
       let token;
+      const recorder = statusRecordingFetch();
       try {
         token = await refreshOAuthToken(
           "x",
-          { clientId: app.x!.clientId, clientSecret: app.x!.clientSecret, fetch: socialFetch },
+          { clientId: app.x!.clientId, clientSecret: app.x!.clientSecret, fetch: recorder.fetch },
           {
             accessToken: secret.accessToken,
             refreshToken: secret.refreshToken,
@@ -73,13 +73,15 @@ async function refreshX(scope: Scope, accountId: string, connectionId: string): 
           },
         );
       } catch (error) {
-        throw providerFailure(error);
+        throw providerFailure(error, recorder.lastStatus());
       }
       const fresh = xAccountSecretOf(token);
       return { result: fresh, secret: JSON.stringify(fresh) };
     });
   } catch (error) {
     const failure = providerFailure(error);
+    // Only a refusal of this account's grant needs a reconnect; a refused
+    // developer app or an outage leaves the account as it is.
     if (failure.code === "SOCIAL_PROVIDER_REJECTED" || failure.code === "SOCIAL_ACCOUNT_RECONNECT_REQUIRED") {
       await scoped(scope.workspaceId, scope.projectId, (tx) =>
         markReconnectRequired(tx, scope, accountId, failure.code),
@@ -91,11 +93,15 @@ async function refreshX(scope: Scope, accountId: string, connectionId: string): 
 }
 
 /** The account's usable credentials; refreshes an X token close to expiry. */
-export async function accountCredentials(scope: Scope, accountId: string): Promise<AccountCredentials> {
+export async function accountCredentials(
+  scope: Scope,
+  accountId: string,
+  options: { allowReconnect?: boolean } = {},
+): Promise<AccountCredentials> {
   const loaded = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const account = await tx.socialAccount.findFirst({ where: { id: accountId, projectId: scope.projectId } });
     if (!account) throw new DomainError("NOT_FOUND", 404);
-    if (account.status === "reconnect_required") throw reconnect();
+    if (account.status === "reconnect_required" && !options.allowReconnect) throw reconnect();
     if (account.status === "disabled") throw new DomainError("SOCIAL_ACCOUNT_DISABLED", 409);
     const raw = await connectionSecret(tx, account.connectionId);
     const connection = await tx.connection.findUnique({

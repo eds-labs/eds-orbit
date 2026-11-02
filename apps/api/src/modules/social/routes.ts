@@ -78,7 +78,7 @@ export const socialRoutes: RoutesContribution = (context) => {
   app.get(`${BASE}/accounts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listAccounts(tx, scope)));
   app.post(`${BASE}/accounts/:accountId/check`, async (req) => {
     const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
-    return checkAccount(scope, accountParam.parse(req.params).accountId);
+    return checkAccount(scope, accountParam.parse(req.params).accountId, { manual: true });
   });
   app.post(`${BASE}/accounts/:accountId/disconnect`, async (req) => {
     const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
