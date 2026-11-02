@@ -5,6 +5,7 @@ import { socialConnectionProviders } from "./accounts/providers.ts";
 import { socialAttention } from "./attention.ts";
 import { socialSwitchedOn } from "./gate.ts";
 import { socialUserNotifications } from "./notifications.ts";
+import { socialActionTypes } from "./posts/approval.ts";
 import { socialRoutes } from "./routes.ts";
 
 /** What the social module plugs into the platform; later phases add to it. */
@@ -19,6 +20,8 @@ export const socialContributions: ModuleContributions = {
   // connections (accounts/providers.ts).
   connections: { providers: socialConnectionProviders },
   periodic: [socialOAuthStateCleanup, socialAccountHealth],
+  // Owner approvals of a post's schedule or immediate publication (S4).
+  actionTypes: socialActionTypes,
   attention: socialAttention,
   userNotifications: socialUserNotifications,
 };
