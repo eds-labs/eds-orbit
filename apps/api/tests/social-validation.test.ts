@@ -91,6 +91,28 @@ describe("validateVariant", () => {
     expect(platformOptions("facebook").safeParse({}).success).toBe(true);
   });
 
+  it("refuses in live mode what cannot go out, and only warns in test mode", () => {
+    const live = { mode: "live" as const, platformEnabled: true, publicMedia: true };
+    expect(codes(facts("facebook"))).toEqual([]);
+    expect(validateVariant(facts("facebook"), { ...live, platformEnabled: false })).toContainEqual({
+      code: "SOCIAL_PLATFORM_NOT_AVAILABLE",
+      severity: "error",
+    });
+    expect(validateVariant(facts("instagram", { media: [image()] }), { ...live, publicMedia: false })).toContainEqual({
+      code: "SOCIAL_MEDIA_PUBLIC_REQUIRED",
+      severity: "error",
+      path: "media",
+    });
+    const unverified = { ...facts("telegram").account, capability: "read_verified" };
+    expect(validateVariant(facts("telegram", { account: unverified }), live).map((i) => `${i.severity}:${i.code}`)).toEqual([
+      "error:SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED",
+    ]);
+    const test = { mode: "test" as const, platformEnabled: false, publicMedia: false };
+    expect(validateVariant(facts("instagram", { media: [image()], account: { ...facts("instagram").account, capability: "read_verified" } }), test).map((i) => `${i.severity}:${i.code}`)).toEqual([
+      "warning:SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED",
+    ]);
+  });
+
   it("names its limits", () => {
     expect(TEXT_LIMITS).toEqual({ x: 280, xLong: 25_000, instagram: 2_200, facebook: 63_206, telegram: 4_096, telegramCaption: 1_024 });
   });

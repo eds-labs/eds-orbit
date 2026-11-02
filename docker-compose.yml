@@ -74,6 +74,8 @@ x-api-environment: &api-environment
   ORBIT_SOCIAL: ${ORBIT_SOCIAL:-false}
   # Signed public media URLs of the social module (ADR 0020): off until approved.
   ORBIT_SOCIAL_MEDIA_PUBLIC: ${ORBIT_SOCIAL_MEDIA_PUBLIC:-false}
+  # Platforms the social module may really post to (x,instagram,telegram); empty: none.
+  ORBIT_SOCIAL_PLATFORMS: ${ORBIT_SOCIAL_PLATFORMS:-}
   # Marketing module for the whole installation (ADR 0015): on by default.
   ORBIT_MARKETING: ${ORBIT_MARKETING:-true}
   # The owner's Telegram bot (ADR 0015); empty follows ORBIT_AGENTS as before.

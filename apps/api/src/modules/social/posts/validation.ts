@@ -100,7 +100,14 @@ function textIssues(v: VariantFacts): string[] {
 }
 
 /** The issues of one variant; errors block scheduling, warnings inform. */
-export function validateVariant(v: VariantFacts): ValidationIssue[] {
+/**
+ * In live mode (S5) what cannot go out is an error: a platform that is not
+ * switched on, Instagram without public media URLs, an account whose
+ * posting was not verified. In test mode the last one only warns.
+ */
+export type ValidationContext = { mode: "live" | "test"; platformEnabled: boolean; publicMedia: boolean };
+
+export function validateVariant(v: VariantFacts, ctx?: ValidationContext): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const error = (code: string, path?: string) => issues.push({ code, severity: "error", ...(path ? { path } : {}) });
   if (v.account.status !== "active") error("SOCIAL_ACCOUNT_NOT_ACTIVE");
@@ -109,7 +116,10 @@ export function validateVariant(v: VariantFacts): ValidationIssue[] {
   if (v.account.platform === "instagram" && !v.media.length) error("SOCIAL_MEDIA_REQUIRED", "media");
   if (v.media.length) for (const code of carouselIssues(v.media, v.account.platform)) error(code, "media");
   if (!OPTIONS[v.account.platform].safeParse(v.options).success) error("SOCIAL_OPTIONS_INVALID", "options");
+  const live = ctx?.mode === "live";
+  if (live && !ctx.platformEnabled) error("SOCIAL_PLATFORM_NOT_AVAILABLE");
+  if (live && v.account.platform === "instagram" && !ctx.publicMedia) error("SOCIAL_MEDIA_PUBLIC_REQUIRED", "media");
   if (v.account.status === "active" && v.account.capability !== "write_verified")
-    issues.push({ code: "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED", severity: "warning" });
+    issues.push({ code: "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED", severity: live ? "error" : "warning" });
   return issues;
 }

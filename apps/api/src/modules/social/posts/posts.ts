@@ -6,6 +6,7 @@ import { cancelActionRequest } from "../../../platform/governance/action-request
 import { audit, data, DomainError, hash } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { computePackage, type SocialPackage } from "./package-hash.ts";
+import { validationContext } from "../dispatch/gates.ts";
 import { validateVariant, type ValidationIssue } from "./validation.ts";
 
 // Social posts (ADR 0020, S4): a base text and image set, and one variant
@@ -336,7 +337,7 @@ export async function currentIssues(tx: DbTx, scope: Scope, post: { id: string }
         .sort((a, b) => a.position - b.position)
         .flatMap((m) => (assetOf.has(m.fileId) ? [assetOf.get(m.fileId)!] : [])),
       options: (v.platformOptions ?? {}) as Record<string, unknown>,
-    });
+    }, validationContext(account.platform as SocialPlatform));
     result.push({ accountId: v.accountId, issues });
   }
   return result;
@@ -383,7 +384,7 @@ async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: 
       body,
       media: images,
       options,
-    });
+    }, validationContext(account.platform as SocialPlatform));
     const fields = {
       body,
       inheritsText: v.text === null || v.text === undefined,

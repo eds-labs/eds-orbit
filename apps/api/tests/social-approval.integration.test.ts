@@ -155,6 +155,25 @@ describe.skipIf(!enabled)("social post approvals", () => {
     expect((await p.run((tx) => getPost(tx, p.viewer, post.id))).status).toBe("draft");
   });
 
+  it("refuses in live mode to schedule for an unverified account or a platform that is off", async () => {
+    const restore = { mode: process.env.EXECUTION_MODE, writes: process.env.ENABLE_EXTERNAL_WRITES, platforms: process.env.ORBIT_SOCIAL_PLATFORMS };
+    Object.assign(process.env, { EXECUTION_MODE: "live", ENABLE_EXTERNAL_WRITES: "true", ORBIT_SOCIAL_PLATFORMS: "telegram" });
+    try {
+      const post = await draft();
+      await p.run((tx) => tx.socialAccount.update({ where: { id: telegram }, data: { capability: "read_verified" } }));
+      const error = await p.run((tx) => schedulePost(tx, p.owner, post.id, { version: 1, local: localIn(2) })).catch((e) => e);
+      expect(error).toMatchObject({ code: "SOCIAL_VALIDATION_FAILED" });
+      const byAccount = Object.fromEntries(error.detail.variants.map((v: { accountId: string; issues: Array<{ code: string }> }) => [v.accountId, v.issues.map((i) => i.code)]));
+      expect(byAccount[telegram]).toEqual(["SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED"]);
+      expect(byAccount[x]).toEqual(["SOCIAL_PLATFORM_NOT_AVAILABLE"]);
+    } finally {
+      await p.run((tx) => tx.socialAccount.update({ where: { id: telegram }, data: { capability: "write_verified" } }));
+      for (const [key, value] of [["EXECUTION_MODE", restore.mode], ["ENABLE_EXTERNAL_WRITES", restore.writes], ["ORBIT_SOCIAL_PLATFORMS", restore.platforms]] as const)
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+  });
+
   it("handles daylight-saving gaps and overlaps", async () => {
     const post = await draft();
     // Only times within a year can be scheduled; pick the next Berlin overlap or gap that lies ahead.
