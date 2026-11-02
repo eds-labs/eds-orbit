@@ -1,7 +1,7 @@
 "use client";
 import type { Dispatch } from "react";
 import { Button, Field, FieldLabel, Tabs, Textarea } from "@/components/ui/primitives";
-import type { SocialAccount, SocialMedia, ValidationIssue } from "../api";
+import type { MediaRef, SocialAccount, SocialMedia, ValidationIssue } from "../api";
 import { issueMessage, socialText } from "../labels";
 import { effectiveMedia, effectiveText, type EditorAction, type EditorState } from "./editor-state";
 import { MediaPicker } from "./media-picker";
@@ -18,6 +18,7 @@ export function VariantTabs({
   dispatch,
   accounts,
   library,
+  known = [],
   issues,
   disabled,
   locale,
@@ -27,6 +28,8 @@ export function VariantTabs({
   dispatch: Dispatch<EditorAction>;
   accounts: SocialAccount[];
   library: SocialMedia[];
+  /** The images the stored post has (also those no longer in the library). */
+  known?: MediaRef[];
   issues: Record<string, ValidationIssue[]>;
   disabled?: boolean;
   locale: "en" | "de";
@@ -35,8 +38,18 @@ export function VariantTabs({
   const t = all.posts;
   const selected = state.accounts.flatMap((id) => accounts.filter((a) => a.id === id));
   const alt = (ids: string[]) =>
-    ids.map((mediaId) => ({ mediaId, altText: library.find((m) => m.id === mediaId)?.altText ?? null }));
-  const tabs = [{ key: "base", label: t.tabBase }, ...selected.map((a) => ({ key: a.id, label: a.handle }))];
+    ids.map((mediaId) => ({
+      mediaId,
+      altText: library.find((m) => m.id === mediaId)?.altText ?? known.find((k) => k.mediaId === mediaId)?.altText ?? null,
+    }));
+  // An account with errors says so on its tab, so a refused schedule points there.
+  const tabs = [
+    { key: "base", label: t.tabBase },
+    ...selected.map((a) => {
+      const errors = (issues[a.id] ?? []).filter((i) => i.severity === "error").length;
+      return { key: a.id, label: errors ? `${a.handle} · ${t.tabProblems(errors)}` : a.handle };
+    }),
+  ];
   return (
     <section aria-label={t.tabsLabel}>
       <Tabs tabs={tabs} value={state.tab} onChange={(tab) => dispatch({ type: "tab", tab })} />
@@ -70,6 +83,7 @@ export function VariantTabs({
           target="base"
           legend={t.baseMedia}
           library={library}
+          known={known}
           selected={state.baseMedia}
           disabled={disabled}
           locale={locale}
@@ -135,6 +149,7 @@ export function VariantTabs({
                   target={a.id}
                   legend={t.ownMedia}
                   library={library}
+                  known={known}
                   selected={own.media}
                   disabled={disabled}
                   locale={locale}

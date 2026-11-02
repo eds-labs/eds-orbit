@@ -31,7 +31,7 @@ import { WorkspaceContext } from "@/components/workspace-context";
 import { webRegistry } from "@/modules/registry";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { projectHref, routeTable } from "@/platform/shell/routes";
-import { PostsView } from "./posts-view";
+import { editorFrame, PostsView } from "./posts-view";
 import { postMessage } from "../labels";
 
 const table = routeTable(webRegistry);
@@ -149,6 +149,9 @@ describe("social posts view (ADR 0020, S4)", () => {
     expect(html).toMatch(/<input[^>]*id="social-post-account-a-ig"[^>]*disabled=""/);
     expect(html).toContain("Reconnect needed");
     expect(html).toContain("X: 300 / 280");
+    // The tab of an account with errors says so, so a refused schedule points to it.
+    expect(html).toMatch(/role="tab"[^>]*>@orbit_x · 1 problem</);
+    expect(html).toMatch(/role="tab"[^>]*>Orbit channel</);
     expect(html).toContain("The text is too long for this platform.");
     expect(html).toContain('alt="Launch banner"');
   });
@@ -174,6 +177,30 @@ describe("social posts view (ADR 0020, S4)", () => {
     expect(html).toContain('value="10:00"');
     expect(html).toContain("Europe/Berlin");
     expect(html).toContain("Freigabe anfordern");
+  });
+
+  it("keeps the editor of a new post mounted when the saved post's id reaches the address", () => {
+    const loaded = { post: false, accounts: true, library: true };
+    // Opened as new; the first save puts ?post=<id> in the address while
+    // the schedule request is still running.
+    expect(editorFrame("new", "p9", loaded)).toEqual({ key: "new", ready: true });
+    expect(editorFrame("new", null, loaded)).toEqual({ key: "new", ready: true });
+    // Opened for a stored post: wait for it.
+    expect(editorFrame("p1", "p1", loaded)).toEqual({ key: "p1", ready: false });
+    expect(editorFrame("p1", "p1", { ...loaded, post: true })).toEqual({ key: "p1", ready: true });
+    expect(editorFrame("new", null, { ...loaded, library: false }).ready).toBe(false);
+  });
+
+  it("lets an image removed from the library be taken out of the post", () => {
+    search.value = "post=p1";
+    answers["/social/posts/p1"] = { ...post, baseMedia: [...post.baseMedia, { mediaId: "m-gone", width: 800, height: 600, altText: "Old logo" }] };
+    answers["/social/accounts"] = accounts;
+    answers["/social/media"] = media;
+    const html = render(<PostsView />, { access: "editor" });
+    expect(html).toMatch(/<input[^>]*id="social-post-media-base-m-gone"[^>]*checked=""/);
+    expect(html).toContain("Removed from the library");
+    expect(html).toContain('alt="Old logo"');
+    answers["/social/posts/p1"] = post;
   });
 
   it("translates the post errors", () => {

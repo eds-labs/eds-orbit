@@ -120,6 +120,23 @@ describe.skipIf(!enabled)("social post approvals", () => {
     await expect(decide(p.owner, waiting.approval.requestId!)).rejects.toMatchObject({ code: "ACTION_REQUEST_NOT_PENDING" });
   });
 
+  it("keeps a request decidable when only the title changed while it waited", async () => {
+    const post = await draft();
+    const waiting = await p.run((tx) => schedulePost(tx, p.editor, post.id, { version: 1, local: localIn(4) }));
+    const titled = await p.run((tx) =>
+      updatePost(tx, p.editor, post.id, {
+        version: waiting.version,
+        title: "A new title",
+        baseText: "We are live.",
+        baseMedia: [image],
+        variants: [{ accountId: telegram }, { accountId: x, text: "We are live on X." }],
+      }),
+    );
+    expect(titled).toMatchObject({ status: "needs_approval", approval: { state: "pending" } });
+    await decide(p.owner, waiting.approval.requestId!);
+    expect((await p.run((tx) => getPost(tx, p.viewer, post.id))).status).toBe("scheduled");
+  });
+
   it("lets an owner's own schedule be its approval", async () => {
     const post = await draft();
     const scheduled = await p.run((tx) => schedulePost(tx, p.owner, post.id, { version: 1, local: localIn(5) }));

@@ -78,7 +78,9 @@ async function requireValid(tx: DbTx, scope: Scope, post: SocialPostRow) {
 /** Checks a stored request against the post as it is now; throws when it no longer matches. */
 async function checkRequest(tx: DbTx, scope: Scope, payload: SocialApprovalPayload, post: SocialPostRow) {
   if (post.readOnly || post.status !== "needs_approval") throw stale();
-  if (post.version !== payload.postVersion || post.packageHash !== payload.packageHash) throw stale();
+  // The package hash binds what the owner approves; a title edit (which
+  // bumps the version) leaves the request decidable.
+  if (post.packageHash !== payload.packageHash) throw stale();
   if ((await packageOf(tx, scope, post.id)).hash !== payload.packageHash) throw stale();
   await requireValid(tx, scope, post);
   if (payload.schedule.mode === "at" && (!post.scheduledAt || post.scheduledAt.getTime() < Date.now() + LEAD_MS))

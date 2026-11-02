@@ -187,6 +187,7 @@ export function PostEditor({
         dispatch={dispatch}
         accounts={accounts}
         library={library}
+        known={[...(post?.baseMedia ?? []), ...(post?.variants.flatMap((v) => v.media) ?? [])]}
         issues={issues}
         disabled={locked}
         locale={locale}

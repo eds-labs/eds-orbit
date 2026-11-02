@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useResource } from "@/lib/api";
 import { Badge, Empty } from "@/components/ui/primitives";
@@ -86,6 +87,20 @@ function PostSummary({ post }: { post: PostView }) {
   );
 }
 
+/**
+ * Which editor to show: keyed by how the page was opened, so the editor of
+ * a new post stays mounted (and finishes its schedule request) when its
+ * first save puts `?post=<id>` into the address.
+ */
+export function editorFrame(
+  openedAs: string,
+  postId: string | null,
+  loaded: { post: boolean; accounts: boolean; library: boolean },
+): { key: string; ready: boolean } {
+  const ready = (openedAs === "new" || (postId !== null && loaded.post)) && loaded.accounts && loaded.library;
+  return { key: openedAs, ready };
+}
+
 function PostPage({ postId }: { postId: string | null }) {
   const { project, locale, canEdit } = useWorkspace();
   const t = socialText(locale).posts;
@@ -94,7 +109,12 @@ function PostPage({ postId }: { postId: string | null }) {
   const post = useResource<PostView>(postId ? socialPath(project.id, `/posts/${postId}`) : null);
   const accounts = useResource<SocialAccounts>(socialPath(project.id, "/accounts"));
   const library = useResource<SocialMediaList>(socialPath(project.id, "/media"));
-  const ready = (!postId || post.data) && accounts.data && library.data;
+  const [openedAs] = useState(postId ?? "new");
+  const frame = editorFrame(openedAs, postId, {
+    post: Boolean(post.data),
+    accounts: Boolean(accounts.data),
+    library: Boolean(library.data),
+  });
   const title = postId ? post.data?.title || t.title : t.newPost;
   return (
     <div className="support-page">
@@ -104,11 +124,11 @@ function PostPage({ postId }: { postId: string | null }) {
         </a>
       </PageHead>
       <ResourceError error={post.error ?? accounts.error ?? library.error} retry={() => (post.refresh(), accounts.refresh(), library.refresh())} />
-      {ready &&
+      {frame.ready &&
         (canEdit && !post.data?.readOnly ? (
           <PostEditor
-            key={postId ?? "new"}
-            post={post.data ?? null}
+            key={frame.key}
+            post={openedAs === "new" ? null : (post.data ?? null)}
             accounts={accounts.data!.items}
             library={library.data!.items}
             onSaved={(saved) => {
