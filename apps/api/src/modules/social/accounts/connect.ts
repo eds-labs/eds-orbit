@@ -3,6 +3,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../../../shared.ts";
 import type { SocialApp } from "./apps.ts";
 import type { consumeOAuthState, OAuthPlatform } from "./oauth-state.ts";
+import { xConnect } from "./x.ts";
 
 // Connecting accounts over OAuth (ADR 0020): one handler per developer app.
 // The routes own the state checks; a handler starts the authorization and
@@ -27,7 +28,7 @@ const unavailable: ConnectHandler = {
   },
 };
 
-const handlers: Record<SocialApp, ConnectHandler> = { meta: unavailable, x: unavailable };
+const handlers: Record<SocialApp, ConnectHandler> = { meta: unavailable, x: xConnect };
 const overrides: Partial<Record<SocialApp, ConnectHandler>> = {};
 
 /** The OAuth state platform of a developer app. */
