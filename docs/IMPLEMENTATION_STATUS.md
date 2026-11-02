@@ -1,5 +1,14 @@
 # Implementation status
 
+## Social module phase S4 (2026-11-02, branch `claude/social-s4` on top of S3, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s4-posts.md](superpowers/plans/2026-11-02-social-s4-posts.md).
+
+- **Built (S4):** DST-safe local times (`platform/time/zoned-time.ts`, `posts/schedule-time.ts`); posts with base text and images and inheriting per-account variants (migration `202611020003_social_post_base`); validation per platform without network (SDK `prepareTarget` for X and Instagram text, Orbit limits for Facebook and Telegram, S3 media rules); X long posts per account; package hash; owner approvals as ActionRequests `social.post.schedule` / `social.post.publish_now` (W2, owner decides, never mandatable); schedule, publish-now, reschedule, cancel, archive; post routes; web posts list, editor and approval renderer; OpenAPI and client regenerated.
+- **Held back:** `editor_each` is refused until the platform has a per-project decider hook.
+- **Not built:** sending (S5), calendar (S6), MCP tools (S7).
+- **Production:** nothing deployed. The migration changes the approved schema hash to `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`; a deploy needs Mario's approval of it.
+
 ## Social module phase S3 (2026-11-02, branch `claude/social-s3` on top of S2, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-02-social-s3-media.md](superpowers/plans/2026-11-02-social-s3-media.md).

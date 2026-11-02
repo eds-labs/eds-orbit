@@ -1,6 +1,7 @@
 import { AtSign, BarChart3, CalendarDays, Images, LayoutDashboard, PenSquare } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { AccountsView } from "./accounts";
+import { socialActionRequests } from "./action-requests";
 import { socialAttention } from "./attention";
 import { MediaView } from "./media";
 import { socialText } from "./labels";
@@ -30,6 +31,7 @@ export const socialWeb: WebModule = {
   // Right after Marketing (10), before Work (15).
   groupOrder: 12,
   attention: socialAttention,
+  actionRequests: socialActionRequests,
   views: [
     { key: "social", path: "", component: SocialOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
     { key: "social.calendar", path: "calendar", component: SocialPlaceholder, nav: { label: nav("calendar"), icon: CalendarDays, order: 10 } },

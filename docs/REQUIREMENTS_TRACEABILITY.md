@@ -2,7 +2,7 @@
 
 ## Social module (ADR 0020, 2026-11-02, branches `claude/social-module-plan` and `claude/social-s2`; flag off)
 
-Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Phases S1 to S3 are implemented (branches, not merged).
+Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Phases S1 to S4 are implemented (branches, not merged).
 
 | ID | Requirement | Code | Local evidence | Result |
 | --- | --- | --- | --- | --- |
@@ -11,7 +11,8 @@ Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans
 | R2 | Direct adapters only (no managed providers) | `scripts/boundaries.{json,mjs}` `forbiddenImportPrefixes`; SDK 0.5.0 `/server` only | `scripts/boundaries.test.mjs`; probe import makes `source-check` exit 1; `social-sdk-surface.test.ts` | PASS_TEST (guard; publishing adapters S5) |
 | R2-TG | Telegram via the Orbit connector; private bot untouched | `packages/connectors/src/telegram.ts`, `modules/social/accounts/telegram.ts`, `platform/connections/telegram.ts` `isOwnerBotToken` | `telegram.test.ts`, `social-telegram-account.integration.test.ts` (no webhook/update method called; owner bot refused and unchanged), `telegram.integration.test.ts` | PASS_TEST (connect; publishing S5) |
 | R3-M | Media (images) for the editor: library, normalization, platform rules, public URLs | `packages/creative/src/social-image.ts`, `modules/social/media/{library,rules,public-url}.ts`, migration `202611020002_social_media`, `apps/web/src/modules/social/media.tsx` | `social-image.test.ts`, `social-media-library`, `social-media-routes`, `social-media-public` integration tests, `social-media-rules.test.ts`, web `media.test.tsx`, RLS and access matrices | PASS_TEST (local; video S3b) |
-| R3 | Calendar and editor without Marketing | — | — | OPEN (S4, S6) |
+| R3-E | Editor without Marketing: posts, per-account variants, validation, approvals, schedule time | `modules/social/posts/*`, `platform/time/zoned-time.ts`, migration `202611020003_social_post_base`, `apps/web/src/modules/social/posts/*`, `apps/web/src/modules/social/action-requests.tsx` | `schedule-time.test.ts`, `social-validation.test.ts`, `social-posts`, `social-approval`, `social-posts-routes` integration tests, web `posts.test.tsx`, `editor-state.test.tsx`, `limits.test.tsx`, `action-requests.test.tsx`, access matrix | PASS_TEST (local; nothing is sent until S5) |
+| R3 | Calendar (month/week/list, filters, drag-and-drop) | — | — | OPEN (S6; reschedule API from S4) |
 | R4 | One scheduler on the Orbit worker | — | — | OPEN (S5; decision S-D2) |
 | R5 | Social tools in the Orbit MCP gateway | — | — | OPEN (S7) |
 | R6 | Developer apps in global administration; project OAuth accounts; sealed tokens | `modules/social/accounts/*`, `platform/connections/project-secrets.ts` | `social-apps`, `project-secrets`, `social-oauth-state`, `social-oauth-routes`, `social-x-connect`, `social-meta-connect`, `social-vault`, `social-accounts`, `social-meta-data-deletion` integration tests; access matrix | PASS_TEST (local, fake providers; live acceptance open) |

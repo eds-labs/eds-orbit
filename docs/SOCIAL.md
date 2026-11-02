@@ -32,7 +32,7 @@ Stored in the module's `ProjectModule` row, versioned (`PUT /api/projects/:proje
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `approval` | `owner_each` | `owner_each`: the owner approves every publication; `editor_each`: editors with `social.approve` may approve too (S-D9). |
+| `approval` | `owner_each` | `owner_each`: the owner approves every publication. `editor_each` (editors approve too, S-D9) is refused with 409 `SOCIAL_SETTING_NOT_AVAILABLE` for now: who decides is fixed per action type, and the platform has no per-project hook yet (S4 ruling). |
 | `mcpOwnerPublishWithoutApproval` | `false` | An owner's direct MCP call may publish without a separate request. |
 
 ## Data model
@@ -56,6 +56,7 @@ Migration `202611020001_social_core`: `SocialAccount`, `SocialPost`, `SocialPost
 | `POST /api/projects/:projectId/social/accounts/telegram` `{botToken, chat}` | `social.accounts.manage` |
 | `POST /api/projects/:projectId/social/accounts/:accountId/check` | `social.accounts.manage` |
 | `POST /api/projects/:projectId/social/accounts/:accountId/disconnect` `{version}` | `social.accounts.manage` |
+| `PATCH /api/projects/:projectId/social/accounts/:accountId` `{version, settings: {xLongPosts}}` | `social.accounts.manage` |
 | `POST /api/callbacks/social/meta-data-deletion` | Meta's signed request; needs `ORBIT_PUBLIC_INGRESS` |
 
 Later phases (S3–S12, see the programme plan) add media, posts, approvals, the dispatcher, the calendar, MCP tools, analytics, the Marketing integration and the Postiz migration.
@@ -88,6 +89,24 @@ Later phases (S3–S12, see the programme plan) add media, posts, approvals, the
 | `DELETE /api/projects/:projectId/social/media/:mediaId` | `social.compose` |
 | `GET /api/public/social/media/:token` | the signed token (public ingress) |
 
+## Posts, variants and approvals (S4)
+
+- **A post** has a base text and base images (library images, up to 10) and one **variant** per account (up to 10 accounts). A variant inherits the base text and images until it gets its own; inheritance is stored (`inheritsText`, `inheritsMedia`, migration `202611020003_social_post_base`), so a later change of the base reaches only inheriting variants. Texts up to 25,000 characters; the title (up to 200) is only shown in Orbit.
+- **Versions:** every change sends the current `version`; an old one gets 409 `SOCIAL_VERSION_CONFLICT`. Posts mirrored from Postiz are read-only (`SOCIAL_POST_READ_ONLY`).
+- **Validation** (`posts/validation.ts`, no network): X text by the SDK's weighted 280 limit (links count 23), or up to 25,000 characters when the account allows long posts (`xLongPosts`, X Premium); Instagram needs an image and a caption ≤ 2,200 (SDK check); Facebook ≤ 63,206; Telegram ≤ 4,096, with images ≤ 1,024; the S3 media rules; options per platform (X `replySettings`, Telegram `disableLinkPreview`, `silent`); a disconnected account is an error, an account without tested posting a warning. Saving a draft never fails on validation; scheduling does (409 `SOCIAL_VALIDATION_FAILED` with the issues per account).
+- **Time** (`posts/schedule-time.ts`, `platform/time/zoned-time.ts`): a local date and time in the project's zone (or another), or an instant. A time that does not exist because the clocks go forward is refused with the next valid one (`SOCIAL_SCHEDULE_TIME_GAP`); a time that exists twice needs `fold: earlier|later` (`SOCIAL_SCHEDULE_TIME_AMBIGUOUS`). At least two minutes ahead, at most 365 days.
+- **Approval** (S-D6, S-D9): the owner's own schedule or publish-now is its approval. Anyone else's creates an ActionRequest (`social.post.schedule` or `social.post.publish_now`, W2, decided by the owner in Decisions, never mandatable, not proposable through MCP yet) and the post waits in `needs_approval`. The approval binds the package: every variant's account, text, options and images (by hash, in order) and the time, not the title. A change of the package returns the post to `draft` and withdraws a pending request; moving an approved post asks for approval again (an editor's move creates a new request, an owner confirms the new time). Deciding a request whose post changed answers 409 `SOCIAL_APPROVAL_STALE`; a time that came too close while the request waited answers `SOCIAL_SCHEDULE_TOO_SOON`.
+- **States in S4:** `draft` → `needs_approval` → `scheduled` (at a time) or `approved` (publish now); `cancel` returns a waiting or approved post to `draft`; drafts and finished posts can be archived. Nothing is sent: publishing starts with S5.
+- **Web:** Social → Posts lists the posts; the editor has a tab for all accounts and one per account (own text and images, preview cut at the platform's limit, character counts), the publication time with the time zone and the choices for clock changes, and the server's issues per account. The owner sees the request with every account's text and images in Decisions.
+
+| Route | Permission |
+|---|---|
+| `GET /api/projects/:projectId/social/posts?status&from&to&cursor&limit` | `social.read` |
+| `POST /api/projects/:projectId/social/posts`, `PATCH …/posts/:postId` | `social.compose` |
+| `GET /api/projects/:projectId/social/posts/:postId` | `social.read` |
+| `POST …/posts/:postId/validate`, `…/cancel`, `…/archive` | `social.compose` |
+| `POST …/posts/:postId/schedule`, `…/publish-now`, `…/reschedule` | `social.publish` (the owner decides the request) |
+
 ## Setting up the developer apps (for the owner of the installation)
 
 1. **Meta:** create a Meta app of type Business. Add Facebook Login for Business and create a configuration with a *user access token* and the permissions `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `instagram_basic`, `instagram_content_publish`; note its configuration id. Valid OAuth redirect URI: `<Orbit address>/api/social/oauth/callback/meta`. People with a role on the app can connect their own Pages without App Review (Standard Access). **While the app is in development mode, only app members see its posts**; before public posting (S5) the app must be Live, which needs a privacy policy URL and the data-deletion callback URL `<Orbit address>/api/callbacks/social/meta-data-deletion` (requires `ORBIT_PUBLIC_INGRESS`).
@@ -101,5 +120,5 @@ Later phases (S3–S12, see the programme plan) add media, posts, approvals, the
 |---|---|---|
 | Instagram | Images JPEG only, aspect ratio 4:5 to 1.91:1, at most 8 MB, at a public URL; at most 50 API posts per 24 h (read `content_publishing_limit` at runtime); captions ≤ 2200 characters, ≤ 30 hashtags | S3, S5 |
 | Facebook | Posts of an app in development mode are visible only to app members | S5 |
-| X | `POST /2/tweets` 100 per 15 min per user; images ≤ 5 MB, up to 4 per post; refresh tokens rotate | S5 |
+| X | `POST /2/tweets` 100 per 15 min per user; images ≤ 5 MB, up to 4 per post; refresh tokens rotate; text 280 weighted characters, X Premium accounts up to 25,000 (the SDK 0.5.0 `prepareTarget` knows only 280, so long posts are checked by Orbit and S5 calls the adapter's `publishTarget` directly) | S4, S5 |
 | Telegram | ~20 messages per minute in a group or channel (documented for groups), 1 per second per chat; photo uploads ≤ 10 MB, captions ≤ 1024 characters | S5 |
