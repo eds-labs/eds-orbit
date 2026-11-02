@@ -181,6 +181,63 @@ describe.skipIf(!enabled)("social schema (ADR 0020)", () => {
     expect(left).toEqual({ files: 0, media: 0, variants: 1 });
   });
 
+  const file = (tx: DbTx, q = p, mime = "image/png") =>
+    tx.file.create({
+      data: {
+        ...ids(q),
+        moduleId: "social",
+        key: `social/${randomUUID()}`,
+        mime,
+        size: 10,
+        sha256: "a".repeat(64),
+        encryption: "aes-256-gcm/v1",
+        createdBy: q.owner.userId,
+      },
+    });
+  const asset = async (tx: DbTx, q = p, data: Record<string, unknown> = {}) => {
+    const original = await file(tx, q);
+    const jpeg = await file(tx, q, "image/jpeg");
+    return tx.socialMediaAsset.create({
+      data: {
+        ...ids(q),
+        fileId: original.id,
+        jpegFileId: jpeg.id,
+        name: "photo.png",
+        mime: "image/png",
+        width: 800,
+        height: 600,
+        size: 10,
+        jpegWidth: 800,
+        jpegHeight: 600,
+        jpegSize: 8,
+        sha256: "b".repeat(64),
+        createdBy: q.owner.userId,
+        ...data,
+      },
+    });
+  };
+
+  it("keeps a media asset only with files of its own project", async () => {
+    const foreign = await other.run((tx) => file(tx, other));
+    const result = await message(p.run((tx) => asset(tx, p, { fileId: foreign.id })));
+    expect(result).toMatch(/SocialMediaAsset_file_fkey|Foreign key constraint/);
+  });
+
+  it("refuses unknown media types and non-positive sizes", async () => {
+    expect(await message(p.run((tx) => asset(tx, p, { mime: "image/gif" })))).toMatch(/SocialMediaAsset_mime_check/);
+    expect(await message(p.run((tx) => asset(tx, p, { width: 0 })))).toMatch(/SocialMediaAsset_size_check/);
+  });
+
+  it("removes a media asset with its file and hides it from other projects", async () => {
+    const row = await p.run((tx) => asset(tx));
+    expect(await other.run((tx) => tx.socialMediaAsset.findMany({ where: { id: row.id } }))).toEqual([]);
+    const left = await p.run(async (tx) => {
+      await tx.file.delete({ where: { id: row.fileId } });
+      return tx.socialMediaAsset.count({ where: { id: row.id } });
+    });
+    expect(left).toBe(0);
+  });
+
   it("deletes a post without publications together with its variants and media", async () => {
     const left = await p.run(async (tx) => {
       const { s, v } = await chain(tx);

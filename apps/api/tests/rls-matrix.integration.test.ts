@@ -100,6 +100,7 @@ const PROJECT_TABLES = [
   "SocialAccount",
   "SocialAccountThrottle",
   "SocialDeliveryAttempt",
+  "SocialMediaAsset",
   "SocialMetricSnapshot",
   "SocialOAuthState",
   "SocialPost",
@@ -779,6 +780,23 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     });
     await tx.socialProviderState.create({
       data: { ...scope, namespace: "instagram.workflow", recordKey: randomUUID(), body: {} },
+    });
+    await tx.socialMediaAsset.create({
+      data: {
+        ...row(),
+        fileId,
+        jpegFileId: fileId,
+        name: "rls.png",
+        mime: "image/png",
+        width: 10,
+        height: 10,
+        size: 1,
+        jpegWidth: 10,
+        jpegHeight: 10,
+        jpegSize: 1,
+        sha256: "f".repeat(64),
+        createdBy: s.userId,
+      },
     });
   }
 

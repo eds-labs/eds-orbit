@@ -25,6 +25,7 @@ export const socialModule: ServerModule = {
     "SocialOAuthState",
     "SocialMetricSnapshot",
     "SocialProviderState",
+    "SocialMediaAsset",
   ],
   permissions: socialPermissions,
 };

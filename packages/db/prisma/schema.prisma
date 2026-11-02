@@ -2415,3 +2415,32 @@ model SocialProviderState {
 
   @@id([projectId, namespace, recordKey])
 }
+
+/// An image in the social module's library (ADR 0020, S3): the normalized
+/// original and its JPEG rendition are platform Files of the module.
+model SocialMediaAsset {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  fileId      String    @db.Uuid
+  jpegFileId  String    @db.Uuid
+  name        String
+  mime        String
+  width       Int
+  height      Int
+  size        Int
+  jpegWidth   Int
+  jpegHeight  Int
+  jpegSize    Int
+  sha256      String
+  altText     String?
+  version     Int       @default(1)
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, fileId])
+  @@index([projectId, archivedAt, createdAt])
+}
