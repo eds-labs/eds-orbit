@@ -205,3 +205,83 @@ describe("Telegram bot client", () => {
       ).toMatchObject({ code: "RATE_LIMITED", retryAfterMs: undefined });
   });
 });
+
+describe("Telegram bot client: channel checks for publishing (ADR 0020)", () => {
+  it("getMe parses the bot", async () => {
+    const { calls, fetch } = recorder(() =>
+      ok({ id: 42, is_bot: true, first_name: "Orbit", username: "orbit_pub_bot" }),
+    );
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getMe()).toEqual({ id: 42, username: "orbit_pub_bot", isBot: true });
+    expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${TOKEN}/getMe`);
+  });
+
+  it("getMe refuses a result that is not a bot", async () => {
+    const { fetch } = recorder(() => ok({ id: 7, is_bot: false, first_name: "Ada" }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    await expect(client.getMe()).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+  });
+
+  it("getChat resolves @username to the numeric channel id", async () => {
+    const { calls, fetch } = recorder(() =>
+      ok({ id: -1001234567890, type: "channel", title: "Orbit News", username: "orbit_news" }),
+    );
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChat("@orbit_news")).toEqual({
+      id: -1001234567890,
+      type: "channel",
+      title: "Orbit News",
+      username: "orbit_news",
+    });
+    expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${TOKEN}/getChat`);
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: "@orbit_news" });
+  });
+
+  it("getChat accepts a numeric id and fills missing names with null", async () => {
+    const { calls, fetch } = recorder(() => ok({ id: -1009, type: "channel", title: "Private" }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChat(-1009)).toEqual({ id: -1009, type: "channel", title: "Private", username: null });
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: -1009 });
+  });
+
+  it("getChat refuses malformed usernames before any request", async () => {
+    const { calls, fetch } = recorder(() => ok({}));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    for (const bad of ["@a", "orbit", "@bad-name", "@1starts_with_digit"])
+      await expect(client.getChat(bad as `@${string}`)).rejects.toMatchObject({ code: "INVALID_TELEGRAM_CHAT" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("getChatMember reports whether an administrator may post", async () => {
+    const replies = [
+      ok({ status: "administrator", can_post_messages: true, user: { id: 42, is_bot: true, first_name: "Orbit" } }),
+      ok({ status: "member", user: { id: 42, is_bot: true, first_name: "Orbit" } }),
+    ];
+    const { calls, fetch } = recorder(() => replies.shift()!);
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "administrator", canPostMessages: true });
+    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "member", canPostMessages: false });
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: -1001234567890, user_id: 42 });
+  });
+
+  it("getChatMember lets the channel creator post", async () => {
+    const { fetch } = recorder(() => ok({ status: "creator", user: { id: 42, is_bot: true, first_name: "Orbit" } }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChatMember(-1001, 42)).toEqual({ status: "creator", canPostMessages: true });
+  });
+
+  it("the channel checks never leak the token", async () => {
+    const { fetch } = recorder(() => {
+      throw new Error(`connect ECONNREFUSED https://api.telegram.org/bot${TOKEN}/getMe`);
+    });
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    for (const run of [() => client.getMe(), () => client.getChat("@orbit_news"), () => client.getChatMember(-1001, 42)]) {
+      const error = await run().then(
+        () => undefined,
+        (e: unknown) => e as Error & { cause?: unknown },
+      );
+      expect(error).toBeInstanceOf(ConnectorError);
+      expect(`${error!.message} ${String(error!.cause ?? "")}`).not.toContain(TOKEN);
+    }
+  });
+});

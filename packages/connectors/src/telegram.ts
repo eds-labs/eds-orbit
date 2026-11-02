@@ -32,6 +32,23 @@ export type TelegramClientOptions = {
 };
 
 const sentMessage = z.object({ message_id: z.number().int() }).passthrough();
+// Reads used to check a publishing channel (ADR 0020): the bot itself, the
+// chat (a public channel may be named @username) and the bot's rights there.
+const USERNAME = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/;
+const botUser = z
+  .object({ id: z.number().int(), is_bot: z.literal(true), username: z.string().min(1) })
+  .passthrough();
+const chatInfo = z
+  .object({
+    id: z.number().int(),
+    type: z.enum(["channel", "supergroup", "group", "private"]),
+    title: z.string().optional(),
+    username: z.string().optional(),
+  })
+  .passthrough();
+const chatMember = z
+  .object({ status: z.string().min(1), can_post_messages: z.boolean().optional() })
+  .passthrough();
 
 function keyboard(buttons: TelegramButton[] | undefined) {
   if (!buttons?.length) return undefined;
@@ -81,6 +98,14 @@ function chat(chatId: TelegramChatId) {
   )
     return chatId;
   throw new ConnectorError("INVALID_TELEGRAM_CHAT");
+}
+
+function chatOrUsername(chatId: TelegramChatId | `@${string}`) {
+  if (typeof chatId === "string" && chatId.startsWith("@")) {
+    if (USERNAME.test(chatId)) return chatId;
+    throw new ConnectorError("INVALID_TELEGRAM_CHAT");
+  }
+  return chat(chatId);
 }
 
 export function createTelegramClient(options: TelegramClientOptions) {
@@ -178,6 +203,13 @@ export function createTelegramClient(options: TelegramClientOptions) {
     }
   }
 
+  function read<T>(schema: z.ZodType<T>, result: unknown): T {
+    const parsed = schema.safeParse(result);
+    if (!parsed.success)
+      throw new ConnectorError("INVALID_PROVIDER_RESPONSE", "rejected");
+    return parsed.data;
+  }
+
   function receipt(result: unknown) {
     const parsed = sentMessage.safeParse(result);
     if (!parsed.success)
@@ -257,6 +289,33 @@ export function createTelegramClient(options: TelegramClientOptions) {
     },
     async deleteWebhook() {
       await call("deleteWebhook", { drop_pending_updates: true }, false);
+    },
+    async getMe() {
+      const bot = read(botUser, await call("getMe", {}, false));
+      return { id: bot.id, username: bot.username, isBot: true as const };
+    },
+    async getChat(chatId: TelegramChatId | `@${string}`) {
+      const info = read(chatInfo, await call("getChat", { chat_id: chatOrUsername(chatId) }, false));
+      return {
+        id: info.id,
+        type: info.type,
+        title: info.title ?? null,
+        username: info.username ?? null,
+      };
+    },
+    async getChatMember(chatId: TelegramChatId, userId: number) {
+      if (!Number.isSafeInteger(userId) || userId <= 0)
+        throw new ConnectorError("INVALID_TELEGRAM_CHAT");
+      const member = read(
+        chatMember,
+        await call("getChatMember", { chat_id: chat(chatId), user_id: userId }, false),
+      );
+      return {
+        status: member.status,
+        canPostMessages:
+          member.status === "creator" ||
+          (member.status === "administrator" && member.can_post_messages === true),
+      };
     },
     async answerCallbackQuery(id: string, text: string) {
       if (
