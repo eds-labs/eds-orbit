@@ -21,7 +21,7 @@
 - Human approval required before: adding `@opencoredev/social-sdk` (new production dependency); creating Meta/X/LinkedIn/TikTok developer apps or paid API tiers (new external providers, possible cost); every production migration (approved schema hash in Coolify, `scripts/check-pve-schema.sh`); every live test post; enabling any `ORBIT_SOCIAL*` flag in production; every Postiz switch-off step; any push to `main` (auto-deploys).
 - No managed publishing provider: never import `@opencoredev/social-sdk/cloud/*`; enforced by a source-check rule (S1).
 - Existing private Telegram agent features (owner link, `/pause`, veto Stop buttons, notifications, webhook) must behave identically; the social module never calls `setWebhook`, `deleteWebhook` or `getUpdates`.
-- Existing entity kinds and tables are not renamed, moved or rewritten (ADR 0009 AD-03/04; `docs/POSTIZ_PROJECT_ASSIGNMENT_CHANGE.md:51`). Historical `publications`, `postiz_drafts`, `approvals`, `action_requests`, `AuditEvent`, `EntityVersion` rows are never updated or deleted by the migration.
+- Existing entity kinds and tables are not renamed, moved or rewritten (ADR 0009 AD-03/04; `docs/POSTIZ_PROJECT_ASSIGNMENT_CHANGE.md` line 51). Historical `publications`, `postiz_drafts`, `approvals`, `action_requests`, `AuditEvent`, `EntityVersion` rows are never updated or deleted by the migration.
 - One scheduler: no BullMQ repeatable or delayed jobs, no SDK timer loops; due work is found by the Orbit pump.
 - Unknown outcome is a stop condition: a send whose result is unknown is never resent automatically.
 - Documentation and code comments in English; user-facing UI strings `de` + `en`.
@@ -453,7 +453,7 @@ Dependencies: S0 → S1 → S2 → {S3, S4} → S5 → {S6, S7, S8} → S9 → S
 
 ### S10 — Postiz migration and decommissioning
 
-- Inventory script, mapping UI, history mirror, `postiz_draining` mode, runbook `docs/SOCIAL_POSTIZ_MIGRATION.md`, evidence template; then §9.6 per project (uLiquid, FamilyPlan, others) and §9.7.
+- Inventory script, mapping UI, history mirror, `postiz_draining` mode, runbook docs/SOCIAL_POSTIZ_MIGRATION.md (new in S10), evidence template; then §9.6 per project (uLiquid, FamilyPlan, others) and §9.7.
 - Tests: mirror idempotency and status mapping, draining refuses new Postiz intents but completes existing ones, rollback path test (switch back, unclaimed social publications canceled, no Postiz resend).
 - Acceptance: per project evidence of steps 1–6; after decommission, no Postiz call in 30 days of logs; rollback documented and rehearsed once in the test project.
 
@@ -478,7 +478,7 @@ S0 S · S1 M · S2 L · S3 M · S4 L · S5 XL · S6 L · S7 M · S8 S · S9 L ·
 
 ## 12. Documentation deliverables
 
-`docs/adr/0020-social-module.md`, `docs/SOCIAL.md` (module, platform constraints, limits, operations), `docs/SOCIAL_POSTIZ_MIGRATION.md` (runbook + evidence), `docs/API_CONTRACT.md` and OpenAPI, `docs/MODULE_ACTIVATION.md`, `docs/MCP_2_0.md` (social tools, scope), `docs/CONNECTOR_CAPABILITIES.md` (direct adapters replace Postiz rows), `docs/IMPLEMENTATION_STATUS.md` and `docs/REQUIREMENTS_TRACEABILITY.md` per phase.
+`docs/adr/0020-social-module.md`, `docs/SOCIAL.md` (module, platform constraints, limits, operations), docs/SOCIAL_POSTIZ_MIGRATION.md (new in S10: runbook + evidence), `docs/API_CONTRACT.md` and OpenAPI, `docs/MODULE_ACTIVATION.md`, `docs/MCP_2_0.md` (social tools, scope), `docs/CONNECTOR_CAPABILITIES.md` (direct adapters replace Postiz rows), `docs/IMPLEMENTATION_STATUS.md` and `docs/REQUIREMENTS_TRACEABILITY.md` per phase.
 
 ## 13. Open risks
 
