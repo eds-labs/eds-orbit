@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S3 (2026-11-02, branch `claude/social-s3` on top of S2, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s3-media.md](superpowers/plans/2026-11-02-social-s3-media.md).
+
+- **Built (S3):** image preparation in `packages/creative` (`prepareSocialImage`: normalized original and an Instagram-ready JPEG rendition, metadata removed, no new dependency); table `SocialMediaAsset` (migration `202611020002_social_media`); media library service and routes (raw upload, list, inline content, alt text, archive-or-delete); platform media rules (`renditionFor`, `mediaIssues`, `carouselIssues`); signed public media URLs `GET /api/public/social/media/<token>` behind the new switch `ORBIT_SOCIAL_MEDIA_PUBLIC`; web media library view.
+- **Not built:** video (S3b), posts and the editor (S4), publishing (S5).
+- **Production:** nothing deployed. The migration changes the approved schema hash to `c5f55a419726a69ce8dcc02e5b493d0e2842c5d031192eeb491eec8a9e6c89da`; a deploy needs Mario's approval of it. Media need `ORBIT_FILES` in production.
+
 ## Social module phase S2 (2026-11-02, branch `claude/social-s2` on top of S1, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-02-social-s2-accounts.md](superpowers/plans/2026-11-02-social-s2-accounts.md). Module doc with setup steps: [SOCIAL.md](SOCIAL.md).

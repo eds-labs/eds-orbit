@@ -2,7 +2,7 @@
 
 The social module connects a project's social accounts and publishes posts to them directly, without a managed publishing service. It owns accounts, posts with one variant per account, media, the calendar, scheduling, publication state and technical metrics. Marketing keeps strategy, campaigns, generation and its own approvals and will publish through this module. Decision: [ADR 0020](adr/0020-social-module.md) (proposed). Programme plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md). Phase S1 plan: [superpowers/plans/2026-11-02-social-s1-module-skeleton.md](superpowers/plans/2026-11-02-social-s1-module-skeleton.md).
 
-State on 2026-11-02: **phases S1 (module skeleton) and S2 (developer apps, OAuth, token vault, accounts, Telegram channels) on branches `claude/social-module-plan` and `claude/social-s2`, not merged.** `ORBIT_SOCIAL` is off. Accounts can be connected and checked; nothing is published yet (S5). Postiz remains the publishing path for Marketing. S2 plan: [superpowers/plans/2026-11-02-social-s2-accounts.md](superpowers/plans/2026-11-02-social-s2-accounts.md).
+State on 2026-11-02: **phases S1 (module skeleton), S2 (developer apps, OAuth, token vault, accounts, Telegram channels) and S3 (media library, public media URLs) on branches `claude/social-module-plan`, `claude/social-s2` and `claude/social-s3`, not merged.** `ORBIT_SOCIAL` is off. Accounts can be connected and images uploaded; nothing is published yet (S5). Postiz remains the publishing path for Marketing. Plans: [S2](superpowers/plans/2026-11-02-social-s2-accounts.md), [S3](superpowers/plans/2026-11-02-social-s3-media.md).
 
 ## Switching it on
 
@@ -70,6 +70,23 @@ Later phases (S3–S12, see the programme plan) add media, posts, approvals, the
 - **Health.** "Check" reads with the stored credentials (X `users/me`, Meta `debug_token` incl. the publishing permission for this asset, Telegram `getChatMember`). A refusal marks the account `reconnect_required` (attention item for readers, a notification to the owners once); an outage is only recorded. The periodic task `social-account-health` checks every active account every six hours, at most 20 per project and run.
 - **Disconnect** revokes the account's connection (and, for X, the token at X, best effort) and keeps the account row for the history.
 - **Meta data deletion.** Meta's data-deletion request (`signed_request`, HMAC-SHA256 with the app secret) disconnects every account of that Meta user in every project and answers `{url, confirmation_code}`. The status page `/social/data-deletion?code=…` is not built yet.
+
+## Media library (S3)
+
+- **Images only** (PNG, JPEG, WebP up to the file storage's limit, default 20 MB); videos are refused (`SOCIAL_VIDEO_NOT_AVAILABLE`) until S3b. Needs the platform file storage (`ORBIT_FILES` and `FILES_ENCRYPTION_KEY`); the project quota (default 100 MB) applies.
+- **Normalization** (`packages/creative` `prepareSocialImage`, sharp): orientation applied, all metadata removed (EXIF, GPS), long side at most 4096 pixels; JPEG stays JPEG, PNG and WebP become PNG (X takes no WebP). Every image also gets a **JPEG rendition** at most 1440 pixels wide in sRGB, the form Instagram accepts. Animated GIFs and images over 40 megapixels are refused; an animated WebP is read as its first frame.
+- **Library entry** `SocialMediaAsset` (dimensions, sizes, alt text, both files); the bytes are encrypted platform files private to the module. Removing an image a post uses only archives it; otherwise both files are deleted.
+- **Platform rules** (`media/rules.ts`): Instagram gets the JPEG rendition (4:5 to 1.91:1, at least 320 pixels wide, at most 8 MB; a carousel needs equal ratios, at most 10); X gets the original up to 5 MiB, else the rendition (at most 4 images); Facebook and Telegram get the original up to 10 MB (Telegram: width + height ≤ 10000, ratio ≤ 20). The editor (S4) shows these as hints; publishing (S5) enforces them.
+- **Public media URLs** for platforms that fetch media by URL: `GET /api/public/social/media/<token>`. The token names project, publication and file, expires after two hours and carries a 128-bit HMAC (key derived from `AUTH_SECRET`, label `orbit-social-media-v1`). The route serves only a rendition of a medium of a publication that is `claimed`, `sending` or `processing`, never lists, audits `social.media.public_served`, and answers the same 404 otherwise. It needs `ORBIT_PUBLIC_INGRESS` and `ORBIT_SOCIAL_MEDIA_PUBLIC` (both off).
+
+| Route | Permission |
+|---|---|
+| `POST /api/projects/:projectId/social/media` (raw body, `x-file-name`, `x-file-type`) | `social.compose` |
+| `GET /api/projects/:projectId/social/media` | `social.read` |
+| `GET /api/projects/:projectId/social/media/:mediaId/content?rendition=original\|jpeg` | `social.read` |
+| `PATCH /api/projects/:projectId/social/media/:mediaId` `{altText, version}` | `social.compose` |
+| `DELETE /api/projects/:projectId/social/media/:mediaId` | `social.compose` |
+| `GET /api/public/social/media/:token` | the signed token (public ingress) |
 
 ## Setting up the developer apps (for the owner of the installation)
 
