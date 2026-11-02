@@ -1,9 +1,7 @@
 import { z } from "zod";
-import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import { scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
-import type { Auth } from "../../platform/tenancy/auth.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { disconnectAccount, listAccounts, updateAccountSettings } from "./accounts/accounts.ts";
@@ -20,33 +18,17 @@ import { authorize } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { listMedia, mediaContent, removeMedia, updateMedia, uploadMedia } from "./media/library.ts";
 import { servePublicMedia } from "./media/public-url.ts";
+import { inSocial, SOCIAL_BASE, type Params } from "./http-scope.ts";
 import { requireSocial } from "./gate.ts";
+import { socialPostRoutes } from "./posts/routes.ts";
 import { socialModule } from "./manifest.ts";
 import { SOCIAL_ACCOUNTS_MANAGE, SOCIAL_COMPOSE, SOCIAL_READ, SOCIAL_SETTINGS } from "./permissions.ts";
 import { readSocialSettings, saveSocialSettings } from "./settings.ts";
 
-// The social module's HTTP API (ADR 0020, plan §6.2). Every route checks
-// the member's permission in the module, then that the module is on in the
-// project (404 SOCIAL_DISABLED), then runs in one project transaction.
+// The social module's HTTP API (ADR 0020, plan §6.2). Every route runs
+// through `inSocial` (http-scope.ts); post routes live in posts/routes.ts.
 
-const BASE = "/api/projects/:projectId/social";
-
-type Params = Record<string, string> & { projectId: string };
-type Req = Parameters<typeof scopeFor>[1];
-
-export async function inSocial<T>(
-  auth: Auth,
-  req: Req,
-  required: PermissionDef,
-  work: (tx: DbTx, scope: Scope, params: Params) => Promise<T>,
-) {
-  const params = req.params as Params;
-  const scope = await scopeFor(auth, req, params.projectId!, required);
-  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    await requireSocial(tx, scope);
-    return work(tx, scope, params);
-  });
-}
+const BASE = SOCIAL_BASE;
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
 const appParam = z.object({ app: z.enum(["meta", "x"]) });
@@ -234,6 +216,7 @@ export const socialRoutes: RoutesContribution = (context) => {
     const scope = await inSocial(auth, req, SOCIAL_COMPOSE, async (_tx, scope) => scope);
     return removeMedia(scope, mediaParam.parse(req.params).mediaId);
   });
+  socialPostRoutes(context);
   app.put(`${BASE}/settings`, (req) =>
     inSocial(auth, req, SOCIAL_SETTINGS, (tx, scope) => {
       const { settings, version } = settingsInput.parse(req.body);

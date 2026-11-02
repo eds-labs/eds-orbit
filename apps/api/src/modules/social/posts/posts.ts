@@ -304,6 +304,55 @@ export async function listPosts(
   };
 }
 
+/** The issues of every variant as they are now (accounts and images re-read). */
+export async function currentIssues(tx: DbTx, scope: Scope, post: { id: string }) {
+  const variants = await tx.socialPostVariant.findMany({ where: { postId: post.id, projectId: scope.projectId } });
+  const media = await tx.socialPostMedia.findMany({
+    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) } },
+  });
+  const accounts = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId, id: { in: variants.map((v) => v.accountId) } },
+  });
+  const assets = await tx.socialMediaAsset.findMany({
+    where: { projectId: scope.projectId, fileId: { in: media.map((m) => m.fileId) } },
+  });
+  const accountOf = new Map(accounts.map((a) => [a.id, a]));
+  const assetOf = new Map(assets.map((a) => [a.fileId, a]));
+  const result: Array<{ accountId: string; issues: ValidationIssue[] }> = [];
+  for (const v of variants) {
+    const account = accountOf.get(v.accountId)!;
+    const issues = validateVariant({
+      account: {
+        id: account.id,
+        platform: account.platform as SocialPlatform,
+        externalId: account.externalId,
+        status: account.status,
+        capability: account.capability,
+        settings: account.settings as { xLongPosts?: boolean },
+      },
+      body: v.body,
+      media: media
+        .filter((m) => m.variantId === v.id)
+        .sort((a, b) => a.position - b.position)
+        .flatMap((m) => (assetOf.has(m.fileId) ? [assetOf.get(m.fileId)!] : [])),
+      options: (v.platformOptions ?? {}) as Record<string, unknown>,
+    });
+    result.push({ accountId: v.accountId, issues });
+  }
+  return result;
+}
+
+/** Re-checks every variant now and stores the result (the editor's "Check"). */
+export async function refreshIssues(tx: DbTx, scope: Scope, postId: string) {
+  const result = await currentIssues(tx, scope, { id: postId });
+  for (const v of result)
+    await tx.socialPostVariant.updateMany({
+      where: { projectId: scope.projectId, postId, accountId: v.accountId },
+      data: { validation: { issues: v.issues } as Prisma.InputJsonValue },
+    });
+  return result;
+}
+
 /** Stores base and variants of `input`; validation is recorded, never blocking. */
 async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: z.infer<typeof postInput>) {
   const accountIds = input.variants.map((v) => v.accountId);

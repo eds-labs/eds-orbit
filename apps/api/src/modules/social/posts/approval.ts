@@ -7,11 +7,18 @@ import {
   type ActionDefinition,
 } from "../../../platform/governance/action-requests.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
-import type { SocialPlatform } from "../accounts/store.ts";
 import { SocialDetailError } from "../errors.ts";
-import { APPROVAL_BEARING, getPost, lockPost, packageOf, resetApproval, type PostView, type SocialPostRow } from "./posts.ts";
+import {
+  APPROVAL_BEARING,
+  currentIssues,
+  getPost,
+  lockPost,
+  packageOf,
+  resetApproval,
+  type PostView,
+  type SocialPostRow,
+} from "./posts.ts";
 import { resolveSchedule, type ResolvedSchedule } from "./schedule-time.ts";
-import { validateVariant, type ValidationIssue } from "./validation.ts";
 
 // Approving the publication of a social post (ADR 0020 §6.3, S-D6, S-D9).
 // An owner's own schedule or publish-now in the UI is its approval; anyone
@@ -60,44 +67,6 @@ export type SocialApprovalPayload = z.infer<typeof approvalPayload>;
 
 const LEAD_MS = 2 * 60_000;
 const stale = () => new DomainError("SOCIAL_APPROVAL_STALE", 409);
-
-/** The issues of every variant as they are now (accounts and images re-read). */
-async function currentIssues(tx: DbTx, scope: Scope, post: SocialPostRow) {
-  const variants = await tx.socialPostVariant.findMany({ where: { postId: post.id, projectId: scope.projectId } });
-  const media = await tx.socialPostMedia.findMany({
-    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) } },
-  });
-  const accounts = await tx.socialAccount.findMany({
-    where: { projectId: scope.projectId, id: { in: variants.map((v) => v.accountId) } },
-  });
-  const assets = await tx.socialMediaAsset.findMany({
-    where: { projectId: scope.projectId, fileId: { in: media.map((m) => m.fileId) } },
-  });
-  const accountOf = new Map(accounts.map((a) => [a.id, a]));
-  const assetOf = new Map(assets.map((a) => [a.fileId, a]));
-  const result: Array<{ accountId: string; issues: ValidationIssue[] }> = [];
-  for (const v of variants) {
-    const account = accountOf.get(v.accountId)!;
-    const issues = validateVariant({
-      account: {
-        id: account.id,
-        platform: account.platform as SocialPlatform,
-        externalId: account.externalId,
-        status: account.status,
-        capability: account.capability,
-        settings: account.settings as { xLongPosts?: boolean },
-      },
-      body: v.body,
-      media: media
-        .filter((m) => m.variantId === v.id)
-        .sort((a, b) => a.position - b.position)
-        .flatMap((m) => (assetOf.has(m.fileId) ? [assetOf.get(m.fileId)!] : [])),
-      options: (v.platformOptions ?? {}) as Record<string, unknown>,
-    });
-    result.push({ accountId: v.accountId, issues });
-  }
-  return result;
-}
 
 async function requireValid(tx: DbTx, scope: Scope, post: SocialPostRow) {
   const failing = (await currentIssues(tx, scope, post))
