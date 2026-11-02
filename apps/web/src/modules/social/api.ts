@@ -1,4 +1,5 @@
 // The social module's client side (ADR 0020): types of the /social API.
+import { ApiError } from "@/lib/api";
 
 export type SocialApproval = "owner_each" | "editor_each";
 
@@ -49,3 +50,104 @@ export type SocialMedia = {
   createdAt: string;
 };
 export type SocialMediaList = { items: SocialMedia[] };
+
+/** A platform's verdict on one variant (S4); errors block scheduling. */
+export type ValidationIssue = { code: string; severity: "error" | "warning"; path?: string };
+export type MediaRef = { mediaId: string; width: number; height: number; altText: string | null };
+export type ApprovalState = "none" | "pending" | "approved" | "rejected" | "expired" | "canceled";
+export type PostStatus =
+  | "draft"
+  | "needs_approval"
+  | "approved"
+  | "scheduled"
+  | "publishing"
+  | "published"
+  | "partially_published"
+  | "failed"
+  | "canceled"
+  | "archived";
+export type PostSchedule = {
+  mode: "none" | "at" | "now";
+  at: string | null;
+  local: string | null;
+  timeZone: string;
+  fold: "earlier" | "later" | null;
+};
+
+/** GET /projects/:projectId/social/posts/:postId (S4). */
+export type PostView = {
+  id: string;
+  status: PostStatus;
+  title: string | null;
+  baseText: string;
+  baseMedia: MediaRef[];
+  schedule: PostSchedule;
+  approval: { state: ApprovalState; requestId: string | null; approvedAt: string | null; approvedBy: string | null };
+  packageHash: string | null;
+  origin: string;
+  readOnly: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  variants: Array<{
+    id: string;
+    accountId: string;
+    platform: SocialPlatform;
+    handle: string;
+    body: string;
+    inheritsText: boolean;
+    inheritsMedia: boolean;
+    media: MediaRef[];
+    options: Record<string, unknown>;
+    issues: ValidationIssue[];
+    version: number;
+  }>;
+};
+
+/** GET /projects/:projectId/social/posts (S4). */
+export type PostListItem = {
+  id: string;
+  status: PostStatus;
+  title: string | null;
+  excerpt: string;
+  schedule: PostSchedule;
+  approvalState: ApprovalState;
+  accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
+  version: number;
+  updatedAt: string;
+};
+export type PostList = { items: PostListItem[]; nextCursor: string | null };
+
+/** POST /posts and PATCH /posts/:postId (with `version`): null = inherit the base. */
+export type PostInput = {
+  title: string | null;
+  baseText: string;
+  baseMedia: string[];
+  variants: Array<{ accountId: string; text: string | null; media: string[] | null; options: Record<string, unknown> }>;
+};
+
+/** An API error that keeps the server's `error.detail` (issues, suggested times). */
+export class SocialApiError extends ApiError {
+  constructor(
+    code: string,
+    status: number,
+    readonly detail: Record<string, unknown> | null,
+  ) {
+    super(code, status);
+  }
+}
+
+/** POST or PATCH a social route; a failure keeps the error detail. */
+export async function socialSend<T>(path: string, method: "POST" | "PATCH", body: unknown): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const value = await response.json().catch(() => null);
+  if (!response.ok)
+    throw new SocialApiError(value?.error?.code ?? "REQUEST_FAILED", response.status, value?.error?.detail ?? null);
+  return value as T;
+}
