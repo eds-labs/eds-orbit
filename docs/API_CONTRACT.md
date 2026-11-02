@@ -114,3 +114,16 @@ Orbit Agents assignments (`ORBIT_AGENTS=true`; every route answers 404 while it 
 
 Article export now includes content type, outline, internal-link suggestions, alt texts and newsletter subject/preview/segment/consent/suppression references where present. Export is a draft artifact and does not claim email delivery or CMS publication.
 - Support UI restructure (additive, no migration): `GET /support/tickets` accepts `sort=updated|sla` (default `updated`) and `openOnly=true|false` (default `false`); `sort=sla` lists SLA-active, unmerged tickets by their earliest pending due time (nulls last, then id) with a `sla|<iso or ->|<id>` cursor, and a cursor of the other sort answers `CURSOR_INVALID` (400). `GET /support/stats` adds `volume.byDay` (`{"YYYY-MM-DD": count}` in the project's timezone, zero days included). `GET /support/summary` adds `openByInbox` (`{inboxId: open ticket count}`). Details in `docs/SUPPORT.md`.
+
+## Social module (ADR 0020; `ORBIT_SOCIAL`, opt-in per project)
+
+All routes below `/api/projects/:projectId/social` answer 404 `SOCIAL_DISABLED` while the installation switch is off or the project has not enabled the module. Errors carry codes only (`SOCIAL_*`), never a provider message.
+
+- GET `…/social/status` (`social.read`) -> `{module:"social", version, settings:{approval, mcpOwnerPublishWithoutApproval}, settingsVersion}`; PUT `…/social/settings` (`social.settings`) `{settings, version}` -> `{settings, version}`, 409 `SETTINGS_VERSION_CONFLICT`.
+- GET `…/social/accounts` (`social.read`) -> `{items:[{id, platform, handle, displayName, status, capability, connectedAt, lastCheckedAt, lastCheckCode, version}]}`; no token, secret or connection id.
+- POST `…/social/accounts/connect/:app` (`app` = `meta` | `x`; `social.accounts.manage`) -> `{authorizeUrl}`; 409 `SOCIAL_APP_NOT_GRANTED` without a granted developer app.
+- GET `/api/social/oauth/callback/:app?code&state` (the owner who started the flow; 401 without session, 403 without `social.accounts.manage`, 400 for a malformed state) -> 302 to `/p/:projectId/social/accounts?connected=<n>` or `?error=<SOCIAL_CODE>` (`SOCIAL_OAUTH_STATE_INVALID`, `SOCIAL_OAUTH_CANCELLED`, `SOCIAL_PROVIDER_REJECTED`, `SOCIAL_META_NO_PAGES`, …). The state is single use, bound to the member and the project, ten minutes.
+- POST `…/social/accounts/telegram` (`social.accounts.manage`) `{botToken, chat}` -> `{accountId}`; 400 `SOCIAL_TELEGRAM_TOKEN_INVALID` / `SOCIAL_TELEGRAM_CHAT_INVALID`, 409 `SOCIAL_TELEGRAM_OWNER_BOT` / `SOCIAL_TELEGRAM_NOT_A_CHANNEL` / `SOCIAL_TELEGRAM_BOT_CANNOT_POST`.
+- POST `…/social/accounts/:accountId/check` (`social.accounts.manage`) -> `{ok:true}` or `{ok:false, code}`; a refusal sets the account to `reconnect_required`.
+- POST `…/social/accounts/:accountId/disconnect` (`social.accounts.manage`) `{version}` -> `{id, status:"disabled"}`; 409 `SOCIAL_VERSION_CONFLICT`.
+- POST `/api/callbacks/social/meta-data-deletion` (public, only with `ORBIT_PUBLIC_INGRESS`; form field `signed_request` signed by a granted Meta app; ≤ 16 KB, 30/min per address) -> `{url, confirmation_code}`; 400 `SOCIAL_SIGNED_REQUEST_INVALID`. `POST /api/callbacks/<module>/<name>` is the platform's path for module provider callbacks that authenticate themselves; it is exempt from the origin check.

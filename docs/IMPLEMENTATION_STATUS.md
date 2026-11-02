@@ -1,5 +1,14 @@
 # Implementation status
 
+## Social module phase S2 (2026-11-02, branch `claude/social-s2` on top of S1, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s2-accounts.md](superpowers/plans/2026-11-02-social-s2-accounts.md). Module doc with setup steps: [SOCIAL.md](SOCIAL.md).
+
+- **Built (S2):** developer apps `social.app.meta`/`social.app.x` (system connections, administration); module-managed project connections for accounts (`platform/connections/project-secrets.ts`, flag `managedByModule`); single-use OAuth state with sealed PKCE verifier; X connection through the SDK OAuth provider; Meta (Facebook Login for Business, Graph v26.0) for Pages and linked Instagram accounts; Telegram publishing channels with a separate bot (`getMe`/`getChat`/`getChatMember` added to the connector); locked X token refresh; `reconnect_required` with attention and owner notification; account list, health check, disconnect and the six-hourly health task; Meta data-deletion callback on the new provider-callback path `POST /api/callbacks/<module>/<name>`; accounts view in the web; OpenAPI and client regenerated.
+- **Dependency:** `@opencoredev/social-sdk` 0.5.0, approved by Mario on 2026-11-02 (`DEPENDENCY_RISKS.md`).
+- **Not built:** media, posts, publishing (S3–S5) and everything after; the data-deletion status page.
+- **Production:** nothing deployed; no migration in S2 (the S1 schema hash stays). Live acceptance needs the developer apps (Meta app, X app with pay-per-use credit) and a test project.
+
 ## Social module phase S1 (2026-11-02, branch `claude/social-module-plan`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (programme, decisions S-D1–S-D9 by Mario on 2026-11-02) and [superpowers/plans/2026-11-02-social-s1-module-skeleton.md](superpowers/plans/2026-11-02-social-s1-module-skeleton.md). ADR: [adr/0020-social-module.md](adr/0020-social-module.md) (proposed). Module doc: [SOCIAL.md](SOCIAL.md).

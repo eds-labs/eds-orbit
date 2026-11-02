@@ -1,18 +1,19 @@
 # Requirements traceability
 
-## Social module (ADR 0020, 2026-11-02, branch `claude/social-module-plan`; flag off)
+## Social module (ADR 0020, 2026-11-02, branches `claude/social-module-plan` and `claude/social-s2`; flag off)
 
-Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Only phase S1 is implemented.
+Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Phases S1 and S2 are implemented (branches, not merged).
 
 | ID | Requirement | Code | Local evidence | Result |
 | --- | --- | --- | --- | --- |
 | R1 | Standalone module `social`, independent of Marketing | `modules/social/{manifest,permissions,gate,settings,contributions,routes}.ts`, `apps/web/src/modules/social/` | `social-module.test.ts`, `social-routes.integration.test.ts`, `module-registry.test.ts`, access matrix, web `social.test.tsx` | S1 PASS_TEST (skeleton only; features S2–S9) |
 | R1-DB | Own tables with forced RLS, composite keys, unique idempotency key, restricted grants | migration `202611020001_social_core`, `scripts/db-deploy.ts` | `social-schema.integration.test.ts`, `rls-matrix.integration.test.ts` | PASS_TEST (local) |
-| R2 | Direct adapters only (no managed providers) | `scripts/boundaries.{json,mjs}` `forbiddenImportPrefixes` | `scripts/boundaries.test.mjs`; probe import makes `source-check` exit 1 | PASS_TEST (guard only; adapters S2/S5) |
+| R2 | Direct adapters only (no managed providers) | `scripts/boundaries.{json,mjs}` `forbiddenImportPrefixes`; SDK 0.5.0 `/server` only | `scripts/boundaries.test.mjs`; probe import makes `source-check` exit 1; `social-sdk-surface.test.ts` | PASS_TEST (guard; publishing adapters S5) |
+| R2-TG | Telegram via the Orbit connector; private bot untouched | `packages/connectors/src/telegram.ts`, `modules/social/accounts/telegram.ts`, `platform/connections/telegram.ts` `isOwnerBotToken` | `telegram.test.ts`, `social-telegram-account.integration.test.ts` (no webhook/update method called; owner bot refused and unchanged), `telegram.integration.test.ts` | PASS_TEST (connect; publishing S5) |
 | R3 | Calendar and editor without Marketing | — | — | OPEN (S4, S6) |
 | R4 | One scheduler on the Orbit worker | — | — | OPEN (S5; decision S-D2) |
 | R5 | Social tools in the Orbit MCP gateway | — | — | OPEN (S7) |
-| R6 | Developer apps in global administration; project OAuth accounts; sealed tokens | — | — | OPEN (S2) |
+| R6 | Developer apps in global administration; project OAuth accounts; sealed tokens | `modules/social/accounts/*`, `platform/connections/project-secrets.ts` | `social-apps`, `project-secrets`, `social-oauth-state`, `social-oauth-routes`, `social-x-connect`, `social-meta-connect`, `social-vault`, `social-accounts`, `social-meta-data-deletion` integration tests; access matrix | PASS_TEST (local, fake providers; live acceptance open) |
 | R7 | Postiz migration without loss, rollback | — | — | OPEN (S9, S10) |
 
 ## Approval UX v2 and agent mandates (2026-10-28, local; `ORBIT_AGENT_MANDATES` off)
