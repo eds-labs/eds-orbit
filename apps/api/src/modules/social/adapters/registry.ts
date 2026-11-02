@@ -1,6 +1,7 @@
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { AccountCredentials } from "../accounts/vault.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
+import { instagramSender } from "./instagram.ts";
 import { xSender } from "./x.ts";
 
 export { resultFromSocialError } from "./outcome.ts";
@@ -41,7 +42,7 @@ export interface SocialSender {
   reconcile?(scope: Scope, input: SendInput & { since: Date }): Promise<SendResult | { kind: "not_found" }>;
 }
 
-const senders: Partial<Record<SocialPlatform, SocialSender>> = { x: xSender };
+const senders: Partial<Record<SocialPlatform, SocialSender>> = { x: xSender, instagram: instagramSender };
 
 /** The sender of a platform; Facebook has none yet. */
 export const senderFor = (platform: SocialPlatform): SocialSender | null => senders[platform] ?? null;
