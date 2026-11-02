@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   checkBoundaries,
+  checkForbiddenImportPrefixes,
   checkForbiddenLiterals,
   classify,
   compareBaseline,
@@ -199,6 +200,49 @@ describe("checkForbiddenLiterals", () => {
           "apps/api/src/modules/chat.ts": 'const kind = "content";',
         },
         literals,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("checkForbiddenImportPrefixes", () => {
+  const banned = {
+    ...config,
+    forbiddenImportPrefixes: ["@opencoredev/social-sdk/cloud"],
+  };
+
+  it("flags a managed-provider import in any zone, as import or dynamic import", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        {
+          "apps/api/src/modules/chat.ts": 'import { postiz } from "@opencoredev/social-sdk/cloud/postiz";',
+          "packages/db/src/a.ts": "await import('@opencoredev/social-sdk/cloud');",
+        },
+        banned,
+      ),
+    ).toEqual([
+      'forbidden-import: apps/api/src/modules/chat.ts -> "@opencoredev/social-sdk/cloud/postiz"',
+      'forbidden-import: packages/db/src/a.ts -> "@opencoredev/social-sdk/cloud"',
+    ]);
+  });
+
+  it("allows the direct adapters and look-alike names", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        {
+          "apps/api/src/modules/chat.ts":
+            'import { x } from "@opencoredev/social-sdk/x"; import "@opencoredev/social-sdk/cloudy";',
+        },
+        banned,
+      ),
+    ).toEqual([]);
+  });
+
+  it("checks nothing without the setting", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        { "packages/db/src/a.ts": 'import "@opencoredev/social-sdk/cloud/zernio";' },
+        config,
       ),
     ).toEqual([]);
   });
