@@ -82,6 +82,10 @@ const PUBLIC_ROUTES = [
   "GET /api/health/postiz",
   "GET /api/health/ready",
   "GET /api/setup",
+  // Social OAuth callback (ADR 0020): it checks the state's shape first (400
+  // here, without one) and then needs the owner's session (401/403, pinned
+  // in social-oauth-routes.integration.test.ts).
+  "GET /api/social/oauth/callback/{app}",
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",

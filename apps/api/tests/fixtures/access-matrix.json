@@ -1959,6 +1959,14 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/social/oauth/callback/{app}": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
   "GET /api/workspaces/{workspaceId}/mcp-grants": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3998,6 +4006,14 @@
     "editor": "allowed:400",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/social/accounts/connect/{app}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/sources": {
     "anonymous": "unauthenticated",

@@ -5,9 +5,13 @@ import type { PermissionDef } from "../../../../../packages/module-contracts/src
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import type { Auth } from "../../platform/tenancy/auth.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { redirectUri } from "./accounts/apps.ts";
+import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
+import { consumeOAuthState, projectOfState } from "./accounts/oauth-state.ts";
 import { requireSocial } from "./gate.ts";
 import { socialModule } from "./manifest.ts";
-import { SOCIAL_READ, SOCIAL_SETTINGS } from "./permissions.ts";
+import { SOCIAL_ACCOUNTS_MANAGE, SOCIAL_READ, SOCIAL_SETTINGS } from "./permissions.ts";
 import { readSocialSettings, saveSocialSettings } from "./settings.ts";
 
 // The social module's HTTP API (ADR 0020, plan §6.2). Every route checks
@@ -34,6 +38,18 @@ export async function inSocial<T>(
 }
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
+const appParam = z.object({ app: z.enum(["meta", "x"]) });
+const callbackQuery = z
+  .object({
+    state: z.string().min(40).max(200),
+    code: z.string().min(1).max(2000).optional(),
+    error: z.string().max(200).optional(),
+  })
+  .passthrough();
+const errorCode = (error: unknown) => {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === "string" && /^SOCIAL_[A-Z0-9_]{1,60}$/.test(code) ? code : "SOCIAL_CONNECT_FAILED";
+};
 
 /** Social module routes (plan §6.2); later phases add accounts, posts and media. */
 export const socialRoutes: RoutesContribution = (context) => {
@@ -49,6 +65,44 @@ export const socialRoutes: RoutesContribution = (context) => {
       };
     }),
   );
+  app.post(`${BASE}/accounts/connect/:app`, (req) =>
+    inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, (tx, scope, params) =>
+      connectHandler(appParam.parse(params).app).begin(tx, scope),
+    ),
+  );
+  // The provider sends the browser here (outside the project path, so the
+  // project comes from the state). The member must be the signed-in owner
+  // who started the flow; the state is used once, before any token exchange.
+  app.get("/api/social/oauth/callback/:app", async (req, reply) => {
+    const { app: provider } = appParam.parse(req.params);
+    const query = callbackQuery.parse(req.query);
+    const projectId = projectOfState(query.state);
+    const scope = await scopeFor(auth, req, projectId, SOCIAL_ACCOUNTS_MANAGE);
+    const accounts = `/p/${projectId}/social/accounts`;
+    let attempt;
+    try {
+      attempt = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+        await requireSocial(tx, scope);
+        return consumeOAuthState(tx, scope, { state: query.state, platform: oauthPlatform(provider) });
+      });
+    } catch (error) {
+      if (errorCode(error) !== "SOCIAL_OAUTH_STATE_INVALID") throw error;
+      return reply.redirect(`${accounts}?error=SOCIAL_OAUTH_STATE_INVALID`);
+    }
+    if (query.error || !query.code)
+      return reply.redirect(`${attempt.redirectAfter}?error=SOCIAL_OAUTH_CANCELLED`);
+    const raw = req.url.slice(req.url.indexOf("?") + 1);
+    try {
+      const done = await connectHandler(provider).finish(scope, {
+        callbackUrl: `${redirectUri(loadConfig(), provider)}?${raw}`,
+        state: query.state,
+        attempt,
+      });
+      return reply.redirect(`${attempt.redirectAfter}?connected=${done.accounts}`);
+    } catch (error) {
+      return reply.redirect(`${attempt.redirectAfter}?error=${errorCode(error)}`);
+    }
+  });
   app.put(`${BASE}/settings`, (req) =>
     inSocial(auth, req, SOCIAL_SETTINGS, (tx, scope) => {
       const { settings, version } = settingsInput.parse(req.body);
