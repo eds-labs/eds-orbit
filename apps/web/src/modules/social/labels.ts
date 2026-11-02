@@ -70,6 +70,32 @@ const en = {
     SOCIAL_VERSION_CONFLICT: "The account changed in the meantime. Reload and try again.",
   } as Record<string, string>,
   genericError: "The account could not be connected.",
+  media: {
+    title: "Media",
+    intro: "Images for this project's posts. Each one is stored with a JPEG copy for Instagram; metadata is removed.",
+    upload: "Upload image",
+    uploading: "Uploading…",
+    empty: "No images yet.",
+    description: "Description (alt text)",
+    save: "Save description",
+    remove: "Remove",
+    cancel: "Cancel",
+    confirmTitle: (name: string) => `Remove ${name}?`,
+    confirmBody: "An image a post uses stays with that post and only leaves the library.",
+    hintInstagramRatio: "Instagram: aspect ratio outside 4:5 to 1.91:1",
+    hintInstagramSmall: "Instagram: narrower than 320 pixels",
+    hintX: "X: larger than 5 MB",
+    errors: {
+      SOCIAL_MEDIA_INVALID: "This file is not a usable image.",
+      SOCIAL_MEDIA_TYPE: "Upload a PNG, JPEG or WebP image.",
+      SOCIAL_VIDEO_NOT_AVAILABLE: "Videos are not supported yet.",
+      FILE_TOO_LARGE: "The image is too large.",
+      FILES_QUOTA_EXCEEDED: "The project's storage is full.",
+      FILES_NOT_CONFIGURED: "File storage is not set up for this installation.",
+      SOCIAL_VERSION_CONFLICT: "The image changed in the meantime. Reload and try again.",
+    } as Record<string, string>,
+    genericError: "The image could not be saved.",
+  },
   attention: { reconnect: (n: number) => (n === 1 ? "1 social account needs to be reconnected" : `${n} social accounts need to be reconnected`), open: "Open accounts" },
 };
 export type SocialText = typeof en;
@@ -141,6 +167,32 @@ const de: SocialText = {
     SOCIAL_VERSION_CONFLICT: "Das Konto wurde inzwischen geändert. Lade neu und versuche es erneut.",
   },
   genericError: "Das Konto konnte nicht verbunden werden.",
+  media: {
+    title: "Medien",
+    intro: "Bilder für die Beiträge dieses Projekts. Jedes wird mit einer JPEG-Kopie für Instagram gespeichert; Metadaten werden entfernt.",
+    upload: "Bild hochladen",
+    uploading: "Wird hochgeladen…",
+    empty: "Noch keine Bilder.",
+    description: "Beschreibung (Alternativtext)",
+    save: "Beschreibung speichern",
+    remove: "Entfernen",
+    cancel: "Abbrechen",
+    confirmTitle: (name: string) => `${name} entfernen?`,
+    confirmBody: "Ein Bild, das ein Beitrag verwendet, bleibt bei diesem Beitrag und verlässt nur die Mediathek.",
+    hintInstagramRatio: "Instagram: Seitenverhältnis außerhalb von 4:5 bis 1,91:1",
+    hintInstagramSmall: "Instagram: schmaler als 320 Pixel",
+    hintX: "X: größer als 5 MB",
+    errors: {
+      SOCIAL_MEDIA_INVALID: "Diese Datei ist kein verwendbares Bild.",
+      SOCIAL_MEDIA_TYPE: "Lade ein PNG-, JPEG- oder WebP-Bild hoch.",
+      SOCIAL_VIDEO_NOT_AVAILABLE: "Videos werden noch nicht unterstützt.",
+      FILE_TOO_LARGE: "Das Bild ist zu groß.",
+      FILES_QUOTA_EXCEEDED: "Der Speicher des Projekts ist voll.",
+      FILES_NOT_CONFIGURED: "Die Dateiablage ist in dieser Installation nicht eingerichtet.",
+      SOCIAL_VERSION_CONFLICT: "Das Bild wurde inzwischen geändert. Lade neu und versuche es erneut.",
+    },
+    genericError: "Das Bild konnte nicht gespeichert werden.",
+  },
   attention: { reconnect: (n: number) => (n === 1 ? "1 Social-Media-Konto muss neu verbunden werden" : `${n} Social-Media-Konten müssen neu verbunden werden`), open: "Konten öffnen" },
 };
 
@@ -149,5 +201,11 @@ export const socialText = (locale: "en" | "de"): SocialText => (locale === "de" 
 /** The text for a social error code; unknown codes get the generic text. */
 export const accountMessage = (code: string, locale: "en" | "de") => {
   const t = socialText(locale);
+  return t.errors[code] ?? t.genericError;
+};
+
+/** The text for a media error code; unknown codes get the generic text. */
+export const mediaMessage = (code: string, locale: "en" | "de") => {
+  const t = socialText(locale).media;
   return t.errors[code] ?? t.genericError;
 };

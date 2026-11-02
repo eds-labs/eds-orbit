@@ -30,3 +30,20 @@ export type SocialAccount = {
   version: number;
 };
 export type SocialAccounts = { items: SocialAccount[] };
+
+/** GET /projects/:projectId/social/media (S3). */
+export type SocialMedia = {
+  id: string;
+  name: string;
+  mime: string;
+  width: number;
+  height: number;
+  size: number;
+  jpegWidth: number;
+  jpegHeight: number;
+  jpegSize: number;
+  altText: string | null;
+  version: number;
+  createdAt: string;
+};
+export type SocialMediaList = { items: SocialMedia[] };

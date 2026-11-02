@@ -2,6 +2,7 @@ import { AtSign, BarChart3, CalendarDays, Images, LayoutDashboard, PenSquare } f
 import type { WebModule } from "@/platform/shell/types";
 import { AccountsView } from "./accounts";
 import { socialAttention } from "./attention";
+import { MediaView } from "./media";
 import { socialText } from "./labels";
 import { SocialOverview } from "./overview";
 import { SocialPlaceholder } from "./placeholder";
@@ -32,7 +33,7 @@ export const socialWeb: WebModule = {
     { key: "social", path: "", component: SocialOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
     { key: "social.calendar", path: "calendar", component: SocialPlaceholder, nav: { label: nav("calendar"), icon: CalendarDays, order: 10 } },
     { key: "social.posts", path: "posts", component: SocialPlaceholder, nav: { label: nav("posts"), icon: PenSquare, order: 20 } },
-    { key: "social.media", path: "media", component: SocialPlaceholder, nav: { label: nav("media"), icon: Images, order: 30 } },
+    { key: "social.media", path: "media", component: MediaView, nav: { label: nav("media"), icon: Images, order: 30 } },
     { key: "social.accounts", path: "accounts", component: AccountsView, nav: { label: nav("accounts"), icon: AtSign, order: 40 } },
     { key: "social.analytics", path: "analytics", component: SocialPlaceholder, nav: { label: nav("analytics"), icon: BarChart3, order: 50 } },
   ],
