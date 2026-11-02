@@ -5,7 +5,7 @@ import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
-import { socialPath, type SocialAccount, type SocialAccounts } from "./api";
+import { socialPath, type SocialAccount, type SocialAccounts, type SocialMediaList } from "./api";
 import { accountMessage, socialText } from "./labels";
 
 // The project's connected social accounts (ADR 0020, S2). Everybody in the
@@ -91,6 +91,10 @@ function AccountRow({
   const t = text.accounts;
   const [verifying, setVerifying] = useState(false);
   const [testText, setTestText] = useState(t.verifyDefault);
+  const [testImage, setTestImage] = useState("");
+  // Instagram posts nothing without an image: its test post needs one.
+  const needsImage = account.platform === "instagram";
+  const library = useResource<SocialMediaList>(verifying && needsImage ? socialPath(project.id, "/media") : null);
   const verifyId = `social-verify-${account.id}`;
   return (
     <li className="work-settings-row">
@@ -164,7 +168,7 @@ function AccountRow({
                 try {
                   await api(socialPath(project.id, `/accounts/${account.id}/verify-write`), {
                     method: "POST",
-                    body: JSON.stringify({ version: account.version, text: testText }),
+                    body: JSON.stringify({ version: account.version, text: testText, ...(testImage ? { mediaId: testImage } : {}) }),
                   });
                   setVerifying(false);
                   onMessage("success", t.verifyRequested);
@@ -177,6 +181,25 @@ function AccountRow({
                 <FieldLabel htmlFor={verifyId}>{t.verifyText}</FieldLabel>
                 <Input id={verifyId} maxLength={280} value={testText} onChange={(e) => setTestText(e.target.value)} />
               </Field>
+              {needsImage && (
+                <Field>
+                  <FieldLabel htmlFor={`${verifyId}-image`}>{t.verifyImage}</FieldLabel>
+                  <select
+                    id={`${verifyId}-image`}
+                    className="input"
+                    required
+                    value={testImage}
+                    onChange={(e) => setTestImage(e.target.value)}
+                  >
+                    <option value="">—</option>
+                    {(library.data?.items ?? []).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <p className="field-hint">{t.verifyNote}</p>
               <Button type="submit" size="sm">
                 {t.verifySend}

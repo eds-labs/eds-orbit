@@ -148,6 +148,24 @@ export async function finishPublication(
   const now = new Date();
   const state = (extra: Record<string, unknown> | undefined) =>
     ({ ...(pub.providerState as Record<string, unknown>), ...(extra ?? {}) }) as Prisma.InputJsonValue;
+  // Stopped while it was being sent: what went out stays recorded, but a
+  // refusal is not retried and a post still processing is not published.
+  const stopped = pub.status === "cancel_requested" || (pub.providerState as { cancelRequested?: unknown })?.cancelRequested === true;
+  if (stopped && (result.kind === "failed" || result.kind === "processing")) {
+    await tx.socialPublication.update({
+      where: { id },
+      data: {
+        status: "canceled",
+        lastErrorCode: result.kind === "failed" ? result.code : null,
+        nextAttemptAt: null,
+        fence: null,
+        version: { increment: 1 },
+      },
+    });
+    await audit(tx, scope, "social.publication.canceled", id, { during: "send" });
+    await refreshPostStatus(tx, scope, post.id);
+    return;
+  }
   switch (result.kind) {
     case "published":
       await tx.socialPublication.update({

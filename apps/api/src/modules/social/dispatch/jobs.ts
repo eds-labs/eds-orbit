@@ -35,7 +35,9 @@ export const deliverJob: JobDef = {
   /** A paused project blocks the delivery; resuming re-enqueues recent ones (S5). */
   async onBlockedByPause(tx, job, scope) {
     const pub = await lockPublication(tx, scope, String(job.resourceId));
-    if (pub.status === "pending" || pub.status === "failed") await blockPublication(tx, scope, pub.id, "PROJECT_PAUSED");
+    // Only what is still to be sent; a failure for good stays failed.
+    const retrying = pub.status === "failed" && pub.retryDisposition === "after-delay" && pub.nextAttemptAt !== null;
+    if (pub.status === "pending" || retrying) await blockPublication(tx, scope, pub.id, "PROJECT_PAUSED");
   },
 };
 

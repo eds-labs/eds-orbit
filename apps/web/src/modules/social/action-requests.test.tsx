@@ -83,6 +83,8 @@ describe("social approval renderers", () => {
     expect(html).toContain("This posts publicly");
     expect(buttons(html)).toEqual(["Approve", "Reject"]);
     expect(socialActionRequests["social.account.verify_write"]!.accepts(item("at"))).toBe(false);
+    const withImage = { ...verify, summary: { operation: { ...verify.summary.operation, platform: "instagram", mediaId: "m9" } } };
+    expect(render("social.account.verify_write", withImage as never)).toContain('src="/api/projects/p1/social/media/m9/content?rendition=jpeg"');
   });
 
   it("leaves other requests to the generic view", () => {

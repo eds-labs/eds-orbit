@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
@@ -10,6 +12,7 @@ import { requestWriteVerification, VERIFY_WRITE_ACTION } from "../src/modules/so
 import { deliverPublication } from "../src/modules/social/dispatch/deliver.ts";
 import { dispatchPost } from "../src/modules/social/dispatch/dispatch.ts";
 import { DISPATCH } from "../src/modules/social/dispatch/jobs.ts";
+import { uploadMedia } from "../src/modules/social/media/library.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
@@ -53,7 +56,12 @@ describe.skipIf(!enabled)("social write verification", () => {
   };
 
   beforeAll(async () => {
-    process.env.ORBIT_SOCIAL = "true";
+    Object.assign(process.env, {
+      ORBIT_SOCIAL: "true",
+      ORBIT_FILES: "true",
+      FILES_BACKEND: "database",
+      FILES_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+    });
     p = await createSocialProject();
     worker = { ...p.owner, userId: "worker" };
     setSocialFetchForTests(async () =>
@@ -105,6 +113,32 @@ describe.skipIf(!enabled)("social write verification", () => {
     const { publicationId } = await approveAndSend(requestId);
     expect((await accountRow(id)).capability).toBe("read_verified");
     expect((await p.run((tx) => tx.socialPublication.findUniqueOrThrow({ where: { id: publicationId } }))).status).toBe("blocked");
+  });
+
+  it("verifies Instagram with an image the platform accepts (final review I4)", async () => {
+    Object.assign(process.env, { EXECUTION_MODE: "live", ENABLE_EXTERNAL_WRITES: "true", ORBIT_SOCIAL_PLATFORMS: "instagram" });
+    const { accountId } = await saveConnectedAccount(p.owner, {
+      platform: "instagram",
+      externalId: `1784${Math.floor(Math.random() * 1e6)}`,
+      handle: "@orbit_ig",
+      displayName: "Orbit IG",
+      secret: JSON.stringify({ pageToken: "page-token" }),
+      config: { pageId: "99", igUserId: "17841" },
+    });
+    await expect(
+      p.run((tx) => requestWriteVerification(tx, p.owner, accountId, { version: 1, text: "Orbit connection test" })),
+    ).rejects.toMatchObject({ code: "SOCIAL_MEDIA_REQUIRED", status: 422 });
+    const png = readFileSync(new URL("./fixtures/social/photo-800x600.png", import.meta.url));
+    const image = (await uploadMedia(p.editor, { bytes: png, mime: "image/png" })).id;
+    const { requestId } = await p.run((tx) =>
+      requestWriteVerification(tx, p.owner, accountId, { version: 1, text: "Orbit connection test", mediaId: image }),
+    );
+    const request = data(await p.run((tx) => tx.entity.findUniqueOrThrow({ where: { id: requestId } })));
+    expect(request.payload).toMatchObject({ mediaId: image });
+    const row = await p.run((tx) => tx.entity.findUniqueOrThrow({ where: { id: requestId } }));
+    await p.run((tx) => decideActionRequest(tx, p.owner, requestId, { version: row.version, packageHash: data(row).packageHash, decision: "approve" }));
+    const post = await p.run((tx) => tx.socialPost.findFirstOrThrow({ where: { projectId: p.owner.projectId, originType: "write_verification", baseText: "Orbit connection test", baseMedia: { equals: [image] } } }));
+    expect(post.status).toBe("approved");
   });
 
   it("is an owner's request, never an editor's, and never covered by a mandate", async () => {

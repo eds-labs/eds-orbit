@@ -86,7 +86,8 @@ const renderer: ActionRequestRenderer = {
 const verifyRenderer: ActionRequestRenderer = {
   accepts: (item) => item.summary?.operation?.kind === "social_verify_write",
   component: ({ item, de, pending, decide }) => {
-    const op = item.summary.operation as { platform: SocialPlatform; handle: string; text: string };
+    const { project } = useWorkspace();
+    const op = item.summary.operation as { platform: SocialPlatform; handle: string; text: string; mediaId?: string | null };
     const t = TEXT[de ? "de" : "en"];
     const platforms = socialText(de ? "de" : "en").platform;
     return (
@@ -94,6 +95,9 @@ const verifyRenderer: ActionRequestRenderer = {
         <h3>{t.verifyTitle(op.handle)}</h3>
         <p className="field-hint">{platforms[op.platform]}</p>
         <blockquote style={{ whiteSpace: "pre-wrap" }}>{op.text}</blockquote>
+        {op.mediaId && (
+          <img src={`/api${socialPath(project.id, `/media/${op.mediaId}/content?rendition=jpeg`)}`} alt="" width={120} loading="lazy" />
+        )}
         <p className="panel-note">{t.verifyNote}</p>
         <div className="form-actions">
           <Button disabled={pending} onClick={() => decide("approve")}>

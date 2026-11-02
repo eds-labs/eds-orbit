@@ -20,8 +20,9 @@ export const socialFetch: typeof fetch = async (input, init = {}) => {
     const body = input.method === "GET" || input.method === "HEAD" ? undefined : await input.arrayBuffer();
     options = { method: input.method, headers: input.headers, ...(body ? { body } : {}), ...init };
   } else url = String(input);
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  // A caller with its own deadline keeps it (Telegram media uploads allow
+  // 60 s, the SDK its own budget); otherwise 20 s apply.
+  const signal = options.signal ?? AbortSignal.timeout(TIMEOUT_MS);
   return transport(url, { ...options, signal });
 };
 

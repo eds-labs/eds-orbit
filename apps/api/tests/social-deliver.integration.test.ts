@@ -9,8 +9,9 @@ import { finishPublication } from "../src/modules/social/dispatch/claim.ts";
 import { deliverPublication } from "../src/modules/social/dispatch/deliver.ts";
 import { dispatchPost } from "../src/modules/social/dispatch/dispatch.ts";
 import { DELIVER } from "../src/modules/social/dispatch/jobs.ts";
+import { socialDeliverySweep } from "../src/modules/social/dispatch/sweep.ts";
 import { publishNow } from "../src/modules/social/posts/approval.ts";
-import { createPost, getPost } from "../src/modules/social/posts/posts.ts";
+import { cancelPost, createPost, getPost } from "../src/modules/social/posts/posts.ts";
 import { data } from "../src/shared.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
@@ -209,6 +210,57 @@ describe.skipIf(!enabled)("social deliver", () => {
     expect(sends).toBe(0);
     const later = (await deliverJobs(pubs[0]!.id)).find((j) => String(j.idempotencyKey).includes(":t"));
     expect(Date.parse(later!.availableAt)).toBe(minute.getTime() + 60_000);
+  });
+
+  it("never sends again after a stop that arrived while sending (final review C1, I1)", async () => {
+    const { postId, pubs } = await publications([await telegramAccount()]);
+    const id = pubs[0]!.id;
+    const fence = randomUUID();
+    await p.run((tx) => tx.socialPublication.update({ where: { id }, data: { status: "sending", fence, attempts: 1 } }));
+    const view = await p.run((tx) => getPost(tx, p.viewer, postId));
+    await p.run((tx) => cancelPost(tx, p.owner, postId, view.version));
+    // The send in flight keeps its state: its result decides, a crash makes it unknown.
+    expect(await pub(id)).toMatchObject({ status: "sending", providerState: { cancelRequested: true } });
+    await p.run((tx) =>
+      finishPublication(tx, worker, id, fence, { kind: "failed", code: "SOCIAL_RATE_LIMITED", retry: "after-delay", delayMs: 30_000 }, "live"),
+    );
+    expect(await pub(id)).toMatchObject({ status: "canceled", nextAttemptAt: null });
+    expect((await deliverJobs(id)).map((j) => j.idempotencyKey)).toEqual([`social-deliver:${id}:1`]);
+    // A crash after a stop while sending: maybe sent, so unknown, never "canceled".
+    const other = await publications([await telegramAccount()]);
+    const otherId = other.pubs[0]!.id;
+    await p.run((tx) => tx.socialPublication.update({ where: { id: otherId }, data: { status: "sending", fence: randomUUID() } }));
+    await p.run(async (tx) => cancelPost(tx, p.owner, other.postId, (await getPost(tx, p.viewer, other.postId)).version));
+    const [job] = await deliverJobs(otherId);
+    await scoped(p.owner.workspaceId, p.owner.projectId, (tx) => registeredJobs().get(DELIVER)!.onLeaseExpired!(tx, worker, job!));
+    expect((await pub(otherId)).status).toBe("outcome_unknown");
+  });
+
+  it("settles publications stuck while sending or claimed (final review I2)", async () => {
+    const { pubs: [stuck] } = await publications([await telegramAccount()]);
+    const { pubs: [claimed] } = await publications([await telegramAccount()]);
+    const { pubs: [fresh] } = await publications([await telegramAccount()]);
+    const old = new Date(Date.now() - 11 * 60_000);
+    await p.run(async (tx) => {
+      await tx.socialPublication.update({ where: { id: stuck!.id }, data: { status: "sending", fence: randomUUID(), claimedAt: old } });
+      await tx.socialPublication.update({ where: { id: claimed!.id }, data: { status: "claimed", fence: randomUUID(), claimedAt: old } });
+      await tx.socialPublication.update({ where: { id: fresh!.id }, data: { status: "sending", fence: randomUUID(), claimedAt: new Date() } });
+    });
+    expect(await p.run((tx) => socialDeliverySweep.nextDueAt!(tx, p.owner))).toEqual(new Date(old.getTime() + 10 * 60_000));
+    await socialDeliverySweep.run(p.owner);
+    expect((await pub(stuck!.id)).status).toBe("outcome_unknown");
+    expect(await pub(claimed!.id)).toMatchObject({ status: "pending", fence: null });
+    expect((await deliverJobs(claimed!.id)).length).toBe(2);
+    expect((await pub(fresh!.id)).status).toBe("sending");
+  });
+
+  it("never reopens a publication that failed for good when the project is paused (final review M5)", async () => {
+    const { pubs } = await publications([await telegramAccount()]);
+    const id = pubs[0]!.id;
+    await p.run((tx) => tx.socialPublication.update({ where: { id }, data: { status: "failed", retryDisposition: "never", resolution: "not_published" } }));
+    const [job] = await deliverJobs(id);
+    await scoped(p.owner.workspaceId, p.owner.projectId, (tx) => registeredJobs().get(DELIVER)!.onBlockedByPause!(tx, job!, worker));
+    expect((await pub(id)).status).toBe("failed");
   });
 
   it("blocks a publication whose post changed after it was dispatched", async () => {

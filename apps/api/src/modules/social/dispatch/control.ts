@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import { Prisma, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { publishEvent } from "../../../platform/events/events.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
@@ -8,7 +8,7 @@ import { audit, data, DomainError } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { lockPublication, postOfPublication } from "./claim.ts";
 import { publicationView, type PublicationView } from "./publication-view.ts";
-import { DELIVER } from "./queues.ts";
+import { DELIVER, DISPATCH, RECONCILE } from "./queues.ts";
 import { refreshPostStatus } from "./status.ts";
 
 // Stopping, resuming and settling deliveries (ADR 0020 §7 "Cancellation",
@@ -55,8 +55,20 @@ export async function cancelDelivery(tx: DbTx, scope: Scope, postId: string): Pr
       });
       await cancelJobs(tx, scope, pub.id);
       canceled++;
-    } else if (pub.status === "claimed" || pub.status === "sending") {
+    } else if (pub.status === "claimed") {
+      // No provider call yet: the delivery drops it before sending.
       await tx.socialPublication.update({ where: { id: pub.id }, data: { status: "cancel_requested", version: { increment: 1 } } });
+      tooLate++;
+    } else if (pub.status === "sending") {
+      // In flight: its result still decides (a crash makes it unknown), but
+      // a refusal or Instagram's processing then ends it instead of a retry.
+      await tx.socialPublication.update({
+        where: { id: pub.id },
+        data: {
+          providerState: { ...(pub.providerState as Record<string, unknown>), cancelRequested: true } as Prisma.InputJsonValue,
+          version: { increment: 1 },
+        },
+      });
       tooLate++;
     } else if (pub.status === "processing" || pub.status === "accepted") tooLate++;
   }
@@ -86,6 +98,35 @@ export async function resumeBlocked(tx: DbTx, scope: Scope, now: Date, generatio
     await enqueue(tx, scope, DELIVER, pub.id, `social-deliver:${pub.id}:g${generation}`, now);
     resumed++;
   }
+  // Posts whose dispatch the pause blocked (no publications yet): the same
+  // window; older ones stay due and show as missed (attention).
+  const dispatches = await tx.entity.findMany({
+    where: {
+      projectId: scope.projectId,
+      kind: "jobs",
+      AND: [
+        { data: { path: ["topic"], equals: DISPATCH } },
+        { data: { path: ["status"], equals: "blocked_dependency" } },
+        { data: { path: ["error"], equals: "PROJECT_PAUSED" } },
+      ],
+    },
+    take: 200,
+  });
+  for (const job of dispatches) {
+    const d = data(job);
+    const post = await tx.socialPost.findFirst({ where: { id: String(d.resourceId), projectId: scope.projectId } });
+    if (!post || !["scheduled", "approved"].includes(post.status) || String(post.version) !== String(d.postVersion)) continue;
+    const planned = post.scheduleMode === "at" && post.scheduledAt ? post.scheduledAt : (post.approvedAt ?? job.createdAt);
+    if (planned.getTime() < now.getTime() - LATE_WINDOW_MS) continue;
+    await enqueue(tx, scope, DISPATCH, post.id, `social-dispatch:${post.id}:v${post.version}:g${generation}`, now, {
+      postVersion: String(post.version),
+    });
+    resumed++;
+  }
+  // Instagram posts still processing: their read-back starts again.
+  const processing = await tx.socialPublication.findMany({ where: { projectId: scope.projectId, status: "processing" }, take: 200 });
+  for (const pub of processing)
+    await enqueue(tx, scope, RECONCILE, pub.id, `social-reconcile:${pub.id}:g${generation}`, now, { attempt: "1" });
   return resumed;
 }
 

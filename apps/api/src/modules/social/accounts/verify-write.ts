@@ -7,6 +7,7 @@ import { audit, DomainError } from "../../../shared.ts";
 import { startDelivery } from "../dispatch/dispatch.ts";
 import { platformEnabled, sendMode } from "../dispatch/gates.ts";
 import { createPost, packageOf } from "../posts/posts.ts";
+import { carouselIssues } from "../media/rules.ts";
 import type { SocialPlatform } from "./store.ts";
 
 // Write verification (ADR 0020 §6.2, S5): before an account posts live,
@@ -24,10 +25,25 @@ const payload = z
     platform: z.enum(["x", "facebook", "instagram", "telegram"]),
     handle: z.string(),
     text: z.string().min(1).max(280),
+    /** A library image (required for Instagram, which posts nothing without one). */
+    mediaId: z.uuid().nullable(),
   })
   .strict();
 type VerifyPayload = z.infer<typeof payload>;
-const requestInput = z.object({ version: z.int().min(1), text: z.string().trim().min(1).max(280) }).strict();
+const requestInput = z
+  .object({ version: z.int().min(1), text: z.string().trim().min(1).max(280), mediaId: z.uuid().optional() })
+  .strict();
+
+/** The image of a test post: in this project and fitting the platform. */
+async function checkMedia(tx: DbTx, scope: Scope, platform: SocialPlatform, mediaId: string | null) {
+  if (!mediaId) {
+    if (platform === "instagram") throw new DomainError("SOCIAL_MEDIA_REQUIRED", 422);
+    return;
+  }
+  const asset = await tx.socialMediaAsset.findFirst({ where: { id: mediaId, projectId: scope.projectId } });
+  if (!asset) throw new DomainError("NOT_FOUND", 404);
+  if (carouselIssues([asset], platform).length) throw new DomainError("SOCIAL_VALIDATION_FAILED", 409);
+}
 
 async function checkAccount(tx: DbTx, scope: Scope, accountId: string, version: number) {
   if (sendMode() !== "live") throw new DomainError("SOCIAL_LIVE_WRITES_DISABLED", 409);
@@ -47,18 +63,22 @@ export const verifyWriteAction: ActionDefinition<VerifyPayload> = {
   ttlMs: 7 * 86_400_000,
   payload,
   costCeilingMicros: () => 0,
-  summary: (p) => ({ operation: { kind: "social_verify_write", platform: p.platform, handle: p.handle, text: p.text } }),
+  summary: (p) => ({
+    operation: { kind: "social_verify_write", platform: p.platform, handle: p.handle, text: p.text, mediaId: p.mediaId },
+  }),
   async revalidate(tx, scope, p) {
     await checkAccount(tx, scope, p.accountId, p.accountVersion);
+    await checkMedia(tx, scope, p.platform, p.mediaId);
   },
   /** Creates the approved test post (publish now) and sends it on its way. */
   async onApproved(tx, scope, request) {
     const p = payload.parse((request.data as { payload: unknown }).payload);
     await checkAccount(tx, scope, p.accountId, p.accountVersion);
+    await checkMedia(tx, scope, p.platform, p.mediaId);
     const post = await createPost(tx, scope, {
       title: "Write verification",
       baseText: p.text,
-      baseMedia: [],
+      baseMedia: p.mediaId ? [p.mediaId] : [],
       variants: [{ accountId: p.accountId }],
     });
     await tx.socialPost.update({
@@ -80,6 +100,7 @@ export async function requestWriteVerification(tx: DbTx, scope: Scope, accountId
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = requestInput.parse(raw);
   const account = await checkAccount(tx, scope, accountId, input.version);
+  await checkMedia(tx, scope, account.platform as SocialPlatform, input.mediaId ?? null);
   const request = await createActionRequest(tx, scope, {
     actionType: VERIFY_WRITE_ACTION,
     payload: {
@@ -88,6 +109,7 @@ export async function requestWriteVerification(tx: DbTx, scope: Scope, accountId
       platform: account.platform,
       handle: account.handle,
       text: input.text,
+      mediaId: input.mediaId ?? null,
     },
     requestedBy: { kind: "user", userId: scope.userId },
   });

@@ -11,6 +11,11 @@ export const socialAttention: Readonly<Record<string, AttentionRenderer>> = {
     title: socialText(locale).attention.reconnect(item.count ?? 1),
     action: open,
   }),
+  // Approved posts whose time passed unsent, e.g. during a pause (S5).
+  social_post_missed: (item, locale) => ({
+    title: socialText(locale).attention.missed(item.count ?? 1),
+    action: openPosts,
+  }),
   // Unclear, held back or failed publications (S5).
   social_publication_problem: (item, locale) => ({
     title: socialText(locale).attention.publications(item.count ?? 1),

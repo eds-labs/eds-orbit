@@ -9,7 +9,9 @@ import { resolvePublication, resumeBlocked } from "../src/modules/social/dispatc
 import { deliverPublication } from "../src/modules/social/dispatch/deliver.ts";
 import { dispatchPost } from "../src/modules/social/dispatch/dispatch.ts";
 import { DELIVER } from "../src/modules/social/dispatch/jobs.ts";
-import { publishNow } from "../src/modules/social/posts/approval.ts";
+import { socialAttention } from "../src/modules/social/attention.ts";
+import { DISPATCH, RECONCILE } from "../src/modules/social/dispatch/jobs.ts";
+import { publishNow, schedulePost } from "../src/modules/social/posts/approval.ts";
 import { cancelPost, createPost, getPost } from "../src/modules/social/posts/posts.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
@@ -82,7 +84,8 @@ describe.skipIf(!enabled)("social delivery control", () => {
     await p.run((tx) => cancelPost(tx, p.editor, postId, view.version));
     expect((await pub(waiting!.id)).status).toBe("canceled");
     expect((await deliverJob(waiting!.id)).status).toBe("canceled");
-    expect((await pub(inFlight!.id)).status).toBe("cancel_requested");
+    // In flight: still sending, marked; its result decides (final review C1).
+    expect(await pub(inFlight!.id)).toMatchObject({ status: "sending", providerState: { cancelRequested: true } });
     expect((await post(postId)).status).toBe("publishing");
   });
 
@@ -109,6 +112,50 @@ describe.skipIf(!enabled)("social delivery control", () => {
     expect((await pub(recent.pubs[0]!.id)).status).toBe("pending");
     expect((await deliverJob(recent.pubs[0]!.id)).idempotencyKey).toBe(`social-deliver:${recent.pubs[0]!.id}:g7`);
     expect(await pub(old.pubs[0]!.id)).toMatchObject({ status: "blocked", blockedCode: "PROJECT_PAUSED" });
+  });
+
+  it("picks up a post whose dispatch the pause blocked, and flags one it missed (final review I3)", async () => {
+    const jobsOf = async (topic: string, resourceId: string) =>
+      (await p.run((tx) => tx.entity.findMany({ where: { projectId: p.owner.projectId, kind: "jobs" }, orderBy: { createdAt: "asc" } })))
+        .map((j) => ({ id: j.id, ...data(j) }) as { id: string } & Record<string, any>)
+        .filter((j) => j.topic === topic && j.resourceId === resourceId);
+    const id = (await p.run((tx) => account(tx))).id;
+    const post = await p.run((tx) => createPost(tx, p.owner, { baseText: "Planned.", baseMedia: [], variants: [{ accountId: id }] }));
+    const local = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 11) + "10:00";
+    const scheduled = await p.run((tx) => schedulePost(tx, p.owner, post.id, { version: 1, local }));
+    const [job] = await jobsOf(DISPATCH, post.id);
+    // The worker blocked the due dispatch while the project was paused.
+    await p.run((tx) =>
+      tx.entity.update({ where: { id: job!.id }, data: { data: { ...job, id: undefined, status: "blocked_dependency", error: "PROJECT_PAUSED" } } }),
+    );
+    const at = Date.parse(scheduled.schedule.at!);
+    // Resumed 40 minutes after the planned time: not sent, but flagged.
+    await p.run((tx) => resumeBlocked(tx, worker, new Date(at + 40 * 60_000), 3));
+    expect(await jobsOf(DISPATCH, post.id)).toHaveLength(1);
+    const items = await p.run((tx) => socialAttention(tx, p.owner, new Date(at + 40 * 60_000)));
+    expect(items.find((i) => i.kind === "social_post_missed")?.count).toBeGreaterThanOrEqual(1);
+    // Resumed 10 minutes after: dispatched again under a new key.
+    await p.run((tx) => resumeBlocked(tx, worker, new Date(at + 10 * 60_000), 4));
+    const after = await jobsOf(DISPATCH, post.id);
+    expect(after.map((j) => j.idempotencyKey)).toContain(`social-dispatch:${post.id}:v${scheduled.version}:g4`);
+    // A publication Instagram was still processing gets its read-back again.
+    const { pubs } = await dispatched(1);
+    await p.run((tx) => tx.socialPublication.update({ where: { id: pubs[0]!.id }, data: { status: "processing" } }));
+    await p.run((tx) => resumeBlocked(tx, worker, new Date(), 5));
+    expect((await jobsOf(RECONCILE, pubs[0]!.id)).map((j) => j.idempotencyKey)).toEqual([`social-reconcile:${pubs[0]!.id}:g5`]);
+  });
+
+  it("counts a failed publication until it is settled or a week old (final review I5)", async () => {
+    const { pubs } = await dispatched(1);
+    const id = pubs[0]!.id;
+    await p.run((tx) => tx.socialPublication.update({ where: { id }, data: { status: "failed", retryDisposition: "never", nextAttemptAt: null } }));
+    const count = async (now: Date) =>
+      (await p.run((tx) => socialAttention(tx, p.owner, now))).find((i) => i.kind === "social_publication_problem")?.count ?? 0;
+    const before = await count(new Date());
+    expect(before).toBeGreaterThanOrEqual(1);
+    expect(await count(new Date(Date.now() + 8 * 86_400_000))).toBeLessThan(before);
+    await p.run((tx) => tx.socialPublication.update({ where: { id }, data: { resolution: "not_published" } }));
+    expect(await count(new Date())).toBe(before - 1);
   });
 
   it("lets only the owner settle an unclear send", async () => {
