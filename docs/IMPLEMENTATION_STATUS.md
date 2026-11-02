@@ -6,7 +6,7 @@ Plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-
 
 - **Built (S1):** opt-in module `social` (manifest, seven permissions, gate, versioned settings with `owner_each` default, `GET …/social/status`, `PUT …/social/settings`); installation switch `ORBIT_SOCIAL` in config, both Compose files, `.env.example` and the Compose checks; ten `Social*` tables with forced RLS (migration `202611020001_social_core`, grants in `db-deploy.ts`); boundary zones and the `forbiddenImportPrefixes` guard against `@opencoredev/social-sdk/cloud…`; web module with an overview and five placeholder views.
 - **Not built:** platform adapters, OAuth, media, posts, dispatcher, calendar, MCP tools, analytics, Marketing integration, Postiz migration (S2–S12). No dependency was added.
-- **Production:** nothing deployed. The migration changes the approved schema hash to `b6db51a72514059f64ee2e4b91c616a6fe7b17c6314f6a084a91f4a9233af07b` (`scripts/check-pve-schema.sh --print-hash`); a deploy needs Mario's approval of that hash in Coolify. Rollback before deploy: drop the branch; after deploy the tables stay empty and inert while the flag is off.
+- **Production:** nothing deployed. The migration changes the approved schema hash to `a60afc352cdcac29a43ee22aa2e67fd42069739526a4dd12531133df102ca6dc` (`scripts/check-pve-schema.sh --print-hash`); a deploy needs Mario's approval of that hash in Coolify. Rollback before deploy: drop the branch; after deploy the tables stay empty and inert while the flag is off.
 
 ## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` on since 2026-10-30)
 

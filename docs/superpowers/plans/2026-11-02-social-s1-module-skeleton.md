@@ -143,7 +143,7 @@ Columns are those of the programme plan §5; every table has `workspaceId UUID N
 | `SocialMetricSnapshot` | unique `(publicationId, metric, period, observedAt)` |
 | `SocialProviderState` | PK `(projectId, namespace, recordKey)`; `revision >= 0` |
 
-Then the `DO $$ … FOREACH t IN ARRAY [...] LOOP` block from `202610260001_issues_core/migration.sql:283-293` for all ten tables. Grants: full business grants for all except `SocialPublication` `[select, insert, update]` (deleted only with its post or project) and `SocialDeliveryAttempt`, `SocialMetricSnapshot` `[select, insert, delete]` (append-only; delete only for retention), mirrored in `RESTRICTED_GRANTS`.
+Then the `DO $$ … FOREACH t IN ARRAY [...] LOOP` block from `202610260001_issues_core/migration.sql:283-293` for all ten tables. Grants: full business grants for all except `SocialPublication` `[select, insert, update]` (deleted only with its project; final review: its variant key is `(projectId, variantId, accountId)` with `ON DELETE NO ACTION`, so a post or variant with publications cannot be deleted) and `SocialDeliveryAttempt`, `SocialMetricSnapshot` `[select, insert, delete]` (append-only; delete only for retention), mirrored in `RESTRICTED_GRANTS`.
 
 - [ ] **Step 1: Write the failing tests** in `social-schema.integration.test.ts` (style of `issues-schema.integration.test.ts`):
   - `refuses two publications with the same idempotency key` → second insert fails with a unique violation.

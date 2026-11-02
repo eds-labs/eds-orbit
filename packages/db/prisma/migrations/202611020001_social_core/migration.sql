@@ -107,6 +107,9 @@ CREATE TABLE "SocialPostVariant" (
 );
 CREATE UNIQUE INDEX "SocialPostVariant_projectId_id_key" ON "SocialPostVariant"("projectId", "id");
 CREATE UNIQUE INDEX "SocialPostVariant_postId_accountId_key" ON "SocialPostVariant"("postId", "accountId");
+-- Target of the publications' composite key: a publication delivers its
+-- variant to that variant's own account.
+CREATE UNIQUE INDEX "SocialPostVariant_projectId_id_accountId_key" ON "SocialPostVariant"("projectId", "id", "accountId");
 CREATE INDEX "SocialPostVariant_projectId_accountId_idx" ON "SocialPostVariant"("projectId", "accountId");
 
 CREATE TABLE "SocialPostMedia" (
@@ -165,7 +168,11 @@ CREATE TABLE "SocialPublication" (
   "updatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "SocialPublication_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "SocialPublication_project_fkey" FOREIGN KEY ("workspaceId", "projectId") REFERENCES "Project"("workspaceId", "id") ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT "SocialPublication_variant_fkey" FOREIGN KEY ("projectId", "variantId") REFERENCES "SocialPostVariant"("projectId", "id") ON DELETE CASCADE,
+  -- The publication's account is its variant's account. NO ACTION: a post or
+  -- variant with publications cannot be deleted (posts are archived), so the
+  -- delivery record survives; deleting the project still removes both in the
+  -- same statement.
+  CONSTRAINT "SocialPublication_variant_fkey" FOREIGN KEY ("projectId", "variantId", "accountId") REFERENCES "SocialPostVariant"("projectId", "id", "accountId") ON DELETE NO ACTION,
   CONSTRAINT "SocialPublication_account_fkey" FOREIGN KEY ("projectId", "accountId") REFERENCES "SocialAccount"("projectId", "id") ON DELETE RESTRICT,
   CONSTRAINT "SocialPublication_status_check" CHECK ("status" IN ('pending','claimed','sending','accepted','processing','published','failed','outcome_unknown','cancel_requested','canceled','blocked')),
   CONSTRAINT "SocialPublication_blocked_check" CHECK ("status" <> 'blocked' OR "blockedCode" IS NOT NULL),

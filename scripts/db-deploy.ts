@@ -294,7 +294,8 @@ try {
   await migrator.query(
     'GRANT SELECT,INSERT ON "IssueEvent","IssueDelivery" TO orbit_app',
   );
-  // ADR 0020: a publication is deleted only with its post or project, so
+  // ADR 0020: a publication is deleted only with its project (a post or
+  // variant with publications cannot be deleted), so
   // its delivery record survives a cancel; provider call records and metric
   // snapshots are append-only and deleted only by retention.
   await migrator.query('GRANT SELECT,INSERT,UPDATE ON "SocialPublication" TO orbit_app');

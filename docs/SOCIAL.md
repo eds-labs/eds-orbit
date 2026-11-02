@@ -37,7 +37,7 @@ Stored in the module's `ProjectModule` row, versioned (`PUT /api/projects/:proje
 
 ## Data model
 
-Migration `202611020001_social_core`: `SocialAccount`, `SocialPost`, `SocialPostVariant`, `SocialPostMedia`, `SocialPublication`, `SocialDeliveryAttempt`, `SocialAccountThrottle`, `SocialOAuthState`, `SocialMetricSnapshot`, `SocialProviderState`. Every table is project-scoped with forced row-level security and composite same-project keys. Publication idempotency keys are unique. The business role cannot delete a publication (it goes with its post or project); delivery attempts and metric snapshots are append-only and deleted only by retention. Tokens are never stored here; they will be sealed `ConnectionSecret`s of project connections (ADR 0014).
+Migration `202611020001_social_core`: `SocialAccount`, `SocialPost`, `SocialPostVariant`, `SocialPostMedia`, `SocialPublication`, `SocialDeliveryAttempt`, `SocialAccountThrottle`, `SocialOAuthState`, `SocialMetricSnapshot`, `SocialProviderState`. Every table is project-scoped with forced row-level security and composite same-project keys. Publication idempotency keys are unique. A publication always delivers its variant to that variant's own account (composite key). Publications are deleted only with their project: the business role cannot delete one, and a post or variant that has publications cannot be deleted either (posts are archived instead). Delivery attempts and metric snapshots are append-only and deleted only by retention. Tokens are never stored here; they will be sealed `ConnectionSecret`s of project connections (ADR 0014).
 
 ## Boundaries
 

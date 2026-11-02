@@ -196,7 +196,7 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     IssueReport: [true, true, true, false],
     IssueEvent: [true, true, false, false],
     IssueDelivery: [true, true, false, false],
-    // ADR 0020: publications go only with their post (or project); delivery
+    // ADR 0020: publications go only with their project; delivery
     // attempts and metric snapshots are append-only, deleted by retention.
     SocialPublication: [true, true, true, false],
     SocialDeliveryAttempt: [true, true, false, true],

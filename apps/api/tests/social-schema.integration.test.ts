@@ -181,10 +181,9 @@ describe.skipIf(!enabled)("social schema (ADR 0020)", () => {
     expect(left).toEqual({ files: 0, media: 0, variants: 1 });
   });
 
-  it("deletes variants, media references and publications with their post", async () => {
+  it("deletes a post without publications together with its variants and media", async () => {
     const left = await p.run(async (tx) => {
-      const { a, s, v } = await chain(tx);
-      await publication(tx, v.id, a.id);
+      const { s, v } = await chain(tx);
       const file = await tx.file.create({
         data: {
           ...ids(),
@@ -204,9 +203,38 @@ describe.skipIf(!enabled)("social schema (ADR 0020)", () => {
       return {
         variants: await tx.socialPostVariant.count({ where: { postId: s.id } }),
         media: await tx.socialPostMedia.count({ where: { variantId: v.id } }),
-        publications: await tx.socialPublication.count({ where: { variantId: v.id } }),
       };
     });
-    expect(left).toEqual({ variants: 0, media: 0, publications: 0 });
+    expect(left).toEqual({ variants: 0, media: 0 });
+  });
+
+  it("keeps a post and its variant once a publication exists", async () => {
+    const { post: postDelete, variant: variantDelete } = await p.run(async (tx) => {
+      const { a, s, v } = await chain(tx);
+      await publication(tx, v.id, a.id);
+      const tryDelete = async (name: string, work: () => Promise<unknown>) => {
+        await tx.$executeRawUnsafe(`SAVEPOINT ${name}`);
+        const result = await message(work());
+        await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+        return result;
+      };
+      return {
+        post: await tryDelete("post_delete", () => tx.socialPost.delete({ where: { id: s.id } })),
+        variant: await tryDelete("variant_delete", () => tx.socialPostVariant.delete({ where: { id: v.id } })),
+      };
+    });
+    expect(postDelete).toMatch(/SocialPublication_variant_fkey|Foreign key constraint/);
+    expect(variantDelete).toMatch(/SocialPublication_variant_fkey|Foreign key constraint/);
+  });
+
+  it("refuses a publication for another account than its variant's", async () => {
+    const result = await message(
+      p.run(async (tx) => {
+        const { v } = await chain(tx);
+        const otherAccount = await account(tx);
+        return publication(tx, v.id, otherAccount.id);
+      }),
+    );
+    expect(result).toMatch(/SocialPublication_variant_fkey|Foreign key constraint/);
   });
 });

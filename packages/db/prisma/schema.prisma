@@ -2270,6 +2270,8 @@ model SocialPostVariant {
 
   @@unique([projectId, id])
   @@unique([postId, accountId])
+  /// Target of SocialPublication's (projectId, variantId, accountId) key.
+  @@unique([projectId, id, accountId])
   @@index([projectId, accountId])
 }
 
@@ -2293,7 +2295,9 @@ model SocialPostMedia {
   @@unique([variantId, position])
 }
 
-/// One delivery of one variant to its account; the only delivery state machine.
+/// One delivery of one variant to its account; the only delivery state
+/// machine. It outlives nothing but its project: a post or variant with
+/// publications cannot be deleted.
 model SocialPublication {
   id               String    @id @db.Uuid
   workspaceId      String    @db.Uuid
