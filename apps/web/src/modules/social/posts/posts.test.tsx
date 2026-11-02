@@ -203,6 +203,39 @@ describe("social posts view (ADR 0020, S4)", () => {
     answers["/social/posts/p1"] = post;
   });
 
+  it("shows each publication's state and lets only the owner settle an unclear send", () => {
+    search.value = "post=p1";
+    const publication = (over: Record<string, unknown>) => ({
+      id: "pub1", accountId: "a-x", platform: "x", status: "published", blockedCode: null, lastErrorCode: null,
+      externalPostId: "111", permalink: "https://x.com/orbit_x/status/111", publishedAt: "2026-12-01T09:00:00.000Z",
+      resolution: null, test: false, version: 3, ...over,
+    });
+    answers["/social/posts/p1"] = {
+      ...post,
+      status: "publishing",
+      publications: [
+        publication({}),
+        publication({ id: "pub2", accountId: "a-tg", platform: "telegram", status: "outcome_unknown", externalPostId: null, permalink: null, publishedAt: null }),
+        publication({ id: "pub3", status: "published", test: true, externalPostId: "test:1", permalink: null }),
+        publication({ id: "pub4", status: "blocked", blockedCode: "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED", externalPostId: null, permalink: null }),
+      ],
+    };
+    answers["/social/accounts"] = accounts;
+    answers["/social/media"] = media;
+    const owner = render(<PostsView />, { access: "owner" });
+    expect(owner).toContain('href="https://x.com/orbit_x/status/111"');
+    expect(owner).toContain("It was published");
+    expect(owner).toContain("It was not published");
+    expect(owner).toContain("Test");
+    expect(owner).toContain("Posting has not been tested on this account yet.");
+    expect(owner).toContain("Stop remaining publications");
+    const editor = render(<PostsView />, { access: "editor" });
+    expect(editor).not.toContain("It was published");
+    expect(editor).toContain("Unclear whether it was published");
+    expect(render(<PostsView />, { access: "owner", locale: "de" })).toContain("Wurde veröffentlicht");
+    answers["/social/posts/p1"] = post;
+  });
+
   it("translates the post errors", () => {
     for (const code of ["SOCIAL_VALIDATION_FAILED", "SOCIAL_VERSION_CONFLICT", "SOCIAL_REAPPROVAL_REQUIRED", "SOCIAL_POST_NOT_EDITABLE", "SOCIAL_SCHEDULE_TOO_SOON"]) {
       expect(postMessage(code, "en")).not.toBe(postMessage("UNKNOWN", "en"));

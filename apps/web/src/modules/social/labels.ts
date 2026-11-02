@@ -43,6 +43,13 @@ const en = {
     checkOk: "The account works.",
     longPosts: "Long posts (X Premium, up to 25,000 characters)",
     longPostsOn: "Long posts allowed",
+    verify: "Verify posting",
+    verified: "Posting verified",
+    verifyText: "Text of the test post",
+    verifyDefault: "Orbit connection test – this post can be deleted.",
+    verifySend: "Ask for approval",
+    verifyNote: "The test post is published for real once you approve it in Decisions.",
+    verifyRequested: "Approve the test post in Decisions.",
     saved: "Saved.",
     metaNote:
       "While the Meta app is in development mode, only members of the Meta app see posts. Public posts need the Meta app to be live.",
@@ -71,6 +78,8 @@ const en = {
     SOCIAL_PROVIDER_UNAVAILABLE: "The platform is not reachable right now. Try again later.",
     SOCIAL_RATE_LIMITED: "The platform limits requests right now. Try again later.",
     SOCIAL_VERSION_CONFLICT: "The account changed in the meantime. Reload and try again.",
+    SOCIAL_LIVE_WRITES_DISABLED: "This installation does not post for real yet, so posting cannot be tested.",
+    SOCIAL_PLATFORM_NOT_AVAILABLE: "Posting to this platform is not switched on for this installation.",
   } as Record<string, string>,
   genericError: "The account could not be connected.",
   media: {
@@ -203,7 +212,49 @@ const en = {
     } as Record<string, string>,
     genericIssue: "This platform would refuse the post.",
   },
-  attention: { reconnect: (n: number) => (n === 1 ? "1 social account needs to be reconnected" : `${n} social accounts need to be reconnected`), open: "Open accounts" },
+  publications: {
+    title: "Publications",
+    status: {
+      pending: "Waiting",
+      claimed: "Sending",
+      sending: "Sending",
+      accepted: "Accepted by the platform",
+      processing: "Processing at the platform",
+      published: "Published",
+      failed: "Failed",
+      outcome_unknown: "Unclear whether it was published",
+      cancel_requested: "Stopping",
+      canceled: "Stopped",
+      blocked: "Held back",
+    } as Record<string, string>,
+    test: "Test",
+    open: "Open post",
+    unknownHelp: "The platform did not confirm the post. Check the account and say what happened; Orbit never sends it again by itself.",
+    published: "It was published",
+    notPublished: "It was not published",
+    confirmTitle: "Settle this publication?",
+    confirmPublished: "Orbit records it as published.",
+    confirmNot: "Orbit records it as not published and does not send it again.",
+    confirm: "Confirm",
+    keep: "Cancel",
+    stop: "Stop remaining publications",
+    reasons: {
+      ACCOUNT_RECONNECT_REQUIRED: "The account needs to be reconnected.",
+      PROJECT_PAUSED: "The project was paused.",
+      SOCIAL_APPROVAL_STALE: "The post changed after its approval.",
+      SOCIAL_PLATFORM_NOT_AVAILABLE: "Posting to this platform is not switched on.",
+      SOCIAL_MEDIA_PUBLIC_REQUIRED: "Instagram needs public media links, which are switched off.",
+      SOCIAL_NOT_PUBLISHED: "Settled as not published.",
+      SOCIAL_RATE_LIMITED: "The platform limited requests.",
+    } as Record<string, string>,
+    genericReason: "The platform refused the post.",
+  },
+  attention: {
+    reconnect: (n: number) => (n === 1 ? "1 social account needs to be reconnected" : `${n} social accounts need to be reconnected`),
+    open: "Open accounts",
+    publications: (n: number) => (n === 1 ? "1 publication needs your attention" : `${n} publications need your attention`),
+    openPosts: "Open posts",
+  },
 };
 export type SocialText = typeof en;
 
@@ -247,6 +298,13 @@ const de: SocialText = {
     checkOk: "Das Konto funktioniert.",
     longPosts: "Lange Posts (X Premium, bis 25.000 Zeichen)",
     longPostsOn: "Lange Posts erlaubt",
+    verify: "Posten prüfen",
+    verified: "Posten geprüft",
+    verifyText: "Text des Testbeitrags",
+    verifyDefault: "Orbit-Verbindungstest – dieser Beitrag kann gelöscht werden.",
+    verifySend: "Freigabe anfordern",
+    verifyNote: "Der Testbeitrag wird erst nach deiner Freigabe unter Entscheidungen wirklich veröffentlicht.",
+    verifyRequested: "Gib den Testbeitrag unter Entscheidungen frei.",
     saved: "Gespeichert.",
     metaNote:
       "Solange die Meta-App im Entwicklungsmodus ist, sehen nur Mitglieder der Meta-App die Beiträge. Für öffentliche Beiträge muss die Meta-App live sein.",
@@ -275,6 +333,8 @@ const de: SocialText = {
     SOCIAL_PROVIDER_UNAVAILABLE: "Die Plattform ist gerade nicht erreichbar. Versuche es später erneut.",
     SOCIAL_RATE_LIMITED: "Die Plattform begrenzt gerade die Anfragen. Versuche es später erneut.",
     SOCIAL_VERSION_CONFLICT: "Das Konto wurde inzwischen geändert. Lade neu und versuche es erneut.",
+    SOCIAL_LIVE_WRITES_DISABLED: "Diese Installation postet noch nicht wirklich; das Posten kann daher nicht geprüft werden.",
+    SOCIAL_PLATFORM_NOT_AVAILABLE: "Das Posten auf dieser Plattform ist für diese Installation nicht eingeschaltet.",
   },
   genericError: "Das Konto konnte nicht verbunden werden.",
   media: {
@@ -407,7 +467,49 @@ const de: SocialText = {
     },
     genericIssue: "Diese Plattform würde den Beitrag ablehnen.",
   },
-  attention: { reconnect: (n: number) => (n === 1 ? "1 Social-Media-Konto muss neu verbunden werden" : `${n} Social-Media-Konten müssen neu verbunden werden`), open: "Konten öffnen" },
+  publications: {
+    title: "Veröffentlichungen",
+    status: {
+      pending: "Wartet",
+      claimed: "Wird gesendet",
+      sending: "Wird gesendet",
+      accepted: "Von der Plattform angenommen",
+      processing: "Wird von der Plattform verarbeitet",
+      published: "Veröffentlicht",
+      failed: "Fehlgeschlagen",
+      outcome_unknown: "Unklar, ob veröffentlicht",
+      cancel_requested: "Wird gestoppt",
+      canceled: "Gestoppt",
+      blocked: "Zurückgehalten",
+    },
+    test: "Test",
+    open: "Beitrag öffnen",
+    unknownHelp: "Die Plattform hat den Beitrag nicht bestätigt. Prüfe das Konto und sag, was passiert ist; Orbit sendet ihn nie von selbst noch einmal.",
+    published: "Wurde veröffentlicht",
+    notPublished: "Wurde nicht veröffentlicht",
+    confirmTitle: "Diese Veröffentlichung klären?",
+    confirmPublished: "Orbit vermerkt sie als veröffentlicht.",
+    confirmNot: "Orbit vermerkt sie als nicht veröffentlicht und sendet sie nicht erneut.",
+    confirm: "Bestätigen",
+    keep: "Abbrechen",
+    stop: "Restliche Veröffentlichungen stoppen",
+    reasons: {
+      ACCOUNT_RECONNECT_REQUIRED: "Das Konto muss neu verbunden werden.",
+      PROJECT_PAUSED: "Das Projekt wurde pausiert.",
+      SOCIAL_APPROVAL_STALE: "Der Beitrag wurde nach der Freigabe geändert.",
+      SOCIAL_PLATFORM_NOT_AVAILABLE: "Das Posten auf dieser Plattform ist nicht eingeschaltet.",
+      SOCIAL_MEDIA_PUBLIC_REQUIRED: "Instagram braucht öffentliche Medien-Links, die ausgeschaltet sind.",
+      SOCIAL_NOT_PUBLISHED: "Als nicht veröffentlicht geklärt.",
+      SOCIAL_RATE_LIMITED: "Die Plattform hat Anfragen begrenzt.",
+    },
+    genericReason: "Die Plattform hat den Beitrag abgelehnt.",
+  },
+  attention: {
+    reconnect: (n: number) => (n === 1 ? "1 Social-Media-Konto muss neu verbunden werden" : `${n} Social-Media-Konten müssen neu verbunden werden`),
+    open: "Konten öffnen",
+    publications: (n: number) => (n === 1 ? "1 Veröffentlichung braucht deine Aufmerksamkeit" : `${n} Veröffentlichungen brauchen deine Aufmerksamkeit`),
+    openPosts: "Beiträge öffnen",
+  },
 };
 
 export const socialText = (locale: "en" | "de"): SocialText => (locale === "de" ? de : en);
@@ -434,4 +536,10 @@ export const postMessage = (code: string, locale: "en" | "de") => {
 export const issueMessage = (code: string, locale: "en" | "de") => {
   const t = socialText(locale).posts;
   return t.issues[code] ?? t.genericIssue;
+};
+
+/** Why a publication is held back or failed. */
+export const publicationReason = (code: string, locale: "en" | "de") => {
+  const t = socialText(locale);
+  return t.publications.reasons[code] ?? t.posts.issues[code] ?? t.publications.genericReason;
 };

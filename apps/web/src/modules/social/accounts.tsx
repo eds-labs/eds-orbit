@@ -89,11 +89,15 @@ function AccountRow({
   const { project, locale, refresh } = useWorkspace();
   const text = socialText(locale);
   const t = text.accounts;
+  const [verifying, setVerifying] = useState(false);
+  const [testText, setTestText] = useState(t.verifyDefault);
+  const verifyId = `social-verify-${account.id}`;
   return (
     <li className="work-settings-row">
       <div>
         <strong>{account.handle}</strong> <span>{text.platform[account.platform]}</span>{" "}
-        <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>
+        <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>{" "}
+        {account.capability === "write_verified" && <Badge tone="success">{t.verified}</Badge>}
         <p className="field-hint">
           {t.lastCheck}: {account.lastCheckedAt ? new Date(account.lastCheckedAt).toLocaleString(locale) : t.never}
           {account.lastCheckCode ? ` · ${accountMessage(account.lastCheckCode, locale)}` : ""}
@@ -145,6 +149,40 @@ function AccountRow({
           <Button variant="outline" size="sm" onClick={() => onDisconnect(account)}>
             {t.disconnect}
           </Button>
+          {account.status === "active" && account.capability !== "write_verified" && (
+            <>
+              {" "}
+              <Button variant="outline" size="sm" onClick={() => setVerifying((open) => !open)}>
+                {t.verify}
+              </Button>
+            </>
+          )}
+          {verifying && (
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                try {
+                  await api(socialPath(project.id, `/accounts/${account.id}/verify-write`), {
+                    method: "POST",
+                    body: JSON.stringify({ version: account.version, text: testText }),
+                  });
+                  setVerifying(false);
+                  onMessage("success", t.verifyRequested);
+                } catch (e) {
+                  onMessage("error", accountMessage(codeOf(e), locale));
+                }
+              }}
+            >
+              <Field>
+                <FieldLabel htmlFor={verifyId}>{t.verifyText}</FieldLabel>
+                <Input id={verifyId} maxLength={280} value={testText} onChange={(e) => setTestText(e.target.value)} />
+              </Field>
+              <p className="field-hint">{t.verifyNote}</p>
+              <Button type="submit" size="sm">
+                {t.verifySend}
+              </Button>
+            </form>
+          )}
         </div>
       )}
     </li>

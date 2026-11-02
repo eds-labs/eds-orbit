@@ -108,6 +108,21 @@ describe("social accounts view (ADR 0020, S2)", () => {
     expect(render(<AccountsView />, { locale: "de" })).toContain("Lange Posts (X Premium, bis 25.000 Zeichen)");
   });
 
+  it("offers owners a posting test for active, unverified accounts", () => {
+    answers["/social/accounts"] = {
+      items: [
+        { ...accounts.items[0], id: "v1", capability: "write_verified" },
+        { ...accounts.items[0], id: "v2", handle: "@orbit_new", capability: "read_verified" },
+        { ...accounts.items[1], id: "v3" },
+      ],
+    };
+    const html = render(<AccountsView />);
+    expect(html.match(/Verify posting/g)).toHaveLength(1);
+    expect(html).toContain("Posting verified");
+    expect(render(<AccountsView />, { access: "viewer" })).not.toContain("Verify posting");
+    expect(render(<AccountsView />, { locale: "de" })).toContain("Posten prüfen");
+  });
+
   it("names every button", () => {
     answers["/social/accounts"] = accounts;
     for (const [, inner] of buttons(render(<AccountsView />))) expect(inner!.replace(/<[^>]+>/g, "").trim()).not.toBe("");

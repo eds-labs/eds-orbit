@@ -102,6 +102,24 @@ export type PostView = {
     issues: ValidationIssue[];
     version: number;
   }>;
+  /** The deliveries of an approved post (S5), one per account. */
+  publications?: PublicationView[];
+};
+
+/** One delivery of a post to one account (S5). */
+export type PublicationView = {
+  id: string;
+  accountId: string;
+  platform: SocialPlatform;
+  status: string;
+  blockedCode: string | null;
+  lastErrorCode: string | null;
+  externalPostId: string | null;
+  permalink: string | null;
+  publishedAt: string | null;
+  resolution: string | null;
+  test: boolean;
+  version: number;
 };
 
 /** GET /projects/:projectId/social/posts (S4). */

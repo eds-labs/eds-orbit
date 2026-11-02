@@ -75,6 +75,16 @@ describe("social approval renderers", () => {
     expect(buttons(html)).toEqual(["Freigeben", "Ablehnen"]);
   });
 
+  it("shows the exact test text of a write verification and that it posts publicly", () => {
+    const verify = { id: "r2", actionType: "social.account.verify_write", summary: { operation: { kind: "social_verify_write", platform: "telegram", handle: "@orbit_news", text: "Orbit connection test" } } };
+    const html = render("social.account.verify_write", verify as never);
+    expect(html).toContain("Test posting on @orbit_news");
+    expect(html).toContain("Orbit connection test");
+    expect(html).toContain("This posts publicly");
+    expect(buttons(html)).toEqual(["Approve", "Reject"]);
+    expect(socialActionRequests["social.account.verify_write"]!.accepts(item("at"))).toBe(false);
+  });
+
   it("leaves other requests to the generic view", () => {
     expect(socialActionRequests["social.post.schedule"]!.accepts({ summary: { operation: { kind: "tasks" } } })).toBe(false);
     expect(socialActionRequests["social.post.schedule"]!.accepts(item("at"))).toBe(true);

@@ -16,6 +16,7 @@ import {
 import { socialText } from "../labels";
 import { PostEditor } from "./editor";
 import { Preview } from "./preview";
+import { Publications } from "./publications";
 
 // The posts of the project (ADR 0020, S4): a list, and the editor for one
 // post (`?post=<id>`) or a new one (`?new=1`). The calendar is S6.
@@ -124,6 +125,7 @@ function PostPage({ postId }: { postId: string | null }) {
         </a>
       </PageHead>
       <ResourceError error={post.error ?? accounts.error ?? library.error} retry={() => (post.refresh(), accounts.refresh(), library.refresh())} />
+      {post.data && <Publications post={post.data} onChanged={post.refresh} />}
       {frame.ready &&
         (canEdit && !post.data?.readOnly ? (
           <PostEditor
