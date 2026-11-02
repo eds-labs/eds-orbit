@@ -2232,6 +2232,9 @@ model SocialPost {
   scheduleTimezone  String
   scheduleLocal     String?
   scheduleFold      String?
+  /// The text and library images (asset ids) variants inherit (S4).
+  baseText          String    @default("")
+  baseMedia         Json      @default("[]")
   packageHash       String?
   approvalRequestId String?   @db.Uuid
   approvedAt        DateTime? @db.Timestamptz(3)
@@ -2261,6 +2264,9 @@ model SocialPostVariant {
   postId          String   @db.Uuid
   accountId       String   @db.Uuid
   body            String
+  /// False once the variant has its own text or images (S4).
+  inheritsText    Boolean  @default(true)
+  inheritsMedia   Boolean  @default(true)
   platformOptions Json     @default("{}")
   contentHash     String
   validation      Json     @default("{}")
@@ -2293,6 +2299,7 @@ model SocialPostMedia {
 
   @@unique([projectId, id])
   @@unique([variantId, position])
+  @@index([projectId, fileId], map: "SocialPostMedia_project_file_idx")
 }
 
 /// One delivery of one variant to its account; the only delivery state

@@ -115,6 +115,38 @@ describe.skipIf(!enabled)("social schema (ADR 0020)", () => {
     expect(result).toMatch(/SocialPost_schedule_check/);
   });
 
+  it("keeps a post's base text and media and each variant's inheritance (S4)", async () => {
+    const { s: created, v } = await p.run((tx) => chain(tx));
+    const [row, variantRow] = await p.run((tx) =>
+      Promise.all([
+        tx.socialPost.findUniqueOrThrow({ where: { id: created.id } }),
+        tx.socialPostVariant.findUniqueOrThrow({ where: { id: v.id } }),
+      ]),
+    );
+    expect([row.baseText, row.baseMedia]).toEqual(["", []]);
+    expect([variantRow.inheritsText, variantRow.inheritsMedia]).toEqual([true, true]);
+  });
+
+  it("refuses texts over 25,000 characters, more than ten base images and long titles", async () => {
+    const long = "x".repeat(25_001);
+    expect(await message(p.run((tx) => post(tx, p, { baseText: long })))).toMatch(/SocialPost_baseText_check/);
+    expect(
+      await message(p.run((tx) => post(tx, p, { baseMedia: Array.from({ length: 11 }, () => randomUUID()) }))),
+    ).toMatch(/SocialPost_baseMedia_check/);
+    expect(await message(p.run((tx) => post(tx, p, { baseMedia: { id: 1 } })))).toMatch(/SocialPost_baseMedia_check/);
+    expect(await message(p.run((tx) => post(tx, p, { title: "t".repeat(201) })))).toMatch(/SocialPost_title_check/);
+    const body = await message(
+      p.run(async (tx) => {
+        const a = await account(tx);
+        const s = await post(tx);
+        return tx.socialPostVariant.create({
+          data: { ...ids(), postId: s.id, accountId: a.id, body: long, contentHash: "a".repeat(64) },
+        });
+      }),
+    );
+    expect(body).toMatch(/SocialPostVariant_body_check/);
+  });
+
   it("refuses a writable legacy mirror", async () => {
     const result = await message(
       p.run((tx) => post(tx, p, { origin: "legacy_postiz", readOnly: false })),
