@@ -126,8 +126,10 @@ CREATE TABLE "SocialPostMedia" (
   CONSTRAINT "SocialPostMedia_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "SocialPostMedia_project_fkey" FOREIGN KEY ("workspaceId", "projectId") REFERENCES "Project"("workspaceId", "id") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "SocialPostMedia_variant_fkey" FOREIGN KEY ("projectId", "variantId") REFERENCES "SocialPostVariant"("projectId", "id") ON DELETE CASCADE,
-  -- Platform files are deleted softly; a referenced file row stays.
-  CONSTRAINT "SocialPostMedia_file_fkey" FOREIGN KEY ("projectId", "fileId") REFERENCES "File"("projectId", "id") ON DELETE RESTRICT,
+  -- A purged platform file takes its media references with it, as for the
+  -- other modules' attachments; a post whose medium vanished no longer
+  -- matches its package hash, so its approval is stale.
+  CONSTRAINT "SocialPostMedia_file_fkey" FOREIGN KEY ("projectId", "fileId") REFERENCES "File"("projectId", "id") ON DELETE CASCADE,
   CONSTRAINT "SocialPostMedia_kind_check" CHECK ("kind" IN ('image','video')),
   CONSTRAINT "SocialPostMedia_position_check" CHECK ("position" BETWEEN 0 AND 34),
   CONSTRAINT "SocialPostMedia_sha256_check" CHECK ("sha256" ~ '^[0-9a-f]{64}$'),

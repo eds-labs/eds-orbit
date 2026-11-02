@@ -150,6 +150,37 @@ describe.skipIf(!enabled)("social schema (ADR 0020)", () => {
     expect(result).toMatch(/permission denied/);
   });
 
+  it("drops a media reference when the platform purges its file", async () => {
+    // deleteFile removes the stored object first and then the row
+    // (platform/files/files.ts purge); the reference must not block that.
+    const left = await p.run(async (tx) => {
+      const { v } = await chain(tx);
+      const file = await tx.file.create({
+        data: {
+          ...ids(),
+          moduleId: "social",
+          key: `social/${randomUUID()}`,
+          mime: "image/png",
+          size: 1,
+          sha256: "f".repeat(64),
+          encryption: "aes-256-gcm",
+          createdBy: p.owner.userId,
+          deletedAt: new Date(),
+        },
+      });
+      await tx.socialPostMedia.create({
+        data: { ...ids(), variantId: v.id, fileId: file.id, position: 0, kind: "image", sha256: "f".repeat(64) },
+      });
+      await tx.file.deleteMany({ where: { id: file.id, deletedAt: { not: null } } });
+      return {
+        files: await tx.file.count({ where: { id: file.id } }),
+        media: await tx.socialPostMedia.count({ where: { variantId: v.id } }),
+        variants: await tx.socialPostVariant.count({ where: { id: v.id } }),
+      };
+    });
+    expect(left).toEqual({ files: 0, media: 0, variants: 1 });
+  });
+
   it("deletes variants, media references and publications with their post", async () => {
     const left = await p.run(async (tx) => {
       const { a, s, v } = await chain(tx);
