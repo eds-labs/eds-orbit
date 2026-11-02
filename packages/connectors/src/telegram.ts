@@ -19,6 +19,11 @@ const SECRET = /^[A-Za-z0-9_-]{1,256}$/;
 const MAX_TEXT = 4096;
 const MAX_CAPTION = 1024;
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+// Uploading photos (a channel post may carry up to ten) takes longer than a text.
+const MEDIA_TIMEOUT_MS = 60_000;
+const PHOTO_TYPES = ["image/jpeg", "image/png"] as const;
+export type TelegramPhotoType = (typeof PHOTO_TYPES)[number];
+export type TelegramSendOptions = { disableLinkPreview?: boolean; silent?: boolean };
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 export type TelegramButton =
@@ -120,9 +125,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
     method: string,
     body: Record<string, unknown> | FormData,
     sideEffect: boolean,
+    callTimeoutMs = timeoutMs,
   ): Promise<unknown> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs);
     try {
       let response: Response;
       try {
@@ -217,11 +223,18 @@ export function createTelegramClient(options: TelegramClientOptions) {
     return { messageId: parsed.data.message_id };
   }
 
+  const validPhoto = (bytes: unknown, mime: unknown = "image/jpeg") =>
+    bytes instanceof Uint8Array &&
+    bytes.byteLength > 0 &&
+    bytes.byteLength <= MAX_PHOTO_BYTES &&
+    PHOTO_TYPES.includes(mime as TelegramPhotoType);
+
   return {
     async sendMessage(
       chatId: TelegramChatId,
       text: string,
       buttons?: TelegramButton[],
+      options: TelegramSendOptions = {},
     ) {
       if (typeof text !== "string" || !text.trim() || text.length > MAX_TEXT)
         throw new ConnectorError("INVALID_TELEGRAM_MESSAGE");
@@ -232,7 +245,8 @@ export function createTelegramClient(options: TelegramClientOptions) {
           {
             chat_id: chat(chatId),
             text,
-            link_preview_options: { is_disabled: true },
+            link_preview_options: { is_disabled: options.disableLinkPreview ?? true },
+            ...(options.silent ? { disable_notification: true } : {}),
             ...(markup ? { reply_markup: markup } : {}),
           },
           true,
@@ -244,11 +258,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
       bytes: Uint8Array,
       caption: string,
       buttons?: TelegramButton[],
+      options: { silent?: boolean; mime?: TelegramPhotoType } = {},
     ) {
       if (
-        !(bytes instanceof Uint8Array) ||
-        !bytes.byteLength ||
-        bytes.byteLength > MAX_PHOTO_BYTES ||
+        !validPhoto(bytes, options.mime ?? "image/jpeg") ||
         typeof caption !== "string" ||
         caption.length > MAX_CAPTION
       )
@@ -256,10 +269,53 @@ export function createTelegramClient(options: TelegramClientOptions) {
       const markup = keyboard(buttons);
       const form = new FormData();
       form.set("chat_id", String(chat(chatId)));
-      form.set("photo", new Blob([new Uint8Array(bytes)]), "preview");
+      form.set(
+        "photo",
+        new Blob([new Uint8Array(bytes)], options.mime ? { type: options.mime } : {}),
+        "preview",
+      );
       if (caption) form.set("caption", caption);
+      if (options.silent) form.set("disable_notification", "true");
       if (markup) form.set("reply_markup", JSON.stringify(markup));
-      return receipt(await call("sendPhoto", form, true));
+      return receipt(await call("sendPhoto", form, true, MEDIA_TIMEOUT_MS));
+    },
+    /** Two to ten photos as one album; the caption goes on the first. */
+    async sendMediaGroup(
+      chatId: TelegramChatId,
+      photos: Array<{ bytes: Uint8Array; mime: TelegramPhotoType }>,
+      caption: string,
+      options: { silent?: boolean } = {},
+    ) {
+      if (
+        !Array.isArray(photos) ||
+        photos.length < 2 ||
+        photos.length > 10 ||
+        !photos.every((p) => validPhoto(p?.bytes, p?.mime)) ||
+        typeof caption !== "string" ||
+        caption.length > MAX_CAPTION
+      )
+        throw new ConnectorError("INVALID_TELEGRAM_MESSAGE");
+      const form = new FormData();
+      form.set("chat_id", String(chat(chatId)));
+      form.set(
+        "media",
+        JSON.stringify(
+          photos.map((_, i) => ({
+            type: "photo",
+            media: `attach://photo${i}`,
+            ...(i === 0 && caption ? { caption } : {}),
+          })),
+        ),
+      );
+      photos.forEach((p, i) =>
+        form.set(`photo${i}`, new Blob([new Uint8Array(p.bytes)], { type: p.mime }), `photo${i}`),
+      );
+      if (options.silent) form.set("disable_notification", "true");
+      const result = await call("sendMediaGroup", form, true, MEDIA_TIMEOUT_MS);
+      const parsed = z.array(sentMessage).min(1).safeParse(result);
+      if (!parsed.success)
+        throw new ConnectorError("INVALID_PROVIDER_RESPONSE", "unknown");
+      return { messageIds: parsed.data.map((m) => m.message_id) };
     },
     async setWebhook(url: string, secretToken: string) {
       let target: URL;
