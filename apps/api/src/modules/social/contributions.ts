@@ -25,6 +25,10 @@ export const socialContributions: ModuleContributions = {
   actionTypes: socialActionTypes,
   // Sending approved posts on the Orbit worker (S5).
   jobs: socialJobs,
+  // Content-free facts about publications for other modules (S9 Marketing).
+  events: {
+    publishes: ["social.publication.published", "social.publication.failed", "social.publication.outcome_unknown"],
+  },
   attention: socialAttention,
   userNotifications: socialUserNotifications,
 };

@@ -4,7 +4,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { audit, data } from "../../../shared.ts";
 import { lockPost, packageOf } from "../posts/posts.ts";
-import { DELIVER, DISPATCH } from "./jobs.ts";
+import { DELIVER, DISPATCH } from "./queues.ts";
 
 // From an approved post to its publications (ADR 0020 §7, S5). Approving a
 // post enqueues one dispatch job for that exact version, due at the post's
