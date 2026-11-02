@@ -9,6 +9,7 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { disconnectAccount, listAccounts } from "./accounts/accounts.ts";
 import { redirectUri } from "./accounts/apps.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
+import { handleMetaDataDeletion } from "./accounts/data-deletion.ts";
 import { checkAccount } from "./accounts/health.ts";
 import { consumeOAuthState, projectOfState } from "./accounts/oauth-state.ts";
 import { connectTelegramChannel } from "./accounts/telegram.ts";
@@ -89,6 +90,12 @@ export const socialRoutes: RoutesContribution = (context) => {
     const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
     return connectTelegramChannel(scope, req.body);
   });
+  // Meta's data-deletion request (public ingress only; signed by Meta).
+  app.post(
+    "/api/callbacks/social/meta-data-deletion",
+    { bodyLimit: 16_384, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    (req) => handleMetaDataDeletion(req.body),
+  );
   // The provider sends the browser here (outside the project path, so the
   // project comes from the state). The member must be the signed-in owner
   // who started the flow; the state is used once, before any token exchange.

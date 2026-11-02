@@ -74,21 +74,35 @@ export async function disconnectAccount(scope: Scope, accountId: string, raw: un
   });
   if (account.status === "disabled") return { id: account.id, status: "disabled" };
   const providerRevoked = account.platform === "x" ? await revokeAtX(scope, account.connectionId) : false;
+  await disableAccount(scope, account, {
+    version,
+    reason: "disconnect",
+    action: "social.account.disconnected",
+    metadata: { platform: account.platform, providerRevoked },
+  });
+  return { id: account.id, status: "disabled" };
+}
+
+/**
+ * Revokes the account's connection and disables the account (the row and
+ * its history stay). With `version`, a concurrent change is a conflict.
+ */
+export async function disableAccount(
+  scope: Scope,
+  account: { id: string; connectionId: string },
+  input: { version?: number; reason: string; action: string; metadata: Record<string, string | boolean> },
+) {
   try {
-    await revokeProjectConnection(scope, { moduleId: "social", connectionId: account.connectionId, reason: "disconnect" });
+    await revokeProjectConnection(scope, { moduleId: "social", connectionId: account.connectionId, reason: input.reason });
   } catch (error) {
     if (!(error instanceof DomainError) || error.code !== "NOT_FOUND") throw error;
   }
-  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const changed = await tx.socialAccount.updateMany({
-      where: { id: account.id, version },
+      where: { id: account.id, ...(input.version !== undefined ? { version: input.version } : {}) },
       data: { status: "disabled", disabledAt: new Date(), version: { increment: 1 } },
     });
     if (changed.count !== 1) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
-    await audit(tx, scope, "social.account.disconnected", account.id, {
-      platform: account.platform,
-      providerRevoked,
-    });
-    return { id: account.id, status: "disabled" };
+    await audit(tx, scope, input.action, account.id, input.metadata);
   });
 }

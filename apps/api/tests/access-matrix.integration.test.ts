@@ -89,6 +89,9 @@ const PUBLIC_ROUTES = [
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
+  // A module's provider callback (ADR 0020): Meta's signed data-deletion
+  // request; without a valid signature it is refused (400).
+  "POST /api/callbacks/social/meta-data-deletion",
   // Signed provider webhooks (WP4.2a): the signature authenticates.
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
   // The support widget's public API (WP5.4): the key, its allowed origins and

@@ -2359,6 +2359,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "POST /api/callbacks/social/meta-data-deletion": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
