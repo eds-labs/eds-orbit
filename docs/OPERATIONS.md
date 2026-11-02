@@ -218,3 +218,11 @@ Source/document revocation purges active chunks/vectors and retained copied payl
 Use `BACKUP_RESTORE.md`. Restore into a new isolated database, pause every project, set Observe and disable external writes before starting services. Keep the credential encryption key in separately controlled encrypted backup; losing it makes stored connector credentials unusable. Off-host transfer, production key escrow and external alarm delivery have not been performed by this task.
 
 Before a release run lint/type checks, all unit/integration tests, the browser suite, production build, generated API contracts, framework validation, dependency audit and secret/license review. CI configuration exists but was not run on a remote repository. Update rates/model capabilities and retest installed provider versions before live activation. Deployment, migration, DNS, account test messages, repository publication and publisher cutover need their own explicit operator authorization.
+
+## Social module: going live per platform (ADR 0020, S5)
+
+Nothing posts until all of these hold, and each step needs Mario's approval:
+1. The installation runs with `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true` (also used by Marketing).
+2. `ORBIT_SOCIAL_PLATFORMS` lists the platform (`x`, `instagram`, `telegram`); Instagram also needs `ORBIT_SOCIAL_MEDIA_PUBLIC=true` and `ORBIT_PUBLIC_INGRESS=true` for the signed media route.
+3. Per account, the owner requests a write verification (Social → Accounts → "Verify posting") and approves the test post in Decisions; it is a real public post.
+Rollback: remove the platform from `ORBIT_SOCIAL_PLATFORMS` (new publications are held back with `SOCIAL_PLATFORM_NOT_AVAILABLE`, nothing already sent changes) or switch `ORBIT_SOCIAL` off. Unclear sends are listed as attention items; settle them per publication on the post page.

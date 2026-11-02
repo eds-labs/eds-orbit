@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S5 (2026-11-02, branch `claude/social-s5` on top of S4, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s5-dispatch.md](superpowers/plans/2026-11-02-social-s5-dispatch.md).
+
+- **Built (S5):** delivery gates and the new switch `ORBIT_SOCIAL_PLATFORMS`; Telegram connector albums, silent sends and link previews; `SocialProviderState` store with compare-and-set and leases; sender interface with X, Instagram (durable container workflow, quota) and Telegram adapters; queue classes `social_dispatch`, `social_deliver` (claim with fence, send outside transactions, lease expiry → `outcome_unknown`, throttles, test mode) and `social_reconcile` (Instagram processing, read-back of unknown X/Instagram sends); cancel of publishing posts, pause blocking and resume within 30 minutes, owner resolution of unclear sends; approved write verification per account; worker re-dispatch of jobs lost from Redis; web publication list, resolve buttons, posting test and renderers; events and attention.
+- **Not built:** Facebook sending (no SDK adapter; decision for S5b), calendar (S6), MCP tools (S7), analytics (S8), the health endpoint.
+- **Production:** nothing deployed, no live post was sent. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. Going live needs, per platform: `ORBIT_SOCIAL_PLATFORMS`, live mode and external writes, and an approved write verification per account (a real post).
+
 ## Social module phase S4 (2026-11-02, branch `claude/social-s4` on top of S3, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-02-social-s4-posts.md](superpowers/plans/2026-11-02-social-s4-posts.md).

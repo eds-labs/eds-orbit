@@ -37,4 +37,5 @@ Marketing publishes only through Postiz, a managed publishing service. Publicati
 - Marketing gains a publishing-backend switch; Postiz projects keep their package hashes and behaviour until switched.
 - A public, short-lived, HMAC-signed media URL route is needed for Instagram.
 - Platform approvals and costs (Meta app review, X API tier, later LinkedIn and TikTok audits) gate go-live independently of the code.
+- S5 note: no published SDK version has a Facebook adapter (0.5.0 is the newest, checked 2026-11-02), so S-D1's fallback (vendor a pinned upstream commit) has nothing to vendor yet. Facebook sending waits for Mario's decision (vendor unreleased upstream code, a small own Graph adapter, or a later SDK); until then live Facebook publications are held back with `SOCIAL_PLATFORM_NOT_AVAILABLE`.
 - S4 note: `editor_each` (S-D9) needs a per-project decider hook in the platform's ActionRequests, which decide only by the type's static `deciderRole`; until that hook exists the setting is refused and the owner decides every request.
