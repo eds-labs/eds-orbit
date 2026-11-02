@@ -23,6 +23,8 @@ export type AccountCredentials = {
   accessToken: string;
   externalId: string;
   pageId?: string;
+  /** The connection's non-secret settings (ids such as chatId or pageId). */
+  config: Record<string, unknown>;
 };
 
 const reconnect = () => new DomainError("SOCIAL_ACCOUNT_RECONNECT_REQUIRED", 409);
@@ -110,7 +112,7 @@ export async function accountCredentials(scope: Scope, accountId: string): Promi
     throw reconnect();
   }
   const platform = account.platform as SocialPlatform;
-  const base = { platform, externalId: account.externalId };
+  const base = { platform, externalId: account.externalId, config };
   const secret = parse(raw);
   if (platform === "x") {
     const parsed = xAccountSecret.parse(secret);

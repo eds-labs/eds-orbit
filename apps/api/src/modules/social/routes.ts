@@ -6,8 +6,10 @@ import type { RoutesContribution } from "../../platform/http/routes.ts";
 import type { Auth } from "../../platform/tenancy/auth.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { disconnectAccount, listAccounts } from "./accounts/accounts.ts";
 import { redirectUri } from "./accounts/apps.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
+import { checkAccount } from "./accounts/health.ts";
 import { consumeOAuthState, projectOfState } from "./accounts/oauth-state.ts";
 import { connectTelegramChannel } from "./accounts/telegram.ts";
 import { requireSocial } from "./gate.ts";
@@ -40,6 +42,7 @@ export async function inSocial<T>(
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
 const appParam = z.object({ app: z.enum(["meta", "x"]) });
+const accountParam = z.object({ accountId: z.uuid() }).passthrough();
 const callbackQuery = z
   .object({
     state: z.string().min(40).max(200),
@@ -71,6 +74,15 @@ export const socialRoutes: RoutesContribution = (context) => {
       connectHandler(appParam.parse(params).app).begin(tx, scope),
     ),
   );
+  app.get(`${BASE}/accounts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listAccounts(tx, scope)));
+  app.post(`${BASE}/accounts/:accountId/check`, async (req) => {
+    const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
+    return checkAccount(scope, accountParam.parse(req.params).accountId);
+  });
+  app.post(`${BASE}/accounts/:accountId/disconnect`, async (req) => {
+    const scope = await inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
+    return disconnectAccount(scope, accountParam.parse(req.params).accountId, req.body);
+  });
   // Permission and module first; the provider calls run outside the project
   // transaction, which they would otherwise hold open.
   app.post(`${BASE}/accounts/telegram`, async (req) => {
