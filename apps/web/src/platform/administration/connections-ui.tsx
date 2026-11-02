@@ -273,8 +273,8 @@ export function ConnectionsPanel({
                 type: "password",
                 required: true,
                 hint: de
-                  ? "n8n und Kundenkontext: JSON mit apiKey/token und signingSecret."
-                  : "n8n and customer context: JSON with apiKey/token and signingSecret.",
+                  ? "n8n und Kundenkontext: JSON mit apiKey/token und signingSecret. Social-Apps: JSON mit appId, appSecret und configId (Meta) oder clientId und clientSecret (X); Callback-URL <Orbit-Adresse>/api/social/oauth/callback/meta bzw. /x."
+                  : "n8n and customer context: JSON with apiKey/token and signingSecret. Social apps: JSON with appId, appSecret and configId (Meta) or clientId and clientSecret (X); callback URL <Orbit address>/api/social/oauth/callback/meta or /x.",
               },
               {
                 name: "budget",

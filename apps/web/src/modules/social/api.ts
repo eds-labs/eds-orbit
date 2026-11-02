@@ -12,3 +12,21 @@ export type SocialStatus = {
 
 export const socialPath = (projectId: string, rest = "") =>
   `/projects/${encodeURIComponent(projectId)}/social${rest}`;
+
+export type SocialPlatform = "x" | "facebook" | "instagram" | "telegram";
+export type SocialAccountStatus = "active" | "reconnect_required" | "disabled";
+
+/** GET /projects/:projectId/social/accounts (never a token). */
+export type SocialAccount = {
+  id: string;
+  platform: SocialPlatform;
+  handle: string;
+  displayName: string;
+  status: SocialAccountStatus;
+  capability: "configured" | "read_verified" | "write_verified";
+  connectedAt: string;
+  lastCheckedAt: string | null;
+  lastCheckCode: string | null;
+  version: number;
+};
+export type SocialAccounts = { items: SocialAccount[] };

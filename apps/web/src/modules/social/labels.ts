@@ -1,4 +1,4 @@
-import type { SocialApproval } from "./api";
+import type { SocialAccountStatus, SocialApproval, SocialPlatform } from "./api";
 
 // The social module's texts (English and German). The design system's tone:
 // short, factual, no invented figures.
@@ -21,6 +21,56 @@ const en = {
   } satisfies Record<SocialApproval, string>,
   later: "Coming in a later phase",
   laterBody: "This part of the social module is being built. Nothing is published from here yet.",
+  accounts: {
+    title: "Accounts",
+    intro: "The social accounts this project publishes to. Only owners connect and disconnect them.",
+    empty: "No account is connected yet.",
+    connectX: "Connect X",
+    connectMeta: "Connect Facebook and Instagram",
+    addTelegram: "Add Telegram channel",
+    check: "Check",
+    disconnect: "Disconnect",
+    cancel: "Cancel",
+    confirmTitle: (handle: string) => `Disconnect ${handle}?`,
+    confirmBody: "Orbit forgets the account's access. Its posts and history stay. You can connect it again later.",
+    botToken: "Bot token",
+    botTokenHint: "From @BotFather. Use a separate bot, not the project's Orbit bot.",
+    chat: "Channel (@name or id)",
+    save: "Add channel",
+    lastCheck: "Last check",
+    never: "never",
+    connected: (n: number) => (n === 1 ? "1 account connected." : `${n} accounts connected.`),
+    checkOk: "The account works.",
+    metaNote:
+      "While the Meta app is in development mode, only members of the Meta app see posts. Public posts need the Meta app to be live.",
+  },
+  platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" } satisfies Record<SocialPlatform, string>,
+  status: {
+    active: "Active",
+    reconnect_required: "Reconnect needed",
+    disabled: "Disconnected",
+  } satisfies Record<SocialAccountStatus, string>,
+  errors: {
+    SOCIAL_OAUTH_STATE_INVALID: "The connection link expired or was already used. Start again.",
+    SOCIAL_OAUTH_CANCELLED: "The connection was cancelled.",
+    SOCIAL_APP_NOT_GRANTED: "The developer app is not available for this project. Ask an administrator to grant it.",
+    SOCIAL_APP_CHANGED: "The developer app changed during the connection. Start again.",
+    SOCIAL_META_NO_PAGES: "No Facebook Page with posting rights was selected.",
+    SOCIAL_TELEGRAM_OWNER_BOT: "This is the project's Orbit bot. Use a separate bot for publishing.",
+    SOCIAL_TELEGRAM_BOT_CANNOT_POST: "The bot is not an administrator allowed to post in this channel.",
+    SOCIAL_TELEGRAM_NOT_A_CHANNEL: "This chat is not a channel.",
+    SOCIAL_TELEGRAM_TOKEN_INVALID: "The bot token has the wrong format.",
+    SOCIAL_TELEGRAM_CHAT_INVALID: "Enter the channel as @name or as its numeric id.",
+    SOCIAL_META_TOKEN_INVALID: "Meta no longer accepts the access. Connect again.",
+    SOCIAL_META_PERMISSION_MISSING: "The publishing permission is missing. Connect again and allow it.",
+    SOCIAL_ACCOUNT_RECONNECT_REQUIRED: "The account needs to be connected again.",
+    SOCIAL_PROVIDER_REJECTED: "The platform refused the request.",
+    SOCIAL_PROVIDER_UNAVAILABLE: "The platform is not reachable right now. Try again later.",
+    SOCIAL_RATE_LIMITED: "The platform limits requests right now. Try again later.",
+    SOCIAL_VERSION_CONFLICT: "The account changed in the meantime. Reload and try again.",
+  } as Record<string, string>,
+  genericError: "The account could not be connected.",
+  attention: { reconnect: (n: number) => (n === 1 ? "1 social account needs to be reconnected" : `${n} social accounts need to be reconnected`), open: "Open accounts" },
 };
 export type SocialText = typeof en;
 
@@ -42,6 +92,62 @@ const de: SocialText = {
   },
   later: "Folgt in einer späteren Phase",
   laterBody: "Dieser Teil des Social-Media-Moduls entsteht gerade. Von hier wird noch nichts veröffentlicht.",
+  accounts: {
+    title: "Konten",
+    intro: "Die Social-Media-Konten, in die dieses Projekt veröffentlicht. Nur Owner verbinden und trennen sie.",
+    empty: "Noch kein Konto verbunden.",
+    connectX: "X verbinden",
+    connectMeta: "Facebook und Instagram verbinden",
+    addTelegram: "Telegram-Kanal hinzufügen",
+    check: "Prüfen",
+    disconnect: "Trennen",
+    cancel: "Abbrechen",
+    confirmTitle: (handle: string) => `${handle} trennen?`,
+    confirmBody: "Orbit vergisst den Zugang des Kontos. Beiträge und Verlauf bleiben. Du kannst es später wieder verbinden.",
+    botToken: "Bot-Token",
+    botTokenHint: "Von @BotFather. Nutze einen eigenen Bot, nicht den Orbit-Bot des Projekts.",
+    chat: "Kanal (@Name oder ID)",
+    save: "Kanal hinzufügen",
+    lastCheck: "Letzte Prüfung",
+    never: "nie",
+    connected: (n: number) => (n === 1 ? "1 Konto verbunden." : `${n} Konten verbunden.`),
+    checkOk: "Das Konto funktioniert.",
+    metaNote:
+      "Solange die Meta-App im Entwicklungsmodus ist, sehen nur Mitglieder der Meta-App die Beiträge. Für öffentliche Beiträge muss die Meta-App live sein.",
+  },
+  platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" },
+  status: {
+    active: "Aktiv",
+    reconnect_required: "Neu verbinden",
+    disabled: "Getrennt",
+  },
+  errors: {
+    SOCIAL_OAUTH_STATE_INVALID: "Der Verbindungslink ist abgelaufen oder wurde schon benutzt. Starte neu.",
+    SOCIAL_OAUTH_CANCELLED: "Die Verbindung wurde abgebrochen.",
+    SOCIAL_APP_NOT_GRANTED: "Die Entwickler-App ist für dieses Projekt nicht freigegeben. Bitte einen Administrator darum.",
+    SOCIAL_APP_CHANGED: "Die Entwickler-App hat sich während der Verbindung geändert. Starte neu.",
+    SOCIAL_META_NO_PAGES: "Es wurde keine Facebook-Seite mit Veröffentlichungsrecht ausgewählt.",
+    SOCIAL_TELEGRAM_OWNER_BOT: "Das ist der Orbit-Bot des Projekts. Nutze für das Veröffentlichen einen eigenen Bot.",
+    SOCIAL_TELEGRAM_BOT_CANNOT_POST: "Der Bot ist in diesem Kanal kein Administrator mit Recht zum Posten.",
+    SOCIAL_TELEGRAM_NOT_A_CHANNEL: "Dieser Chat ist kein Kanal.",
+    SOCIAL_TELEGRAM_TOKEN_INVALID: "Der Bot-Token hat das falsche Format.",
+    SOCIAL_TELEGRAM_CHAT_INVALID: "Gib den Kanal als @Name oder als numerische ID ein.",
+    SOCIAL_META_TOKEN_INVALID: "Meta akzeptiert den Zugang nicht mehr. Verbinde neu.",
+    SOCIAL_META_PERMISSION_MISSING: "Das Recht zum Veröffentlichen fehlt. Verbinde neu und erlaube es.",
+    SOCIAL_ACCOUNT_RECONNECT_REQUIRED: "Das Konto muss neu verbunden werden.",
+    SOCIAL_PROVIDER_REJECTED: "Die Plattform hat die Anfrage abgelehnt.",
+    SOCIAL_PROVIDER_UNAVAILABLE: "Die Plattform ist gerade nicht erreichbar. Versuche es später erneut.",
+    SOCIAL_RATE_LIMITED: "Die Plattform begrenzt gerade die Anfragen. Versuche es später erneut.",
+    SOCIAL_VERSION_CONFLICT: "Das Konto wurde inzwischen geändert. Lade neu und versuche es erneut.",
+  },
+  genericError: "Das Konto konnte nicht verbunden werden.",
+  attention: { reconnect: (n: number) => (n === 1 ? "1 Social-Media-Konto muss neu verbunden werden" : `${n} Social-Media-Konten müssen neu verbunden werden`), open: "Konten öffnen" },
 };
 
 export const socialText = (locale: "en" | "de"): SocialText => (locale === "de" ? de : en);
+
+/** The text for a social error code; unknown codes get the generic text. */
+export const accountMessage = (code: string, locale: "en" | "de") => {
+  const t = socialText(locale);
+  return t.errors[code] ?? t.genericError;
+};
