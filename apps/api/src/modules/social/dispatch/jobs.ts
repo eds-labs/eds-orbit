@@ -2,7 +2,8 @@ import type { JobDef } from "../../../platform/jobs/types.ts";
 import { blockPublication, lockPublication, markOutcomeUnknown } from "./claim.ts";
 import { deliverPublication } from "./deliver.ts";
 import { dispatchPost } from "./dispatch.ts";
-import { DELIVER, DISPATCH } from "./queues.ts";
+import { DELIVER, DISPATCH, RECONCILE } from "./queues.ts";
+import { reconcilePublication } from "./reconcile.ts";
 
 // The social module's queue classes (ADR 0020 §7, S5) on the Orbit worker:
 // no other scheduler. Due work is found through the outbox's availableAt.
@@ -38,4 +39,11 @@ export const deliverJob: JobDef = {
   },
 };
 
-export const socialJobs: JobDef[] = [dispatchJob, deliverJob];
+export const reconcileJob: JobDef = {
+  queueClass: RECONCILE,
+  concurrency: 2,
+  handler: ({ scope, job }) =>
+    reconcilePublication(scope, String(job.resourceId), job.attempt === "unknown" ? "unknown" : Number(job.attempt ?? 1)),
+};
+
+export const socialJobs: JobDef[] = [dispatchJob, deliverJob, reconcileJob];

@@ -102,6 +102,7 @@ describe("module contributions", () => {
         "slack_notification",
         "social_deliver",
         "social_dispatch",
+        "social_reconcile",
         "support_draft",
         "support_email_inbound",
         "support_triage",

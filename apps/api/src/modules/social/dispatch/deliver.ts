@@ -19,7 +19,7 @@ import { DELIVER } from "./queues.ts";
 type Outcome = { status: string; errorCode: string | null };
 
 /** What the sender needs: credentials, the variant's text and the platform's renditions. */
-async function sendInputOf(scope: Scope, id: string): Promise<{ input: SendInput; platform: SocialPlatform }> {
+export async function sendInputOf(scope: Scope, id: string): Promise<{ input: SendInput; platform: SocialPlatform }> {
   const rows = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const pub = await tx.socialPublication.findFirstOrThrow({ where: { id, projectId: scope.projectId } });
     const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { id: pub.variantId, projectId: scope.projectId } });
