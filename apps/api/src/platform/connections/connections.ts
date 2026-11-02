@@ -136,6 +136,12 @@ export type ConnectionProvider = {
    * each to exactly one project (channel-assignment.ts).
    */
   channelAssignment?: boolean;
+  /**
+   * Its project connections are created and maintained only by the owning
+   * module through project-secrets.ts (ADR 0020), never by the generic
+   * connector action or the administration.
+   */
+  managedByModule?: true;
 };
 
 /** The owner scopes a provider allows. */
