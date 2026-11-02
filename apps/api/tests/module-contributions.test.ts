@@ -39,6 +39,7 @@ import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
+import { socialContributions } from "../src/modules/social/contributions.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
 import { publicEntity } from "../src/platform/shared.ts";
@@ -174,7 +175,8 @@ describe("module contributions", () => {
   });
 
   it("lets marketing extend pause, resume and retention (WP1.8)", () => {
-    expect(registeredHooks()).toEqual([marketingHooks]);
+    // Social re-enqueues recently paused deliveries on resume (ADR 0020, S5).
+    expect(registeredHooks()).toEqual([socialContributions.hooks, marketingHooks]);
     // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
       platformContributions.retention,

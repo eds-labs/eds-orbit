@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { RoutesContribution } from "../../../platform/http/routes.ts";
 import { inSocial, SOCIAL_BASE } from "../http-scope.ts";
-import { SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "../permissions.ts";
+import { resolvePublication } from "../dispatch/control.ts";
+import { SOCIAL_APPROVE, SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "../permissions.ts";
 import { publishNow, reschedulePost, schedulePost } from "./approval.ts";
 import { archivePost, cancelPost, createPost, getPost, listPosts, lockPost, refreshIssues, updatePost } from "./posts.ts";
 
@@ -42,6 +43,12 @@ export const socialPostRoutes: RoutesContribution = ({ app, auth }) => {
   );
   app.post(`${SOCIAL_BASE}/posts/:postId/cancel`, (req) =>
     inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) => cancelPost(tx, scope, post(req), versionBody.parse(req.body).version)),
+  );
+  // The owner settles an unclear send (S5); nothing is resent.
+  app.post(`${SOCIAL_BASE}/publications/:publicationId/resolve`, (req) =>
+    inSocial(auth, req, SOCIAL_APPROVE, (tx, scope) =>
+      resolvePublication(tx, scope, z.object({ publicationId: z.uuid() }).passthrough().parse(req.params).publicationId, req.body),
+    ),
   );
   app.post(`${SOCIAL_BASE}/posts/:postId/archive`, (req) =>
     inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) => archivePost(tx, scope, post(req), versionBody.parse(req.body).version)),

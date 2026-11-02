@@ -6,7 +6,9 @@ import { cancelActionRequest } from "../../../platform/governance/action-request
 import { audit, data, DomainError, hash } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { computePackage, type SocialPackage } from "./package-hash.ts";
+import { cancelDelivery } from "../dispatch/control.ts";
 import { stopDelivery } from "../dispatch/dispatch.ts";
+import { publicationView, type PublicationView } from "../dispatch/publication-view.ts";
 import { validationContext } from "../dispatch/gates.ts";
 import { validateVariant, type ValidationIssue } from "./validation.ts";
 
@@ -51,6 +53,8 @@ export type PostView = {
     issues: ValidationIssue[];
     version: number;
   }>;
+  /** The deliveries of an approved post (S5), one per account. */
+  publications: PublicationView[];
 };
 export type PostListItem = {
   id: string;
@@ -189,6 +193,10 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
   const assetById = new Map(assets.map((a) => [a.id, a]));
   const assetByFile = new Map(assets.map((a) => [a.fileId, a]));
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
+  const publications = await tx.socialPublication.findMany({
+    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
   const state = (await approvalStates(tx, scope, [post]))(post);
   return {
     id: post.id,
@@ -212,6 +220,9 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
     version: post.version,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
+    publications: publications.map((row) =>
+      publicationView(row, (accountOf.get(row.accountId)?.platform ?? "telegram") as SocialPlatform),
+    ),
     variants: [...variants]
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
       .map((v) => {
@@ -495,6 +506,12 @@ export async function updatePost(tx: DbTx, scope: Scope, id: string, raw: unknow
 /** Back to a draft: the schedule's approval and any pending request end. */
 export async function cancelPost(tx: DbTx, scope: Scope, id: string, version: number): Promise<PostView> {
   const post = await lockPost(tx, scope, id);
+  if (post.status === "publishing") {
+    // Stops what was not sent; a send in flight keeps its result (S5).
+    requireWritable(post, version, ["publishing"]);
+    await cancelDelivery(tx, scope, post.id);
+    return getPost(tx, scope, post.id);
+  }
   requireWritable(post, version, APPROVAL_BEARING);
   await tx.socialPost.update({
     where: { id: post.id },
