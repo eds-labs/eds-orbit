@@ -59,7 +59,7 @@ export async function socialMapping(tx: DbTx, scope: Scope) {
       suggestedAccountId: mapped ? null : (byName?.accountId ?? (candidates.length === 1 ? candidates[0]!.accountId : null)),
     };
   });
-  return { backend: await publishingBackend(tx, scope), channels, accounts };
+  return { backend: await publishingBackend(tx, scope), channels, accounts, inventory: await postizInventory(tx, scope) };
 }
 
 /** Maps a Postiz channel to an account, or clears its mapping (`accountId: null`). */
@@ -161,4 +161,45 @@ export async function mirrorPostizHistory(tx: DbTx, scope: Scope, input: { dryRu
       unmapped: result.unmapped,
     });
   return result;
+}
+
+// Publication and draft states Postiz has not settled: the switch waits for them.
+const UNSETTLED = ["sending", "scheduled_remote", "outcome_unknown", "reconciliation_required", "cancellation_required"];
+const UNSETTLED_DRAFTS = ["sending", "outcome_unknown"];
+
+const countBy = (values: string[]) =>
+  values.reduce<Record<string, number>>((all, v) => ({ ...all, [v]: (all[v] ?? 0) + 1 }), {});
+
+/**
+ * What the project still has with Postiz (spec §9.2), counts only: no
+ * texts, no tokens, no names. The switch to Social is safe once nothing is
+ * unsettled (§9.6 step 4).
+ */
+export async function postizInventory(tx: DbTx, scope: Scope) {
+  const publications = (await list(tx, scope, "publications"))
+    .map((row) => data(row))
+    .filter((p) => !p.test && p.publishingBackend !== "social");
+  const drafts = (await list(tx, scope, "postiz_drafts"))
+    .map((row) => data(row))
+    .filter((h) => h.publishingBackend !== "social");
+  const channels = await postizChannels(tx, scope);
+  const accounts = await accountsForMapping(tx, scope);
+  const exceptions = (await list(tx, scope, "exceptions"))
+    .map((row) => data(row))
+    .filter((e) => e.status === "open" && /^(POSTIZ_|REMOTE_|PUBLISH_OUTCOME_UNKNOWN|RECONCILIATION_)/.test(String(e.code)));
+  const blockingSwitch =
+    publications.filter((p) => UNSETTLED.includes(String(p.status))).length +
+    drafts.filter((h) => UNSETTLED_DRAFTS.includes(String(h.status))).length;
+  return {
+    backend: await publishingBackend(tx, scope),
+    channels: {
+      assigned: channels.length,
+      mapped: channels.filter((c) => accounts.some((a) => a.legacyPostizIntegrationId === c.id)).length,
+    },
+    publications: countBy(publications.map((p) => String(p.status))),
+    postizDrafts: countBy(drafts.map((h) => String(h.status))),
+    openExceptions: countBy(exceptions.map((e) => String(e.code))),
+    blockingSwitch,
+    readyToSwitch: blockingSwitch === 0,
+  };
 }

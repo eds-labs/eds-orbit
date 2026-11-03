@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import { readMarketingSettings, saveMarketingSettings } from "../src/modules/marketing/publishing/backend.ts";
-import { mapPostizChannel, mirrorPostizHistory, socialMapping } from "../src/modules/marketing/publishing/social-migration.ts";
+import { mapPostizChannel, mirrorPostizHistory, postizInventory, socialMapping } from "../src/modules/marketing/publishing/social-migration.ts";
 import { updatePost } from "../src/modules/social/posts/posts.ts";
 import { create, data, entity, update } from "../src/shared.ts";
 import { createPackageProject, TELEGRAM, X } from "./support/package-project.ts";
@@ -163,5 +163,20 @@ describe.skipIf(!enabled)("marketing social migration", () => {
     // The source is never touched.
     expect(data(await run((tx) => entity(tx, project.owner, "publications", pubs.published.id)))).not.toHaveProperty("mirroredAt");
     expect(pubs.intent && pubs.test && pubs.unmapped && pubs.draft).toBeTruthy();
+  });
+
+  it("counts what Postiz still holds, without any text, and says when the switch is safe", async () => {
+    const inventory = await run((tx) => postizInventory(tx, project.owner));
+    expect(inventory).toMatchObject({
+      backend: "postiz",
+      channels: { assigned: 3, mapped: 1 },
+      publications: expect.objectContaining({ published: 3, failed: 1, canceled: 1 }),
+      postizDrafts: { accepted: 1 },
+      readyToSwitch: true,
+    });
+    expect(JSON.stringify(inventory)).not.toMatch(/Postiz days|body|text|token/i);
+    // A post Postiz has not settled yet holds the switch back.
+    await run((tx) => create(tx, project.owner, "publications", { channel: X, status: "scheduled_remote", scheduledAt: new Date().toISOString(), test: false }));
+    expect(await run((tx) => postizInventory(tx, project.owner))).toMatchObject({ readyToSwitch: false, blockingSwitch: 1 });
   });
 });
