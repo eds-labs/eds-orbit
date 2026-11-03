@@ -1,5 +1,14 @@
 # Implementation status
 
+## Social module phase S6 (2026-11-03, branch `claude/social-s6` on top of S5, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s6-calendar.md](superpowers/plans/2026-11-03-social-s6-calendar.md).
+
+- **Built (S6):** project calendar endpoint and post filters (accounts, platforms, origins) for the list; organization calendar across the member's readable projects; web calendar with month, week (half hours across clock changes) and list views, filters and scope in the address, preview panel, moving by drag and drop (pointer, touch, keyboard) or "Move to…" with the S-D6 approval rules and the clock-change choices; synthetic e2e seed (`E2E_SOCIAL=1`) and a gated Playwright flow.
+- **Not built:** an organization page of its own (the scope switch lives on the project calendar), Facebook sending (S5b), MCP tools (S7), analytics (S8).
+- **Not verified:** the Playwright flow `apps/web/tests/social-calendar.spec.ts` has not run against a stack (the local stack shares its database with other worktrees, which do not have the social migrations).
+- **Production:** nothing deployed. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`.
+
 ## Social module phase S5 (2026-11-02, branch `claude/social-s5` on top of S4, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-02-social-s5-dispatch.md](superpowers/plans/2026-11-02-social-s5-dispatch.md).

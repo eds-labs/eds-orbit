@@ -2,7 +2,7 @@
 
 The social module connects a project's social accounts and publishes posts to them directly, without a managed publishing service. It owns accounts, posts with one variant per account, media, the calendar, scheduling, publication state and technical metrics. Marketing keeps strategy, campaigns, generation and its own approvals and will publish through this module. Decision: [ADR 0020](adr/0020-social-module.md) (proposed). Programme plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md). Phase S1 plan: [superpowers/plans/2026-11-02-social-s1-module-skeleton.md](superpowers/plans/2026-11-02-social-s1-module-skeleton.md).
 
-State on 2026-11-02: **phases S1 (module skeleton), S2 (developer apps, OAuth, token vault, accounts, Telegram channels) and S3 (media library, public media URLs) on branches `claude/social-module-plan`, `claude/social-s2` and `claude/social-s3`, not merged.** `ORBIT_SOCIAL` is off. Accounts can be connected and images uploaded; nothing is published yet (S5). Postiz remains the publishing path for Marketing. Plans: [S2](superpowers/plans/2026-11-02-social-s2-accounts.md), [S3](superpowers/plans/2026-11-02-social-s3-media.md).
+State on 2026-11-02: **phases S1 (module skeleton), S2 (developer apps, OAuth, token vault, accounts, Telegram channels) and S3 (media library, public media URLs) on branches `claude/social-module-plan`, `claude/social-s2` and `claude/social-s3`, not merged.** `ORBIT_SOCIAL` is off. Accounts can be connected and images uploaded; nothing is published yet (S5). Postiz remains the publishing path for Marketing. Later phases on top: S4 posts and approvals, S5 sending, S6 calendar (`claude/social-s6`). Plans: [S2](superpowers/plans/2026-11-02-social-s2-accounts.md), [S3](superpowers/plans/2026-11-02-social-s3-media.md).
 
 ## Switching it on
 
@@ -126,6 +126,22 @@ Later phases (S3–S12, see the programme plan) add media, posts, approvals, the
 | `POST /api/projects/:projectId/social/posts/:postId/cancel` (also for `publishing` posts) | `social.compose` |
 | `POST /api/projects/:projectId/social/publications/:publicationId/resolve` `{resolution, permalink?, version}` | `social.approve` (owner) |
 | `POST /api/projects/:projectId/social/accounts/:accountId/verify-write` `{version, text}` | `social.accounts.manage` (owner) |
+
+## Calendar (S6)
+
+Social → Calendar shows the posts that have a time, in the project's time zone; unplanned drafts stay in Social → Posts. Plan: [superpowers/plans/2026-11-03-social-s6-calendar.md](superpowers/plans/2026-11-03-social-s6-calendar.md).
+
+- **Views:** month (whole weeks from Monday, up to three posts per day and "+N more", which opens that week), week (a time column and seven days of half hours: 48 rows, 50 in the week the clocks go back with the repeated hour marked "2nd"; in the week they go forward the Sunday's skipped half hours are empty cells) and a list (the project's posts with the same filters, 50 at a time with "Load more"). Each post shows its time, platforms, title or text, status and markers for unclear sends, test publications and posts from Postiz. The view, period, scope and filters are in the address, so a calendar can be shared and back/forward work.
+- **Filters:** accounts, platforms, status and origin; in the organization scope projects instead of accounts.
+- **Organization scope:** members with more than one project in the organization can switch to "All projects": the posts of up to 20 of their projects where the social module is on and they may read Social (module role not `none`), each with its project name. Other projects' posts are read-only there and link to their project; projects the member cannot read are not mentioned at all. There is no organization page of its own: the switch is on the project's calendar.
+- **Preview:** a post opens in a panel with its time (and its own zone when it differs), status, approval, the preview per account, its publications and the link to the editor.
+- **Moving** (drag and drop with pointer, touch or keyboard, or "Move to…" in the panel; S-D6): a draft moves at once. An approved or waiting post needs a new approval: an owner confirms "Moving an approved post approves the new time", an editor confirms that the post goes back to approval (an ActionRequest the owner decides). Posts being sent or finished, read-only posts and other projects' posts never move; viewers move nothing. A month drop keeps the post's time of day; a week drop takes the slot's time (the repeated hour sends `fold`). A time the clocks skip offers the next valid time, a time that exists twice asks for earlier or later, and a calendar that is out of date (someone else changed the post) shows a notice and reloads; nothing is overwritten silently.
+- **Limits:** at most 62 days and 500 posts per calendar request (the view says when a period has more).
+
+| Route | Permission |
+|---|---|
+| `GET /api/projects/:projectId/social/calendar?from&to&accountIds&platforms&statuses&origins` | `social.read` |
+| `GET /api/organizations/:workspaceId/social/calendar?from&to&projectIds&…` | organization member; per project `social.read` and the module on |
 
 ## Setting up the developer apps (for the owner of the installation)
 
