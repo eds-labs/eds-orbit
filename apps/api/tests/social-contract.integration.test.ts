@@ -5,6 +5,7 @@ import { closeDatabase, type DbTx } from "../../../packages/db/src/index.ts";
 import { data } from "../src/shared.ts";
 import {
   accountForChannel,
+  cancelOriginPost,
   importOriginMedia,
   originPostStatus,
   publishingBlockers,
@@ -152,6 +153,54 @@ describe.skipIf(!enabled)("social contract for Marketing", () => {
     expect(post.scheduledAt?.toISOString()).toBe(at.toISOString());
   });
 
+  it("withdraws an origin post that has not gone out, and says when it has", async () => {
+    const { postId } = await p.run((tx) =>
+      submitOriginPost(tx, p.owner, { origin: origin(), accountId: telegram, text: "Withdraw me", mediaIds: [], mode: "now", packageHash: "d".repeat(64) }),
+    );
+    expect(await p.run((tx) => cancelOriginPost(tx, p.owner, postId, "PROJECT_PAUSED"))).toBe("canceled");
+    expect((await p.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: postId } }))).status).toBe("canceled");
+    const jobs = await p.run(async (tx) =>
+      (await tx.entity.findMany({ where: { projectId: p.owner.projectId, kind: "jobs" } })).map((j) => data(j)).filter((j) => j.resourceId === postId),
+    );
+    expect(jobs.map((j) => j.status)).not.toContain("queued");
+    expect(await p.run((tx) => cancelOriginPost(tx, p.owner, postId, "PROJECT_PAUSED"))).toBe("canceled");
+    expect(await p.run((tx) => cancelOriginPost(tx, p.owner, randomUUID(), "PROJECT_PAUSED"))).toBe("not_found");
+    const sent = await p.run((tx) =>
+      submitOriginPost(tx, p.owner, { origin: origin(), accountId: telegram, text: "Already out", mediaIds: [], mode: "now", packageHash: "e".repeat(64) }),
+    );
+    await p.run((tx) => tx.socialPost.update({ where: { id: sent.postId }, data: { status: "published" } }));
+    expect(await p.run((tx) => cancelOriginPost(tx, p.owner, sent.postId, "PROJECT_PAUSED"))).toBe("sent");
+  });
+
+  it("reports a blocked delivery and a post taken back in Social", async () => {
+    const { postId } = await p.run((tx) =>
+      submitOriginPost(tx, p.owner, { origin: origin(), accountId: telegram, text: "Blocked one", mediaIds: [], mode: "now", packageHash: "f".repeat(64) }),
+    );
+    await p.run(async (tx) => {
+      const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId } });
+      await tx.socialPublication.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: p.owner.workspaceId,
+          projectId: p.owner.projectId,
+          variantId: variant.id,
+          accountId: telegram,
+          idempotencyKey: randomUUID(),
+          status: "blocked",
+          blockedCode: "PROJECT_PAUSED",
+        },
+      });
+    });
+    expect(await p.run((tx) => originPostStatus(tx, p.owner, [postId]))).toEqual([
+      { postId, status: "blocked", permalink: null, publishedAt: null, errorCode: "PROJECT_PAUSED" },
+    ]);
+    const back = await p.run((tx) =>
+      submitOriginPost(tx, p.owner, { origin: origin(), accountId: telegram, text: "Taken back", mediaIds: [], mode: "now", packageHash: "0".repeat(64) }),
+    );
+    await p.run((tx) => tx.socialPost.update({ where: { id: back.postId }, data: { status: "draft" } }));
+    expect((await p.run((tx) => originPostStatus(tx, p.owner, [back.postId])))[0]).toMatchObject({ status: "withdrawn" });
+  });
+
   it("reports the status of origin posts and the texts published recently", async () => {
     const { postId } = await p.run((tx) =>
       submitOriginPost(tx, p.owner, { origin: origin(), accountId: telegram, text: "Status text", mediaIds: [], mode: "now", packageHash: "c".repeat(64) }),
@@ -181,6 +230,8 @@ describe.skipIf(!enabled)("social contract for Marketing", () => {
       { postId, status: "published", permalink: "https://t.me/orbit/55", publishedAt: expect.any(String), errorCode: null },
     ]);
     expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [telegram], 7))).toContain("Status text");
+    // The origin's own handed-over post is not its duplicate.
+    expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [telegram], 7, { excludePostIds: [postId] }))).not.toContain("Status text");
     expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [x], 7))).not.toContain("Status text");
   });
 });

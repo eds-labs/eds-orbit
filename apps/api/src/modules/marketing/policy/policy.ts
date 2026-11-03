@@ -94,9 +94,10 @@ export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
     projectId: scope.projectId,
     ...(social
       ? {
+          // The account, not its version: a health refusal and restore
+          // must not re-block approved posts; Social re-checks at send.
           publishingBackend: "social",
           socialAccountId: social.account?.accountId ?? null,
-          socialAccountVersion: social.account?.version ?? null,
         }
       : {
           connectorId: connector?.id ?? null,
@@ -593,12 +594,29 @@ export async function preflight(
     if (same.some((post) => !own.has(post.remoteId)))
       blockers.push("DUPLICATE_CONTENT");
   }
-  // On Social also what Social published on the channel's account (S9).
+  // On Social also what Social published on the channel's account (S9),
+  // except this content's own handed-over posts.
   if (c.type === "social" && onSocial && !blockers.includes("DUPLICATE_CONTENT")) {
     const account = await accountForChannel(tx, scope, c.channel);
     const ownTexts = new Set(
       [c.body, finalPostText(c.body ?? "", c.targetUrl)].map(duplicateKey),
     );
+    const ownPosts = account
+      ? (
+          await tx.entity.findMany({
+            where: {
+              projectId: scope.projectId,
+              kind: "publications",
+              AND: [
+                { data: { path: ["contentId"], equals: contentId } },
+                { data: { path: ["publishingBackend"], equals: "social" } },
+              ],
+            },
+          })
+        )
+          .map((row) => data(row).remoteId)
+          .filter((id): id is string => typeof id === "string")
+      : [];
     if (
       account &&
       (
@@ -607,6 +625,7 @@ export async function preflight(
           scope,
           [account.accountId],
           CLAIM_REPEAT_WINDOW_DAYS,
+          { excludePostIds: ownPosts },
         )
       ).some((text) => ownTexts.has(duplicateKey(text)))
     )

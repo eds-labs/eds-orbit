@@ -2,14 +2,16 @@ import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { localOf } from "../../platform/time/zoned-time.ts";
-import { DomainError } from "../../shared.ts";
+import { audit, DomainError } from "../../shared.ts";
 import type { SocialPlatform } from "./accounts/store.ts";
 import { postMetrics } from "./analytics/collect.ts";
+import { cancelDelivery } from "./dispatch/control.ts";
+import { stopDelivery } from "./dispatch/dispatch.ts";
 import { validationContext } from "./dispatch/gates.ts";
 import { socialActive } from "./gate.ts";
 import { uploadMedia } from "./media/library.ts";
 import { approveOriginPost } from "./posts/approval.ts";
-import { createPost } from "./posts/posts.ts";
+import { createPost, lockPost } from "./posts/posts.ts";
 import { validateVariant } from "./posts/validation.ts";
 
 // What other modules may use of Social (ADR 0020 §6.4, S9). This file is
@@ -150,8 +152,12 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
 
 export type OriginPostStatus = {
   postId: string;
-  /** pending until Social knows the outcome. */
-  status: "pending" | "published" | "failed" | "outcome_unknown" | "canceled";
+  /**
+   * pending until Social knows the outcome; blocked while a delivery waits
+   * for a person (errorCode says why); withdrawn when someone took the post
+   * back to a draft in Social.
+   */
+  status: "pending" | "blocked" | "withdrawn" | "published" | "failed" | "outcome_unknown" | "canceled";
   permalink: string | null;
   publishedAt: string | null;
   errorCode: string | null;
@@ -175,6 +181,7 @@ export async function originPostStatus(tx: DbTx, scope: Scope, postIds: string[]
     const own = publications.filter((pub) => postOf.get(pub.variantId) === postId);
     const published = own.find((pub) => pub.status === "published");
     const failed = own.find((pub) => pub.status === "failed");
+    const blocked = own.find((pub) => pub.status === "blocked");
     const status: OriginPostStatus["status"] = ["published", "partially_published"].includes(post.status)
       ? "published"
       : own.some((pub) => pub.status === "outcome_unknown")
@@ -183,21 +190,39 @@ export async function originPostStatus(tx: DbTx, scope: Scope, postIds: string[]
           ? "failed"
           : post.status === "canceled"
             ? "canceled"
-            : "pending";
+            : ["draft", "needs_approval", "archived"].includes(post.status)
+              ? "withdrawn"
+              : blocked
+                ? "blocked"
+                : "pending";
     return [
       {
         postId,
         status,
         permalink: published?.permalink ?? null,
         publishedAt: published?.publishedAt?.toISOString() ?? null,
-        errorCode: status === "failed" ? (failed?.lastErrorCode ?? failed?.blockedCode ?? null) : null,
+        errorCode:
+          status === "failed"
+            ? (failed?.lastErrorCode ?? failed?.blockedCode ?? null)
+            : status === "blocked"
+              ? (blocked?.blockedCode ?? null)
+              : null,
       },
     ];
   });
 }
 
-/** The texts published on the accounts in the last `days` days (duplicate checks). */
-export async function recentPublishedTexts(tx: DbTx, scope: Scope, accountIds: string[], days: number): Promise<string[]> {
+/**
+ * The texts published on the accounts in the last `days` days (duplicate
+ * checks); `excludePostIds` leaves out the origin's own handed-over posts.
+ */
+export async function recentPublishedTexts(
+  tx: DbTx,
+  scope: Scope,
+  accountIds: string[],
+  days: number,
+  options: { excludePostIds?: string[] } = {},
+): Promise<string[]> {
   if (!accountIds.length) return [];
   const publications = await tx.socialPublication.findMany({
     where: {
@@ -210,8 +235,44 @@ export async function recentPublishedTexts(tx: DbTx, scope: Scope, accountIds: s
     take: 500,
   });
   const variants = await tx.socialPostVariant.findMany({
-    where: { projectId: scope.projectId, id: { in: publications.map((p) => p.variantId) } },
+    where: {
+      projectId: scope.projectId,
+      id: { in: publications.map((p) => p.variantId) },
+      ...(options.excludePostIds?.length ? { postId: { notIn: options.excludePostIds } } : {}),
+    },
     select: { body: true },
   });
   return variants.map((v) => v.body);
+}
+
+/**
+ * Takes back an origin post the origin no longer wants (a stop, a pause, a
+ * calendar block, an invalidated source): `canceled` when nothing went out,
+ * `sent` when a delivery already left (its result still counts).
+ */
+export async function cancelOriginPost(
+  tx: DbTx,
+  scope: Scope,
+  postId: string,
+  reason: string,
+): Promise<"canceled" | "sent" | "not_found"> {
+  const exists = await tx.socialPost.findFirst({ where: { id: postId, projectId: scope.projectId }, select: { id: true } });
+  if (!exists) return "not_found";
+  const post = await lockPost(tx, scope, postId);
+  if (post.status === "canceled") return "canceled";
+  if (["published", "partially_published", "failed"].includes(post.status)) return "sent";
+  if (post.status === "publishing") {
+    const { tooLate } = await cancelDelivery(tx, scope, post.id);
+    const sent = await tx.socialPublication.count({
+      where: {
+        projectId: scope.projectId,
+        variant: { postId: post.id },
+        status: { in: ["published", "outcome_unknown", "processing", "accepted"] },
+      },
+    });
+    if (tooLate || sent) return "sent";
+  } else await stopDelivery(tx, scope, post.id, reason);
+  await tx.socialPost.update({ where: { id: post.id }, data: { status: "canceled", version: { increment: 1 } } });
+  await audit(tx, scope, "social.post.origin_canceled", post.id, { reason });
+  return "canceled";
 }

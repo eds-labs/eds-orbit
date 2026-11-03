@@ -2,6 +2,7 @@ import type { ProjectHooks } from "../../platform/governance/types.ts";
 import { list, data, update, exception } from "../../shared.ts";
 import { resumeAgentTasks } from "./agents/assignment-runs.ts";
 import { notify } from "./agents/notifications.ts";
+import { withdrawSocialHandoff } from "./publishing/publisher.ts";
 
 /**
  * Marketing's part of a project pause and resume (WP1.8), moved unchanged
@@ -12,6 +13,12 @@ export const marketingHooks: ProjectHooks = {
   // reconciliation the owner sees.
   async onProjectPause(tx, scope) {
     for (const p of await list(tx, scope, "publications")) {
+      // A post handed to Social and not sent yet is taken back there (S9).
+      if (
+        data(p).status === "scheduled_remote" &&
+        (await withdrawSocialHandoff(tx, scope, p, "PROJECT_PAUSED"))
+      )
+        continue;
       if (["intent_created", "scheduled_remote"].includes(data(p).status))
         await update(tx, scope, p, {
           ...data(p),

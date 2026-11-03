@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
-import { create } from "../src/shared.ts";
+import { create, data, entity } from "../src/shared.ts";
+import { reconcilePublication } from "../src/modules/marketing/publishing/publisher.ts";
+import { submitOriginPost } from "../src/modules/social/contract.ts";
 import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
 import { readMarketingSettings, saveMarketingSettings } from "../src/modules/marketing/publishing/backend.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
@@ -103,12 +105,15 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     await backend("social");
     try {
       const unmapped = await run((tx) => packageFor(tx, project.owner, contentId));
-      expect(unmapped.packageData).toMatchObject({ publishingBackend: "social", socialAccountId: null, socialAccountVersion: null });
+      expect(unmapped.packageData).toMatchObject({ publishingBackend: "social", socialAccountId: null });
       expect(unmapped.packageData).not.toHaveProperty("connectorId");
       await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { legacyPostizIntegrationId: X } }));
       const mapped = await run((tx) => packageFor(tx, project.owner, contentId));
-      expect(mapped.packageData).toMatchObject({ publishingBackend: "social", socialAccountId: accountId, socialAccountVersion: 1 });
+      expect(mapped.packageData).toMatchObject({ publishingBackend: "social", socialAccountId: accountId });
       expect(mapped.packageHash).not.toBe(before.packageHash);
+      // A health refusal and restore bump the account's version: approvals stay (Social re-checks at send).
+      await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { version: { increment: 2 } } }));
+      expect((await run((tx) => packageFor(tx, project.owner, contentId))).packageHash).toBe(mapped.packageHash);
     } finally {
       await backend("postiz");
     }
@@ -135,6 +140,70 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     } finally {
       await backend("postiz");
     }
+  });
+
+  it("reconciles a blocked delivery as waiting, a post taken back as canceled, and withdraws on a stop", async () => {
+    await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { legacyPostizIntegrationId: X } }));
+    const handed = async (status: string) => {
+      const pubId = randomUUID();
+      const { postId } = await run((tx) =>
+        submitOriginPost(tx, project.owner, {
+          origin: { module: "marketing", type: "publication", id: pubId, version: 1 },
+          accountId,
+          text: `Handed ${pubId}`,
+          mediaIds: [],
+          mode: "now",
+          packageHash: "1".repeat(64),
+        }),
+      );
+      const row = await run((tx) =>
+        create(tx, project.owner, "publications", {
+          contentId,
+          channel: X,
+          status,
+          publishingBackend: "social",
+          remoteId: postId,
+          scheduledAt: new Date().toISOString(),
+          test: false,
+        }),
+      );
+      return { pubId: row.id, postId };
+    };
+    const pub = (id: string) => run(async (tx) => data(await entity(tx, project.owner, "publications", id)));
+    const blocked = await handed("scheduled_remote");
+    await run(async (tx) => {
+      const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId: blocked.postId } });
+      await tx.socialPublication.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          variantId: variant.id,
+          accountId,
+          idempotencyKey: randomUUID(),
+          status: "blocked",
+          blockedCode: "ACCOUNT_RECONNECT_REQUIRED",
+        },
+      });
+    });
+    await reconcilePublication(project.owner, blocked.pubId);
+    expect(await pub(blocked.pubId)).toMatchObject({ status: "scheduled_remote", remoteState: "blocked", reason: "ACCOUNT_RECONNECT_REQUIRED" });
+    const exceptions = await run((tx) => tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "exceptions" } }));
+    expect(
+      exceptions
+        .map((e) => data(e))
+        .filter((e) => e.resourceId === blocked.pubId || (e.resourceIds ?? []).includes(blocked.pubId))
+        .map((e) => e.code),
+    ).toContain("SOCIAL_DELIVERY_BLOCKED");
+    const back = await handed("scheduled_remote");
+    await run((tx) => tx.socialPost.update({ where: { id: back.postId }, data: { status: "draft" } }));
+    await reconcilePublication(project.owner, back.pubId);
+    expect(await pub(back.pubId)).toMatchObject({ status: "canceled", reason: "SOCIAL_POST_WITHDRAWN" });
+    // A stop that reached Marketing after the handoff withdraws it in Social.
+    const stopped = await handed("cancellation_required");
+    await reconcilePublication(project.owner, stopped.pubId);
+    expect(await pub(stopped.pubId)).toMatchObject({ status: "canceled" });
+    expect((await run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: stopped.postId } }))).status).toBe("canceled");
   });
 
   it("checks Social's blockers instead of the Postiz write verification on Social", async () => {

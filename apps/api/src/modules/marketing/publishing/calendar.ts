@@ -1,3 +1,4 @@
+import { withdrawSocialHandoff } from "./publisher.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -67,6 +68,11 @@ export async function blockCalendar(
         reason: "MANUAL_CALENDAR_BLOCK",
         calendarBlockId: block.id,
       });
+    else if (
+      p.status === "scheduled_remote" &&
+      (await withdrawSocialHandoff(tx, scope, row, "MANUAL_CALENDAR_BLOCK"))
+    )
+      continue;
     else if (
       ["sending", "scheduled_remote", "outcome_unknown"].includes(p.status)
     ) {

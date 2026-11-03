@@ -128,6 +128,7 @@ import {
 } from "../src/modules/agents/veto.ts";
 import { preflight } from "../src/modules/policy.ts";
 import { dispatchPublication, reconcilePublication } from "../src/modules/publisher.ts";
+import { pauseProject } from "../src/modules/pause.ts";
 import {
   readMarketingSettings,
   saveMarketingSettings,
@@ -1048,9 +1049,11 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
       const post = await h.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: handed.remoteId } }));
       expect(post).toMatchObject({ origin: "marketing", originType: "publication", originId: pub!.id, status: "approved", scheduleMode: "now" });
       expect(post.baseText).toContain("Beta access is open");
-      // A second dispatch of the same publication makes no second Social post.
+      // A second dispatch of the same publication makes no second Social post
+      // and leaves the record as it is.
       await dispatchPublication(project.owner, pub!.id);
       expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, originId: pub!.id } }))).toBe(1);
+      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({ status: "scheduled_remote", remoteId: handed.remoteId });
       // Social published it: Marketing's poll records the link.
       await h.run(async (tx) => {
         const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId: post.id } });
@@ -1075,6 +1078,20 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         status: "published",
         releaseUrl: "https://x.com/orbit_x/status/1700",
       });
+      // Once it is out, a late redelivery of the job changes nothing either.
+      await dispatchPublication(project.owner, pub!.id);
+      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({ status: "published" });
+      // A second post handed over and not sent yet: a pause takes it back in Social.
+      const [, second] = (await publications()).filter((p) => p.channel === X);
+      if (second) {
+        vi.setSystemTime(at(second.scheduledAt, 1));
+        await dispatchPublication(project.owner, second.id);
+        const secondHanded = (await publications()).find((p) => p.id === second.id)!;
+        expect(secondHanded.status).toBe("scheduled_remote");
+        await h.run((tx) => pauseProject(tx, project.owner, true));
+        expect((await publications()).find((p) => p.id === second.id)).toMatchObject({ status: "canceled", reason: "PROJECT_PAUSED" });
+        expect((await h.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: secondHanded.remoteId } }))).status).toBe("canceled");
+      }
     } finally {
       for (const [key, value] of Object.entries(saved))
         if (value === undefined) delete process.env[key];
