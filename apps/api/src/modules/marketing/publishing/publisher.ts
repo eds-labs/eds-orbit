@@ -25,7 +25,21 @@ import {
 } from "../pipeline/workflow.ts";
 import { connectionAccess } from "../../../platform/connections/connections.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
+import { publishingBackend } from "./backend.ts";
+import {
+  accountForChannel,
+  importOriginMedia,
+  originPostStatus,
+  submitOriginPost,
+} from "../../social/contract.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
+  // A project on Social (S9) hands the post to Social instead of Postiz.
+  if (
+    (await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      publishingBackend(tx, scope),
+    )) === "social"
+  )
+    return dispatchThroughSocial(scope, pubId);
   const credentials = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -213,7 +227,174 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
     });
   }
 }
+/**
+ * The handoff to Social (S9): the same claim and final preflight as for
+ * Postiz, then, in one transaction, an origin-authorized Social post that
+ * Social sends at once and the publication's record of it. Nothing reaches
+ * a platform before that transaction commits, so a failure here is a plain
+ * failure, never an unknown outcome.
+ */
+async function dispatchThroughSocial(scope: Scope, pubId: string) {
+  const packet = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    claimPublication(tx, scope, pubId),
+  );
+  if (!packet.send) return packet.pub;
+  const p = data(packet.pub),
+    content = data(packet.content!);
+  if (p.test)
+    return scoped(scope.workspaceId, scope.projectId, (tx) =>
+      finishPublication(tx, scope, pubId, p.fence, {
+        status: "published_test",
+        remoteId: "test-" + pubId,
+      }),
+    );
+  try {
+    const mediaIds: string[] = [];
+    if (content.assetId) {
+      const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        entity(tx, scope, "assets", content.assetId),
+      );
+      const file = await exportAssetContent(scope, data(asset));
+      if (!file) throw new DomainError("ASSET_NOT_SUPPORTED");
+      mediaIds.push(
+        await importOriginMedia(scope, { bytes: file.bytes, mime: "image/png" }),
+      );
+    }
+    return await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const pub = await entity(tx, scope, "publications", pubId);
+      const v = data(pub);
+      const checked = await preflight(tx, scope, p.contentId, {
+        test: false,
+        ignoreApproval: true,
+        approvalPublicationId: pubId,
+        ...(v.vetoDeadline && v.assignmentRunId
+          ? {
+              veto: {
+                deadline: v.vetoDeadline,
+                vetoedAt: v.vetoedAt ?? null,
+                assignmentRunId: v.assignmentRunId,
+                handoff: true,
+              },
+            }
+          : {}),
+      });
+      if (
+        v.status !== "sending" ||
+        v.fence !== p.fence ||
+        checked.packageHash !== p.packageHash ||
+        !checked.allowed
+      ) {
+        const blockers = checked.blockers.length
+          ? checked.blockers
+          : ["HANDOFF_DEPENDENCY_CHANGED"];
+        await update(tx, scope, pub, {
+          ...v,
+          status: "blocked_dependency",
+          reason: "HANDOFF_DEPENDENCY_CHANGED",
+        });
+        await reportBlockedPost(tx, scope, pubId, v, blockers);
+        return entity(tx, scope, "publications", pubId);
+      }
+      const account = await accountForChannel(tx, scope, v.channel);
+      if (!account) throw new DomainError("SOCIAL_CHANNEL_NOT_MAPPED", 409);
+      const { postId } = await submitOriginPost(tx, scope, {
+        origin: { module: "marketing", type: "publication", id: pubId, version: 1 },
+        accountId: account.accountId,
+        text: finalPostText(content.body, content.targetUrl),
+        mediaIds,
+        mode: "now",
+        packageHash: p.packageHash,
+      });
+      const row = await update(tx, scope, pub, {
+        ...v,
+        publishingBackend: "social",
+        remoteId: postId,
+        connectorId: null,
+        remoteState: "accepted",
+        status: "scheduled_remote",
+        handoffCompletedAt: new Date().toISOString(),
+      });
+      await enqueue(
+        tx,
+        scope,
+        "reconciliation",
+        pubId,
+        "reconcile:" + pubId,
+        new Date(Date.now() + 15000),
+      );
+      return row;
+    });
+  } catch (error) {
+    const code = error instanceof DomainError ? error.code : "SOCIAL_HANDOFF_FAILED";
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const done = await finishPublication(tx, scope, pubId, p.fence, {
+        status: "failed",
+      });
+      await update(tx, scope, done, { ...data(done), publishingBackend: "social", reason: code });
+      if (data(done).status === "failed") await notify(tx, scope, "postiz_error", pubId);
+      return entity(tx, scope, "publications", pubId);
+    });
+  }
+}
+
+/** Reads a handed-over post's state from Social (S9), like the Postiz poll. */
+async function reconcileThroughSocial(scope: Scope, pubId: string) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const pub = await entity(tx, scope, "publications", pubId);
+    const p = data(pub);
+    if (
+      p.test ||
+      !["scheduled_remote", "reconciliation_required", "outcome_unknown"].includes(p.status)
+    )
+      return { unchanged: true };
+    const [found] = await originPostStatus(tx, scope, [String(p.remoteId)]);
+    const status = !found
+      ? "outcome_unknown"
+      : found.status === "published"
+        ? "published"
+        : found.status === "failed"
+          ? "failed"
+          : found.status === "canceled"
+            ? "canceled"
+            : found.status === "outcome_unknown"
+              ? "outcome_unknown"
+              : "scheduled_remote";
+    if (status === "outcome_unknown" && p.status !== "outcome_unknown")
+      await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pubId);
+    if (["failed", "outcome_unknown"].includes(status) && status !== p.status)
+      await notify(tx, scope, "postiz_error", pubId);
+    const attempts = (p.reconcileAttempts ?? 0) + 1;
+    // Social may still be sending or wait for an unclear send's read-back.
+    if (["scheduled_remote", "outcome_unknown"].includes(status) && found && attempts < 8)
+      await enqueue(
+        tx,
+        scope,
+        "reconciliation",
+        pubId,
+        `reconcile:${pubId}:${attempts}`,
+        new Date(Date.now() + Math.min(900000, 15000 * 2 ** attempts)),
+      );
+    if (status === "scheduled_remote" && attempts >= 8)
+      await exception(tx, scope, "RECONCILIATION_POLL_LIMIT", pubId);
+    return update(tx, scope, pub, {
+      ...p,
+      reconcileAttempts: attempts,
+      status,
+      remoteState: found?.status ?? "missing",
+      reconciledAt: new Date().toISOString(),
+      ...(found?.permalink ? { releaseUrl: found.permalink } : {}),
+      ...(found?.errorCode ? { reason: found.errorCode } : {}),
+    });
+  });
+}
+
 export async function reconcilePublication(scope: Scope, pubId: string) {
+  if (
+    (await scoped(scope.workspaceId, scope.projectId, async (tx) =>
+      data(await entity(tx, scope, "publications", pubId)),
+    )).publishingBackend === "social"
+  )
+    return reconcileThroughSocial(scope, pubId);
   const prepared = await scoped(
     scope.workspaceId,
     scope.projectId,

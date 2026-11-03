@@ -577,13 +577,15 @@ async function postizError(
   // The post moved on (published after all, withdrawn, ...): the error is no longer true.
   if (!["failed", "outcome_unknown"].includes(p.status))
     return { skip: "STALE" };
+  // A post handed to Social (S9) is checked there, not in Postiz.
+  const where = p.publishingBackend === "social" ? "Social" : "Postiz";
   return plain(
     [
-      "Postiz-Fehler",
+      `${where}-Fehler`,
       `Kanal: ${await channelName(tx, scope, p.channel)}`,
       `Zeit: ${when(p.scheduledAt, timezone)}`,
       p.status === "outcome_unknown"
-        ? "Ergebnis unklar. Bitte in Postiz prüfen, bevor etwas erneut gesendet wird."
+        ? `Ergebnis unklar. Bitte in ${where} prüfen, bevor etwas erneut gesendet wird.`
         : "Der Beitrag wurde nicht veröffentlicht.",
     ].join("\n"),
   );
