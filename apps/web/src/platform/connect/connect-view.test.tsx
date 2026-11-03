@@ -281,6 +281,16 @@ describe("consent step", () => {
     ).toContain("checked");
   });
 
+  it("offers the social scope as an explicit choice that starts unchecked, with its label", () => {
+    for (const locale of ["en", "de"] as const) {
+      const html = consent({ scopes: ["orbit:read", "orbit:social"] }, locale);
+      const input = html.match(/<input[^>]*value="orbit:social"[^>]*>/)?.[0];
+      expect(input).toBeDefined();
+      expect(input).not.toContain("checked");
+      expect(html).toContain(labels[locale].connectScopeSocial);
+    }
+  });
+
   it("names all current projects when the selection covers them", () => {
     const html = consent({ allCurrent: true, projects: [] });
     expect(html).toContain("All current projects");

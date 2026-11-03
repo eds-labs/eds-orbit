@@ -8,6 +8,112 @@ The shell remounts on every in-app navigation (ruling R15), and its `useResource
 - **Not chosen:** hoisting the shell above the catch-all route so that it does not remount. That would change a documented assumption (R15) that the pages, the attention cache and the module states rely on. It would also lose the refetch after navigation altogether.
 - **Tests:** `platform/shell/session.test.tsx` (TTL, stale, in-flight sharing, refresh/drop, clear with requests in flight, 401/sign-out/sign-in/other-tab/write events through the real `api`, the state transitions). Browser e2e: CI on the draft PR; no local run, because the local Postgres/Redis containers were missing on 2026-11-03.
 
+## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-p3-polish.md](superpowers/plans/2026-11-03-social-p3-polish.md).
+
+- **Fixed:** the calendar keeps its grid while the same range reloads and restarts the list after a move; only the organization calendar route is exempt from the administration gate; a write verification confirmed by read-back or by the owner verifies the account; Social draft notices name Social; a draft update without a title keeps it; Facebook `/feed` answers that are no Graph error are unclear; uploads carry neutral file names; the analytics view says when X figures are off and when figures were read.
+- **Not done:** `editor_each` (needs a governance hook "decider per request"; still refused), the larger deferred items listed in the plan.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S10 (2026-11-03, branch `claude/social-s10` on top of `claude/social-s9`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s10-postiz-migration.md](superpowers/plans/2026-11-03-social-s10-postiz-migration.md). Runbook: [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md).
+
+- **Built (S10):** Postiz channel mapping, read-only history mirror, draining mode (`postiz_draining`), inventory (panel and `scripts/postiz-inventory.ts`), the "Move from Postiz" section on Social → Accounts with the backend switch.
+- **Not done (operations, each with Mario's go):** the per-project cutover (uLiquid, FamilyPlan, others) and the decommissioning of Postiz (§9.6, §9.7).
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S9 (2026-11-03, branch `claude/social-s9` on top of `claude/social-s8`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s9-marketing.md](superpowers/plans/2026-11-03-social-s9-marketing.md).
+
+- **Built (S9):** Social's contract for Marketing; Marketing's `publishingBackend` setting (owner, default `postiz`); on Social: package binding of the Social account, Social blockers and duplicates in preflight, handoff at the slot as an origin-authorized Social post, reconciliation from Social, assignment drafts as Social drafts. Postiz projects unchanged (package input pinned; Marketing suites green).
+- **Not built:** channels for projects without Postiz (`social:<accountId>` in policies and assignments), the analytics tool and history sync on Social, a web control for the switch (S10 brings the migration screens).
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S8 (2026-11-03, branch `claude/social-s8` on top of `claude/social-s7`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s8-analytics.md](superpowers/plans/2026-11-03-social-s8-analytics.md).
+
+- **Built (S8):** metric readers for Facebook, Instagram and X; periodic task `social-metrics` (six-hourly, 50 calls per project and run, 30 days, failed reads retried later); setting `xMetrics` (default off, X reads are paid); `postMetrics` for Marketing (S9); routes for one post and the last 30 days; Social → Analytics and the figures in the calendar panel. OpenAPI regenerated (also adds the P1 data-deletion status route).
+- **Not built:** retention of snapshots (24 months, spec §11), Instagram insights (needs `instagram_manage_insights`), figures in the MCP tools.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S7 (2026-11-03, branch `claude/social-s7` on top of `claude/social-p1`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).
+
+- **Built (S7):** five reads (`social_accounts`, `social_calendar`, `social_post_get`, `social_post_status`, `social_validate`) and five owner-decided proposals (`social_draft_create`, `social_draft_update`, `social_cancel` as W0 with mandate cost 0; `social_schedule`, `social_publish_now` as W2, never mandatable) for Orbit Chat and MCP; scope `orbit:social` in the gateway, the authorization server and the consent screen; Decisions renderers for drafts and cancellations; schedule proposals carry the exact package and their approval is the post's approval.
+- **Not built:** direct MCP publishing for owners (`mcpOwnerPublishWithoutApproval` refused), analytics tools (S8).
+- **Chat budget:** with the support, finance, Creative Studio and agents features on, the fixed part of a Claude chat leaves 24.3 KB instead of 33.3 KB with social on; with every module on, only about 6 KB (15.2 KB without social). The limit test counts only modules switched on in the test environment.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`). A client needs a reconnect to get `orbit:social`.
+
+## Social module follow-ups P1 (2026-11-03, branch `claude/social-p1` on top of S5b, not merged; `ORBIT_SOCIAL` off)
+
+- **Built:** the public status page of Meta data-deletion requests (`/data-deletion?code=…`, standalone, no session; `GET /api/public/social/data-deletion/:code`, public ingress only) with self-verifying confirmation codes (no stored request); media tokens accept only the canonical spelling of their signature (the S3 test that tampered with the last characters failed about once in 256 runs); the e2e seed marks its synthetic Telegram account as checked, so the six-hourly health read (no secret) no longer flags it; `navigation.spec.ts` knows the social group on a stack seeded with `E2E_SOCIAL=1`.
+- **Verified locally:** the S6 Playwright spec `social-calendar.spec.ts` passes against the worktree's own test database (`E2E_SOCIAL=1`, `ORBIT_ADMINISTRATION=true`). In a full local run, single workspace specs time out intermittently while the fixture holds reads under the API's 600 per minute limit (the shell waits on `/api/setup`); each passes when run alone.
+- **Production:** nothing deployed. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. The Meta app's Live mode still needs a privacy policy URL (outside Orbit) and the data-deletion callback URL.
+
+## Social module phase S5b (2026-11-03, branch `claude/social-s5b` on top of S6, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s5b-facebook.md](superpowers/plans/2026-11-03-social-s5b-facebook.md).
+
+- **Built (S5b):** Facebook Page sending through an own small Graph adapter (`adapters/facebook.ts`: unpublished multipart photos, one `/feed` call, Graph error mapping, read-back from `/{page}/posts`); `facebook` allowed in `ORBIT_SOCIAL_PLATFORMS` and sendable; Facebook photo rule 4 MB; read-back of unclear sends for every platform whose sender can read back.
+- **Not built:** Facebook video and stories (S3b), link-only options (`link` parameter), first comments.
+- **Production:** nothing deployed, no live post. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. Live Facebook needs the Meta app in Live mode, `facebook` in `ORBIT_SOCIAL_PLATFORMS` and an approved write verification per Page.
+
+## Social module phase S6 (2026-11-03, branch `claude/social-s6` on top of S5, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s6-calendar.md](superpowers/plans/2026-11-03-social-s6-calendar.md).
+
+- **Built (S6):** project calendar endpoint and post filters (accounts, platforms, origins) for the list; organization calendar across the member's readable projects; web calendar with month, week (half hours across clock changes) and list views, filters and scope in the address, preview panel, moving by drag and drop (pointer, touch, keyboard) or "Move to…" with the S-D6 approval rules and the clock-change choices; synthetic e2e seed (`E2E_SOCIAL=1`) and a gated Playwright flow.
+- **Not built:** an organization page of its own (the scope switch lives on the project calendar), Facebook sending (S5b), MCP tools (S7), analytics (S8).
+- **Not verified:** the Playwright flow `apps/web/tests/social-calendar.spec.ts` has not run against a stack (the local stack shares its database with other worktrees, which do not have the social migrations).
+- **Production:** nothing deployed. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`.
+
+## Social module phase S5 (2026-11-02, branch `claude/social-s5` on top of S4, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s5-dispatch.md](superpowers/plans/2026-11-02-social-s5-dispatch.md).
+
+- **Built (S5):** delivery gates and the new switch `ORBIT_SOCIAL_PLATFORMS`; Telegram connector albums, silent sends and link previews; `SocialProviderState` store with compare-and-set and leases; sender interface with X, Instagram (durable container workflow, quota) and Telegram adapters; queue classes `social_dispatch`, `social_deliver` (claim with fence, send outside transactions, lease expiry → `outcome_unknown`, throttles, test mode) and `social_reconcile` (Instagram processing, read-back of unknown X/Instagram sends); cancel of publishing posts, pause blocking and resume within 30 minutes, owner resolution of unclear sends; approved write verification per account; worker re-dispatch of jobs lost from Redis; web publication list, resolve buttons, posting test and renderers; events and attention.
+- **Not built:** Facebook sending (no SDK adapter; decision for S5b), calendar (S6), MCP tools (S7), analytics (S8), the health endpoint.
+- **Production:** nothing deployed, no live post was sent. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. Going live needs, per platform: `ORBIT_SOCIAL_PLATFORMS`, live mode and external writes, and an approved write verification per account (a real post).
+
+## Social module phase S4 (2026-11-02, branch `claude/social-s4` on top of S3, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s4-posts.md](superpowers/plans/2026-11-02-social-s4-posts.md).
+
+- **Built (S4):** DST-safe local times (`platform/time/zoned-time.ts`, `posts/schedule-time.ts`); posts with base text and images and inheriting per-account variants (migration `202611020003_social_post_base`); validation per platform without network (SDK `prepareTarget` for X and Instagram text, Orbit limits for Facebook and Telegram, S3 media rules); X long posts per account; package hash; owner approvals as ActionRequests `social.post.schedule` / `social.post.publish_now` (W2, owner decides, never mandatable); schedule, publish-now, reschedule, cancel, archive; post routes; web posts list, editor and approval renderer; OpenAPI and client regenerated.
+- **Held back:** `editor_each` is refused until the platform has a per-project decider hook.
+- **Not built:** sending (S5), calendar (S6), MCP tools (S7).
+- **Production:** nothing deployed. The migration changes the approved schema hash to `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`; a deploy needs Mario's approval of it.
+
+## Social module phase S3 (2026-11-02, branch `claude/social-s3` on top of S2, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s3-media.md](superpowers/plans/2026-11-02-social-s3-media.md).
+
+- **Built (S3):** image preparation in `packages/creative` (`prepareSocialImage`: normalized original and an Instagram-ready JPEG rendition, metadata removed, no new dependency); table `SocialMediaAsset` (migration `202611020002_social_media`); media library service and routes (raw upload, list, inline content, alt text, archive-or-delete); platform media rules (`renditionFor`, `mediaIssues`, `carouselIssues`); signed public media URLs `GET /api/public/social/media/<token>` behind the new switch `ORBIT_SOCIAL_MEDIA_PUBLIC`; web media library view.
+- **Not built:** video (S3b), posts and the editor (S4), publishing (S5).
+- **Production:** nothing deployed. The migration changes the approved schema hash to `c5f55a419726a69ce8dcc02e5b493d0e2842c5d031192eeb491eec8a9e6c89da`; a deploy needs Mario's approval of it. Media need `ORBIT_FILES` in production.
+
+## Social module phase S2 (2026-11-02, branch `claude/social-s2` on top of S1, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s2-accounts.md](superpowers/plans/2026-11-02-social-s2-accounts.md). Module doc with setup steps: [SOCIAL.md](SOCIAL.md).
+
+- **Built (S2):** developer apps `social.app.meta`/`social.app.x` (system connections, administration); module-managed project connections for accounts (`platform/connections/project-secrets.ts`, flag `managedByModule`); single-use OAuth state with sealed PKCE verifier; X connection through the SDK OAuth provider; Meta (Facebook Login for Business, Graph v26.0) for Pages and linked Instagram accounts; Telegram publishing channels with a separate bot (`getMe`/`getChat`/`getChatMember` added to the connector); locked X token refresh; `reconnect_required` with attention and owner notification; account list, health check, disconnect and the six-hourly health task; Meta data-deletion callback on the new provider-callback path `POST /api/callbacks/<module>/<name>`; accounts view in the web; OpenAPI and client regenerated.
+- **Dependency:** `@opencoredev/social-sdk` 0.5.0, approved by Mario on 2026-11-02 (`DEPENDENCY_RISKS.md`).
+- **Not built:** media, posts, publishing (S3–S5) and everything after; the data-deletion status page.
+- **Production:** nothing deployed; no migration in S2 (the S1 schema hash stays). Live acceptance needs the developer apps (Meta app, X app with pay-per-use credit) and a test project.
+
+## Social module phase S1 (2026-11-02, branch `claude/social-module-plan`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (programme, decisions S-D1–S-D9 by Mario on 2026-11-02) and [superpowers/plans/2026-11-02-social-s1-module-skeleton.md](superpowers/plans/2026-11-02-social-s1-module-skeleton.md). ADR: [adr/0020-social-module.md](adr/0020-social-module.md) (proposed). Module doc: [SOCIAL.md](SOCIAL.md).
+
+- **Built (S1):** opt-in module `social` (manifest, seven permissions, gate, versioned settings with `owner_each` default, `GET …/social/status`, `PUT …/social/settings`); installation switch `ORBIT_SOCIAL` in config, both Compose files, `.env.example` and the Compose checks; ten `Social*` tables with forced RLS (migration `202611020001_social_core`, grants in `db-deploy.ts`); boundary zones and the `forbiddenImportPrefixes` guard against `@opencoredev/social-sdk/cloud…`; web module with an overview and five placeholder views.
+- **Not built:** platform adapters, OAuth, media, posts, dispatcher, calendar, MCP tools, analytics, Marketing integration, Postiz migration (S2–S12). No dependency was added.
+- **Production:** nothing deployed. The migration changes the approved schema hash to `a60afc352cdcac29a43ee22aa2e67fd42069739526a4dd12531133df102ca6dc` (`scripts/check-pve-schema.sh --print-hash`); a deploy needs Mario's approval of that hash in Coolify. Rollback before deploy: drop the branch; after deploy the tables stay empty and inert while the flag is off.
+
 ## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` on since 2026-10-30)
 
 **Pushed to main on 2026-10-28 with Mario's approval** (fast-forward `aaed3d47..fa13f631`). The Coolify webhook deployed `fa13f631`, and the deployment finished at 17:43 UTC. Afterwards `/api/health/ready` reported database ok and worker ready, `/mcp/healthz` answered 200, and the new routes answered 401 without a session. The flag stays off, so no mandate can be granted. Live as of this deploy: the Support fix (G5), per-operation risk classes, the approval UX and the cross-project summary.

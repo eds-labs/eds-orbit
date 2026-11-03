@@ -25,6 +25,14 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 export const WEBHOOK_URL = new RegExp(
   `^/api/hooks/[a-z][a-z0-9_-]{1,30}/${UUID}/${UUID}/${UUID}$`,
 );
+/**
+ * Provider callbacks a module registers itself (ADR 0020), such as Meta's
+ * data-deletion request: POST /api/callbacks/<module>/<name>. They carry
+ * their own authentication (a signature), have no browser origin and, like
+ * every public ingress, exist only while ORBIT_PUBLIC_INGRESS is on.
+ */
+export const CALLBACK_PREFIX = "/api/callbacks/";
+export const CALLBACK_URL = /^\/api\/callbacks\/[a-z][a-z0-9_]{1,30}\/[a-z0-9-]{1,40}$/;
 const MAX_BYTES = 262_144;
 /** Hook calls per minute from one client address, across all connections. */
 export const HOOKS_PER_ADDRESS = 600;

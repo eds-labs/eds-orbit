@@ -35,6 +35,8 @@ import { supportWeb } from "./support/manifest";
 import { financeWeb } from "./finance/manifest";
 import { workWeb } from "./work/manifest";
 import { issuesWeb } from "./issues/manifest";
+import { socialWeb } from "./social/manifest";
+import { DataDeletionView } from "./social/data-deletion";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
 // both the platform pages and every module, like apps/api/src/modules/registry.ts
@@ -261,7 +263,16 @@ export const webRegistry: WebRegistry = {
       title: label("resetPasswordTitle"),
       session: "none",
     },
+    // Meta links people here after a data-deletion request (ADR 0020); it
+    // works without an Orbit account.
+    {
+      key: "data-deletion",
+      path: "data-deletion",
+      component: DataDeletionView,
+      title: { en: "Data-deletion request", de: "Anfrage zur Datenlöschung" },
+      session: "none",
+    },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).
-  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb, workWeb, issuesWeb],
+  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb, workWeb, issuesWeb, socialWeb],
 };

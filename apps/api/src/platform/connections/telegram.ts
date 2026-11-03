@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import { z } from "zod";
 import {
@@ -198,6 +198,20 @@ function tokenOf(row: Connection) {
     return null;
   }
 }
+/**
+ * True when `token` is the bot token of the project's own Orbit bot. Read
+ * only: the social module refuses it as a publishing bot (ADR 0020, S-D3),
+ * so channel posting never shares the bot whose webhook this module owns.
+ */
+export async function isOwnerBotToken(tx: DbTx, scope: Scope, token: string) {
+  const wanted = Buffer.from(sha256(token));
+  for (const row of await activeConnections(tx, scope)) {
+    const current = tokenOf(row);
+    if (current && timingSafeEqual(Buffer.from(sha256(current)), wanted)) return true;
+  }
+  return false;
+}
+
 /** Best effort: an old bot stops calling Orbit. A failure changes nothing here. */
 async function forgetWebhooks(tokens: string[], fetch?: FetchLike) {
   for (const token of new Set(tokens))

@@ -205,3 +205,151 @@ describe("Telegram bot client", () => {
       ).toMatchObject({ code: "RATE_LIMITED", retryAfterMs: undefined });
   });
 });
+
+describe("Telegram bot client: channel checks for publishing (ADR 0020)", () => {
+  it("getMe parses the bot", async () => {
+    const { calls, fetch } = recorder(() =>
+      ok({ id: 42, is_bot: true, first_name: "Orbit", username: "orbit_pub_bot" }),
+    );
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getMe()).toEqual({ id: 42, username: "orbit_pub_bot", isBot: true });
+    expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${TOKEN}/getMe`);
+  });
+
+  it("getMe refuses a result that is not a bot", async () => {
+    const { fetch } = recorder(() => ok({ id: 7, is_bot: false, first_name: "Ada" }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    await expect(client.getMe()).rejects.toMatchObject({ code: "INVALID_PROVIDER_RESPONSE" });
+  });
+
+  it("getChat resolves @username to the numeric channel id", async () => {
+    const { calls, fetch } = recorder(() =>
+      ok({ id: -1001234567890, type: "channel", title: "Orbit News", username: "orbit_news" }),
+    );
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChat("@orbit_news")).toEqual({
+      id: -1001234567890,
+      type: "channel",
+      title: "Orbit News",
+      username: "orbit_news",
+    });
+    expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${TOKEN}/getChat`);
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: "@orbit_news" });
+  });
+
+  it("getChat accepts a numeric id and fills missing names with null", async () => {
+    const { calls, fetch } = recorder(() => ok({ id: -1009, type: "channel", title: "Private" }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChat(-1009)).toEqual({ id: -1009, type: "channel", title: "Private", username: null });
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: -1009 });
+  });
+
+  it("getChat refuses malformed usernames before any request", async () => {
+    const { calls, fetch } = recorder(() => ok({}));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    for (const bad of ["@a", "orbit", "@bad-name", "@1starts_with_digit"])
+      await expect(client.getChat(bad as `@${string}`)).rejects.toMatchObject({ code: "INVALID_TELEGRAM_CHAT" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("getChatMember reports whether an administrator may post", async () => {
+    const replies = [
+      ok({ status: "administrator", can_post_messages: true, user: { id: 42, is_bot: true, first_name: "Orbit" } }),
+      ok({ status: "member", user: { id: 42, is_bot: true, first_name: "Orbit" } }),
+    ];
+    const { calls, fetch } = recorder(() => replies.shift()!);
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "administrator", canPostMessages: true });
+    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "member", canPostMessages: false });
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: -1001234567890, user_id: 42 });
+  });
+
+  it("getChatMember lets the channel creator post", async () => {
+    const { fetch } = recorder(() => ok({ status: "creator", user: { id: 42, is_bot: true, first_name: "Orbit" } }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    expect(await client.getChatMember(-1001, 42)).toEqual({ status: "creator", canPostMessages: true });
+  });
+
+  it("the channel checks never leak the token", async () => {
+    const { fetch } = recorder(() => {
+      throw new Error(`connect ECONNREFUSED https://api.telegram.org/bot${TOKEN}/getMe`);
+    });
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    for (const run of [() => client.getMe(), () => client.getChat("@orbit_news"), () => client.getChatMember(-1001, 42)]) {
+      const error = await run().then(
+        () => undefined,
+        (e: unknown) => e as Error & { cause?: unknown },
+      );
+      expect(error).toBeInstanceOf(ConnectorError);
+      expect(`${error!.message} ${String(error!.cause ?? "")}`).not.toContain(TOKEN);
+    }
+  });
+});
+
+describe("Telegram bot client: channel posts for the social module (ADR 0020, S5)", () => {
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+
+  it("lets a text show its link preview and sends silently on request", async () => {
+    const { calls, fetch } = recorder(() => ok({ message_id: 7 }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    await client.sendMessage(-1001, "Read https://orbit.example", undefined, { disableLinkPreview: false, silent: true });
+    expect(JSON.parse(String(calls[0]!.init.body))).toEqual({
+      chat_id: -1001,
+      text: "Read https://orbit.example",
+      link_preview_options: { is_disabled: false },
+      disable_notification: true,
+    });
+    // Without options nothing changes for the owner's bot.
+    await client.sendMessage(-1001, "Hi");
+    expect(JSON.parse(String(calls[1]!.init.body))).toEqual({ chat_id: -1001, text: "Hi", link_preview_options: { is_disabled: true } });
+  });
+
+  it("sends a photo with its type and silently on request", async () => {
+    const { calls, fetch } = recorder(() => ok({ message_id: 8 }));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    await client.sendPhoto(-1001, png, "Caption", undefined, { silent: true, mime: "image/png" });
+    const form = calls[0]!.init.body as FormData;
+    expect((form.get("photo") as Blob).type).toBe("image/png");
+    expect(form.get("disable_notification")).toBe("true");
+  });
+
+  it("sends a media group with the caption on the first photo", async () => {
+    const { calls, fetch } = recorder(() => ok([{ message_id: 11 }, { message_id: 12 }, { message_id: 13 }]));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    const photos = [0, 1, 2].map(() => ({ bytes: png, mime: "image/jpeg" as const }));
+    expect(await client.sendMediaGroup(-1001, photos, "Launch", { silent: true })).toEqual({ messageIds: [11, 12, 13] });
+    expect(calls[0]!.url).toBe(`https://api.telegram.org/bot${TOKEN}/sendMediaGroup`);
+    const form = calls[0]!.init.body as FormData;
+    expect(JSON.parse(String(form.get("media")))).toEqual([
+      { type: "photo", media: "attach://photo0", caption: "Launch" },
+      { type: "photo", media: "attach://photo1" },
+      { type: "photo", media: "attach://photo2" },
+    ]);
+    expect((form.get("photo2") as Blob).type).toBe("image/jpeg");
+    expect(form.get("disable_notification")).toBe("true");
+  });
+
+  it("refuses a media group of one or eleven photos before any request", async () => {
+    const { calls, fetch } = recorder(() => ok([]));
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    const photo = { bytes: png, mime: "image/jpeg" as const };
+    await expect(client.sendMediaGroup(-1001, [photo], "x")).rejects.toMatchObject({ code: "INVALID_TELEGRAM_MESSAGE" });
+    await expect(client.sendMediaGroup(-1001, Array(11).fill(photo), "x")).rejects.toMatchObject({ code: "INVALID_TELEGRAM_MESSAGE" });
+    await expect(client.sendMediaGroup(-1001, [photo, photo], "x".repeat(1025))).rejects.toMatchObject({ code: "INVALID_TELEGRAM_MESSAGE" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reports a rate limit with its wait and an unclear send as unknown, without the token", async () => {
+    const photos = [0, 1].map(() => ({ bytes: png, mime: "image/jpeg" as const }));
+    const limited = recorder(() =>
+      new Response(JSON.stringify({ ok: false, error_code: 429, description: "Too Many Requests", parameters: { retry_after: 7 } }), { status: 429 }),
+    );
+    const error = await createTelegramClient({ token: TOKEN, fetch: limited.fetch }).sendMediaGroup(-1001, photos, "x").catch((e) => e);
+    expect(error).toMatchObject({ code: "RATE_LIMITED", outcome: "rejected", retryAfterMs: 7000 });
+    const broken = recorder(() => new Response("bad gateway", { status: 502 }));
+    const unclear = await createTelegramClient({ token: TOKEN, fetch: broken.fetch }).sendMediaGroup(-1001, photos, "x").catch((e) => e);
+    expect(unclear).toBeInstanceOf(ConnectorError);
+    expect(unclear).toMatchObject({ outcome: "unknown" });
+    expect(JSON.stringify(unclear)).not.toContain(TOKEN);
+  });
+});

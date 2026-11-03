@@ -34,6 +34,7 @@ import {
   WORK_CODING_SCOPE,
   FINANCE_READ_SCOPE,
   SUPPORT_SCOPE,
+  SOCIAL_SCOPE,
 } from "./scopes.ts";
 
 export type McpScope = "orbit:read" | "orbit:propose" | "orbit:write";
@@ -211,7 +212,7 @@ export async function principalModules(
  * Base risk scopes, current membership, modules, roles and flags still apply.
  * authorizeMcpCall always uses the original token/grant intersection.
  * The content scopes (`orbit:support`, `orbit:finance.read`,
- * `orbit:finance.extract`) are assumed here so a client such as ChatGPT,
+ * `orbit:finance.extract`, the work scopes, `orbit:social`) are assumed here so a client such as ChatGPT,
  * which asks for the scopes its listed tools declare, can request them.
  */
 export async function visibleMcpToolsForDiscovery(
@@ -229,6 +230,7 @@ export async function visibleMcpToolsForDiscovery(
         WORK_SCOPE,
         WORK_PM_SCOPE,
         WORK_CODING_SCOPE,
+        SOCIAL_SCOPE,
       ]),
     },
     await projectScope(principal, projectId),

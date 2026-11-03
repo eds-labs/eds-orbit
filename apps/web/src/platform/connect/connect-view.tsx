@@ -65,6 +65,7 @@ const SCOPE_TEXT: Record<string, Parameters<Text>[0]> = {
   "orbit:work.pm": "connectScopeWorkPm",
   "orbit:work.coding": "connectScopeWorkCoding",
   "orbit:issues": "connectScopeIssues",
+  "orbit:social": "connectScopeSocial",
 };
 const scopeText = (t: Text, scope: string) =>
   t(SCOPE_TEXT[scope] ?? "connectScopeOther");

@@ -234,6 +234,16 @@ try {
     "IssueAttachment",
     "IssueDuplicateCandidate",
     "IssueExternalRef",
+    // Social module (ADR 0020); publications, delivery attempts and metric
+    // snapshots are restricted below.
+    "SocialAccount",
+    "SocialPost",
+    "SocialPostVariant",
+    "SocialPostMedia",
+    "SocialAccountThrottle",
+    "SocialOAuthState",
+    "SocialProviderState",
+    "SocialMediaAsset",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
@@ -284,6 +294,14 @@ try {
   await migrator.query('GRANT SELECT,INSERT,UPDATE ON "IssueReport" TO orbit_app');
   await migrator.query(
     'GRANT SELECT,INSERT ON "IssueEvent","IssueDelivery" TO orbit_app',
+  );
+  // ADR 0020: a publication is deleted only with its project (a post or
+  // variant with publications cannot be deleted), so
+  // its delivery record survives a cancel; provider call records and metric
+  // snapshots are append-only and deleted only by retention.
+  await migrator.query('GRANT SELECT,INSERT,UPDATE ON "SocialPublication" TO orbit_app');
+  await migrator.query(
+    'GRANT SELECT,INSERT,DELETE ON "SocialDeliveryAttempt","SocialMetricSnapshot" TO orbit_app',
   );
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.

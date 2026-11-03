@@ -82,6 +82,11 @@ summary:focus-visible {
   outline: 3px solid #0969ff;
   outline-offset: 3px;
 }
+/* A file input inside a button-styled label: the label shows the focus. */
+.media-upload:has(input:focus-visible) {
+  outline: 3px solid #0969ff;
+  outline-offset: 3px;
+}
 h1,
 h2,
 h3,
@@ -7262,4 +7267,197 @@ a.support-row {
   .creative-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+/* Social calendar (S6): month grid, week rows, list and filters. */
+.cal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.cal-period,
+.cal-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cal-period-label {
+  margin-left: 6px;
+}
+.cal-filters {
+  margin: 12px 0;
+}
+.cal-filters summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.cal-filter-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 8px;
+}
+.cal-filter-group {
+  display: grid;
+  gap: 4px;
+  min-width: 160px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cal-month,
+.cal-week {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.cal-month th,
+.cal-week th {
+  padding: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+  text-align: left;
+}
+.cal-day {
+  height: 112px;
+  padding: 4px;
+  vertical-align: top;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.cal-day-outside {
+  background: var(--muted);
+}
+.cal-day[aria-current="date"] .cal-day-number {
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+.cal-day-number {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border-radius: 11px;
+  font-size: 12px;
+  text-align: center;
+}
+.cal-day-posts,
+.cal-list {
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.cal-post {
+  display: block;
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  touch-action: manipulation;
+}
+.cal-post:focus-visible,
+.cal-more:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.cal-post[data-dragging] {
+  opacity: 0.6;
+  box-shadow: var(--shadow);
+}
+.cal-post-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.cal-drag {
+  flex: none;
+  width: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  cursor: grab;
+  touch-action: none;
+}
+.cal-drag:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.cal-drag[data-dragging] {
+  cursor: grabbing;
+}
+.cal-post-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.cal-post-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.cal-platform,
+.cal-project {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.cal-more {
+  margin-top: 4px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cal-week-scroll {
+  max-height: 70vh;
+  overflow: auto;
+}
+.cal-week thead th {
+  position: sticky;
+  top: 0;
+  background: var(--background);
+}
+.cal-week tbody th {
+  width: 88px;
+  font-variant-numeric: tabular-nums;
+}
+.cal-slot {
+  height: 28px;
+  padding: 2px;
+  vertical-align: top;
+  border: 1px solid var(--border);
+}
+.cal-slot-missing {
+  background: var(--muted);
+}
+.cal-drop {
+  min-height: 100%;
+}
+.cal-drop[data-over] {
+  outline: 2px dashed var(--ring);
+  outline-offset: -2px;
+}
+@media (max-width: 720px) {
+  .cal-month,
+  .cal-week {
+    min-width: 640px;
+  }
+}
+.cal-month-scroll {
+  max-width: 100%;
+  overflow-x: auto;
 }

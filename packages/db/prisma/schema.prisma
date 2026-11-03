@@ -2185,3 +2185,269 @@ model IssueDelivery {
   @@unique([projectId, id])
   @@index([projectId, issueId, observedAt])
 }
+
+/// A publishable destination of the social module (ADR 0020): an Instagram
+/// account, a Facebook Page, an X user or a Telegram channel. Its tokens
+/// live in the project Connection it names (sealed ConnectionSecret).
+model SocialAccount {
+  id                        String    @id @db.Uuid
+  workspaceId               String    @db.Uuid
+  projectId                 String    @db.Uuid
+  connectionId              String    @db.Uuid
+  platform                  String
+  externalId                String
+  handle                    String
+  displayName               String
+  avatarFileId              String?   @db.Uuid
+  status                    String    @default("active")
+  capability                String    @default("configured")
+  writeVerifiedAt           DateTime? @db.Timestamptz(3)
+  /// The adapter's capability manifest when the account was last checked.
+  capabilities              Json      @default("{}")
+  /// Default posting times and platform options of this account.
+  settings                  Json      @default("{}")
+  /// The Postiz integration this account replaces (migration mapping).
+  legacyPostizIntegrationId String?
+  version                   Int       @default(1)
+  createdBy                 String
+  createdAt                 DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  disabledAt                DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, platform, externalId], map: "SocialAccount_external_key")
+  @@index([projectId, status])
+}
+
+/// A post: one approval unit with one variant per target account.
+model SocialPost {
+  id                String    @id @db.Uuid
+  workspaceId       String    @db.Uuid
+  projectId         String    @db.Uuid
+  status            String    @default("draft")
+  title             String?
+  scheduleMode      String    @default("none")
+  /// The publication instant (UTC); the local time and zone are kept for display.
+  scheduledAt       DateTime? @db.Timestamptz(3)
+  scheduleTimezone  String
+  scheduleLocal     String?
+  scheduleFold      String?
+  /// The text and library images (asset ids) variants inherit (S4).
+  baseText          String    @default("")
+  baseMedia         Json      @default("[]")
+  packageHash       String?
+  approvalRequestId String?   @db.Uuid
+  approvedAt        DateTime? @db.Timestamptz(3)
+  approvedBy        String?
+  origin            String    @default("manual")
+  originModule      String?
+  originType        String?
+  originId          String?   @db.Uuid
+  originVersion     Int?
+  readOnly          Boolean   @default(false)
+  version           Int       @default(1)
+  createdBy         String
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, scheduledAt])
+  @@index([projectId, status])
+  @@index([projectId, origin])
+}
+
+/// The content of a post for one account.
+model SocialPostVariant {
+  id              String   @id @db.Uuid
+  workspaceId     String   @db.Uuid
+  projectId       String   @db.Uuid
+  postId          String   @db.Uuid
+  accountId       String   @db.Uuid
+  body            String
+  /// False once the variant has its own text or images (S4).
+  inheritsText    Boolean  @default(true)
+  inheritsMedia   Boolean  @default(true)
+  platformOptions Json     @default("{}")
+  contentHash     String
+  validation      Json     @default("{}")
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([postId, accountId])
+  /// Target of SocialPublication's (projectId, variantId, accountId) key.
+  @@unique([projectId, id, accountId])
+  @@index([projectId, accountId])
+}
+
+/// An ordered medium of a variant; the bytes are a platform File of the module.
+model SocialPostMedia {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  variantId   String   @db.Uuid
+  fileId      String   @db.Uuid
+  position    Int
+  kind        String
+  altText     String?
+  width       Int?
+  height      Int?
+  durationMs  Int?
+  sha256      String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([variantId, position])
+  @@index([projectId, fileId], map: "SocialPostMedia_project_file_idx")
+}
+
+/// One delivery of one variant to its account; the only delivery state
+/// machine. It outlives nothing but its project: a post or variant with
+/// publications cannot be deleted.
+model SocialPublication {
+  id               String    @id @db.Uuid
+  workspaceId      String    @db.Uuid
+  projectId        String    @db.Uuid
+  variantId        String    @db.Uuid
+  accountId        String    @db.Uuid
+  status           String    @default("pending")
+  blockedCode      String?
+  idempotencyKey   String    @unique
+  fence            String?   @db.Uuid
+  attempts         Int       @default(0)
+  nextAttemptAt    DateTime? @db.Timestamptz(3)
+  externalPostId   String?
+  permalink        String?
+  /// Provider-side ids of multi-step flows (containers, uploads); never tokens.
+  providerState    Json      @default("{}")
+  lastErrorCode    String?
+  retryDisposition String?
+  claimedAt        DateTime? @db.Timestamptz(3)
+  publishedAt      DateTime? @db.Timestamptz(3)
+  resolution       String?
+  resolvedBy       String?
+  /// The legacy publications entity this row mirrors (Postiz history).
+  legacyEntityId   String?   @db.Uuid
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, status, nextAttemptAt])
+  @@index([projectId, variantId])
+  @@index([projectId, accountId, publishedAt])
+}
+
+/// Every provider call of a publication; ids and codes only, no content.
+model SocialDeliveryAttempt {
+  id            String    @id @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String    @db.Uuid
+  publicationId String    @db.Uuid
+  step          String
+  outcome       String
+  httpStatus    Int?
+  providerCode  String?
+  retryAfterMs  Int?
+  requestHash   String
+  startedAt     DateTime  @db.Timestamptz(3)
+  finishedAt    DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, publicationId, startedAt])
+}
+
+/// Outbound sends per account and window, for platform rate limits.
+model SocialAccountThrottle {
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  accountId    String    @db.Uuid
+  window       String
+  windowStart  DateTime  @db.Timestamptz(3)
+  count        Int       @default(0)
+  blockedUntil DateTime? @db.Timestamptz(3)
+
+  @@id([accountId, window, windowStart])
+  @@index([projectId, accountId])
+}
+
+/// A pending OAuth authorization (single use, short-lived).
+model SocialOAuthState {
+  id                     String    @id @db.Uuid
+  workspaceId            String    @db.Uuid
+  projectId              String    @db.Uuid
+  stateHash              String    @unique
+  platform               String
+  appConnectionId        String    @db.Uuid
+  userId                 String
+  /// The PKCE verifier, sealed with the connection key ring.
+  codeVerifierCiphertext String
+  redirectAfter          String?
+  expiresAt              DateTime  @db.Timestamptz(3)
+  usedAt                 DateTime? @db.Timestamptz(3)
+  createdAt              DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
+/// A metric of a published post as observed at one time.
+model SocialMetricSnapshot {
+  id            String   @id @db.Uuid
+  workspaceId   String   @db.Uuid
+  projectId     String   @db.Uuid
+  publicationId String   @db.Uuid
+  metric        String
+  value         Decimal  @db.Decimal(24, 6)
+  unit          String?
+  period        String
+  observedAt    DateTime @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([publicationId, metric, period, observedAt])
+}
+
+/// Durable state for the SDK's store interfaces (workflow and idempotency
+/// records), compare-and-set on revision.
+model SocialProviderState {
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  namespace      String
+  recordKey      String
+  revision       Int       @default(0)
+  body           Json
+  leaseToken     String?
+  leaseExpiresAt DateTime? @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([projectId, namespace, recordKey])
+}
+
+/// An image in the social module's library (ADR 0020, S3): the normalized
+/// original and its JPEG rendition are platform Files of the module.
+model SocialMediaAsset {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  fileId      String    @db.Uuid
+  jpegFileId  String    @db.Uuid
+  name        String
+  mime        String
+  width       Int
+  height      Int
+  size        Int
+  jpegWidth   Int
+  jpegHeight  Int
+  jpegSize    Int
+  sha256      String
+  altText     String?
+  version     Int       @default(1)
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, fileId])
+  @@index([projectId, archivedAt, createdAt])
+}

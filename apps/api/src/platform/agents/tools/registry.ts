@@ -42,7 +42,9 @@ export type ToolFeature =
   // Issue center tools (ADR 0018), offered while the module is on.
   | "issues"
   // Creative Studio previews and options, while ORBIT_CREATIVE_STUDIO is on.
-  | "creative_studio";
+  | "creative_studio"
+  // Social tools (ADR 0020), offered while the module is on.
+  | "social";
 export type ToolContext = {
   scope: Scope;
   runId: string;

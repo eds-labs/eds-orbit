@@ -157,6 +157,18 @@ The issue center (`docs/ISSUES.md`, ADR 0018) follows the same pattern: `default
 
 Switching it off deletes nothing; links to issues stay and show as unavailable, and Support's "Report as product issue" disappears.
 
+## Social module (opt-in, 2026-11-02, branch only; flag off)
+
+The social module (`docs/SOCIAL.md`, ADR 0020) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_SOCIAL` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_SOCIAL=true` (default `false`). While off, routes answer 404 `SOCIAL_DISABLED`. S1 has no tools, jobs or attention items yet. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `social.read` and `social.analytics.read` (all roles), `social.compose` and `social.publish` (owner, editor), `social.approve`, `social.settings` and `social.accounts.manage` (owner; the last sensitive); module roles may narrow them. |
+
+Switching it off deletes nothing.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

@@ -58,6 +58,9 @@ for (const key of [
   "ORBIT_WORK",
   "ORBIT_WORK_PM",
   "ORBIT_ISSUES",
+  "ORBIT_SOCIAL",
+  "ORBIT_SOCIAL_MEDIA_PUBLIC",
+  "ORBIT_SOCIAL_PLATFORMS",
   "ORBIT_MARKETING",
   "ORBIT_TELEGRAM",
   "ORBIT_SPEND_POLICY_SOURCE",
@@ -177,6 +180,8 @@ for (const name of apiLike)
     "ORBIT_WORK",
     "ORBIT_WORK_PM",
     "ORBIT_ISSUES",
+    "ORBIT_SOCIAL",
+    "ORBIT_SOCIAL_MEDIA_PUBLIC",
     "ORBIT_CUSTOMER_CONTEXT",
     "ORBIT_FILES",
     "ORBIT_EMAIL",
@@ -222,6 +227,9 @@ const flagged = JSON.parse(
         ORBIT_WORK: "true",
         ORBIT_WORK_PM: "true",
         ORBIT_ISSUES: "true",
+        ORBIT_SOCIAL: "true",
+        ORBIT_SOCIAL_MEDIA_PUBLIC: "true",
+        ORBIT_SOCIAL_PLATFORMS: "x,telegram",
         ORBIT_CUSTOMER_CONTEXT: "true",
         ORBIT_FILES: "true",
         ORBIT_EMAIL: "true",
@@ -247,6 +255,8 @@ for (const name of apiLike)
     "ORBIT_FINANCE",
     "ORBIT_WORK",
     "ORBIT_ISSUES",
+    "ORBIT_SOCIAL",
+    "ORBIT_SOCIAL_MEDIA_PUBLIC",
     "ORBIT_CUSTOMER_CONTEXT",
     "ORBIT_FILES",
     "ORBIT_EMAIL",
@@ -258,6 +268,12 @@ for (const name of apiLike)
       "true",
       `${name} must follow ${flag} from the deployment environment`,
     );
+
+// ADR 0020 (S5): the social module posts nowhere until platforms are listed.
+for (const name of apiLike) {
+  assert.equal(services[name].environment.ORBIT_SOCIAL_PLATFORMS, "", `${name} must receive ORBIT_SOCIAL_PLATFORMS, empty by default`);
+  assert.equal(flagged[name].environment.ORBIT_SOCIAL_PLATFORMS, "x,telegram", `${name} must follow ORBIT_SOCIAL_PLATFORMS`);
+}
 
 // ADR 0015: Marketing stays on, the bot follows ORBIT_AGENTS and the
 // spending authority is the platform's unless the deployment says otherwise.

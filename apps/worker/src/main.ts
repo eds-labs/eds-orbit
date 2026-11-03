@@ -33,6 +33,7 @@ import {
   closeDatabase,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
+import { redispatchLost } from "./lost-jobs.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import {
   entity,
@@ -86,6 +87,8 @@ const workspaces = workspaceAllowlist(
 );
 let stopping = false;
 const projectFailures = new Map<string, number>();
+const lostCheck = new Map<string, number>();
+const LOST_CHECK_MS = 5 * 60_000;
 const PUMP_INTERVAL_MS = 1500,
   PUMP_BATCH = 100,
   PUMP_CONCURRENCY = 4,
@@ -331,6 +334,16 @@ async function processProject(p: DueProject, claimed: Date) {
         data: { dispatchedAt: new Date() },
       }),
     );
+  }
+  // Jobs Redis lost after dispatch get a new outbox row (at most every
+  // five minutes per project); the next pass hands them over again.
+  if (at.getTime() - (lostCheck.get(p.id) ?? 0) >= LOST_CHECK_MS) {
+    lostCheck.set(p.id, at.getTime());
+    const lost = await redispatchLost(scope, queues, at).catch(() => 0);
+    if (lost) {
+      console.warn(JSON.stringify({ event: "worker.lost_jobs_redispatched", projectId: p.id, count: lost }));
+      redispatch = true;
+    }
   }
   // Module tasks after dispatch, such as saved Matomo imports and the
   // read-only Postiz queue check; a published status feeds /api/health.

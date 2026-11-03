@@ -136,11 +136,12 @@ export const platformActions: Record<string, ActionHandler> = {
     const c = z
       .object({
         provider: z.enum(
-          registeredConnectionProviderIds().filter((id) =>
-            providerScopes(registeredConnectionProvider(id)!).includes(
-              "project",
-            ),
-          ) as [string, ...string[]],
+          registeredConnectionProviderIds().filter((id) => {
+            const def = registeredConnectionProvider(id)!;
+            return (
+              providerScopes(def).includes("project") && !def.managedByModule
+            );
+          }) as [string, ...string[]],
         ),
         baseUrl: z.url().optional(),
         credential: z.string().min(10).max(1000),

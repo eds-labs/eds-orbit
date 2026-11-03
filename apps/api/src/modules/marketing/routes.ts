@@ -43,6 +43,8 @@ import {
 } from "./brand/marketing-profile.ts";
 import { generateProjectImage } from "./brand/image-generation.ts";
 import { handleSlackInteraction } from "./publishing/slack.ts";
+import { readMarketingSettings, saveMarketingSettings } from "./publishing/backend.ts";
+import { mapPostizChannel, mirrorPostizHistory, socialMapping } from "./publishing/social-migration.ts";
 import { agentsEnabled, setAssignmentStatus } from "./agents/assignments.ts";
 import {
   assignmentStatusInput,
@@ -143,6 +145,44 @@ export const marketingRoutes: RoutesContribution = (context) => {
         ),
       ),
     );
+  });
+
+  // Marketing's settings (S9): the publishing backend, Postiz or Social.
+  app.get("/api/projects/:projectId/marketing/settings", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) => readMarketingSettings(tx, scope));
+  });
+  app.put("/api/projects/:projectId/marketing/settings", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const { settings, version } = z
+      .object({ settings: z.unknown(), version: z.number().int().min(1) })
+      .strict()
+      .parse(req.body ?? {});
+    return scoped(scope.workspaceId, projectId, (tx) => saveMarketingSettings(tx, scope, settings, version));
+  });
+
+  // Moving from Postiz to Social (S10): channel mapping and history mirror.
+  app.get("/api/projects/:projectId/marketing/social-migration", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) => socialMapping(tx, scope));
+  });
+  app.put("/api/projects/:projectId/marketing/social-migration/mapping", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const input = z
+      .object({ integrationId: z.string().min(1).max(200), accountId: z.uuid().nullable() })
+      .strict()
+      .parse(req.body ?? {});
+    return scoped(scope.workspaceId, projectId, (tx) => mapPostizChannel(tx, scope, input));
+  });
+  app.post("/api/projects/:projectId/marketing/social-migration/mirror", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const input = z.object({ dryRun: z.boolean() }).strict().parse(req.body ?? {});
+    return scoped(scope.workspaceId, projectId, (tx) => mirrorPostizHistory(tx, scope, input));
   });
 
   // Orbit Agents for the web: assignments and their upcoming posts (404 while off).

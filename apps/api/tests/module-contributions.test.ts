@@ -39,6 +39,7 @@ import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
+import { socialContributions } from "../src/modules/social/contributions.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
 import { publicEntity } from "../src/platform/shared.ts";
@@ -100,6 +101,9 @@ describe("module contributions", () => {
         "reconciliation",
         "reindex",
         "slack_notification",
+        "social_deliver",
+        "social_dispatch",
+        "social_reconcile",
         "support_draft",
         "support_email_inbound",
         "support_triage",
@@ -171,7 +175,8 @@ describe("module contributions", () => {
   });
 
   it("lets marketing extend pause, resume and retention (WP1.8)", () => {
-    expect(registeredHooks()).toEqual([marketingHooks]);
+    // Social re-enqueues recently paused deliveries on resume (ADR 0020, S5).
+    expect(registeredHooks()).toEqual([socialContributions.hooks, marketingHooks]);
     // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
       platformContributions.retention,
@@ -416,6 +421,13 @@ describe("module contributions", () => {
       "n8n",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
+      // The social module's developer apps and managed accounts (ADR 0020).
+      "social.app.meta",
+      "social.app.x",
+      "social.account.x",
+      "social.account.facebook",
+      "social.account.instagram",
+      "social.account.telegram",
       "postiz",
       "matomo",
       "slack",
@@ -425,7 +437,9 @@ describe("module contributions", () => {
       "platform",
     );
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(6))
+    for (const id of registeredConnectionProviderIds().slice(6, 12))
+      expect(registeredConnectionProvider(id)?.owner).toBe("social");
+    for (const id of registeredConnectionProviderIds().slice(12))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

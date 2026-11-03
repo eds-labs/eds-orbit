@@ -196,6 +196,24 @@ export function checkForbiddenLiterals(files, config) {
   return found.sort();
 }
 
+/**
+ * Import specifiers no source file may name (`config.forbiddenImportPrefixes`),
+ * matched as the prefix itself or the prefix followed by a subpath, as sorted
+ * ids "forbidden-import: file -> \"specifier\"". Keeps managed publishing
+ * providers of the social SDK out of every zone (ADR 0020).
+ */
+export function checkForbiddenImportPrefixes(files, config) {
+  const found = [];
+  for (const prefix of config.forbiddenImportPrefixes ?? []) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(["'\`])(${escaped}(?:/[^"'\`]*)?)\\1`, "g");
+    for (const [file, source] of Object.entries(files))
+      for (const match of source.matchAll(pattern))
+        found.push(`forbidden-import: ${file} -> "${match[2]}"`);
+  }
+  return found.sort();
+}
+
 /** New violations (not in the baseline) and resolved ones (baseline only). */
 export function compareBaseline(violations, baseline) {
   const known = new Set(baseline);
@@ -233,6 +251,7 @@ export function checkRepository(root) {
     violations: [
       ...imports.violations,
       ...checkForbiddenLiterals(files, config),
+      ...checkForbiddenImportPrefixes(files, config),
     ].sort(),
   };
   return { config, ...result, ...compareBaseline(result.violations, config.baseline) };

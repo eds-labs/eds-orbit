@@ -127,7 +127,10 @@ import {
   vetoPublication,
 } from "../src/modules/agents/veto.ts";
 import { preflight } from "../src/modules/policy.ts";
-import { dispatchPublication } from "../src/modules/publisher.ts";
+import { dispatchPublication, reconcilePublication } from "../src/modules/publisher.ts";
+import { pauseProject } from "../src/modules/pause.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   claimPublication,
   finishPublication,
@@ -982,6 +985,109 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         ),
       );
       expect(data(mission).allowedActions).toEqual(["draft"]);
+    } finally {
+      for (const [key, value] of Object.entries(saved))
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+  });
+
+  it("hands a live post to Social instead of Postiz on a project that publishes through Social (S9)", async () => {
+    const keys = ["EXECUTION_MODE", "ENABLE_EXTERNAL_WRITES", "ORBIT_SOCIAL", "ORBIT_SOCIAL_PLATFORMS", "ORBIT_FILES", "FILES_BACKEND", "FILES_ENCRYPTION_KEY"];
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    try {
+      Object.assign(process.env, {
+        EXECUTION_MODE: "live",
+        ENABLE_EXTERNAL_WRITES: "true",
+        ORBIT_SOCIAL: "true",
+        ORBIT_SOCIAL_PLATFORMS: "x",
+        ORBIT_FILES: "true",
+        FILES_BACKEND: "database",
+        FILES_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
+      });
+      provider.liveIndex = true;
+      await h.setPolicy({ maxPerDay: 3 });
+      const accountId = await h.run(async (tx) => {
+        await tx.projectModule.create({
+          data: { workspaceId: project.owner.workspaceId, projectId: project.owner.projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: project.owner.userId },
+        });
+        const account = await tx.socialAccount.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            connectionId: randomUUID(),
+            platform: "x",
+            externalId: "4242",
+            handle: "@orbit_x",
+            displayName: "Orbit X",
+            capability: "write_verified",
+            settings: { xLongPosts: true },
+            legacyPostizIntegrationId: X,
+            createdBy: project.owner.userId,
+          },
+        });
+        return account.id;
+      });
+      await h.run((tx) => forcePublishingBackend(tx, project.owner, "social"));
+      await h.connectTelegram();
+      await h.makeAssignment();
+      const { review } = await drafted();
+      await reviewed(review.id);
+      const [pub] = (await publications()).filter((p) => p.channel === X);
+      expect(pub).toMatchObject({ test: false });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(at(pub!.scheduledAt, 1));
+      await dispatchPublication(project.owner, pub!.id);
+      expect(provider.createPost).not.toHaveBeenCalled();
+      const handed = (await publications()).find((p) => p.id === pub!.id)!;
+      expect(handed).toMatchObject({ status: "scheduled_remote", publishingBackend: "social" });
+      const post = await h.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: handed.remoteId } }));
+      expect(post).toMatchObject({ origin: "marketing", originType: "publication", originId: pub!.id, status: "approved", scheduleMode: "now" });
+      expect(post.baseText).toContain("Beta access is open");
+      // A second dispatch of the same publication makes no second Social post
+      // and leaves the record as it is.
+      await dispatchPublication(project.owner, pub!.id);
+      expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, originId: pub!.id } }))).toBe(1);
+      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({ status: "scheduled_remote", remoteId: handed.remoteId });
+      // Social published it: Marketing's poll records the link.
+      await h.run(async (tx) => {
+        const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId: post.id } });
+        await tx.socialPublication.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            variantId: variant.id,
+            accountId,
+            idempotencyKey: randomUUID(),
+            status: "published",
+            externalPostId: "1700",
+            permalink: "https://x.com/orbit_x/status/1700",
+            publishedAt: new Date(),
+          },
+        });
+        await tx.socialPost.update({ where: { id: post.id }, data: { status: "published" } });
+      });
+      await reconcilePublication(project.owner, pub!.id);
+      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({
+        status: "published",
+        releaseUrl: "https://x.com/orbit_x/status/1700",
+      });
+      // Once it is out, a late redelivery of the job changes nothing either.
+      await dispatchPublication(project.owner, pub!.id);
+      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({ status: "published" });
+      // A second post handed over and not sent yet: a pause takes it back in Social.
+      const [, second] = (await publications()).filter((p) => p.channel === X);
+      if (second) {
+        vi.setSystemTime(at(second.scheduledAt, 1));
+        await dispatchPublication(project.owner, second.id);
+        const secondHanded = (await publications()).find((p) => p.id === second.id)!;
+        expect(secondHanded.status).toBe("scheduled_remote");
+        await h.run((tx) => pauseProject(tx, project.owner, true));
+        expect((await publications()).find((p) => p.id === second.id)).toMatchObject({ status: "canceled", reason: "PROJECT_PAUSED" });
+        expect((await h.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: secondHanded.remoteId } }))).status).toBe("canceled");
+      }
     } finally {
       for (const [key, value] of Object.entries(saved))
         if (value === undefined) delete process.env[key];

@@ -33,6 +33,8 @@ Object.assign(process.env, {
   ORBIT_WORK: "true",
   // Issue center (ADR 0018): routes exist; the project never enables it.
   ORBIT_ISSUES: "true",
+  // Social module (ADR 0020): routes exist; the project never enables it.
+  ORBIT_SOCIAL: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
@@ -80,13 +82,25 @@ const PUBLIC_ROUTES = [
   "GET /api/health/postiz",
   "GET /api/health/ready",
   "GET /api/setup",
+  // Social OAuth callback (ADR 0020): it checks the state's shape first (400
+  // here, without one) and then needs the owner's session (401/403, pinned
+  // in social-oauth-routes.integration.test.ts).
+  "GET /api/social/oauth/callback/{app}",
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
+  // A module's provider callback (ADR 0020): Meta's signed data-deletion
+  // request; without a valid signature it is refused (400).
+  "POST /api/callbacks/social/meta-data-deletion",
   // Signed provider webhooks (WP4.2a): the signature authenticates.
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
   // The support widget's public API (WP5.4): the key, its allowed origins and
   // a bearer session authenticate; a made-up key answers 404 for everybody.
+  // The status of a Meta data-deletion request (ADR 0020): the signed
+  // confirmation code authenticates; any other code answers 404.
+  "GET /api/public/social/data-deletion/{code}",
+  // Signed social media for platforms (ADR 0020, S3): the token authenticates.
+  "GET /api/public/social/media/{token}",
   "GET /api/public/support/{publicKey}/conversations",
   "GET /api/public/support/{publicKey}/messages",
   "GET /api/public/support/{publicKey}/stream",

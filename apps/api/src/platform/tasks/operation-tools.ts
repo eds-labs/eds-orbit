@@ -46,8 +46,12 @@ type Operation = {
    * `sensitive` keeps meaning `orbit:support`.
    */
   mcpScopes?: readonly string[];
-  /** Content-free summary for the native approval renderer (ids only). */
-  summary?(args: any): Record<string, unknown>;
+  /**
+   * Content-free summary for the native approval renderer (ids only); a
+   * module whose renderer shows the exact package gets the stored
+   * `approvalContext` as well.
+   */
+  summary?(args: any, context?: any): Record<string, unknown>;
   /**
    * The operation's risk class (ADR 0008 §1), stated per operation; read
    * operations ignore it. Proposals record it, and the approvals list
@@ -308,7 +312,7 @@ export function approvedOperation(
           // A stored request with unreadable args must not break the list.
           summary: (p: z.infer<typeof payload>) => {
             const args = op.input.safeParse(p.args);
-            return args.success ? op.summary!(args.data) : {};
+            return args.success ? op.summary!(args.data, p.approvalContext) : {};
           },
         }
       : {}),

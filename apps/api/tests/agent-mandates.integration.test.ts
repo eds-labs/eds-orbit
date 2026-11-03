@@ -316,6 +316,10 @@ describe.skipIf(!enabled)("Agent mandates", () => {
         "marketing.mcp.marketing_update_campaign",
         "support.mcp.support_add_note",
         "support.mcp.support_prepare_reply",
+        // Social drafts and cancelling a planned post change nothing outside (S7).
+        "social.mcp.social_cancel",
+        "social.mcp.social_draft_create",
+        "social.mcp.social_draft_update",
         "work.mcp.work_propose_comment",
         "work.mcp.work_propose_initiative",
         "work.mcp.work_propose_task_update",
@@ -333,6 +337,11 @@ describe.skipIf(!enabled)("Agent mandates", () => {
       "platform.task.start",
       "support.mcp.support_send_reply",
       "platform.mcp.ai_spend_policy_update",
+      // Publishing a social post is public (S7).
+      "social.mcp.social_schedule",
+      "social.mcp.social_publish_now",
+      "social.post.schedule",
+      "social.post.publish_now",
     ])
       expect(registeredActionTypes().get(never)?.mandate, never).toBeUndefined();
     // Tools with a direct external effect are never mandatable.

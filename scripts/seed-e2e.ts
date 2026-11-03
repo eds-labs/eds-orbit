@@ -1,5 +1,5 @@
 import { existsSync, writeFileSync, readFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 process.loadEnvFile(".runtime/local.env");
 if (
   process.env.EXECUTION_MODE !== "test" ||
@@ -9,7 +9,55 @@ if (
 const existing = existsSync(".runtime/e2e-user.json")
   ? JSON.parse(readFileSync(".runtime/e2e-user.json", "utf8"))
   : null;
+/**
+ * With E2E_SOCIAL=1 (S6): the social module on in the acceptance project and
+ * one synthetic Telegram account that may post. Test mode sends nothing, so
+ * the account has no secret; it counts as checked now, so the six-hourly
+ * health read (which would find no secret) leaves it alone during the run.
+ */
+async function seedSocial(projectId: string) {
+  if (process.env.E2E_SOCIAL !== "1") return;
+  const { authDb, scoped } = await import("../packages/db/src/index.ts");
+  const row = await authDb.project.findUniqueOrThrow({ where: { id: projectId } });
+  const owner = await authDb.projectMember.findFirstOrThrow({ where: { projectId, role: "owner" } });
+  await scoped(row.workspaceId, projectId, async (tx) => {
+    await tx.projectModule.upsert({
+      where: { workspaceId_projectId_moduleId: { workspaceId: row.workspaceId, projectId, moduleId: "social" } },
+      create: { workspaceId: row.workspaceId, projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: owner.userId },
+      update: { enabled: true },
+    });
+    const checked = { lastCheckedAt: new Date().toISOString(), lastCheckCode: null };
+    const seeded = await tx.socialAccount.findFirst({ where: { projectId, handle: "Orbit e2e channel" } });
+    if (seeded)
+      await tx.socialAccount.update({
+        where: { id: seeded.id },
+        data: { status: "active", settings: { ...(seeded.settings as object), ...checked }, version: { increment: 1 } },
+      });
+    else
+      await tx.socialAccount.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: row.workspaceId,
+          projectId,
+          connectionId: randomUUID(),
+          platform: "telegram",
+          externalId: "-1000000000001",
+          handle: "Orbit e2e channel",
+          displayName: "Orbit e2e channel",
+          capability: "write_verified",
+          settings: checked,
+          createdBy: owner.userId,
+        },
+      });
+  });
+  console.log("Social module and synthetic Telegram account ready.");
+}
 if (existing?.projectId) {
+  await seedSocial(existing.projectId);
+  if (process.env.E2E_SOCIAL === "1") {
+    const { closeDatabase } = await import("../packages/db/src/index.ts");
+    await closeDatabase();
+  }
   console.log("Preserved existing synthetic browser account.");
   process.exit(0);
 }
@@ -88,6 +136,7 @@ writeFileSync(
   JSON.stringify({ email, password, projectId: project.json().id }),
   { mode: 0o600 },
 );
+await seedSocial(project.json().id);
 await app.close();
 await closeDatabase();
 console.log(

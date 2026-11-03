@@ -173,6 +173,8 @@ import {
   registerWebhookRoutes,
   WEBHOOK_PATH,
   WEBHOOK_URL,
+  CALLBACK_PREFIX,
+  CALLBACK_URL,
 } from "./platform/http/webhooks.ts";
 import {
   createPublicKey,
@@ -403,7 +405,8 @@ export async function buildServer(
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
       (req.routeOptions.url === WEBHOOK_PATH ||
-        (req.routeOptions.url ?? "").startsWith("/api/public/")) &&
+        (req.routeOptions.url ?? "").startsWith("/api/public/") ||
+        (req.routeOptions.url ?? "").startsWith(CALLBACK_PREFIX)) &&
       !publicIngressEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
@@ -416,6 +419,8 @@ export async function buildServer(
       ) &&
       !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
       !(req.method === "POST" && WEBHOOK_URL.test(req.url)) &&
+      // Module provider callbacks are signed by the provider (ADR 0020).
+      !(req.method === "POST" && CALLBACK_URL.test(req.url)) &&
       // Workflow outcomes are signed with the connection's secret (WP3.7).
       !(
         req.method === "POST" &&

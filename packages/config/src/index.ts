@@ -198,6 +198,27 @@ const baseConfigSchema = z.object({
   // Issue center (ADR 0018): off until its rollout is approved. Even when
   // "true", it works only in projects whose owner enabled the module.
   ORBIT_ISSUES: z.enum(["false", "true"]).default("false"),
+  // Social module (ADR 0020): off until its rollout is approved. Even when
+  // "true", it works only in projects whose owner enabled the module.
+  ORBIT_SOCIAL: z.enum(["false", "true"]).default("false"),
+  // Signed public media URLs of the social module (ADR 0020, S3): off until
+  // public posting is approved; also needs ORBIT_PUBLIC_INGRESS.
+  ORBIT_SOCIAL_MEDIA_PUBLIC: z.enum(["false", "true"]).default("false"),
+  // Platforms the social module may really post to (ADR 0020, S5), a comma
+  // list of x, facebook, instagram and telegram; empty sends nowhere. Live sends also
+  // need EXECUTION_MODE=live and ENABLE_EXTERNAL_WRITES=true.
+  ORBIT_SOCIAL_PLATFORMS: z
+    .string()
+    .default("")
+    .refine(
+      (value) =>
+        value
+          .split(",")
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .every((p) => ["x", "facebook", "instagram", "telegram"].includes(p)),
+      "ORBIT_SOCIAL_PLATFORMS lists x, facebook, instagram and telegram only",
+    ),
   // Universal customer context (ADR 0011): live, read-only account facts
   // from external products for Support. Off until a provider passed its
   // integration test; each inbox must still be bound by its owner.
