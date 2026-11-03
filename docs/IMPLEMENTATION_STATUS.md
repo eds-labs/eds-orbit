@@ -1,5 +1,11 @@
 # Implementation status
 
+## Social module follow-ups P1 (2026-11-03, branch `claude/social-p1` on top of S5b, not merged; `ORBIT_SOCIAL` off)
+
+- **Built:** the public status page of Meta data-deletion requests (`/data-deletion?code=…`, standalone, no session; `GET /api/public/social/data-deletion/:code`, public ingress only) with self-verifying confirmation codes (no stored request); media tokens accept only the canonical spelling of their signature (the S3 test that tampered with the last characters failed about once in 256 runs); the e2e seed marks its synthetic Telegram account as checked, so the six-hourly health read (no secret) no longer flags it; `navigation.spec.ts` knows the social group on a stack seeded with `E2E_SOCIAL=1`.
+- **Verified locally:** the S6 Playwright spec `social-calendar.spec.ts` passes against the worktree's own test database (`E2E_SOCIAL=1`, `ORBIT_ADMINISTRATION=true`). In a full local run, single workspace specs time out intermittently while the fixture holds reads under the API's 600 per minute limit (the shell waits on `/api/setup`); each passes when run alone.
+- **Production:** nothing deployed. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. The Meta app's Live mode still needs a privacy policy URL (outside Orbit) and the data-deletion callback URL.
+
 ## Social module phase S5b (2026-11-03, branch `claude/social-s5b` on top of S6, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-s5b-facebook.md](superpowers/plans/2026-11-03-social-s5b-facebook.md).

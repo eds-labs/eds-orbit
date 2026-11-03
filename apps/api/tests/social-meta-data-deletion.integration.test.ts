@@ -79,8 +79,8 @@ describe.skipIf(!enabled)("Meta data-deletion callback", () => {
     );
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.confirmation_code).toMatch(/^[A-Za-z0-9_-]{16}$/);
-    expect(body.url).toBe(`${new URL(process.env.APP_ORIGIN!).origin}/social/data-deletion?code=${body.confirmation_code}`);
+    expect(body.confirmation_code).toMatch(/^[a-f0-9]{42}$/);
+    expect(body.url).toBe(`${new URL(process.env.APP_ORIGIN!).origin}/data-deletion?code=${body.confirmation_code}`);
     expect(await status(a, one.accountId)).toMatchObject({ status: "disabled" });
     expect(await status(b, two.accountId)).toMatchObject({ status: "disabled" });
     expect(await status(a, other.accountId)).toMatchObject({ status: "active" });
@@ -91,6 +91,27 @@ describe.skipIf(!enabled)("Meta data-deletion callback", () => {
     );
     expect(audits).toHaveLength(1);
     expect(JSON.stringify(audits)).not.toContain(metaUserId);
+  });
+
+  it("shows the status of a confirmation code it issued, and nothing for any other code", async () => {
+    const before = Date.now();
+    const response = await post(
+      `signed_request=${signedRequest({ algorithm: "HMAC-SHA256", issued_at: Math.floor(Date.now() / 1000), user_id: `nobody-${randomUUID()}` })}`,
+    );
+    const code: string = response.json().confirmation_code;
+    const lookup = (value: string) => app.inject({ method: "GET", url: `/api/public/social/data-deletion/${value}` });
+    const found = await lookup(code);
+    expect(found.statusCode).toBe(200);
+    expect(found.headers["cache-control"]).toBe("no-store");
+    expect(found.headers["x-robots-tag"]).toBe("noindex, nofollow");
+    expect(found.json()).toEqual({ status: "completed", requestedAt: expect.any(String) });
+    expect(Date.parse(found.json().requestedAt)).toBeGreaterThanOrEqual(Math.floor(before / 1000) * 1000);
+    // Another signature, another issue time, nonsense: unknown.
+    const forged = code.slice(0, -1) + (code.endsWith("0") ? "1" : "0");
+    const otherTime = code.slice(0, 18) + (code[18] === "0" ? "1" : "0") + code.slice(19);
+    for (const value of [forged, otherTime, "abc", "z".repeat(42)]) expect((await lookup(value)).statusCode).toBe(404);
+    delete process.env.ORBIT_PUBLIC_INGRESS;
+    expect((await lookup(code)).statusCode).toBe(404);
   });
 
   it("refuses a wrong signature and changes nothing", async () => {

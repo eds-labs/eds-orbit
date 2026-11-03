@@ -66,6 +66,17 @@ async function openHome(page: Page, base: string) {
 // in Marketing), then the project group. Marketing and Knowledge both have an
 // "Overview", so a link is looked up inside its group's list. The support
 // group (groupOrder 20) shows only on a support-enabled stack.
+// The social group (ADR 0020, groupOrder 12) shows only on a stack seeded
+// with E2E_SOCIAL=1; it has no settings link in the sidebar.
+const SOCIAL = process.env.E2E_SOCIAL === "1";
+const SOCIAL_PAGES: Array<[group: string, name: string, path: string]> = [
+  ["social", "Overview", "/social"],
+  ["social", "Calendar", "/social/calendar"],
+  ["social", "Posts", "/social/posts"],
+  ["social", "Media", "/social/media"],
+  ["social", "Accounts", "/social/accounts"],
+  ["social", "Analytics", "/social/analytics"],
+];
 const SUPPORT_PAGES: Array<[group: string, name: string, path: string]> = [
   ["support", "Overview", "/support"],
   ["support", "Tickets", "/support/tickets"],
@@ -85,6 +96,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["marketing", "Assets", "/marketing/assets"],
   ["marketing", "Analytics", "/marketing/analytics"],
   ["marketing", "Memory", "/marketing/memory"],
+  ...(SOCIAL ? SOCIAL_PAGES : []),
   ...(SUPPORT ? SUPPORT_PAGES : []),
   ["knowledge", "Overview", "/knowledge"],
   ["knowledge", "Sources", "/knowledge/sources"],

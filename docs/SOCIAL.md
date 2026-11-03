@@ -58,6 +58,7 @@ Migration `202611020001_social_core`: `SocialAccount`, `SocialPost`, `SocialPost
 | `POST /api/projects/:projectId/social/accounts/:accountId/disconnect` `{version}` | `social.accounts.manage` |
 | `PATCH /api/projects/:projectId/social/accounts/:accountId` `{version, settings: {xLongPosts}}` | `social.accounts.manage` |
 | `POST /api/callbacks/social/meta-data-deletion` | Meta's signed request; needs `ORBIT_PUBLIC_INGRESS` |
+| `GET /api/public/social/data-deletion/:code` | anyone with the confirmation code; needs `ORBIT_PUBLIC_INGRESS` |
 
 Later phases (S3–S12, see the programme plan) add media, posts, approvals, the dispatcher, the calendar, MCP tools, analytics, the Marketing integration and the Postiz migration.
 
@@ -70,7 +71,7 @@ Later phases (S3–S12, see the programme plan) add media, posts, approvals, the
 - **Telegram** uses a separate publishing bot per channel (S-D3): the owner enters its token and the channel (`@name` or id); the bot must be an administrator allowed to post. The project's own Orbit bot is refused (`SOCIAL_TELEGRAM_OWNER_BOT`). The social module never calls `getUpdates`, `setWebhook`, `deleteWebhook`, `logOut` or `close`.
 - **Health.** "Check" reads with the stored credentials (X `users/me`, Meta `debug_token` incl. the publishing permission for this asset, Telegram `getChatMember`). A refusal marks the account `reconnect_required` (attention item for readers, a notification to the owners once); an outage is only recorded. The periodic task `social-account-health` checks every active account every six hours, at most 20 per project and run.
 - **Disconnect** revokes the account's connection (and, for X, the token at X, best effort) and keeps the account row for the history.
-- **Meta data deletion.** Meta's data-deletion request (`signed_request`, HMAC-SHA256 with the app secret) disconnects every account of that Meta user in every project and answers `{url, confirmation_code}`. The status page `/social/data-deletion?code=…` is not built yet.
+- **Meta data deletion.** Meta's data-deletion request (`signed_request`, HMAC-SHA256 with the app secret) disconnects every account of that Meta user in every project and answers `{url, confirmation_code}`. The code proves itself: random bytes and the issue time, signed with a key derived from `AUTH_SECRET` (HKDF label `orbit-social-data-deletion-v1`), so nothing about the request is stored. The public page `/data-deletion?code=…` (no Orbit account needed) reads `GET /api/public/social/data-deletion/:code` and shows the request as completed with its date, what was removed (the connections and their tokens) and what stays (posts already published, the project's record of them and the account names); any other code is unknown. Rotating `AUTH_SECRET` makes earlier codes unknown.
 
 ## Media library (S3)
 

@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { authDb, scoped } from "../../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
@@ -14,10 +14,19 @@ import { metaAppSecret, parseAppSecret } from "./apps.ts";
 // with the app secret. Every account of that Meta user is disconnected, in
 // every project; Meta gets a confirmation code and a status URL. Nothing of
 // the payload is logged or audited except the code.
+//
+// The code proves itself: random bytes and the issue time, signed with a key
+// derived from AUTH_SECRET. The deletion is done before the code is issued,
+// so the public status page needs no stored request: a code it can verify
+// is a completed request (a rotated AUTH_SECRET makes old codes unknown).
 
 const MAX_AGE_S = 86_400;
 const SKEW_S = 300;
 const SYSTEM_ACTOR = "meta-data-deletion";
+const CODE_RANDOM_BYTES = 9;
+const CODE_BODY_BYTES = CODE_RANDOM_BYTES + 4;
+const CODE_MAC_BYTES = 8;
+const CODE = /^[a-f0-9]{42}$/;
 
 const payload = z.object({
   algorithm: z.string(),
@@ -75,9 +84,29 @@ async function verify(signed: string): Promise<z.infer<typeof payload>> {
   return parsed.data;
 }
 
+const codeKey = () =>
+  Buffer.from(hkdfSync("sha256", loadConfig().AUTH_SECRET, Buffer.alloc(0), "orbit-social-data-deletion-v1", 32));
+const codeMac = (body: Buffer) => createHmac("sha256", codeKey()).update(body).digest().subarray(0, CODE_MAC_BYTES);
+
+function confirmationCode(now = new Date()): string {
+  const body = Buffer.alloc(CODE_BODY_BYTES);
+  randomBytes(CODE_RANDOM_BYTES).copy(body);
+  body.writeUInt32BE(Math.floor(now.getTime() / 1000), CODE_RANDOM_BYTES);
+  return Buffer.concat([body, codeMac(body)]).toString("hex");
+}
+
+/** The status behind a confirmation code this Orbit issued; NOT_FOUND for any other. */
+export function metaDataDeletionStatus(code: string): { status: "completed"; requestedAt: string } {
+  if (!CODE.test(code)) throw new DomainError("NOT_FOUND", 404);
+  const raw = Buffer.from(code, "hex");
+  const body = raw.subarray(0, CODE_BODY_BYTES);
+  if (!timingSafeEqual(raw.subarray(CODE_BODY_BYTES), codeMac(body))) throw new DomainError("NOT_FOUND", 404);
+  return { status: "completed", requestedAt: new Date(body.readUInt32BE(CODE_RANDOM_BYTES) * 1000).toISOString() };
+}
+
 export async function handleMetaDataDeletion(body: unknown): Promise<{ url: string; confirmation_code: string }> {
   const request = await verify(signedRequestOf(body));
-  const code = randomBytes(12).toString("base64url");
+  const code = confirmationCode();
   for (const provider of ["social.account.facebook", "social.account.instagram"]) {
     for (const found of await projectConnectionsByConfig(provider, "metaUserId", request.user_id)) {
       const scope: Scope = {
@@ -98,7 +127,7 @@ export async function handleMetaDataDeletion(body: unknown): Promise<{ url: stri
     }
   }
   return {
-    url: `${new URL(loadConfig().APP_ORIGIN).origin}/social/data-deletion?code=${code}`,
+    url: `${new URL(loadConfig().APP_ORIGIN).origin}/data-deletion?code=${code}`,
     confirmation_code: code,
   };
 }

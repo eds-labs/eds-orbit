@@ -12,7 +12,8 @@ const existing = existsSync(".runtime/e2e-user.json")
 /**
  * With E2E_SOCIAL=1 (S6): the social module on in the acceptance project and
  * one synthetic Telegram account that may post. Test mode sends nothing, so
- * the account has no secret.
+ * the account has no secret; it counts as checked now, so the six-hourly
+ * health read (which would find no secret) leaves it alone during the run.
  */
 async function seedSocial(projectId: string) {
   if (process.env.E2E_SOCIAL !== "1") return;
@@ -25,7 +26,14 @@ async function seedSocial(projectId: string) {
       create: { workspaceId: row.workspaceId, projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: owner.userId },
       update: { enabled: true },
     });
-    if (!(await tx.socialAccount.findFirst({ where: { projectId, handle: "Orbit e2e channel" } })))
+    const checked = { lastCheckedAt: new Date().toISOString(), lastCheckCode: null };
+    const seeded = await tx.socialAccount.findFirst({ where: { projectId, handle: "Orbit e2e channel" } });
+    if (seeded)
+      await tx.socialAccount.update({
+        where: { id: seeded.id },
+        data: { status: "active", settings: { ...(seeded.settings as object), ...checked }, version: { increment: 1 } },
+      });
+    else
       await tx.socialAccount.create({
         data: {
           id: randomUUID(),
@@ -37,6 +45,7 @@ async function seedSocial(projectId: string) {
           handle: "Orbit e2e channel",
           displayName: "Orbit e2e channel",
           capability: "write_verified",
+          settings: checked,
           createdBy: owner.userId,
         },
       });

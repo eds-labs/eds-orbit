@@ -95,10 +95,25 @@ describe.skipIf(!enabled)("social public media URLs", () => {
     const s = await publication("claimed");
     const url = publicMediaUrl(p.owner, { publicationId: s.publicationId, fileId: s.jpegFileId });
     const token = url.split("/").pop()!;
-    const flipped = token.slice(0, -2) + (token.endsWith("A") ? "BB" : "AA");
+    // The first signature character carries six real bits: any change forges.
+    const signatureAt = token.lastIndexOf(".") + 1;
+    const flipped = token.slice(0, signatureAt) + (token[signatureAt] === "A" ? "B" : "A") + token.slice(signatureAt + 1);
     expect((await app.inject({ method: "GET", url: `/api/public/social/media/${flipped}` })).statusCode).toBe(404);
     expect((await get(publicMediaUrl(p.owner, { publicationId: s.publicationId, fileId: s.otherFileId }))).statusCode).toBe(404);
     expect((await get(publicMediaUrl(other.owner, { publicationId: s.publicationId, fileId: s.jpegFileId }))).statusCode).toBe(404);
+  });
+
+  it("accepts only the one spelling of a signature", async () => {
+    const s = await publication("claimed");
+    const token = publicMediaUrl(p.owner, { publicationId: s.publicationId, fileId: s.jpegFileId }).split("/").pop()!;
+    // 16 MAC bytes leave four unused bits in the last character (A, Q, g, w
+    // carry them as zero); setting one gives the same bytes in another spelling.
+    const last = token.at(-1)!;
+    const variant = token.slice(0, -1) + String.fromCharCode(last.charCodeAt(0) + 1);
+    const signature = (t: string) => Buffer.from(t.slice(t.lastIndexOf(".") + 1), "base64url");
+    expect(signature(variant).equals(signature(token))).toBe(true);
+    expect(verifyMediaToken(token)).not.toBeNull();
+    expect(verifyMediaToken(variant)).toBeNull();
   });
 
   it("serves nothing once the token expired", async () => {

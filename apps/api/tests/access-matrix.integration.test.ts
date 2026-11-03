@@ -96,6 +96,9 @@ const PUBLIC_ROUTES = [
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
   // The support widget's public API (WP5.4): the key, its allowed origins and
   // a bearer session authenticate; a made-up key answers 404 for everybody.
+  // The status of a Meta data-deletion request (ADR 0020): the signed
+  // confirmation code authenticates; any other code answers 404.
+  "GET /api/public/social/data-deletion/{code}",
   // Signed social media for platforms (ADR 0020, S3): the token authenticates.
   "GET /api/public/social/media/{token}",
   "GET /api/public/support/{publicKey}/conversations",

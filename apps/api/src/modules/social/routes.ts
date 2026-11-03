@@ -8,7 +8,7 @@ import { disconnectAccount, listAccounts, updateAccountSettings } from "./accoun
 import { requestWriteVerification } from "./accounts/verify-write.ts";
 import { redirectUri } from "./accounts/apps.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
-import { handleMetaDataDeletion } from "./accounts/data-deletion.ts";
+import { handleMetaDataDeletion, metaDataDeletionStatus } from "./accounts/data-deletion.ts";
 import { checkAccount } from "./accounts/health.ts";
 import { consumeOAuthState, projectOfState } from "./accounts/oauth-state.ts";
 import { connectTelegramChannel } from "./accounts/telegram.ts";
@@ -99,6 +99,18 @@ export const socialRoutes: RoutesContribution = (context) => {
     "/api/callbacks/social/meta-data-deletion",
     { bodyLimit: 16_384, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
     (req) => handleMetaDataDeletion(req.body),
+  );
+  // The status behind a confirmation code, for the public status page.
+  app.get(
+    "/api/public/social/data-deletion/:code",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { code } = z.object({ code: z.string().max(100) }).parse(req.params);
+      return reply
+        .header("Cache-Control", "no-store")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .send(metaDataDeletionStatus(code));
+    },
   );
   // The provider sends the browser here (outside the project path, so the
   // project comes from the state). The member must be the signed-in owner

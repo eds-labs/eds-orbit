@@ -57,6 +57,9 @@ export function verifyMediaToken(token: string, now = new Date()): MediaTokenCla
   const [ids, expires, signature, extra] = token.split(".");
   if (!ids || !expires || !signature || extra !== undefined) return null;
   const given = Buffer.from(signature, "base64url");
+  // One spelling only: base64url leaves unused bits in the last character,
+  // and a decoder ignores them.
+  if (given.toString("base64url") !== signature) return null;
   const expected = mac(`${ids}.${expires}`);
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
   const seconds = parseInt(expires, 36);
