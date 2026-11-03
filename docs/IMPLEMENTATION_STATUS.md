@@ -1,5 +1,14 @@
 # Implementation status
 
+## Social module phase S7 (2026-11-03, branch `claude/social-s7` on top of `claude/social-p1`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).
+
+- **Built (S7):** five reads (`social_accounts`, `social_calendar`, `social_post_get`, `social_post_status`, `social_validate`) and five owner-decided proposals (`social_draft_create`, `social_draft_update`, `social_cancel` as W0 with mandate cost 0; `social_schedule`, `social_publish_now` as W2, never mandatable) for Orbit Chat and MCP; scope `orbit:social` in the gateway, the authorization server and the consent screen; Decisions renderers for drafts and cancellations; schedule proposals carry the exact package and their approval is the post's approval.
+- **Not built:** direct MCP publishing for owners (`mcpOwnerPublishWithoutApproval` refused), analytics tools (S8).
+- **Chat budget:** with the support, finance, Creative Studio and agents features on, the fixed part of a Claude chat leaves 24.3 KB instead of 33.3 KB with social on; with every module on, only about 6 KB (15.2 KB without social). The limit test counts only modules switched on in the test environment.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`). A client needs a reconnect to get `orbit:social`.
+
 ## Social module follow-ups P1 (2026-11-03, branch `claude/social-p1` on top of S5b, not merged; `ORBIT_SOCIAL` off)
 
 - **Built:** the public status page of Meta data-deletion requests (`/data-deletion?code=…`, standalone, no session; `GET /api/public/social/data-deletion/:code`, public ingress only) with self-verifying confirmation codes (no stored request); media tokens accept only the canonical spelling of their signature (the S3 test that tampered with the last characters failed about once in 256 runs); the e2e seed marks its synthetic Telegram account as checked, so the six-hourly health read (no secret) no longer flags it; `navigation.spec.ts` knows the social group on a stack seeded with `E2E_SOCIAL=1`.

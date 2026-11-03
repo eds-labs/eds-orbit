@@ -33,7 +33,7 @@ Stored in the module's `ProjectModule` row, versioned (`PUT /api/projects/:proje
 | Setting | Default | Meaning |
 |---|---|---|
 | `approval` | `owner_each` | `owner_each`: the owner approves every publication. `editor_each` (editors approve too, S-D9) is refused with 409 `SOCIAL_SETTING_NOT_AVAILABLE` for now: who decides is fixed per action type, and the platform has no per-project hook yet (S4 ruling). |
-| `mcpOwnerPublishWithoutApproval` | `false` | An owner's direct MCP call may publish without a separate request. |
+| `mcpOwnerPublishWithoutApproval` | `false` | An owner's direct MCP call may publish without a separate request. Saving `true` is refused with 409 `SOCIAL_SETTING_NOT_AVAILABLE` for now: the platform's direct-effect hook is shaped for support inboxes (S7 ruling); every MCP publication waits for the owner. |
 
 ## Data model
 
@@ -143,6 +143,25 @@ Social → Calendar shows the posts that have a time, in the project's time zone
 |---|---|
 | `GET /api/projects/:projectId/social/calendar?from&to&accountIds&platforms&statuses&origins` | `social.read` |
 | `GET /api/organizations/:workspaceId/social/calendar?from&to&projectIds&…` | organization member; per project `social.read` and the module on |
+
+## Assistant and MCP tools (S7)
+
+Orbit Chat (feature `social`, while the module is on for the project) and outside MCP clients (explicit, initially unchecked scope `orbit:social`) get the same tools. Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).
+
+| Tool | Kind | Permission | What it does |
+|---|---|---|---|
+| `social_accounts` | read | `social.read` | Accounts with status, posting verified and the longest text; no tokens or connection ids |
+| `social_calendar` | read | `social.read` | Posts timed in at most 31 days (filters: accounts, platforms, statuses, origins), at most 200 with `truncated` |
+| `social_post_get` | read | `social.read` | One post: text per account, image metadata, schedule, approval, check results, version, publications |
+| `social_post_status` | read | `social.read` | Status and publications of up to 20 posts; unknown ids under `missing` |
+| `social_validate` | read | `social.compose` | Checks a draft against the platform rules without saving it or calling a platform |
+| `social_draft_create`, `social_draft_update` | proposal W0 | `social.compose` | A draft (origin `mcp` or `assistant`) or new content for a post; the owner sees the exact texts per account |
+| `social_cancel` | proposal W0 | `social.compose` | A planned or approved post back to a draft |
+| `social_schedule`, `social_publish_now` | proposal W2 | `social.publish` | Publishing at a time or right away |
+
+- **Approvals:** every proposal is an ActionRequest the owner decides (S-D9); nothing changes before. The W0 proposals may be covered by an agent mandate (cost 0); the W2 ones never. A schedule or publish-now proposal stores the exact package (texts, images, accounts, time, package hash) as its approval context, and Decisions shows it like a post approval; the owner's decision is the post's approval, applied without a second request. A post that changed after the proposal makes the approval stale (`SOCIAL_APPROVAL_STALE`); a time that is less than two minutes away at approval is refused (`SOCIAL_SCHEDULE_TOO_SOON`). While a proposal waits, the post stays a draft.
+- **Proposals over MCP** need `ORBIT_MCP_TASKS` and the gateway's proposals switch, like Support, Finance and Work; idempotency keys work as there (same key and arguments: the same request; other arguments: `IDEMPOTENCY_KEY_CONFLICT`).
+- **Chat budget:** the ten tools add about 9 KB to a Claude chat's fixed part (tool schemas use a short UUID pattern for this reason).
 
 ## Setting up the developer apps (for the owner of the installation)
 

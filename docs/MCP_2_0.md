@@ -71,6 +71,12 @@ endpoint. Repeating an approval returns the recorded result.
   need `orbit:work`. Delegated work orders may read the PM's state but are
   refused every PM tool that spends or dispatches. See
   [AI project manager](WORK.md#ai-project-manager-phase-2-adr-0017).
+- `orbit:social` (ADR 0020, S7; `ORBIT_SOCIAL` off): explicit, initially
+  unchecked consent for the social module: the five reads (with
+  `orbit:read`) and the five proposals (with `orbit:propose`); the owner
+  decides every proposal, and the approval of `social_schedule` or
+  `social_publish_now` is the post's approval. See
+  [Social](SOCIAL.md#assistant-and-mcp-tools-s7).
 - Module roles, installation switches and project activation still apply.
   Support also needs `ORBIT_SUPPORT` and explicit per-project activation.
 - Text generation needs the existing spend mandate, priced/verified model and
