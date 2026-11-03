@@ -110,11 +110,40 @@ export type AttentionResponse = {
 };
 export { ApiError } from "@orbit/api-client";
 import { request, ApiError } from "@orbit/api-client";
+/**
+ * What an API answer tells the shell's session cache
+ * (platform/shell/session.ts): a write may have changed the identity, and a
+ * 401 means the session is gone.
+ */
+export type ApiEvent =
+  { type: "write"; path: string } | { type: "unauthenticated" };
+const apiListeners = new Set<(event: ApiEvent) => void>();
+/** Hears every write and every 401 of `api`, `remove` and `patchNoContent`. */
+export function onApiEvent(listener: (event: ApiEvent) => void): () => void {
+  apiListeners.add(listener);
+  return () => apiListeners.delete(listener);
+}
+function answered(path: string, method: string | undefined, status?: number) {
+  const events: ApiEvent[] = [];
+  if (status === 401) events.push({ type: "unauthenticated" });
+  if (method && !["GET", "HEAD"].includes(method.toUpperCase()))
+    events.push({ type: "write", path });
+  for (const event of events)
+    for (const listener of apiListeners) listener(event);
+}
 export async function api<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  return request<T>(`/api${path}`, options);
+  let status: number | undefined;
+  try {
+    return await request<T>(`/api${path}`, options);
+  } catch (e) {
+    if (e instanceof ApiError) status = e.status;
+    throw e;
+  } finally {
+    answered(path, options.method, status);
+  }
 }
 export function post<T>(path: string, data: unknown): Promise<T> {
   return api<T>(path, { method: "POST", body: JSON.stringify(data) });
@@ -235,16 +264,28 @@ export const uploadAssetTypes = (creativeStudio: boolean) => [
   "icon",
   ...(creativeStudio ? ["screenshot", "product"] : []),
 ];
+/** A request whose answer the caller reads itself, told to `onApiEvent`. */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  let status: number | undefined;
+  try {
+    const response = await fetch(`/api${path}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+      ...init,
+    });
+    status = response.status;
+    return response;
+  } finally {
+    answered(path, init.method, status);
+  }
+}
+
 /**
  * A DELETE whose success answers 204 with no body, which `api` would fail to
  * parse as JSON. Sends no Content-Type: there is no body to describe.
  */
 export async function remove(path: string): Promise<void> {
-  const response = await fetch(`/api${path}`, {
-    method: "DELETE",
-    credentials: "same-origin",
-    cache: "no-store",
-  });
+  const response = await send(path, { method: "DELETE" });
   if (response.ok) return;
   const value = await response.json().catch(() => null);
   throw new ApiError(value?.error?.code ?? "REQUEST_FAILED", response.status);
@@ -258,10 +299,8 @@ export async function patchNoContent(
   path: string,
   data: unknown,
 ): Promise<void> {
-  const response = await fetch(`/api${path}`, {
+  const response = await send(path, {
     method: "PATCH",
-    credentials: "same-origin",
-    cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });

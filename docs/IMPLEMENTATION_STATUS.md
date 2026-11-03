@@ -1,5 +1,13 @@
 # Implementation status
 
+## Web shell: session reads cached across navigation (2026-11-03, branch `claude/shell-session-cache`, draft PR; not merged)
+
+The shell remounts on every in-app navigation (ruling R15), and its `useResource("/setup")` and `useResource("/me")` started empty: every click showed the "Loading workspace…" boot screen until both reads returned, at about 5–8 reads per click (doubled under React Strict Mode).
+- **Web** (`platform/shell/session.ts`, `components/orbit.tsx`): `useSessionResource` reads both through a module-level cache, like the attention cache. A remount shows the cached answer at once, so no boot screen, and asks again only once it is older than 30 s (stale-while-revalidate; a request in flight is shared). A failed recheck keeps the cached answer, except a 401. `refresh()` (new project, sign-out, account changes) forgets the answer and loads it with the boot screen, as before. A project the cached identity does not list is confirmed with the server before "not found".
+- **Invalidation** (`lib/api.ts` `onApiEvent`, `connectSessionCache`): a 401 from any request through `api`, `remove` or `patchNoContent`, and every `/auth/*` write (sign-in, sign-out), forget all answers, also in the browser's other tabs (`BroadcastChannel("orbit.session")`). Any other write marks them stale, so the next navigation rechecks. Sign-out also clears the cache directly. A page reload starts empty, so a project created elsewhere appears after a refresh.
+- **Not chosen:** hoisting the shell above the catch-all route so that it does not remount. That would change a documented assumption (R15) that the pages, the attention cache and the module states rely on. It would also lose the refetch after navigation altogether.
+- **Tests:** `platform/shell/session.test.tsx` (TTL, stale, in-flight sharing, refresh/drop, clear with requests in flight, 401/sign-out/sign-in/other-tab/write events through the real `api`, the state transitions). Browser e2e: CI on the draft PR; no local run, because the local Postgres/Redis containers were missing on 2026-11-03.
+
 ## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` on since 2026-10-30)
 
 **Pushed to main on 2026-10-28 with Mario's approval** (fast-forward `aaed3d47..fa13f631`). The Coolify webhook deployed `fa13f631`, and the deployment finished at 17:43 UTC. Afterwards `/api/health/ready` reported database ok and worker ready, `/mcp/healthz` answered 200, and the new routes answered 401 without a session. The flag stays off, so no mandate can be granted. Live as of this deploy: the Support fix (G5), per-operation risk classes, the approval UX and the cross-project summary.
