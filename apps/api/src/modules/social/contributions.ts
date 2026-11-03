@@ -11,6 +11,7 @@ import { socialJobs } from "./dispatch/jobs.ts";
 import { socialDeliverySweep } from "./dispatch/sweep.ts";
 import { resumeBlocked } from "./dispatch/control.ts";
 import { socialRoutes } from "./routes.ts";
+import { socialInstructions, socialTools } from "./tools.ts";
 
 /** What the social module plugs into the platform; later phases add to it. */
 export const socialContributions: ModuleContributions = {
@@ -41,4 +42,10 @@ export const socialContributions: ModuleContributions = {
   },
   attention: socialAttention,
   userNotifications: socialUserNotifications,
+  // Assistant and MCP reads and proposals (S7, ADR 0020 §6.5).
+  tools: socialTools,
+  assistant: {
+    features: () => ["social"],
+    instructions: () => socialInstructions,
+  },
 };

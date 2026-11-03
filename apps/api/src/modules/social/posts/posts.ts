@@ -428,8 +428,8 @@ export async function refreshIssues(tx: DbTx, scope: Scope, postId: string) {
   return result;
 }
 
-/** Stores base and variants of `input`; validation is recorded, never blocking. */
-async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: z.infer<typeof postInput>) {
+/** Every variant of `input` as it would be stored: text and images resolved, checked. */
+async function resolveContent(tx: DbTx, scope: Scope, input: z.infer<typeof postInput>) {
   const accountIds = input.variants.map((v) => v.accountId);
   const accounts = await tx.socialAccount.findMany({ where: { projectId: scope.projectId, id: { in: accountIds } } });
   if (accounts.length !== accountIds.length) throw notFound();
@@ -439,9 +439,7 @@ async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: 
   if (assets.length !== wanted.length) throw notFound();
   const assetOf = new Map(assets.map((a) => [a.id, a]));
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
-  const existing = await tx.socialPostVariant.findMany({ where: { postId: post.id, projectId: scope.projectId } });
-  const existingOf = new Map(existing.map((v) => [v.accountId, v]));
-  for (const v of input.variants) {
+  return input.variants.map((v) => {
     const account = accountOf.get(v.accountId)!;
     const body = v.text ?? input.baseText;
     const images = (v.media ?? input.baseMedia).map((id) => assetOf.get(id)!);
@@ -459,6 +457,23 @@ async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: 
       media: images,
       options,
     }, validationContext(account.platform as SocialPlatform));
+    return { input: v, platform: account.platform as SocialPlatform, body, images, options, issues };
+  });
+}
+
+/** The issues a draft would have, without saving anything (the MCP check, S7). */
+export async function draftIssues(tx: DbTx, scope: Scope, raw: unknown) {
+  const resolved = await resolveContent(tx, scope, postInput.parse(raw));
+  return resolved.map((r) => ({ accountId: r.input.accountId, platform: r.platform, issues: r.issues }));
+}
+
+/** Stores base and variants of `input`; validation is recorded, never blocking. */
+async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: z.infer<typeof postInput>) {
+  const accountIds = input.variants.map((v) => v.accountId);
+  const resolved = await resolveContent(tx, scope, input);
+  const existing = await tx.socialPostVariant.findMany({ where: { postId: post.id, projectId: scope.projectId } });
+  const existingOf = new Map(existing.map((v) => [v.accountId, v]));
+  for (const { input: v, body, images, options, issues } of resolved) {
     const fields = {
       body,
       inheritsText: v.text === null || v.text === undefined,
