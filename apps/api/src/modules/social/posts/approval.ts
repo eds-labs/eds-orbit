@@ -15,6 +15,7 @@ import {
   getPost,
   lockPost,
   packageOf,
+  packageWith,
   resetApproval,
   type PostView,
   type SocialPostRow,
@@ -308,4 +309,113 @@ export async function reschedulePost(tx: DbTx, scope: Scope, id: string, raw: un
   await tx.socialPost.update({ where: { id: post.id }, data: await resetApproval(tx, scope, post, "rescheduled") });
   await audit(tx, scope, "social.post.rescheduled", post.id, { approvalReset: true });
   return submit(tx, scope, post, { mode: "at", resolved });
+}
+
+// ------------------------------------------------ MCP proposals (S7)
+
+/** The time of an MCP schedule proposal: an instant, or a local time in a zone. */
+export type ProposedTime =
+  | { mode: "now" }
+  | { mode: "at"; at?: string; local?: string; timeZone?: string; fold?: "earlier" | "later" };
+
+/** The package an approval of `when` would bind, as the approval shows it. */
+export type ProposedSchedule = {
+  packageHash: string;
+  mode: "at" | "now";
+  at: string | null;
+  local: string | null;
+  timeZone: string;
+  variants: SocialApprovalPayload["variants"];
+};
+
+async function resolveProposed(tx: DbTx, scope: Scope, when: ProposedTime): Promise<ResolvedSchedule | null> {
+  if (when.mode === "now") return null;
+  if ((when.at === undefined) === (when.local === undefined)) throw new DomainError("SOCIAL_SCHEDULE_INVALID", 422);
+  return resolveFor(tx, scope, { version: 1, at: when.at, local: when.local, timeZone: when.timeZone, fold: when.fold });
+}
+
+/**
+ * What approving `when` for the post would bind (S7): checked like a
+ * schedule in the UI (submittable, valid, lead time), nothing stored.
+ */
+export async function proposedSchedule(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  version: number,
+  when: ProposedTime,
+): Promise<ProposedSchedule> {
+  const post = await tx.socialPost.findFirst({ where: { id, projectId: scope.projectId } });
+  if (!post) throw new DomainError("NOT_FOUND", 404);
+  await requireSubmittable(tx, scope, post, version);
+  const resolved = await resolveProposed(tx, scope, when);
+  await requireValid(tx, scope, post);
+  const { hash } = await packageWith(tx, scope, id, {
+    scheduleMode: when.mode,
+    scheduledAt: resolved?.at ?? null,
+  });
+  const view = await getPost(tx, scope, id);
+  return {
+    packageHash: hash,
+    mode: when.mode,
+    at: resolved?.at.toISOString() ?? null,
+    local: resolved?.local ?? null,
+    timeZone: resolved?.timeZone ?? view.schedule.timeZone,
+    variants: view.variants.map((v) => ({
+      accountId: v.accountId,
+      platform: v.platform,
+      handle: v.handle,
+      body: v.body,
+      media: v.media,
+    })),
+  };
+}
+
+/**
+ * Applies a time the owner approved through an MCP request (S7): the
+ * request is the approval, so no second (native) request is made. The post
+ * must still match the approved package exactly.
+ */
+export async function applyApprovedSchedule(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  version: number,
+  when: ProposedTime,
+  approval: { packageHash: string; requestId: string; deciderId: string },
+): Promise<PostView> {
+  const post = await lockPost(tx, scope, id);
+  await requireSubmittable(tx, scope, post, version);
+  const resolved = await resolveProposed(tx, scope, when);
+  await requireValid(tx, scope, post);
+  const schedule =
+    resolved
+      ? {
+          scheduleMode: "at",
+          scheduledAt: resolved.at,
+          scheduleLocal: resolved.local,
+          scheduleTimezone: resolved.timeZone,
+          scheduleFold: resolved.fold,
+        }
+      : { scheduleMode: "now", scheduledAt: null, scheduleLocal: null, scheduleFold: null };
+  await tx.socialPost.update({ where: { id: post.id }, data: schedule });
+  if ((await packageOf(tx, scope, post.id)).hash !== approval.packageHash) throw stale();
+  await tx.socialPost.update({
+    where: { id: post.id },
+    data: {
+      status: resolved ? "scheduled" : "approved",
+      packageHash: approval.packageHash,
+      approvalRequestId: approval.requestId,
+      approvedAt: new Date(),
+      approvedBy: approval.deciderId,
+      version: post.version + 1,
+    },
+  });
+  await audit(tx, scope, "social.post.approved", post.id, {
+    channel: "mcp_request",
+    requestId: approval.requestId,
+    packageHash: approval.packageHash,
+  });
+  await startDelivery(tx, scope, post.id);
+  return getPost(tx, scope, post.id);
 }

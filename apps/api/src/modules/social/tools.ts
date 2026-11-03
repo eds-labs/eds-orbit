@@ -4,10 +4,11 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { approvedOperation, readOperation } from "../../platform/tasks/operation-tools.ts";
 import type { RequestedBy } from "../action-requests.ts";
 import { SOCIAL_SCOPE } from "../../platform/mcp/scopes.ts";
-import { DomainError } from "../../shared.ts";
+import { data, DomainError, entity } from "../../shared.ts";
 import { listAccounts } from "./accounts/accounts.ts";
 import { calendarItems } from "./calendar/calendar.ts";
-import { SOCIAL_COMPOSE, SOCIAL_READ } from "./permissions.ts";
+import { SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "./permissions.ts";
+import { applyApprovedSchedule, proposedSchedule, type ProposedSchedule, type ProposedTime } from "./posts/approval.ts";
 import {
   APPROVAL_BEARING,
   cancelPost,
@@ -48,6 +49,9 @@ const STATUSES = [
 const PLATFORMS = ["x", "facebook", "instagram", "telegram"] as const;
 const ORIGINS = ["manual", "marketing", "mcp", "assistant", "legacy_postiz"] as const;
 const CALENDAR_DAYS = 31;
+// A UUID with a short pattern: id puts a long one into every tool
+// schema the model receives (chat budget, S7).
+const id = z.string().regex(/^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/);
 const CALENDAR_ITEMS = 200;
 
 /** The longest text a post on the account may have. */
@@ -73,7 +77,7 @@ export const socialAccountsTool = readOperation({
   ...shared,
   name: "social_accounts",
   description:
-    "List the project's connected social accounts (X, Facebook Pages, Instagram, Telegram channels) with status, whether posting is verified and the longest text a post may have. Use the accountId values when drafting posts.",
+    "The project's social accounts (X, Facebook Pages, Instagram, Telegram channels): status, posting verified, longest text.",
   input: z.object({}).strict(),
   permission: SOCIAL_READ,
   async run(tx, scope) {
@@ -97,12 +101,12 @@ export const socialCalendarTool = readOperation({
   ...shared,
   name: "social_calendar",
   description:
-    "The posts timed between from and to (ISO date-times, at most 31 days apart) in time order, with status, approval, accounts and a summary of their publications. Filters: account ids, platforms, statuses, origins. At most 200 posts; truncated says when there are more.",
+    "Posts timed between from and to (ISO, at most 31 days) with status, approval, accounts and publications; at most 200 (see truncated).",
   input: z
     .object({
       from: z.iso.datetime({ offset: true }),
       to: z.iso.datetime({ offset: true }),
-      accountIds: z.array(z.uuid()).max(20).optional(),
+      accountIds: z.array(id).max(20).optional(),
       platforms: z.array(z.enum(PLATFORMS)).max(4).optional(),
       statuses: z.array(z.enum(STATUSES)).max(10).optional(),
       origins: z.array(z.enum(ORIGINS)).max(5).optional(),
@@ -150,8 +154,8 @@ export const socialPostGetTool = readOperation({
   ...shared,
   name: "social_post_get",
   description:
-    "Read one post: its text per account, image metadata, schedule, approval state, check results, version and the publications with their links.",
-  input: z.object({ postId: z.uuid() }).strict(),
+    "One post: text per account, images, schedule, approval, check results, version, publications with links.",
+  input: z.object({ postId: id }).strict(),
   permission: SOCIAL_READ,
   async run(tx, scope, args) {
     const post = await getPost(tx, scope, args.postId);
@@ -183,8 +187,8 @@ export const socialPostStatusTool = readOperation({
   ...shared,
   name: "social_post_status",
   description:
-    "The status of up to 20 posts and of their publications (published, failed, outcome unknown …) with links. Unknown ids are listed under missing.",
-  input: z.object({ postIds: z.array(z.uuid()).min(1).max(20) }).strict(),
+    "Status of up to 20 posts and their publications, with links; unknown ids under missing.",
+  input: z.object({ postIds: z.array(id).min(1).max(20) }).strict(),
   permission: SOCIAL_READ,
   async run(tx, scope, args) {
     const items = [];
@@ -214,14 +218,14 @@ export const draftInput = z
   .object({
     title: z.string().trim().max(200).optional(),
     baseText: z.string().max(25_000),
-    baseMedia: z.array(z.uuid()).max(10),
+    baseMedia: z.array(id).max(10),
     variants: z
       .array(
         z
           .object({
-            accountId: z.uuid(),
+            accountId: id,
             text: z.string().max(25_000).optional(),
-            media: z.array(z.uuid()).max(10).optional(),
+            media: z.array(id).max(10).optional(),
             options: optionsInput.optional(),
           })
           .strict(),
@@ -235,7 +239,7 @@ export const socialValidateTool = readOperation({
   ...shared,
   name: "social_validate",
   description:
-    "Check a draft against each account's platform rules (text length, images, options, whether the account may post) without saving it or calling a platform. Same input as a draft: baseText, baseMedia (media ids), variants with accountId and optional text, media and options.",
+    "Check a draft (same input as social_draft_create) against each account's platform rules without saving it.",
   input: draftInput,
   permission: SOCIAL_COMPOSE,
   async run(tx, scope, args) {
@@ -265,8 +269,8 @@ async function postFor(tx: DbTx, scope: Scope, postId: string) {
   return post;
 }
 
-const updateInput = draftInput.extend({ postId: z.uuid(), version: z.int().min(1) }).strict();
-const cancelInput = z.object({ postId: z.uuid(), version: z.int().min(1) }).strict();
+const updateInput = draftInput.extend({ postId: id, version: z.int().min(1) }).strict();
+const cancelInput = z.object({ postId: id, version: z.int().min(1) }).strict();
 
 /** The approval's view of a draft change: the texts per account, with handles. */
 const draftSummary = (change: "create" | "update") => (args: { title?: string }, context?: { variants?: unknown }) => ({
@@ -278,7 +282,7 @@ export const socialDraftCreate = approvedOperation({
   ...proposal,
   name: "social_draft_create",
   description:
-    "Propose a new draft post: baseText and baseMedia for all accounts, per account optional text, media and options. Check it with social_validate first. The draft is only saved; publishing needs social_schedule or social_publish_now.",
+    "Propose a draft post: baseText and baseMedia (media ids) for all accounts, per account optional text, media, options. Saved only; publishing is social_schedule.",
   input: draftInput,
   permission: SOCIAL_COMPOSE,
   summary: draftSummary("create"),
@@ -298,7 +302,7 @@ export const socialDraftUpdate = approvedOperation({
   ...proposal,
   name: "social_draft_update",
   description:
-    "Propose new content for a post you read with social_post_get, with the version you read. A change to an approved or planned post clears its approval and makes it a draft again.",
+    "Propose new content for a post (with the version read); an approved or planned post becomes a draft again.",
   input: updateInput,
   permission: SOCIAL_COMPOSE,
   summary: draftSummary("update"),
@@ -321,7 +325,7 @@ export const socialCancel = approvedOperation({
   ...proposal,
   name: "social_cancel",
   description:
-    "Propose to take a planned or approved post back to a draft (its approval ends). A post being sent keeps what already went out. Pass the version you read.",
+    "Propose to take a planned or approved post back to a draft (with the version read).",
   input: cancelInput,
   permission: SOCIAL_COMPOSE,
   summary: (args, context?: Record<string, unknown>) => ({ operation: { kind: "social_cancel", postId: args.postId, ...context } }),
@@ -339,8 +343,74 @@ export const socialCancel = approvedOperation({
   },
 });
 
+const scheduleInput = z
+  .object({
+    postId: id,
+    version: z.int().min(1),
+    at: z.iso.datetime({ offset: true }).optional(),
+    local: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/).optional(),
+    timeZone: z.string().max(64).optional(),
+    fold: z.enum(["earlier", "later"]).optional(),
+  })
+  .strict();
+const publishInput = z.object({ postId: id, version: z.int().min(1) }).strict();
+
+const whenOf = (args: { at?: string; local?: string; timeZone?: string; fold?: "earlier" | "later" } | null): ProposedTime =>
+  args ? { mode: "at", at: args.at, local: args.local, timeZone: args.timeZone, fold: args.fold } : { mode: "now" };
+
+/** The approval shows the exact package, like a native social post request (S4 renderer). */
+const postSummary = (_args: unknown, context?: ProposedSchedule) => ({
+  operation: context
+    ? { kind: "social_post", mode: context.mode, at: context.at, local: context.local, timeZone: context.timeZone, variants: context.variants }
+    : { kind: "social_post_unreadable" },
+});
+
+/**
+ * Scheduling or publishing at once (W2, public): the owner decides the MCP
+ * request, which is the post's approval; the run applies exactly the stored
+ * package (a changed post makes it stale) and never asks a second time.
+ */
+function publishing(name: "social_schedule" | "social_publish_now", timed: boolean) {
+  const input = timed ? scheduleInput : publishInput;
+  type Args = z.infer<typeof scheduleInput>;
+  const when = (args: Args) => whenOf(timed ? args : null);
+  return approvedOperation({
+    ...proposal,
+    riskClass: "W2",
+    name,
+    description: timed
+      ? "Propose to publish a post (with the version read) at `at` (ISO) or `local` (YYYY-MM-DDTHH:MM, optional IANA timeZone)."
+      : "Propose to publish a post (with the version read) right after approval.",
+    input,
+    permission: SOCIAL_PUBLISH,
+    summary: postSummary,
+    async validate(tx, scope, args) {
+      await proposedSchedule(tx, scope, args.postId, args.version, when(args));
+    },
+    approvalContext: (tx, scope, args) => proposedSchedule(tx, scope, args.postId, args.version, when(args)),
+    async revalidateContext(tx, scope, args, saved) {
+      const now = await proposedSchedule(tx, scope, args.postId, args.version, when(args));
+      if (now.packageHash !== (saved as ProposedSchedule | undefined)?.packageHash)
+        throw new DomainError("SOCIAL_APPROVAL_STALE", 409);
+    },
+    async run(tx, scope, args, _requester, request) {
+      const row = await entity(tx, scope, "action_requests", request!.actionRequestId);
+      const stored = data(row);
+      const post = await applyApprovedSchedule(tx, scope, args.postId, args.version, when(args), {
+        packageHash: (stored.payload.approvalContext as ProposedSchedule).packageHash,
+        requestId: row.id,
+        deciderId: String(stored.decision?.userId),
+      });
+      return { postId: post.id, version: post.version, status: post.status };
+    },
+  });
+}
+
+export const socialSchedule = publishing("social_schedule", true);
+export const socialPublishNow = publishing("social_publish_now", false);
+
 const reads = [socialAccountsTool, socialCalendarTool, socialPostGetTool, socialPostStatusTool, socialValidateTool];
-const proposals = [socialDraftCreate, socialDraftUpdate, socialCancel];
+const proposals = [socialDraftCreate, socialDraftUpdate, socialCancel, socialSchedule, socialPublishNow];
 
 export const socialTools = [...reads, ...proposals.map((p) => p.tool)];
 export const socialMcpActionTypes = Object.fromEntries(proposals.map((p) => [p.actionType, p.action]));

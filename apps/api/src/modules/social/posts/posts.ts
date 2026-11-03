@@ -200,6 +200,19 @@ async function rowsOf(tx: DbTx, scope: Scope, post: SocialPostRow) {
   return { variants, media, accounts };
 }
 
+/** What an approval of the post would bind with another schedule (an MCP proposal, S7). */
+export async function packageWith(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  schedule: { scheduleMode: string; scheduledAt: Date | null },
+): Promise<{ hash: string; package: SocialPackage }> {
+  const post = await tx.socialPost.findFirst({ where: { id, projectId: scope.projectId } });
+  if (!post) throw notFound();
+  const { variants, media, accounts } = await rowsOf(tx, scope, post);
+  return computePackage({ ...post, ...schedule }, variants, media, accounts);
+}
+
 /** What an approval of the post would bind now, and its hash. */
 export async function packageOf(tx: DbTx, scope: Scope, id: string): Promise<{ hash: string; package: SocialPackage }> {
   const post = await tx.socialPost.findFirst({ where: { id, projectId: scope.projectId } });
