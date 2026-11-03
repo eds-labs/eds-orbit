@@ -1,7 +1,12 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import { authDb, scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { projectMembership } from "../../../platform/tenancy/member-scope.ts";
+import { moduleScope } from "../../../platform/tenancy/module-roles.ts";
+import { can } from "../../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../../shared.ts";
+import { socialActive, socialSwitchedOn } from "../gate.ts";
+import { SOCIAL_READ } from "../permissions.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { approvalStates, postFilters, type ApprovalState, type PostView } from "../posts/posts.ts";
 
@@ -117,4 +122,70 @@ export async function calendarItems(tx: DbTx, scope: Scope, raw: unknown, limit 
       };
     }),
   };
+}
+
+const MAX_PROJECTS = 20;
+
+/**
+ * The calendar across the organization (S6): every project of the
+ * workspace where the member's role in Social grants social.read and the
+ * module is on, each read in its own project transaction. Projects the
+ * member cannot read are never named.
+ */
+export async function organizationCalendarFor(
+  userId: string,
+  workspaceId: string,
+  raw: unknown,
+): Promise<{
+  items: Array<CalendarItem & { projectName: string }>;
+  projects: Array<{ id: string; name: string }>;
+  truncated: boolean;
+}> {
+  if (!socialSwitchedOn()) throw new DomainError("SOCIAL_DISABLED", 404);
+  const member = await authDb.workspaceMember.findFirst({ where: { workspaceId, userId } });
+  if (!member) throw new DomainError("NOT_FOUND", 404);
+  const q = query.extend({ projectIds: z.string().max(2000).optional() }).parse(raw);
+  calendarRange(q);
+  const candidates = await authDb.project.findMany({
+    where: { workspaceId },
+    select: { id: true, name: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+    take: 200,
+  });
+  const readable: Array<{ id: string; name: string; scope: Scope }> = [];
+  for (const project of candidates) {
+    const membership = await projectMembership(project.id, userId);
+    if (!membership?.role) continue;
+    let scope: Scope = {
+      workspaceId,
+      projectId: project.id,
+      userId,
+      role: membership.role,
+      ...(membership.moduleRoles ? { moduleRoles: membership.moduleRoles } : {}),
+    };
+    try {
+      scope = moduleScope(scope, "social");
+    } catch {
+      continue;
+    }
+    if (!can(scope, SOCIAL_READ)) continue;
+    if (!(await scoped(workspaceId, project.id, (tx) => socialActive(tx, scope)))) continue;
+    readable.push({ ...project, scope });
+  }
+  const wanted = q.projectIds ? q.projectIds.split(",").map((id) => id.trim()) : null;
+  const chosen = readable.filter((p) => !wanted || wanted.includes(p.id)).slice(0, MAX_PROJECTS);
+  const items: Array<CalendarItem & { projectName: string }> = [];
+  let truncated = false;
+  for (const project of chosen) {
+    const left = CALENDAR_LIMIT - items.length;
+    if (left <= 0) {
+      truncated = true;
+      break;
+    }
+    const found = await scoped(workspaceId, project.id, (tx) => calendarItems(tx, project.scope, q, left));
+    truncated ||= found.truncated;
+    items.push(...found.items.map((item) => ({ ...item, projectName: project.name })));
+  }
+  items.sort((a, b) => Date.parse(a.schedule.at ?? "") - Date.parse(b.schedule.at ?? "") || a.id.localeCompare(b.id));
+  return { items, projects: readable.map(({ id, name }) => ({ id, name })), truncated };
 }

@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { RoutesContribution } from "../../../platform/http/routes.ts";
 import { inSocial, SOCIAL_BASE } from "../http-scope.ts";
-import { calendarItems } from "../calendar/calendar.ts";
+import { calendarItems, organizationCalendarFor } from "../calendar/calendar.ts";
+import { userFor } from "../../../platform/tenancy/auth.ts";
+import { DomainError } from "../../../shared.ts";
 import { resolvePublication } from "../dispatch/control.ts";
 import { SOCIAL_APPROVE, SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "../permissions.ts";
 import { publishNow, reschedulePost, schedulePost } from "./approval.ts";
@@ -19,6 +21,13 @@ export const socialPostRoutes: RoutesContribution = ({ app, auth }) => {
   app.get(`${SOCIAL_BASE}/posts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listPosts(tx, scope, req.query)));
   // The timed posts of a range of at most 62 days (S6).
   app.get(`${SOCIAL_BASE}/calendar`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => calendarItems(tx, scope, req.query)));
+  // Across the member's projects of one organization, read-only (S6).
+  app.get("/api/organizations/:workspaceId/social/calendar", async (req) => {
+    const parsed = z.object({ workspaceId: z.uuid() }).passthrough().safeParse(req.params);
+    if (!parsed.success) throw new DomainError("NOT_FOUND", 404);
+    const user = await userFor(auth, req);
+    return organizationCalendarFor(user.id, parsed.data.workspaceId, req.query);
+  });
   app.post(`${SOCIAL_BASE}/posts`, async (req, reply) => {
     const created = await inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) => createPost(tx, scope, req.body));
     return reply.code(201).send(created);

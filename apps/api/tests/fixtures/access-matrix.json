@@ -615,6 +615,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/organizations/{workspaceId}/social/calendar": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "GET /api/projects": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:200",

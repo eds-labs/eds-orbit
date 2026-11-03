@@ -193,6 +193,16 @@ describe.skipIf(!enabled)("social post routes", () => {
     expect([tooLong.statusCode, tooLong.json().error?.code]).toEqual([422, "SOCIAL_RANGE_TOO_LARGE"]);
   });
 
+  it("serves the organization calendar to members only (S6)", async () => {
+    const get = (path: string) =>
+      app.inject({ method: "GET", url: path, headers: { origin, cookie: cookies.viewer, [CLIENT_IP_HEADER]: ip() } });
+    const range = "from=2026-12-01T00:00:00Z&to=2027-01-01T00:00:00Z";
+    const own = await get(`/api/organizations/${workspaceId}/social/calendar?${range}`);
+    expect([own.statusCode, Array.isArray(own.json().projects), own.json().error?.code]).toEqual([200, true, undefined]);
+    expect((await get(`/api/organizations/${randomUUID()}/social/calendar?${range}`)).statusCode).toBe(404);
+    expect((await get(`/api/organizations/not-a-uuid/social/calendar?${range}`)).statusCode).toBe(404);
+  });
+
   it("hides the project from members of another project and unknown posts", async () => {
     expect((await call("editor", "GET", "/posts", undefined, otherProjectId)).statusCode).toBe(404);
     expect((await call("viewer", "GET", `/posts/${randomUUID()}`)).statusCode).toBe(404);
