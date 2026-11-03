@@ -272,10 +272,21 @@ async function postFor(tx: DbTx, scope: Scope, postId: string) {
 const updateInput = draftInput.extend({ postId: id, version: z.int().min(1) }).strict();
 const cancelInput = z.object({ postId: id, version: z.int().min(1) }).strict();
 
-/** The approval's view of a draft change: the texts per account, with handles. */
-const draftSummary = (change: "create" | "update") => (args: { title?: string }, context?: { variants?: unknown }) => ({
-  operation: { kind: "social_draft", change, title: args.title ?? null, variants: context?.variants ?? [] },
-});
+/**
+ * The approval's view of a draft change: the texts per account, with
+ * handles, and for an update the post as it is now: a change to a planned
+ * or approved post ends its approval, and the owner must see that.
+ */
+const draftSummary =
+  (change: "create" | "update") => (args: { title?: string }, context?: { variants?: unknown; current?: unknown }) => ({
+    operation: {
+      kind: "social_draft",
+      change,
+      title: args.title ?? null,
+      variants: context?.variants ?? [],
+      ...(context?.current ? { current: context.current } : {}),
+    },
+  });
 
 export const socialDraftCreate = approvedOperation({
   ...internal,
@@ -310,9 +321,18 @@ export const socialDraftUpdate = approvedOperation({
     requireWritable(await postFor(tx, scope, args.postId), args.version);
     await draftIssues(tx, scope, { title: args.title, baseText: args.baseText, baseMedia: args.baseMedia, variants: args.variants });
   },
-  approvalContext: async (tx, scope, args) => ({
-    variants: await draftPreview(tx, scope, { title: args.title, baseText: args.baseText, baseMedia: args.baseMedia, variants: args.variants }),
-  }),
+  approvalContext: async (tx, scope, args) => {
+    const post = await getPost(tx, scope, args.postId);
+    return {
+      variants: await draftPreview(tx, scope, { title: args.title, baseText: args.baseText, baseMedia: args.baseMedia, variants: args.variants }),
+      current: {
+        status: post.status,
+        local: post.schedule.local,
+        timeZone: post.schedule.timeZone,
+        approvalEnds: APPROVAL_BEARING.includes(post.status),
+      },
+    };
+  },
   async run(tx, scope, args) {
     const { postId, ...content } = args as z.infer<typeof updateInput>;
     const post = await updatePost(tx, scope, postId, content);
@@ -396,10 +416,11 @@ function publishing(name: "social_schedule" | "social_publish_now", timed: boole
     async run(tx, scope, args, _requester, request) {
       const row = await entity(tx, scope, "action_requests", request!.actionRequestId);
       const stored = data(row);
+      if (typeof stored.decision?.userId !== "string") throw new DomainError("SOCIAL_APPROVAL_STALE", 409);
       const post = await applyApprovedSchedule(tx, scope, args.postId, args.version, when(args), {
         packageHash: (stored.payload.approvalContext as ProposedSchedule).packageHash,
         requestId: row.id,
-        deciderId: String(stored.decision?.userId),
+        deciderId: stored.decision.userId,
       });
       return { postId: post.id, version: post.version, status: post.status };
     },

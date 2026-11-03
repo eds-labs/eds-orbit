@@ -411,9 +411,11 @@ export async function applyApprovedSchedule(
       version: post.version + 1,
     },
   });
+  // The run acts as the proposing member: the audit names the decider.
   await audit(tx, scope, "social.post.approved", post.id, {
     channel: "mcp_request",
     requestId: approval.requestId,
+    approvedBy: approval.deciderId,
     packageHash: approval.packageHash,
   });
   await startDelivery(tx, scope, post.id);

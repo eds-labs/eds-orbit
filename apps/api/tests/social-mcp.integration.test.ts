@@ -297,6 +297,34 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     expect((await p.run((tx) => getPost(tx, owner(), post.id))).baseText).toBe("New");
   });
 
+  it("warns on the approval that a content change ends a planned post's approval", async () => {
+    const post = await p.run((tx) => createPost(tx, owner(), { baseText: "Planned text", baseMedia: [], variants: [{ accountId: telegram }] }));
+    const scheduled = await p.run((tx) =>
+      schedulePost(tx, owner(), post.id, { version: post.version, at: new Date(Date.now() + 3 * 86_400_000).toISOString() }),
+    );
+    const proposal = await op("social_draft_update", {
+      postId: post.id,
+      version: scheduled.version,
+      title: "Planned",
+      baseText: "Changed text",
+      baseMedia: [],
+      variants: [{ accountId: telegram }],
+      idempotencyKey: "update-planned",
+    });
+    const listed = (await p.run((tx) => listActionRequests(tx, owner()))).find((r) => r.id === proposal.actionRequestId);
+    expect(listed?.summary).toMatchObject({
+      operation: {
+        kind: "social_draft",
+        change: "update",
+        current: { status: "scheduled", local: scheduled.schedule.local, timeZone: scheduled.schedule.timeZone, approvalEnds: true },
+      },
+    });
+    const draft = await p.run((tx) => createPost(tx, owner(), { baseText: "Only a draft", baseMedia: [], variants: [{ accountId: telegram }] }));
+    const plain = await op("social_draft_update", { postId: draft.id, version: draft.version, baseText: "Still a draft", baseMedia: [], variants: [{ accountId: telegram }], idempotencyKey: "update-draft" });
+    const plainListed = (await p.run((tx) => listActionRequests(tx, owner()))).find((r) => r.id === plain.actionRequestId);
+    expect(plainListed?.summary).toMatchObject({ operation: { current: { status: "draft", approvalEnds: false } } });
+  });
+
   it("cancels a planned post after the owner's approval", async () => {
     const post = await p.run((tx) => createPost(tx, owner(), { baseText: "Planned", baseMedia: [], variants: [{ accountId: telegram }] }));
     const scheduled = await p.run((tx) =>
@@ -331,6 +359,13 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
       tx.entity.count({ where: { projectId: owner().projectId, kind: "action_requests", data: { path: ["actionType"], equals: "social.post.schedule" } } }),
     );
     expect(native).toBe(0);
+    // The audit names the deciding owner, not only the proposing editor.
+    const audits = await p.run((tx) =>
+      tx.auditEvent.findMany({ where: { projectId: owner().projectId, action: "social.post.approved", resourceId: post.id } }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([
+      expect.objectContaining({ channel: "mcp_request", requestId: proposal.actionRequestId, approvedBy: owner().userId }),
+    ]);
   });
 
   it("refuses the approval when the post changed after the proposal", async () => {

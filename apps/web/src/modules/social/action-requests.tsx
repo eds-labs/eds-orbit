@@ -31,6 +31,9 @@ const TEXT = {
     images: (n: number) => `${n} ${n === 1 ? "image" : "images"}`,
     draftNote: "Approval saves exactly this draft. Nothing is published; publishing needs its own approval.",
     cancelTitle: (title: string) => `Take a planned social post back to a draft: ${title}`,
+    plannedFor: (when: string) => `This post is planned for ${when}.`,
+    approvedNow: "This post is approved for publication.",
+    approvalEnds: "Approving this change ends that approval: the post becomes a draft and is not published until it is approved again.",
     cancelNote: "Its approval ends. A post that is being sent keeps what already went out.",
     untitled: "Untitled",
   },
@@ -47,6 +50,9 @@ const TEXT = {
     images: (n: number) => `${n} ${n === 1 ? "Bild" : "Bilder"}`,
     draftNote: "Die Freigabe speichert genau diesen Entwurf. Veröffentlicht wird nichts; dafür braucht es eine eigene Freigabe.",
     cancelTitle: (title: string) => `Geplanten Social-Beitrag zurück zum Entwurf: ${title}`,
+    plannedFor: (when: string) => `Dieser Beitrag ist für ${when} eingeplant.`,
+    approvedNow: "Dieser Beitrag ist zur Veröffentlichung freigegeben.",
+    approvalEnds: "Die Freigabe dieser Änderung beendet diese Freigabe: Der Beitrag wird wieder ein Entwurf und erst nach einer neuen Freigabe veröffentlicht.",
     cancelNote: "Seine Freigabe endet. Ein Beitrag, der gerade gesendet wird, behält, was schon draußen ist.",
     untitled: "Ohne Titel",
   },
@@ -145,12 +151,19 @@ const draftRenderer: ActionRequestRenderer = {
       change: "create" | "update";
       title: string | null;
       variants: Array<{ accountId: string; platform: SocialPlatform; handle: string; body: string; images: number }>;
+      current?: { status: string; local: string | null; timeZone: string; approvalEnds: boolean };
     };
     const t = TEXT[de ? "de" : "en"];
     const platforms = socialText(de ? "de" : "en").platform;
+    const current = op.current;
     return (
       <article className="action-request">
         <h3>{t.draftTitle(op.change, op.title ?? t.untitled)}</h3>
+        {current?.approvalEnds && (
+          <p role="alert">
+            {current.local ? t.plannedFor(`${current.local.replace("T", " ")} (${current.timeZone})`) : t.approvedNow} {t.approvalEnds}
+          </p>
+        )}
         {op.variants.map((v) => (
           <section key={v.accountId}>
             <h4>

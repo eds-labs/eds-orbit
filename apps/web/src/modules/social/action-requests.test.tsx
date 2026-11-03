@@ -110,6 +110,22 @@ describe("social approval renderers", () => {
     expect(render("social.mcp.social_draft_update", { ...draft, summary: { operation: { ...draft.summary.operation, change: "update" } } } as never, true)).toContain(
       "Social-Entwurf ändern: Launch",
     );
+    // A change to a planned post ends its approval: the card says so.
+    const planned = {
+      ...draft,
+      actionType: "social.mcp.social_draft_update",
+      summary: {
+        operation: {
+          ...draft.summary.operation,
+          change: "update",
+          current: { status: "scheduled", local: "2026-12-01T10:00", timeZone: "Europe/Berlin", approvalEnds: true },
+        },
+      },
+    };
+    const plannedHtml = render("social.mcp.social_draft_update", planned as never);
+    expect(plannedHtml).toContain("This post is planned for 2026-12-01 10:00 (Europe/Berlin)");
+    expect(plannedHtml).toContain("Approving this change ends that approval");
+    expect(render("social.mcp.social_draft_update", planned as never, true)).toContain("Die Freigabe dieser Änderung beendet");
     const cancel = {
       id: "r4",
       actionType: "social.mcp.social_cancel",
