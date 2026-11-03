@@ -7,7 +7,7 @@ import { audit, DomainError, exception } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
 import { markReconnectRequired } from "../accounts/vault.ts";
 import { markWriteVerified } from "../accounts/verify-write.ts";
-import type { SendResult } from "../adapters/registry.ts";
+import { senderFor, type SendResult } from "../adapters/registry.ts";
 import { publicMediaEnabled } from "../media/public-url.ts";
 import { packageOf } from "../posts/posts.ts";
 import { platformEnabled, sendMode, type SendMode } from "./gates.ts";
@@ -199,8 +199,8 @@ export async function finishPublication(
       if (result.providerState)
         await tx.socialPublication.update({ where: { id }, data: { providerState: state(result.providerState) } });
       await markOutcomeUnknown(tx, scope, id, result.code);
-      // X and Instagram can be read back; Telegram stays with the owner.
-      if (mode === "live" && (account.platform === "x" || account.platform === "instagram"))
+      // X, Facebook and Instagram can be read back; Telegram stays with the owner.
+      if (mode === "live" && senderFor(account.platform as SocialPlatform)?.reconcile)
         await enqueue(tx, scope, RECONCILE, id, `social-reconcile:${id}:unknown`, new Date(now.getTime() + UNKNOWN_READ_BACK_MS), { attempt: "unknown" });
       return;
     }
