@@ -632,13 +632,17 @@ async function postizDraft(
     h.assetId && !h.withoutImage
       ? data(await maybe(() => entity(tx, scope, "assets", h.assetId)))
       : null;
+  // A project on Social (S9) gets its drafts in Orbit's Social module.
+  const where = h.publishingBackend === "social" ? "Social" : "Postiz";
   const header = [
-    `Entwurf in Postiz angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
-    "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
+    `Entwurf in ${where} angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
+    where === "Social"
+      ? "Orbit veröffentlicht ihn erst, wenn du ihn in Social einplanst und freigibst."
+      : "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
     // The image failed before any post request; the draft went without it (M10).
     ...(h.imageError
       ? [
-          "Ohne Bild: Das Bild konnte nicht an Postiz übergeben werden. Füge es in Postiz selbst hinzu, falls nötig.",
+          `Ohne Bild: Das Bild konnte nicht an ${where} übergeben werden. Füge es in ${where} selbst hinzu, falls nötig.`,
         ]
       : []),
   ].join("\n");

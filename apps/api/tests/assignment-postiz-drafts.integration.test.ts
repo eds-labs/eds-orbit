@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   afterAll,
   afterEach,
@@ -42,6 +43,10 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
     }),
   };
 });
+import {
+  readMarketingSettings,
+  saveMarketingSettings,
+} from "../src/modules/marketing/publishing/backend.ts";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import {
@@ -364,6 +369,64 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
       "postiz_draft",
       "postiz_draft",
     ]);
+  });
+
+  it("creates the drafts in Social instead of Postiz on a project that publishes through Social (S9)", async () => {
+    vi.stubEnv("ORBIT_SOCIAL", "true");
+    const accountId = await h.run(async (tx) => {
+      await tx.projectModule.create({
+        data: { workspaceId: project.owner.workspaceId, projectId: project.owner.projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: project.owner.userId },
+      });
+      const account = await tx.socialAccount.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          connectionId: randomUUID(),
+          platform: "x",
+          externalId: "4242",
+          handle: "@orbit_x",
+          displayName: "Orbit X",
+          capability: "write_verified",
+          settings: { xLongPosts: true },
+          legacyPostizIntegrationId: X,
+          createdBy: project.owner.userId,
+        },
+      });
+      return account.id;
+    });
+    const settings = await h.run((tx) => readMarketingSettings(tx, project.owner));
+    await h.run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: "social" }, settings.version));
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    const { slots } = await reviewed();
+    const booked = await handoffs();
+    expect(booked).toHaveLength(2);
+    const client = fakePostiz();
+    for (const row of booked) await deliver(row.id, client);
+    // Nothing reached Postiz: two timed drafts wait in Social for a human.
+    expect(client.posts).toEqual([]);
+    const sent = await handoffs();
+    expect(sent.map((row) => [row.status, row.remoteType, row.publishingBackend])).toEqual([
+      ["accepted", "social_draft", "social"],
+      ["accepted", "social_draft", "social"],
+    ]);
+    const posts = await h.run((tx) =>
+      tx.socialPost.findMany({ where: { projectId: project.owner.projectId, origin: "marketing" }, orderBy: { scheduledAt: "asc" } }),
+    );
+    expect(posts.map((p) => [p.id, p.status, p.scheduledAt?.toISOString()])).toEqual([
+      [sent[0]!.remoteId, "draft", slots[0]!.at],
+      [sent[1]!.remoteId, "draft", slots[1]!.at],
+    ]);
+    expect(posts[0]!.baseText).toContain(BODY);
+    const variants = await h.run((tx) => tx.socialPostVariant.findMany({ where: { postId: posts[0]!.id } }));
+    expect(variants.map((v) => v.accountId)).toEqual([accountId]);
+    // The owner hears where the draft is.
+    const notice = (await notices("postiz_draft"))[0]!;
+    expect(notice).toBeDefined();
+    // Delivering again changes nothing.
+    for (const row of sent) await deliver(row.id, client);
+    expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, origin: "marketing" } }))).toBe(2);
   });
 
   it("refuses to publish a draft-delivery assignment's content", async () => {
