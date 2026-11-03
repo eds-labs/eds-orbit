@@ -5,6 +5,7 @@ import { publishEvent } from "../../../platform/events/events.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { audit } from "../../../shared.ts";
 import { senderFor, type SendResult } from "../adapters/registry.ts";
+import { markWriteVerified } from "../accounts/verify-write.ts";
 import { finishPublication, lockPublication, markOutcomeUnknown, postOfPublication } from "./claim.ts";
 import { sendInputOf } from "./deliver.ts";
 import { RECONCILE } from "./queues.ts";
@@ -78,6 +79,8 @@ export async function reconcilePublication(scope: Scope, id: string, attempt: nu
       const post = await postOfPublication(tx, scope, current.variantId);
       await audit(tx, scope, "social.publication.resolved", id, { resolution: "published_confirmed", by: "read_back" });
       await refreshPostStatus(tx, scope, post.id);
+      // A test post found by read-back counts like a clear send (P3); read-back is live only.
+      if (post.originType === "write_verification") await markWriteVerified(tx, scope, current.accountId);
       const account = await tx.socialAccount.findFirstOrThrow({ where: { id: current.accountId, projectId: scope.projectId } });
       await publishEvent(tx, scope, {
         type: "social.publication.published",

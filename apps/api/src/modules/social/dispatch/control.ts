@@ -6,7 +6,9 @@ import { enqueue } from "../../../platform/jobs/enqueue.ts";
 import { authorize, PROJECT_OWN } from "../../../platform/tenancy/permissions.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
+import { markWriteVerified } from "../accounts/verify-write.ts";
 import { lockPublication, postOfPublication } from "./claim.ts";
+import { sendMode } from "./gates.ts";
 import { publicationView, type PublicationView } from "./publication-view.ts";
 import { DELIVER, DISPATCH, RECONCILE } from "./queues.ts";
 import { refreshPostStatus } from "./status.ts";
@@ -173,6 +175,9 @@ export async function resolvePublication(tx: DbTx, scope: Scope, id: string, raw
   const account = await tx.socialAccount.findFirstOrThrow({ where: { id: pub.accountId, projectId: scope.projectId } });
   await audit(tx, scope, "social.publication.resolved", id, { resolution: input.resolution });
   await refreshPostStatus(tx, scope, post.id);
+  // A test post the owner confirms counts like a clear send (P3).
+  if (published && post.originType === "write_verification" && sendMode() === "live")
+    await markWriteVerified(tx, scope, account.id);
   await publishEvent(tx, scope, {
     type: published ? "social.publication.published" : "social.publication.failed",
     subject: { type: "social.publication", id },
