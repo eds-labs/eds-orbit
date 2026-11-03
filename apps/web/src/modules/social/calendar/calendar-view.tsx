@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useResource } from "@/lib/api";
 import { Button, Loading, Tabs } from "@/components/ui/primitives";
@@ -42,6 +42,7 @@ import {
   type CalendarState,
 } from "./query";
 import { WeekGrid } from "./week";
+import { keep, listPagesKey, type Kept } from "./keep";
 
 // Social → Calendar (ADR 0020 §6.2, S6): the posts by month, week or as a
 // list in the project's time zone, filtered, optionally across the member's
@@ -109,6 +110,12 @@ export function CalendarView() {
         ? `/organizations/${encodeURIComponent(project.workspaceId)}/social/calendar?${query}`
         : socialPath(project.id, `/calendar?${query}`);
   const calendar = useResource<CalendarResponse>(calendarPath);
+  // While the same range reloads (after a move) the grid keeps its data.
+  const kept = useRef<Kept<CalendarResponse>>({ path: null, data: null });
+  kept.current = keep(kept.current, calendarPath, calendar.data);
+  const shown = kept.current.data;
+  // A move restarts the list view from its first page.
+  const [revision, setRevision] = useState(0);
   const accounts = useResource<SocialAccounts>(
     socialPath(project.id, "/accounts"),
   );
@@ -149,6 +156,7 @@ export function CalendarView() {
           : t.moved(result.local.replace("T", " ")),
     );
     calendar.refresh();
+    setRevision((n) => n + 1);
   };
   /** A drop: a free move is sent at once; one that changes the approval asks first. */
   const drop = async (item: CalendarItem, target: DropTarget) => {
@@ -173,7 +181,7 @@ export function CalendarView() {
     }
   };
 
-  const items = calendar.data?.items ?? [];
+  const items = shown?.items ?? [];
   const repeated = new Set(
     state.view === "week"
       ? weekDays(state.anchor).flatMap((d) =>
@@ -254,7 +262,7 @@ export function CalendarView() {
       <CalendarFilters
         state={state}
         accounts={accounts.data?.items ?? []}
-        projects={calendar.data?.projects ?? []}
+        projects={shown?.projects ?? []}
         locale={locale}
         onChange={go}
       />
@@ -263,22 +271,22 @@ export function CalendarView() {
         {notice}
       </p>
       <ResourceError error={calendar.error} retry={calendar.refresh} />
-      {calendar.loading && !calendar.data && calendarPath && (
+      {calendar.loading && !shown && calendarPath && (
         <Loading label={t.title} />
       )}
-      {calendar.data?.truncated && (
+      {shown?.truncated && (
         <p className="field-hint" role="status">
           {t.truncated}
         </p>
       )}
-      {calendar.data && !items.length && state.view !== "list" && (
+      {shown && !items.length && state.view !== "list" && (
         <p className="field-hint">{t.empty}</p>
       )}
       <CalendarDnd
         locale={locale}
         onDrop={(item, target) => void drop(item, target)}
       >
-        {state.view === "month" && calendar.data && (
+        {state.view === "month" && shown && (
           <MonthGrid
             label={label}
             cells={monthCells(state.anchor.slice(0, 7), timeZone, new Date())}
@@ -300,7 +308,7 @@ export function CalendarView() {
             }
           />
         )}
-        {state.view === "week" && calendar.data && (
+        {state.view === "week" && shown && (
           <WeekGrid
             label={label}
             days={weekDays(state.anchor)}
@@ -336,7 +344,7 @@ export function CalendarView() {
       </CalendarDnd>
       {state.view === "list" &&
         (organization ? (
-          calendar.data && (
+          shown && (
             <CalendarList
               items={items}
               timeZone={timeZone}
@@ -346,7 +354,7 @@ export function CalendarView() {
           )
         ) : (
           <PostListPages
-            key={searchFromState(state)}
+            key={listPagesKey(searchFromState(state), revision)}
             projectId={project.id}
             state={state}
             timeZone={timeZone}

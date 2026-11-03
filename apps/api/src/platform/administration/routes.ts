@@ -61,7 +61,7 @@ export function isAdministrationRoute(url: string) {
     url.startsWith("/api/admin/") ||
     // The social module's organization calendar (ADR 0020, S6) is a member
     // read, not administration: it follows ORBIT_SOCIAL instead.
-    (url.startsWith("/api/organizations/") && !url.startsWith("/api/organizations/:workspaceId/social/")) ||
+    (url.startsWith("/api/organizations/") && url !== "/api/organizations/:workspaceId/social/calendar") ||
     url.startsWith("/api/invitations/") ||
     url === "/api/projects/:projectId/members/:userId" ||
     url.startsWith("/api/projects/:projectId/invitations")
