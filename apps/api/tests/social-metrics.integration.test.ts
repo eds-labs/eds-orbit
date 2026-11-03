@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
 import { saveConnectedAccount } from "../src/modules/social/accounts/store.ts";
@@ -147,7 +147,14 @@ describe.skipIf(!enabled)("social metrics", () => {
     const first = calls.map(idOf);
     expect(first).toHaveLength(50);
     calls = [];
-    await run();
+    // Runs are spaced: the next pass comes some minutes later.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 10 * 60_000);
+    try {
+      await run();
+    } finally {
+      vi.useRealTimers();
+    }
     const second = calls.map(idOf);
     // What was left over comes now; what was just read is not due yet.
     expect(second.filter((id) => first.includes(id))).toEqual([]);
@@ -174,6 +181,8 @@ describe.skipIf(!enabled)("social metrics", () => {
     expect(calls.filter((c) => c.hostname === "api.x.com")).toHaveLength(0);
     const current = await p.run((tx) => readSocialSettings(tx, p.owner));
     await p.run((tx) => saveSocialSettings(tx, p.owner, { ...current.settings, xMetrics: true }, current.version));
+    // Runs are spaced five minutes apart: start from no earlier read.
+    await clear();
     await run();
     expect(calls.filter((c) => c.hostname === "api.x.com")).toHaveLength(1);
     expect((await rows(tweet.publicationId)).find((r) => r.metric === "impressions")).toBeDefined();
@@ -200,6 +209,64 @@ describe.skipIf(!enabled)("social metrics", () => {
     calls = [];
     await run();
     expect(calls.filter((c) => c.hostname === "api.x.com")).toHaveLength(0);
+  });
+
+  it("marks the posts of an account whose credentials fail, so it does not run again at once", async () => {
+    const broken = await saveConnectedAccount(p.owner, {
+      platform: "facebook",
+      externalId: String(Math.floor(Math.random() * 1e12)),
+      handle: "@broken",
+      displayName: "broken",
+      secret: "not json",
+      config: { metaUserId: "7" },
+    });
+    const post = await published(broken.accountId, "904_1");
+    await run();
+    expect((await rows(post.publicationId)).map((r) => [r.metric, Number(r.value)])).toEqual([["orbit_read", 0]]);
+    const due = await p.run((tx) => socialMetrics.nextDueAt!(tx, p.owner));
+    expect(due!.getTime()).toBeGreaterThan(Date.now());
+    await p.run((tx) => tx.socialPublication.update({ where: { id: post.publicationId }, data: { status: "canceled" } }));
+  });
+
+  it("spaces the runs: leftovers wait a few minutes instead of running at once", async () => {
+    const many: Array<{ publicationId: string }> = [];
+    for (let i = 0; i < 52; i++) many.push(await published(facebook, `905_${i}`));
+    await run();
+    const due = await p.run((tx) => socialMetrics.nextDueAt!(tx, p.owner));
+    expect(due!.getTime()).toBeGreaterThan(Date.now() + 60_000);
+    // A pass started before then reads nothing.
+    calls = [];
+    await run();
+    expect(calls).toHaveLength(0);
+    await p.run((tx) => tx.socialPublication.updateMany({ where: { id: { in: many.map((m) => m.publicationId) } }, data: { status: "canceled" } }));
+  });
+
+  it("reports the latest read only", async () => {
+    const post = await published(facebook, "906_1");
+    await p.run((tx) =>
+      tx.socialMetricSnapshot.createMany({
+        data: [
+          { at: 3, reactions: 5, shares: 1 },
+          { at: 1, reactions: 9, shares: null },
+        ].flatMap((r) =>
+          Object.entries({ reactions: r.reactions, shares: r.shares, orbit_read: 1 })
+            .filter(([, v]) => v !== null)
+            .map(([metric, value]) => ({
+              id: randomUUID(),
+              workspaceId: p.owner.workspaceId,
+              projectId: p.owner.projectId,
+              publicationId: post.publicationId,
+              metric,
+              value: value as number,
+              period: "lifetime",
+              observedAt: new Date(Date.now() - r.at * HOUR),
+            })),
+        ),
+      }),
+    );
+    const [report] = await p.run((tx) => postMetrics(tx, p.owner, [post.postId]));
+    expect(report!.publications[0]!.metrics).toEqual({ reactions: 9 });
+    await p.run((tx) => tx.socialPublication.update({ where: { id: post.publicationId }, data: { status: "canceled" } }));
   });
 
   it("is due only while something can be read", async () => {

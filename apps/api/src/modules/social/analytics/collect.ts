@@ -12,14 +12,19 @@ import { readMetrics } from "./readers.ts";
 // reads the public figures of live publications at most 30 days old, at
 // most 50 provider calls per project and run, least recently read first.
 // X bills its reads, so X figures are read only when the owner switched on
-// `xMetrics`, and at most once a day. Every attempt leaves a `orbit_read` row
-// (1 read, 0 failed), so a post that fails does not starve the others.
+// `xMetrics`, and at most once a day. Every attempt leaves an `orbit_read`
+// row (1 read, 0 failed, also when the account's credentials fail), so a
+// post that fails does not starve the others or bring the run straight back.
+// Runs are at least five minutes apart and stop starting calls after 30 s,
+// so a large backlog is read in paced batches and never holds the project.
 
 const EVERY_MS = 6 * 3_600_000;
 const X_EVERY_MS = 24 * 3_600_000;
 const WINDOW_MS = 30 * 86_400_000;
 const CALLS_PER_RUN = 50;
 const X_BATCH = 100;
+const PACE_MS = 5 * 60_000;
+const RUN_BUDGET_MS = 30_000;
 // Metric names start with a letter (database check).
 const READ_MARK = "orbit_read";
 
@@ -53,7 +58,7 @@ async function candidates(tx: DbTx, scope: Scope, now: Date): Promise<Candidate[
   const platformOf = new Map(accounts.map((a) => [a.id, a.platform as SocialPlatform]));
   const reads = await tx.socialMetricSnapshot.groupBy({
     by: ["publicationId"],
-    where: { projectId: scope.projectId, publicationId: { in: live.map((p) => p.id) } },
+    where: { projectId: scope.projectId, publicationId: { in: live.map((p) => p.id) }, metric: READ_MARK, period: "lifetime" },
     _max: { observedAt: true },
   });
   const lastReadOf = new Map(reads.map((r) => [r.publicationId, r._max.observedAt]));
@@ -98,47 +103,86 @@ function pick(due: Candidate[]): Candidate[] {
   return picked;
 }
 
+/** The earliest time the next run may start: the first due post, but never sooner than PACE_MS after the last one. */
+function nextRunAt(all: Candidate[]): Date | null {
+  if (!all.length) return null;
+  const firstDue = Math.min(...all.map((c) => dueAt(c).getTime()));
+  const lastRun = Math.max(0, ...all.map((c) => c.lastRead?.getTime() ?? 0));
+  return new Date(Math.max(firstDue, lastRun ? lastRun + PACE_MS : 0));
+}
+
+type SnapshotRow = {
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  publicationId: string;
+  metric: string;
+  value: number;
+  unit: string | null;
+  period: string;
+  observedAt: Date;
+};
+
 export const socialMetrics: PeriodicTask = {
   name: "social-metrics",
   async nextDueAt(tx, scope) {
     if (!(await socialActive(tx, scope))) return null;
-    const all = await candidates(tx, scope, new Date());
-    if (!all.length) return null;
-    return new Date(Math.min(...all.map((c) => dueAt(c).getTime())));
+    return nextRunAt(await candidates(tx, scope, new Date()));
   },
   async run(scope) {
     const now = new Date();
-    const due = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      if (!(await socialActive(tx, scope))) return [];
-      return (await candidates(tx, scope, now)).filter((c) => dueAt(c).getTime() <= now.getTime());
-    });
+    const all = await scoped(scope.workspaceId, scope.projectId, async (tx) =>
+      (await socialActive(tx, scope)) ? candidates(tx, scope, now) : [],
+    );
+    const next = nextRunAt(all);
+    if (!next || next.getTime() > now.getTime()) return { status: "nothing due" };
+    const due = all.filter((c) => dueAt(c).getTime() <= now.getTime());
     const picked = pick(due);
     const byAccount = new Map<string, Candidate[]>();
     for (const c of picked) byAccount.set(c.accountId, [...(byAccount.get(c.accountId) ?? []), c]);
+    const deadline = now.getTime() + RUN_BUDGET_MS;
+    const base = (c: Candidate) => ({
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      publicationId: c.publicationId,
+      period: "lifetime",
+      observedAt: now,
+    });
+    const marker = (c: Candidate, ok: boolean): SnapshotRow => ({ ...base(c), id: randomUUID(), metric: READ_MARK, value: ok ? 1 : 0, unit: null });
+    const save = (rows: SnapshotRow[]) =>
+      rows.length ? scoped(scope.workspaceId, scope.projectId, (tx) => tx.socialMetricSnapshot.createMany({ data: rows })) : null;
     let read = 0;
     let failed = 0;
     for (const [accountId, items] of byAccount) {
-      let credentials;
+      let rows: SnapshotRow[];
       try {
-        credentials = await accountCredentials(scope, accountId);
+        const credentials = await accountCredentials(scope, accountId);
+        const result = await readMetrics(credentials, items.map((c) => c.externalPostId), { deadline });
+        // A post the deadline left out was not tried: no marker, it stays due.
+        rows = items.flatMap((c) => {
+          if (!result.values.has(c.externalPostId)) return [];
+          const values = result.values.get(c.externalPostId) ?? null;
+          if (values) read++;
+          else failed++;
+          return [
+            marker(c, values !== null),
+            ...(values ?? []).map((v) => ({ ...base(c), id: randomUUID(), metric: v.metric, value: v.value, unit: "count" })),
+          ];
+        });
       } catch {
-        // A reconnect or a disabled account is the health task's business.
-        continue;
+        // Credentials that cannot be read (a reconnect is the health task's
+        // business) still mark the posts as tried: no run comes straight back.
+        failed += items.length;
+        rows = items.map((c) => marker(c, false));
       }
-      const result = await readMetrics(credentials, items.map((c) => c.externalPostId));
-      const rows = items.flatMap((c) => {
-        const values = result.values.get(c.externalPostId) ?? null;
-        if (values) read++;
-        else failed++;
-        const base = { workspaceId: scope.workspaceId, projectId: scope.projectId, publicationId: c.publicationId, period: "lifetime", observedAt: now };
-        return [
-          { ...base, id: randomUUID(), metric: READ_MARK, value: values ? 1 : 0, unit: null },
-          ...(values ?? []).map((v) => ({ ...base, id: randomUUID(), metric: v.metric, value: v.value, unit: "count" })),
-        ];
-      });
-      await scoped(scope.workspaceId, scope.projectId, (tx) => tx.socialMetricSnapshot.createMany({ data: rows }));
+      try {
+        await save(rows);
+      } catch {
+        // The figures could not be stored: keep at least the attempt.
+        await save(rows.filter((r) => r.metric === READ_MARK).map((r) => ({ ...r, value: 0 })))?.catch(() => null);
+      }
     }
-    return { status: `read ${read}, failed ${failed}, left ${due.length - picked.length}` };
+    return { status: `read ${read}, failed ${failed}, left ${due.length - read - failed}` };
   },
 };
 
@@ -172,15 +216,26 @@ export async function postMetrics(tx: DbTx, scope: Scope, postIds: string[]): Pr
     select: { id: true, platform: true },
   });
   const platformOf = new Map(accounts.map((a) => [a.id, a.platform as SocialPlatform]));
-  const snapshots = await tx.socialMetricSnapshot.findMany({
-    where: { projectId: scope.projectId, publicationId: { in: publications.map((p) => p.id) }, NOT: { metric: READ_MARK } },
-    orderBy: { observedAt: "desc" },
-    select: { publicationId: true, metric: true, value: true, observedAt: true },
+  // Only the latest successful read of each publication, not its history.
+  const reads = await tx.socialMetricSnapshot.groupBy({
+    by: ["publicationId"],
+    where: { projectId: scope.projectId, publicationId: { in: publications.map((p) => p.id) }, metric: READ_MARK, value: 1 },
+    _max: { observedAt: true },
   });
+  const snapshots = reads.length
+    ? await tx.socialMetricSnapshot.findMany({
+        where: {
+          projectId: scope.projectId,
+          NOT: { metric: READ_MARK },
+          OR: reads.map((r) => ({ publicationId: r.publicationId, observedAt: r._max.observedAt! })),
+        },
+        select: { publicationId: true, metric: true, value: true, observedAt: true },
+      })
+    : [];
   const latest = new Map<string, { observedAt: Date; metrics: Record<string, number> }>();
   for (const s of snapshots) {
     const entry = latest.get(s.publicationId) ?? { observedAt: s.observedAt, metrics: {} };
-    if (!(s.metric in entry.metrics)) entry.metrics[s.metric] = Number(s.value);
+    entry.metrics[s.metric] = Number(s.value);
     latest.set(s.publicationId, entry);
   }
   return postIds

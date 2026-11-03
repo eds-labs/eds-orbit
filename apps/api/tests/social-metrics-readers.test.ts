@@ -97,6 +97,17 @@ describe("metric readers", () => {
     expect((await readMetrics(credentials("x"), ["1"])).values.get("1")).toBeNull();
   });
 
+  it("survives odd X answers and stops starting calls after its deadline", async () => {
+    fake(() => json(200, { data: [null, 7, { id: "1", public_metrics: { like_count: 1 } }] }));
+    const { values } = await readMetrics(credentials("x"), ["1", "2"]);
+    expect(values.get("1")).toEqual(expect.arrayContaining([{ metric: "likes", value: 1 }]));
+    expect(values.get("2")).toBeNull();
+    const calls = fake(() => json(200, { id: "a", like_count: 1, comments_count: 0 }));
+    const late = await readMetrics(credentials("instagram"), ["a", "b"], { deadline: Date.now() - 1 });
+    expect(calls).toHaveLength(0);
+    expect([...late.values.keys()]).toEqual([]);
+  });
+
   it("has nothing to read for Telegram channels", async () => {
     const calls = fake(() => json(200, {}));
     expect(await readMetrics(credentials("telegram"), ["5"])).toEqual({ values: new Map(), calls: 0 });

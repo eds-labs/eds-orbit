@@ -223,13 +223,13 @@ describe.skipIf(!enabled)("social post routes", () => {
         },
       });
       await tx.socialMetricSnapshot.createMany({
-        data: ["likes", "impressions"].map((metric, i) => ({
+        data: ["likes", "impressions", "orbit_read"].map((metric, i) => ({
           id: randomUUID(),
           workspaceId,
           projectId,
           publicationId,
           metric,
-          value: i ? 120 : 4,
+          value: [4, 120, 1][i]!,
           unit: "count",
           period: "lifetime",
           observedAt: new Date(),
