@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -275,4 +276,172 @@ export async function cancelOriginPost(
   await tx.socialPost.update({ where: { id: post.id }, data: { status: "canceled", version: { increment: 1 } } });
   await audit(tx, scope, "social.post.origin_canceled", post.id, { reason });
   return "canceled";
+}
+
+// ------------------------------------------------- Postiz migration (S10)
+
+export type MappableAccount = {
+  accountId: string;
+  platform: SocialPlatform;
+  handle: string;
+  displayName: string;
+  status: string;
+  legacyPostizIntegrationId: string | null;
+};
+
+/** The project's accounts with the Postiz channel each one stands for. */
+export async function accountsForMapping(tx: DbTx, scope: Scope): Promise<MappableAccount[]> {
+  const rows = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId, status: { not: "disabled" } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  return rows.map((row) => ({
+    accountId: row.id,
+    platform: row.platform as SocialPlatform,
+    handle: row.handle,
+    displayName: row.displayName,
+    status: row.status,
+    legacyPostizIntegrationId: row.legacyPostizIntegrationId,
+  }));
+}
+
+/** Records (or clears) the Postiz channel an account stands for. */
+export async function setLegacyChannel(tx: DbTx, scope: Scope, accountId: string, integrationId: string | null): Promise<void> {
+  const changed = await tx.socialAccount.updateMany({
+    where: { id: accountId, projectId: scope.projectId },
+    data: { legacyPostizIntegrationId: integrationId, version: { increment: 1 } },
+  });
+  if (changed.count !== 1) throw new DomainError("NOT_FOUND", 404);
+  await audit(tx, scope, "social.account.legacy_mapped", accountId, { mapped: integrationId !== null });
+}
+
+/** One record of the origin's Postiz history, as the mirror shows it. */
+export type LegacyRow = {
+  kind: "publication" | "draft";
+  id: string;
+  channel: string;
+  text: string;
+  status: "published" | "failed" | "canceled" | "outcome_unknown" | "accepted" | "draft";
+  at: string;
+  externalPostId: string | null;
+  permalink: string | null;
+  publishedAt: string | null;
+};
+
+const POST_STATUS: Record<LegacyRow["status"], string> = {
+  published: "published",
+  failed: "failed",
+  canceled: "canceled",
+  outcome_unknown: "publishing",
+  accepted: "publishing",
+  draft: "draft",
+};
+
+/**
+ * The read-only mirror of another system's history (S-D8, S10): one post
+ * (origin `legacy_postiz`, read-only) per record on a mapped channel, with
+ * one publication carrying the record's id as `legacyEntityId` (drafts have
+ * none). A re-run updates what changed in the source; nothing is ever sent.
+ */
+export async function mirrorLegacyRows(tx: DbTx, scope: Scope, rows: LegacyRow[], options: { dryRun: boolean }) {
+  const result = { dryRun: options.dryRun, created: 0, updated: 0, unchanged: 0, unmapped: 0, byStatus: {} as Record<string, number> };
+  const project = await tx.project.findUnique({ where: { id: scope.projectId }, select: { timezone: true } });
+  const zone = project?.timezone ?? "UTC";
+  for (const row of rows) {
+    const account = await accountForChannel(tx, scope, row.channel);
+    if (!account) {
+      result.unmapped++;
+      continue;
+    }
+    const at = new Date(row.at);
+    const existing = await tx.socialPost.findFirst({
+      where: { projectId: scope.projectId, origin: "legacy_postiz", originType: row.kind, originId: row.id },
+    });
+    const publication =
+      existing && row.kind === "publication"
+        ? await tx.socialPublication.findFirst({ where: { projectId: scope.projectId, legacyEntityId: row.id } })
+        : null;
+    const postFields = {
+      status: POST_STATUS[row.status],
+      baseText: row.text,
+      scheduleMode: "at",
+      scheduledAt: Number.isFinite(at.getTime()) ? at : null,
+      scheduleLocal: Number.isFinite(at.getTime()) ? localOf(at, zone) : null,
+    };
+    const publicationFields = {
+      status: row.status === "draft" ? "pending" : row.status,
+      externalPostId: row.externalPostId,
+      permalink: row.permalink,
+      publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
+    };
+    const same =
+      existing &&
+      existing.status === postFields.status &&
+      existing.baseText === postFields.baseText &&
+      (row.kind === "draft" ||
+        (publication &&
+          publication.status === publicationFields.status &&
+          publication.externalPostId === publicationFields.externalPostId &&
+          publication.permalink === publicationFields.permalink));
+    if (same) {
+      result.unchanged++;
+      continue;
+    }
+    result.byStatus[row.status] = (result.byStatus[row.status] ?? 0) + 1;
+    if (existing) result.updated++;
+    else result.created++;
+    if (options.dryRun) continue;
+    if (existing) {
+      await tx.socialPost.update({ where: { id: existing.id }, data: { ...postFields, version: { increment: 1 } } });
+      await tx.socialPostVariant.updateMany({ where: { projectId: scope.projectId, postId: existing.id }, data: { body: row.text } });
+      if (publication)
+        await tx.socialPublication.update({ where: { id: publication.id }, data: { ...publicationFields, version: { increment: 1 } } });
+      continue;
+    }
+    const postId = randomUUID();
+    const variantId = randomUUID();
+    await tx.socialPost.create({
+      data: {
+        id: postId,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        ...postFields,
+        baseMedia: [],
+        scheduleTimezone: zone,
+        origin: "legacy_postiz",
+        originModule: "marketing",
+        originType: row.kind,
+        originId: row.id,
+        originVersion: 1,
+        readOnly: true,
+        createdBy: scope.userId,
+      },
+    });
+    await tx.socialPostVariant.create({
+      data: {
+        id: variantId,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        postId,
+        accountId: account.accountId,
+        body: row.text,
+        contentHash: createHash("sha256").update(row.text).digest("hex"),
+      },
+    });
+    if (row.kind === "publication")
+      await tx.socialPublication.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          variantId,
+          accountId: account.accountId,
+          idempotencyKey: `legacy:${row.id}`,
+          legacyEntityId: row.id,
+          providerState: { legacyPostiz: true },
+          ...publicationFields,
+        },
+      });
+  }
+  return result;
 }

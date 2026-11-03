@@ -1455,6 +1455,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/marketing/social-migration": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/matomo_schedules": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4039,6 +4047,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/marketing/social-migration/mirror": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/matomo_schedules": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4824,6 +4840,14 @@
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/marketing/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/marketing/social-migration/mapping": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
