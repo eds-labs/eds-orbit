@@ -87,6 +87,42 @@ describe("social approval renderers", () => {
     expect(render("social.account.verify_write", withImage as never)).toContain('src="/api/projects/p1/social/media/m9/content?rendition=jpeg"');
   });
 
+  it("shows a proposed draft's text per account and a proposed cancellation (S7)", () => {
+    const draft = {
+      id: "r3",
+      actionType: "social.mcp.social_draft_create",
+      summary: {
+        operation: {
+          kind: "social_draft",
+          change: "create",
+          title: "Launch",
+          variants: [{ accountId: "a1", platform: "x", handle: "@orbit_x", body: "Draft text", images: 2 }],
+        },
+      },
+    };
+    const html = render("social.mcp.social_draft_create", draft as never);
+    expect(html).toContain("New social draft: Launch");
+    expect(html).toContain("@orbit_x");
+    expect(html).toContain("Draft text");
+    expect(html).toContain("2 images");
+    expect(html).toContain("Nothing is published");
+    expect(buttons(html)).toEqual(["Approve", "Reject"]);
+    expect(render("social.mcp.social_draft_update", { ...draft, summary: { operation: { ...draft.summary.operation, change: "update" } } } as never, true)).toContain(
+      "Social-Entwurf ändern: Launch",
+    );
+    const cancel = {
+      id: "r4",
+      actionType: "social.mcp.social_cancel",
+      summary: { operation: { kind: "social_cancel", postId: "p9", title: "Launch", status: "scheduled", local: "2026-12-01T10:00", timeZone: "Europe/Berlin" } },
+    };
+    const cancelHtml = render("social.mcp.social_cancel", cancel as never);
+    expect(cancelHtml).toContain("Take a planned social post back to a draft: Launch");
+    expect(cancelHtml).toContain("2026-12-01 10:00 (Europe/Berlin)");
+    // Schedule and publish-now proposals use the post view.
+    expect(render("social.mcp.social_schedule", item("at"))).toContain("Schedule a social post");
+    expect(socialActionRequests["social.mcp.social_publish_now"]!.accepts(item("now"))).toBe(true);
+  });
+
   it("leaves other requests to the generic view", () => {
     expect(socialActionRequests["social.post.schedule"]!.accepts({ summary: { operation: { kind: "tasks" } } })).toBe(false);
     expect(socialActionRequests["social.post.schedule"]!.accepts(item("at"))).toBe(true);

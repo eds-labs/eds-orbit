@@ -11,7 +11,7 @@ import { socialJobs } from "./dispatch/jobs.ts";
 import { socialDeliverySweep } from "./dispatch/sweep.ts";
 import { resumeBlocked } from "./dispatch/control.ts";
 import { socialRoutes } from "./routes.ts";
-import { socialInstructions, socialTools } from "./tools.ts";
+import { socialInstructions, socialMcpActionTypes, socialTools } from "./tools.ts";
 
 /** What the social module plugs into the platform; later phases add to it. */
 export const socialContributions: ModuleContributions = {
@@ -27,7 +27,7 @@ export const socialContributions: ModuleContributions = {
   periodic: [socialOAuthStateCleanup, socialAccountHealth, socialDeliverySweep],
   // Owner approvals of a post's schedule or immediate publication (S4).
   // and the owner's approval of a write verification post (S5).
-  actionTypes: { ...socialActionTypes, [VERIFY_WRITE_ACTION]: verifyWriteAction },
+  actionTypes: { ...socialActionTypes, [VERIFY_WRITE_ACTION]: verifyWriteAction, ...socialMcpActionTypes },
   // Sending approved posts on the Orbit worker (S5).
   jobs: socialJobs,
   // Deliveries a pause blocked go out again if they are recent (S5).

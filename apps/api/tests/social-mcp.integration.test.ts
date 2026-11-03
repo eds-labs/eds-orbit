@@ -8,9 +8,12 @@ import type { McpPrincipal } from "../src/platform/mcp/principal.ts";
 import { MCP_RESOURCE_SCOPES } from "../src/platform/mcp/server.ts";
 import { MCP_SCOPES } from "../src/platform/mcp-auth/plugins.ts";
 import { moduleScope } from "../src/platform/tenancy/module-roles.ts";
-import { registeredTools } from "../src/platform/modules/contributions.ts";
+import { registeredActionType, registeredTools } from "../src/platform/modules/contributions.ts";
+import { decideActionRequest, listActionRequests } from "../src/modules/action-requests.ts";
+import { data, entity } from "../src/shared.ts";
 import { availableTools } from "../src/modules/agents/tools/registry.ts";
-import { createPost } from "../src/modules/social/posts/posts.ts";
+import { createPost, getPost } from "../src/modules/social/posts/posts.ts";
+import { schedulePost } from "../src/modules/social/posts/approval.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
 registerModules();
@@ -19,6 +22,8 @@ const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_D
 const ENV = { ORBIT_SOCIAL: "true", ORBIT_MODULES: "true", ORBIT_MCP_PROPOSALS: "true", ORBIT_MCP_TASKS: "true" };
 const READS = ["social_accounts", "social_calendar", "social_post_get", "social_post_status", "social_validate"];
 const VIEWER_READS = READS.filter((n) => n !== "social_validate");
+const DRAFTS = ["social_cancel", "social_draft_create", "social_draft_update"];
+const PROPOSALS = [...DRAFTS];
 const ALL = ["orbit:read", "orbit:propose", "orbit:social"];
 const ours = (names: string[]) => names.filter((n) => n.startsWith("social_")).sort();
 
@@ -48,11 +53,27 @@ describe("social tool contracts (S7)", () => {
     expect(MCP_RESOURCE_SCOPES).toContain("orbit:social");
   });
 
+  it("registers the draft and cancel proposals as owner-decided, internal and mandatable", () => {
+    const tools = registeredTools().filter((t) => t.namespace === "social" && t.risk === "P_proposal");
+    expect(ours(tools.map((t) => t.name))).toEqual(expect.arrayContaining(DRAFTS));
+    for (const name of DRAFTS) {
+      const type = registeredActionType(`social.mcp.${name}`)!;
+      expect(type.riskClass, name).toBe("W0");
+      expect(type.deciderRole, name).toBe("owner");
+      expect(type.policyRequired, name).toBe(false);
+      expect(type.mandate, name).toEqual(expect.objectContaining({ maxCostMicrosPerAction: 0 }));
+    }
+  });
+
   it("offers the reads to viewers except the check, and nothing without the module", () => {
     const names = (role: Scope["role"]) =>
       ours(availableTools(registeredTools(), role, ["social"]).filter((t) => t.risk === "R0_read").map((t) => t.name));
     expect(names("editor")).toEqual(READS);
     expect(names("viewer")).toEqual(VIEWER_READS);
+    const proposals = (role: Scope["role"]) =>
+      ours(availableTools(registeredTools(), role, ["social", "mcp_tasks"]).filter((t) => t.risk === "P_proposal").map((t) => t.name));
+    expect(proposals("editor")).toEqual(expect.arrayContaining(DRAFTS));
+    expect(proposals("viewer")).toEqual([]);
     expect(ours(availableTools(registeredTools(), "owner", []).map((t) => t.name))).toEqual([]);
   });
 });
@@ -83,6 +104,11 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
       () => "resolved",
       (e: { code?: string; message: string }) => e.code ?? e.message,
     );
+  const decide = (who: Scope, id: string) =>
+    p.run(async (tx) => {
+      const row = await entity(tx, who, "action_requests", id);
+      return decideActionRequest(tx, who, id, { version: row.version, packageHash: data(row).packageHash, decision: "approve" });
+    });
   const names = async (who: McpPrincipal) => ours((await visibleMcpTools(who, owner().projectId)).map((t) => t.name));
   async function grantFor(scope: Scope, scopes: string[]): Promise<McpPrincipal> {
     const grant = await authDb.mcpGrant.create({
@@ -151,7 +177,7 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
   });
 
   it("lists the reads by scope set and asks for orbit:social at discovery", async () => {
-    expect(await names(principal)).toEqual(expect.arrayContaining(READS));
+    expect(await names(principal)).toEqual([...READS, ...PROPOSALS].sort());
     expect(await names(await grantFor(owner(), ["orbit:read", "orbit:propose"]))).toEqual([]);
     expect(await names(await grantFor(owner(), ["orbit:read", "orbit:social"]))).toEqual(READS);
     const discovery = ours(
@@ -210,6 +236,70 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     expect(await code("social_post_get", { postId: foreign.id })).toBe("NOT_FOUND");
     const status = await op("social_post_status", { postIds: [id, foreign.id] });
     expect(status.result).toEqual({ items: [{ postId: id, status: "draft", publications: [] }], missing: [foreign.id] });
+  });
+
+  it("proposes a draft that the owner approves once, created as an MCP post", async () => {
+    const editor = await grantFor(p.editor, ALL);
+    const args = { idempotencyKey: "draft-1", title: "Launch", baseText: "We launch today.", baseMedia: [], variants: [{ accountId: x }, { accountId: telegram, text: "Telegram text" }] };
+    const before = await p.run((tx) => tx.socialPost.count({ where: { projectId: owner().projectId } }));
+    const proposal = await op("social_draft_create", args, editor);
+    expect(proposal).toMatchObject({ status: "pending", requiresApproval: true, deduplicated: false });
+    expect(await op("social_draft_create", args, editor)).toMatchObject({ actionRequestId: proposal.actionRequestId, deduplicated: true });
+    expect(await code("social_draft_create", { ...args, baseText: "Other" }, editor)).toBe("IDEMPOTENCY_KEY_CONFLICT");
+    expect(await p.run((tx) => tx.socialPost.count({ where: { projectId: owner().projectId } }))).toBe(before);
+    // The owner sees the exact texts per account, with handles.
+    const listed = (await p.run((tx) => listActionRequests(tx, owner()))).find((r) => r.id === proposal.actionRequestId);
+    expect(listed).toMatchObject({
+      actionType: "social.mcp.social_draft_create",
+      summary: {
+        operation: {
+          kind: "social_draft",
+          change: "create",
+          title: "Launch",
+          variants: [
+            { accountId: x, platform: "x", handle: "@x_orbit", body: "We launch today.", images: 0 },
+            { accountId: telegram, platform: "telegram", handle: "@telegram_orbit", body: "Telegram text", images: 0 },
+          ],
+        },
+      },
+    });
+    await expect(decide(p.editor, proposal.actionRequestId)).rejects.toThrow();
+    await decide(owner(), proposal.actionRequestId);
+    const created = await p.run((tx) => tx.socialPost.findMany({ where: { projectId: owner().projectId, title: "Launch" } }));
+    expect(created.map((c) => [c.origin, c.createdBy, c.status])).toEqual([["mcp", p.editor.userId, "draft"]]);
+    const row = await p.run((tx) => entity(tx, owner(), "action_requests", proposal.actionRequestId));
+    expect(data(row)).toMatchObject({ status: "consumed", executionResult: { postId: created[0]!.id, version: expect.any(Number) } });
+    await decide(owner(), proposal.actionRequestId).catch(() => undefined);
+    expect(await p.run((tx) => tx.socialPost.count({ where: { projectId: owner().projectId, title: "Launch" } }))).toBe(1);
+  });
+
+  it("refuses a stale draft update before asking, and at approval when the post changed", async () => {
+    const post = await p.run((tx) => createPost(tx, owner(), { baseText: "Old", baseMedia: [], variants: [{ accountId: x }] }));
+    const change = { postId: post.id, baseText: "New", baseMedia: [], variants: [{ accountId: x }] };
+    expect(await code("social_draft_update", { ...change, version: post.version + 1, idempotencyKey: "stale" })).toBe("SOCIAL_VERSION_CONFLICT");
+    const proposal = await op("social_draft_update", { ...change, version: post.version, idempotencyKey: "update-1" });
+    await p.run((tx) => tx.socialPost.update({ where: { id: post.id }, data: { version: { increment: 1 } } }));
+    await expect(decide(owner(), proposal.actionRequestId)).rejects.toThrow("SOCIAL_VERSION_CONFLICT");
+    expect((await p.run((tx) => getPost(tx, owner(), post.id))).baseText).toBe("Old");
+    const fresh = await p.run((tx) => getPost(tx, owner(), post.id));
+    const ok = await op("social_draft_update", { ...change, version: fresh.version, idempotencyKey: "update-2" });
+    await decide(owner(), ok.actionRequestId);
+    expect((await p.run((tx) => getPost(tx, owner(), post.id))).baseText).toBe("New");
+  });
+
+  it("cancels a planned post after the owner's approval", async () => {
+    const post = await p.run((tx) => createPost(tx, owner(), { baseText: "Planned", baseMedia: [], variants: [{ accountId: telegram }] }));
+    const scheduled = await p.run((tx) =>
+      schedulePost(tx, owner(), post.id, { version: post.version, at: new Date(Date.now() + 3 * 86_400_000).toISOString() }),
+    );
+    expect(scheduled.status).toBe("scheduled");
+    const proposal = await op("social_cancel", { postId: post.id, version: scheduled.version, idempotencyKey: "cancel-1" });
+    const listed = (await p.run((tx) => listActionRequests(tx, owner()))).find((r) => r.id === proposal.actionRequestId);
+    expect(listed?.summary).toMatchObject({ operation: { kind: "social_cancel", postId: post.id, status: "scheduled" } });
+    expect((await p.run((tx) => getPost(tx, owner(), post.id))).status).toBe("scheduled");
+    await decide(owner(), proposal.actionRequestId);
+    expect((await p.run((tx) => getPost(tx, owner(), post.id))).status).toBe("draft");
+    expect(await code("social_cancel", { postId: post.id, version: scheduled.version, idempotencyKey: "cancel-2" })).toBe("SOCIAL_VERSION_CONFLICT");
   });
 
   it("checks a draft without saving it", async () => {

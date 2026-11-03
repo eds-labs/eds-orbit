@@ -467,6 +467,23 @@ export async function draftIssues(tx: DbTx, scope: Scope, raw: unknown) {
   return resolved.map((r) => ({ accountId: r.input.accountId, platform: r.platform, issues: r.issues }));
 }
 
+/** What a draft would hold per account (an approval's view of a proposed draft, S7). */
+export async function draftPreview(tx: DbTx, scope: Scope, raw: unknown) {
+  const resolved = await resolveContent(tx, scope, postInput.parse(raw));
+  const handles = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId, id: { in: resolved.map((r) => r.input.accountId) } },
+    select: { id: true, handle: true },
+  });
+  const handleOf = new Map(handles.map((h) => [h.id, h.handle]));
+  return resolved.map((r) => ({
+    accountId: r.input.accountId,
+    platform: r.platform,
+    handle: handleOf.get(r.input.accountId) ?? "",
+    body: r.body,
+    images: r.images.length,
+  }));
+}
+
 /** Stores base and variants of `input`; validation is recorded, never blocking. */
 async function writeContent(tx: DbTx, scope: Scope, post: SocialPostRow, input: z.infer<typeof postInput>) {
   const accountIds = input.variants.map((v) => v.accountId);
@@ -533,13 +550,18 @@ export async function resetApproval(tx: DbTx, scope: Scope, post: SocialPostRow,
   return { approvalRequestId: null, approvedAt: null, approvedBy: null, packageHash: null };
 }
 
-function requireWritable(post: SocialPostRow, version: number, statuses = EDITABLE) {
+export function requireWritable(post: SocialPostRow, version: number, statuses = EDITABLE) {
   if (post.readOnly) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
   if (post.version !== version) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   if (!statuses.includes(post.status)) throw new DomainError("SOCIAL_POST_NOT_EDITABLE", 409);
 }
 
-export async function createPost(tx: DbTx, scope: Scope, raw: unknown): Promise<PostView> {
+export async function createPost(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  options: { origin?: "manual" | "mcp" | "assistant" } = {},
+): Promise<PostView> {
   const input = postInput.parse(raw);
   const project = await tx.project.findUnique({ where: { id: scope.projectId }, select: { timezone: true } });
   const post = await tx.socialPost.create({
@@ -551,6 +573,7 @@ export async function createPost(tx: DbTx, scope: Scope, raw: unknown): Promise<
       baseText: input.baseText,
       baseMedia: input.baseMedia,
       scheduleTimezone: project?.timezone ?? "UTC",
+      origin: options.origin ?? "manual",
       createdBy: scope.userId,
     },
   });

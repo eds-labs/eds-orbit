@@ -316,6 +316,10 @@ describe.skipIf(!enabled)("Agent mandates", () => {
         "marketing.mcp.marketing_update_campaign",
         "support.mcp.support_add_note",
         "support.mcp.support_prepare_reply",
+        // Social drafts and cancelling a planned post change nothing outside (S7).
+        "social.mcp.social_cancel",
+        "social.mcp.social_draft_create",
+        "social.mcp.social_draft_update",
         "work.mcp.work_propose_comment",
         "work.mcp.work_propose_initiative",
         "work.mcp.work_propose_task_update",

@@ -1,11 +1,24 @@
 import { z } from "zod";
-import { readOperation } from "../../platform/tasks/operation-tools.ts";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { approvedOperation, readOperation } from "../../platform/tasks/operation-tools.ts";
+import type { RequestedBy } from "../action-requests.ts";
 import { SOCIAL_SCOPE } from "../../platform/mcp/scopes.ts";
 import { DomainError } from "../../shared.ts";
 import { listAccounts } from "./accounts/accounts.ts";
 import { calendarItems } from "./calendar/calendar.ts";
 import { SOCIAL_COMPOSE, SOCIAL_READ } from "./permissions.ts";
-import { draftIssues, getPost, type PostView } from "./posts/posts.ts";
+import {
+  APPROVAL_BEARING,
+  cancelPost,
+  createPost,
+  draftIssues,
+  draftPreview,
+  getPost,
+  requireWritable,
+  updatePost,
+  type PostView,
+} from "./posts/posts.ts";
 import { TEXT_LIMITS } from "./posts/validation.ts";
 
 // The social module's assistant and MCP tools (ADR 0020 §6.5, S7): reads of
@@ -230,9 +243,107 @@ export const socialValidateTool = readOperation({
   },
 });
 
-const reads = [socialAccountsTool, socialCalendarTool, socialPostGetTool, socialPostStatusTool, socialValidateTool];
+// ------------------------------------------------------------ proposals
 
-export const socialTools = [...reads];
+const proposal = {
+  ...shared,
+  // S-D9: the owner decides every MCP write; nothing happens before.
+  deciderRole: "owner" as const,
+  mcpProjectRequired: true,
+  // Nothing spends money or needs a marketing publishing policy.
+  policyRequired: false,
+  requires: [] as const,
+};
+/** Internal changes only (ADR 0019): an owner may let agents do them without asking. */
+const internal = { riskClass: "W0" as const, mandate: { maxCostMicrosPerAction: 0 } };
+
+const originOf = (requester?: RequestedBy) => (requester?.kind === "mcp" ? "mcp" : "assistant");
+
+async function postFor(tx: DbTx, scope: Scope, postId: string) {
+  const post = await tx.socialPost.findFirst({ where: { id: postId, projectId: scope.projectId } });
+  if (!post) throw new DomainError("NOT_FOUND", 404);
+  return post;
+}
+
+const updateInput = draftInput.extend({ postId: z.uuid(), version: z.int().min(1) }).strict();
+const cancelInput = z.object({ postId: z.uuid(), version: z.int().min(1) }).strict();
+
+/** The approval's view of a draft change: the texts per account, with handles. */
+const draftSummary = (change: "create" | "update") => (args: { title?: string }, context?: { variants?: unknown }) => ({
+  operation: { kind: "social_draft", change, title: args.title ?? null, variants: context?.variants ?? [] },
+});
+
+export const socialDraftCreate = approvedOperation({
+  ...internal,
+  ...proposal,
+  name: "social_draft_create",
+  description:
+    "Propose a new draft post: baseText and baseMedia for all accounts, per account optional text, media and options. Check it with social_validate first. The draft is only saved; publishing needs social_schedule or social_publish_now.",
+  input: draftInput,
+  permission: SOCIAL_COMPOSE,
+  summary: draftSummary("create"),
+  // The accounts and images as the service would take them, before asking.
+  async validate(tx, scope, args) {
+    await draftIssues(tx, scope, args);
+  },
+  approvalContext: async (tx, scope, args) => ({ variants: await draftPreview(tx, scope, args) }),
+  async run(tx, scope, args, requester) {
+    const post = await createPost(tx, scope, args, { origin: originOf(requester) });
+    return { postId: post.id, version: post.version };
+  },
+});
+
+export const socialDraftUpdate = approvedOperation({
+  ...internal,
+  ...proposal,
+  name: "social_draft_update",
+  description:
+    "Propose new content for a post you read with social_post_get, with the version you read. A change to an approved or planned post clears its approval and makes it a draft again.",
+  input: updateInput,
+  permission: SOCIAL_COMPOSE,
+  summary: draftSummary("update"),
+  async validate(tx, scope, args) {
+    requireWritable(await postFor(tx, scope, args.postId), args.version);
+    await draftIssues(tx, scope, { title: args.title, baseText: args.baseText, baseMedia: args.baseMedia, variants: args.variants });
+  },
+  approvalContext: async (tx, scope, args) => ({
+    variants: await draftPreview(tx, scope, { title: args.title, baseText: args.baseText, baseMedia: args.baseMedia, variants: args.variants }),
+  }),
+  async run(tx, scope, args) {
+    const { postId, ...content } = args as z.infer<typeof updateInput>;
+    const post = await updatePost(tx, scope, postId, content);
+    return { postId: post.id, version: post.version };
+  },
+});
+
+export const socialCancel = approvedOperation({
+  ...internal,
+  ...proposal,
+  name: "social_cancel",
+  description:
+    "Propose to take a planned or approved post back to a draft (its approval ends). A post being sent keeps what already went out. Pass the version you read.",
+  input: cancelInput,
+  permission: SOCIAL_COMPOSE,
+  summary: (args, context?: Record<string, unknown>) => ({ operation: { kind: "social_cancel", postId: args.postId, ...context } }),
+  async validate(tx, scope, args) {
+    const post = await postFor(tx, scope, args.postId);
+    requireWritable(post, args.version, post.status === "publishing" ? ["publishing"] : APPROVAL_BEARING);
+  },
+  approvalContext: async (tx, scope, args) => {
+    const post = await getPost(tx, scope, args.postId);
+    return { title: post.title, status: post.status, at: post.schedule.at, local: post.schedule.local, timeZone: post.schedule.timeZone };
+  },
+  async run(tx, scope, args) {
+    const post = await cancelPost(tx, scope, args.postId, args.version);
+    return { postId: post.id, version: post.version, status: post.status };
+  },
+});
+
+const reads = [socialAccountsTool, socialCalendarTool, socialPostGetTool, socialPostStatusTool, socialValidateTool];
+const proposals = [socialDraftCreate, socialDraftUpdate, socialCancel];
+
+export const socialTools = [...reads, ...proposals.map((p) => p.tool)];
+export const socialMcpActionTypes = Object.fromEntries(proposals.map((p) => [p.actionType, p.action]));
 
 export const socialInstructions = [
   "Social (module social): posts go to connected accounts (X, Facebook Pages, Instagram, Telegram channels). Read accounts with social_accounts and posts with social_calendar or social_post_get before proposing; check drafts with social_validate. Every publication needs the owner's approval in Orbit; never claim a post is published unless its publication says published.",
