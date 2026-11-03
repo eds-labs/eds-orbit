@@ -1,3 +1,4 @@
+import { refuseWhileDraining } from "../publishing/backend.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
@@ -112,6 +113,7 @@ export async function bookPostizDraft(
     reviewTaskId: string | null;
   },
 ) {
+  await refuseWhileDraining(tx, scope);
   if (!postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const blockers = await draftBlockers(

@@ -14,8 +14,11 @@ import { socialPublishingAvailable } from "../../social/contract.ts";
 
 export const marketingSettingsSchema = z
   .object({
-    /** Where approved posts and assignment drafts go. */
-    publishingBackend: z.enum(["postiz", "social"]),
+    /**
+     * Where approved posts and assignment drafts go. `postiz_draining`
+     * (S10): Postiz finishes what it has, nothing new is handed to it.
+     */
+    publishingBackend: z.enum(["postiz", "postiz_draining", "social"]),
   })
   .strict();
 export type MarketingSettings = z.infer<typeof marketingSettingsSchema>;
@@ -43,4 +46,10 @@ export async function saveMarketingSettings(tx: DbTx, scope: Scope, raw: unknown
   if (before !== next.publishingBackend)
     await audit(tx, scope, "marketing.publishing_backend_changed", scope.projectId, { from: before, to: next.publishingBackend });
   return saved;
+}
+
+/** Refuses new work for Postiz while the project drains it (S10). */
+export async function refuseWhileDraining(tx: DbTx, scope: Scope): Promise<void> {
+  if ((await publishingBackend(tx, scope)) === "postiz_draining")
+    throw new DomainError("PUBLISHING_BACKEND_DRAINING", 409);
 }

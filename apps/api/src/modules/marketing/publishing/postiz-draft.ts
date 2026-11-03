@@ -37,7 +37,7 @@ import {
   connectionAccess,
 } from "../../../platform/connections/connections.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
-import { publishingBackend } from "./backend.ts";
+import { publishingBackend, refuseWhileDraining } from "./backend.ts";
 import {
   accountForChannel,
   importOriginMedia,
@@ -592,6 +592,7 @@ async function prepare(
   version: number,
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  await refuseWhileDraining(tx, scope);
   if (!postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const project = await tx.project.findUniqueOrThrow({

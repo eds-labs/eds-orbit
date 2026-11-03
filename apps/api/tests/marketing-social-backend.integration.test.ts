@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import { create, data, entity } from "../src/shared.ts";
 import { reconcilePublication } from "../src/modules/marketing/publishing/publisher.ts";
+import { publishIntent } from "../src/modules/marketing/pipeline/workflow.ts";
+import { bookPostizDraft } from "../src/modules/marketing/agents/draft-delivery.ts";
 import { submitOriginPost } from "../src/modules/social/contract.ts";
 import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
 import { readMarketingSettings, saveMarketingSettings } from "../src/modules/marketing/publishing/backend.ts";
@@ -69,7 +71,7 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     await closeDatabase();
   });
 
-  const backend = async (value: "postiz" | "social") => {
+  const backend = async (value: "postiz" | "postiz_draining" | "social") => {
     const current = await run((tx) => readMarketingSettings(tx, project.owner));
     await run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: value }, current.version));
   };
@@ -204,6 +206,32 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     await reconcilePublication(project.owner, stopped.pubId);
     expect(await pub(stopped.pubId)).toMatchObject({ status: "canceled" });
     expect((await run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: stopped.postId } }))).status).toBe("canceled");
+  });
+
+  it("drains Postiz: nothing new goes to Postiz, pending posts keep their package (S10)", async () => {
+    const before = await run((tx) => packageFor(tx, project.owner, contentId));
+    await backend("postiz_draining");
+    try {
+      expect((await run((tx) => packageFor(tx, project.owner, contentId))).packageHash).toBe(before.packageHash);
+      const content = await run((tx) => entity(tx, project.owner, "content", contentId));
+      await expect(run((tx) => publishIntent(tx, project.owner, { contentId, version: content.version }))).rejects.toThrow(
+        "PUBLISHING_BACKEND_DRAINING",
+      );
+      await expect(
+        run((tx) =>
+          bookPostizDraft(tx, project.owner, {
+            content,
+            slotAt: new Date(Date.now() + 86_400_000),
+            runId: randomUUID(),
+            assignmentId: randomUUID(),
+            approvedBy: "owner",
+            reviewTaskId: null,
+          }),
+        ),
+      ).rejects.toThrow("PUBLISHING_BACKEND_DRAINING");
+    } finally {
+      await backend("postiz");
+    }
   });
 
   it("checks Social's blockers instead of the Postiz write verification on Social", async () => {

@@ -1,3 +1,4 @@
+import { refuseWhileDraining } from "../publishing/backend.ts";
 import { summarizeMetrics } from "../analytics/metric-report.ts";
 import { finishMissionRun } from "./planning.ts";
 import {
@@ -403,6 +404,8 @@ export async function publishIntent(
   const c = await entity(tx, scope, "content", input.contentId);
   if (c.version !== input.version)
     throw new DomainError("VERSION_CONFLICT", 409);
+  // Moving to Social (S10): Postiz finishes what it has, takes nothing new.
+  await refuseWhileDraining(tx, scope);
   const effectiveSchedule = input.scheduledAt ?? data(c).scheduledAt;
   const at = effectiveSchedule ? new Date(effectiveSchedule) : new Date();
   if (!Number.isFinite(at.valueOf()) || at.valueOf() < Date.now() - 1000)
