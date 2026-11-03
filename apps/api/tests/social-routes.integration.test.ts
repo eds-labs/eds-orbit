@@ -134,10 +134,7 @@ describe.skipIf(!enabled)("social module routes", () => {
   it("lets only the owner change the settings", async () => {
     await setModule(true);
     const before = (await call("owner", "GET", "/social/status")).json();
-    const update = {
-      settings: { ...defaultSocialSettings(), mcpOwnerPublishWithoutApproval: true },
-      version: before.settingsVersion,
-    };
+    const update = { settings: defaultSocialSettings(), version: before.settingsVersion };
     expect((await call("editor", "PUT", "/social/settings", update)).statusCode).toBe(403);
     // Editors deciding needs a platform hook that does not exist yet (S4).
     const editors = await call("owner", "PUT", "/social/settings", {
@@ -145,9 +142,15 @@ describe.skipIf(!enabled)("social module routes", () => {
       version: before.settingsVersion,
     });
     expect([editors.statusCode, code(editors)]).toEqual([409, "SOCIAL_SETTING_NOT_AVAILABLE"]);
+    // Direct MCP publishing needs a generic platform hook as well (S7).
+    const direct = await call("owner", "PUT", "/social/settings", {
+      settings: { ...defaultSocialSettings(), mcpOwnerPublishWithoutApproval: true },
+      version: before.settingsVersion,
+    });
+    expect([direct.statusCode, code(direct)]).toEqual([409, "SOCIAL_SETTING_NOT_AVAILABLE"]);
     const saved = await call("owner", "PUT", "/social/settings", update);
     expect(saved.statusCode).toBe(200);
-    expect(saved.json().settings.mcpOwnerPublishWithoutApproval).toBe(true);
+    expect(saved.json().settings.mcpOwnerPublishWithoutApproval).toBe(false);
     const stale = await call("owner", "PUT", "/social/settings", update);
     expect([stale.statusCode, code(stale)]).toEqual([409, "SETTINGS_VERSION_CONFLICT"]);
     const invalid = await call("owner", "PUT", "/social/settings", {

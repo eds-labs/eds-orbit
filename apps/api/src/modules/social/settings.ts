@@ -34,9 +34,12 @@ export function readSocialSettings(tx: DbTx, scope: Scope) {
  * Saves the settings when `version` is the stored one. `editor_each` is
  * refused for now: who may decide an approval is fixed per action type, and
  * the platform has no per-project hook to let editors decide (S4 ruling).
+ * Direct MCP publishing is refused too: the platform's direct-effect hook
+ * is shaped for support inboxes (S7 ruling).
  */
 export function saveSocialSettings(tx: DbTx, scope: Scope, raw: unknown, version: number) {
-  if (socialSettingsSchema.parse(raw).approval === "editor_each")
+  const settings = socialSettingsSchema.parse(raw);
+  if (settings.approval === "editor_each" || settings.mcpOwnerPublishWithoutApproval)
     throw new DomainError("SOCIAL_SETTING_NOT_AVAILABLE", 409);
   return writeModuleSettings(tx, scope, "social", socialSettingsSchema, raw, version);
 }
