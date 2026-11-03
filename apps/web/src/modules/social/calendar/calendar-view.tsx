@@ -112,7 +112,7 @@ export function CalendarView() {
   const calendar = useResource<CalendarResponse>(calendarPath);
   // While the same range reloads (after a move) the grid keeps its data.
   const kept = useRef<Kept<CalendarResponse>>({ path: null, data: null });
-  kept.current = keep(kept.current, calendarPath, calendar.data);
+  kept.current = keep(kept.current, calendarPath, calendar.data, calendar.path);
   const shown = kept.current.data;
   // A move restarts the list view from its first page.
   const [revision, setRevision] = useState(0);

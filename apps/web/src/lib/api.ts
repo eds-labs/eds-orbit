@@ -129,7 +129,10 @@ export function useResource<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null),
     [error, setError] = useState<ApiError | null>(null),
     [loading, setLoading] = useState(true),
-    [revision, setRevision] = useState(0);
+    [revision, setRevision] = useState(0),
+    // The path `data` was loaded for: on the first render of a new path,
+    // `data` is still the previous path's until the effect clears it.
+    [loadedPath, setLoadedPath] = useState<string | null>(null);
   const refresh = useCallback(() => setRevision((n) => n + 1), []);
   useEffect(() => {
     if (!path) {
@@ -142,7 +145,10 @@ export function useResource<T>(path: string | null) {
     setData(null);
     setError(null);
     api<T>(path, { signal: controller.signal })
-      .then(setData)
+      .then((value) => {
+        setData(value);
+        setLoadedPath(path);
+      })
       .catch((e) => {
         if (!controller.signal.aborted) setError(e);
       })
@@ -151,7 +157,7 @@ export function useResource<T>(path: string | null) {
       });
     return () => controller.abort();
   }, [path, revision]);
-  return { data, error, loading, refresh };
+  return { data, error, loading, refresh, path: loadedPath };
 }
 export function useMutation(onSuccess?: () => void) {
   const [pending, setPending] = useState(false),

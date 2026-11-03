@@ -294,6 +294,9 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     await p.run((tx) => tx.socialPost.update({ where: { id: post.id }, data: { title: "Kept title" } }));
     const fresh = await p.run((tx) => getPost(tx, owner(), post.id));
     const ok = await op("social_draft_update", { ...change, version: fresh.version, idempotencyKey: "update-2" });
+    // The approval names the title the post keeps, not "Untitled".
+    const okListed = (await p.run((tx) => listActionRequests(tx, owner()))).find((r) => r.id === ok.actionRequestId);
+    expect(okListed?.summary).toMatchObject({ operation: { title: "Kept title" } });
     await decide(owner(), ok.actionRequestId);
     const after = await p.run((tx) => getPost(tx, owner(), post.id));
     // Without a title the update keeps the one the post has.

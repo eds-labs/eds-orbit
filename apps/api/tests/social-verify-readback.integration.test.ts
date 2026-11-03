@@ -100,4 +100,19 @@ describe.skipIf(!enabled)("write verification confirmed later", () => {
     await p.run((tx) => resolvePublication(tx, p.owner, missing.id, { resolution: "not_published", version: missing.version }));
     expect(await capability(no.accountId)).toBe("read_verified");
   });
+
+  it("never verifies the account when the owner settles it while Orbit is not sending live", async () => {
+    reply = () => {
+      throw new ConnectorError("REQUEST_TIMEOUT", "unknown", true);
+    };
+    const { accountId } = await page();
+    const unclear = await verify(accountId, `Orbit connection test ${randomUUID()}`);
+    process.env.EXECUTION_MODE = "test";
+    try {
+      await p.run((tx) => resolvePublication(tx, p.owner, unclear.id, { resolution: "published_confirmed", version: unclear.version }));
+    } finally {
+      process.env.EXECUTION_MODE = "live";
+    }
+    expect(await capability(accountId)).toBe("read_verified");
+  });
 });

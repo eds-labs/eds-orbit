@@ -24,6 +24,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
             : null,
         loading: false,
         refresh: () => {},
+        path,
       };
     },
   };

@@ -14,7 +14,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     useResource: (path: string | null) => {
       const key = Object.keys(answers).sort((a, b) => b.length - a.length).find((part) => path?.includes(part));
       const found = key === undefined ? undefined : answers[key];
-      return { data: found ?? null, error: null, loading: false, refresh: () => {} };
+      return { data: found ?? null, error: null, loading: false, refresh: () => {}, path };
     },
   };
 });

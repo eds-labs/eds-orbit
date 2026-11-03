@@ -278,11 +278,12 @@ const cancelInput = z.object({ postId: id, version: z.int().min(1) }).strict();
  * or approved post ends its approval, and the owner must see that.
  */
 const draftSummary =
-  (change: "create" | "update") => (args: { title?: string }, context?: { variants?: unknown; current?: unknown }) => ({
+  (change: "create" | "update") => (args: { title?: string }, context?: { variants?: unknown; current?: unknown; title?: string | null }) => ({
     operation: {
       kind: "social_draft",
       change,
-      title: args.title ?? null,
+      // An update without a title keeps the post's own (see run below).
+      title: args.title ?? context?.title ?? null,
       variants: context?.variants ?? [],
       ...(context?.current ? { current: context.current } : {}),
     },
@@ -313,7 +314,7 @@ export const socialDraftUpdate = approvedOperation({
   ...proposal,
   name: "social_draft_update",
   description:
-    "Propose new content for a post (with the version read); an approved or planned post becomes a draft again.",
+    "Propose new content for a post (with the version read); an approved or planned post becomes a draft again. Without title the post keeps its title.",
   input: updateInput,
   permission: SOCIAL_COMPOSE,
   summary: draftSummary("update"),
@@ -325,6 +326,7 @@ export const socialDraftUpdate = approvedOperation({
     const post = await getPost(tx, scope, args.postId);
     return {
       variants: await draftPreview(tx, scope, { title: args.title, baseText: args.baseText, baseMedia: args.baseMedia, variants: args.variants }),
+      title: post.title ?? null,
       current: {
         status: post.status,
         local: post.schedule.local,
