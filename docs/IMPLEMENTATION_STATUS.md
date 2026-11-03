@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-p3-polish.md](superpowers/plans/2026-11-03-social-p3-polish.md).
+
+- **Fixed:** the calendar keeps its grid while the same range reloads and restarts the list after a move; only the organization calendar route is exempt from the administration gate; a write verification confirmed by read-back or by the owner verifies the account; Social draft notices name Social; a draft update without a title keeps it; Facebook `/feed` answers that are no Graph error are unclear; uploads carry neutral file names; the analytics view says when X figures are off and when figures were read.
+- **Not done:** `editor_each` (needs a governance hook "decider per request"; still refused), the larger deferred items listed in the plan.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
 ## Social module phase S10 (2026-11-03, branch `claude/social-s10` on top of `claude/social-s9`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-s10-postiz-migration.md](superpowers/plans/2026-11-03-social-s10-postiz-migration.md). Runbook: [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md).
