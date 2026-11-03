@@ -30,6 +30,10 @@ describe("calendar query", () => {
     expect(searchFromState(stateFromSearch(new URLSearchParams(""), "2026-11-03"))).toBe("anchor=2026-11-03");
   });
 
+  it("keeps every origin the server knows", () => {
+    expect(stateFromSearch(new URLSearchParams("origins=mcp,assistant,legacy_postiz"), "2026-11-03").origins).toEqual(["mcp", "assistant", "legacy_postiz"]);
+  });
+
   it("asks the server for the range and filters, projects only in the organization scope", () => {
     const state = stateFromSearch(new URLSearchParams(`platforms=x,telegram&projects=${ID}`), "2026-11-03");
     const range = { from: "2026-11-01T23:00:00.000Z", to: "2026-11-08T23:00:00.000Z" };

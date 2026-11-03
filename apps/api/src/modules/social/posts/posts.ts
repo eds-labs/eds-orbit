@@ -63,10 +63,33 @@ export type PostListItem = {
   excerpt: string;
   schedule: PostView["schedule"];
   approvalState: ApprovalState;
+  origin: string;
+  readOnly: boolean;
   accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
+  publications: PublicationSummary;
   version: number;
   updatedAt: string;
 };
+export type PublicationSummary = { total: number; published: number; failed: number; unknown: number; test: boolean };
+
+/** Per post: how many of its publications were published, failed or are unclear, and whether all are test sends. */
+export async function publicationSummaries(tx: DbTx, scope: Scope, variants: Array<{ id: string; postId: string }>) {
+  const publications = await tx.socialPublication.findMany({
+    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) } },
+    select: { variantId: true, status: true, providerState: true },
+  });
+  const postOfVariant = new Map(variants.map((v) => [v.id, v.postId]));
+  return (postId: string): PublicationSummary => {
+    const own = publications.filter((p) => postOfVariant.get(p.variantId) === postId);
+    return {
+      total: own.length,
+      published: own.filter((p) => p.status === "published").length,
+      failed: own.filter((p) => p.status === "failed").length,
+      unknown: own.filter((p) => p.status === "outcome_unknown").length,
+      test: own.length > 0 && own.every((p) => (p.providerState as { test?: unknown } | null)?.test === true),
+    };
+  };
+}
 export type SocialPostRow = Awaited<ReturnType<DbTx["socialPost"]["findFirstOrThrow"]>>;
 
 /** Statuses in which a post may still change (no publication exists). */
@@ -319,7 +342,7 @@ export async function listPosts(
   const page = rows.slice(0, q.limit);
   const variants = await tx.socialPostVariant.findMany({
     where: { projectId: scope.projectId, postId: { in: page.map((p) => p.id) } },
-    select: { postId: true, accountId: true, createdAt: true },
+    select: { id: true, postId: true, accountId: true, createdAt: true },
     orderBy: { createdAt: "asc" },
   });
   const accounts = await tx.socialAccount.findMany({
@@ -327,6 +350,7 @@ export async function listPosts(
   });
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
   const state = await approvalStates(tx, scope, page);
+  const summary = await publicationSummaries(tx, scope, variants);
   const last = page[page.length - 1];
   return {
     items: page.map((post) => ({
@@ -336,12 +360,15 @@ export async function listPosts(
       excerpt: [...post.baseText].slice(0, 140).join(""),
       schedule: scheduleView(post),
       approvalState: state(post),
+      origin: post.origin,
+      readOnly: post.readOnly,
       accounts: variants
         .filter((v) => v.postId === post.id)
         .map((v) => {
           const a = accountOf.get(v.accountId)!;
           return { accountId: a.id, platform: a.platform as SocialPlatform, handle: a.handle };
         }),
+      publications: summary(post.id),
       version: post.version,
       updatedAt: post.updatedAt.toISOString(),
     })),

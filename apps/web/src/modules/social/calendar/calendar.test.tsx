@@ -241,6 +241,9 @@ describe("social calendar views (S6)", () => {
           excerpt: "",
           schedule: item({}).schedule,
           approvalState: "approved",
+          origin: "legacy_postiz",
+          readOnly: true,
+          publications: { total: 1, published: 0, failed: 0, unknown: 1, test: false },
           accounts: [],
           version: 2,
           updatedAt: "",
@@ -251,6 +254,9 @@ describe("social calendar views (S6)", () => {
     const html = render(<CalendarView />);
     expect(html).toContain("Launch");
     expect(html).toContain("Load more");
+    // The list shows the same markers as the grids.
+    expect(html).toContain("From Postiz");
+    expect(html).toContain("Outcome unclear");
   });
 
   it("offers filters as labelled checkboxes, checked from the URL", () => {

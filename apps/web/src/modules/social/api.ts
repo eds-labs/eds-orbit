@@ -130,7 +130,10 @@ export type PostListItem = {
   excerpt: string;
   schedule: PostSchedule;
   approvalState: ApprovalState;
+  origin: string;
+  readOnly: boolean;
   accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
+  publications: { total: number; published: number; failed: number; unknown: number; test: boolean };
   version: number;
   updatedAt: string;
 };

@@ -8,7 +8,7 @@ import { DomainError } from "../../../shared.ts";
 import { socialActive, socialSwitchedOn } from "../gate.ts";
 import { SOCIAL_READ } from "../permissions.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
-import { approvalStates, postFilters, type ApprovalState, type PostView } from "../posts/posts.ts";
+import { approvalStates, postFilters, publicationSummaries, type ApprovalState, type PostView, type PublicationSummary } from "../posts/posts.ts";
 
 // The calendar (ADR 0020 §6.2, S6): the posts timed in a range of at most
 // 62 days, in time order, with what a calendar cell shows: accounts,
@@ -27,7 +27,7 @@ export type CalendarItem = {
   approvalState: ApprovalState;
   version: number;
   accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
-  publications: { total: number; published: number; failed: number; unknown: number; test: boolean };
+  publications: PublicationSummary;
 };
 
 const RANGE_MS = 62 * 86_400_000;
@@ -78,17 +78,12 @@ export async function calendarItems(tx: DbTx, scope: Scope, raw: unknown, limit 
   const accounts = await tx.socialAccount.findMany({
     where: { projectId: scope.projectId, id: { in: [...new Set(variants.map((v) => v.accountId))] } },
   });
-  const publications = await tx.socialPublication.findMany({
-    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) } },
-    select: { variantId: true, status: true, providerState: true },
-  });
+  const summary = await publicationSummaries(tx, scope, variants);
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
-  const postOfVariant = new Map(variants.map((v) => [v.id, v.postId]));
   const state = await approvalStates(tx, scope, posts);
   return {
     truncated: rows.length > limit,
     items: posts.map((post) => {
-      const own = publications.filter((p) => postOfVariant.get(p.variantId) === post.id);
       return {
         id: post.id,
         projectId: post.projectId,
@@ -112,19 +107,14 @@ export async function calendarItems(tx: DbTx, scope: Scope, raw: unknown, limit 
             const a = accountOf.get(v.accountId);
             return a ? [{ accountId: a.id, platform: a.platform as SocialPlatform, handle: a.handle }] : [];
           }),
-        publications: {
-          total: own.length,
-          published: own.filter((p) => p.status === "published").length,
-          failed: own.filter((p) => p.status === "failed").length,
-          unknown: own.filter((p) => p.status === "outcome_unknown").length,
-          test: own.length > 0 && own.every((p) => (p.providerState as { test?: unknown } | null)?.test === true),
-        },
+        publications: summary(post.id),
       };
     }),
   };
 }
 
-const MAX_PROJECTS = 20;
+/** At most 20 projects read per request, chosen from at most 200 of the member's projects. */
+const LIMITS = { projects: 20, candidates: 200 };
 
 /**
  * The calendar across the organization (S6): every project of the
@@ -136,6 +126,7 @@ export async function organizationCalendarFor(
   userId: string,
   workspaceId: string,
   raw: unknown,
+  limits = LIMITS,
 ): Promise<{
   items: Array<CalendarItem & { projectName: string }>;
   projects: Array<{ id: string; name: string }>;
@@ -146,11 +137,15 @@ export async function organizationCalendarFor(
   if (!member) throw new DomainError("NOT_FOUND", 404);
   const q = query.extend({ projectIds: z.string().max(2000).optional() }).parse(raw);
   calendarRange(q);
+  // The member's projects only (as projectMembership: workspace owners see all).
   const candidates = await authDb.project.findMany({
-    where: { workspaceId },
+    where: {
+      workspaceId,
+      OR: [{ workspace: { members: { some: { userId, role: "owner" } } } }, { members: { some: { userId } } }],
+    },
     select: { id: true, name: true },
     orderBy: [{ name: "asc" }, { id: "asc" }],
-    take: 200,
+    take: limits.candidates,
   });
   const readable: Array<{ id: string; name: string; scope: Scope }> = [];
   for (const project of candidates) {
@@ -173,9 +168,11 @@ export async function organizationCalendarFor(
     readable.push({ ...project, scope });
   }
   const wanted = q.projectIds ? q.projectIds.split(",").map((id) => id.trim()) : null;
-  const chosen = readable.filter((p) => !wanted || wanted.includes(p.id)).slice(0, MAX_PROJECTS);
+  const asked = readable.filter((p) => !wanted || wanted.includes(p.id));
+  const chosen = asked.slice(0, limits.projects);
   const items: Array<CalendarItem & { projectName: string }> = [];
-  let truncated = false;
+  // More projects than one request reads, or more than the candidates looked at.
+  let truncated = asked.length > chosen.length || candidates.length === limits.candidates;
   for (const project of chosen) {
     const left = CALENDAR_LIMIT - items.length;
     if (left <= 0) {

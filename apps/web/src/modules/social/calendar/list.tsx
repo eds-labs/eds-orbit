@@ -17,14 +17,8 @@ import type { CalendarState } from "./query";
 // a time with "Load more". In the organization scope it lists the posts of
 // the period the calendar read (see CalendarList).
 
-/** A list row as a calendar item; the drawer loads origin and read-only. */
-const asItem = (item: PostListItem, projectId: string): CalendarItem => ({
-  ...item,
-  projectId,
-  origin: "manual",
-  readOnly: false,
-  publications: { total: 0, published: 0, failed: 0, unknown: 0, test: false },
-});
+/** A list row as a calendar item. */
+const asItem = (item: PostListItem, projectId: string): CalendarItem => ({ ...item, projectId });
 
 function listQuery(state: CalendarState, cursor: string) {
   const out = new URLSearchParams({ limit: "50" });

@@ -93,6 +93,9 @@ describe.skipIf(!enabled)("social calendar", () => {
     });
     expect(items[1]!.accounts.map((a) => a.platform).sort()).toEqual(["telegram", "x"]);
     expect(items[0]!.publications).toEqual({ total: 0, published: 0, failed: 0, unknown: 0, test: false });
+    // The list view shows the same markers.
+    const listed = (await p.run((tx) => listPosts(tx, p.viewer, {}))).items.find((i) => i.id === late)!;
+    expect(listed).toMatchObject({ origin: "manual", readOnly: false, publications: { total: 2, published: 1, unknown: 1, test: true } });
   });
 
   it("filters by platform, account, status and origin", async () => {

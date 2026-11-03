@@ -110,6 +110,19 @@ describe.skipIf(!enabled)("social organization calendar", () => {
     expect(result.items.map((i) => i.projectId)).toEqual([extra.second]);
   });
 
+  it("says when it read only some of the member's projects", async () => {
+    const result = await organizationCalendarFor(p.viewer.userId, p.owner.workspaceId, range, { projects: 1, candidates: 200 });
+    expect(result.items).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+    expect(result.projects).toHaveLength(2);
+  });
+
+  it("counts only the member's projects against the candidate limit", async () => {
+    // By name: hidden, home, not mine, off, second. "Not mine" is no candidate.
+    const result = await organizationCalendarFor(p.viewer.userId, p.owner.workspaceId, range, { projects: 20, candidates: 4 });
+    expect(result.projects.map((x) => x.name).sort()).toEqual(["Synthetic social home", "Synthetic social second"]);
+  });
+
   it("answers 404 for another organization and while Social is off", async () => {
     await expect(organizationCalendarFor(p.viewer.userId, foreign.owner.workspaceId, range)).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
     process.env.ORBIT_SOCIAL = "false";
