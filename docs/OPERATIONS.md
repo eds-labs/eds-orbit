@@ -223,6 +223,6 @@ Before a release run lint/type checks, all unit/integration tests, the browser s
 
 Nothing posts until all of these hold, and each step needs Mario's approval:
 1. The installation runs with `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true` (also used by Marketing).
-2. `ORBIT_SOCIAL_PLATFORMS` lists the platform (`x`, `instagram`, `telegram`); Instagram also needs `ORBIT_SOCIAL_MEDIA_PUBLIC=true` and `ORBIT_PUBLIC_INGRESS=true` for the signed media route.
+2. `ORBIT_SOCIAL_PLATFORMS` lists the platform (`x`, `facebook`, `instagram`, `telegram`); Instagram also needs `ORBIT_SOCIAL_MEDIA_PUBLIC=true` and `ORBIT_PUBLIC_INGRESS=true` for the signed media route. Facebook and Instagram need the Meta app in Live mode (privacy policy and data-deletion URL), otherwise only app members see the posts.
 3. Per account, the owner requests a write verification (Social → Accounts → "Verify posting") and approves the test post in Decisions; it is a real public post.
 Rollback: remove the platform from `ORBIT_SOCIAL_PLATFORMS` (new publications are held back with `SOCIAL_PLATFORM_NOT_AVAILABLE`, nothing already sent changes) or switch `ORBIT_SOCIAL` off. Unclear sends are listed as attention items; settle them per publication on the post page.

@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S5b (2026-11-03, branch `claude/social-s5b` on top of S6, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s5b-facebook.md](superpowers/plans/2026-11-03-social-s5b-facebook.md).
+
+- **Built (S5b):** Facebook Page sending through an own small Graph adapter (`adapters/facebook.ts`: unpublished multipart photos, one `/feed` call, Graph error mapping, read-back from `/{page}/posts`); `facebook` allowed in `ORBIT_SOCIAL_PLATFORMS` and sendable; Facebook photo rule 4 MB; read-back of unclear sends for every platform whose sender can read back.
+- **Not built:** Facebook video and stories (S3b), link-only options (`link` parameter), first comments.
+- **Production:** nothing deployed, no live post. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. Live Facebook needs the Meta app in Live mode, `facebook` in `ORBIT_SOCIAL_PLATFORMS` and an approved write verification per Page.
+
 ## Social module phase S6 (2026-11-03, branch `claude/social-s6` on top of S5, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-s6-calendar.md](superpowers/plans/2026-11-03-social-s6-calendar.md).
