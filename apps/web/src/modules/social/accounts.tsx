@@ -5,6 +5,7 @@ import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
+import { PostizMigration } from "./legacy";
 import { socialPath, type SocialAccount, type SocialAccounts, type SocialMediaList } from "./api";
 import { accountMessage, socialText } from "./labels";
 
@@ -284,6 +285,7 @@ export function AccountsView() {
         ) : (
           <Empty title={t.empty} />
         ))}
+      <PostizMigration />
       {disconnecting && (
         <Modal title={t.confirmTitle(disconnecting.handle)} description={t.confirmBody} onClose={() => setDisconnecting(null)}>
           <Button variant="outline" onClick={() => setDisconnecting(null)}>

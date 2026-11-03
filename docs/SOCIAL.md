@@ -170,6 +170,21 @@ A project can let Marketing publish through Social instead of Postiz. Plan: [sup
 - **Contract** (`modules/social/contract.ts`, the only Social file Marketing may import; `scripts/boundaries.json`): `socialPublishingAvailable`, `accountForChannel`, `publishingBlockers`, `importOriginMedia`, `submitOriginPost`, `originPostStatus`, `recentPublishedTexts`, `postMetrics`.
 - **Not yet:** projects without Postiz channels (`social:<accountId>` references in policies and assignments), the analytics specialist tool and the channel history sync (still Postiz), Marketing's channel metadata (posting times, names) still read from the stored Postiz connector entity.
 
+## Moving from Postiz (S10)
+
+Runbook: [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md). Plan: [superpowers/plans/2026-11-03-social-s10-postiz-migration.md](superpowers/plans/2026-11-03-social-s10-postiz-migration.md).
+
+- **Mapping** (owner): each Postiz channel of Marketing to the Social account of its platform (`x`, `facebook`, `instagram`/`instagram-standalone`, `telegram`; others stay Postiz-only), stored as `SocialAccount.legacyPostizIntegrationId`; one channel per account; unmapping is refused while Marketing publishes through Social (`SOCIAL_MAPPING_IN_USE`). Suggestions by platform and name.
+- **History mirror** (owner, dry run first): Marketing's publications handed to Postiz and drafts Postiz accepted, on mapped channels, become read-only Social posts (origin `legacy_postiz`, one publication with `legacyEntityId`; drafts without one). Statuses: published, failed, canceled, outcome_unknown, and in-flight ones as `accepted`. Re-runs update what changed in the source; nothing is ever sent, and the source is never changed.
+- **Draining:** `publishingBackend: postiz_draining` refuses new Postiz work (`PUBLISHING_BACKEND_DRAINING`) while Postiz finishes; the package input stays the Postiz one.
+- **Inventory:** counts of what Postiz still holds and whether the switch is safe (`readyToSwitch`), in the panel and as `scripts/postiz-inventory.ts`.
+
+| Route | Permission |
+|---|---|
+| `GET /api/projects/:projectId/marketing/social-migration` | project member |
+| `PUT /api/projects/:projectId/marketing/social-migration/mapping` `{integrationId, accountId \| null}` | owner |
+| `POST /api/projects/:projectId/marketing/social-migration/mirror` `{dryRun}` | owner |
+
 ## Assistant and MCP tools (S7)
 
 Orbit Chat (feature `social`, while the module is on for the project) and outside MCP clients (explicit, initially unchecked scope `orbit:social`) get the same tools. Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).

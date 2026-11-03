@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S10 (2026-11-03, branch `claude/social-s10` on top of `claude/social-s9`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s10-postiz-migration.md](superpowers/plans/2026-11-03-social-s10-postiz-migration.md). Runbook: [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md).
+
+- **Built (S10):** Postiz channel mapping, read-only history mirror, draining mode (`postiz_draining`), inventory (panel and `scripts/postiz-inventory.ts`), the "Move from Postiz" section on Social → Accounts with the backend switch.
+- **Not done (operations, each with Mario's go):** the per-project cutover (uLiquid, FamilyPlan, others) and the decommissioning of Postiz (§9.6, §9.7).
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
 ## Social module phase S9 (2026-11-03, branch `claude/social-s9` on top of `claude/social-s8`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-s9-marketing.md](superpowers/plans/2026-11-03-social-s9-marketing.md).
