@@ -421,3 +421,46 @@ export async function applyApprovedSchedule(
   await startDelivery(tx, scope, post.id);
   return getPost(tx, scope, post.id);
 }
+
+// ------------------------------------------ origin-authorized posts (S9)
+
+/**
+ * Approves a post another module created for content it approved itself
+ * (Marketing's package approval, its veto window and preflight): the post
+ * is sent right away, without a Social approval. Validity is checked as for
+ * any approval; Social's own gates still apply when it sends.
+ */
+export async function approveOriginPost(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  origin: { type: string; id: string; version: number; packageHash: string },
+): Promise<void> {
+  const post = await lockPost(tx, scope, id);
+  await requireValid(tx, scope, post);
+  await tx.socialPost.update({
+    where: { id: post.id },
+    data: { scheduleMode: "now", scheduledAt: null, scheduleLocal: null, scheduleFold: null },
+  });
+  const { hash } = await packageOf(tx, scope, post.id);
+  await tx.socialPost.update({
+    where: { id: post.id },
+    data: {
+      status: "approved",
+      packageHash: hash,
+      approvalRequestId: null,
+      approvedAt: new Date(),
+      approvedBy: scope.userId,
+      version: post.version + 1,
+    },
+  });
+  await audit(tx, scope, "social.post.approved", post.id, {
+    channel: "origin_authorized",
+    originType: origin.type,
+    originId: origin.id,
+    originVersion: origin.version,
+    originPackageHash: origin.packageHash,
+    packageHash: hash,
+  });
+  await startDelivery(tx, scope, post.id);
+}

@@ -573,7 +573,11 @@ export async function createPost(
   tx: DbTx,
   scope: Scope,
   raw: unknown,
-  options: { origin?: "manual" | "mcp" | "assistant" } = {},
+  options: {
+    origin?: "manual" | "mcp" | "assistant" | "marketing";
+    /** The record of another module this post publishes (S9 contract). */
+    originRef?: { module: string; type: string; id: string; version: number };
+  } = {},
 ): Promise<PostView> {
   const input = postInput.parse(raw);
   const project = await tx.project.findUnique({ where: { id: scope.projectId }, select: { timezone: true } });
@@ -587,6 +591,14 @@ export async function createPost(
       baseMedia: input.baseMedia,
       scheduleTimezone: project?.timezone ?? "UTC",
       origin: options.origin ?? "manual",
+      ...(options.originRef
+        ? {
+            originModule: options.originRef.module,
+            originType: options.originRef.type,
+            originId: options.originRef.id,
+            originVersion: options.originRef.version,
+          }
+        : {}),
       createdBy: scope.userId,
     },
   });

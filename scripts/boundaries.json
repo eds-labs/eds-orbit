@@ -118,7 +118,8 @@
   },
   "dependencies": {
     "module:marketing": [
-      "module:knowledge"
+      "module:knowledge",
+      "module:social"
     ]
   },
   "serverPackages": [
