@@ -16,12 +16,15 @@ export function PostChip({
   locale,
   showProject,
   onOpen,
+  handle,
 }: {
   item: CalendarItem;
   timeZone: string;
   locale: "en" | "de";
   showProject: boolean;
   onOpen: (item: CalendarItem) => void;
+  /** The drag handle of a movable post. */
+  handle?: React.ReactNode;
 }) {
   const all = socialText(locale);
   const t = all.calendar;
@@ -29,43 +32,46 @@ export function PostChip({
     ? localOf(item.schedule.at, timeZone).slice(11)
     : "";
   return (
-    <button
-      type="button"
-      className={`cal-post cal-post-${item.status}`}
-      data-post={item.id}
-      onClick={() => onOpen(item)}
-    >
-      <span className="cal-post-time">{time}</span>{" "}
-      <span className="cal-post-title">
-        {item.title || item.excerpt || item.id}
-      </span>{" "}
-      <span className="cal-post-meta">
-        {item.accounts.map((a) => (
-          <span key={a.accountId} className="cal-platform">
-            {all.platform[a.platform]}
-          </span>
-        ))}
-        <Badge
-          tone={
-            item.status === "failed"
-              ? "danger"
-              : item.status === "published"
-                ? "success"
-                : "neutral"
-          }
-        >
-          {all.posts.status[item.status]}
-        </Badge>
-        {item.publications.unknown > 0 && (
-          <Badge tone="warning">{t.unknown}</Badge>
-        )}
-        {item.origin === "legacy_postiz" && <Badge>{t.legacy}</Badge>}
-        {item.publications.test && <Badge>{t.test}</Badge>}
-        {showProject && item.projectName && (
-          <span className="cal-project">{item.projectName}</span>
-        )}
-      </span>
-    </button>
+    <div className="cal-post-row">
+      {handle}
+      <button
+        type="button"
+        className={`cal-post cal-post-${item.status}`}
+        data-post={item.id}
+        onClick={() => onOpen(item)}
+      >
+        <span className="cal-post-time">{time}</span>{" "}
+        <span className="cal-post-title">
+          {item.title || item.excerpt || item.id}
+        </span>{" "}
+        <span className="cal-post-meta">
+          {item.accounts.map((a) => (
+            <span key={a.accountId} className="cal-platform">
+              {all.platform[a.platform]}
+            </span>
+          ))}
+          <Badge
+            tone={
+              item.status === "failed"
+                ? "danger"
+                : item.status === "published"
+                  ? "success"
+                  : "neutral"
+            }
+          >
+            {all.posts.status[item.status]}
+          </Badge>
+          {item.publications.unknown > 0 && (
+            <Badge tone="warning">{t.unknown}</Badge>
+          )}
+          {item.origin === "legacy_postiz" && <Badge>{t.legacy}</Badge>}
+          {item.publications.test && <Badge>{t.test}</Badge>}
+          {showProject && item.projectName && (
+            <span className="cal-project">{item.projectName}</span>
+          )}
+        </span>
+      </button>
+    </div>
   );
 }
 
@@ -78,6 +84,7 @@ export function MonthGrid({
   showProject,
   onOpen,
   onMore,
+  handleOf,
   renderDay = (_date, children) => children,
 }: {
   label: string;
@@ -88,6 +95,7 @@ export function MonthGrid({
   showProject: boolean;
   onOpen: (item: CalendarItem) => void;
   onMore: (date: string) => void;
+  handleOf?: (item: CalendarItem) => React.ReactNode;
   /** Wraps a day's content (the drop target in Task 5). */
   renderDay?: (date: string, children: React.ReactNode) => React.ReactNode;
 }) {
@@ -138,6 +146,7 @@ export function MonthGrid({
                                   locale={locale}
                                   showProject={showProject}
                                   onOpen={onOpen}
+                                  handle={handleOf?.(item)}
                                 />
                               </li>
                             ))}

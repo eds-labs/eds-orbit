@@ -7374,6 +7374,30 @@ a.support-row {
   opacity: 0.6;
   box-shadow: var(--shadow);
 }
+.cal-post-row {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+.cal-drag {
+  flex: none;
+  width: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 11px;
+  cursor: grab;
+  touch-action: none;
+}
+.cal-drag:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.cal-drag[data-dragging] {
+  cursor: grabbing;
+}
 .cal-post-time {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -7420,8 +7444,10 @@ a.support-row {
 .cal-slot-missing {
   background: var(--muted);
 }
-.cal-slot[data-over],
-.cal-day[data-over] {
+.cal-drop {
+  min-height: 100%;
+}
+.cal-drop[data-over] {
   outline: 2px dashed var(--ring);
   outline-offset: -2px;
 }

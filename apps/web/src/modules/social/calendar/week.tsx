@@ -25,13 +25,11 @@ export function weekRows(
       ),
   );
   const keys = new Set(slots.flatMap((m) => [...m.keys()]));
-  const rows = [...keys]
-    .sort()
-    .map((key) => ({
-      key,
-      label: key.slice(0, 5),
-      repeated: key.endsWith("|2"),
-    }));
+  const rows = [...keys].sort().map((key) => ({
+    key,
+    label: key.slice(0, 5),
+    repeated: key.endsWith("|2"),
+  }));
   return { rows, slots };
 }
 
@@ -43,6 +41,7 @@ export function WeekGrid({
   locale,
   showProject,
   onOpen,
+  handleOf,
   renderSlot = (_slot, children) => children,
 }: {
   label: string;
@@ -52,6 +51,7 @@ export function WeekGrid({
   locale: "en" | "de";
   showProject: boolean;
   onOpen: (item: CalendarItem) => void;
+  handleOf?: (item: CalendarItem) => React.ReactNode;
   /** Wraps a slot's content (the drop target in Task 5). */
   renderSlot?: (slot: Slot, children: React.ReactNode) => React.ReactNode;
 }) {
@@ -99,6 +99,7 @@ export function WeekGrid({
                           locale={locale}
                           showProject={showProject}
                           onOpen={onOpen}
+                          handle={handleOf?.(item)}
                         />
                       )),
                     )}

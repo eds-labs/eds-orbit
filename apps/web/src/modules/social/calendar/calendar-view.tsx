@@ -12,10 +12,12 @@ import {
   type SocialAccounts,
 } from "../api";
 import { socialText } from "../labels";
+import { CalendarDnd, DragHandle, Droppable, type DropTarget } from "./dnd";
 import { CalendarFilters } from "./filters";
 import { PostDrawer } from "./drawer";
 import {
   addDays,
+  daySlots,
   localOf,
   monthCells,
   placeByDay,
@@ -25,6 +27,14 @@ import {
 } from "./grid";
 import { CalendarList, PostListPages } from "./list";
 import { MonthGrid } from "./month";
+import { dropLocal, moveCheck, moveFlow } from "./move";
+import {
+  MoveDialog,
+  moveErrorOf,
+  sendMove,
+  type MoveError,
+  type MoveResult,
+} from "./move-dialog";
 import {
   apiQuery,
   searchFromState,
@@ -63,7 +73,7 @@ function periodLabel(state: CalendarState, locale: "en" | "de") {
 }
 
 export function CalendarView() {
-  const { project, identity, locale } = useWorkspace();
+  const { project, identity, locale, isOwner, canEdit } = useWorkspace();
   const all = socialText(locale);
   const t = all.calendar;
   const router = useRouter();
@@ -84,7 +94,7 @@ export function CalendarView() {
       : { ...asked, scope: "project", projectIds: [] };
   const organization = state.scope === "organization";
   const go = (next: CalendarState) =>
-    router.replace(`${pathname}?${searchFromState(next)}`, { scroll: false });
+    router.push(`${pathname}?${searchFromState(next)}`, { scroll: false });
 
   const range = rangeOf(
     state.view === "week" ? "week" : "month",
@@ -103,10 +113,76 @@ export function CalendarView() {
     socialPath(project.id, "/accounts"),
   );
   const [open, setOpen] = useState<CalendarItem | null>(null);
-  // "Move to…" from the drawer; the dialog comes with moving (S6 Task 5).
-  const [, setMoving] = useState<CalendarItem | null>(null);
+  const [moving, setMoving] = useState<{
+    item: CalendarItem;
+    target: { local: string; fold?: "earlier" | "later" };
+    error?: MoveError;
+  } | null>(null);
+  const [notice, setNotice] = useState("");
+  const role = isOwner ? "owner" : canEdit ? "editor" : "viewer";
+  const checkOf = (item: CalendarItem) =>
+    moveCheck(
+      item,
+      role,
+      organization && item.projectId !== project.id
+        ? "organization"
+        : "project",
+    );
+  const handleOf = (item: CalendarItem) =>
+    checkOf(item).kind === "forbidden" ? null : (
+      <DragHandle item={item} locale={locale} />
+    );
+  const localNow = (item: CalendarItem) =>
+    item.schedule.local && item.schedule.timeZone === timeZone
+      ? item.schedule.local
+      : item.schedule.at
+        ? localOf(item.schedule.at, timeZone)
+        : "";
+
+  const done = (result: MoveResult) => {
+    setMoving(null);
+    setNotice(
+      result.kind === "conflict"
+        ? result.message
+        : result.post.status === "needs_approval"
+          ? t.movedRequest(result.local.replace("T", " "))
+          : t.moved(result.local.replace("T", " ")),
+    );
+    calendar.refresh();
+  };
+  /** A drop: a free move is sent at once; one that changes the approval asks first. */
+  const drop = async (item: CalendarItem, target: DropTarget) => {
+    const check = checkOf(item);
+    if (check.kind === "forbidden") return;
+    const local = dropLocal(item, target, timeZone);
+    if (local === localNow(item) && !target.fold) return;
+    const next = { local, fold: target.fold };
+    if (moveFlow(check)) return setMoving({ item, target: next });
+    setNotice("");
+    try {
+      const post = await sendMove(project.id, item, local, timeZone, {
+        fold: target.fold,
+      });
+      done({ kind: "moved", post, local: post.schedule.local ?? local });
+    } catch (e) {
+      const error = moveErrorOf(e, local, locale);
+      if (error.kind === "conflict") done(error);
+      else if (error.kind === "choices")
+        setMoving({ item, target: next, error });
+      else setNotice(error.message);
+    }
+  };
 
   const items = calendar.data?.items ?? [];
+  const repeated = new Set(
+    state.view === "week"
+      ? weekDays(state.anchor).flatMap((d) =>
+          daySlots(d, timeZone)
+            .filter((x) => x.repeated)
+            .map((x) => x.local),
+        )
+      : [],
+  );
   const step = (delta: number) =>
     go({
       ...state,
@@ -183,6 +259,9 @@ export function CalendarView() {
         onChange={go}
       />
       <p className="field-hint">{t.zone(timeZone)}</p>
+      <p className="field-hint" role="status" aria-live="polite">
+        {notice}
+      </p>
       <ResourceError error={calendar.error} retry={calendar.refresh} />
       {calendar.loading && !calendar.data && calendarPath && (
         <Loading label={t.title} />
@@ -195,29 +274,66 @@ export function CalendarView() {
       {calendar.data && !items.length && state.view !== "list" && (
         <p className="field-hint">{t.empty}</p>
       )}
-      {state.view === "month" && calendar.data && (
-        <MonthGrid
-          label={label}
-          cells={monthCells(state.anchor.slice(0, 7), timeZone, new Date())}
-          byDay={placeByDay(items, timeZone)}
-          timeZone={timeZone}
-          locale={locale}
-          showProject={organization}
-          onOpen={setOpen}
-          onMore={(date) => go({ ...state, view: "week", anchor: date })}
-        />
-      )}
-      {state.view === "week" && calendar.data && (
-        <WeekGrid
-          label={label}
-          days={weekDays(state.anchor)}
-          bySlot={placeBySlot(items, timeZone)}
-          timeZone={timeZone}
-          locale={locale}
-          showProject={organization}
-          onOpen={setOpen}
-        />
-      )}
+      <CalendarDnd
+        locale={locale}
+        onDrop={(item, target) => void drop(item, target)}
+      >
+        {state.view === "month" && calendar.data && (
+          <MonthGrid
+            label={label}
+            cells={monthCells(state.anchor.slice(0, 7), timeZone, new Date())}
+            byDay={placeByDay(items, timeZone)}
+            timeZone={timeZone}
+            locale={locale}
+            showProject={organization}
+            onOpen={setOpen}
+            onMore={(date) => go({ ...state, view: "week", anchor: date })}
+            handleOf={handleOf}
+            renderDay={(date, children) =>
+              canEdit ? (
+                <Droppable id={`day:${date}`} target={{ date, label: date }}>
+                  {children}
+                </Droppable>
+              ) : (
+                children
+              )
+            }
+          />
+        )}
+        {state.view === "week" && calendar.data && (
+          <WeekGrid
+            label={label}
+            days={weekDays(state.anchor)}
+            bySlot={placeBySlot(items, timeZone)}
+            timeZone={timeZone}
+            locale={locale}
+            showProject={organization}
+            onOpen={setOpen}
+            handleOf={handleOf}
+            renderSlot={(slot, children) => {
+              if (!canEdit) return children;
+              const fold = slot.repeated
+                ? "later"
+                : repeated.has(slot.local)
+                  ? "earlier"
+                  : undefined;
+              return (
+                <Droppable
+                  id={`slot:${slot.at}`}
+                  target={{
+                    date: slot.local.slice(0, 10),
+                    time: slot.label,
+                    fold,
+                    label: `${slot.local.replace("T", " ")}${slot.repeated ? ` ${t.repeated("").trim()}` : ""}`,
+                  }}
+                >
+                  {children}
+                </Droppable>
+              );
+            }}
+          />
+        )}
+      </CalendarDnd>
       {state.view === "list" &&
         (organization ? (
           calendar.data && (
@@ -243,7 +359,19 @@ export function CalendarView() {
           item={open}
           scope={state.scope}
           onClose={() => setOpen(null)}
-          onMove={setMoving}
+          onMove={(item) => {
+            setOpen(null);
+            setMoving({ item, target: { local: localNow(item) } });
+          }}
+        />
+      )}
+      {moving && (
+        <MoveDialog
+          item={moving.item}
+          target={moving.target}
+          initialError={moving.error ?? null}
+          onClose={() => setMoving(null)}
+          onDone={done}
         />
       )}
     </div>

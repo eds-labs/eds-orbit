@@ -17,6 +17,11 @@ export function moveCheck(item: CalendarItem, role: "owner" | "editor" | "viewer
   return role === "owner" ? { kind: "reapprove" } : { kind: "request" };
 }
 
+/** The confirmation a move needs before it is sent: none for a free move. */
+export function moveFlow(check: MoveCheck): "confirmReapprove" | "confirmRequest" | null {
+  return check.kind === "reapprove" ? "confirmReapprove" : check.kind === "request" ? "confirmRequest" : null;
+}
+
 /** The local time a drop names: a week slot's own time, or the post's time of day on another date. */
 export function dropLocal(item: CalendarItem, target: { date: string; time?: string }, timeZone: string): string {
   if (target.time) return `${target.date}T${target.time}`;
