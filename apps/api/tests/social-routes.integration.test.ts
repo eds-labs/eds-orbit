@@ -125,7 +125,7 @@ describe.skipIf(!enabled)("social module routes", () => {
       expect(response.json()).toEqual({
         module: "social",
         version: "0.1.0",
-        settings: { approval: "owner_each", mcpOwnerPublishWithoutApproval: false },
+        settings: { approval: "owner_each", mcpOwnerPublishWithoutApproval: false, xMetrics: false },
         settingsVersion: expect.any(Number),
       });
     }

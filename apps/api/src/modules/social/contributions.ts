@@ -1,5 +1,6 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { socialAccountHealth } from "./accounts/health.ts";
+import { socialMetrics } from "./analytics/collect.ts";
 import { socialOAuthStateCleanup } from "./accounts/oauth-state.ts";
 import { socialConnectionProviders } from "./accounts/providers.ts";
 import { socialAttention } from "./attention.ts";
@@ -24,7 +25,8 @@ export const socialContributions: ModuleContributions = {
   // Developer apps (administration) and the module-managed account
   // connections (accounts/providers.ts).
   connections: { providers: socialConnectionProviders },
-  periodic: [socialOAuthStateCleanup, socialAccountHealth, socialDeliverySweep],
+  // Post figures every six hours (S8).
+  periodic: [socialOAuthStateCleanup, socialAccountHealth, socialDeliverySweep, socialMetrics],
   // Owner approvals of a post's schedule or immediate publication (S4).
   // and the owner's approval of a write verification post (S5).
   actionTypes: { ...socialActionTypes, [VERIFY_WRITE_ACTION]: verifyWriteAction, ...socialMcpActionTypes },

@@ -7,7 +7,7 @@ export type SocialApproval = "owner_each" | "editor_each";
 export type SocialStatus = {
   module: "social";
   version: string;
-  settings: { approval: SocialApproval; mcpOwnerPublishWithoutApproval: boolean };
+  settings: { approval: SocialApproval; mcpOwnerPublishWithoutApproval: boolean; xMetrics: boolean };
   settingsVersion: number;
 };
 

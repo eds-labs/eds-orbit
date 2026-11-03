@@ -16,6 +16,8 @@ export const socialSettingsSchema = z
     approval: z.enum(["owner_each", "editor_each"]),
     /** An owner's direct MCP call may publish without a separate request. */
     mcpOwnerPublishWithoutApproval: z.boolean(),
+    /** X bills every read: its post figures only when the owner allows them (S8). */
+    xMetrics: z.boolean(),
   })
   .strict();
 export type SocialSettings = z.infer<typeof socialSettingsSchema>;
@@ -24,6 +26,7 @@ export type SocialSettings = z.infer<typeof socialSettingsSchema>;
 export const defaultSocialSettings = (): SocialSettings => ({
   approval: "owner_each",
   mcpOwnerPublishWithoutApproval: false,
+  xMetrics: false,
 });
 
 export function readSocialSettings(tx: DbTx, scope: Scope) {

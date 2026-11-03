@@ -76,7 +76,7 @@ function render(node: React.ReactNode, { locale = "en" as Locale, access = "owne
 const status = (approval: SocialStatus["settings"]["approval"]): SocialStatus => ({
   module: "social",
   version: "0.1.0",
-  settings: { approval, mcpOwnerPublishWithoutApproval: false },
+  settings: { approval, mcpOwnerPublishWithoutApproval: false, xMetrics: false },
   settingsVersion: 1,
 });
 

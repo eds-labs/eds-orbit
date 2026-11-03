@@ -68,6 +68,8 @@ describe("social module skeleton (ADR 0020)", () => {
     expect(socialSettingsSchema.parse(defaultSocialSettings())).toEqual({
       approval: "owner_each",
       mcpOwnerPublishWithoutApproval: false,
+      // X bills reads: its figures only when the owner allows them (S8).
+      xMetrics: false,
     });
   });
 
