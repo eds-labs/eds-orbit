@@ -43,6 +43,7 @@ import {
 } from "./brand/marketing-profile.ts";
 import { generateProjectImage } from "./brand/image-generation.ts";
 import { handleSlackInteraction } from "./publishing/slack.ts";
+import { readMarketingSettings, saveMarketingSettings } from "./publishing/backend.ts";
 import { agentsEnabled, setAssignmentStatus } from "./agents/assignments.ts";
 import {
   assignmentStatusInput,
@@ -143,6 +144,22 @@ export const marketingRoutes: RoutesContribution = (context) => {
         ),
       ),
     );
+  });
+
+  // Marketing's settings (S9): the publishing backend, Postiz or Social.
+  app.get("/api/projects/:projectId/marketing/settings", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) => readMarketingSettings(tx, scope));
+  });
+  app.put("/api/projects/:projectId/marketing/settings", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const { settings, version } = z
+      .object({ settings: z.unknown(), version: z.number().int().min(1) })
+      .strict()
+      .parse(req.body ?? {});
+    return scoped(scope.workspaceId, projectId, (tx) => saveMarketingSettings(tx, scope, settings, version));
   });
 
   // Orbit Agents for the web: assignments and their upcoming posts (404 while off).

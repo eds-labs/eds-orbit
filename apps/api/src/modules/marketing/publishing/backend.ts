@@ -1,0 +1,46 @@
+import { z } from "zod";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { readModuleSettings, writeModuleSettings } from "../../../platform/modules/settings.ts";
+import { authorize, PROJECT_OWN } from "../../../platform/tenancy/permissions.ts";
+import { audit, DomainError } from "../../../shared.ts";
+import { socialPublishingAvailable } from "../../social/contract.ts";
+
+// Marketing's publishing backend (ADR 0020, S9): Postiz unless the owner
+// switches the project to Social. Under Social, Marketing keeps its whole
+// pipeline (reviews, approvals, package hash, veto window, preflight) and
+// hands a post to Social at its slot instead of to Postiz; assignment
+// drafts become Social drafts. Stored in Marketing's ProjectModule row.
+
+export const marketingSettingsSchema = z
+  .object({
+    /** Where approved posts and assignment drafts go. */
+    publishingBackend: z.enum(["postiz", "social"]),
+  })
+  .strict();
+export type MarketingSettings = z.infer<typeof marketingSettingsSchema>;
+export type PublishingBackend = MarketingSettings["publishingBackend"];
+
+export const defaultMarketingSettings = (): MarketingSettings => ({ publishingBackend: "postiz" });
+
+export function readMarketingSettings(tx: DbTx, scope: Scope) {
+  return readModuleSettings(tx, scope, "marketing", marketingSettingsSchema, defaultMarketingSettings);
+}
+
+/** The project's backend; a project on Social never falls back to Postiz by itself. */
+export async function publishingBackend(tx: DbTx, scope: Scope): Promise<PublishingBackend> {
+  return (await readMarketingSettings(tx, scope)).settings.publishingBackend;
+}
+
+/** The owner's change; Social needs the social module on for the project. */
+export async function saveMarketingSettings(tx: DbTx, scope: Scope, raw: unknown, version: number) {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const next = marketingSettingsSchema.parse(raw);
+  const before = await publishingBackend(tx, scope);
+  if (next.publishingBackend === "social" && !(await socialPublishingAvailable(tx, scope)))
+    throw new DomainError("SOCIAL_DISABLED", 409);
+  const saved = await writeModuleSettings(tx, scope, "marketing", marketingSettingsSchema, next, version);
+  if (before !== next.publishingBackend)
+    await audit(tx, scope, "marketing.publishing_backend_changed", scope.projectId, { from: before, to: next.publishingBackend });
+  return saved;
+}
