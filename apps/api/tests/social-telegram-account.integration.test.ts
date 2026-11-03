@@ -105,11 +105,29 @@ describe.skipIf(!enabled)("connecting Telegram channels", () => {
     });
   });
 
-  it("refuses a group", async () => {
-    chat = { id: -100777, type: "supergroup", title: "A group" };
+  it("connects a group the bot may write in, and remembers that it is a group", async () => {
+    chat = { id: -100777, type: "supergroup", title: "Orbit Community", username: "orbit_community" };
+    member = { status: "member", user: { id: 2222, is_bot: true, first_name: "Pub" } };
     fakeTelegram();
-    await expect(connectTelegramChannel(p.owner, { botToken: PUBLISHING_BOT, chat: "-100777" })).rejects.toMatchObject({
-      code: "SOCIAL_TELEGRAM_NOT_A_CHANNEL",
+    const { accountId } = await connectTelegramChannel(p.owner, { botToken: PUBLISHING_BOT, chat: "@orbit_community" });
+    const account = await p.run((tx) => tx.socialAccount.findUniqueOrThrow({ where: { id: accountId } }));
+    expect(account).toMatchObject({ platform: "telegram", externalId: "-100777", handle: "@orbit_community", displayName: "Orbit Community" });
+    const connection = await authDb.connection.findUniqueOrThrow({ where: { id: account.connectionId } });
+    expect(connection.config).toMatchObject({ chatId: "-100777", chatType: "supergroup" });
+  });
+
+  it("refuses a group where the bot may not write, and a private chat", async () => {
+    chat = { id: -100666, type: "group", title: "Muted" };
+    member = { status: "restricted", is_member: true, can_send_messages: false, user: { id: 2222, is_bot: true, first_name: "Pub" } };
+    fakeTelegram();
+    await expect(connectTelegramChannel(p.owner, { botToken: PUBLISHING_BOT, chat: "-100666" })).rejects.toMatchObject({
+      code: "SOCIAL_TELEGRAM_BOT_CANNOT_POST",
+    });
+    chat = { id: 4242, type: "private", first_name: "Someone" };
+    fakeTelegram();
+    await expect(connectTelegramChannel(p.owner, { botToken: PUBLISHING_BOT, chat: "4242" })).rejects.toMatchObject({
+      code: "SOCIAL_TELEGRAM_PRIVATE_CHAT",
+      status: 409,
     });
   });
 

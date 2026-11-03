@@ -2977,13 +2977,16 @@ td:first-child {
   .page-actions {
     justify-content: flex-start;
     gap: 9px;
+    /* Long labels (German) take their own row instead of overflowing. */
+    flex-wrap: wrap;
   }
   .page-actions > .button:only-child {
     width: 100%;
   }
   .page-actions > .button {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 0;
+    white-space: normal;
   }
   .button {
     min-height: 44px;

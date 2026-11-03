@@ -153,7 +153,7 @@ describe("social accounts view (ADR 0020, S2)", () => {
       "SOCIAL_META_NO_PAGES",
       "SOCIAL_TELEGRAM_OWNER_BOT",
       "SOCIAL_TELEGRAM_BOT_CANNOT_POST",
-      "SOCIAL_TELEGRAM_NOT_A_CHANNEL",
+      "SOCIAL_TELEGRAM_PRIVATE_CHAT",
       "SOCIAL_PROVIDER_REJECTED",
       "SOCIAL_PROVIDER_UNAVAILABLE",
     ]) {
@@ -165,7 +165,7 @@ describe("social accounts view (ADR 0020, S2)", () => {
   it("asks for the bot token as a password that is never autofilled", () => {
     const html = render(<TelegramChannelForm onDone={() => {}} />);
     expect(html).toMatch(/<input[^>]*type="password"[^>]*autoComplete="off"|<input[^>]*autoComplete="off"[^>]*type="password"/i);
-    expect(html).toContain("Channel (@name or id)");
+    expect(html).toContain("Channel or group (@name or id)");
   });
 
   it("renders the reconnect attention item", () => {
