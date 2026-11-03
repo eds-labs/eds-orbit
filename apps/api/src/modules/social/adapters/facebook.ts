@@ -17,8 +17,13 @@ type GraphError = { code?: number; error_subcode?: number; is_transient?: boolea
 const THROTTLE_WAIT_MS = 60_000;
 const BLOCK_WAIT_MS = 60 * 60_000;
 const OUTAGE_WAIT_MS = 5 * 60_000;
-const UPLOAD_TIMEOUT_MS = 60_000;
+// The bounded transport ends a request 30 s after it starts (plus DNS).
+const UPLOAD_TIMEOUT_MS = 30_000;
 const PUBLISH_TIMEOUT_MS = 30_000;
+// The delivery lease is 180 s: no upload or /feed call starts after 100 s,
+// so a slow upload phase ends as a plain failure before anything is visible
+// instead of a /feed call outliving the lease.
+const SEND_DEADLINE_MS = 100_000;
 const READ_BACK_WINDOW_MS = 5 * 60_000;
 // Throttles of the app, the user, the Page and the business use cases.
 const RATE_LIMIT_CODES = new Set([4, 17, 32, 341, 613, 80001, 80002, 80003, 80004, 80005, 80006, 80008, 80014]);
@@ -82,10 +87,13 @@ const timeOf = (value: unknown) => (typeof value === "string" ? Date.parse(value
 export const facebookSender: SocialSender = {
   async send(_scope, input) {
     const page = encodeURIComponent(pageOf(input));
+    const started = Date.now();
+    const late = () => Date.now() - started > SEND_DEADLINE_MS;
     let step: Step = "upload";
     try {
       const photos: string[] = [];
       for (const m of input.media) {
+        if (late()) return waitAfterOutage();
         const form = new FormData();
         form.set("source", new Blob([new Uint8Array(m.bytes)], { type: m.mime }), `${m.fileId}.${m.mime === "image/png" ? "png" : "jpg"}`);
         form.set("published", "false");
@@ -93,6 +101,7 @@ export const facebookSender: SocialSender = {
         if (typeof uploaded.id !== "string" || !uploaded.id) return waitAfterOutage();
         photos.push(uploaded.id);
       }
+      if (late()) return waitAfterOutage();
       step = "publish";
       const posted = await graph(
         input,

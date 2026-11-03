@@ -12,8 +12,9 @@ import { refreshPostStatus } from "./status.ts";
 
 // After the send (ADR 0020 §7): a publication still processing (Instagram)
 // is read again with a growing pause until it is published or given up as
-// unknown; an unknown X or Instagram send is read back once and confirmed
-// when the post is found. Nothing here submits a new post.
+// unknown; an unknown send of a platform that can be read back (X,
+// Facebook, Instagram) is read back once and confirmed when the post is
+// found. Nothing here submits a new post.
 
 export const RECONCILE_MAX = 12;
 export const RECONCILE_DELAYS_MS = (attempt: number) => Math.min(15_000 * 2 ** (attempt - 1), 900_000);

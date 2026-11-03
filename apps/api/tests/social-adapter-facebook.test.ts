@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
 import { senderFor, type SendInput } from "../src/modules/social/adapters/registry.ts";
@@ -110,6 +110,42 @@ describe("Facebook sender", () => {
       throw new ConnectorError("REQUEST_TIMEOUT", "unknown", true);
     });
     expect(await facebook.send(scope, input())).toEqual({ kind: "unknown", code: "SOCIAL_PROVIDER_UNKNOWN" });
+  });
+
+  it("calls an unclear /feed answer unknown after the photos went up, and uploads nothing again", async () => {
+    for (const unclear of [
+      () => {
+        throw new ConnectorError("REQUEST_TIMEOUT", "unknown", true);
+      },
+      () => json(503, {}),
+    ]) {
+      let photo = 0;
+      const calls = fakeGraph((call) => (call.url.pathname.endsWith("/photos") ? json(200, { id: `ph${++photo}` }) : unclear()));
+      expect(await facebook.send(scope, input({ media: [image(1), image(2)] }))).toMatchObject({ kind: "unknown" });
+      expect(calls.map(path)).toEqual(["POST /v26.0/900/photos", "POST /v26.0/900/photos", "POST /v26.0/900/feed"]);
+    }
+  });
+
+  it("stops before /feed when the uploads took so long that the delivery lease could run out", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      let photo = 0;
+      const calls = fakeGraph(() => {
+        now += 55_000;
+        return json(200, { id: `ph${++photo}` });
+      });
+      expect(await facebook.send(scope, input({ media: [image(1), image(2), image(3)] }))).toEqual({
+        kind: "failed",
+        code: "SOCIAL_PROVIDER_UNAVAILABLE",
+        retry: "after-delay",
+        delayMs: 300_000,
+      });
+      // Two uploads took 110 s: no third upload, and never the visible /feed call.
+      expect(calls.map(path)).toEqual(["POST /v26.0/900/photos", "POST /v26.0/900/photos"]);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("treats a request that never left as a failure that may wait", async () => {

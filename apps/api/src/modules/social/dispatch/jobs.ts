@@ -18,7 +18,8 @@ export const dispatchJob: JobDef = {
 export const deliverJob: JobDef = {
   queueClass: DELIVER,
   concurrency: 2,
-  // Uploads to X and Telegram and Instagram's container step fit easily.
+  // Uploads to X and Telegram and Instagram's container step fit easily;
+  // Facebook starts no call after 100 s (adapters/facebook.ts).
   leaseMs: 180_000,
   handler: ({ scope, job }) => deliverPublication(scope, String(job.resourceId)),
   /**
