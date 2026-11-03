@@ -33,6 +33,7 @@ Stored in the module's `ProjectModule` row, versioned (`PUT /api/projects/:proje
 | Setting | Default | Meaning |
 |---|---|---|
 | `approval` | `owner_each` | `owner_each`: the owner approves every publication. `editor_each` (editors approve too, S-D9) is refused with 409 `SOCIAL_SETTING_NOT_AVAILABLE` for now: who decides is fixed per action type, and the platform has no per-project hook yet (S4 ruling). |
+| `xMetrics` | `false` | X bills every read (about $0.005 per post read as of 2026-11); X figures are read only when the owner switches this on, at most once a day per post (S8). |
 | `mcpOwnerPublishWithoutApproval` | `false` | An owner's direct MCP call may publish without a separate request. Saving `true` is refused with 409 `SOCIAL_SETTING_NOT_AVAILABLE` for now: the platform's direct-effect hook is shaped for support inboxes (S7 ruling); every MCP publication waits for the owner. |
 
 ## Data model
@@ -143,6 +144,19 @@ Social → Calendar shows the posts that have a time, in the project's time zone
 |---|---|
 | `GET /api/projects/:projectId/social/calendar?from&to&accountIds&platforms&statuses&origins` | `social.read` |
 | `GET /api/organizations/:workspaceId/social/calendar?from&to&projectIds&…` | organization member; per project `social.read` and the module on |
+
+## Analytics (S8)
+
+Technical figures of published posts, not marketing analysis. Plan: [superpowers/plans/2026-11-03-social-s8-analytics.md](superpowers/plans/2026-11-03-social-s8-analytics.md).
+
+- **Collected** by the periodic task `social-metrics` on the worker every six hours: live publications (no test publications) at most 30 days old on active accounts, at most 50 provider calls per project and run, least recently read first. Every attempt leaves a row (`orbit_read`: 1 read, 0 failed), so a post that fails is tried again later without starving the others; a provider error never stops the run, and the task never marks an account for a reconnect (the health task does).
+- **Figures** (lifetime counters, one `SocialMetricSnapshot` row per metric and read): Facebook `reactions`, `comments`, `shares` (`pages_read_engagement`); Instagram `likes`, `comments` (`instagram_basic`; reach and saves would need `instagram_manage_insights`, not requested); X `likes`, `reposts`, `replies`, `quotes`, `impressions`, `bookmarks` (only with the setting `xMetrics`, at most once a day, up to 100 posts per call); Telegram's Bot API offers none ("not available").
+- **Shown** in Social → Analytics (posts of the last 30 days, newest first, at most 100) and in the calendar's panel of a published post.
+
+| Route | Permission |
+|---|---|
+| `GET /api/projects/:projectId/social/posts/:postId/metrics` | `social.analytics.read` |
+| `GET /api/projects/:projectId/social/analytics?days` (1–30) | `social.analytics.read` |
 
 ## Assistant and MCP tools (S7)
 

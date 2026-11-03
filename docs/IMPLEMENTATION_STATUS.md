@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S8 (2026-11-03, branch `claude/social-s8` on top of `claude/social-s7`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s8-analytics.md](superpowers/plans/2026-11-03-social-s8-analytics.md).
+
+- **Built (S8):** metric readers for Facebook, Instagram and X; periodic task `social-metrics` (six-hourly, 50 calls per project and run, 30 days, failed reads retried later); setting `xMetrics` (default off, X reads are paid); `postMetrics` for Marketing (S9); routes for one post and the last 30 days; Social → Analytics and the figures in the calendar panel. OpenAPI regenerated (also adds the P1 data-deletion status route).
+- **Not built:** retention of snapshots (24 months, spec §11), Instagram insights (needs `instagram_manage_insights`), figures in the MCP tools.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
 ## Social module phase S7 (2026-11-03, branch `claude/social-s7` on top of `claude/social-p1`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).
