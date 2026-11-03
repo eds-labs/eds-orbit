@@ -203,3 +203,41 @@ export async function postMetrics(tx: DbTx, scope: Scope, postIds: string[]): Pr
         }),
     }));
 }
+
+const RECENT_POSTS = 100;
+
+/** The posts published in the last `days` days (at most 30), newest first, with their latest figures. */
+export async function recentPostMetrics(tx: DbTx, scope: Scope, days: number) {
+  const since = new Date(Date.now() - Math.min(days, 30) * 86_400_000);
+  const publications = await tx.socialPublication.findMany({
+    where: { projectId: scope.projectId, status: "published", publishedAt: { gte: since } },
+    select: { variantId: true, publishedAt: true },
+    orderBy: { publishedAt: "desc" },
+  });
+  const variants = await tx.socialPostVariant.findMany({
+    where: { projectId: scope.projectId, id: { in: [...new Set(publications.map((p) => p.variantId))] } },
+    select: { id: true, postId: true },
+  });
+  const postOf = new Map(variants.map((v) => [v.id, v.postId]));
+  const firstPublished = new Map<string, Date>();
+  for (const p of publications) {
+    const postId = postOf.get(p.variantId);
+    if (postId && !firstPublished.has(postId)) firstPublished.set(postId, p.publishedAt!);
+  }
+  const postIds = [...firstPublished.keys()].slice(0, RECENT_POSTS);
+  const posts = await tx.socialPost.findMany({
+    where: { projectId: scope.projectId, id: { in: postIds } },
+    select: { id: true, title: true, baseText: true },
+  });
+  const postById = new Map(posts.map((p) => [p.id, p]));
+  const metrics = new Map((await postMetrics(tx, scope, postIds)).map((m) => [m.postId, m.publications]));
+  return {
+    items: postIds.map((postId) => ({
+      postId,
+      title: postById.get(postId)?.title ?? null,
+      excerpt: (postById.get(postId)?.baseText ?? "").slice(0, 120),
+      publishedAt: firstPublished.get(postId)!.toISOString(),
+      publications: metrics.get(postId) ?? [],
+    })),
+  };
+}

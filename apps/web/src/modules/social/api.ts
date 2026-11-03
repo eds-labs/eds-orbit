@@ -196,3 +196,18 @@ export async function socialSend<T>(path: string, method: "POST" | "PATCH", body
     throw new SocialApiError(value?.error?.code ?? "REQUEST_FAILED", response.status, value?.error?.detail ?? null);
   return value as T;
 }
+
+/** GET …/social/posts/:postId/metrics (S8): the latest figures per publication. */
+export type PostMetricsPublication = {
+  publicationId: string;
+  accountId: string;
+  platform: SocialPlatform;
+  available: boolean;
+  observedAt: string | null;
+  metrics: Record<string, number>;
+};
+export type PostMetrics = { postId: string; publications: PostMetricsPublication[] };
+
+/** GET …/social/analytics?days (S8). */
+export type AnalyticsItem = PostMetrics & { title: string | null; excerpt: string; publishedAt: string };
+export type AnalyticsResponse = { items: AnalyticsItem[] };

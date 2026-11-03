@@ -6,9 +6,9 @@ import { socialAttention } from "./attention";
 import { MediaView } from "./media";
 import { socialText } from "./labels";
 import { SocialOverview } from "./overview";
-import { SocialPlaceholder } from "./placeholder";
 import { PostsView } from "./posts/posts-view";
 import { CalendarView } from "./calendar/calendar-view";
+import { AnalyticsView } from "./analytics";
 
 const nav = (key: keyof ReturnType<typeof socialText>["nav"]) => ({
   en: socialText("en").nav[key],
@@ -39,6 +39,6 @@ export const socialWeb: WebModule = {
     { key: "social.posts", path: "posts", component: PostsView, nav: { label: nav("posts"), icon: PenSquare, order: 20 } },
     { key: "social.media", path: "media", component: MediaView, nav: { label: nav("media"), icon: Images, order: 30 } },
     { key: "social.accounts", path: "accounts", component: AccountsView, nav: { label: nav("accounts"), icon: AtSign, order: 40 } },
-    { key: "social.analytics", path: "analytics", component: SocialPlaceholder, nav: { label: nav("analytics"), icon: BarChart3, order: 50 } },
+    { key: "social.analytics", path: "analytics", component: AnalyticsView, nav: { label: nav("analytics"), icon: BarChart3, order: 50 } },
   ],
 };

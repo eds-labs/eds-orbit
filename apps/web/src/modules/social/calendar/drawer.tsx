@@ -9,6 +9,7 @@ import { socialPath, type CalendarItem, type PostView } from "../api";
 import { socialText } from "../labels";
 import { Preview } from "../posts/preview";
 import { Publications } from "../posts/publications";
+import { PostMetricsSection } from "../analytics";
 import { localOf } from "./grid";
 import { moveCheck } from "./move";
 
@@ -105,6 +106,9 @@ export function PostDrawer({
         </div>
         <ResourceError error={detail.error} retry={detail.refresh} />
         {post && own && <Publications post={post} onChanged={detail.refresh} />}
+        {post && own && ["published", "partially_published"].includes(post.status) && (
+          <PostMetricsSection projectId={item.projectId} postId={item.id} locale={locale} />
+        )}
         {!own && item.publications.total > 0 && (
           <p className="field-hint">
             {t.publicationsSummary(

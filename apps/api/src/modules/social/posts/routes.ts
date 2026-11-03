@@ -5,7 +5,8 @@ import { calendarItems, organizationCalendarFor } from "../calendar/calendar.ts"
 import { userFor } from "../../../platform/tenancy/auth.ts";
 import { DomainError } from "../../../shared.ts";
 import { resolvePublication } from "../dispatch/control.ts";
-import { SOCIAL_APPROVE, SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "../permissions.ts";
+import { SOCIAL_ANALYTICS_READ, SOCIAL_APPROVE, SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "../permissions.ts";
+import { postMetrics, recentPostMetrics } from "../analytics/collect.ts";
 import { publishNow, reschedulePost, schedulePost } from "./approval.ts";
 import { archivePost, cancelPost, createPost, getPost, listPosts, lockPost, refreshIssues, updatePost } from "./posts.ts";
 
@@ -34,6 +35,19 @@ export const socialPostRoutes: RoutesContribution = ({ app, auth }) => {
   });
   app.get(`${SOCIAL_BASE}/posts/:postId`, (req) =>
     inSocial(auth, req, SOCIAL_READ, (tx, scope) => getPost(tx, scope, post(req))),
+  );
+  // The latest figures of a post's publications, and of the last days (S8).
+  app.get(`${SOCIAL_BASE}/posts/:postId/metrics`, (req) =>
+    inSocial(auth, req, SOCIAL_ANALYTICS_READ, async (tx, scope) => {
+      await getPost(tx, scope, post(req));
+      const [found] = await postMetrics(tx, scope, [post(req)]);
+      return found ?? { postId: post(req), publications: [] };
+    }),
+  );
+  app.get(`${SOCIAL_BASE}/analytics`, (req) =>
+    inSocial(auth, req, SOCIAL_ANALYTICS_READ, (tx, scope) =>
+      recentPostMetrics(tx, scope, z.object({ days: z.coerce.number().int().min(1).max(30).default(30) }).parse(req.query).days),
+    ),
   );
   app.patch(`${SOCIAL_BASE}/posts/:postId`, (req) =>
     inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) => updatePost(tx, scope, post(req), req.body)),

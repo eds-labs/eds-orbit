@@ -317,6 +317,28 @@ const en = {
     missed: (n: number) => (n === 1 ? "1 approved post missed its time; set a new one" : `${n} approved posts missed their time; set new ones`),
     openPosts: "Open posts",
   },
+  analytics: {
+    title: "Analytics",
+    intro: "The public figures of posts published in the last 30 days, read every six hours. X figures only when the owner allows X's paid reads.",
+    empty: "No published posts in the last 30 days.",
+    figures: "Figures",
+    published: "Published",
+    post: "Post",
+    notAvailable: (platform: string) => `${platform}: figures not available`,
+    notRead: "not read yet",
+    asOf: (when: string) => `as of ${when}`,
+    metric: {
+      likes: (n: number) => `${n} ${n === 1 ? "like" : "likes"}`,
+      reactions: (n: number) => `${n} ${n === 1 ? "reaction" : "reactions"}`,
+      comments: (n: number) => `${n} ${n === 1 ? "comment" : "comments"}`,
+      shares: (n: number) => `${n} ${n === 1 ? "share" : "shares"}`,
+      reposts: (n: number) => `${n} ${n === 1 ? "repost" : "reposts"}`,
+      replies: (n: number) => `${n} ${n === 1 ? "reply" : "replies"}`,
+      quotes: (n: number) => `${n} ${n === 1 ? "quote" : "quotes"}`,
+      impressions: (n: number) => `${n} ${n === 1 ? "view" : "views"}`,
+      bookmarks: (n: number) => `${n} ${n === 1 ? "bookmark" : "bookmarks"}`,
+    } as Record<string, (n: number) => string>,
+  },
 };
 export type SocialText = typeof en;
 
@@ -633,6 +655,28 @@ const de: SocialText = {
     publications: (n: number) => (n === 1 ? "1 Veröffentlichung braucht deine Aufmerksamkeit" : `${n} Veröffentlichungen brauchen deine Aufmerksamkeit`),
     missed: (n: number) => (n === 1 ? "1 freigegebener Beitrag hat seine Zeit verpasst; plane ihn neu" : `${n} freigegebene Beiträge haben ihre Zeit verpasst; plane sie neu`),
     openPosts: "Beiträge öffnen",
+  },
+  analytics: {
+    title: "Auswertung",
+    intro: "Die öffentlichen Kennzahlen der Beiträge der letzten 30 Tage, alle sechs Stunden gelesen. X-Kennzahlen nur, wenn der Owner die kostenpflichtigen X-Abrufe erlaubt.",
+    empty: "Keine veröffentlichten Beiträge in den letzten 30 Tagen.",
+    figures: "Kennzahlen",
+    published: "Veröffentlicht",
+    post: "Beitrag",
+    notAvailable: (platform: string) => `${platform}: keine Kennzahlen verfügbar`,
+    notRead: "noch nicht gelesen",
+    asOf: (when: string) => `Stand ${when}`,
+    metric: {
+      likes: (n: number) => `${n} Likes`,
+      reactions: (n: number) => `${n} ${n === 1 ? "Reaktion" : "Reaktionen"}`,
+      comments: (n: number) => `${n} ${n === 1 ? "Kommentar" : "Kommentare"}`,
+      shares: (n: number) => `${n}× geteilt`,
+      reposts: (n: number) => `${n} Reposts`,
+      replies: (n: number) => `${n} ${n === 1 ? "Antwort" : "Antworten"}`,
+      quotes: (n: number) => `${n} ${n === 1 ? "Zitat" : "Zitate"}`,
+      impressions: (n: number) => `${n} Aufrufe`,
+      bookmarks: (n: number) => `${n} ${n === 1 ? "Lesezeichen" : "Lesezeichen"}`,
+    },
   },
 };
 

@@ -203,6 +203,56 @@ describe.skipIf(!enabled)("social post routes", () => {
     expect((await get(`/api/organizations/not-a-uuid/social/calendar?${range}`)).statusCode).toBe(404);
   });
 
+  it("serves a post's figures and the analytics of 30 days to readers (S8)", async () => {
+    const created = (await call("owner", "POST", "/posts", { title: "Measured", baseText: "With figures", baseMedia: [], variants: [{ accountId: x }] })).json();
+    const publicationId = randomUUID();
+    await scoped(workspaceId, projectId, async (tx) => {
+      const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId: created.id } });
+      await tx.socialPost.update({ where: { id: created.id }, data: { status: "published" } });
+      await tx.socialPublication.create({
+        data: {
+          id: publicationId,
+          workspaceId,
+          projectId,
+          variantId: variant.id,
+          accountId: x,
+          idempotencyKey: randomUUID(),
+          status: "published",
+          externalPostId: "1700",
+          publishedAt: new Date(Date.now() - 2 * 86_400_000),
+        },
+      });
+      await tx.socialMetricSnapshot.createMany({
+        data: ["likes", "impressions"].map((metric, i) => ({
+          id: randomUUID(),
+          workspaceId,
+          projectId,
+          publicationId,
+          metric,
+          value: i ? 120 : 4,
+          unit: "count",
+          period: "lifetime",
+          observedAt: new Date(),
+        })),
+      });
+    });
+    const one = await call("viewer", "GET", `/posts/${created.id}/metrics`);
+    expect(one.statusCode).toBe(200);
+    expect(one.json().publications).toEqual([
+      expect.objectContaining({ publicationId, platform: "x", available: true, metrics: { likes: 4, impressions: 120 } }),
+    ]);
+    expect((await call("viewer", "GET", `/posts/${randomUUID()}/metrics`)).statusCode).toBe(404);
+    const list = await call("viewer", "GET", "/analytics?days=30");
+    expect(list.statusCode).toBe(200);
+    expect(list.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ postId: created.id, title: "Measured", excerpt: "With figures", publishedAt: expect.any(String) }),
+      ]),
+    );
+    expect((await call("viewer", "GET", "/analytics?days=90")).statusCode).toBe(400);
+    expect((await call("editor", "GET", "/analytics?days=30", undefined, otherProjectId)).statusCode).toBe(404);
+  });
+
   it("hides the project from members of another project and unknown posts", async () => {
     expect((await call("editor", "GET", "/posts", undefined, otherProjectId)).statusCode).toBe(404);
     expect((await call("viewer", "GET", `/posts/${randomUUID()}`)).statusCode).toBe(404);
