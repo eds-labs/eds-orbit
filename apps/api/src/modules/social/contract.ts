@@ -45,8 +45,14 @@ export function socialPublishingAvailable(tx: DbTx, scope: Scope): Promise<boole
 /** The project's account behind a Marketing channel reference, or null. */
 export async function accountForChannel(tx: DbTx, scope: Scope, channel: string): Promise<SocialAccountRef | null> {
   const direct = SOCIAL_CHANNEL.exec(channel);
+  // A disconnected account no longer stands for a channel.
   const row = await tx.socialAccount.findFirst({
-    where: { projectId: scope.projectId, ...(direct ? { id: direct[1]!.toLowerCase() } : { legacyPostizIntegrationId: channel }) },
+    where: {
+      projectId: scope.projectId,
+      status: { not: "disabled" },
+      ...(direct ? { id: direct[1]!.toLowerCase() } : { legacyPostizIntegrationId: channel }),
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
   return row
     ? {
@@ -305,8 +311,13 @@ export async function accountsForMapping(tx: DbTx, scope: Scope): Promise<Mappab
   }));
 }
 
-/** Records (or clears) the Postiz channel an account stands for. */
+/** Records (or clears) the Postiz channel an account stands for; no other account keeps it. */
 export async function setLegacyChannel(tx: DbTx, scope: Scope, accountId: string, integrationId: string | null): Promise<void> {
+  if (integrationId !== null)
+    await tx.socialAccount.updateMany({
+      where: { projectId: scope.projectId, legacyPostizIntegrationId: integrationId, NOT: { id: accountId } },
+      data: { legacyPostizIntegrationId: null, version: { increment: 1 } },
+    });
   const changed = await tx.socialAccount.updateMany({
     where: { id: accountId, projectId: scope.projectId },
     data: { legacyPostizIntegrationId: integrationId, version: { increment: 1 } },
@@ -355,7 +366,7 @@ export async function mirrorLegacyRows(tx: DbTx, scope: Scope, rows: LegacyRow[]
     }
     const at = new Date(row.at);
     const existing = await tx.socialPost.findFirst({
-      where: { projectId: scope.projectId, origin: "legacy_postiz", originType: row.kind, originId: row.id },
+      where: { projectId: scope.projectId, origin: "legacy_postiz", originModule: "postiz", originType: row.kind, originId: row.id },
     });
     const publication =
       existing && row.kind === "publication"
@@ -368,11 +379,13 @@ export async function mirrorLegacyRows(tx: DbTx, scope: Scope, rows: LegacyRow[]
       scheduledAt: Number.isFinite(at.getTime()) ? at : null,
       scheduleLocal: Number.isFinite(at.getTime()) ? localOf(at, zone) : null,
     };
+    // Postiz's own post id is no platform id: kept apart in the provider state.
     const publicationFields = {
       status: row.status === "draft" ? "pending" : row.status,
-      externalPostId: row.externalPostId,
+      externalPostId: null,
       permalink: row.permalink,
       publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
+      providerState: { legacyPostiz: true, postizId: row.externalPostId },
     };
     const same =
       existing &&
@@ -381,7 +394,6 @@ export async function mirrorLegacyRows(tx: DbTx, scope: Scope, rows: LegacyRow[]
       (row.kind === "draft" ||
         (publication &&
           publication.status === publicationFields.status &&
-          publication.externalPostId === publicationFields.externalPostId &&
           publication.permalink === publicationFields.permalink));
     if (same) {
       result.unchanged++;
@@ -409,7 +421,8 @@ export async function mirrorLegacyRows(tx: DbTx, scope: Scope, rows: LegacyRow[]
         baseMedia: [],
         scheduleTimezone: zone,
         origin: "legacy_postiz",
-        originModule: "marketing",
+        // Not "marketing": Marketing's own handoffs use that key (S9).
+        originModule: "postiz",
         originType: row.kind,
         originId: row.id,
         originVersion: 1,
@@ -438,7 +451,6 @@ export async function mirrorLegacyRows(tx: DbTx, scope: Scope, rows: LegacyRow[]
           accountId: account.accountId,
           idempotencyKey: `legacy:${row.id}`,
           legacyEntityId: row.id,
-          providerState: { legacyPostiz: true },
           ...publicationFields,
         },
       });

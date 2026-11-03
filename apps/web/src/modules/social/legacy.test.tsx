@@ -42,9 +42,13 @@ describe("Postiz migration panel", () => {
     expect(button(render(view()), "Stop new posts to Postiz")).toBeDefined();
     // One channel of a supported platform is not mapped: no switch yet.
     expect(button(render(view({ backend: "postiz_draining" })), "Switch to Social")).toContain("disabled");
+    // LinkedIn is assigned but Social cannot post there: no switch either.
+    expect(render(view({ backend: "postiz_draining" }))).toContain("remove from Marketing&#x27;s channels what Social cannot post to yet: Synthetic LinkedIn");
     const ready = view({
       backend: "postiz_draining",
-      channels: view().channels.map((c) => (c.integrationId === "tg-int" ? { ...c, accountId: "a-tg", suggestedAccountId: null } : c)),
+      channels: view()
+        .channels.filter((c) => c.platform)
+        .map((c) => (c.integrationId === "tg-int" ? { ...c, accountId: "a-tg", suggestedAccountId: null } : c)),
     });
     expect(button(render(ready), "Switch to Social")).not.toContain("disabled");
     const busy = { ...ready, inventory: { ...ready.inventory, blockingSwitch: 2, readyToSwitch: false } };

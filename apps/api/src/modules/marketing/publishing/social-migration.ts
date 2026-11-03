@@ -203,3 +203,18 @@ export async function postizInventory(tx: DbTx, scope: Scope) {
     readyToSwitch: blockingSwitch === 0,
   };
 }
+
+/**
+ * Why the project cannot switch to Social yet (empty when it can): every
+ * assigned channel must be one Social has and be mapped, and Postiz must
+ * hold nothing unsettled (spec §9.6 step 4). The server enforces it; the
+ * panel only shows it.
+ */
+export async function switchBlockers(tx: DbTx, scope: Scope): Promise<string[]> {
+  const view = await socialMapping(tx, scope);
+  const reasons: string[] = [];
+  if (view.channels.some((c) => !c.platform)) reasons.push("CHANNEL_NOT_IN_SOCIAL");
+  if (view.channels.some((c) => c.platform && !c.accountId)) reasons.push("CHANNEL_NOT_MAPPED");
+  if (!view.inventory.readyToSwitch) reasons.push("POSTIZ_UNSETTLED");
+  return reasons;
+}

@@ -143,6 +143,8 @@ export async function resolvePublication(tx: DbTx, scope: Scope, id: string, raw
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = resolveInput.parse(raw);
   const pub = await lockPublication(tx, scope, id);
+  // History mirrored from another system is not Social's to settle (S10).
+  if (pub.legacyEntityId) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
   if (pub.status !== "outcome_unknown") throw new DomainError("SOCIAL_PUBLICATION_NOT_UNKNOWN", 409);
   if (pub.version !== input.version) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   const published = input.resolution === "published_confirmed";

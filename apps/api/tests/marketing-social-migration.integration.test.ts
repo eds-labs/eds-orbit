@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import { readMarketingSettings, saveMarketingSettings } from "../src/modules/marketing/publishing/backend.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
+import { accountForChannel } from "../src/modules/social/contract.ts";
+import { resolvePublication } from "../src/modules/social/dispatch/control.ts";
+import { socialAttention } from "../src/modules/social/attention.ts";
+import { socialMetrics } from "../src/modules/social/analytics/collect.ts";
 import { mapPostizChannel, mirrorPostizHistory, postizInventory, socialMapping } from "../src/modules/marketing/publishing/social-migration.ts";
 import { updatePost } from "../src/modules/social/posts/posts.ts";
 import { create, data, entity, update } from "../src/shared.ts";
@@ -82,13 +87,11 @@ describe.skipIf(!enabled)("marketing social migration", () => {
   });
 
   it("refuses to unmap while Marketing publishes through Social", async () => {
-    const settings = await run((tx) => readMarketingSettings(tx, project.owner));
-    await run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: "social" }, settings.version));
+    await run((tx) => forcePublishingBackend(tx, project.owner, "social"));
     try {
       await expect(run((tx) => mapPostizChannel(tx, project.owner, { integrationId: X, accountId: null }))).rejects.toThrow("SOCIAL_MAPPING_IN_USE");
     } finally {
-      const current = await run((tx) => readMarketingSettings(tx, project.owner));
-      await run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: "postiz" }, current.version));
+      await run((tx) => forcePublishingBackend(tx, project.owner, "postiz"));
     }
     await run((tx) => mapPostizChannel(tx, project.owner, { integrationId: X, accountId: null }));
     expect((await run((tx) => socialMapping(tx, project.owner))).channels.find((c) => c.integrationId === X)).toMatchObject({ accountId: null });
@@ -115,6 +118,7 @@ describe.skipIf(!enabled)("marketing social migration", () => {
         failed: await pub("failed"),
         canceled: await pub("canceled"),
         remote: await pub("scheduled_remote", { remoteId: "postiz-2" }),
+        unknown: await pub("outcome_unknown", { remoteId: "postiz-3" }),
         intent: await pub("intent_created"),
         test: await pub("published_test", { test: true }),
         unmapped: await create(tx, project.owner, "publications", { contentId: content.id, channel: TELEGRAM, status: "published", scheduledAt: at(2), test: false }),
@@ -130,32 +134,44 @@ describe.skipIf(!enabled)("marketing social migration", () => {
       };
     });
     const dry = await run((tx) => mirrorPostizHistory(tx, project.owner, { dryRun: true }));
-    expect(dry).toMatchObject({ dryRun: true, created: 5, updated: 0, unchanged: 0, unmapped: 1 });
-    expect(dry.byStatus).toEqual({ published: 1, failed: 1, canceled: 1, accepted: 1, draft: 1 });
+    expect(dry).toMatchObject({ dryRun: true, created: 6, updated: 0, unchanged: 0, unmapped: 1 });
+    expect(dry.byStatus).toEqual({ published: 1, failed: 1, canceled: 1, accepted: 1, outcome_unknown: 1, draft: 1 });
     expect(await run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, origin: "legacy_postiz" } }))).toBe(0);
     await expect(run((tx) => mirrorPostizHistory(tx, project.editor, { dryRun: false }))).rejects.toThrow("OWNER_REQUIRED");
     const applied = await run((tx) => mirrorPostizHistory(tx, project.owner, { dryRun: false }));
-    expect(applied).toMatchObject({ dryRun: false, created: 5, updated: 0, unmapped: 1 });
+    expect(applied).toMatchObject({ dryRun: false, created: 6, updated: 0, unmapped: 1 });
     const mirrored = await run((tx) =>
       tx.socialPublication.findFirstOrThrow({ where: { projectId: project.owner.projectId, legacyEntityId: pubs.published.id } }),
     );
-    expect(mirrored).toMatchObject({ status: "published", externalPostId: "postiz-1", permalink: "https://x.com/synthetic/status/1", accountId: xAccount });
+    // Postiz's own id is kept apart: it is no platform id (metrics, read-back).
+    expect(mirrored).toMatchObject({ status: "published", externalPostId: null, permalink: "https://x.com/synthetic/status/1", accountId: xAccount });
+    expect(mirrored.providerState).toMatchObject({ legacyPostiz: true, postizId: "postiz-1" });
     const post = await run(async (tx) => {
       const variant = await tx.socialPostVariant.findUniqueOrThrow({ where: { id: mirrored.variantId } });
       return tx.socialPost.findUniqueOrThrow({ where: { id: variant.postId } });
     });
-    expect(post).toMatchObject({ origin: "legacy_postiz", readOnly: true, status: "published" });
+    expect(post).toMatchObject({ origin: "legacy_postiz", originModule: "postiz", readOnly: true, status: "published" });
+    // The mirror is history: no resolve, no attention items, no metric reads.
+    const unknown = await run((tx) =>
+      tx.socialPublication.findFirstOrThrow({ where: { projectId: project.owner.projectId, legacyEntityId: pubs.unknown.id } }),
+    );
+    await expect(
+      run((tx) => resolvePublication(tx, project.owner, unknown.id, { resolution: "not_published", version: unknown.version })),
+    ).rejects.toThrow("SOCIAL_POST_READ_ONLY");
+    const attention = await run((tx) => socialAttention(tx, project.owner, new Date()));
+    expect(JSON.stringify(attention)).not.toMatch(/publication/i);
+    expect(await run((tx) => socialMetrics.nextDueAt!(tx, project.owner))).toBeNull();
     expect(post.baseText).toContain("From the Postiz days.");
     await expect(
       run((tx) => updatePost(tx, project.owner, post.id, { version: post.version, baseText: "Changed", baseMedia: [], variants: [{ accountId: xAccount }] })),
     ).rejects.toThrow("SOCIAL_POST_READ_ONLY");
     // Again: nothing new; a source that moved on updates its mirror only.
-    expect(await run((tx) => mirrorPostizHistory(tx, project.owner, { dryRun: false }))).toMatchObject({ created: 0, updated: 0, unchanged: 5 });
+    expect(await run((tx) => mirrorPostizHistory(tx, project.owner, { dryRun: false }))).toMatchObject({ created: 0, updated: 0, unchanged: 6 });
     await run(async (tx) => {
       const row = await entity(tx, project.owner, "publications", pubs.remote.id);
       await update(tx, project.owner, row, { ...data(row), status: "published", releaseUrl: "https://x.com/synthetic/status/2" });
     });
-    expect(await run((tx) => mirrorPostizHistory(tx, project.owner, { dryRun: false }))).toMatchObject({ created: 0, updated: 1, unchanged: 4 });
+    expect(await run((tx) => mirrorPostizHistory(tx, project.owner, { dryRun: false }))).toMatchObject({ created: 0, updated: 1, unchanged: 5 });
     const moved = await run((tx) =>
       tx.socialPublication.findFirstOrThrow({ where: { projectId: project.owner.projectId, legacyEntityId: pubs.remote.id } }),
     );
@@ -163,6 +179,11 @@ describe.skipIf(!enabled)("marketing social migration", () => {
     // The source is never touched.
     expect(data(await run((tx) => entity(tx, project.owner, "publications", pubs.published.id)))).not.toHaveProperty("mirroredAt");
     expect(pubs.intent && pubs.test && pubs.unmapped && pubs.draft).toBeTruthy();
+    // Settle the source's unclear one, so later tests start clean.
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "publications", pubs.unknown.id);
+      await update(tx, project.owner, row, { ...data(row), status: "failed" });
+    });
   });
 
   it("counts what Postiz still holds, without any text, and says when the switch is safe", async () => {
@@ -170,7 +191,7 @@ describe.skipIf(!enabled)("marketing social migration", () => {
     expect(inventory).toMatchObject({
       backend: "postiz",
       channels: { assigned: 3, mapped: 1 },
-      publications: expect.objectContaining({ published: 3, failed: 1, canceled: 1 }),
+      publications: expect.objectContaining({ published: 3, failed: 2, canceled: 1 }),
       postizDrafts: { accepted: 1 },
       readyToSwitch: true,
     });
@@ -178,5 +199,42 @@ describe.skipIf(!enabled)("marketing social migration", () => {
     // A post Postiz has not settled yet holds the switch back.
     await run((tx) => create(tx, project.owner, "publications", { channel: X, status: "scheduled_remote", scheduledAt: new Date().toISOString(), test: false }));
     expect(await run((tx) => postizInventory(tx, project.owner))).toMatchObject({ readyToSwitch: false, blockingSwitch: 1 });
+  });
+
+  it("moves a channel to a new account when its old one was disconnected", async () => {
+    // X is mapped to xAccount (mirror test); that account is disconnected.
+    await run((tx) => tx.socialAccount.update({ where: { id: xAccount }, data: { status: "disabled" } }));
+    try {
+      expect((await run((tx) => socialMapping(tx, project.owner))).channels.find((c) => c.integrationId === X)).toMatchObject({ accountId: null });
+      await run((tx) => mapPostizChannel(tx, project.owner, { integrationId: X, accountId: otherX }));
+      expect(await run((tx) => accountForChannel(tx, project.owner, X))).toMatchObject({ accountId: otherX });
+      expect((await run((tx) => tx.socialAccount.findUniqueOrThrow({ where: { id: xAccount } }))).legacyPostizIntegrationId).toBeNull();
+    } finally {
+      await run((tx) => tx.socialAccount.update({ where: { id: xAccount }, data: { status: "active" } }));
+    }
+  });
+
+  it("switches to Social only when every assigned channel is mapped and Postiz holds nothing", async () => {
+    const switchTo = async () => {
+      const current = await run((tx) => readMarketingSettings(tx, project.owner));
+      return run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: "social" }, current.version));
+    };
+    // LinkedIn has no Social account type: its posts would stop silently.
+    await expect(switchTo()).rejects.toThrow("PUBLISHING_BACKEND_NOT_READY");
+    await run(async (tx) => {
+      const row = (await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "connectors" } }))[0]!;
+      await update(tx, project.owner, row, { ...data(row), assignedIntegrationIds: [X, TELEGRAM] });
+    });
+    // Telegram is not mapped yet, and Postiz still has a post to settle.
+    await expect(switchTo()).rejects.toThrow("PUBLISHING_BACKEND_NOT_READY");
+    await run((tx) => mapPostizChannel(tx, project.owner, { integrationId: TELEGRAM, accountId: telegramAccount }));
+    await expect(switchTo()).rejects.toThrow("PUBLISHING_BACKEND_NOT_READY");
+    await run(async (tx) => {
+      for (const row of await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "publications" } }))
+        if (["scheduled_remote", "sending", "outcome_unknown"].includes(String(data(row).status)))
+          await update(tx, project.owner, row, { ...data(row), status: "published" });
+    });
+    expect((await switchTo()).settings.publishingBackend).toBe("social");
+    await run((tx) => forcePublishingBackend(tx, project.owner, "postiz"));
   });
 });

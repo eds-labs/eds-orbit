@@ -63,6 +63,7 @@ const TEXT = {
     pending: (n: number) => `Postiz still has ${n} posts or drafts to settle.`,
     clear: "Postiz has nothing left to settle.",
     unmapped: "Map every channel before switching.",
+    notInSocial: (names: string) => `Before switching, remove from Marketing's channels what Social cannot post to yet: ${names}.`,
     drain: "Stop new posts to Postiz",
     toSocial: "Switch to Social",
     toPostiz: "Back to Postiz",
@@ -83,6 +84,7 @@ const TEXT = {
     pending: (n: number) => `Postiz hat noch ${n} Beiträge oder Entwürfe offen.`,
     clear: "Bei Postiz ist nichts mehr offen.",
     unmapped: "Ordne vor dem Umstellen jeden Kanal zu.",
+    notInSocial: (names: string) => `Entferne vor dem Umstellen aus den Marketing-Kanälen, was Social noch nicht bedienen kann: ${names}.`,
     drain: "Keine neuen Beiträge an Postiz",
     toSocial: "Auf Social umstellen",
     toPostiz: "Zurück zu Postiz",
@@ -114,8 +116,8 @@ export function MigrationPanel({
 }) {
   const t = TEXT[locale];
   const platforms = socialText(locale).platform;
-  const supported = view.channels.filter((c) => c.platform);
-  const allMapped = supported.every((c) => c.accountId);
+  const unsupported = view.channels.filter((c) => !c.platform);
+  const allMapped = view.channels.every((c) => c.platform && c.accountId);
   const label = (a: MigrationView["accounts"][number]) =>
     a.displayName && a.displayName !== a.handle ? `${a.displayName} (${a.handle})` : a.handle;
   const name = (accountId: string | null) => {
@@ -171,7 +173,8 @@ export function MigrationPanel({
         </tbody>
       </table>
       <p className="field-hint">{view.inventory.blockingSwitch ? t.pending(view.inventory.blockingSwitch) : t.clear}</p>
-      {!allMapped && <p className="field-hint">{t.unmapped}</p>}
+      {unsupported.length > 0 && <p className="field-hint">{t.notInSocial(unsupported.map((c) => c.name).join(", "))}</p>}
+      {!allMapped && !unsupported.length && <p className="field-hint">{t.unmapped}</p>}
       {mirror && <Alert kind="info">{mirror.dryRun ? t.mirror(mirror) : t.copied(mirror)}</Alert>}
       {owner && (
         <div className="button-row">

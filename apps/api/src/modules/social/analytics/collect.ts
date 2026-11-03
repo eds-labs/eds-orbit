@@ -44,6 +44,8 @@ async function candidates(tx: DbTx, scope: Scope, now: Date): Promise<Candidate[
       projectId: scope.projectId,
       status: "published",
       externalPostId: { not: null },
+      // History mirrored from Postiz (S10) carries no platform id.
+      legacyEntityId: null,
       publishedAt: { gte: new Date(now.getTime() - WINDOW_MS) },
     },
     select: { id: true, accountId: true, externalPostId: true, publishedAt: true, providerState: true },

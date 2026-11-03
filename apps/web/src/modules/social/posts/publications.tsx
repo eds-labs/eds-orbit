@@ -44,7 +44,8 @@ export function Publications({ post, onChanged }: { post: PostView; onChanged: (
                 {reason && <p className="field-hint">{publicationReason(reason, locale)}</p>}
                 {p.status === "outcome_unknown" && <p className="field-hint">{t.unknownHelp}</p>}
               </div>
-              {p.status === "outcome_unknown" && isOwner && (
+              {/* History mirrored from Postiz (S10) is shown, never settled here. */}
+              {p.status === "outcome_unknown" && isOwner && !post.readOnly && (
                 <div>
                   <Button size="sm" variant="outline" onClick={() => setSettling({ publication: p, resolution: "published_confirmed" })}>
                     {t.published}

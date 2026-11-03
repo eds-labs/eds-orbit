@@ -21,6 +21,8 @@ export const socialAttention: AttentionContribution = async (tx, scope, now) => 
   const problems = await tx.socialPublication.count({
     where: {
       projectId: scope.projectId,
+      // History mirrored from Postiz (S10) is no one's work here.
+      legacyEntityId: null,
       OR: [
         { status: { in: ["outcome_unknown", "blocked"] } },
         { status: "failed", nextAttemptAt: null, resolution: null, updatedAt: { gte: new Date(now.getTime() - WEEK_MS) } },

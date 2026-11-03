@@ -43,10 +43,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
     }),
   };
 });
-import {
-  readMarketingSettings,
-  saveMarketingSettings,
-} from "../src/modules/marketing/publishing/backend.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import {
@@ -395,8 +392,7 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
       });
       return account.id;
     });
-    const settings = await h.run((tx) => readMarketingSettings(tx, project.owner));
-    await h.run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: "social" }, settings.version));
+    await h.run((tx) => forcePublishingBackend(tx, project.owner, "social"));
     await linkBot();
     await h.makeAssignment({ delivery: "postiz_draft" });
     const { slots } = await reviewed();

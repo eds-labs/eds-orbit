@@ -7,7 +7,7 @@ import { publishIntent } from "../src/modules/marketing/pipeline/workflow.ts";
 import { bookPostizDraft } from "../src/modules/marketing/agents/draft-delivery.ts";
 import { submitOriginPost } from "../src/modules/social/contract.ts";
 import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
-import { readMarketingSettings, saveMarketingSettings } from "../src/modules/marketing/publishing/backend.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
@@ -71,10 +71,7 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     await closeDatabase();
   });
 
-  const backend = async (value: "postiz" | "postiz_draining" | "social") => {
-    const current = await run((tx) => readMarketingSettings(tx, project.owner));
-    await run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: value }, current.version));
-  };
+  const backend = (value: "postiz" | "postiz_draining" | "social") => run((tx) => forcePublishingBackend(tx, project.owner, value));
 
   it("keeps a Postiz project's package input exactly as before", async () => {
     const pkg = await run((tx) => packageFor(tx, project.owner, contentId));

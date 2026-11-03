@@ -129,10 +129,7 @@ import {
 import { preflight } from "../src/modules/policy.ts";
 import { dispatchPublication, reconcilePublication } from "../src/modules/publisher.ts";
 import { pauseProject } from "../src/modules/pause.ts";
-import {
-  readMarketingSettings,
-  saveMarketingSettings,
-} from "../src/modules/marketing/publishing/backend.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   claimPublication,
@@ -1032,8 +1029,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         });
         return account.id;
       });
-      const settings = await h.run((tx) => readMarketingSettings(tx, project.owner));
-      await h.run((tx) => saveMarketingSettings(tx, project.owner, { publishingBackend: "social" }, settings.version));
+      await h.run((tx) => forcePublishingBackend(tx, project.owner, "social"));
       await h.connectTelegram();
       await h.makeAssignment();
       const { review } = await drafted();

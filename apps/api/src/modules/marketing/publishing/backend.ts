@@ -42,6 +42,12 @@ export async function saveMarketingSettings(tx: DbTx, scope: Scope, raw: unknown
   const before = await publishingBackend(tx, scope);
   if (next.publishingBackend === "social" && !(await socialPublishingAvailable(tx, scope)))
     throw new DomainError("SOCIAL_DISABLED", 409);
+  // The move needs every channel mapped and Postiz settled (S10, §9.6).
+  if (next.publishingBackend === "social" && before !== "social") {
+    const { switchBlockers } = await import("./social-migration.ts");
+    const reasons = await switchBlockers(tx, scope);
+    if (reasons.length) throw new DomainError("PUBLISHING_BACKEND_NOT_READY", 409);
+  }
   const saved = await writeModuleSettings(tx, scope, "marketing", marketingSettingsSchema, next, version);
   if (before !== next.publishingBackend)
     await audit(tx, scope, "marketing.publishing_backend_changed", scope.projectId, { from: before, to: next.publishingBackend });
