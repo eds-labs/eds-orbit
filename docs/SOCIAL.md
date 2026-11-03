@@ -158,6 +158,18 @@ Technical figures of published posts, not marketing analysis. Plan: [superpowers
 | `GET /api/projects/:projectId/social/posts/:postId/metrics` | `social.analytics.read` |
 | `GET /api/projects/:projectId/social/analytics?days` (1–30) | `social.analytics.read` |
 
+## Marketing on Social (S9)
+
+A project can let Marketing publish through Social instead of Postiz. Plan: [superpowers/plans/2026-11-03-social-s9-marketing.md](superpowers/plans/2026-11-03-social-s9-marketing.md).
+
+- **Switch:** Marketing's project setting `publishingBackend` (`postiz` by default; `GET/PUT /api/projects/:projectId/marketing/settings` with `{settings: {publishingBackend}, version}`, owner only, versioned, audited `marketing.publishing_backend_changed`). `social` needs `ORBIT_SOCIAL` and the social module on for the project (`SOCIAL_DISABLED`, 409).
+- **Channels:** Marketing keeps its channel references; Social resolves them to an account by `SocialAccount.legacyPostizIntegrationId` (or `social:<accountId>`). An unmapped channel blocks with `SOCIAL_CHANNEL_NOT_MAPPED`. Setting the mapping is part of the Postiz migration (S10).
+- **What stays Marketing's:** missions, reviews, owner and agent approvals, the package hash, the veto window, Telegram Stop and the full preflight at the slot. The package of a project on Social binds `publishingBackend`, the Social account and its version instead of the Postiz connector fields, so switching the backend makes every pending post fail its package check (`PACKAGE_CHANGED`) instead of going out by the other path. A Postiz project's package input is unchanged (pinned by a test).
+- **Live posts:** at the slot Marketing claims the publication and runs its final preflight (Social's blockers instead of the Postiz write checks: module, mapping, account active and write-verified, platform switched on, text rules; also Social's published texts for duplicates), then, in one transaction, creates an origin-authorized Social post (origin `marketing`, `originType: "publication"`, the Marketing package hash recorded in the audit `social.post.approved` with channel `origin_authorized`) and records it on the publication (`scheduled_remote`, `remoteId` = Social post id, `publishingBackend: "social"`). Social sends it at once with its own gates; Marketing's reconciliation reads its status (`published` with the link, `failed`, `outcome_unknown`, `canceled`). A failure before that commit is a plain failure, never an unknown outcome. The same publication never makes a second Social post.
+- **Assignment drafts** (`delivery: "postiz_draft"`): the draft becomes a Social draft timed at the slot (origin `marketing`, `originType: "draft_handoff"`), with the run image, under the same human-approval and image rules; a person schedules and approves it in Social. The owner's notice says "Entwurf in Social angelegt".
+- **Contract** (`modules/social/contract.ts`, the only Social file Marketing may import; `scripts/boundaries.json`): `socialPublishingAvailable`, `accountForChannel`, `publishingBlockers`, `importOriginMedia`, `submitOriginPost`, `originPostStatus`, `recentPublishedTexts`, `postMetrics`.
+- **Not yet:** projects without Postiz channels (`social:<accountId>` references in policies and assignments), the analytics specialist tool and the channel history sync (still Postiz), Marketing's channel metadata (posting times, names) still read from the stored Postiz connector entity.
+
 ## Assistant and MCP tools (S7)
 
 Orbit Chat (feature `social`, while the module is on for the project) and outside MCP clients (explicit, initially unchecked scope `orbit:social`) get the same tools. Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).

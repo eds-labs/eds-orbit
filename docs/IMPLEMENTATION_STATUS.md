@@ -1,5 +1,13 @@
 # Implementation status
 
+## Social module phase S9 (2026-11-03, branch `claude/social-s9` on top of `claude/social-s8`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s9-marketing.md](superpowers/plans/2026-11-03-social-s9-marketing.md).
+
+- **Built (S9):** Social's contract for Marketing; Marketing's `publishingBackend` setting (owner, default `postiz`); on Social: package binding of the Social account, Social blockers and duplicates in preflight, handoff at the slot as an origin-authorized Social post, reconciliation from Social, assignment drafts as Social drafts. Postiz projects unchanged (package input pinned; Marketing suites green).
+- **Not built:** channels for projects without Postiz (`social:<accountId>` in policies and assignments), the analytics tool and history sync on Social, a web control for the switch (S10 brings the migration screens).
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
 ## Social module phase S8 (2026-11-03, branch `claude/social-s8` on top of `claude/social-s7`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-s8-analytics.md](superpowers/plans/2026-11-03-social-s8-analytics.md).
