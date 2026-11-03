@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RoutesContribution } from "../../../platform/http/routes.ts";
 import { inSocial, SOCIAL_BASE } from "../http-scope.ts";
+import { calendarItems } from "../calendar/calendar.ts";
 import { resolvePublication } from "../dispatch/control.ts";
 import { SOCIAL_APPROVE, SOCIAL_COMPOSE, SOCIAL_PUBLISH, SOCIAL_READ } from "../permissions.ts";
 import { publishNow, reschedulePost, schedulePost } from "./approval.ts";
@@ -16,6 +17,8 @@ const versionBody = z.object({ version: z.int().min(1) }).strict();
 export const socialPostRoutes: RoutesContribution = ({ app, auth }) => {
   const post = (req: { params: unknown }) => postParam.parse(req.params).postId;
   app.get(`${SOCIAL_BASE}/posts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listPosts(tx, scope, req.query)));
+  // The timed posts of a range of at most 62 days (S6).
+  app.get(`${SOCIAL_BASE}/calendar`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => calendarItems(tx, scope, req.query)));
   app.post(`${SOCIAL_BASE}/posts`, async (req, reply) => {
     const created = await inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) => createPost(tx, scope, req.body));
     return reply.code(201).send(created);

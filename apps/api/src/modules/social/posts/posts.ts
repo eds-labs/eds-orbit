@@ -120,8 +120,42 @@ const listQuery = z
     to: z.iso.datetime({ offset: true }).optional(),
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(50),
+    accountIds: z.string().max(2000).optional(),
+    platforms: z.string().max(200).optional(),
+    origins: z.string().max(200).optional(),
   })
   .passthrough();
+
+const csv = (value: string | undefined) => (value ? value.split(",").map((v) => v.trim()).filter(Boolean) : []);
+const ORIGINS = ["manual", "marketing", "mcp", "assistant", "legacy_postiz"];
+
+/**
+ * The post filters the list and the calendar share (S6): posts with a
+ * variant for one of the accounts or platforms, and of one of the origins.
+ * Returns Prisma conditions for SocialPost; unknown values are ignored.
+ */
+export async function postFilters(tx: DbTx, scope: Scope, q: { accountIds?: string; platforms?: string; origins?: string }) {
+  const accountIds = csv(q.accountIds).filter((id) => UUID.test(id));
+  const platforms = csv(q.platforms).filter((p) => ["x", "facebook", "instagram", "telegram"].includes(p));
+  const origins = csv(q.origins).filter((o) => ORIGINS.includes(o));
+  const where: Prisma.SocialPostWhereInput = {};
+  if (origins.length) where.origin = { in: origins };
+  if (accountIds.length || platforms.length) {
+    const byPlatform = platforms.length
+      ? (await tx.socialAccount.findMany({ where: { projectId: scope.projectId, platform: { in: platforms } }, select: { id: true } })).map((a) => a.id)
+      : [];
+    const wanted = [...new Set([...accountIds, ...byPlatform])];
+    // Both filters given: an account must match both.
+    const accounts =
+      accountIds.length && platforms.length ? accountIds.filter((id) => byPlatform.includes(id)) : wanted;
+    const variants = await tx.socialPostVariant.findMany({
+      where: { projectId: scope.projectId, accountId: { in: accounts } },
+      select: { postId: true },
+    });
+    where.id = { in: [...new Set(variants.map((v) => v.postId))] };
+  }
+  return where;
+}
 
 /** The post, locked for this transaction, or 404. */
 export async function lockPost(tx: DbTx, scope: Scope, id: string): Promise<SocialPostRow> {
@@ -160,7 +194,7 @@ function requestState(row: { data: unknown } | null): ApprovalState {
   return "none";
 }
 
-async function approvalStates(tx: DbTx, scope: Scope, posts: SocialPostRow[]) {
+export async function approvalStates(tx: DbTx, scope: Scope, posts: SocialPostRow[]) {
   const ids = posts.map((p) => p.approvalRequestId).filter((id): id is string => Boolean(id));
   const rows = ids.length
     ? await tx.entity.findMany({ where: { projectId: scope.projectId, kind: "action_requests", id: { in: ids } } })
@@ -274,6 +308,7 @@ export async function listPosts(
       projectId: scope.projectId,
       status: statuses ? { in: statuses } : { not: "archived" },
       ...(from && to ? { scheduledAt: { gte: from, lt: to } } : {}),
+      ...(await postFilters(tx, scope, q)),
       ...(after
         ? { OR: [{ updatedAt: { lt: after.at } }, { updatedAt: after.at, id: { lt: after.id } }] }
         : {}),

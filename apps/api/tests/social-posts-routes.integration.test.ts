@@ -184,6 +184,15 @@ describe.skipIf(!enabled)("social post routes", () => {
     ]);
   });
 
+  it("lets a viewer read the calendar and hides it from another project's members (S6)", async () => {
+    const range = "from=2026-12-01T00:00:00Z&to=2027-01-01T00:00:00Z";
+    const read = await call("viewer", "GET", `/calendar?${range}`);
+    expect([read.statusCode, Array.isArray(read.json().items)]).toEqual([200, true]);
+    expect((await call("editor", "GET", `/calendar?${range}`, undefined, otherProjectId)).statusCode).toBe(404);
+    const tooLong = await call("viewer", "GET", "/calendar?from=2026-12-01T00:00:00Z&to=2027-03-01T00:00:00Z");
+    expect([tooLong.statusCode, tooLong.json().error?.code]).toEqual([422, "SOCIAL_RANGE_TOO_LARGE"]);
+  });
+
   it("hides the project from members of another project and unknown posts", async () => {
     expect((await call("editor", "GET", "/posts", undefined, otherProjectId)).statusCode).toBe(404);
     expect((await call("viewer", "GET", `/posts/${randomUUID()}`)).statusCode).toBe(404);
