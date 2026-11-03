@@ -136,6 +136,30 @@ export type PostListItem = {
 };
 export type PostList = { items: PostListItem[]; nextCursor: string | null };
 
+/** GET /projects/:projectId/social/calendar (S6): a post timed in the range. */
+export type CalendarItem = {
+  id: string;
+  projectId: string;
+  /** Only in the organization calendar. */
+  projectName?: string;
+  title: string | null;
+  excerpt: string;
+  status: PostStatus;
+  origin: string;
+  readOnly: boolean;
+  schedule: PostSchedule;
+  approvalState: ApprovalState;
+  version: number;
+  accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
+  publications: { total: number; published: number; failed: number; unknown: number; test: boolean };
+};
+export type CalendarResponse = {
+  items: CalendarItem[];
+  truncated: boolean;
+  /** Only in the organization calendar: the projects it read. */
+  projects?: Array<{ id: string; name: string }>;
+};
+
 /** POST /posts and PATCH /posts/:postId (with `version`): null = inherit the base. */
 export type PostInput = {
   title: string | null;
