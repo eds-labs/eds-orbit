@@ -25,14 +25,14 @@ const item = (over: Partial<CalendarItem> = {}): CalendarItem =>
 describe("moveCheck", () => {
   it("lets drafts move freely and asks for a new approval otherwise", () => {
     expect(moveCheck(item(), "editor", "project")).toEqual({ kind: "free" });
-    for (const status of ["needs_approval", "scheduled", "approved"]) {
+    for (const status of ["needs_approval", "scheduled", "approved"] as const) {
       expect(moveCheck(item({ status }), "owner", "project")).toEqual({ kind: "reapprove" });
       expect(moveCheck(item({ status }), "editor", "project")).toEqual({ kind: "request" });
     }
   });
 
   it("never moves what is being sent, finished, read-only, another project's or a viewer's", () => {
-    for (const status of ["publishing", "published", "partially_published", "failed", "canceled", "archived"])
+    for (const status of ["publishing", "published", "partially_published", "failed", "canceled", "archived"] as const)
       expect(moveCheck(item({ status }), "owner", "project").kind).toBe("forbidden");
     expect(moveCheck(item({ readOnly: true, origin: "legacy_postiz" }), "owner", "project").kind).toBe("forbidden");
     expect(moveCheck(item(), "owner", "organization").kind).toBe("forbidden");
