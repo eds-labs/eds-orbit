@@ -7,13 +7,12 @@ import type { ValidationContext } from "../posts/validation.ts";
 // When the social module really posts (ADR 0020 §6.1, S5). Live mode needs
 // EXECUTION_MODE=live and ENABLE_EXTERNAL_WRITES=true; otherwise every
 // publication is a test publication without a provider call. A live send
-// also needs the platform in ORBIT_SOCIAL_PLATFORMS and an adapter for it
-// (Facebook has none yet).
+// also needs the platform in ORBIT_SOCIAL_PLATFORMS and an adapter for it.
 
 export type SendMode = "live" | "test";
 
 /** The platforms Orbit can send to. */
-export const SENDABLE_PLATFORMS: readonly SocialPlatform[] = ["x", "instagram", "telegram"];
+export const SENDABLE_PLATFORMS: readonly SocialPlatform[] = ["x", "facebook", "instagram", "telegram"];
 
 export const sendMode = (): SendMode => (liveSending() ? "live" : "test");
 

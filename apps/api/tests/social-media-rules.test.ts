@@ -34,9 +34,14 @@ describe("social media rules", () => {
     expect(mediaIssues(facts({ size: 6 * MiB, jpegSize: 5 * MiB + 1 }), "x")).toEqual(["SOCIAL_MEDIA_TOO_LARGE"]);
   });
 
-  it("gives Facebook and Telegram the original up to 10 MB", () => {
-    expect(renditionFor(facts({ size: 9_000_000 }), "facebook")).toBe("original");
-    expect(renditionFor(facts({ size: 11_000_000 }), "facebook")).toBe("jpeg");
+  it("gives Facebook the original up to 4 MB (Page photo limit), else the JPEG rendition", () => {
+    expect(renditionFor(facts({ size: 3_900_000 }), "facebook")).toBe("original");
+    expect(renditionFor(facts({ size: 4_100_000 }), "facebook")).toBe("jpeg");
+    expect(mediaIssues(facts({ size: 6_000_000, jpegSize: 3_000_000 }), "facebook")).toEqual([]);
+    expect(mediaIssues(facts({ size: 6_000_000, jpegSize: 4_200_000 }), "facebook")).toEqual(["SOCIAL_MEDIA_TOO_LARGE"]);
+  });
+
+  it("gives Telegram the original up to 10 MB", () => {
     expect(renditionFor(facts({ size: 10 * MiB }), "telegram")).toBe("original");
     expect(renditionFor(facts({ size: 10 * MiB + 1 }), "telegram")).toBe("jpeg");
   });

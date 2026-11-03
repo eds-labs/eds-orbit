@@ -4,8 +4,8 @@ import type { SocialPlatform } from "../accounts/store.ts";
 // platform would refuse (ADR 0020, S3). Values from the platforms' own
 // limits (docs/SOCIAL.md, "Platform constraints") and the SDK 0.5.0 checks:
 // Instagram takes JPEG only (4:5 to 1.91:1, ≥ 320 px wide, ≤ 8 MB, carousel
-// of equal ratios); X takes JPEG or PNG ≤ 5 MiB, up to four; Facebook and
-// Telegram take the original up to 10 MB.
+// of equal ratios); X takes JPEG or PNG ≤ 5 MiB, up to four; Facebook Page
+// photos must be ≤ 4 MB (S5b); Telegram takes the original up to 10 MB.
 
 export type MediaFacts = {
   mime: string;
@@ -19,6 +19,7 @@ export type MediaFacts = {
 export type Rendition = "original" | "jpeg";
 
 const MiB = 1024 * 1024;
+const FACEBOOK_MAX_BYTES = 4_000_000;
 const EPSILON = 0.001;
 const MAX_ITEMS: Record<SocialPlatform, number> = { instagram: 10, x: 4, facebook: 10, telegram: 10 };
 
@@ -31,7 +32,7 @@ export function renditionFor(media: MediaFacts, platform: SocialPlatform): Rendi
     case "x":
       return media.size <= 5 * MiB ? "original" : "jpeg";
     case "facebook":
-      return media.size <= 10_000_000 ? "original" : "jpeg";
+      return media.size <= FACEBOOK_MAX_BYTES ? "original" : "jpeg";
     case "telegram":
       return media.size <= 10 * MiB ? "original" : "jpeg";
   }
@@ -51,7 +52,7 @@ export function mediaIssues(media: MediaFacts, platform: SocialPlatform): string
     if (media.width + media.height > 10_000) issues.push("SOCIAL_MEDIA_DIMENSIONS");
     if (Math.max(media.width / media.height, media.height / media.width) > 20) issues.push("SOCIAL_MEDIA_ASPECT_RATIO");
   } else if (platform === "facebook") {
-    if (renditionFor(media, "facebook") === "jpeg" && media.jpegSize > 10_000_000) issues.push("SOCIAL_MEDIA_TOO_LARGE");
+    if (renditionFor(media, "facebook") === "jpeg" && media.jpegSize > FACEBOOK_MAX_BYTES) issues.push("SOCIAL_MEDIA_TOO_LARGE");
   }
   return issues;
 }
