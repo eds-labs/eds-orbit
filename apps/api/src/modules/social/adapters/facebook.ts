@@ -73,6 +73,10 @@ async function graph(input: SendInput, path: string, init: RequestInit, step: St
     throw new GraphFailure(transportFailure(error, step));
   }
   const body = (await response.json().catch(() => null)) as { error?: GraphError } | null;
+  // An answer that is no Graph error (a proxy page, a timeout, a redirect)
+  // says nothing about the post: unclear on the publishing step.
+  if (!response.ok && !body?.error && ![401, 429].includes(response.status) && response.status < 500)
+    throw new GraphFailure(step === "publish" ? { kind: "unknown", code: "SOCIAL_PROVIDER_UNKNOWN" } : waitAfterOutage());
   if (!response.ok || body?.error) throw new GraphFailure(graphFailure(response.status, body?.error ?? {}, step));
   return (body ?? {}) as Record<string, unknown>;
 }
@@ -92,10 +96,11 @@ export const facebookSender: SocialSender = {
     let step: Step = "upload";
     try {
       const photos: string[] = [];
-      for (const m of input.media) {
+      for (const [index, m] of input.media.entries()) {
         if (late()) return waitAfterOutage();
         const form = new FormData();
-        form.set("source", new Blob([new Uint8Array(m.bytes)], { type: m.mime }), `${m.fileId}.${m.mime === "image/png" ? "png" : "jpg"}`);
+        // A neutral name: Orbit's file ids stay in Orbit.
+        form.set("source", new Blob([new Uint8Array(m.bytes)], { type: m.mime }), `image-${index + 1}.${m.mime === "image/png" ? "png" : "jpg"}`);
         form.set("published", "false");
         const uploaded = await graph(input, `/${page}/photos`, { method: "POST", body: form, signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS) }, "upload");
         if (typeof uploaded.id !== "string" || !uploaded.id) return waitAfterOutage();

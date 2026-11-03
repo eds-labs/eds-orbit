@@ -29,6 +29,12 @@ describe("social post figures", () => {
     expect(html).toContain("not read yet");
   });
 
+  it("says when X figures are off and when the figures were read", () => {
+    const xOff: PostMetricsPublication = { publicationId: "p4", accountId: "a4", platform: "x", available: false, reason: "paid_reads_off", observedAt: null, metrics: {} };
+    expect(renderToStaticMarkup(<MetricsList publications={[xOff]} locale="en" />)).toContain("X: figures off (X bills every read; the owner can switch them on)");
+    expect(renderToStaticMarkup(<MetricsList publications={[fb]} locale="en" />)).toContain("as of");
+  });
+
   it("speaks German", () => {
     const html = renderToStaticMarkup(<MetricsList publications={[fb, tg]} locale="de" />);
     expect(html).toContain("12 Reaktionen");

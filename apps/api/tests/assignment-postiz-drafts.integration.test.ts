@@ -417,9 +417,12 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
     expect(posts[0]!.baseText).toContain(BODY);
     const variants = await h.run((tx) => tx.socialPostVariant.findMany({ where: { postId: posts[0]!.id } }));
     expect(variants.map((v) => v.accountId)).toEqual([accountId]);
-    // The owner hears where the draft is.
+    // The owner hears where the draft is, and that only an approval sends it.
     const notice = (await notices("postiz_draft"))[0]!;
-    expect(notice).toBeDefined();
+    const text = await telegramText(String(notice.id));
+    expect(text).toContain("Entwurf in Social angelegt");
+    expect(text).toContain("wenn du ihn in Social freigibst");
+    expect(text).not.toContain("Postiz");
     // Delivering again changes nothing.
     for (const row of sent) await deliver(row.id, client);
     expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, origin: "marketing" } }))).toBe(2);

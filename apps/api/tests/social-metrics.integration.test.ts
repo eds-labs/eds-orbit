@@ -125,6 +125,7 @@ describe.skipIf(!enabled)("social metrics", () => {
             accountId: facebook,
             platform: "facebook",
             available: true,
+            reason: null,
             observedAt: expect.any(String),
             metrics: { comments: 1, reactions: 7, shares: 2 },
           },
@@ -133,7 +134,7 @@ describe.skipIf(!enabled)("social metrics", () => {
       {
         postId: channel.postId,
         publications: [
-          { publicationId: channel.publicationId, accountId: telegram, platform: "telegram", available: false, observedAt: null, metrics: {} },
+          { publicationId: channel.publicationId, accountId: telegram, platform: "telegram", available: false, reason: "not_available", observedAt: null, metrics: {} },
         ],
       },
     ]);
@@ -179,6 +180,9 @@ describe.skipIf(!enabled)("social metrics", () => {
     const tweet = await published(x, "1700");
     await run();
     expect(calls.filter((c) => c.hostname === "api.x.com")).toHaveLength(0);
+    // The view says why there are no figures, not "not read yet".
+    const [off] = await p.run((tx) => postMetrics(tx, p.owner, [tweet.postId]));
+    expect(off!.publications[0]).toMatchObject({ available: false, reason: "paid_reads_off" });
     const current = await p.run((tx) => readSocialSettings(tx, p.owner));
     await p.run((tx) => saveSocialSettings(tx, p.owner, { ...current.settings, xMetrics: true }, current.version));
     // Runs are spaced five minutes apart: start from no earlier read.

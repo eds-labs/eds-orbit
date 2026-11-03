@@ -291,10 +291,13 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     await p.run((tx) => tx.socialPost.update({ where: { id: post.id }, data: { version: { increment: 1 } } }));
     await expect(decide(owner(), proposal.actionRequestId)).rejects.toThrow("SOCIAL_VERSION_CONFLICT");
     expect((await p.run((tx) => getPost(tx, owner(), post.id))).baseText).toBe("Old");
+    await p.run((tx) => tx.socialPost.update({ where: { id: post.id }, data: { title: "Kept title" } }));
     const fresh = await p.run((tx) => getPost(tx, owner(), post.id));
     const ok = await op("social_draft_update", { ...change, version: fresh.version, idempotencyKey: "update-2" });
     await decide(owner(), ok.actionRequestId);
-    expect((await p.run((tx) => getPost(tx, owner(), post.id))).baseText).toBe("New");
+    const after = await p.run((tx) => getPost(tx, owner(), post.id));
+    // Without a title the update keeps the one the post has.
+    expect([after.baseText, after.title]).toEqual(["New", "Kept title"]);
   });
 
   it("warns on the approval that a content change ends a planned post's approval", async () => {

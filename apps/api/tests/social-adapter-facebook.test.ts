@@ -172,6 +172,23 @@ describe("Facebook sender", () => {
     expect(await facebook.send(scope, input({ media: [image(1)] }))).toEqual({ kind: "failed", code: "SOCIAL_PROVIDER_REJECTED", retry: "never" });
   });
 
+  it("calls a /feed answer that is no Graph error unclear, and waits after such an upload answer", async () => {
+    for (const status of [404, 408, 302]) {
+      fakeGraph(() => new Response("<html>gateway</html>", { status, headers: { "content-type": "text/html" } }));
+      expect(await facebook.send(scope, input()), String(status)).toEqual({ kind: "unknown", code: "SOCIAL_PROVIDER_UNKNOWN" });
+    }
+    fakeGraph(() => new Response("<html>gateway</html>", { status: 404, headers: { "content-type": "text/html" } }));
+    expect(await facebook.send(scope, input({ media: [image(1)] }))).toMatchObject({ kind: "failed", retry: "after-delay" });
+  });
+
+  it("names uploaded images without Orbit's file ids", async () => {
+    let photo = 0;
+    const calls = fakeGraph((call) => (call.url.pathname.endsWith("/photos") ? json(200, { id: `ph${++photo}` }) : json(200, { id: "900_9" })));
+    await facebook.send(scope, input({ media: [image(1), image(2)] }));
+    const names = calls.filter((c) => c.url.pathname.endsWith("/photos")).map((c) => ((c.body as FormData).get("source") as File).name);
+    expect(names).toEqual(["image-1.jpg", "image-2.jpg"]);
+  });
+
   it("refuses an invalid post for good", async () => {
     fakeGraph(() => graphError(400, 100));
     expect(await facebook.send(scope, input())).toEqual({ kind: "failed", code: "SOCIAL_PROVIDER_REJECTED", retry: "never" });

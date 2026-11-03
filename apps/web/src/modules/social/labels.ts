@@ -325,6 +325,7 @@ const en = {
     published: "Published",
     post: "Post",
     notAvailable: (platform: string) => `${platform}: figures not available`,
+    paidOff: (platform: string) => `${platform}: figures off (X bills every read; the owner can switch them on)`,
     notRead: "not read yet",
     asOf: (when: string) => `as of ${when}`,
     metric: {
@@ -664,6 +665,7 @@ const de: SocialText = {
     published: "Veröffentlicht",
     post: "Beitrag",
     notAvailable: (platform: string) => `${platform}: keine Kennzahlen verfügbar`,
+    paidOff: (platform: string) => `${platform}: Kennzahlen aus (X berechnet jeden Abruf; der Owner kann sie einschalten)`,
     notRead: "noch nicht gelesen",
     asOf: (when: string) => `Stand ${when}`,
     metric: {

@@ -194,8 +194,9 @@ export type PostMetrics = {
     publicationId: string;
     accountId: string;
     platform: SocialPlatform;
-    /** False where the platform offers no figures (Telegram). */
+    /** False where the platform offers no figures (Telegram) or X's paid reads are off. */
     available: boolean;
+    reason: "not_available" | "paid_reads_off" | null;
     observedAt: string | null;
     metrics: Record<string, number>;
   }>;
@@ -218,6 +219,7 @@ export async function postMetrics(tx: DbTx, scope: Scope, postIds: string[]): Pr
     select: { id: true, platform: true },
   });
   const platformOf = new Map(accounts.map((a) => [a.id, a.platform as SocialPlatform]));
+  const { settings } = await readSocialSettings(tx, scope);
   // Only the latest successful read of each publication, not its history.
   const reads = await tx.socialMetricSnapshot.groupBy({
     by: ["publicationId"],
@@ -249,11 +251,15 @@ export async function postMetrics(tx: DbTx, scope: Scope, postIds: string[]): Pr
         .map((p) => {
           const platform = platformOf.get(p.accountId)!;
           const found = latest.get(p.id);
+          // Figures read while X's paid reads were on stay visible.
+          const reason =
+            platform === "telegram" ? "not_available" : platform === "x" && !settings.xMetrics && !found ? "paid_reads_off" : null;
           return {
             publicationId: p.id,
             accountId: p.accountId,
             platform,
-            available: platform !== "telegram",
+            available: reason === null,
+            reason,
             observedAt: found?.observedAt.toISOString() ?? null,
             metrics: found?.metrics ?? {},
           };

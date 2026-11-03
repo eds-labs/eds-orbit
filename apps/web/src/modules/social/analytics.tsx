@@ -24,13 +24,16 @@ export function MetricsList({ publications, locale }: { publications: PostMetric
         if (!p.available)
           return (
             <li key={p.publicationId} className="field-hint">
-              {t.notAvailable(platform)}
+              {p.reason === "paid_reads_off" ? t.paidOff(platform) : t.notAvailable(platform)}
             </li>
           );
         const figures = Object.entries(p.metrics).map(([name, value]) => (t.metric as Record<string, (n: number) => string>)[name]?.(value) ?? `${value} ${name}`);
         return (
           <li key={p.publicationId}>
             <strong>{platform}</strong>: {figures.length ? figures.join(" · ") : <span className="field-hint">{t.notRead}</span>}
+            {p.observedAt && figures.length > 0 && (
+              <span className="field-hint"> ({t.asOf(new Date(p.observedAt).toLocaleString(locale === "de" ? "de-DE" : "en-GB", { dateStyle: "short", timeStyle: "short" }))})</span>
+            )}
           </li>
         );
       })}

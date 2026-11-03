@@ -203,6 +203,7 @@ export type PostMetricsPublication = {
   accountId: string;
   platform: SocialPlatform;
   available: boolean;
+  reason?: "not_available" | "paid_reads_off" | null;
   observedAt: string | null;
   metrics: Record<string, number>;
 };

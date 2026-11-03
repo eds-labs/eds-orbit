@@ -335,7 +335,9 @@ export const socialDraftUpdate = approvedOperation({
   },
   async run(tx, scope, args) {
     const { postId, ...content } = args as z.infer<typeof updateInput>;
-    const post = await updatePost(tx, scope, postId, content);
+    // Without a title the update keeps the post's own (it is a full content replace otherwise).
+    const title = content.title ?? (await postFor(tx, scope, postId)).title ?? undefined;
+    const post = await updatePost(tx, scope, postId, { ...content, ...(title ? { title } : {}) });
     return { postId: post.id, version: post.version };
   },
 });

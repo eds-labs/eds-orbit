@@ -1,3 +1,4 @@
+import { publishingBackend } from "../publishing/backend.ts";
 import { runOperation } from "./run-operation.ts";
 import { runDeliverables } from "./veto.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -242,7 +243,7 @@ async function needsOwner(
         (c.delivery ??
           confirmedDelivery(assignment) ??
           deliveryOf(assignment)) === "postiz_draft"
-          ? "Orbit hat ihn geprüft. Er geht erst als Entwurf an Postiz, wenn du ihn in Orbit freigibst."
+          ? `Orbit hat ihn geprüft. Er geht erst als Entwurf an ${(await publishingBackend(tx, scope)) === "social" ? "Social" : "Postiz"}, wenn du ihn in Orbit freigibst.`
           : "Orbit hat ihn geprüft. Er geht erst raus, wenn du ihn in Orbit freigibst.",
       ].join("\n"),
       [openButton()],
@@ -602,12 +603,14 @@ async function postizDraftUnknown(
   const h = data(row);
   // Resolved meanwhile, or never unclear: nothing to check.
   if (!row || h.status !== "outcome_unknown") return { skip: "STALE" };
+  // A project on Social (S9) has its drafts in Social.
+  const where = (await publishingBackend(tx, scope)) === "social" ? "Social" : "Postiz";
   return plain(
     [
-      "Postiz-Fehler beim Entwurf",
+      `${where}-Fehler beim Entwurf`,
       `Kanal: ${await channelName(tx, scope, h.integrationId)}`,
       `Zeit: ${when(h.slotAt ?? h.remoteDate, timezone)}`,
-      "Ergebnis unklar. Bitte in Postiz prüfen, ob der Entwurf existiert, und das in Orbit festhalten. Orbit sendet ihn nicht erneut.",
+      `Ergebnis unklar. Bitte in ${where} prüfen, ob der Entwurf existiert, und das in Orbit festhalten. Orbit sendet ihn nicht erneut.`,
     ].join("\n"),
     [openButton()],
   );
@@ -637,7 +640,7 @@ async function postizDraft(
   const header = [
     `Entwurf in ${where} angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
     where === "Social"
-      ? "Orbit veröffentlicht ihn erst, wenn du ihn in Social einplanst und freigibst."
+      ? "Orbit veröffentlicht ihn erst, wenn du ihn in Social freigibst."
       : "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
     // The image failed before any post request; the draft went without it (M10).
     ...(h.imageError
