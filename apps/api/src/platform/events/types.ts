@@ -31,6 +31,12 @@ export type EventSubscription = {
   /** Unique name, "<module>.<purpose>", also the origin of its writes. */
   name: string;
   types: readonly string[];
+  /**
+   * Also subscribe to every triggerable event type any module declares
+   * (ADR 0021): the agent trigger subscriber. Without declared triggers and
+   * without `types` the subscription is left out.
+   */
+  triggerableEvents?: true;
   handler(tx: DbTx, scope: Scope, event: DomainEventView): Promise<void>;
 };
 
@@ -39,4 +45,20 @@ export type EventsContribution = {
   /** Exact event types, each prefixed with the publishing module's id. */
   publishes?: readonly string[];
   subscribes?: readonly EventSubscription[];
+  /**
+   * Published events a configured agent may be triggered by (ADR 0021,
+   * plan §2.7), keyed by type; each must also be in `publishes`.
+   */
+  triggers?: Readonly<Record<string, TriggerableEventDeclaration>>;
+};
+
+/** How an agent trigger may use one event type. */
+export type TriggerableEventDeclaration = {
+  title: { en: string; de: string };
+  /** The subject type the event's `subject` names (one open work order per agent and subject). */
+  subject: string;
+  /** The trigger filter an agent may set, checked against the event's content-free data. */
+  filter: import("zod").ZodType;
+  /** The subject carries personal data (shown as a badge). */
+  sensitive?: boolean;
 };

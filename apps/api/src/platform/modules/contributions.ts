@@ -23,6 +23,7 @@ import type {
   RetentionContribution,
 } from "../governance/types.ts";
 import type { ActionHandler } from "../http/actions.ts";
+import type { AgentTemplate } from "../agents/definitions/templates.ts";
 import type { RoutesContribution } from "../http/routes.ts";
 import type {
   AssistantContribution,
@@ -50,7 +51,11 @@ import type {
 } from "../configuration/types.ts";
 import type { LinkTypeDef } from "../links/types.ts";
 import type { HandoffTarget } from "../handoffs/types.ts";
-import type { EventSubscription, EventsContribution } from "../events/types.ts";
+import type {
+  EventSubscription,
+  EventsContribution,
+  TriggerableEventDeclaration,
+} from "../events/types.ts";
 import { EVENT_TYPE } from "../../../../../packages/module-contracts/src/index.ts";
 
 /**
@@ -81,6 +86,8 @@ export type ModuleContributions = {
   actions?: Readonly<Record<string, ActionHandler>>;
   /** HTTP routes at their existing absolute paths (WP2.1f). */
   routes?: RoutesContribution;
+  /** Starting points for configured agents (ADR 0021), with guard rules users cannot remove. */
+  agentTemplates?: readonly AgentTemplate[];
   /** The project's go-live readiness; at most one module provides it (WP2.1f). */
   readiness?: ReadinessProvider;
   /** Channels the module manages, by id, for display (WP2.1f). */
@@ -577,9 +584,21 @@ export function registerContributions(
         problems.push(`event type ${type} published twice`);
       eventTypes.set(type, owner);
     }
+  // Triggerable events (ADR 0021): each is a published type of its module.
+  const triggerTypes: string[] = [];
+  for (const [owner, c] of ordered)
+    for (const type of Object.keys(c.events?.triggers ?? {})) {
+      if (eventTypes.get(type) !== owner)
+        problems.push(`${owner} declares trigger ${type} it does not publish`);
+      triggerTypes.push(type);
+    }
   const subscriptions: (EventSubscription & { owner: string })[] = [];
   for (const [owner, c] of ordered)
-    for (const sub of c.events?.subscribes ?? []) {
+    for (const declared of c.events?.subscribes ?? []) {
+      const sub = declared.triggerableEvents
+        ? { ...declared, types: [...new Set([...declared.types, ...triggerTypes])] }
+        : declared;
+      if (declared.triggerableEvents && !sub.types.length) continue;
       if (
         !/^[a-z][a-z0-9_]{1,30}(\.[a-z][a-z0-9_]{1,40})+$/.test(sub.name) ||
         !sub.name.startsWith(owner + ".")
@@ -651,6 +670,20 @@ export function registeredAutomationResult(event: string) {
   return current().automationResults.get(event);
 }
 
+/** Triggerable event declarations (ADR 0021) with their module, by type. */
+export function registeredTriggerableEvents(): ReadonlyMap<
+  string,
+  TriggerableEventDeclaration & { module: string }
+> {
+  const out = new Map<string, TriggerableEventDeclaration & { module: string }>();
+  for (const [owner, c] of current().byModule)
+    for (const [type, declaration] of Object.entries(c.events?.triggers ?? {})) {
+      if (!(c.events?.publishes ?? []).includes(type))
+        throw new Error(`${owner} declares trigger ${type} it does not publish`);
+      out.set(type, { ...declaration, module: owner });
+    }
+  return out;
+}
 /** The module that publishes an event type, or undefined when undeclared. */
 export function registeredEventPublisher(type: string) {
   return current().eventTypes.get(type);
@@ -931,6 +964,21 @@ export function registeredChannelDirectories(): ChannelDirectory[] {
   return [...current().byModule.values()]
     .map((c) => c.channelDirectory)
     .filter((d): d is ChannelDirectory => Boolean(d));
+}
+
+/** Agent templates of the enabled owners, platform first; keys are unique. */
+export function registeredAgentTemplates(
+  enabled?: ReadonlySet<string>,
+): Array<AgentTemplate & { module: string }> {
+  const out: Array<AgentTemplate & { module: string }> = [];
+  for (const [owner, c] of current().byModule)
+    if (ownerEnabled(owner, enabled))
+      for (const template of c.agentTemplates ?? []) {
+        if (out.some((t) => t.key === template.key))
+          throw new Error(`agent template ${template.key} registered twice`);
+        out.push({ ...template, module: owner });
+      }
+  return out;
 }
 
 /** Assistant contributions: platform first, then modules in registry order. */

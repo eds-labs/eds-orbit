@@ -15,6 +15,7 @@ import { actorScope } from "../tenancy/member-scope.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
 import { can } from "../tenancy/permissions.ts";
 import { exposedToAgent, type OrbitTool, type ToolRisk } from "./tools/registry.ts";
+import { agentFeatures } from "./features.ts";
 import { agentExecution, agentExecutionRequester } from "./agent-execution.ts";
 
 /** The MCP 2.0 autonomy vocabulary (ADR 0021 §5). */
@@ -122,12 +123,14 @@ export async function authorizeAgentTool(
     !(await memberMay(project, principal.requesterUserId, tool))
   )
     throw forbidden();
-  if (module && module !== "platform") {
-    const enabled = await scoped(project.workspaceId, project.projectId, (tx) =>
-      enabledModules(tx, sponsor),
-    );
-    if (enabled && !enabled.has(module)) throw forbidden();
-  }
+  const enabled = await scoped(project.workspaceId, project.projectId, (tx) =>
+    enabledModules(tx, sponsor),
+  );
+  if (module && module !== "platform" && enabled && !enabled.has(module))
+    throw forbidden();
+  // A feature switched off (its module's or the platform's flag) stops the tool too.
+  if (tool.feature && !agentFeatures(enabled).includes(tool.feature))
+    throw forbidden();
   await options.current?.();
   return sponsor;
 }

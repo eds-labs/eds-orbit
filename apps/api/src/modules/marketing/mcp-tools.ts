@@ -57,6 +57,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "marketing_campaigns",
+    agent: {
+      title: { en: "Campaigns", de: "Kampagnen" },
+      summary: { en: "Lists marketing campaigns and their status.", de: "Listet Marketing-Kampagnen und ihren Status." },
+    },
     description:
       "List native marketing missions/campaigns and their status. Use orbit_create_task for complete researched campaigns and existing project_status for channels/readiness.",
     permission: PROJECT_READ,
@@ -66,6 +70,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "marketing_content",
+    agent: {
+      title: { en: "Content drafts", de: "Inhaltsentwürfe" },
+      summary: { en: "Lists saved content drafts with previews.", de: "Listet gespeicherte Inhaltsentwürfe mit Vorschau." },
+    },
     description:
       "List saved native content drafts and their status, with compact body previews.",
     permission: PROJECT_READ,
@@ -75,6 +83,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "marketing_performance",
+    agent: {
+      title: { en: "Performance", de: "Performance" },
+      summary: { en: "Reads imported performance measurements.", de: "Liest importierte Performance-Messwerte." },
+    },
     description:
       "Read already imported Matomo/Postiz performance measurements; does not run a new external import.",
     permission: PROJECT_READ,

@@ -47,9 +47,29 @@ import { ARCHIVE_QUEUE, archiveInboundEmail } from "../email/archive.ts";
 import { eventJob, eventRetention } from "../events/events.ts";
 import { linkPrune } from "../links/links.ts";
 
+import { agentWorkJob } from "../agents/work-orders/execute.ts";
+import { agentRoutes } from "../agents/routes.ts";
+import {
+  agentTriggerSubscriber,
+  TEST_PING,
+  testPingTrigger,
+} from "../agents/triggers/events.ts";
+import {
+  agentScheduleScheduler,
+  combineSchedulers,
+} from "../agents/triggers/schedule.ts";
+
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
   actions: platformActions,
+  // The agent platform's HTTP routes (ADR 0021), 404 while ORBIT_AGENT_PLATFORM is off.
+  routes: agentRoutes,
+  userNotifications: {
+    agent_work_failed: {
+      label: { en: "Agent run failed", de: "Agenten-Ausführung fehlgeschlagen" },
+      emailDefault: false,
+    },
+  },
   actionTypes: {
     "platform.task.start": taskStart,
     ...configurationActionTypes,
@@ -61,7 +81,8 @@ export const platformContributions: ModuleContributions = {
   // The AI spending authority (ADR 0015) follows them.
   tools: [...configurationTools, ...aiModelTools, ...spendPolicyTools],
   configurationSections: { project: projectSection },
-  scheduler: sourceSyncScheduler,
+  // Knowledge source syncs and agent schedule triggers (ADR 0021).
+  scheduler: combineSchedulers(sourceSyncScheduler, agentScheduleScheduler),
   // The bot's `/pause` confirmation; modules add their own buttons.
   telegram: { callbacks: { pause: pauseCallback } },
   // The bot's webhook through the platform's hooks route as well (WP4.2).
@@ -84,7 +105,18 @@ export const platformContributions: ModuleContributions = {
   // Object links publish their changes (ADR 0016).
   // Handoff targets report progress through one event (ADR 0017).
   events: {
-    publishes: ["platform.link.created", "platform.link.removed", "platform.handoff.status_changed"],
+    publishes: [
+      "platform.link.created",
+      "platform.link.removed",
+      "platform.handoff.status_changed",
+      // Agent work orders (ADR 0021): content-free, ids and codes only.
+      "platform.agent.work_order.finished",
+      "platform.agent.work_order.failed",
+      ...(process.env.NODE_ENV === "test" ? [TEST_PING] : []),
+    ],
+    // Agents may be started by any module's declared triggerable events.
+    subscribes: [agentTriggerSubscriber],
+    ...(process.env.NODE_ENV === "test" ? { triggers: testPingTrigger } : {}),
   },
   // The project's mailbox over SMTP and IMAP (WP4.7), and customer context
   // provider endpoints (ADR 0011).
@@ -100,6 +132,8 @@ export const platformContributions: ModuleContributions = {
     },
   },
   jobs: [
+    // Agent work orders (ADR 0021): the worker runs them on behalf of their sponsor.
+    agentWorkJob,
     {
       queueClass: "chat",
       // Runs with the requesting user's current role, never the worker's.

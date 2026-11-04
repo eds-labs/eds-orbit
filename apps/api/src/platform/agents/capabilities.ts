@@ -8,7 +8,7 @@
  * work orders, quotas) stay with their channel and narrow this set further;
  * nothing here can widen what the member may do in the UI.
  */
-import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { platformFeatures } from "./features.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { AssistantContribution } from "../assistant/types.ts";
 import {
@@ -39,24 +39,7 @@ const EXPOSED: Record<CapabilityChannel, (tool: OrbitTool) => boolean> = {
   agent: exposedToAgent,
 };
 
-/**
- * The tool features the platform switches on by flag, after the modules'
- * own features. Module operations (`mcp_tasks`) are offered only where the
- * caller says so: delegated MCP work orders and MCP clients, never the
- * in-app chat (its ~22 KB of operation schemas left a Claude chat too
- * little room, CHAT_CONTEXT_LIMIT).
- */
-export function platformFeatures(options: { moduleOperations: boolean }): ToolFeature[] {
-  const config = loadConfig();
-  const features: ToolFeature[] = [];
-  if (options.moduleOperations && config.ORBIT_MCP_TASKS === "true")
-    features.push("mcp_tasks");
-  if (config.ORBIT_MCP_PROJECT_CONFIGURATION === "true")
-    features.push("project_configuration");
-  if (config.ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
-    features.push("project_administration");
-  return features;
-}
+export { platformFeatures } from "./features.ts";
 
 /** The features the given module assistants turn on, then the platform's. */
 export function capabilityFeatures(

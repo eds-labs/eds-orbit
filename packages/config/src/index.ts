@@ -108,6 +108,9 @@ const baseConfigSchema = z.object({
   // Agent platform (ADR 0021): builder and manual runs; schedule and event triggers.
   ORBIT_AGENT_PLATFORM: z.enum(["false", "true"]).default("false"),
   ORBIT_AGENT_AUTOMATION: z.enum(["false", "true"]).default("false"),
+  // Parallel agent work orders per worker process, and running per project.
+  AGENT_WORK_CONCURRENCY: unset(z.coerce.number().int().min(1).max(16).default(2)),
+  AGENT_WORK_PROJECT_CONCURRENCY: unset(z.coerce.number().int().min(1).max(20).default(3)),
   // Owners may switch modules per project (WP1.4). Activation is recorded but
   // not yet enforced; every module keeps working while this is "false".
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),

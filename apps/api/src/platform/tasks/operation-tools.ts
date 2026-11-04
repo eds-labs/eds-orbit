@@ -5,6 +5,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import {
   defineTool,
+  type ToolCatalogEntry,
   type ToolContext,
   type ToolFeature,
   type ToolImage,
@@ -42,6 +43,11 @@ type Operation = {
   input: z.ZodObject;
   permission: PermissionDef;
   sensitive?: boolean;
+  /**
+   * Offers the operation to configured agents (ADR 0021) with this builder
+   * catalogue entry. A reviewed decision per operation, like `mandate`.
+   */
+  agent?: ToolCatalogEntry;
   /**
    * Extra explicit MCP content scopes (all required), e.g. a finance scope.
    * `sensitive` keeps meaning `orbit:support`.
@@ -228,7 +234,8 @@ export function readOperation(op: Operation) {
     parameters: modelParameters(op.input),
     risk: "R0_read",
     permission: op.permission,
-    exposure: { assistant: op.assistant ?? true, mcp: true },
+    exposure: { assistant: op.assistant ?? true, mcp: true, ...(op.agent ? { agent: true } : {}) },
+    ...(op.agent ? { catalog: op.agent } : {}),
     outputSchema: op.output ? envelope.extend({ result: op.output }) : envelope,
     deferLoading: true,
     feature: op.feature ?? "mcp_tasks",
@@ -418,7 +425,8 @@ export function approvedOperation(
     feature: op.feature ?? "mcp_tasks",
     mcpProposable: () => (op.proposable ?? mcp2Enabled)(),
     deferLoading: true,
-    exposure: { assistant: op.assistant ?? true, mcp: true },
+    exposure: { assistant: op.assistant ?? true, mcp: true, ...(op.agent ? { agent: true } : {}) },
+    ...(op.agent ? { catalog: op.agent } : {}),
     outputSchema: proposalOutput,
     ...(op.ownerMcpAutoApproval
       ? { openWorld: true as const, mcpDirectEffect: true as const }

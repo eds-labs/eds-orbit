@@ -103,10 +103,34 @@ export const platformActionPermissions = actionPermissions("platform", {
   ],
 });
 
+/**
+ * The agent platform (ADR 0021 §3, D-03): owners and editors see agents and
+ * their executions and start manual runs; only owners create, edit,
+ * activate, pause and disable them. Each agent's module roles apply on top.
+ */
+export const AGENTS_READ = permission(
+  "platform.agents.read",
+  "See agents and their executions",
+  WRITERS,
+);
+export const AGENTS_RUN = permission(
+  "platform.agents.run",
+  "Start and cancel agent executions",
+  WRITERS,
+);
+export const AGENTS_MANAGE = permission(
+  "platform.agents.manage",
+  "Create, edit, activate, pause and disable agents",
+  OWNERS,
+);
+
 /** Everything the platform declares, for the registry's uniqueness check. */
 export const platformPermissions: readonly PermissionDef[] = [
   PROJECT_READ,
   PROJECT_WRITE,
   PROJECT_OWN,
+  AGENTS_READ,
+  AGENTS_RUN,
+  AGENTS_MANAGE,
   ...Object.values(platformActionPermissions),
 ];

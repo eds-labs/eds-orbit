@@ -58,6 +58,11 @@ export const platformDeclaration: PlatformDeclaration = {
       exported: false,
     },
     {
+      kind: "agent_failure_notices",
+      description: "Day markers of sent agent failure notices (one per agent, code and day)",
+      exported: false,
+    },
+    {
       kind: "telegram_connections",
       description: "The owner's notification bot",
       exported: false,
