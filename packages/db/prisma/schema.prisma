@@ -143,6 +143,7 @@ model Project {
   marketingProfile ProjectMarketingProfile?
   chatConversations ChatConversation[]
   agentRuns        AgentRun[]
+  agentWorkOrders  AgentWorkOrder[]
   modules          ProjectModule[]
   invitationGrants InvitationProjectGrant[]
   connections      Connection[]
@@ -997,6 +998,9 @@ model BudgetReservation {
   parentGrantId String?  @db.Uuid
   /// The organization provider counter it was added to (phase C): openai, anthropic or none; null when not counted.
   orgProvider   String?
+  /// The agent definition a reservation was made for (agent platform, plan §2.6); null otherwise.
+  /// Partial covering index BudgetReservation_agent_month_idx lives in the migration only.
+  agentId       String?  @db.Uuid
   project       Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, createdAt])
@@ -1058,6 +1062,69 @@ model AgentSpan {
   run                 AgentRun @relation(fields: [workspaceId, projectId, runId], references: [workspaceId, projectId, id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, runId])
+}
+
+/// One unit of agent work (ADR 0021, agent platform plan §2.4). The step log holds
+/// tool names, risk and outcome codes only, never tool arguments or results.
+/// `parentId`/`rootId` are composite self-references in the same project
+/// (AgentWorkOrder_parent_fkey/_root_fkey, ON DELETE CASCADE), declared in the
+/// migration only, like Work subtasks.
+model AgentWorkOrder {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  /// 'agent' (Phase 1) or 'assistant' (Phase 3).
+  target         String
+  agentId        String?   @db.Uuid
+  agentVersion   Int?
+  configHash     String?
+  /// 'manual', 'schedule', 'event', 'assistant', 'agent' or 'mcp'.
+  origin         String
+  /// Event id, slot ISO time or parent id.
+  originRef      String?
+  subjectType    String?
+  subjectId      String?
+  idempotencyKey String
+  /// {kind, userId, clientId?, grantId?}
+  requestedBy    Json
+  sponsorUserId  String?
+  /// The frozen allowlist snapshot.
+  allow          Json
+  parentId       String?   @db.Uuid
+  rootId         String?   @db.Uuid
+  /// 0 to 2 (ADR 0021).
+  depth          Int       @default(0)
+  /// Bounded, redacted input text (at most 2,000 characters).
+  goal           String
+  input          Json      @default("{}")
+  /// queued, awaiting_start, running, waiting_approval, succeeded, failed, blocked, canceled or outcome_unknown.
+  status         String
+  errorCode      String?
+  ceilingMicros  BigInt
+  spentMicros    BigInt    @default(0)
+  costUnknown    Boolean   @default(false)
+  /// The ActionRequest when a start needs confirmation.
+  startRequestId String?   @db.Uuid
+  jobId          String?   @db.Uuid
+  /// Only for target 'assistant'.
+  conversationId String?   @db.Uuid
+  /// {outcome, summary, cards[], actionRequestIds[], handoffIds[]}, capped at 16 KB.
+  result         Json?
+  /// [{i, tool, risk, outcome, code?, refs?}], capped at 64 entries.
+  steps          Json      @default("[]")
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  startedAt      DateTime? @db.Timestamptz(3)
+  finishedAt     DateTime? @db.Timestamptz(3)
+  expiresAt      DateTime? @db.Timestamptz(3)
+  project        Project   @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@unique([workspaceId, projectId, id])
+  @@unique([projectId, idempotencyKey])
+  @@index([projectId, agentId, createdAt])
+  @@index([projectId, status, createdAt])
+  @@index([projectId, subjectType, subjectId])
+  @@index([projectId, rootId])
+  @@index([projectId, parentId])
 }
 
 model AuditEvent {

@@ -24,6 +24,10 @@ export const platformDeclaration: PlatformDeclaration = {
       description: "Owner-granted, bounded agent mandates for internal actions (ADR 0019)",
     },
     {
+      kind: "agent_definitions",
+      description: "Project agents: draft and active configuration, activation (ADR 0021)",
+    },
+    {
       kind: "openai_configuration",
       description: "Per-project AI provider keys and routes",
     },
@@ -136,6 +140,8 @@ export const platformDeclaration: PlatformDeclaration = {
     "AuditEvent",
     "AgentRun",
     "AgentSpan",
+    // Agent work orders (ADR 0021).
+    "AgentWorkOrder",
     "ChatConversation",
     "ChatMessage",
     "ChatRun",

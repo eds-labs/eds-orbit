@@ -33,6 +33,9 @@ export async function reserve(
     taskClass?: string;
     model?: string;
     missionId?: string | null;
+    // The agent definition the reservation is made for (ADR 0021, plan
+    // §2.6); attribution only, no limit is derived from it here.
+    agentId?: string | null;
   },
 ) {
   // The platform's spending authority wins over the limits a caller passed
@@ -138,6 +141,7 @@ export async function reserve(
       taskClass: attribution?.taskClass ?? null,
       model: attribution?.model ?? null,
       missionId: attribution?.missionId ?? null,
+      agentId: attribution?.agentId ?? null,
       orgProvider,
       ...(granted
         ? {

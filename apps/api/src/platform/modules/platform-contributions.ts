@@ -4,6 +4,7 @@ import {
   openAiConnectionProvider,
 } from "../ai/connection-providers.ts";
 import { taskRetention } from "../tasks/retention.ts";
+import { agentWorkRetention } from "../agents/work-orders/retention.ts";
 import { taskStart } from "../tasks/tasks.ts";
 import {
   configurationActionTypes,
@@ -69,9 +70,11 @@ export const platformContributions: ModuleContributions = {
   retention: async (tx, scope, ctx) => {
     const ingress = await ingressRetention(tx, scope, ctx);
     const tasks = await taskRetention(tx, scope, ctx);
+    // Agent work orders, runs and spans (ADR 0021).
+    const agents = await agentWorkRetention(tx, scope, ctx);
     return {
-      audit: { ...ingress.audit, ...tasks.audit },
-      result: { ...ingress.result, ...tasks.result },
+      audit: { ...ingress.audit, ...tasks.audit, ...agents.audit },
+      result: { ...ingress.result, ...tasks.result, ...agents.result },
     };
   },
   // Files whose removal failed are retried hourly (WP4.6).

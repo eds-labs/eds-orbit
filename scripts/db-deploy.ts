@@ -189,6 +189,9 @@ try {
     "ChatProposal",
     "AgentRun",
     "AgentSpan",
+    // Agent work orders (ADR 0021); deleted by retention and with their
+    // project.
+    "AgentWorkOrder",
     // Platform files (WP4.6) and their content with the database backend.
     "File",
     "FileBlob",
