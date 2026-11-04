@@ -30,6 +30,11 @@ export const organizationAiBudgetInput = z
   .object({
     /** null: no monthly limit for the organization. */
     monthlyMicros: micros.nullable(),
+    /**
+     * The personal assistant's monthly cap per member (ADR 0022 D-09);
+     * null: no paid assistant turns; absent: unchanged.
+     */
+    assistantPerUserMonthlyMicros: micros.nullable().optional(),
     providerCaps: z
       .object({ openai: micros.optional(), anthropic: micros.optional() })
       .strict()
@@ -65,6 +70,10 @@ export async function organizationBudget(
   if (!row) return null;
   return {
     monthlyMicros: row.monthlyMicros === null ? null : Number(row.monthlyMicros),
+    assistantPerUserMonthlyMicros:
+      row.assistantPerUserMonthlyMicros === null
+        ? null
+        : Number(row.assistantPerUserMonthlyMicros),
     providerCaps: organizationAiBudgetInput.shape.providerCaps.parse(row.providerCaps),
     credits: organizationAiBudgetInput.shape.credits.parse(row.credits),
     version: row.version,

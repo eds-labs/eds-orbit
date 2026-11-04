@@ -31,6 +31,7 @@ import {
 import { pauseCallback, telegramWebhook } from "../connections/telegram.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
+import { personalSpaceCleanup } from "../assistant/personal-space.ts";
 import { fileCleanup } from "../files/files.ts";
 import { emailConnectionProvider } from "../email/connection.ts";
 import {
@@ -101,7 +102,14 @@ export const platformContributions: ModuleContributions = {
   // Files whose removal failed are retried hourly (WP4.6).
   // Inbound e-mail every two minutes per project with a mailbox (WP4.7).
   // Links to deleted objects weekly and events after 30 days (ADR 0016).
-  periodic: [ingressCleanup, fileCleanup, emailInbound, linkPrune, eventRetention],
+  periodic: [
+    ingressCleanup,
+    fileCleanup,
+    emailInbound,
+    linkPrune,
+    eventRetention,
+    personalSpaceCleanup,
+  ],
   // Object links publish their changes (ADR 0016).
   // Handoff targets report progress through one event (ADR 0017).
   events: {

@@ -22,6 +22,7 @@ import {
   moduleScope,
   setMemberModuleRoles,
 } from "./platform/tenancy/module-roles.ts";
+import { businessProjectsWhere } from "./platform/tenancy/member-scope.ts";
 import {
   registeredAction,
   registeredActionOwner,
@@ -658,14 +659,7 @@ export async function buildServer(
     });
     const projects = await authDb.project.findMany({
       where: {
-        OR: [
-          {
-            workspace: {
-              members: { some: { userId: user.id, role: "owner" } },
-            },
-          },
-          { members: { some: { userId: user.id } } },
-        ],
+        ...businessProjectsWhere(user.id),
       },
       include: { members: { where: { userId: user.id } } },
     });
@@ -705,16 +699,7 @@ export async function buildServer(
     const user = await userFor(auth, req);
     return {
       items: await authDb.project.findMany({
-        where: {
-          OR: [
-            {
-              workspace: {
-                members: { some: { userId: user.id, role: "owner" } },
-              },
-            },
-            { members: { some: { userId: user.id } } },
-          ],
-        },
+        where: businessProjectsWhere(user.id),
       }),
     };
   });
@@ -726,14 +711,7 @@ export async function buildServer(
     const user = await userFor(auth, req);
     const projects = await authDb.project.findMany({
       where: {
-        OR: [
-          {
-            workspace: {
-              members: { some: { userId: user.id, role: "owner" } },
-            },
-          },
-          { members: { some: { userId: user.id } } },
-        ],
+        ...businessProjectsWhere(user.id),
       },
       select: { id: true, name: true, workspaceId: true },
       orderBy: { createdAt: "asc" },

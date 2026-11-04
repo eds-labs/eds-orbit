@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { authDb, scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { projectMembership } from "../../../platform/tenancy/member-scope.ts";
+import { businessProjectsWhere, projectMembership } from "../../../platform/tenancy/member-scope.ts";
 import { moduleScope } from "../../../platform/tenancy/module-roles.ts";
 import { can } from "../../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../../shared.ts";
@@ -137,12 +137,10 @@ export async function organizationCalendarFor(
   if (!member) throw new DomainError("NOT_FOUND", 404);
   const q = query.extend({ projectIds: z.string().max(2000).optional() }).parse(raw);
   calendarRange(q);
-  // The member's projects only (as projectMembership: workspace owners see all).
+  // The member's business projects only (as projectMembership: workspace
+  // owners see all; personal spaces never, ADR 0022).
   const candidates = await authDb.project.findMany({
-    where: {
-      workspaceId,
-      OR: [{ workspace: { members: { some: { userId, role: "owner" } } } }, { members: { some: { userId } } }],
-    },
+    where: { workspaceId, ...businessProjectsWhere(userId) },
     select: { id: true, name: true },
     orderBy: [{ name: "asc" }, { id: "asc" }],
     take: limits.candidates,

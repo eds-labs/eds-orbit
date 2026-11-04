@@ -23,6 +23,7 @@ import {
   removeProjectMember,
   removeWorkspaceMember,
   setProjectMember,
+  setMemberAssistant,
   setWorkspaceRole,
   type Actor,
 } from "./memberships.ts";
@@ -215,6 +216,14 @@ export function registerAdministrationRoutes(
   );
   app.put(`${org}/members/:userId`, async (req) =>
     setWorkspaceRole(
+      await manager(req),
+      uuidParam(req, "workspaceId"),
+      param(req, "userId"),
+      req.body,
+    ),
+  );
+  app.put(`${org}/members/:userId/assistant`, async (req) =>
+    setMemberAssistant(
       await manager(req),
       uuidParam(req, "workspaceId"),
       param(req, "userId"),

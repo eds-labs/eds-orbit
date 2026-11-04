@@ -39,12 +39,81 @@ export type SpendMandateRef = {
   data: { startAt: string; endAt: string };
 };
 
+const USD = 1_000_000;
+const DAY = 86_400_000;
+
+/**
+ * Limits derived from a monthly amount (decision D-4): a day may use a
+ * tenth of it, a run at most a day's share and never more than USD 2.
+ */
+export function derivedLimits(monthlyBudgetMicros: number) {
+  const dailyBudgetMicros = Math.floor(monthlyBudgetMicros / 10);
+  return {
+    dailyBudgetMicros,
+    perRunBudgetMicros: Math.min(dailyBudgetMicros, 2 * USD),
+  };
+}
+
+type MandateRow = {
+  id: string;
+  version: number;
+  data: unknown;
+  createdAt: Date;
+};
+
+/**
+ * A personal space's spending authority (ADR 0022 D-09): a read-only
+ * projection of the organization's per-user assistant cap, never a stored
+ * record the user could change. Its id and version are the organization
+ * budget's, so a prepared call sees any change of the cap. Undefined for
+ * every other project; null without a cap (no paid assistant turns).
+ */
+export async function personalSpendRecord(
+  tx: DbTx,
+  scope: Scope,
+): Promise<MandateRow | null | undefined> {
+  const project = await tx.project.findFirst({
+    where: { id: scope.projectId, workspaceId: scope.workspaceId },
+    select: { kind: true },
+  });
+  if (project?.kind !== "personal") return undefined;
+  const budget = await tx.organizationAiBudget.findFirst({
+    where: { workspaceId: scope.workspaceId },
+    select: {
+      id: true,
+      version: true,
+      updatedAt: true,
+      assistantPerUserMonthlyMicros: true,
+    },
+  });
+  if (budget?.assistantPerUserMonthlyMicros == null) return null;
+  const monthlyBudgetMicros = Number(budget.assistantPerUserMonthlyMicros);
+  return {
+    id: budget.id,
+    version: budget.version,
+    createdAt: budget.updatedAt,
+    data: {
+      profile: "monthly",
+      startAt: budget.updatedAt.toISOString(),
+      endAt: new Date(budget.updatedAt.getTime() + 100 * 365 * DAY).toISOString(),
+      approvedPaidUse: monthlyBudgetMicros > 0,
+      monthlyBudgetMicros,
+      ...derivedLimits(monthlyBudgetMicros),
+      active: true,
+    },
+  };
+}
+
 /** The newest record of `kind` with `active: true`, or null. One row. */
 async function activeRecord(
   tx: DbTx,
   scope: Scope,
   kind: "policies" | "ai_spend_policies",
-) {
+): Promise<MandateRow | null> {
+  if (kind === "ai_spend_policies") {
+    const personal = await personalSpendRecord(tx, scope);
+    if (personal !== undefined) return personal;
+  }
   return tx.entity.findFirst({
     where: {
       workspaceId: scope.workspaceId,

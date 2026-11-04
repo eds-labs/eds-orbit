@@ -31,6 +31,7 @@ model User {
   oauthRefreshTokens OauthRefreshToken[]
   oauthConsents      OauthConsent[]
   mcpGrants          McpGrant[]
+  personalSpaces     Project[]         @relation("PersonalSpaces")
 
   @@map("user")
 }
@@ -107,6 +108,8 @@ model WorkspaceMember {
   workspaceId String    @db.Uuid
   userId      String
   role        String
+  /// Org owners may switch the personal assistant off for a member (ADR 0022).
+  assistantEnabled Boolean @default(true)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -126,8 +129,13 @@ model Project {
   /// Public profile links [{type,label,url}] (packages/schemas project-settings); not publishing channels.
   links            Json                @default("[]")
   mode             String              @default("observe")
-  /// 'project', or 'library' for an organization knowledge library (ADR 0014).
+  /// 'project', 'library' for an organization knowledge library (ADR 0014), or 'personal' for a user's personal space (ADR 0022).
   kind             String              @default("project")
+  /// The only member of a personal space (ADR 0022); null for every other kind.
+  personalUserId   String?
+  /// When the personal space's user left the organization; deleted 30 days later.
+  personalLeftAt   DateTime?           @db.Timestamptz(3)
+  personalUser     User?               @relation("PersonalSpaces", fields: [personalUserId], references: [id], onDelete: Cascade)
   paused           Boolean             @default(false)
   generation       Int                 @default(1)
   createdAt        DateTime            @default(now()) @db.Timestamptz(3)
@@ -153,6 +161,7 @@ model Project {
 
   @@unique([workspaceId, id])
   @@index([workDueAt])
+  @@index([personalUserId])
 }
 
 /// Module activation per project (WP1.4). No row: the registry default applies.
@@ -1669,6 +1678,8 @@ model OrganizationAiBudget {
   id            String    @id @default(uuid()) @db.Uuid
   workspaceId   String    @unique @db.Uuid
   monthlyMicros BigInt?
+  /// The personal assistant's monthly cap per member (ADR 0022 D-09); null: no paid assistant turns.
+  assistantPerUserMonthlyMicros BigInt?
   providerCaps  Json      @default("{}")
   credits       Json      @default("{}")
   version       Int       @default(1)
