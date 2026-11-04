@@ -1,5 +1,24 @@
 # Requirements traceability
 
+## Agent platform, Phase 1 (ADR 0021, 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-1.md](plans/agent-platform-phase-1.md), acceptance criteria §11 (AC-1 to AC-12).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP-1 | One capability layer for chat, MCP and the task host | `platform/agents/capabilities.ts`, `assistant/chat-runner.ts`, `mcp/{visibility,adapter}.ts`, `agents/structured-run.ts` | `capabilities.test.ts` (equivalence matrix), chat/MCP/structured-run suites | PASS_TEST |
+| AP-2 | Agent principal re-checked on every call (scenario D) | `agents/principal.ts`, `agents/agent-execution.ts`, `tasks/operation-tools.ts` | `agent-principal.test.ts`, `agent-mandates.integration.test.ts`, `structured-run.integration.test.ts`, `agent-platform.integration.test.ts` | PASS_TEST (mutation-checked requester re-check) |
+| AP-3 | Mandates cover only named agents; W1+ never automatic | `governance/{agent-mandates,authorization}.ts` | `agent-mandates.integration.test.ts` | PASS_TEST |
+| AP-4 | Versioned definitions, draft/active split, hash-bound owner activation (AC-1, AC-3) | `agents/definitions/{schema,service,catalog,templates,store}.ts` | `agent-definitions-schema.unit.test.ts`, `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-5 | Roles: owner manage, editor read/run, viewer none, outsider 404 (AC-2) | `tenancy/permissions.ts`, `agents/routes.ts` | access matrix (reviewed) | PASS_TEST |
+| AP-6 | Durable work orders on the worker, restart and unknown outcome (AC-4) | `agents/work-orders/{service,execute}.ts`, migration `202611040001_agent_platform` | `agent-platform.integration.test.ts`, `rls-matrix`, `queue-dispatch` | PASS_TEST |
+| AP-7 | Schedule and event triggers, one work order per slot/event, debounce, no agent chains (AC-7) | `agents/triggers/{schedule,events,declarations}.ts` | `agent-platform.integration.test.ts` (DST, stale slot, burst, flag) | PASS_TEST |
+| AP-8 | Failure notice once per agent, code and day without a model call (AC-8) | `agents/work-orders/execute.ts` | `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-9 | Budgets: run and month ceilings, spend attributed to the agent | `agents/work-orders/execute.ts`, `ai/budget.ts` | `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-10 | Marketing unchanged on shared primitives (AC-9) | `marketing/agents/specialists/runner.ts` | Marketing agent suites, reservation parity fixture | PASS_TEST |
+| AP-11 | Retention of work orders and AgentRun/AgentSpan (AC-11) | `agents/work-orders/retention.ts` | `agent-work-retention.integration.test.ts` | PASS_TEST (owner retention action only) |
+| AP-12 | Entitlements port, default unlimited | `platform/entitlements/entitlements.ts` | `entitlements.unit.test.ts` | PASS_TEST |
+
 ## Social module (ADR 0020, 2026-11-02, branches `claude/social-module-plan` and `claude/social-s2`; flag off)
 
 Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Phases S1 to S5 are implemented (branches, not merged).

@@ -46,3 +46,9 @@ Mario lifted the "Orbit MCP server" non-goal of decision 5 on 2026-10-13 and ask
 - **Exposure.** The gateway adapts this registry; it never defines its own tools. A tool is exposed only with an explicit `exposure.mcp` flag. Read (`R0`) and proposal (`P`) tools come first. Every consequential action is an `ActionRequest` decided in Orbit (ADR 0008), and hard floors are never exposed.
 - **Placement and authentication.** An own `mcp` service built from the same image, served under `https://orbit.eds-labs.io/mcp`. Orbit is the OAuth 2.1 authorization server, with CIMD first, PKCE S256 and resource-bound tokens.
 - **Prerequisites.** The gateway is roadmap Track M (WP-M1 to WP-M6), and it starts after the permission catalogue, the open registries, module activation and the knowledge services exist. Status 2026-10-17: WP-M1 (OAuth authorization server, consent and grants) is implemented locally behind `ORBIT_MCP_OAUTH`, default off, not deployed; no MCP endpoint exists yet (WP-M2).
+
+## Addendum 2026-11-04 (ADR 0021)
+
+- One capability layer (`platform/agents/capabilities.ts`) decides the offered tools and runs each call for chat, MCP and the task host. Tool results are capped JSON-safely at 12,000 characters.
+- `outputSchema` stays optional for in-app tools; it is required for MCP exposure and for the new agent exposure (`exposure.agent`, with a builder `catalog` entry). Agent calls are validated on the host and re-authorized per call against the agent principal. In-app hosts still let tools validate their own arguments.
+- `ToolFeature` is an open, module-registered string. No cost category field exists; the catalogue's `cost` badge covers it for agent-exposed tools.

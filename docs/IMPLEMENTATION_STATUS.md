@@ -1,5 +1,23 @@
 # Implementation status
 
+## Agent platform, Phase 1 (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_AGENT_PLATFORM` and `ORBIT_AGENT_AUTOMATION` off)
+
+ADR [0021](adr/0021-agent-platform.md) (accepted; Mario's decisions D-01 to D-07 and D-12 to D-14 of 2026-11-04). Plans: [architecture](plans/agent-platform-architecture.md), [Phase 1](plans/agent-platform-phase-1.md). Guide: [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
+
+- **Built:**
+  - WP1.1: shared capability layer for chat, MCP and the task host; behaviour unchanged except JSON-safe output caps.
+  - WP1.2: agent principal (sponsor ∩ requester ∩ allowlist, re-checked per call), central agent attribution of ActionRequests, mandate agents channel, MCP proposal quotas for delegated work orders.
+  - WP1.3: principal mode of `runStructured`; `runSpecialist` delegates to it with unchanged reservation keys; task class `agent_custom`.
+  - WP1.4: `AgentWorkOrder` table (FORCE RLS), `agent_work` run kind, `BudgetReservation.agentId`, entitlements port, definition schema, retention.
+  - WP1.5 to WP1.7: definitions service, builder catalogue, routes, work-order execution on the worker, schedule and event triggers, delegation core, failure notice.
+  - WP1.8: web pages; WP1.9: Marketing on-behalf principal and read-only listings — see their own entries below once merged into this branch.
+- **Not done:**
+  - A periodic retention sweep: retention runs through the owner retention action only.
+  - Organization-wide agent counting for `agentsMax`: counted per project until the entitlements table exists.
+  - Module agent templates: Support's template is Phase 2.
+- **Verification (local, own worktree test DB):** targeted suites green (WP1.1: 949 tests; WP1.2: 1,049; Marketing parity 514; agent platform, access matrix, RLS matrix, queue dispatch). See the branch commits for counts.
+- **Production:** nothing deployed. **Migration `202611040001_agent_platform`: new schema hash `5c88c46e…3df05e` (computed before rebasing; recompute) must be approved in Coolify before the `main` push.**
+
 ## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-p3-polish.md](superpowers/plans/2026-11-03-social-p3-polish.md).

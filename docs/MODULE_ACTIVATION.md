@@ -189,3 +189,7 @@ With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a ro
 - The API is `GET/PUT /api/projects/:id/members/:userId/module-roles` (owners only, audited); the UI is "Module roles" in the members list.
 - With the flag off, stored rows are ignored and the API answers 404.
 - The flag stays off in production until the security review in `docs/SECURITY_REVIEW.md` is done.
+
+## Configured agents (ADR 0021)
+
+Configured agents follow the same three checks on every tool call, for their sponsor and their requester: module availability, per-project activation and the member's module role. A disabled module makes its tools refuse with `AGENT_PRINCIPAL_FORBIDDEN`, keeps its tools out of the builder catalogue (`MODULE_DISABLED`) and stops its triggerable events from starting agents. See [AGENT_PLATFORM.md](AGENT_PLATFORM.md).

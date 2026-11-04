@@ -53,3 +53,8 @@ Decided by Mario with the [Orbit Agents design](../superpowers/specs/2026-10-09-
 - New task classes `agent_strategy`, `agent_research`, `agent_analytics` and `agent_review` are owner-editable routes in the OpenAI configuration (`MODEL_ROUTING.md`). Research uses the provider's hosted `web_search` tool; its findings keep only sources the search actually returned and are never written to facts.
 - Telemetry: each model specialist turn is one `AgentRun` of kind `agent` (`orbit_<role>`) with its spans under Operations → AI runs. The additive migration `202610090001_agent_run_kind` widens the `AgentRun.kind` check for it.
 - Everything is behind `ORBIT_AGENTS` (default `false`). A specialist can move to the Agents SDK later behind the same port if it meets the criteria above; the 2026-10-02 no-go still applies to the chat turn.
+
+## Addendum 2026-11-04 (ADR 0021)
+
+- The runtime port and the `legacy_responses` adapter are merged and are the only model loop. Specialists live in `apps/api/src/modules/marketing/agents/specialists/` and share a pooled run budget (R75) instead of per-step ceilings.
+- `runSpecialist` now delegates its call path to the platform task host `runStructured` (WP1.3) with unchanged reservation keys, budgets, statuses and codes. Configured agents (ADR 0021) run on the same task host with a per-call principal.

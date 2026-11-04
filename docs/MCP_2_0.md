@@ -19,7 +19,7 @@ Membership, module access and the active grant are checked before model calls
 and each tool execution. Revoked/replaced grants stop future task execution;
 a new connection must submit a new work order. An in-flight transmission cannot
 be undone. The exact owner-approved chat ceiling is rechecked at approval and
-before each model reservation, with a bounded share for each of the six possible
+before each model reservation, with a bounded share for each of the eight possible
 calls. The maximum includes an owner-configured OpenAI fallback from an
 Anthropic route. The native provider budget/call plan, refusal handling and
 settlement remain authoritative. A higher route/price ceiling requires a new request. Existing budget
