@@ -112,7 +112,9 @@ type Claim =
 /** Claims a queued work order in the job's project transaction. */
 async function claim(tx: DbTx, scope: Scope, id: string, now: Date): Promise<Claim> {
   const row = await tx.agentWorkOrder.findFirst({ where: { id, projectId: scope.projectId } });
-  if (!row || row.status !== "queued") return { kind: "done" };
+  // A missing work order stops the job for good; an ended one needs nothing more.
+  if (!row) throw new DomainError("NOT_FOUND", 404);
+  if (row.status !== "queued") return { kind: "done" };
   if (!agentPlatformEnabled()) return { kind: "ended", status: "blocked", code: "AGENT_PLATFORM_DISABLED" };
   try {
     await assertCurrent(tx, scope, row);

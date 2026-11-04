@@ -251,10 +251,12 @@ describe.skipIf(!enabled)("agent platform (ADR 0021, Phase 1)", () => {
     await runJob(queued.id);
     expect(await workOrder(queued.id)).toMatchObject({ status: "canceled", errorCode: "AGENT_CANCELED" });
 
+    // Notices are user-private rows: counted as the sponsor.
     const notices = () =>
-      authDb.notification.count({ where: { projectId: p.owner.projectId, userId: p.owner.userId, kind: "agent_work_failed" } }).catch(() =>
-        runIn((tx) => tx.notification.count({ where: { projectId: p.owner.projectId, userId: p.owner.userId, kind: "agent_work_failed" } })),
-      );
+      runIn(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.user_id',${p.owner.userId},true)`;
+        return tx.notification.count({ where: { projectId: p.owner.projectId, userId: p.owner.userId, kind: "agent_work_failed" } });
+      });
     const before = await notices();
     for (let i = 0; i < 3; i++) {
       const view = await runIn((tx) => startManualWorkOrder(tx, p.owner, agent.id, { requestId: randomUUID() }));
@@ -323,8 +325,9 @@ describe.skipIf(!enabled)("agent platform (ADR 0021, Phase 1)", () => {
   });
 
   it("starts one work order per schedule slot and skips stale slots", async () => {
+    await authDb.project.update({ where: { id: p.owner.projectId }, data: { timezone: "UTC" } });
     const agent = await activeAgent({ triggers: [{ kind: "schedule", rhythm: "daily", times: ["09:00"] }] });
-    const at = new Date("2026-11-04T09:30:00Z"); // project timezone UTC
+    const at = new Date("2026-11-04T09:30:00Z");
     await runIn((tx) => agentScheduleScheduler.sweep(tx, p.owner, at));
     await runIn((tx) => agentScheduleScheduler.sweep(tx, p.owner, new Date(at.getTime() + 60_000)));
     const rows = await runIn((tx) => tx.agentWorkOrder.findMany({ where: { projectId: p.owner.projectId, agentId: agent.id } }));

@@ -137,6 +137,8 @@ export type StructuredRunSpec<O, R = O> = {
     runKey: string;
     /** Each call reserves under `<callKey>:<n>`, so a repeated job never pays twice. */
     callKey: string;
+    /** The configured agent the spend is attributed to (its month ceiling, ADR 0021). */
+    agentId?: string;
     /** The caller's own ceiling, checked with the estimate before each reservation. */
     check?(tx: DbTx, scope: Scope, estimateMicros: number, now: Date): Promise<void>;
   };
@@ -418,6 +420,7 @@ export async function runStructured<O, R = O>(
             taskClass: spec.taskClass,
             model: plan.route.model,
             missionId: null,
+            ...(spec.budget.agentId ? { agentId: spec.budget.agentId } : {}),
           },
         );
         await markTransmitted(tx, scope, reservation.id);

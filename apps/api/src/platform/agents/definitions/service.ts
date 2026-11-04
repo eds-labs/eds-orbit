@@ -87,7 +87,7 @@ export async function validateConfig(
   for (const trigger of config.triggers)
     if (trigger.kind === "event") {
       const declared = triggerableEvent(trigger.type);
-      if (!declared || !config.modules.includes(declared.module))
+      if (!declared || (declared.module !== "platform" && !config.modules.includes(declared.module)))
         throw new DomainError("AGENT_CONFIG_INVALID", 400);
       if (!declared.filter.safeParse(trigger.filter).success)
         throw new DomainError("AGENT_CONFIG_INVALID", 400);

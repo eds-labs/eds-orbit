@@ -55,6 +55,8 @@ Object.assign(process.env, {
   ORBIT_CREATIVE_STUDIO: "true",
   // Agent mandates (ADR 0019): owner-only routes; nothing is granted here.
   ORBIT_AGENT_MANDATES: "true",
+  // Agent platform (ADR 0021): routes answer 404 while it is off.
+  ORBIT_AGENT_PLATFORM: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
