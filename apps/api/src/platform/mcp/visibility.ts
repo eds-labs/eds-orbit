@@ -11,10 +11,13 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
-  availableTools,
   exposedToMcp,
   type OrbitTool,
 } from "../../modules/agents/tools/registry.ts";
+import {
+  capabilityFeatures,
+  resolveCapabilities,
+} from "../agents/capabilities.ts";
 import { moduleSwitchingEnabled } from "../modules/activation.ts";
 import {
   moduleAvailable,
@@ -25,7 +28,7 @@ import {
 } from "../modules/contributions.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import { DomainError } from "../shared.ts";
-import { effectiveRole, visibleModules } from "../tenancy/module-roles.ts";
+import { visibleModules } from "../tenancy/module-roles.ts";
 import { projectScope, type McpPrincipal } from "./principal.ts";
 import {
   FINANCE_EXTRACT_SCOPE,
@@ -118,18 +121,15 @@ async function allowedTools(
   scope: Scope,
 ): Promise<OrbitTool[]> {
   const enabled = visibleModules(scope, await enabledForTools(scope));
-  const features = registeredAssistants(enabled).flatMap((assistant) =>
-    assistant.features({ toolSearch: true }),
-  );
-  if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
-  if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
-    features.push("project_configuration");
-  if (loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
-    features.push("project_administration");
+  // Role, module and feature rules are the assistant's (capabilities.ts);
+  // MCP adds its own gates below and never widens that set.
+  const features = capabilityFeatures(registeredAssistants(enabled), {
+    toolSearch: true,
+    moduleOperations: true,
+  });
   const proposals = loadConfig().ORBIT_MCP_PROPOSALS === "true";
-  return registeredTools(enabled)
+  return resolveCapabilities(scope, { channel: "mcp", enabled, features })
     .filter((tool) => {
-      if (!exposedToMcp(tool)) return false;
       if (tool.risk === "P_proposal" && !proposals) return false;
       // A proposal whose action type outside clients may not propose now.
       if (tool.risk === "P_proposal" && tool.mcpProposable?.() === false)
@@ -141,9 +141,6 @@ async function allowedTools(
         !(owner && principal.modules.includes(owner))
       )
         return false;
-      const role = effectiveRole(scope, owner);
-      if (role === "none") return false;
-      if (!availableTools([tool], role, features).length) return false;
       // The risk scope plus every content scope the tool lists (all-of).
       return (
         principal.scopes.has(requiredScope(tool)) &&

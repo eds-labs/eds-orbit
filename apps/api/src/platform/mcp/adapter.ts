@@ -33,7 +33,10 @@ import {
   registeredTools,
 } from "../modules/contributions.ts";
 import { DomainError } from "../shared.ts";
-import { moduleScope } from "../tenancy/module-roles.ts";
+import {
+  executeCapability,
+  validateCapabilityArgs,
+} from "../agents/capabilities.ts";
 import {
   codeResult,
   internalFailure,
@@ -584,9 +587,9 @@ async function executeInProject(
     tool.name,
     projectId,
   );
-  // Object-level rules of the tool's own schema apply too; asynchronously,
-  // so async refinements run instead of throwing.
-  const input = await allowed.parameters.parseAsync(rest);
+  // Object-level rules of the tool's own schema apply too, on the host and
+  // before any quota place or run is taken (capabilities.ts).
+  const input = await validateCapabilityArgs(allowed, rest);
   // A proposal tool runs only inside the quotas of the user, client and
   // workspace (D-M4-8, D-M5-8): a re-selection, a new grant id, keeps them.
   const proposing = allowed.risk === "P_proposal";
@@ -605,10 +608,11 @@ async function executeInProject(
   const agentRunId = await startCallRun(state, call, toolName, projectId);
   let output: unknown;
   try {
-    ({ output, images: call.images } = await allowed.execute(
+    // The tool runs with the member's role in its module (capabilities.ts).
+    ({ output, images: call.images } = await executeCapability(
+      allowed,
       {
-        // The tool runs with the member's role in its module (as chat-runner).
-        scope: moduleScope(scope, registeredToolOwner(allowed.name)),
+        scope,
         runId: agentRunId ?? requestId,
         conversationId: `mcp:${requestId}`,
         callIndex: 0,

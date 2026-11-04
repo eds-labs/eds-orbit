@@ -128,9 +128,11 @@ describe.skipIf(!enabled)("structured runs", () => {
     mocked.replies.push(call("fixture_lookup", { size: 50_000 }), message({ summary: "done", count: 2 }));
     const result = await runStructured(scope(), s);
     expect(result).toMatchObject({ status: "ok", output: { summary: "done", count: 2 }, costMicros: 14 });
-    // The tool result went back to the model cut at the cap.
+    // The tool result went back to the model capped, as valid JSON that says so.
     const toolOutput = mocked.requests[1].input.find((item: any) => item.type === "function_call_output");
-    expect(toolOutput.output.length).toBe(MAX_TOOL_OUTPUT_CHARS);
+    expect(toolOutput.output.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    expect(toolOutput.output.length).toBeGreaterThan(MAX_TOOL_OUTPUT_CHARS - 100);
+    expect(JSON.parse(toolOutput.output)).toMatchObject({ truncated: true });
     const rows = await reservations(s.budget.callKey);
     expect(rows.map((r) => [r.key, r.state, Number(r.settledMicros)])).toEqual([
       [`${scope().projectId}:${s.budget.callKey}:0`, "settled", 7],

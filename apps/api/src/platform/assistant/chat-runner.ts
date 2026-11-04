@@ -45,14 +45,15 @@ import { actorScope } from "../../modules/member-scope.ts";
 import type { ChatCard } from "./cards.ts";
 import {
   registeredAssistants,
-  registeredToolOwner,
   registeredTools,
 } from "../modules/contributions.ts";
+import { visibleModules } from "../tenancy/module-roles.ts";
 import {
-  effectiveRole,
-  moduleScope,
-  visibleModules,
-} from "../tenancy/module-roles.ts";
+  capabilityFeatures,
+  capToolOutput,
+  executeCapability,
+  resolveCapabilities,
+} from "../agents/capabilities.ts";
 import { moduleSwitchingEnabled } from "../modules/activation.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import {
@@ -222,12 +223,10 @@ function chatToolHost(host: {
         const result = await delegatedExecution.run(
           host.delegation ?? (undefined as any),
           () =>
-            tool.execute(
+            executeCapability(
+              tool,
               {
-                scope: moduleScope(
-                  currentScope,
-                  registeredToolOwner(tool.name),
-                ),
+                scope: currentScope,
                 runId,
                 conversationId,
                 callIndex,
@@ -286,7 +285,7 @@ function chatToolHost(host: {
         toolFailure = validationCode ?? telemetryErrorCode(error);
       }
       await recordTool();
-      return JSON.stringify(output).slice(0, 12000);
+      return capToolOutput(output);
     },
   };
 }
@@ -486,24 +485,19 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     const assistants = registeredAssistants(
       state.delegation ? new Set(state.delegation.modules) : enabled,
     );
-    const features = assistants.flatMap((a) =>
-      a.features({ toolSearch, fullTools }),
-    );
     // Module operations are for delegated MCP work orders; the in-app chat
-    // has its own tools for the same work, and the ~22 KB of operation
-    // schemas left a Claude chat too little room (CHAT_CONTEXT_LIMIT).
-    if (state.delegation && loadConfig().ORBIT_MCP_TASKS === "true")
-      features.push("mcp_tasks");
-    if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
-      features.push("project_configuration");
-    if (loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
-      features.push("project_administration");
+    // has its own tools for the same work (capabilities.ts).
+    const features = capabilityFeatures(assistants, {
+      toolSearch,
+      fullTools,
+      moduleOperations: state.delegation !== null,
+    });
     // Each tool is offered by the member's role in the tool's module.
     // Tools meant for outside clients only (exposure.assistant: false) never appear.
-    let offered = registeredTools(enabled).filter((tool) => {
-      if (!exposedToAssistant(tool)) return false;
-      const role = effectiveRole(scope, registeredToolOwner(tool.name));
-      return role !== "none" && availableTools([tool], role, features).length;
+    let offered = resolveCapabilities(scope, {
+      channel: "assistant",
+      enabled,
+      features,
     });
     if (state.delegation) {
       const permitted: OrbitTool[] = [];
