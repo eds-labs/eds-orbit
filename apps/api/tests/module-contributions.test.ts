@@ -84,6 +84,10 @@ describe("module contributions", () => {
         "agent",
         "agent_work",
         "analytics",
+        // Proactive layer (ADR 0023): delivery decisions, digests, briefings.
+        "assistant_briefing",
+        "notification_delivery",
+        "notification_digest",
         "chat",
         "creative_preview",
         "domain_event",
@@ -159,8 +163,11 @@ describe("module contributions", () => {
       "knowledge_profiles",
       "knowledge_proposals",
       "knowledge_runs",
+      // Proactive layer (ADR 0023): user-private preferences and scheduler marks.
+      "notification_preferences",
       "orbit_tasks",
       "personal_context",
+      "proactive_state",
       "public_sessions",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
@@ -225,6 +232,8 @@ describe("module contributions", () => {
       "domain-event-retention",
       // Personal spaces 30 days after their user left (ADR 0022).
       "personal-space-cleanup",
+      // Periodic signal detectors (ADR 0023), off while ORBIT_PROACTIVE is off.
+      "signals-periodic",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",

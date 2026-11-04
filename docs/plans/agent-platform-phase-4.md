@@ -1,6 +1,6 @@
 # Agent platform, Phase 4: proactive agents and voice
 
-Status: **accepted plan, not implemented** (2026-11-04; D-19 and D-20 as recommended; D-18 changed to in-app, e-mail and per-user Telegram in this phase, see [ADR 0021](../adr/0021-agent-platform.md) addendum "Phases 3 and 4"). Builds on [Phase 1](agent-platform-phase-1.md) (work orders, events, triggers) and [Phase 3](agent-platform-phase-3.md) (personal space, panel). Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§14: D-18 to D-20). Work packages are **WP4.n**.
+Status: **accepted plan, implemented locally except WP4.8** (2026-11-05, branch `claude/agent-platform-architecture-128114`, not merged, flags off; see `docs/IMPLEMENTATION_STATUS.md`; D-19 and D-20 as recommended; D-18 changed to in-app, e-mail and per-user Telegram in this phase, see [ADR 0021](../adr/0021-agent-platform.md) addendum "Phases 3 and 4"). Builds on [Phase 1](agent-platform-phase-1.md) (work orders, events, triggers) and [Phase 3](agent-platform-phase-3.md) (personal space, panel). Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§14: D-18 to D-20). Work packages are **WP4.n**.
 
 ## 0. Goal and scope
 

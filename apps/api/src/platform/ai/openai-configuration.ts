@@ -385,6 +385,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
         displayName: m.displayName,
         rate: m.rate ?? null,
         perImageMicros: m.perImageMicros ?? null,
+        unitPrice: m.unitPrice ?? null,
         verifiedAt: m.verifiedAt,
         priceSource: m.priceSource,
         active: m.active,

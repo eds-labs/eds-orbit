@@ -1,6 +1,7 @@
 "use client";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { RetentionControl } from "./retention-control";
+import { SignalSettingsSection } from "./signal-settings";
 import { ModuleSettings } from "./module-settings";
 import {
   ProjectAdministration,
@@ -720,6 +721,8 @@ export function ProjectSettings() {
           {tab === "members" && <ProjectMembers />}
           {tab === "retention" && <RetentionControl />}
           {tab === "modules" && <ModuleSettings />}
+          {/* Proactive signal switches (ADR 0023); hidden while off. */}
+          {tab === "modules" && <SignalSettingsSection />}
           {tab === "apps" && <ConnectedApps mine={grants} />}
           {tab === "ai" && (
             <>

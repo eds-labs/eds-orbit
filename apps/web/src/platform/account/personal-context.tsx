@@ -24,6 +24,8 @@ import { useStandalone } from "@/platform/shell/standalone-context";
 import { useAssistantPanel } from "@/platform/assistant/assistant-context";
 import { categoryLabel } from "@/platform/assistant/context-cards";
 import { ProjectBadge } from "@/platform/assistant/project-cards";
+import { ProactivePreferences } from "./proactive-preferences";
+import { VoiceSettingsPanel } from "@/platform/assistant/voice";
 import {
   assistantPaths,
   CONTEXT_CATEGORIES,
@@ -136,6 +138,14 @@ export function PersonalContextView() {
           workspaceId={assistant.status?.workspaceId}
         />
       )}
+      {/* Notifications, quiet hours, digest, Telegram, briefing (ADR 0023). */}
+      {assistant.enabled && (
+        <ProactivePreferences
+          de={de}
+          workspaceId={assistant.status?.workspaceId}
+          projects={assistant.projects}
+        />
+      )}
     </div>
   );
 }
@@ -227,6 +237,7 @@ export function PersonalContextContent({
           </label>
         </div>
       </section>
+      <VoiceSettingsPanel workspaceId={workspaceId} de={de} />
       <section className="panel">
         <div className="panel-head">
           <div>

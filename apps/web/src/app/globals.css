@@ -4514,6 +4514,23 @@ body:has(dialog[open]) {
 .assistant-bubble-dot[data-working="true"] {
   background: #ffd36b;
 }
+/* Unread notices across projects (ADR 0023); top left, beside the reply dot. */
+.assistant-bubble-count {
+  position: absolute;
+  top: 0;
+  left: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 9px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
 .sheet {
   position: fixed;
   top: 0;
@@ -8376,4 +8393,80 @@ a.support-row {
     min-width: 0;
     width: 100%;
   }
+}
+
+/* Notifications, quiet hours, digest and briefing on /account/assistant (ADR 0023). */
+.account-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.account-section > h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.proactive-preferences {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.proactive-preferences .form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.proactive-preferences legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+.proactive-preferences .check-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.proactive-preferences .check-group legend {
+  width: 100%;
+  padding: 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+.proactive-preferences .field-check {
+  display: inline-flex;
+  flex-direction: row;
+  gap: 8px;
+}
+.proactive-preferences .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.proactive-preferences .form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.proactive-preferences .data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.proactive-preferences .data-table th,
+.proactive-preferences .data-table td {
+  padding: 4px 8px 4px 0;
+  text-align: left;
+  font-weight: 500;
+}
+.signal-settings .field-check {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 8px;
 }

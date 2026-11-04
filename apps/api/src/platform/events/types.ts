@@ -37,6 +37,11 @@ export type EventSubscription = {
    * without `types` the subscription is left out.
    */
   triggerableEvents?: true;
+  /**
+   * Whether the subscriber runs at all right now (a feature flag, such as
+   * signals behind ORBIT_PROACTIVE); while false no job is queued for it.
+   */
+  enabled?: () => boolean;
   handler(tx: DbTx, scope: Scope, event: DomainEventView): Promise<void>;
 };
 

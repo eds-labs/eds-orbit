@@ -2,6 +2,7 @@
 import type { Ref } from "react";
 import { Sparkles } from "lucide-react";
 import { useAssistantPanel } from "./assistant-context";
+import { badgeLabel, useNotificationSummary } from "./notification-summary";
 
 // The floating button that opens the personal assistant (WP3.8). It sits
 // bottom right, above the phone bottom bar where there is one, and shows a
@@ -20,7 +21,13 @@ export function AssistantBubble({
   aboveNav: boolean;
 }) {
   const assistant = useAssistantPanel();
+  // Unread notices across projects (ADR 0023); nothing while that is off.
+  const summary = useNotificationSummary(
+    assistant?.status?.workspaceId,
+    Boolean(assistant?.enabled),
+  );
   if (!assistant) return null;
+  const unread = summary.off ? 0 : (summary.data?.unread ?? 0);
   const de = assistant.locale === "de";
   const working = Boolean(assistant.conversation.activeRunId);
   const dot = assistant.unseen || working;
@@ -35,13 +42,13 @@ export function AssistantBubble({
       className="assistant-bubble"
       data-above-nav={aboveNav ? "true" : undefined}
       data-open={assistant.isOpen ? "true" : undefined}
-      aria-label={
+      aria-label={`${
         assistant.unseen
           ? `${name} (${de ? "neue Antwort" : "new reply"})`
           : working
             ? `${name} (${de ? "antwortet" : "answering"})`
             : name
-      }
+      }${unread ? `, ${unread} ${de ? "ungelesene Benachrichtigungen" : "unread notifications"}` : ""}`}
       aria-expanded={assistant.isOpen}
       aria-keyshortcuts="Control+K Meta+K"
       title={`${name} (${shortcut})`}
@@ -50,6 +57,11 @@ export function AssistantBubble({
       }
     >
       <Sparkles aria-hidden="true" />
+      {badgeLabel(unread) && (
+        <span className="assistant-bubble-count" aria-hidden="true">
+          {badgeLabel(unread)}
+        </span>
+      )}
       {dot && (
         <span
           className="assistant-bubble-dot"

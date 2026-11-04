@@ -15,6 +15,13 @@ import { pmHandoffTargets } from "./pm/research.ts";
 import { taskFromIssue } from "./issue-handoff.ts";
 import { CODING_DISPATCH, codingDispatchAction, codingRunLinkType, codingTimeouts } from "./pm/coding.ts";
 import { CODING_EVENT, codingResultHandler } from "./pm/coding-dispatch.ts";
+import {
+  weeklyReportSubscriber,
+  weeklyReportTemplate,
+  workSignalNotifications,
+  workSignals,
+} from "./signals.ts";
+import { proactiveEnabled } from "../../platform/proactive/preferences.ts";
 
 /** The domain events the module publishes (ADR 0016): ids and keys only. */
 export const WORK_EVENTS = [
@@ -60,8 +67,18 @@ export const workContributions: ModuleContributions = {
   // Results of the coding agent workflow's callbacks (WP2.9).
   automationResults: { [CODING_EVENT]: codingResultHandler },
   // The AI project manager's monitor wakes on task and milestone changes.
-  events: { publishes: WORK_EVENTS, subscribes: [pmMonitorSubscriber, handoffSyncSubscriber] },
-  userNotifications: workUserNotifications,
+  events: {
+    publishes: WORK_EVENTS,
+    // The weekly report template's results (ADR 0023, queued only while ORBIT_PROACTIVE is on).
+    subscribes: [pmMonitorSubscriber, handoffSyncSubscriber, weeklyReportSubscriber],
+  },
+  userNotifications: { ...workUserNotifications, ...workSignalNotifications },
+  // Proactive signals (ADR 0023): task completed, and due tasks as a mapping.
+  signals: workSignals,
+  // The weekly project report (plan §2.5), offered while ORBIT_PROACTIVE is on.
+  get agentTemplates() {
+    return proactiveEnabled() ? [weeklyReportTemplate] : [];
+  },
   attention: workAttention,
   // The member's open tasks for the personal assistant's overview (ADR 0022).
   assistantOverview: workOverview,

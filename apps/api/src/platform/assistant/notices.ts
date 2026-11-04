@@ -11,7 +11,13 @@ import type { ChatCard } from "./cards.ts";
 // metadata travels as the first card (`kind: "notice"`), so the stored
 // shape of ChatMessage stays as it is; the conversation view lifts it out.
 
-export type NoticeKind = "work_order_finished" | "work_order_failed" | "context_saved";
+export type NoticeKind =
+  | "work_order_finished"
+  | "work_order_failed"
+  | "context_saved"
+  // Briefings (ADR 0023 item 8): deterministic, and the opt-in AI summary.
+  | "briefing"
+  | "briefing_summary";
 export type NoticeMeta = {
   kind: NoticeKind;
   /** Deduplicates the notice within its conversation. */

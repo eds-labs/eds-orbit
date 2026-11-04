@@ -1,5 +1,5 @@
 "use client";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -114,12 +114,15 @@ export function MessageView({
   moduleCards = {},
   host,
   onChanged,
+  actions,
 }: {
   message: ChatMessage;
   de: boolean;
   moduleCards?: Readonly<Record<string, ModuleCard>>;
   host?: ChatHost;
   onChanged?: () => void;
+  /** Controls under the message text, e.g. "Read aloud" (ADR 0024). */
+  actions?: ReactNode;
 }) {
   const cards = message.cards ?? [];
   const isModule = (card: ChatCard) => Boolean(host && moduleCards[card.kind]);
@@ -137,6 +140,7 @@ export function MessageView({
           )}
         </div>
       )}
+      {actions ? <div className="chat-message-actions">{actions}</div> : null}
       {cards.filter(isModule).map((card, index) => {
         const Render = moduleCards[card.kind]!;
         return (
@@ -295,6 +299,10 @@ export type ConversationViewProps = {
   afterMessages?: ReadonlyArray<ComponentType<{ host: ChatHost }>>;
   host?: ChatHost;
   className?: string;
+  /** Extra composer controls before Send, e.g. the microphone (ADR 0024). */
+  composerTools?: ReactNode;
+  /** Controls per message, e.g. "Read aloud" (ADR 0024). */
+  messageActions?: (message: ChatMessage) => ReactNode;
 };
 
 export function ConversationView(props: ConversationViewProps) {
@@ -359,6 +367,7 @@ export function ConversationView(props: ConversationViewProps) {
             moduleCards={moduleCards}
             host={host}
             onChanged={conversation.refresh}
+            actions={props.messageActions?.(message)}
           />
         ))}
         {stream && !TERMINAL_RUN.has(stream.status) && (
@@ -503,6 +512,7 @@ export function ConversationView(props: ConversationViewProps) {
           placeholder={props.placeholder}
         />
         <div className="chat-compose-actions">
+          {props.composerTools}
           {activeRunId && (
             <Button
               type="button"

@@ -108,7 +108,13 @@ export type ChatCard = {
   contextProjects?: string[];
   /** The metadata of a `notice` message, stored as its first card. */
   notice?: {
-    kind: "work_order_finished" | "work_order_failed" | "context_saved";
+    kind:
+      | "work_order_finished"
+      | "work_order_failed"
+      | "context_saved"
+      // Briefings (ADR 0023 item 8) and their optional AI summary.
+      | "briefing"
+      | "briefing_summary";
     key: string;
     entryId?: string;
     text?: string;

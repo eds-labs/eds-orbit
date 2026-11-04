@@ -63,7 +63,13 @@ export type ChatCard = {
 };
 
 export type ChatNotice = {
-  kind: "work_order_finished" | "work_order_failed" | "context_saved";
+  kind:
+    | "work_order_finished"
+    | "work_order_failed"
+    | "context_saved"
+    // Briefings and their opt-in AI summary (ADR 0023).
+    | "briefing"
+    | "briefing_summary";
   entryId?: string;
   text?: string;
 };

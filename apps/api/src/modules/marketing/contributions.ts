@@ -1,4 +1,5 @@
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { marketingSignalNotifications, marketingSignals } from "./signals.ts";
 import { marketingConfigurationSection } from "./brand/configuration-section.ts";
 import { marketingMcpTools, marketingMcpActions } from "./mcp-tools.ts";
 import { policyAdminActionTypes, policyAdminTools } from "./policy/policy-admin.ts";
@@ -78,6 +79,9 @@ export const marketingContributions: ModuleContributions = {
   telegram: { enabled: agentsEnabled, callbacks: { stop: stopCallback } },
   // Previews, notices and the daily report the bot sends (WP2.5b).
   notifications: marketingNotifications,
+  // Assignment exceptions join the proactive feed as a mapping only (ADR 0023).
+  userNotifications: marketingSignalNotifications,
+  signals: marketingSignals,
   // Postiz, Matomo and Slack connections and their checks (WP2.5c).
   connections: marketingConnections,
   // The Marketing profile in the project configuration (MCP and Orbit).

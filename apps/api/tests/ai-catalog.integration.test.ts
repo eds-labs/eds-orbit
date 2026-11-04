@@ -167,6 +167,66 @@ describe.skipIf(!enabled)("AI price catalog", () => {
     ).rejects.toMatchObject({ code: "MODEL_HAS_NO_TOKEN_PRICE" });
   });
 
+  it("prices speech models per unit, refuses a wrong unit and keeps token prices as they are (ADR 0024)", async () => {
+    const listed = await listModelPrices(org());
+    expect(listed.models.find((m) => m.id === "tts-1")).toMatchObject({
+      purpose: "text_to_speech",
+      unitPrice: { unit: "character", micros: 15 },
+      priceSource: "orbit",
+    });
+    expect(listed.models.find((m) => m.id === "gpt-4o-mini-transcribe")?.unitPrice).toEqual({
+      unit: "audio_minute",
+      micros: 3_000,
+    });
+    await setModelPrice(scope.userId, org(), "tts-1", { unitPriceMicros: 0.6 });
+    const saved = await authDb.aiModelPrice.findFirst({
+      where: { workspaceId: scope.workspaceId, modelId: "tts-1" },
+    });
+    expect(saved).toMatchObject({ unit: "character" });
+    expect(Number(saved!.unitPriceMicros)).toBe(0.6);
+    expect((await listModelPrices(org())).models.find((m) => m.id === "tts-1")).toMatchObject({
+      unitPrice: { unit: "character", micros: 0.6 },
+      priceSource: "organization",
+      overridden: true,
+    });
+    // An on/off override keeps unit token and changes no price.
+    await setModelPrice(scope.userId, org(), "whisper-1", { active: false });
+    expect((await listModelPrices(org())).models.find((m) => m.id === "whisper-1")).toMatchObject({
+      active: false,
+      unitPrice: { unit: "audio_minute", micros: 6_000 },
+    });
+    await expect(
+      setModelPrice(scope.userId, org(), "tts-1", { unit: "audio_minute", unitPriceMicros: 1 }),
+    ).rejects.toMatchObject({ code: "PRICE_UNIT_UNKNOWN" });
+    // A unit Orbit does not know fails validation.
+    await expect(
+      setModelPrice(scope.userId, org(), "tts-1", { unit: "second", unitPriceMicros: 1 }),
+    ).rejects.toMatchObject({ name: "ZodError" });
+    await expect(
+      setModelPrice(scope.userId, org(), "gpt-6-luna", { unitPriceMicros: 1 }),
+    ).rejects.toMatchObject({ code: "MODEL_HAS_NO_UNIT_PRICE" });
+    await expect(
+      setModelPrice(scope.userId, org(), "tts-1", { inputMicrosPerMillion: 1 }),
+    ).rejects.toMatchObject({ code: "MODEL_HAS_NO_TOKEN_PRICE" });
+    // A row with a foreign unit (written around the API) never prices a call.
+    await authDb.aiModelPrice.updateMany({
+      where: { workspaceId: scope.workspaceId, modelId: "tts-1" },
+      data: { unit: "audio_minute" },
+    });
+    expect((await listModelPrices(org())).models.find((m) => m.id === "tts-1")?.unitPrice).toEqual({
+      unit: "character",
+      micros: 15,
+    });
+    // Text prices are untouched by the units.
+    process.env.ORBIT_AI_CATALOG = "true";
+    expect((await runtime()).rateCard?.["gpt-6-luna"]?.inputMicrosPerMillion).toBe(
+      priceCatalog["gpt-6-luna"]!.rate!.inputMicrosPerMillion,
+    );
+    expect((await runtime()).rateCard?.["tts-1"]).toBeUndefined();
+    await resetModelPrice(scope.userId, org(), "tts-1");
+    await resetModelPrice(scope.userId, org(), "whisper-1");
+  });
+
   it("lets organization owners edit their catalog over HTTP, not other members", async () => {
     const list = await app.inject({
       method: "GET",

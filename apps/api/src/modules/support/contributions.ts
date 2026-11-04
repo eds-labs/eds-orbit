@@ -1,4 +1,5 @@
 import { supportConversationResults } from "./assistant-results.ts";
+import { supportSignals } from "./signals.ts";
 import { supportMcpTools, supportMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { supportLinkTypes } from "./links.ts";
@@ -74,6 +75,8 @@ export const supportContributions: ModuleContributions = {
   publicRoutes: widgetRoutes,
   // Notifications and automations (WP5.5).
   userNotifications: supportUserNotifications,
+  // Urgent tickets join the proactive feed as a mapping only (ADR 0023).
+  signals: supportSignals,
   scheduler: supportScheduler,
   // Attention items: SLA breaches and unassigned tickets.
   attention: supportAttention,

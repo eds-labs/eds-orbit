@@ -8,6 +8,7 @@ import { useStandalone } from "@/platform/shell/standalone-context";
 import { PAGE_INPUT_ID, useAssistantPanel } from "./assistant-context";
 import { assistantText, DisabledNotice, FocusSwitch } from "./assistant-panel";
 import { ConversationHistory, ConversationView } from "./conversation-view";
+import { useAssistantVoice, voiceViewProps } from "./voice";
 
 /**
  * The personal assistant as a full page (/assistant, WP3.8). It shares the
@@ -17,6 +18,7 @@ import { ConversationHistory, ConversationView } from "./conversation-view";
 export function AssistantPage() {
   const { t: shellText, locale } = useStandalone();
   const assistant = useAssistantPanel();
+  const voice = useAssistantVoice(assistant);
   const de = locale === "de";
   const t = assistantText(de);
   if (!assistant) return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
@@ -56,6 +58,7 @@ export function AssistantPage() {
               input={assistant.input}
               setInput={assistant.setInput}
               inputId={PAGE_INPUT_ID}
+              {...voiceViewProps(voice, { conversation, input: assistant.input, setInput: assistant.setInput, inputId: PAGE_INPUT_ID, de })}
               inputLabel={t.inputLabel}
               placeholder={t.placeholder}
               label={t.title}

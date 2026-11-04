@@ -46,6 +46,11 @@ export function noticeText(notice: ChatNotice, fallback: string, de: boolean) {
       return text || (de ? "Auftrag abgeschlossen." : "Work order finished.");
     case "work_order_failed":
       return text || (de ? "Auftrag fehlgeschlagen." : "Work order failed.");
+    // Briefings (ADR 0023): the deterministic text, then the opt-in summary.
+    case "briefing":
+      return text || "Briefing";
+    case "briefing_summary":
+      return de ? `Zusammenfassung: ${text}` : `Summary: ${text}`;
   }
 }
 
@@ -72,7 +77,9 @@ export function NoticeBody({
     <div className="chat-notice-body">
       <p>
         <Icon aria-hidden="true" />
-        <span>
+        <span
+          style={notice.kind === "briefing" ? { whiteSpace: "pre-line" } : undefined}
+        >
           {undone
             ? de
               ? "Nicht mehr gemerkt."

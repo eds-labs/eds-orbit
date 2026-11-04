@@ -15,6 +15,7 @@ import type { JobDef } from "../../jobs/types.ts";
 import { publishEvent } from "../../events/events.ts";
 import { entitlementsFor, entitled } from "../../entitlements/entitlements.ts";
 import { notifyMembers } from "../../notifications/members.ts";
+import { proactiveEnabled } from "../../proactive/preferences.ts";
 import { redactText } from "../../privacy/redact.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { actorScope } from "../../tenancy/member-scope.ts";
@@ -218,12 +219,18 @@ export async function finishWorkOrder(
   });
   if (code === "AGENT_BUDGET_EXHAUSTED" && row.agentId)
     await exhaustAgentBudget(tx, scope, row.agentId);
-  if (failed && row.sponsorUserId && row.agentId)
+  // With ORBIT_PROACTIVE on, the signal `platform.agent_work_failed`
+  // (ADR 0023) notifies from the failure event with a dedupe key instead.
+  if (failed && row.sponsorUserId && row.agentId && !proactiveEnabled())
     await failureNotice(tx, scope, row, code ?? "AGENT_FAILED", now);
   return finished;
 }
 
-/** One in-app notice per agent, code and UTC day for the sponsor (plan WP1.6). */
+/**
+ * One in-app notice per agent, code and UTC day for the sponsor (plan
+ * WP1.6), while ORBIT_PROACTIVE is off. ADR 0023 replaces this guard with
+ * the notification dedupe key of the signal `platform.agent_work_failed`.
+ */
 async function failureNotice(tx: DbTx, scope: Scope, row: WorkOrderRow, code: string, now: Date) {
   const day = now.toISOString().slice(0, 10);
   const key = `agent_failed:${row.agentId}:${code}:${day}`;

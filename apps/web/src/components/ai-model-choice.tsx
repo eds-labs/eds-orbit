@@ -46,7 +46,7 @@ export type ModelChoiceView = {
   } | null;
   catalog?: Array<{
     id: string;
-    purpose: "text" | "image" | "embedding";
+    purpose: "text" | "image" | "embedding" | "speech_to_text" | "text_to_speech";
     displayName: string;
     active: boolean;
   }> | null;

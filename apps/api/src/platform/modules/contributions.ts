@@ -59,6 +59,7 @@ import type {
   TriggerableEventDeclaration,
 } from "../events/types.ts";
 import { EVENT_TYPE } from "../../../../../packages/module-contracts/src/index.ts";
+import type { SignalDefinition } from "../signals/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -195,6 +196,11 @@ export type ModuleContributions = {
    * the full key is "<module>.<name>".
    */
   handoffs?: Readonly<Record<string, HandoffTarget>>;
+  /**
+   * Proactive signals (ADR 0023): deterministic detectors on domain events
+   * or the periodic pass, and mappings of existing notification kinds.
+   */
+  signals?: readonly SignalDefinition[];
   /**
    * Results a module accepts in the signed callback of an automation run
    * (ADR 0017, WP2.9), by the run's event; the event must start with the
@@ -359,6 +365,7 @@ type Registered = {
   automationResults: ReadonlyMap<string, AutomationResultHandler & { owner: string }>;
   eventTypes: ReadonlyMap<string, string>;
   subscriptions: readonly (EventSubscription & { owner: string })[];
+  signals: readonly (SignalDefinition & { owner: string })[];
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -624,6 +631,57 @@ export function registerContributions(
           );
       subscriptions.push({ ...sub, owner });
     }
+  // Proactive signals (ADR 0023): "<owner>.<name>", a kind of the same
+  // owner, declared event types; event signals run as derived subscribers
+  // that do nothing (and are not queued) while ORBIT_PROACTIVE is off.
+  const signals: (SignalDefinition & { owner: string })[] = [];
+  const mappedKinds = new Set<string>();
+  for (const [owner, c] of ordered)
+    for (const def of c.signals ?? []) {
+      const local = def.key.slice(owner.length + 1);
+      if (!def.key.startsWith(owner + ".") || !/^[a-z][a-z0-9_]{1,32}$/.test(local))
+        problems.push(`${owner} has invalid signal ${def.key}`);
+      if (signals.some((s) => s.key === def.key))
+        problems.push(`signal ${def.key} registered twice`);
+      if (userNotifications.get(def.kind)?.owner !== owner)
+        problems.push(`signal ${def.key} writes kind ${def.kind} its owner does not register`);
+      const source = def.source;
+      if ("event" in source || "periodic" in source) {
+        if (!def.detect) problems.push(`signal ${def.key} has no detector`);
+        if (!def.titles || !Object.keys(def.titles).length)
+          problems.push(`signal ${def.key} has no titles`);
+      } else if (def.detect)
+        problems.push(`signal ${def.key} maps existing notices and may not detect`);
+      if ("event" in source) {
+        if (!source.event.length) problems.push(`signal ${def.key} subscribes to nothing`);
+        for (const type of source.event)
+          if (![...eventTypes.keys()].some((t) => eventMatches(type, t)))
+            problems.push(`signal ${def.key} subscribes to undeclared ${type}`);
+        subscriptions.push({
+          name: `${owner}.signal_${local}`,
+          types: source.event,
+          owner,
+          enabled: () => signalRuntime.enabled(),
+          handler: (tx, scope, event) =>
+            signalRuntime.runEvent({ ...def, owner }, tx, scope, event),
+        });
+      }
+      if ("kinds" in source)
+        for (const kind of Object.keys(source.kinds)) {
+          if (userNotifications.get(kind)?.owner !== owner)
+            problems.push(`signal ${def.key} maps kind ${kind} its owner does not register`);
+          if (mappedKinds.has(kind)) problems.push(`kind ${kind} mapped twice`);
+          mappedKinds.add(kind);
+        }
+      if ("botKinds" in source)
+        for (const kind of Object.keys(source.botKinds)) {
+          if (notifications.get(kind)?.owner !== owner)
+            problems.push(`signal ${def.key} maps bot kind ${kind} its owner does not register`);
+          if (mappedKinds.has(`bot:${kind}`)) problems.push(`bot kind ${kind} mapped twice`);
+          mappedKinds.add(`bot:${kind}`);
+        }
+      signals.push({ ...def, owner });
+    }
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -648,8 +706,49 @@ export function registerContributions(
     automationResults,
     eventTypes,
     subscriptions,
+    signals,
     owners,
   };
+}
+
+/**
+ * How derived signal subscribers run (ADR 0023). platform/signals sets it
+ * when it loads; until then a signal subscriber is off and does nothing.
+ * Kept here so the registry never imports the signal runtime.
+ */
+export const signalRuntime: {
+  enabled(): boolean;
+  runEvent(
+    def: SignalDefinition & { owner: string },
+    tx: DbTx,
+    scope: Scope,
+    event: import("../events/types.ts").DomainEventView,
+  ): Promise<void>;
+} = {
+  enabled: () => false,
+  runEvent: async () => undefined,
+};
+
+/** Every registered signal with its owner, platform first. */
+export function registeredSignals() {
+  return current().signals;
+}
+/** A signal by key, or undefined. */
+export function registeredSignal(key: string) {
+  return current().signals.find((s) => s.key === key);
+}
+/** The severity a mapping or detector gives a member notification kind, if any. */
+export function signalSeverityOf(kind: string) {
+  for (const s of current().signals)
+    if ("kinds" in s.source && kind in s.source.kinds) return s.source.kinds[kind];
+  return undefined;
+}
+/** The signal that maps an owner-bot notice kind, with its severity, if any. */
+export function botKindSignal(kind: string) {
+  for (const s of current().signals)
+    if ("botKinds" in s.source && kind in s.source.botKinds)
+      return { signal: s, severity: s.source.botKinds[kind]! };
+  return undefined;
 }
 
 /** True when a subscription pattern (exact, or a prefix ending ".*") covers the type. */

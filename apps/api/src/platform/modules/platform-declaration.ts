@@ -23,6 +23,20 @@ export const platformDeclaration: PlatformDeclaration = {
       description: "The personal assistant's settings in a personal space (ADR 0022)",
       exported: false,
     },
+    {
+      kind: "notification_preferences",
+      description: "User-private delivery preferences in a personal space: quiet hours, digest, briefing (ADR 0023)",
+      exported: false,
+    },
+    {
+      kind: "proactive_state",
+      description: "Digest and briefing slots of a personal space's scheduler (ADR 0023)",
+      exported: false,
+    },
+    {
+      kind: "signal_settings",
+      description: "The project's switched-off proactive signals (ADR 0023)",
+    },
     { kind: "jobs", description: "Durable jobs dispatched through the outbox" },
     { kind: "exceptions", description: "Open operational exceptions by code" },
     {

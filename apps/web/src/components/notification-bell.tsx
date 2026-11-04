@@ -5,7 +5,11 @@
 import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { api, collectionPath, useMutation, useResource, when } from "@/lib/api";
-import { Alert, Button, Loading, Modal } from "./ui/primitives";
+import { Alert, Badge, Button, Loading, Modal, Tabs } from "./ui/primitives";
+import {
+  useNotificationSummary,
+  type SummaryItem,
+} from "@/platform/assistant/notification-summary";
 
 type Notice = {
   id: string;
@@ -45,9 +49,73 @@ export function safeLink(link: string | null) {
 }
 
 type BellProps = {
-  project: { id: string; timezone: string };
+  project: { id: string; timezone: string; workspaceId?: string };
   locale: "en" | "de";
 };
+
+/** The tab labels; "All projects" only while the cross-project summary answers (ADR 0023). */
+export function bellTabs(de: boolean, allProjects: boolean) {
+  return [
+    { key: "project", label: de ? "Dieses Projekt" : "This project" },
+    ...(allProjects ? [{ key: "all", label: de ? "Alle Projekte" : "All projects" }] : []),
+  ];
+}
+
+const severityLabel = (severity: SummaryItem["severity"], de: boolean) =>
+  severity === "urgent" ? (de ? "Dringend" : "Urgent") : severity === "attention" ? (de ? "Wichtig" : "Attention") : null;
+
+/** The "All projects" list: each notice names its project; read marks go to that project. */
+export function AllProjectsList({
+  items,
+  de,
+  locale,
+  timezone,
+  pending,
+  onRead,
+}: {
+  items: SummaryItem[];
+  de: boolean;
+  locale: "en" | "de";
+  timezone: string;
+  pending: boolean;
+  onRead(item: SummaryItem): void;
+}) {
+  if (!items.length)
+    return <p className="panel-note">{de ? "Keine Benachrichtigungen." : "No notifications."}</p>;
+  return (
+    <div className="member-list">
+      {items.map((n) => {
+        const link = safeLink(n.link);
+        const severity = severityLabel(n.severity, de);
+        return (
+          <div className="member-row" key={n.id}>
+            <div>
+              <strong>{n.readAt ? n.title : `● ${n.title}`}</strong>
+              <small>
+                {n.personal ? (de ? "Persönlicher Bereich" : "Personal space") : n.projectName}
+                {n.occurrences > 1 ? ` · ${n.occurrences}×` : ""}
+              </small>
+              <small>{when(n.lastOccurredAt, locale, timezone)}</small>
+            </div>
+            <div className="page-actions">
+              {severity && <Badge tone={n.severity === "urgent" ? "danger" : "warning"}>{severity}</Badge>}
+              {link && (
+                <Button variant="ghost" size="sm" asChild>
+                  <a href={link}>{de ? "Öffnen" : "Open"}</a>
+                </Button>
+              )}
+              {!n.readAt && (
+                <Button variant="ghost" size="sm" disabled={pending} onClick={() => onRead(n)}>
+                  {de ? "Gelesen" : "Mark read"}
+                </Button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Rendered in the top bar, outside the workspace context: props only. */
 export function NotificationBell({ project, locale }: BellProps) {
@@ -55,7 +123,13 @@ export function NotificationBell({ project, locale }: BellProps) {
     collectionPath(project.id, "notifications"),
   );
   const [open, setOpen] = useState<"list" | "settings" | null>(null);
-  const mutation = useMutation(notices.refresh);
+  const [tab, setTab] = useState<"project" | "all">("project");
+  const summary = useNotificationSummary(project.workspaceId);
+  const allProjects = Boolean(summary.data) && !summary.off;
+  const mutation = useMutation(() => {
+    notices.refresh();
+    summary.refresh();
+  });
   const { refresh } = notices;
   useEffect(() => {
     const timer = setInterval(refresh, POLL_MS);
@@ -92,7 +166,30 @@ export function NotificationBell({ project, locale }: BellProps) {
           onClose={() => setOpen(null)}
         >
           {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-          {notices.data?.items.length ? (
+          {allProjects && (
+            <Tabs
+              tabs={bellTabs(de, true)}
+              value={tab}
+              onChange={(key) => setTab(key as "project" | "all")}
+            />
+          )}
+          {allProjects && tab === "all" ? (
+            <AllProjectsList
+              items={summary.data!.items}
+              de={de}
+              locale={locale}
+              timezone={project.timezone}
+              pending={mutation.pending}
+              onRead={(n) =>
+                mutation.run(() =>
+                  api(
+                    `/projects/${encodeURIComponent(n.projectId)}/notifications/${encodeURIComponent(n.id)}/read`,
+                    { method: "POST", body: "{}" },
+                  ),
+                )
+              }
+            />
+          ) : notices.data?.items.length ? (
             <div className="member-list">
               {notices.data.items.map((n) => {
                 const link = safeLink(n.link);
@@ -139,7 +236,7 @@ export function NotificationBell({ project, locale }: BellProps) {
             </p>
           )}
           <div className="page-actions">
-            {unread > 0 && (
+            {unread > 0 && (!allProjects || tab === "project") && (
               <Button
                 variant="outline"
                 disabled={mutation.pending}

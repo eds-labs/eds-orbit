@@ -61,6 +61,10 @@ Object.assign(process.env, {
   ORBIT_AGENT_PLATFORM: "true",
   // Personal spaces (ADR 0022): probed for org owners and administrators.
   ORBIT_PERSONAL_ASSISTANT: "true",
+  // Proactive layer (ADR 0023): preferences, summary, stream, signal switches.
+  ORBIT_PROACTIVE: "true",
+  // Voice (ADR 0024): routes answer 404 while it is off; nothing reaches a provider.
+  ORBIT_VOICE: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });

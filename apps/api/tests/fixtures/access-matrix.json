@@ -503,6 +503,22 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/assistant/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/voice-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/google-drive/callback": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
@@ -549,6 +565,22 @@
     "viewer": "allowed:200",
     "editor": "allowed:200",
     "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/notifications/stream": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/notifications/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/openapi.json": {
@@ -1703,6 +1735,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/signal-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/social/accounts": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -2622,6 +2662,22 @@
     "editor": "allowed:400",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/assistant/speech": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/assistant/transcriptions": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:415",
+    "viewer": "allowed:415",
+    "editor": "allowed:415",
+    "sysadmin": "not_found",
+    "owner": "allowed:415"
   },
   "POST /api/automation/callbacks/{projectId}/{runId}": {
     "anonymous": "not_found",
@@ -4967,6 +5023,22 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "PUT /api/assistant/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/assistant/voice-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "PUT /api/organizations/{workspaceId}/ai/budget": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -5116,6 +5188,14 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/signal-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:OWNER_REQUIRED",
+    "editor": "forbidden:OWNER_REQUIRED",
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },

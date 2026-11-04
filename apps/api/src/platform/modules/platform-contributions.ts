@@ -51,6 +51,20 @@ import { linkPrune } from "../links/links.ts";
 import { agentWorkJob } from "../agents/work-orders/execute.ts";
 import { agentRoutes } from "../agents/routes.ts";
 import { assistantRoutes } from "../assistant/routes.ts";
+import { voiceRoutes } from "../assistant/voice-routes.ts";
+// Proactive signals, digests, briefings and per-user Telegram (ADR 0023).
+import { proactiveRoutes } from "../proactive/routes.ts";
+import { notificationDeliveryJob } from "../proactive/delivery.ts";
+import { digestJob } from "../proactive/digest.ts";
+import { briefingJob } from "../proactive/briefing.ts";
+import { proactiveScheduler } from "../proactive/scheduler.ts";
+import { signalsPeriodic } from "../signals/adapters.ts";
+import {
+  BRIEFING_SUMMARY_FAILED,
+  platformSignals,
+  signalUserNotifications,
+} from "../signals/initial.ts";
+import { BUDGET_THRESHOLD_EVENT } from "../signals/budget-threshold.ts";
 import { personalAssistantTools } from "../assistant/user-tools.ts";
 import {
   agentDelegateAction,
@@ -76,13 +90,21 @@ export const platformContributions: ModuleContributions = {
   routes: (ctx) => {
     agentRoutes(ctx);
     assistantRoutes(ctx);
+    // Voice (ADR 0024), 404 while ORBIT_VOICE is off.
+    voiceRoutes(ctx);
+    // Proactive layer (ADR 0023), 404 while ORBIT_PROACTIVE is off.
+    proactiveRoutes(ctx);
   },
   userNotifications: {
     agent_work_failed: {
       label: { en: "Agent run failed", de: "Agenten-Ausführung fehlgeschlagen" },
       emailDefault: false,
     },
+    // Written by the platform's signals only (ADR 0023).
+    ...signalUserNotifications,
   },
+  // Proactive signals (ADR 0023): deterministic, no AI.
+  signals: platformSignals,
   actionTypes: {
     "platform.task.start": taskStart,
     // The personal assistant's delegation batches (ADR 0022 item 7).
@@ -104,7 +126,12 @@ export const platformContributions: ModuleContributions = {
   ],
   configurationSections: { project: projectSection },
   // Knowledge source syncs and agent schedule triggers (ADR 0021).
-  scheduler: combineSchedulers(sourceSyncScheduler, agentScheduleScheduler),
+  // Digests and briefings in personal spaces (ADR 0023).
+  scheduler: combineSchedulers(
+    sourceSyncScheduler,
+    agentScheduleScheduler,
+    proactiveScheduler,
+  ),
   // The bot's `/pause` confirmation; modules add their own buttons.
   telegram: { callbacks: { pause: pauseCallback } },
   // The bot's webhook through the platform's hooks route as well (WP4.2).
@@ -130,6 +157,8 @@ export const platformContributions: ModuleContributions = {
     linkPrune,
     eventRetention,
     personalSpaceCleanup,
+    // Periodic signal detectors, hourly (ADR 0023, T4-2).
+    signalsPeriodic,
   ],
   // Object links publish their changes (ADR 0016).
   // Handoff targets report progress through one event (ADR 0017).
@@ -141,6 +170,9 @@ export const platformContributions: ModuleContributions = {
       // Agent work orders (ADR 0021): content-free, ids and codes only.
       "platform.agent.work_order.finished",
       "platform.agent.work_order.failed",
+      // Proactive layer (ADR 0023): budget thresholds and briefing summaries.
+      BUDGET_THRESHOLD_EVENT,
+      BRIEFING_SUMMARY_FAILED,
       ...(process.env.NODE_ENV === "test" ? [TEST_PING] : []),
     ],
     // Agents may be started by any module's declared triggerable events.
@@ -230,5 +262,9 @@ export const platformContributions: ModuleContributions = {
     },
     // One domain event for one subscriber (ADR 0016).
     eventJob,
+    // Proactive delivery, digests and briefings (ADR 0023).
+    notificationDeliveryJob,
+    digestJob,
+    briefingJob,
   ],
 };

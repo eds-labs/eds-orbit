@@ -1,5 +1,20 @@
 # Requirements traceability
 
+## Agent platform, Phase 4: proactive notices and voice (ADR 0023, ADR 0024; 2026-11-05, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-4.md](plans/agent-platform-phase-4.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP4-1 | Scenario E: one deduplicated notice per agent, code and day for sponsor and managers; no model call for detection or delivery | `platform/signals/`, `notifications/members.ts` | `proactive-signals.integration.test.ts` (provider spy, 500-failure storm) | PASS_TEST |
+| AP4-2 | Urgent and due items, aging approvals, budget thresholds once per period, delegations reach the right users; quiet hours respected | `signals/*`, `proactive/delivery.ts`, `ai/budget.ts` | `proactive-signals`, `proactive-delivery` integration tests (threshold race) | PASS_TEST |
+| AP4-3 | Bell "All projects" and bubble badge without data from inaccessible projects | `proactive/{summary,wake}.ts`, web bell and badge | `proactive-summary.integration.test.ts`, web component tests | PASS_TEST |
+| AP4-4 | Deterministic daily briefing at local time; optional AI summary within ceiling and cap | `proactive/{briefing,summarizer,scheduler}.ts` | `proactive-briefing.integration.test.ts` (DST, no model without opt-in) | PASS_TEST |
+| AP4-5 | Voice input: transcript into the composer, same turn as typed text, no audio stored, cost per audio minute | `assistant/voice*.ts`, `packages/ai/src/{speech,audio-duration}.ts` | `voice.integration.test.ts`, `speech.test.ts`, `audio-duration.test.ts`, `voice.test.tsx` | PASS_TEST (fake adapter); device check open |
+| AP4-6 | Read aloud per message, cost per character within the cap | `assistant/voice.ts` | `voice.integration.test.ts` | PASS_TEST (fake adapter) |
+| AP4-7 | Flags off: nothing proactive or voice-related runs; existing notifications unchanged | flags `ORBIT_PROACTIVE`, `ORBIT_VOICE` | flag-off regressions (notifications, support automations, Work PM, Telegram) | PASS_TEST |
+| AP4-8 | Per-user Telegram only to the user's linked chat, once per key, stops on `/stop` or unlink | `connections/telegram.ts`, `proactive/delivery.ts` | `proactive-delivery.integration.test.ts` | PASS_TEST |
+
 ## Agent platform, Phase 3: personal Orbit Assistant (ADR 0022; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flag off)
 
 Plan [plans/agent-platform-phase-3.md](plans/agent-platform-phase-3.md), acceptance criteria §11.

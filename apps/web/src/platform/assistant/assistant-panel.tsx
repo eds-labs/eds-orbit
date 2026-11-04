@@ -20,6 +20,7 @@ import {
   type AssistantContextValue,
 } from "./assistant-context";
 import { ConversationHistory, ConversationView } from "./conversation-view";
+import { useAssistantVoice, voiceViewProps } from "./voice";
 
 // The personal assistant's panel (WP3.8): a header with the focus project,
 // "new conversation", history, the full page and "My context", and the
@@ -103,6 +104,7 @@ export function AssistantPanel({
 }) {
   const assistant = useAssistantPanel();
   const [view, setView] = useState<"chat" | "history">("chat");
+  const voice = useAssistantVoice(assistant);
   if (!assistant) return null;
   const de = assistant.locale === "de";
   const t = assistantText(de);
@@ -195,6 +197,7 @@ export function AssistantPanel({
             input={assistant.input}
             setInput={assistant.setInput}
             inputId={PANEL_INPUT_ID}
+            {...voiceViewProps(voice, { conversation, input: assistant.input, setInput: assistant.setInput, inputId: PANEL_INPUT_ID, de })}
             inputLabel={t.inputLabel}
             placeholder={t.placeholder}
             label={t.title}

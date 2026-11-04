@@ -1,5 +1,41 @@
 # Implementation status
 
+## Agent platform, Phase 4: proactive notices and voice (2026-11-05, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PROACTIVE` and `ORBIT_VOICE` off)
+
+Decisions D-18 (per-user Telegram in this phase), D-19 and D-20 (Mario, 2026-11-04; [ADR 0023](adr/0023-proactive-signals.md), [ADR 0024](adr/0024-speech-port-voice.md)). Plan: [Phase 4](plans/agent-platform-phase-4.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md) ("Proactive notices and briefings", "Voice"), [EMAIL_AND_NOTIFICATIONS.md](EMAIL_AND_NOTIFICATIONS.md), [MODEL_ROUTING.md](MODEL_ROUTING.md) ("Speech").
+
+- **Built:**
+  - WP4.0: ADRs 0023 and 0024.
+  - WP4.1: notification dedupe (migration `202611050001_notification_dedupe`); a delivery job with user preferences in the personal space (quiet hours, digest, severity modes); the digest e-mail through system SMTP; per-user Telegram through the owner-bot flow in the personal space. The Phase 1 failure guard is replaced while the flag is on.
+  - WP4.2: `platform/signals/` (registry, event and periodic adapters, per-project switches). The budget threshold event comes from `reserve`. Initial signals; Support and Marketing are mappings.
+  - WP4.3: `GET /api/notifications/summary`, a content-free wake-up and SSE stream with a polling fallback, the bell "All projects" tab and the bubble badge.
+  - WP4.4: briefings (personal-space scheduler, deterministic notice in a "Briefings" conversation, optional e-mail, opt-in AI summary) and the Work template `work.weekly_report`.
+  - WP4.5: speech port and OpenAI adapter (injectable fetch, no SDK), dependency-free audio duration measurement, unit prices (migration `202611050002_ai_price_units`), speech catalogue entries and the admin catalogue UI, and audio budget helpers.
+  - WP4.6/WP4.7: the transcription route (raw body, caps, nothing stored), the speech route (streamed, character cap, card titles only), voice settings, the microphone button and read aloud in the panel and page.
+  - Flags `ORBIT_PERSONAL_ASSISTANT`, `ORBIT_PROACTIVE` and `ORBIT_VOICE` are wired into the config schema, `.env.example` and both Compose files.
+- **Deviations:**
+  - The briefing summarizer runs on the bounded task host without an agent definition, because a personal space has no agents.
+  - `task_due_soon` maps the existing daily due notice.
+  - The 100 % threshold means "limit reached or the next equal reservation would not fit".
+  - Organization-level thresholds deduplicate per reserving project.
+  - `delegation_done` always writes a notice.
+  - The transcription route takes the raw body (no multipart plugin installed).
+  - `synthesize` streams.
+  - Speech routing uses the first active priced catalogue model (no persisted speech route yet).
+  - Budget codes keep their existing names.
+  - WP4.8 (realtime voice spike) was not built: it is optional, not merged and needs paid test minutes.
+- **Verification (local):** see the Phase 4 entry in `REQUIREMENTS_TRACEABILITY.md` and the full-suite line below.
+  - The access matrix gained 10 reviewed rows; no existing row changed.
+  - OpenAPI only adds 7 paths.
+  - API and web typecheck, boundaries, source checks and Compose checks are clean.
+  - Every speech test uses a fake adapter.
+  - Not run: a live STT/TTS call (needs Mario's approval), a browser or device check (iOS Safari, Android Chrome), Playwright.
+- **Before rollout:**
+  - An administrator checks and saves the speech prices; they come from the subagent's knowledge as of 2025-03 and are marked "please check".
+  - The system SMTP sender is configured for digests.
+  - Confirm that Work task titles in digest e-mails are acceptable.
+- **Production:** nothing deployed. **Migrations `202611040001` to `202611050002`: schema hash `f641f3f978fa15b05d4b750000be02b1cf4d846cd11f1445152317335cd5b234` (on `main` `469b1dae`; supersedes `de4a5324…`) must be approved in Coolify before the `main` push.** The Compose files change too (three new flags, default off).
+
 ## Agent platform, Phase 3: personal Orbit Assistant (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PERSONAL_ASSISTANT` off)
 
 Decisions D-08, D-09, D-10 as recommended; D-17 automatic memory with guardrails (Mario, 2026-11-04; [ADR 0021](adr/0021-agent-platform.md) addendum, [ADR 0022](adr/0022-personal-space-assistant.md)). Plan: [Phase 3](plans/agent-platform-phase-3.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md).

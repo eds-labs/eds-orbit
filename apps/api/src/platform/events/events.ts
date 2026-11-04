@@ -83,6 +83,7 @@ export async function publishEvent(
   });
   for (const sub of registeredSubscribers(input.type)) {
     if (sub.name === input.origin || !moduleAvailable(sub.owner)) continue;
+    if (sub.enabled && !sub.enabled()) continue;
     await enqueue(
       tx,
       scope,
