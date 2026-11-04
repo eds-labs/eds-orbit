@@ -12,9 +12,11 @@ import type {
 //   /o                                 organization picker
 //   /o/:orgId                          project picker of one organization
 //   /o/:orgId/settings                 organization settings (ADR 0013)
+//   /o/:orgId/agents                   agents of every project (ADR 0021)
 //   /admin[/<section>[/<id>]]          system administration (ADR 0013)
 //   /p/:projectId                      project home
 //   /p/:projectId/<view>               platform page
+//   /p/:projectId/<view>/<rest…>       platform page that owns subpaths
 //   /p/:projectId/<moduleId>[/<view>]  module page
 // The paths from before WP1.7 ("/missions", "/settings", …) redirect into the
 // last used project, so bookmarks and Telegram or Slack links keep working.
@@ -82,6 +84,8 @@ export function routeTable(registry: WebRegistry): RouteTable {
           `${view.key}: navGroup "${view.navGroup}" needs requiresModule "${view.navGroup}"`,
         );
     }
+    if (view.subpaths && !view.path)
+      problems.push(`${view.key}: subpaths on a root view`);
     if (view.nav?.mobileRank !== undefined && !view.nav.mobile)
       problems.push(`${view.key}: nav.mobileRank without nav.mobile`);
     routes.push({
@@ -183,6 +187,8 @@ export type Place =
   | { kind: "organizations" }
   | { kind: "organization"; organizationId: string }
   | { kind: "organizationSettings"; organizationId: string }
+  /** The agents of every project of an organization (ADR 0021, WP1.8). */
+  | { kind: "organizationAgents"; organizationId: string }
   /** The system administration; `section` "" is its overview. */
   | { kind: "admin"; section: string; id?: string }
   | { kind: "view"; projectId: string; route: Route }
@@ -211,6 +217,8 @@ export function locate(pathname: string, table: RouteTable): Place {
     if (!second) return { kind: "organizations" };
     if (rest.length === 1 && rest[0] === "settings")
       return { kind: "organizationSettings", organizationId: second };
+    if (rest.length === 1 && rest[0] === "agents")
+      return { kind: "organizationAgents", organizationId: second };
     return rest.length
       ? { kind: "notFound" }
       : { kind: "organization", organizationId: second };
@@ -228,6 +236,11 @@ export function locate(pathname: string, table: RouteTable): Place {
     const path = rest.join("/");
     const route = table.routes.find((r) => r.segments.join("/") === path);
     if (route) return { kind: "view", projectId: second, route };
+    // A page that owns its subpaths reads the rest of the path itself.
+    const owner = table.routes.find(
+      (r) => r.subpaths && path.startsWith(`${r.segments.join("/")}/`),
+    );
+    if (owner) return { kind: "view", projectId: second, route: owner };
     if (rest.length === 1 && table.moduleIds.includes(rest[0]!)) {
       const entry = navOrder(
         table.routes.filter((r) => r.moduleId === rest[0]),

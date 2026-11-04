@@ -136,6 +136,30 @@ describe("Web route registry", () => {
     ).toThrow(/navGroup/);
   });
 
+  it("lets a page own its subpaths, but never the project home (WP1.8)", () => {
+    const view = (key: string, path: string, subpaths?: true) => ({
+      key,
+      path,
+      component: () => null,
+      ...(subpaths ? { subpaths } : {}),
+    });
+    expect(() =>
+      routeTable({ platform: [view("home", "", true)], modules: [] }),
+    ).toThrow(/subpaths on a root view/);
+    const owned = routeTable({
+      platform: [view("home", ""), view("a", "a", true), view("b", "b")],
+      modules: [],
+    });
+    expect(locate(`/p/${P}/a/x/y`, owned)).toMatchObject({
+      kind: "view",
+      route: { key: "a" },
+    });
+    expect(locate(`/p/${P}/b/x`, owned)).toEqual({
+      kind: "notFound",
+      projectId: P,
+    });
+  });
+
   it("requires a platform page in a module's group to require that module", () => {
     const view = (key: string, path: string, extra = {}) => ({
       key,

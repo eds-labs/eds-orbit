@@ -95,6 +95,9 @@ import {
   ProjectPicker,
   projectFields,
 } from "@/platform/shell/pickers";
+import { agentPaths } from "@/platform/agents/api";
+import { agentPlatformVisible } from "@/platform/agents/logic";
+import { OrganizationAgents } from "@/platform/agents/org-agents";
 
 const LAST_PROJECT = "orbit.project";
 type ModuleStates = {
@@ -172,6 +175,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     lastStates,
     project?.id,
   );
+  // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
+  // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).
+  const memberRole = project
+    ? project.role ||
+      identity.data?.workspaces.find((w) => w.id === project.workspaceId)
+        ?.role ||
+      "viewer"
+    : undefined;
+  const agentsProbe = useResource<unknown>(
+    project && (memberRole === "owner" || memberRole === "editor")
+      ? agentPaths.templates(project.id)
+      : null,
+  );
+  const agentPlatform = agentPlatformVisible(memberRole, agentsProbe);
   // Shared by the sidebar badges and the home page (§4.4), through a 30 s
   // cache that outlives the remount on navigation (ruling R15).
   const attention = useAttentionLoad(
@@ -308,15 +325,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       const module = registry.modules.find((m) => m.id === id);
       return moduleShown(states, id, module?.optIn === true, module?.minAccess);
     };
-    const nav = navOrder(
-      navigationForFeatures(table.routes, knownStates?.features),
-    );
+    const features = { ...knownStates?.features, agentPlatform };
+    const nav = navOrder(navigationForFeatures(table.routes, features));
     const active = registry.modules.filter((m) => enabled(m.id));
     return {
-      features: knownStates?.features,
+      features,
       table: {
         ...table,
-        routes: routesForFeatures(table.routes, knownStates?.features),
+        routes: routesForFeatures(table.routes, features),
       },
       platformNav: nav.filter((r) => !r.moduleId && routeEnabled(r, enabled)),
       modules: registry.modules.map((m) => ({
@@ -363,7 +379,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
     };
-  }, [project, knownStates, registry, table, renderers]);
+  }, [project, knownStates, registry, table, renderers, agentPlatform]);
   // Apart, so a loaded attention keeps the functions above unchanged.
   const shell = useMemo(
     (): ShellContextValue | null => base && { ...base, attention },
@@ -380,23 +396,27 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     const page =
       place.kind === "organizations"
         ? t("chooseOrganization")
-        : place.kind === "organization"
-          ? t("chooseProject")
-          : projectId && !project
-            ? t("projectNotFound")
-            : place.kind === "view"
-              ? pageTitle(
-                  base?.table.routes.find((r) => r.key === place.route.key) ??
-                    place.route,
-                  base?.table ?? table,
-                  locale,
-                  groupLabel,
-                )
-              : place.kind === "standalone"
-                ? place.view.title[locale]
-                : place.kind === "notFound"
-                  ? t("notFound")
-                  : null;
+        : place.kind === "organizationAgents"
+          ? locale === "de"
+            ? "Agenten"
+            : "Agents"
+          : place.kind === "organization"
+            ? t("chooseProject")
+            : projectId && !project
+              ? t("projectNotFound")
+              : place.kind === "view"
+                ? pageTitle(
+                    base?.table.routes.find((r) => r.key === place.route.key) ??
+                      place.route,
+                    base?.table ?? table,
+                    locale,
+                    groupLabel,
+                  )
+                : place.kind === "standalone"
+                  ? place.view.title[locale]
+                  : place.kind === "notFound"
+                    ? t("notFound")
+                    : null;
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
@@ -589,6 +609,26 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             />
             <OrganizationIntegrations
               identity={me}
+              organizationId={place.organizationId}
+              locale={locale}
+            />
+          </>,
+          true,
+        )
+      : frame(<NotFound t={t} project={false} />);
+  // The agents of all projects (ADR 0021); the summary API lists only
+  // projects the member may read agents in.
+  if (place.kind === "organizationAgents")
+    return me.workspaces.some((w) => w.id === place.organizationId)
+      ? frame(
+          <>
+            <Link
+              className="back-link"
+              href={`/o/${encodeURIComponent(place.organizationId)}`}
+            >
+              ← {t("chooseProject")}
+            </Link>
+            <OrganizationAgents
               organizationId={place.organizationId}
               locale={locale}
             />

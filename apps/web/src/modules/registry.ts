@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bot,
   CircleCheck,
   Home,
   Link2,
@@ -14,6 +15,7 @@ import type {
   WebRegistry,
 } from "@/platform/shell/types";
 import { Decisions } from "@/platform/shell/decisions";
+import { AgentsView } from "@/platform/agents/agents-view";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -152,6 +154,22 @@ export const webRegistry: WebRegistry = {
         mobileRank: 10,
       },
       legacyPaths: ["/chat"],
+    },
+    {
+      // Configured agents (ADR 0021, WP1.8): a platform page, not a module.
+      // The entry shows only while the agents API answers for the member
+      // (flag on, owner or editor); the shell sets "agentPlatform".
+      key: "agents",
+      path: "agents",
+      subpaths: true,
+      component: AgentsView,
+      navGroup: "top",
+      nav: {
+        feature: "agentPlatform",
+        label: { en: "Agents", de: "Agenten" },
+        icon: Bot,
+        order: 30,
+      },
     },
     {
       // Marketing's content approvals. Approval requests of every module

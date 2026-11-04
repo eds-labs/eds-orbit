@@ -46,6 +46,12 @@ export type ViewDef = {
   key: string;
   /** Path below the owner's root: "" for the root itself, else one segment. */
   path: string;
+  /**
+   * The page also owns every path below its own, such as
+   * /p/:projectId/agents/<agentId>/executions/<id>, and reads the rest of
+   * the pathname itself. Not for a root view (path "").
+   */
+  subpaths?: true;
   component: ComponentType;
   nav?: NavEntry;
   /** Server-advertised feature may replace or hide navigation without losing the route. */
