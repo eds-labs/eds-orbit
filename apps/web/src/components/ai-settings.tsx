@@ -1122,6 +1122,7 @@ const taskClasses = [
   { id: "knowledge_evaluation", label: "Knowledge test questions", defaultTokens: 6000 },
   { id: "issue_triage", label: "Issue triage", defaultTokens: 1500 },
   { id: "creative_review", label: "Creative vision review", defaultTokens: 1500 },
+  { id: "agent_custom", label: "Configured agents", defaultTokens: 3000 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
 /** The task classes that get a route: the Creative Studio's vision review only while it is on (CS-D6). */

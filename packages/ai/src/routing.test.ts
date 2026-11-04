@@ -101,6 +101,7 @@ describe("resolveRoute", () => {
       "knowledge_evaluation",
       "issue_triage",
       "creative_review",
+      "agent_custom",
     ]);
   });
   it("rejects unverified models", () => {
@@ -166,6 +167,29 @@ describe("creative_review", () => {
     ).toEqual({ model: "v", maxOutputTokens: 2000 });
     expect(defaultOutputTokens.creative_review).toBe(1500);
     expect(legacyTier.creative_review).toBe("standard");
+  });
+});
+
+describe("agent_custom", () => {
+  it("routes the work orders of configured agents", () => {
+    const runtime = {
+      verifiedModels: ["f", "s", "q", "e", "c"],
+      modelRoutes: { fast: "f", standard: "s", quality: "q", escalation: "e" },
+    };
+    // Standard tier and 3,000 output tokens without a saved route.
+    expect(resolveRoute("agent_custom", runtime)).toEqual({
+      model: "s",
+      maxOutputTokens: 3000,
+    });
+    expect(
+      resolveRoute("agent_custom", {
+        ...runtime,
+        taskRoutes: taskRoutesSchema.parse({
+          agent_custom: { model: "c", maxOutputTokens: 4000 },
+        }),
+      }),
+    ).toEqual({ model: "c", maxOutputTokens: 4000 });
+    expect(legacyTier.agent_custom).toBe("standard");
   });
 });
 

@@ -74,6 +74,8 @@ export const aiTasks = [
   { id: "issue_triage", en: "Issue triage", de: "Issue-Einordnung", tokens: 1500 },
   // Creative Studio: the optional vision review of a composed creative.
   { id: "creative_review", en: "Creative vision review", de: "Creative: Bildprüfung", tokens: 1500 },
+  // Agent platform (ADR 0021): work orders of configured agents.
+  { id: "agent_custom", en: "Configured agents", de: "Agenten: eigene Agenten", tokens: 3000 },
 ] as const;
 /**
  * The task classes a page offers: the Creative Studio's vision review only

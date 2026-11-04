@@ -43,7 +43,7 @@ Every paid reservation now also records `agentRunId`, `taskClass`, `model` and `
 
 ## Task-class routes (2026-10-01)
 
-Three task classes reach a model: `chat_operator` (Orbit Chat), `draft_social` (every draft whose content type is not `blog`) and `draft_blog`. Each resolves to a route `{ model, reasoningEffort?, maxOutputTokens }`:
+Routing v2 started with three task classes: `chat_operator` (Orbit Chat), `draft_social` (every draft whose content type is not `blog`) and `draft_blog`. Later features added more (the sections below); the complete list is `taskClasses` in `packages/ai/src/routing.ts`. Each task class resolves to a route `{ model, reasoningEffort?, maxOutputTokens }`:
 
 1. An explicit task route saved by the owner in the OpenAI configuration dialog (Settings, Project tab; sections "Chat operator route", "Social drafts route", "Blog drafts route") wins. An empty model field means no task route.
 2. Otherwise the legacy tier applies: `chat_operator` and `draft_social` use the `standard` tier, `draft_blog` the `quality` tier, with the default ceilings 3,000 (chat) and 1,800 (drafts) and no reasoning parameter. With nothing saved, every task therefore uses the same model as before routing v2. The environment bootstrap fallback has no task routes.
@@ -129,6 +129,12 @@ The AI project manager (ADR 0017, `docs/WORK.md`) adds the task classes `pm_plan
 The issue center (ADR 0018, `docs/ISSUES.md`) adds the task class `issue_triage` (one structured triage suggestion per issue version; 1,500 output tokens, legacy `standard` tier) and the run kind `issues` (`AgentRun_kind_check` widened in the additive migration `202610260001_issues_core`). The provider catalogue suggests `claude-haiku-5-5`. AI triage runs only when the owner turned it on or a triager asks, within the spend mandate and the module's own daily ceiling (default USD 0.50); nothing is used until the route is verified, priced and saved (Settings → AI, "Issue triage"). Local only; not deployed.
 
 **Structured runs.** PM calls go through the platform helper `runStructured` (`apps/api/src/platform/agents/structured-run.ts`): R0 read tools only (a write tool or a tool the member may not use is refused before the run), optional hosted web search priced per search, a strict output schema, an input limit checked before any reservation (`AGENT_CONTEXT_LIMIT`), tool results cut at 12,000 characters. Each model call takes the spend mandate, the caller's own ceiling, a reservation under `<callKey>:<n>` and settlement; a repeated job attempt with the same call key finds the reservation and sends nothing (`outcome_unknown`). An invalid answer fails with `AGENT_OUTPUT_INVALID` after its cost is settled; an unclear call stays unknown and is never resent.
+
+Since WP1.3 of the agent platform (ADR 0021) Marketing's specialists run on the same task host: `runSpecialist` passes its own preamble, hosted tools, strict JSON parsing, source normalization, hooks and failure codes to `runStructured`, and keeps its reservation keys (`agent:<taskId>[:<callKey>]:<n>`, category `agent_text`, run key `assignment-run:<runId>`), budget checks and `AgentRun`/`AgentSpan` records. One recorded deviation: a specialist's tool result longer than 12,000 characters is sent as valid JSON `{"truncated":true,"partial":…}` instead of a cut JSON text.
+
+## Configured agents (2026-11-04, local)
+
+The agent platform (ADR 0021) adds the task class `agent_custom` for the work orders of configured agents: default ceiling 3,000 output tokens, legacy `standard` tier; the Claude suggestion is `claude-sonnet-5-5`. Settings → AI lists it as "Configured agents" / "Agenten: eigene Agenten". As for every class, a route is used only once its model is verified and priced. No call uses the class yet: work orders of configured agents come with later work packages (plan `docs/plans/agent-platform-phase-1.md`).
 
 ## Knowledge test questions (2026-10-26)
 

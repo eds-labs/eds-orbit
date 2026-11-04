@@ -36,6 +36,7 @@ import {
   registerSpecialist,
   registerStepHandler,
   runAgentTask,
+  runSpecialist,
 } from "../src/modules/agents/specialists/runner.ts";
 import type { Specialist } from "../src/modules/agents/specialists/types.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
@@ -710,6 +711,104 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     expect(spans).toHaveLength(1);
     expect(spans[0]).toMatchObject({ type: "model_call", status: "failed" });
     expect(spans[0]!.errorCode).toMatch(/^AGENT_OUTPUT_INVALID \S+:/);
+  });
+
+  // WP1.3: runSpecialist runs on the platform task host with Marketing's own
+  // conventions; these are the ones the other tests here do not reach.
+  it("keeps the specialist's call keys, tool context, strict parsing and failure codes on the task host", async () => {
+    const contexts: unknown[] = [];
+    const contextLookup = defineTool({
+      ...lookup,
+      async execute(context, args) {
+        contexts.push({
+          runId: context.runId,
+          conversationId: context.conversationId,
+          agentTask: context.agentTask,
+        });
+        return lookup.execute(context, args);
+      },
+    });
+    const codes: string[] = [];
+    const attempt = async (work: () => Promise<unknown>) => {
+      try {
+        await work();
+      } catch (error) {
+        codes.push((error as DomainError).code);
+      }
+    };
+    registerStepHandler("research", async (scope, t) => {
+      const specialist = echo("research", { tools: [contextLookup] });
+      mocked.replies.push(() => ({ output: [lookupCall("beta")] }));
+      mocked.replies.push(() => ({ output: [message('{"text":"one"}')] }));
+      const first = await runSpecialist(scope, t, specialist, {
+        callKey: "review1",
+      });
+      // The same turn again finds its reservation and sends nothing.
+      await attempt(() =>
+        runSpecialist(scope, t, specialist, { callKey: "review1" }),
+      );
+      // A fenced answer is not the JSON object itself.
+      mocked.replies.push(() => ({
+        output: [message('```json\n{"text":"two"}\n```')],
+      }));
+      await attempt(() =>
+        runSpecialist(scope, t, specialist, { callKey: "review2" }),
+      );
+      // A task canceled meanwhile sends nothing more.
+      await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+        const row = await entity(tx, scope, "agent_tasks", t.id);
+        await update(tx, scope, row, { ...data(row), status: "canceled" });
+      });
+      await attempt(() =>
+        runSpecialist(scope, t, specialist, { callKey: "review3" }),
+      );
+      return first;
+    });
+    const research = await task("research");
+    await runAgentTask(worker(), research.id);
+
+    expect(codes).toEqual([
+      "RESERVATION_ALREADY_USED",
+      "AGENT_OUTPUT_INVALID",
+      "AGENT_CANCELED",
+    ]);
+    expect(mocked.requests).toHaveLength(3);
+    expect(contexts).toEqual([
+      {
+        runId: research.id,
+        conversationId: research.runId,
+        agentTask: { taskId: research.id, runId: research.runId },
+      },
+    ]);
+    expect(
+      (await reservations(research.id)).map((r) => [
+        r.key.slice(project.owner.projectId.length + 1),
+        r.category,
+        r.state,
+      ]),
+    ).toEqual([
+      [`agent:${research.id}:review1:0`, "agent_text", "settled"],
+      [`agent:${research.id}:review1:1`, "agent_text", "settled"],
+      [`agent:${research.id}:review2:0`, "agent_text", "settled"],
+    ]);
+    const runs = await run((tx) =>
+      tx.agentRun.findMany({
+        where: { projectId: project.owner.projectId, subjectId: research.id },
+        orderBy: { startedAt: "asc" },
+      }),
+    );
+    expect(
+      runs.map((r) => [r.kind, r.agentName, r.subjectType, r.status, r.errorCode]),
+    ).toEqual([
+      ["agent", "orbit_research", "agent_task", "succeeded", null],
+      ["agent", "orbit_research", "agent_task", "failed", "RESERVATION_ALREADY_USED"],
+      ["agent", "orbit_research", "agent_task", "failed", "AGENT_OUTPUT_INVALID"],
+      ["agent", "orbit_research", "agent_task", "canceled", "AGENT_CANCELED"],
+    ]);
+    // Marketing's preamble, not the platform's.
+    expect(mocked.requests[0].instructions).toMatch(
+      /^You are an Orbit specialist working on one step/,
+    );
   });
 
   it("names an answer cut off at the output limit AGENT_OUTPUT_LIMIT (cost settled)", async () => {
