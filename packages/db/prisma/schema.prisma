@@ -367,6 +367,12 @@ model Notification {
   link        String?
   readAt      DateTime? @db.Timestamptz(3)
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  /// A signal's fingerprint with its period bucket (ADR 0023); null for undeduplicated notices.
+  dedupeKey      String?
+  occurrences    Int       @default(1)
+  lastOccurredAt DateTime? @db.Timestamptz(3)
+  /// 'info', 'attention' or 'urgent'; a repeat marks the row unread only when it rises.
+  severity       String    @default("info")
 
   @@index([workspaceId, projectId, userId, createdAt])
 }
@@ -1665,6 +1671,10 @@ model AiModelPrice {
   active         Boolean    @default(true)
   rate           Json?
   perImageMicros Int?
+  /// 'token' (rates in `rate`), 'audio_minute' or 'character' (ADR 0024).
+  unit           String     @default("token")
+  /// USD millionths per audio minute or per character; required unless unit is 'token'.
+  unitPriceMicros Decimal?  @db.Decimal(18, 6)
   verifiedAt     DateTime?  @db.Timestamptz(3)
   version        Int        @default(1)
   updatedBy      String
