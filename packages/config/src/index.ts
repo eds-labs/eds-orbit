@@ -105,6 +105,9 @@ const baseConfigSchema = z.object({
   // approval. While "false" every stored mandate is inert and every request
   // waits for its decision as before.
   ORBIT_AGENT_MANDATES: z.enum(["false", "true"]).default("false"),
+  // Agent platform (ADR 0021): builder and manual runs; schedule and event triggers.
+  ORBIT_AGENT_PLATFORM: z.enum(["false", "true"]).default("false"),
+  ORBIT_AGENT_AUTOMATION: z.enum(["false", "true"]).default("false"),
   // Owners may switch modules per project (WP1.4). Activation is recorded but
   // not yet enforced; every module keeps working while this is "false".
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),

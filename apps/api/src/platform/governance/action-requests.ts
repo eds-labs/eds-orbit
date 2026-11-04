@@ -27,6 +27,7 @@ import {
   activePolicyRecord,
   activeSpendMandateRef,
 } from "../ai/spend-mandate.ts";
+import { agentExecutionRequester } from "../agents/agent-execution.ts";
 import {
   registeredActionType,
   registeredActionTypeOwner,
@@ -48,8 +49,15 @@ export const requestedBy = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("agent"),
+      // The assistant's member, or a configured agent's sponsor.
       userId: z.string().min(1),
       agentRunId: z.string().nullable(),
+      // A configured agent (ADR 0021): which agent, at which activated
+      // version, in which work order, and who asked for that work order.
+      agentId: z.uuid().optional(),
+      agentVersion: z.number().int().positive().optional(),
+      workOrderId: z.uuid().optional(),
+      requesterUserId: z.string().min(1).optional(),
     })
     .strict(),
   // A proposal from an MCP client (WP-M4): the client and grant it came from,
@@ -214,7 +222,9 @@ export async function createActionRequest(
 ) {
   const type = definition(input.actionType);
   const requester = requestedBy.parse(
-    delegatedRequester(input.payload) ?? input.requestedBy,
+    delegatedRequester(input.payload) ??
+      agentExecutionRequester() ??
+      input.requestedBy,
   );
   if (requester.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);

@@ -21,6 +21,7 @@ import {
 import { approveUnderMandate } from "../governance/authorization.ts";
 import { agentMandatesEnabled } from "../governance/agent-mandates.ts";
 import { userScoped } from "../tenancy/scope.ts";
+import { agentRequester } from "../agents/principal.ts";
 import { actorScope } from "../tenancy/member-scope.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
 import { authorize, can, PROJECT_OWN } from "../tenancy/permissions.ts";
@@ -359,6 +360,18 @@ export function approvedOperation(
       if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
       const asModule = moduleScope(actor, op.module);
       await check(tx, asModule, op);
+      // A configured agent's proposal also needs its requester's current
+      // rights (ADR 0021 §2): the sponsor is the actor checked above.
+      const by = data(row).requestedBy;
+      if (by?.kind === "agent" && by.requesterUserId && by.requesterUserId !== actor.userId) {
+        const requester = await actorScope(
+          scope.workspaceId,
+          scope.projectId,
+          String(by.requesterUserId),
+        );
+        if (!requester) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
+        await check(tx, moduleScope(requester, op.module), op);
+      }
       await tx.$executeRaw`SELECT set_config('app.user_id',${actor.userId},true)`;
       const args = op.input.parse(p.args);
       await op.validate?.(tx, asModule, args);
@@ -418,7 +431,9 @@ export function approvedOperation(
             args,
             idempotencyKey,
           })
-        : { kind: "agent", userId: ctx.scope.userId, agentRunId: ctx.runId };
+        : ctx.principal
+          ? agentRequester(ctx.principal, ctx.runId)
+          : { kind: "agent", userId: ctx.scope.userId, agentRunId: ctx.runId };
       return userScoped(ctx.scope, async (tx) => {
         await check(tx, ctx.scope, op);
         const old = await tx.entity.findFirst({

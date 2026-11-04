@@ -16,8 +16,12 @@ import {
   registeredTools,
 } from "../modules/contributions.ts";
 import { effectiveRole, moduleScope } from "../tenancy/module-roles.ts";
+import { agentExecution } from "./agent-execution.ts";
+import { authorizeAgentTool, type AgentPrincipal } from "./principal.ts";
 import {
   availableTools,
+  dropNullFields,
+  exposedToAgent,
   exposedToAssistant,
   exposedToMcp,
   type OrbitTool,
@@ -26,12 +30,13 @@ import {
   type ToolResult,
 } from "./tools/registry.ts";
 
-/** Where a tool is offered: Orbit's own hosts, or an outside MCP client. */
-export type CapabilityChannel = "assistant" | "mcp";
+/** Where a tool is offered: Orbit's own hosts, an outside MCP client, a configured agent. */
+export type CapabilityChannel = "assistant" | "mcp" | "agent";
 
 const EXPOSED: Record<CapabilityChannel, (tool: OrbitTool) => boolean> = {
   assistant: exposedToAssistant,
   mcp: exposedToMcp,
+  agent: exposedToAgent,
 };
 
 /**
@@ -127,6 +132,39 @@ export async function executeCapability(
       ? context.scope
       : moduleScope(context.scope, registeredToolOwner(tool.name));
   return tool.execute({ ...context, scope }, input);
+}
+
+/**
+ * An agent's arguments as its tool's schema reads them. Strict tool calls
+ * send null for every optional field the model leaves empty; when the raw
+ * arguments fail, they are read once more without those nulls.
+ */
+async function agentArgs(tool: OrbitTool, raw: unknown) {
+  const first = await tool.parameters.safeParseAsync(raw);
+  if (first.success) return first.data;
+  return validateCapabilityArgs(tool, dropNullFields(raw));
+}
+
+/**
+ * Runs one tool call of a configured agent (ADR 0021 §2). The principal is
+ * checked first (authorizeAgentTool: allowlist, mode, module, sponsor and
+ * requester rights, the work order's own checks); nothing runs on a
+ * refusal. The arguments are validated on the host. The tool runs with the
+ * sponsor's current scope in its module, and every ActionRequest it creates
+ * records the agent (agent-execution.ts).
+ */
+export async function executeAgentCapability(
+  principal: AgentPrincipal,
+  tool: OrbitTool,
+  context: Omit<ToolContext, "principal" | "channel">,
+  args: unknown,
+  options: { current?: () => Promise<void> } = {},
+): Promise<ToolResult> {
+  const scope = await authorizeAgentTool(principal, context.scope, tool, options);
+  const input = await agentArgs(tool, args);
+  return agentExecution.run({ principal, agentRunId: context.runId }, () =>
+    tool.execute({ ...context, scope, principal }, input),
+  );
 }
 
 /** Tool results sent back to a model are capped at this length. */

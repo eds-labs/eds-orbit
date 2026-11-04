@@ -70,6 +70,7 @@ import {
 import type { BudgetedModel, ToolHost } from "../../modules/agents/runtime/port.ts";
 import { legacyResponsesRuntime } from "../../modules/agents/runtime/legacy-responses.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { withDelegatedProposalQuota } from "../mcp/proposals.ts";
 
 // Span names come from this fixed set; the model-supplied name is never stored.
 const toolSpanName = (name: unknown) =>
@@ -220,9 +221,8 @@ function chatToolHost(host: {
           tool,
         );
         // The tool runs with the member's role in its module (WP4.5).
-        const result = await delegatedExecution.run(
-          host.delegation ?? (undefined as any),
-          () =>
+        const execute = () =>
+          delegatedExecution.run(host.delegation ?? (undefined as any), () =>
             executeCapability(
               tool,
               {
@@ -243,7 +243,22 @@ function chatToolHost(host: {
               },
               args,
             ),
-        );
+          );
+        // A delegated work order's proposals count against the MCP
+        // proposal quotas of its user and client (ADR 0021 §7.3).
+        const result =
+          host.delegation && tool.risk === "P_proposal"
+            ? await withDelegatedProposalQuota(
+                {
+                  userId: host.delegation.userId,
+                  clientId: host.delegation.clientId,
+                  grantId: host.delegation.grantId,
+                  workspaceId: scope.workspaceId,
+                },
+                tool.name,
+                execute,
+              )
+            : await execute();
         output = result.output;
         cards.push(...result.cards);
       } catch (error) {

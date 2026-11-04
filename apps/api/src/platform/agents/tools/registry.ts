@@ -9,6 +9,7 @@ import { can } from "../../tenancy/permissions.ts";
 import { zodResponsesFunction } from "openai/helpers/zod";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { ChatCard } from "../../assistant/cards.ts";
+import type { AgentPrincipal } from "../principal.ts";
 
 export type ToolRole = Scope["role"];
 export type ToolNamespace =
@@ -44,7 +45,9 @@ export type ToolFeature =
   // Creative Studio previews and options, while ORBIT_CREATIVE_STUDIO is on.
   | "creative_studio"
   // Social tools (ADR 0020), offered while the module is on.
-  | "social";
+  | "social"
+  // A module's own feature (ADR 0021): a new module needs no platform change.
+  | (string & {});
 export type ToolContext = {
   scope: Scope;
   runId: string;
@@ -53,6 +56,9 @@ export type ToolContext = {
   callIndex: number;
   // Set for a specialist's task; its paid reads reserve under the task's keys, not as chat.
   agentTask?: { taskId: string; runId: string };
+  // Set when a configured agent's work order runs the tool (ADR 0021): on
+  // whose behalf, with which frozen allowlist. Only the task host sets it.
+  principal?: AgentPrincipal;
   // Set when the MCP gateway runs the tool for an outside client (Track M);
   // absent means the assistant. Only the gateway sets it.
   channel?: {
@@ -91,7 +97,18 @@ export type OrbitTool = {
    * Where the tool may appear. Absent means `{ assistant: true, mcp: false }`:
    * nothing reaches an outside client unless its module opts in (Track M).
    */
-  exposure?: { assistant?: boolean; mcp?: boolean };
+  exposure?: { assistant?: boolean; mcp?: boolean; agent?: boolean };
+  /**
+   * What the agent builder shows for a tool exposed to agents (ADR 0021):
+   * required with `exposure.agent`. English and German texts.
+   */
+  catalog?: ToolCatalogEntry;
+  /** Which scope the tool acts in (default `project`). */
+  scopeShape?: "project" | "user" | "workspace";
+  /** May be handed to a delegated child work order. */
+  delegable?: boolean;
+  /** A W0 tool that takes `<workOrderId>:<callIndex>` as its idempotency key. */
+  idempotent?: "by_call";
   /** The shape of `output`; a zod object, required for every tool exposed to MCP. */
   outputSchema?: z.ZodType;
   /** The tool reads content outside Orbit's control (MCP `openWorldHint`). */
@@ -109,6 +126,15 @@ export type OrbitTool = {
    */
   mcpProposable?: () => boolean;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
+};
+
+/** A tool's entry in the agent builder catalogue. */
+export type ToolCatalogEntry = {
+  title: { en: string; de: string };
+  summary: { en: string; de: string };
+  /** Personal customer or financial data bind the tool to the provider allow-list. */
+  dataClass?: "internal" | "customer_personal" | "financial";
+  cost?: "none" | "paid";
 };
 
 // The function API accepts [a-zA-Z0-9_-]{1,64}; Orbit uses lower snake case.
@@ -188,6 +214,26 @@ export const exposedToMcp = (tool: OrbitTool) =>
   tool.exposure?.mcp === true && tool.outputSchema instanceof z.ZodObject;
 
 /**
+ * Offered to configured agents only when the tool opts in and declares an
+ * object output schema and a catalogue entry (ADR 0021, plan §2.8).
+ */
+export const exposedToAgent = (tool: OrbitTool) =>
+  tool.exposure?.agent === true &&
+  tool.outputSchema instanceof z.ZodObject &&
+  tool.catalog !== undefined;
+
+/** Registration problem of a tool exposed to agents, or undefined. */
+export const agentExposureIssue = (tool: OrbitTool): string | undefined => {
+  if (tool.exposure?.agent !== true) return undefined;
+  if (!(tool.outputSchema instanceof z.ZodObject))
+    return `TOOL_AGENT_OUTPUT_SCHEMA_REQUIRED:${tool.name}`;
+  if (!tool.catalog) return `TOOL_AGENT_CATALOG_REQUIRED:${tool.name}`;
+  if (tool.idempotent && tool.risk !== "W0_internal")
+    return `TOOL_IDEMPOTENT_RISK:${tool.name}`;
+  return undefined;
+};
+
+/**
  * Whether a proposal tool's MCP output reports what the gateway's quotas
  * rely on (D-M5-8): a required boolean `deduplicated` (a retry that returned
  * an existing proposal is neither charged nor recorded) and the string
@@ -244,6 +290,8 @@ export function defineTool(tool: OrbitTool): OrbitTool {
   if (!TOOL_NAME.test(tool.name)) throw new Error("TOOL_NAME_INVALID");
   const exposure = mcpExposureIssue(tool);
   if (exposure) throw new Error(`${exposure.code}:${tool.name}`);
+  const agent = agentExposureIssue(tool);
+  if (agent) throw new Error(agent);
   assertStrictKeywords(responsesTool(tool).parameters, "parameters");
   return tool;
 }
