@@ -8,6 +8,16 @@ import { platformPermissions } from "../tenancy/permissions.ts";
 export const platformDeclaration: PlatformDeclaration = {
   entityKinds: [
     { kind: "orbit_tasks", description: "User-private delegated assistant tasks", exported: false },
+    {
+      kind: "personal_context",
+      description: "User-private personal assistant notes in a personal space (ADR 0022)",
+      exported: false,
+    },
+    {
+      kind: "assistant_settings",
+      description: "The personal assistant's settings in a personal space (ADR 0022)",
+      exported: false,
+    },
     { kind: "jobs", description: "Durable jobs dispatched through the outbox" },
     { kind: "exceptions", description: "Open operational exceptions by code" },
     {

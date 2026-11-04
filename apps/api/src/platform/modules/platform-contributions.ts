@@ -50,6 +50,7 @@ import { linkPrune } from "../links/links.ts";
 
 import { agentWorkJob } from "../agents/work-orders/execute.ts";
 import { agentRoutes } from "../agents/routes.ts";
+import { assistantRoutes } from "../assistant/routes.ts";
 import {
   agentTriggerSubscriber,
   TEST_PING,
@@ -63,8 +64,13 @@ import {
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
   actions: platformActions,
-  // The agent platform's HTTP routes (ADR 0021), 404 while ORBIT_AGENT_PLATFORM is off.
-  routes: agentRoutes,
+  // The agent platform's HTTP routes (ADR 0021), 404 while ORBIT_AGENT_PLATFORM
+  // is off, and the personal assistant's (ADR 0022), 404 while
+  // ORBIT_PERSONAL_ASSISTANT is off.
+  routes: (ctx) => {
+    agentRoutes(ctx);
+    assistantRoutes(ctx);
+  },
   userNotifications: {
     agent_work_failed: {
       label: { en: "Agent run failed", de: "Agenten-Ausführung fehlgeschlagen" },
