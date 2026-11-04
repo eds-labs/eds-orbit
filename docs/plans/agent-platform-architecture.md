@@ -1,6 +1,6 @@
 # Agent platform and personal Orbit Assistant: architecture overview
 
-Status: **proposed plan, documentation only** (2026-11-04). Nothing here is implemented, migrated, flagged or deployed. Every decision marked **D-nn** (§14) needs Mario's answer before the work package that depends on it starts.
+Status: **accepted plan** (2026-11-04; decisions D-01 to D-07 and D-12 to D-14 recorded in [ADR 0021](../adr/0021-agent-platform.md)). Implementation in progress. Nothing here is implemented, migrated, flagged or deployed. Every decision marked **D-nn** (§14) needs Mario's answer before the work package that depends on it starts.
 
 Requested by Mario on 2026-11-04: extend Orbit into a central, modular AI work platform with (A) a personal assistant per user, (B) user-configurable agents and (C) one shared platform underneath, without a second agent runtime, chat backend, MCP stack or approval system.
 

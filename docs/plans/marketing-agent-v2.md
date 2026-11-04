@@ -11,6 +11,8 @@ Status: proposed implementation plan; documentation only. Date: 2026-10-20 (Euro
 
 Make the existing **Orbit Assistant** the entry point for organic marketing. Extend Marketing's contributed capabilities and connect its existing assignments, specialist DAG, missions, content, approvals, publishing and measurement. Do not introduce another assistant, autonomous agent framework, scheduler, publishing queue or content store.
 
+> **Superseded in part (2026-11-04):** [ADR 0021](../adr/0021-agent-platform.md) introduces a general agent platform on the existing runtime, tools, approvals, budgets and worker. The "no other agent framework" and "no scheduler" parts of this sentence no longer apply to that platform. Marketing keeps its own assignment DAG; the rest of this plan stays valid.
+
 Repository examined: `eds-labs/eds-orbit`, upstream `main` at **dd902d88af2012eaddd0d974a257aff18a81763d**, fetched and compared with the remote on the date above. Analysis and document live on `codex/marketing-agent-v2-plan` in an isolated worktree. The primary checkout was on `codex/orbit-phase9-postiz-draft` at `c577ba1`; using it would have missed the modular platform and later agent work. Other worktrees and unmerged branches are not evidence of merged capabilities.
 
 This is a static source and test-source audit across the relevant server, worker, schemas, UI and connector paths. Existing tests were inspected, not executed for this documentation change. No production database, flags, accounts, worker health or paid/external provider operation was exercised. Consequently:

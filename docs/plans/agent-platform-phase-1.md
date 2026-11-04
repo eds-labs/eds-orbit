@@ -1,6 +1,6 @@
 # Agent platform, Phase 1: general agent framework and agent builder
 
-Status: **proposed plan, documentation only** (2026-11-04). Overview, terms, security model and decisions: [agent-platform-architecture.md](agent-platform-architecture.md). Decisions referenced as **D-nn** are listed there in §14. Work package numbers are **WP1.n**.
+Status: **accepted plan** (2026-11-04; decisions D-01 to D-07 and D-12 to D-14 recorded in [ADR 0021](../adr/0021-agent-platform.md)). Implementation in progress. Overview, terms, security model and decisions: [agent-platform-architecture.md](agent-platform-architecture.md). Decisions referenced as **D-nn** are listed there in §14. Work package numbers are **WP1.n**.
 
 ## 0. Goal and scope
 
