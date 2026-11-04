@@ -6,7 +6,7 @@ import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { disconnectAccount, listAccounts, updateAccountSettings } from "./accounts/accounts.ts";
 import { requestWriteVerification } from "./accounts/verify-write.ts";
-import { redirectUri } from "./accounts/apps.ts";
+import { appReadiness, redirectUri } from "./accounts/apps.ts";
 import { connectHandler, oauthPlatform } from "./accounts/connect.ts";
 import { handleMetaDataDeletion, metaDataDeletionStatus } from "./accounts/data-deletion.ts";
 import { checkAccount } from "./accounts/health.ts";
@@ -69,6 +69,10 @@ export const socialRoutes: RoutesContribution = (context) => {
     ),
   );
   app.get(`${BASE}/accounts`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listAccounts(tx, scope)));
+  // Which developer apps can start a connection (owners only; no secret).
+  app.get(`${BASE}/accounts/apps`, (req) =>
+    inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, (tx, scope) => appReadiness(tx, scope)),
+  );
   // A real test post per account, approved by the owner (S5).
   app.post(`${BASE}/accounts/:accountId/verify-write`, (req) =>
     inSocial(auth, req, SOCIAL_ACCOUNTS_MANAGE, (tx, scope) =>

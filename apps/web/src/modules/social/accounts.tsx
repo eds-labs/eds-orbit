@@ -1,12 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { PostizMigration } from "./legacy";
-import { socialPath, type SocialAccount, type SocialAccounts, type SocialMediaList } from "./api";
+import { socialPath, type SocialAccount, type SocialAccounts, type SocialAppReadiness, type SocialMediaList } from "./api";
 import { accountMessage, socialText } from "./labels";
 
 // The project's connected social accounts (ADR 0020, S2). Everybody in the
@@ -221,6 +221,17 @@ export function AccountsView() {
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [telegram, setTelegram] = useState(false);
   const [disconnecting, setDisconnecting] = useState<SocialAccount | null>(null);
+  const [connecting, setConnecting] = useState<"x" | "meta" | null>(null);
+  // Coming back from the provider (browser back, a phone app handing the
+  // tab back) restores this page from the cache: the buttons work again.
+  useEffect(() => {
+    const reset = () => setConnecting(null);
+    window.addEventListener("pageshow", reset);
+    return () => window.removeEventListener("pageshow", reset);
+  }, []);
+  // Owners learn before tapping "connect" whether a developer app is missing.
+  const apps = useResource<SocialAppReadiness>(isOwner ? socialPath(project.id, "/accounts/apps") : null);
+  const notReady = (["x", "meta"] as const).filter((app) => apps.data && apps.data[app] !== "ready");
   const connected = params.get("connected");
   const failed = params.get("error");
   const banner =
@@ -229,6 +240,9 @@ export function AccountsView() {
     (failed ? { kind: "error" as const, text: accountMessage(failed, locale) } : null);
 
   const connect = async (app: "x" | "meta") => {
+    // A message from an earlier action would read as the answer to this one.
+    setMessage(null);
+    setConnecting(app);
     try {
       const { authorizeUrl } = await api<{ authorizeUrl: string }>(
         socialPath(project.id, `/accounts/connect/${app}`),
@@ -236,17 +250,22 @@ export function AccountsView() {
       );
       window.location.assign(authorizeUrl);
     } catch (e) {
+      setConnecting(null);
       setMessage({ kind: "error", text: accountMessage(codeOf(e), locale) });
     }
   };
+  const connectButton = (app: "x" | "meta") => (
+    <Button onClick={() => connect(app)} disabled={connecting !== null || notReady.includes(app)}>
+      {connecting === app ? t.connecting[app] : app === "x" ? t.connectX : t.connectMeta}
+    </Button>
+  );
 
   return (
     <div className="support-page">
       <PageHead title={t.title} description={t.intro}>
         {isOwner && (
           <>
-            <Button onClick={() => connect("x")}>{t.connectX}</Button>{" "}
-            <Button onClick={() => connect("meta")}>{t.connectMeta}</Button>{" "}
+            {connectButton("x")} {connectButton("meta")}{" "}
             <Button variant="outline" onClick={() => setTelegram((open) => !open)}>
               {t.addTelegram}
             </Button>
@@ -254,6 +273,11 @@ export function AccountsView() {
         )}
       </PageHead>
       {banner && <Alert kind={banner.kind}>{banner.text}</Alert>}
+      {notReady.map((app) => (
+        <Alert key={app} kind="warning">
+          {apps.data?.[app] === "invalid" ? t.appInvalid[app] : t.appNotGranted[app]}
+        </Alert>
+      ))}
       <Alert kind="info">{t.metaNote}</Alert>
       {isOwner && telegram && (
         <TelegramChannelForm

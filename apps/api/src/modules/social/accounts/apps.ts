@@ -57,6 +57,25 @@ export async function appCredentials(
     : { connectionId, x: parseAppSecret(xAppSecret, raw) };
 }
 
+export type AppReadiness = "ready" | "not_granted" | "invalid";
+
+/**
+ * Whether each developer app can start a connection for the project, so
+ * the accounts page can say what is missing before the owner taps
+ * "connect". Only the state leaves this function, never the secret.
+ */
+export async function appReadiness(tx: DbTx, scope: Scope): Promise<Record<SocialApp, AppReadiness>> {
+  const state = async (app: SocialApp): Promise<AppReadiness> => {
+    try {
+      await appCredentials(tx, scope, app);
+      return "ready";
+    } catch (error) {
+      return (error as { code?: string }).code === "SOCIAL_APP_INVALID" ? "invalid" : "not_granted";
+    }
+  };
+  return { x: await state("x"), meta: await state("meta") };
+}
+
 /** The OAuth callback URL a developer app must list, on the web origin. */
 export function redirectUri(config: { APP_ORIGIN: string }, app: SocialApp) {
   return `${new URL(config.APP_ORIGIN).origin}/api/social/oauth/callback/${app}`;

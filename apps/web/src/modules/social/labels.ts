@@ -27,6 +27,15 @@ const en = {
     empty: "No account is connected yet.",
     connectX: "Connect X",
     connectMeta: "Connect Facebook and Instagram",
+    connecting: { x: "Opening X…", meta: "Opening Facebook…" },
+    appNotGranted: {
+      x: "X is not set up yet: an administrator adds the X app under Administration → Integrations and grants it to the organization and to this project.",
+      meta: "Facebook and Instagram are not set up yet: an administrator adds the Meta app under Administration → Integrations and grants it to the organization and to this project.",
+    },
+    appInvalid: {
+      x: "The keys of the X app are not valid. An administrator replaces them under Administration → Integrations.",
+      meta: "The keys of the Meta app are not valid. An administrator replaces them under Administration → Integrations.",
+    },
     addTelegram: "Add Telegram channel or group",
     check: "Check",
     disconnect: "Disconnect",
@@ -367,6 +376,15 @@ const de: SocialText = {
     empty: "Noch kein Konto verbunden.",
     connectX: "X verbinden",
     connectMeta: "Facebook und Instagram verbinden",
+    connecting: { x: "X wird geöffnet …", meta: "Facebook wird geöffnet …" },
+    appNotGranted: {
+      x: "X ist noch nicht eingerichtet: Ein Administrator legt die X-App unter Administration → Integrationen an und gibt sie für die Organisation und dieses Projekt frei.",
+      meta: "Facebook und Instagram sind noch nicht eingerichtet: Ein Administrator legt die Meta-App unter Administration → Integrationen an und gibt sie für die Organisation und dieses Projekt frei.",
+    },
+    appInvalid: {
+      x: "Die Schlüssel der X-App sind ungültig. Ein Administrator ersetzt sie unter Administration → Integrationen.",
+      meta: "Die Schlüssel der Meta-App sind ungültig. Ein Administrator ersetzt sie unter Administration → Integrationen.",
+    },
     addTelegram: "Telegram-Kanal oder -Gruppe hinzufügen",
     check: "Prüfen",
     disconnect: "Trennen",

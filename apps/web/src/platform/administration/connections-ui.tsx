@@ -93,6 +93,8 @@ export function ConnectionsPanel({
   const providerName = (id: string) =>
     providers.find((p) => p.id === id)?.label[locale] ?? id;
   const own = (c: Connection) => (mode === "admin" ? c.scope === "system" : c.scope === "workspace");
+  // Some providers can only be checked in use (the X app needs an account).
+  const checkable = (c: Connection) => providers.find((p) => p.id === c.provider)?.checkable ?? true;
   return (
     <section className="panel">
       <div className="panel-head">
@@ -155,7 +157,14 @@ export function ConnectionsPanel({
                       {c.disabled ? (de ? "deaktiviert" : "disabled") : c.status.replaceAll("_", " ")}
                     </Badge>
                     <small>
-                      {c.health.code ?? (c.health.at ? at(c.health.at, locale) : "")}
+                      {c.health.code ??
+                        (c.health.at
+                          ? at(c.health.at, locale)
+                          : checkable(c)
+                            ? ""
+                            : de
+                              ? "Wird bei der ersten Nutzung geprüft"
+                              : "Checked when first used")}
                     </small>
                   </td>
                   <td>{c.secretVersion ? `v${c.secretVersion}` : "—"}</td>
@@ -188,14 +197,16 @@ export function ConnectionsPanel({
                       )}
                     {own(c) && (
                       <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={action.pending}
-                          onClick={() => void action.run(() => post(`${base}/${c.id}/check`, {}))}
-                        >
-                          {de ? "Prüfen" : "Check"}
-                        </Button>
+                        {checkable(c) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={action.pending}
+                            onClick={() => void action.run(() => post(`${base}/${c.id}/check`, {}))}
+                          >
+                            {de ? "Prüfen" : "Check"}
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => setRotating(c)}>
                           <KeyRound />
                           {de ? "Schlüssel" : "Secret"}
