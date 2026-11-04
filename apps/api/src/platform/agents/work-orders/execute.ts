@@ -306,6 +306,7 @@ async function execute(base: Scope, row: WorkOrderRow) {
         if (steps.length < MAX_STEPS) steps.push(step);
       },
       signal: controller.signal,
+      ...(config.model.override ? { modelOverride: config.model.override } : {}),
       outputSchema: agentOutput,
       limits: {
         maxModelCalls: config.limits.maxModelCalls,

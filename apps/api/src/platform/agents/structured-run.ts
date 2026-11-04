@@ -3,6 +3,7 @@ import type { z } from "zod";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
+  defaultOutputTokens,
   estimateCost,
   isRejectedRequest,
   providerCallName,
@@ -102,6 +103,8 @@ export type StructuredRunSpec<O, R = O> = {
   };
   /** Called after each tool call with its name, risk and outcome code (the work-order step log). */
   onStep?(step: StructuredRunStep): void | Promise<void>;
+  /** A verified model the task class routes to for this run (a configured agent's choice). */
+  modelOverride?: string;
   /** Stops the run like its timeout (cancellation); checked between calls. */
   signal?: AbortSignal;
   webSearch?: boolean;
@@ -385,7 +388,23 @@ export async function runStructured<O, R = O>(
         if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
         if (spec.guard) await spec.guard(tx, scope);
         const mandate = await requireSpendMandate(tx, scope);
-        const runtime = await runtimeOpenAiConfiguration(tx, scope);
+        const configured = await runtimeOpenAiConfiguration(tx, scope);
+        // A configured agent's own model (ADR 0021): its task class routes
+        // to that model; it must still be a verified model of the project.
+        const runtime = spec.modelOverride
+          ? {
+              ...configured,
+              taskRoutes: {
+                ...configured.taskRoutes,
+                [spec.taskClass]: {
+                  model: spec.modelOverride,
+                  maxOutputTokens:
+                    configured.taskRoutes?.[spec.taskClass]?.maxOutputTokens ??
+                    defaultOutputTokens[spec.taskClass],
+                },
+              },
+            }
+          : configured;
         // Fail closed: the run records one configuration version.
         if ((runtime.routeVersion ?? null) !== routeVersion)
           throw new DomainError("AGENT_ROUTE_CHANGED", 409);

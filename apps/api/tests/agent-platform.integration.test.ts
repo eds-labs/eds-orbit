@@ -203,6 +203,17 @@ describe.skipIf(!enabled)("agent platform (ADR 0021, Phase 1)", () => {
     await expect(runIn((tx) => startManualWorkOrder(tx, p.viewer, agent.id, { requestId: randomUUID() }))).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("routes to the agent's own model only when it is a verified model", async () => {
+    await expect(
+      runIn((tx) => createAgent(tx, p.owner, { config: config({ model: { override: "unverified-model" } }) })),
+    ).rejects.toMatchObject({ code: "AGENT_ROUTE_UNAVAILABLE" });
+    const agent = await activeAgent({ model: { override: "synthetic-model" } });
+    const view = await runIn((tx) => startManualWorkOrder(tx, p.owner, agent.id, { requestId: randomUUID() }));
+    mocked.replies.push(done);
+    await runJob(view.id);
+    expect(await workOrder(view.id)).toMatchObject({ status: "succeeded" });
+  });
+
   it("D: stops all tool execution when the requester loses a right mid-run, and proposals name the agent", async () => {
     const agent = await activeAgent();
     const view = await runIn((tx) => startManualWorkOrder(tx, p.editor, agent.id, { requestId: randomUUID() }));
