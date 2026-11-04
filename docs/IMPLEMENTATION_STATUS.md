@@ -29,7 +29,10 @@ Decisions D-18 (per-user Telegram in this phase), D-19 and D-20 (Mario, 2026-11-
   - OpenAPI only adds 7 paths.
   - API and web typecheck, boundaries, source checks and Compose checks are clean.
   - Every speech test uses a fake adapter.
-  - Not run: a live STT/TTS call (needs Mario's approval), a browser or device check (iOS Safari, Android Chrome), Playwright.
+  - Playwright (2026-11-05, local dev server on this worktree's own database):
+    - **Flags on:** `assistant-panel.spec.ts` and `chat.spec.ts` pass after one real fix (Escape did not close the panel while a reply streamed; `a11fc163`) and two spec corrections.
+    - **Flags off (as in CI), full suite:** 24 passed, 25 skipped, 4 failed. On re-run `chat.spec.ts:629` and `workspace.spec.ts:172` pass, and `navigation.spec.ts:140` passes on a fresh database. `workspace.spec.ts:944` stays red in automation: after switching to a newly created project it waits on "Loading workspace…". The same steps work by hand in the browser. No server error; not resolved here.
+  - Not run: a live STT/TTS call (needs Mario's approval), the device check on iOS Safari and Android Chrome.
 - **Before rollout:**
   - An administrator checks and saves the speech prices; they come from the subagent's knowledge as of 2025-03 and are marked "please check".
   - The system SMTP sender is configured for digests.
@@ -57,7 +60,7 @@ Decisions D-08, D-09, D-10 as recommended; D-17 automatic memory with guardrails
   - `context_list` was dropped: the context is in the prompt, and the user-tool budget stays at 8.
   - Delegation batches are sibling work orders sharing a `batchId` instead of a parent row.
   - `platform.agent.delegate` is not mandatable, because a mandate cannot be limited to one agent; the optional per-agent start mandate of D-06 stays a follow-up.
-- **Verification (local):** full suite (API, worker, packages, evals, web) 525 files: 5,218 passed and 7 skipped. Two characterization checks did not yet know the new user tools and a kind spelled through a constant; both were fixed and re-run (26/26). Access matrix: a new probe calls every project route of a personal space as org owner and system administrator, and none lets them in; only the 8 new routes were added to the reviewed fixture. RLS matrix passes. The membership rule is mutation-checked. API and web typecheck are clean; source and boundary checks are clean. OpenAPI only adds paths. Not run: Playwright `assistant-panel.spec.ts` and a browser check; paid live turns.
+- **Verification (local):** full suite (API, worker, packages, evals, web) 525 files: 5,218 passed and 7 skipped. Two characterization checks did not yet know the new user tools and a kind spelled through a constant; both were fixed and re-run (26/26). Access matrix: a new probe calls every project route of a personal space as org owner and system administrator, and none lets them in; only the 8 new routes were added to the reviewed fixture. RLS matrix passes. The membership rule is mutation-checked. API and web typecheck are clean; source and boundary checks are clean. OpenAPI only adds paths. Playwright and the browser check ran later with Phase 4 (see there). Not run: paid live turns.
 - **Before rollout:**
   - Set the per-member cap in the test organization.
   - Verify the production state of `ORBIT_MCP_TASKS` and the number of live MCP tasks. A code rollback after the fold-in leaves table-backed MCP tasks unreadable to the old reader.
