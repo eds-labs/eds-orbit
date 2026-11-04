@@ -56,6 +56,10 @@ async function requesterReasons(
   mcpScopes: readonly string[] | undefined,
 ): Promise<string[]> {
   const by = data(row).requestedBy as Record<string, any>;
+  // A proposal made after another project's data entered the turn (ADR
+  // 0022 §5): a human in this project decides, whatever the mandate says.
+  if (Array.isArray(by?.crossProjectContext) && by.crossProjectContext.length)
+    return ["CROSS_PROJECT_CONTEXT"];
   if (!record.members.includes(String(by?.userId)))
     return ["REQUESTER_NOT_COVERED"];
   // A configured agent (ADR 0021 addendum): only a mandate that names it,

@@ -52,3 +52,19 @@ export function agentExecutionRequester() {
       : {}),
   };
 }
+
+/**
+ * The cross-project taint of a personal assistant's tool call (ADR 0022 §5):
+ * the projects whose data entered the turn so far. While it is set, every
+ * ActionRequest a tool creates records the projects other than its own as
+ * `requestedBy.crossProjectContext`, which keeps it from mandate
+ * auto-approval (CROSS_PROJECT_CONTEXT). Only the personal turn host sets it.
+ */
+export const crossProjectExecution = new AsyncLocalStorage<{
+  contextProjects: readonly string[];
+}>();
+
+/** The turn's context projects of the call in progress, or null outside a personal turn. */
+export function currentCrossProjectContext(): readonly string[] | null {
+  return crossProjectExecution.getStore()?.contextProjects ?? null;
+}

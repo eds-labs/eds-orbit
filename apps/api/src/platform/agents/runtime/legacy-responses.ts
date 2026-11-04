@@ -9,7 +9,12 @@ export const legacyResponsesRuntime: AgentRuntime = {
     let toolCalls = 0;
     while (modelCalls < limits.maxModelCalls) {
       if (signal.aborted) throw new DomainError("CHAT_CANCELED");
-      const step = await model.call({ input, signal });
+      // Staged loading: the tools loaded so far join the next call.
+      const step = await model.call(
+        tools.loadedTools
+          ? { input, signal, loadedTools: [...tools.loadedTools()] }
+          : { input, signal },
+      );
       modelCalls++;
       input.push(...step.output);
       // A cut-off answer continues in the next call; without one it stays cut off.

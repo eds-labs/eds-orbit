@@ -1,6 +1,7 @@
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type {
+  AssistantOverviewContribution,
   AttentionContribution,
   AttentionItem,
 } from "../../platform/attention/types.ts";
@@ -236,4 +237,43 @@ export const workDueScan: PeriodicTask = {
     );
     return { status: sent ? `sent ${sent}` : "idle", wakeAt };
   },
+};
+
+/** Open tasks `my_overview` lists by title at most. */
+const OVERVIEW_TASKS = 5;
+
+/**
+ * Work's part of the personal assistant's `my_overview` (ADR 0022): the
+ * member's own open tasks (count and the first few by due date). Null when
+ * the member's role may not read tasks.
+ */
+export const workOverview: AssistantOverviewContribution = async (tx, scope) => {
+  if (!can(scope, WORK_READ)) return null;
+  if (!(await workActive(tx, scope))) return { openTasks: 0, tasks: [] };
+  const where = {
+    projectId: scope.projectId,
+    archivedAt: null,
+    statusCategory: { in: OPEN },
+    assigneeUserId: scope.userId,
+  };
+  const [openTasks, rows] = await Promise.all([
+    tx.workTask.count({ where }),
+    tx.workTask.findMany({
+      where,
+      orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { number: "asc" }],
+      take: OVERVIEW_TASKS,
+      select: { id: true, number: true, title: true, status: true, dueDate: true },
+    }),
+  ]);
+  return {
+    openTasks,
+    tasks: rows.map((task) => ({
+      id: task.id,
+      number: task.number,
+      title: task.title,
+      status: task.status,
+      dueDate: task.dueDate ? task.dueDate.toISOString().slice(0, 10) : null,
+      link: `/work/tasks?task=${task.id}`,
+    })),
+  };
 };

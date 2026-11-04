@@ -1,6 +1,7 @@
 import { Prisma, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type {
+  AssistantOverviewContribution,
   AttentionContribution,
   AttentionItem,
 } from "../../platform/attention/types.ts";
@@ -248,4 +249,38 @@ export const supportAttention: AttentionContribution = async (
       link: "/support",
     });
   return items;
+};
+
+/**
+ * Support's part of the personal assistant's `my_overview` (ADR 0022):
+ * counts only, never a subject, body or customer address. Null when the
+ * member's role may not read tickets.
+ */
+export const supportOverview: AssistantOverviewContribution = async (
+  tx,
+  scope,
+  now,
+) => {
+  if (!can(scope, SUPPORT_TICKETS_READ)) return null;
+  if (!(await supportActive(tx, scope))) return { urgent: 0, breached: 0 };
+  const urgent = await tx.supportTicket.count({
+    where: {
+      projectId: scope.projectId,
+      mergedIntoTicketId: null,
+      priority: "urgent",
+      status: { in: OPEN_STATUSES },
+    },
+  });
+  const [breached] = await tx.$queryRaw<{ count: bigint }[]>`
+    SELECT count(*) AS "count"
+      FROM "SupportTicket"
+     WHERE "projectId" = ${scope.projectId}::uuid
+       AND "mergedIntoTicketId" IS NULL
+       AND "status" = ANY(${SLA_ACTIVE_STATUSES}::text[])
+       AND ${SLA_DUE_AT_SQL} < ${now}::timestamptz`;
+  return {
+    urgent,
+    breached: Number(breached?.count ?? 0),
+    link: "/support/tickets",
+  };
 };

@@ -15,7 +15,7 @@ import {
   SUPPORT_TICKET_CREATED,
   supportTriggers,
 } from "./agent-events.ts";
-import { supportAttention } from "./attention.ts";
+import { supportAttention, supportOverview } from "./attention.ts";
 import { widgetRoutes } from "./widget.ts";
 import { supportMailboxUse } from "./inboxes.ts";
 import { supportScheduler, supportUserNotifications } from "./automations.ts";
@@ -77,6 +77,8 @@ export const supportContributions: ModuleContributions = {
   scheduler: supportScheduler,
   // Attention items: SLA breaches and unassigned tickets.
   attention: supportAttention,
+  // Ticket counts for the personal assistant's overview (ADR 0022).
+  assistantOverview: supportOverview,
   // The Support agent template (ADR 0021 Phase 2).
   agentTemplates: supportAgentTemplates,
   // Tickets as link targets of other modules (ADR 0016).

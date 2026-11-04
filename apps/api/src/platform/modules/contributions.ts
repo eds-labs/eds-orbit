@@ -43,6 +43,7 @@ import type {
   NotificationRender,
 } from "../notifications/types.ts";
 import type {
+  AssistantOverviewContribution,
   AttentionContribution,
   AttentionStatusContribution,
 } from "../attention/types.ts";
@@ -177,6 +178,11 @@ export type ModuleContributions = {
    * marketing mode; read under the same conditions as `attention`.
    */
   attentionStatus?: AttentionStatusContribution;
+  /**
+   * The module's part of the personal assistant's `my_overview` (ADR 0022):
+   * read under the same conditions as `attention`.
+   */
+  assistantOverview?: AssistantOverviewContribution;
   /**
    * Objects of the module others may link to (ADR 0016), by local type; the
    * full type is "<module>.<local type>".
@@ -924,6 +930,17 @@ export function registeredAttention(): Array<[string, AttentionContribution]> {
   return [...current().byModule.entries()].flatMap(([owner, c]) =>
     owner !== "platform" && c.attention
       ? [[owner, c.attention] as [string, AttentionContribution]]
+      : [],
+  );
+}
+
+/** The modules' `my_overview` parts with their module, in registry order (ADR 0022). */
+export function registeredAssistantOverviews(): Array<
+  [string, AssistantOverviewContribution]
+> {
+  return [...current().byModule.entries()].flatMap(([owner, c]) =>
+    owner !== "platform" && c.assistantOverview
+      ? [[owner, c.assistantOverview] as [string, AssistantOverviewContribution]]
       : [],
   );
 }

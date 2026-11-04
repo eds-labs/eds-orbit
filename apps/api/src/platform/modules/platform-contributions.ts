@@ -51,6 +51,7 @@ import { linkPrune } from "../links/links.ts";
 import { agentWorkJob } from "../agents/work-orders/execute.ts";
 import { agentRoutes } from "../agents/routes.ts";
 import { assistantRoutes } from "../assistant/routes.ts";
+import { personalAssistantTools } from "../assistant/user-tools.ts";
 import { delegationNoticeSubscriber } from "../assistant/notices.ts";
 import {
   agentTriggerSubscriber,
@@ -87,7 +88,14 @@ export const platformContributions: ModuleContributions = {
   // The project configuration over MCP (plans/project-configuration-mcp.md)
   // and the AI model selection (docs/MCP_PROJECT_ADMINISTRATION.md).
   // The AI spending authority (ADR 0015) follows them.
-  tools: [...configurationTools, ...aiModelTools, ...spendPolicyTools],
+  // The personal Orbit Assistant's user tools and `action_status` (ADR
+  // 0022), offered only in personal mode, never in project chat or MCP.
+  tools: [
+    ...configurationTools,
+    ...aiModelTools,
+    ...spendPolicyTools,
+    ...personalAssistantTools,
+  ],
   configurationSections: { project: projectSection },
   // Knowledge source syncs and agent schedule triggers (ADR 0021).
   scheduler: combineSchedulers(sourceSyncScheduler, agentScheduleScheduler),

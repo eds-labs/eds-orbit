@@ -27,7 +27,10 @@ import {
   activePolicyRecord,
   activeSpendMandateRef,
 } from "../ai/spend-mandate.ts";
-import { agentExecutionRequester } from "../agents/agent-execution.ts";
+import {
+  agentExecutionRequester,
+  currentCrossProjectContext,
+} from "../agents/agent-execution.ts";
 import {
   registeredActionType,
   registeredActionTypeOwner,
@@ -44,8 +47,21 @@ const KIND = "action_requests";
 export type ActionRequestRow = Awaited<ReturnType<typeof create>>;
 type Row = ActionRequestRow;
 
+/**
+ * The other projects whose data entered the personal assistant's turn that
+ * made the proposal (ADR 0022 §5, cross-project taint): such a request is
+ * never approved under a mandate (CROSS_PROJECT_CONTEXT).
+ */
+const crossProjectContext = z.array(z.uuid()).min(1).max(50).optional();
+
 export const requestedBy = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("user"), userId: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal("user"),
+      userId: z.string().min(1),
+      crossProjectContext,
+    })
+    .strict(),
   z
     .object({
       kind: z.literal("agent"),
@@ -58,6 +74,7 @@ export const requestedBy = z.discriminatedUnion("kind", [
       agentVersion: z.number().int().positive().optional(),
       workOrderId: z.uuid().optional(),
       requesterUserId: z.string().min(1).optional(),
+      crossProjectContext,
     })
     .strict(),
   // A proposal from an MCP client (WP-M4): the client and grant it came from,
@@ -215,6 +232,21 @@ function definition(actionType: unknown): ActionDefinition<any> {
   return found;
 }
 
+/**
+ * The requester with the turn's cross-project taint (ADR 0022 §5): while a
+ * personal assistant's tool runs in this project after data of other
+ * projects entered its turn, the request names those projects. A tool
+ * cannot leave them out; MCP requesters never run inside such a turn.
+ */
+function withCrossProjectContext(scope: Scope, by: RequestedBy): RequestedBy {
+  const others = currentCrossProjectContext()?.filter(
+    (projectId) => projectId !== scope.projectId,
+  );
+  if (!others?.length || by.kind === "mcp") return by;
+  const merged = [...new Set([...(by.crossProjectContext ?? []), ...others])];
+  return { ...by, crossProjectContext: merged.slice(0, 50) };
+}
+
 export async function createActionRequest(
   tx: DbTx,
   scope: Scope,
@@ -222,9 +254,12 @@ export async function createActionRequest(
 ) {
   const type = definition(input.actionType);
   const requester = requestedBy.parse(
-    delegatedRequester(input.payload) ??
-      agentExecutionRequester() ??
-      input.requestedBy,
+    withCrossProjectContext(
+      scope,
+      delegatedRequester(input.payload) ??
+        agentExecutionRequester() ??
+        input.requestedBy,
+    ),
   );
   if (requester.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
@@ -335,14 +370,38 @@ export async function mcpActionRequestStatus(
   proposer: McpProposer,
   now: Date = new Date(),
 ) {
+  return actionRequestStatus(
+    tx,
+    scope,
+    id,
+    (row) => {
+      const by = data(row).requestedBy;
+      return (
+        by?.kind === "mcp" &&
+        by.userId === proposer.userId &&
+        by.clientId === proposer.clientId
+      );
+    },
+    now,
+  );
+}
+
+/**
+ * The state of one request as `mcpActionRequestStatus` reports it, for a
+ * reader `mayRead` admits: type, status, times, never the payload, hash,
+ * policy or any user id. NOT_FOUND, with one body, for any other request,
+ * so a reader cannot probe requests it may not see.
+ */
+export async function actionRequestStatus(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  mayRead: (row: Row) => boolean,
+  now: Date = new Date(),
+) {
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
-  if (
-    d.requestedBy?.kind !== "mcp" ||
-    d.requestedBy.userId !== proposer.userId ||
-    d.requestedBy.clientId !== proposer.clientId
-  )
-    throw new DomainError("NOT_FOUND", 404);
+  if (!mayRead(row)) throw new DomainError("NOT_FOUND", 404);
   const stored = String(d.status) as McpActionStatus;
   const status: McpActionStatus =
     stored === "pending" && Date.parse(d.expiresAt) <= now.getTime()
@@ -858,19 +917,26 @@ export async function openDecidableRequests(tx: DbTx, member: Scope, now = new D
     orderBy: { createdAt: "desc" },
     take: 50,
   });
-  return rows.filter((row) => {
-    const d = data(row);
-    const type = registeredActionType(String(d.actionType));
-    if (!type || Date.parse(d.expiresAt) <= now.getTime()) return false;
-    if (type.deciderRole === "editor" && type.inbox !== "editors") return false;
-    let scope: Scope;
-    try {
-      scope = moduleScope(member, registeredActionTypeOwner(String(d.actionType)));
-    } catch {
-      return false;
-    }
-    return can(scope, type.deciderRole === "owner" ? PROJECT_OWN : PROJECT_WRITE);
-  });
+  return rows.filter((row) => decidableBy(member, row, now));
+}
+
+/**
+ * Whether the member may decide this pending, unexpired request in their
+ * inbox: the rule of `openDecidableRequests` for one row.
+ */
+export function decidableBy(member: Scope, row: Row, now = new Date()) {
+  const d = data(row);
+  if (d.status !== "pending") return false;
+  const type = registeredActionType(String(d.actionType));
+  if (!type || Date.parse(d.expiresAt) <= now.getTime()) return false;
+  if (type.deciderRole === "editor" && type.inbox !== "editors") return false;
+  let scope: Scope;
+  try {
+    scope = moduleScope(member, registeredActionTypeOwner(String(d.actionType)));
+  } catch {
+    return false;
+  }
+  return can(scope, type.deciderRole === "owner" ? PROJECT_OWN : PROJECT_WRITE);
 }
 
 /**

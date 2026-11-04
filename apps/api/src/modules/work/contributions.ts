@@ -1,5 +1,5 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
-import { workAttention, workDueScan } from "./attention.ts";
+import { workAttention, workDueScan, workOverview } from "./attention.ts";
 import { pmSwitchedOn, workSwitchedOn } from "./gate.ts";
 import { pmInstructions, pmTools } from "./pm/tools.ts";
 import { pmMcpActionTypes, pmMcpTools } from "./pm/mcp-tools.ts";
@@ -63,6 +63,8 @@ export const workContributions: ModuleContributions = {
   events: { publishes: WORK_EVENTS, subscribes: [pmMonitorSubscriber, handoffSyncSubscriber] },
   userNotifications: workUserNotifications,
   attention: workAttention,
+  // The member's open tasks for the personal assistant's overview (ADR 0022).
+  assistantOverview: workOverview,
   // Assistant and MCP reads and proposals (plan §6).
   tools: [...workTools, ...pmTools, ...pmMcpTools],
   actionTypes: {

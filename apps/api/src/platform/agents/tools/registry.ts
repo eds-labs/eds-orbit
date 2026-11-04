@@ -67,6 +67,11 @@ export type ToolContext = {
     grantId: string;
     requestId: string;
   };
+  // Set when the personal Orbit Assistant runs a user tool (ADR 0022): the
+  // tool reports every project whose data it returns, so the turn's
+  // cross-project taint (contextProjects) covers it. Only the personal
+  // turn host sets it.
+  personal?: { noteProjects(projectIds: readonly string[]): void };
 };
 /** An image a tool returns to an outside client (MCP image content), base64. */
 export type ToolImage = { data: string; mimeType: "image/png" | "image/jpeg" };
@@ -97,7 +102,17 @@ export type OrbitTool = {
    * Where the tool may appear. Absent means `{ assistant: true, mcp: false }`:
    * nothing reaches an outside client unless its module opts in (Track M).
    */
-  exposure?: { assistant?: boolean; mcp?: boolean; agent?: boolean };
+  exposure?: {
+    assistant?: boolean;
+    mcp?: boolean;
+    agent?: boolean;
+    /**
+     * The personal Orbit Assistant (ADR 0022). A user tool (`scopeShape:
+     * "user"`) is offered there only with `personal: true`; a project tool
+     * follows `assistant` unless it sets `personal` itself.
+     */
+    personal?: boolean;
+  };
   /**
    * What the agent builder shows for a tool exposed to agents (ADR 0021):
    * required with `exposure.agent`. English and German texts.
@@ -211,6 +226,19 @@ function assertStrictKeywords(schema: unknown, path: string): void {
 /** Offered by Orbit Chat unless the tool opts out (`exposure.assistant: false`). */
 export const exposedToAssistant = (tool: OrbitTool) =>
   tool.exposure?.assistant !== false;
+
+/**
+ * Offered by the personal Orbit Assistant (ADR 0022): a tool that opts in
+ * (`exposure.personal: true`), or one offered to Orbit Chat that does not
+ * opt out (`exposure.personal: false`). User tools and project tools are
+ * told apart by `scopeShape`.
+ */
+export const exposedToPersonal = (tool: OrbitTool) =>
+  tool.exposure?.personal === true ||
+  (tool.exposure?.personal !== false && exposedToAssistant(tool));
+
+/** A tool that acts for the user across projects rather than in one project. */
+export const userScoped = (tool: OrbitTool) => tool.scopeShape === "user";
 
 /**
  * Exposed to MCP clients only when the tool opts in and declares an object
@@ -367,7 +395,16 @@ export function deferredDefinition(tool: OrbitTool) {
  * name, namespace or description: at most three tools with at least half the
  * best score, or every candidate when nothing matches.
  */
-export function searchTools(candidates: readonly OrbitTool[], goal: string) {
+export function searchTools(
+  candidates: readonly OrbitTool[],
+  goal: string,
+  options: { limit?: number } = {},
+) {
+  const found = rankTools(candidates, goal);
+  return options.limit === undefined ? found : found.slice(0, options.limit);
+}
+
+function rankTools(candidates: readonly OrbitTool[], goal: string) {
   const tokens = new Set(goal.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []);
   const named = candidates.filter((tool) => tokens.has(tool.name));
   if (named.length) return named;

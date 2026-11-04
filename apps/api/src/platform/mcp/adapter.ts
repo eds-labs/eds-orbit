@@ -38,6 +38,13 @@ import {
   validateCapabilityArgs,
 } from "../agents/capabilities.ts";
 import {
+  adaptsToProjectArgument,
+  inProjectCall,
+  PROJECT_ID_PARAM,
+  projectBoundParameters,
+  splitProjectArgument,
+} from "../agents/project-calls.ts";
+import {
   codeResult,
   internalFailure,
   McpToolTimeoutError,
@@ -73,8 +80,8 @@ export { MCP_OUTPUT_LIMIT_BYTES };
 export const MAX_TOOL_INPUT_ELEMENTS = 1000;
 /** How long a tool call may take before the client gets TIMEOUT (D-M3-11). */
 export const MCP_TOOL_TIMEOUT_MS = 25_000;
-/** The argument the adapter adds to every project-bound tool. */
-const PROJECT_ID = "projectId";
+/** The argument the adapter adds to every project-bound tool (agents/project-calls.ts). */
+const PROJECT_ID = PROJECT_ID_PARAM;
 
 /**
  * One finished tools/call, for audit, telemetry and rate limits (Task 4).
@@ -229,14 +236,7 @@ export function toolAnnotations(
 
 /** The tool's parameters plus `projectId`, strict; optional with a single project. */
 function inputSchemaFor(tool: OrbitTool, singleProject: boolean) {
-  const projectId = z.uuid();
-  return z.strictObject({
-    ...tool.parameters.shape,
-    [PROJECT_ID]:
-      singleProject && !tool.mcpProjectRequired
-        ? projectId.optional()
-        : projectId,
-  });
+  return projectBoundParameters(tool, { optional: singleProject });
 }
 
 /**
@@ -257,9 +257,7 @@ async function registryToolsFor(principal: McpPrincipal): Promise<OrbitTool[]> {
     );
     for (const tool of tools) byName.set(tool.name, tool);
   }
-  return [...byName.values()].filter(
-    (tool) => !(PROJECT_ID in tool.parameters.shape),
-  );
+  return [...byName.values()].filter(adaptsToProjectArgument);
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -542,21 +540,20 @@ async function executeRegistryTool(
   toolName: string,
 ): Promise<unknown> {
   const { principal } = state;
-  const { [PROJECT_ID]: requested, ...rest } = args;
-  const projectId =
-    typeof requested === "string"
-      ? requested
-      : principal.projectIds.length === 1
-        ? principal.projectIds[0]!
-        : undefined;
-  if (!projectId) throw new DomainError("PROJECT_REQUIRED", 400);
+  const { projectId, rest } = splitProjectArgument(
+    args,
+    principal.projectIds.length === 1 ? principal.projectIds[0]! : undefined,
+  );
   // Audit rows go to the project only when it is one of the grant's.
   attributeCall(principal, call, projectId);
   // Authorization, the run and the execution all read the project (each
   // `scoped()` call locks it): one of its slots holds them (R-10). A BUSY
-  // call starts no run.
+  // call starts no run. The call is the one target-project call of its
+  // chain (agents/project-calls.ts): it never runs inside another's.
   return state.projectSlots.run(projectId, () =>
-    executeInProject(state, tool, rest, call, toolName, projectId),
+    inProjectCall(projectId, () =>
+      executeInProject(state, tool, rest, call, toolName, projectId),
+    ),
   );
 }
 

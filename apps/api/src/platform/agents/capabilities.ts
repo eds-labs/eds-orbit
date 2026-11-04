@@ -24,20 +24,40 @@ import {
   exposedToAgent,
   exposedToAssistant,
   exposedToMcp,
+  exposedToPersonal,
+  userScoped,
   type OrbitTool,
   type ToolContext,
   type ToolFeature,
   type ToolResult,
 } from "./tools/registry.ts";
 
-/** Where a tool is offered: Orbit's own hosts, an outside MCP client, a configured agent. */
-export type CapabilityChannel = "assistant" | "mcp" | "agent";
+/**
+ * Where a tool is offered: Orbit's own hosts (project chat), an outside MCP
+ * client, a configured agent, or the personal Orbit Assistant's project
+ * tools (ADR 0022). User tools (`scopeShape: "user"`) are never project
+ * capabilities: they act across projects and are offered only by the
+ * personal turn host (`personalUserTools`).
+ */
+export type CapabilityChannel = "assistant" | "mcp" | "agent" | "personal";
 
 const EXPOSED: Record<CapabilityChannel, (tool: OrbitTool) => boolean> = {
-  assistant: exposedToAssistant,
-  mcp: exposedToMcp,
-  agent: exposedToAgent,
+  assistant: (tool) => exposedToAssistant(tool) && !userScoped(tool),
+  mcp: (tool) => exposedToMcp(tool) && !userScoped(tool),
+  agent: (tool) => exposedToAgent(tool) && !userScoped(tool),
+  personal: (tool) => exposedToPersonal(tool) && !userScoped(tool),
 };
+
+/**
+ * The user tools of the personal Orbit Assistant (ADR 0022 §6), in
+ * registry order: platform tools with `scopeShape: "user"` that opt into
+ * the personal channel. Each reads per project in its own transaction.
+ */
+export function personalUserTools(): OrbitTool[] {
+  return registeredTools().filter(
+    (tool) => userScoped(tool) && tool.exposure?.personal === true,
+  );
+}
 
 export { platformFeatures } from "./features.ts";
 
