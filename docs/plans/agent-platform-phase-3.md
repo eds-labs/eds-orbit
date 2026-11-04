@@ -517,7 +517,7 @@ WP3.1 and WP3.6 can share one migration directory if they ship together. Otherwi
 3. **Scenario C.** "Have the Support agent investigate tickets 101–105" yields one confirmation card. After confirmation, five work orders run on the worker, survive a worker restart, and post one notice with five result cards into the conversation without a model call. The follow-up question gets a summary.
 4. **Approvals.** Pending approvals across projects are listed. Decidable ones can be approved inline, and the decision is identical to the approvals page (hash, version, audit).
 5. **Isolation.** No org owner, admin or other user can read a personal space, its conversations or its personal context (API and RLS proofs).
-6. **Personal context.** Entries appear only after the user's confirmation, can be edited, deleted and exported, and affect answers only within their project scope.
+6. **Personal context.** Automatically saved entries always show a "Remembered" notice with Undo, never contain refused content, appear only after a click in fallback mode, can be edited, deleted and exported, and affect answers only within their project scope (D-17).
 7. **Taint.** A proposal in project B made after reading project A is never auto-approved under a mandate, and its card names A.
 8. **Budget.** Assistant turns are paid from the personal space within the org's per-user cap, and stop with a readable message when the cap is reached.
 9. **No regressions.** Project chat and MCP behave unchanged; all safety nets pass.
@@ -534,7 +534,7 @@ WP3.1 and WP3.6 can share one migration directory if they ship together. Otherwi
 | R3-2 | Context size and cost growth with many projects | Staged loading; ≤ 8 user tools; project list capped (names only, at most 50 projects, then search); the per-user cap |
 | R3-3 | Lock contention or deadlocks across projects | No nested project transactions (test-mode assertion); `CHAT_CONCURRENCY` measured |
 | R3-4 | A Claude tool-loading change breaks project-mode chats | Project mode unchanged; personal mode only; scripted provider tests for both providers |
-| R3-5 | Users expect the assistant to "remember everything" | Clear "My context" UI; explicit confirm cards; no hidden memory |
+| R3-5 | Automatic memory stores something the user did not want kept | Visible notice with Undo on every save; deterministic content screen; fallback to confirm cards; clear "My context" UI; no hidden memory |
 | R3-6 | The bubble distracts on small screens | Collapsible; hidden on the full `/assistant` page; per-user "hide bubble" preference |
 
 **Phase-local technical decisions**
