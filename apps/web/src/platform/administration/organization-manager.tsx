@@ -21,6 +21,46 @@ import {
 import { DataForm, str } from "@/platform/ui/form";
 import { ResourceError } from "@/platform/ui/collection";
 import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
+import { assistantPaths, featureOff } from "@/platform/assistant/api";
+
+/** Switches the personal assistant on or off for one member (ADR 0022). */
+export function setMemberAssistant(base: string, userId: string, enabled: boolean) {
+  return put<{ userId: string; enabled: boolean }>(
+    `${base}/members/${encodeURIComponent(userId)}/assistant`,
+    { enabled },
+  );
+}
+
+/** The per-member switch "Assistant allowed". */
+export function MemberAssistantSwitch({
+  name,
+  enabled,
+  disabled,
+  locale,
+  onChange,
+}: {
+  name: string;
+  enabled: boolean;
+  disabled: boolean;
+  locale: Locale;
+  onChange: (enabled: boolean) => void;
+}) {
+  const de = locale === "de";
+  return (
+    <label className="switch-row switch-compact">
+      <input
+        type="checkbox"
+        role="switch"
+        className="switch"
+        checked={enabled}
+        disabled={disabled}
+        aria-label={`${de ? "Assistent erlaubt für" : "Assistant allowed for"} ${name}`}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span aria-hidden="true">{enabled ? (de ? "Ja" : "Yes") : de ? "Nein" : "No"}</span>
+    </label>
+  );
+}
 
 // One organization's members, their project and module roles, and its
 // invitations (ADR 0013). The organization settings (/o/:id/settings) and
@@ -35,6 +75,8 @@ export type OrganizationDetail = {
     email: string;
     banned: boolean;
     role: "owner" | "member";
+    /** May use the personal assistant (ADR 0022); absent from older APIs. */
+    assistantEnabled?: boolean;
   }>;
   projects: Array<{
     id: string;
@@ -120,6 +162,13 @@ export function OrganizationManager({
   const base = `/organizations/${encodeURIComponent(organizationId)}`;
   const detail = useResource<OrganizationDetail>(base);
   const change = useMutation(detail.refresh);
+  // The column shows while the personal assistant exists (404: flag off);
+  // another refusal (an administrator outside the organization) keeps it.
+  const assistant = useResource<unknown>(assistantPaths.status(organizationId));
+  const assistantColumn =
+    !assistant.loading &&
+    !featureOff(assistant.error) &&
+    detail.data?.members.some((m) => typeof m.assistantEnabled === "boolean");
   const [inviting, setInviting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [link, setLink] = useState<string | null>(null);
@@ -180,6 +229,9 @@ export function OrganizationManager({
               <tr>
                 <th>{de ? "Person" : "Person"}</th>
                 <th>{de ? "Organisationsrolle" : "Organization role"}</th>
+                {assistantColumn && (
+                  <th>{de ? "Assistent erlaubt" : "Assistant allowed"}</th>
+                )}
                 {d.projects.map((p) => (
                   <th key={p.id}>{p.name}</th>
                 ))}
@@ -220,6 +272,21 @@ export function OrganizationManager({
                       </option>
                     </select>
                   </td>
+                  {assistantColumn && (
+                    <td>
+                      <MemberAssistantSwitch
+                        name={m.name}
+                        enabled={m.assistantEnabled !== false}
+                        disabled={change.pending}
+                        locale={locale}
+                        onChange={(enabled) =>
+                          void change.run(() =>
+                            setMemberAssistant(base, m.id, enabled),
+                          )
+                        }
+                      />
+                    </td>
+                  )}
                   {d.projects.map((p) => {
                     const membership = cell(p.id, m.id);
                     const overrides = Object.keys(

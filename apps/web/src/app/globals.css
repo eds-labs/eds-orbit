@@ -13,6 +13,9 @@
   --danger: #ae3647;
   --success: #17725a;
   --shadow: 0 10px 32px rgba(42, 83, 126, 0.045);
+  /* The phone bottom bar (.mobile-nav): 1 px border, 9 px padding, 48 px
+     entries and the bottom padding with the safe area. */
+  --mobile-nav-height: calc(58px + max(9px, env(safe-area-inset-bottom)));
 }
 @theme inline {
   --color-background: var(--background);
@@ -4354,6 +4357,487 @@ body:has(dialog[open]) {
   .chat-main {
     background: #fff;
     backdrop-filter: none;
+  }
+}
+
+/* The personal Orbit Assistant (ADR 0022, WP3.8): project badges and inline
+   decisions on chat cards, notices, progress lines, the floating bubble and
+   its panel (the sheet primitive), and "My context". */
+.project-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid #cbe3fa;
+  border-radius: 6px;
+  background: #f3faff;
+  color: #244563;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.project-badge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-badge svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+.chat-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.chat-card-head small {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.chat-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chat-card:has(.chat-card-actions),
+.chat-context-proposal {
+  max-width: min(100%, 340px);
+}
+.chat-card a.chat-card-approvals {
+  font-size: 12px;
+}
+.chat-notice {
+  align-self: stretch;
+  max-width: 100%;
+  background: #f3faff;
+  border-color: #cbe3fa;
+}
+.chat-notice-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.chat-notice-body > p {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-notice-body > p svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--primary);
+}
+.chat-context-proposal p,
+.chat-context-proposal .textarea {
+  overflow-wrap: anywhere;
+}
+.assistant-steps {
+  display: grid;
+  gap: 4px;
+  margin: 10px 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.assistant-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.assistant-steps li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+}
+.assistant-steps svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.assistant-steps [data-state="started"] svg {
+  animation: spin 1s linear infinite;
+  color: var(--primary);
+}
+.assistant-steps [data-state="finished"] svg {
+  color: var(--success);
+}
+.assistant-steps [data-state="failed"] svg {
+  color: var(--danger);
+}
+.assistant-bubble {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 35;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(105deg, #0969ff, #1685ff);
+  box-shadow: 0 8px 24px #0969ff40;
+}
+.assistant-bubble:hover {
+  background: linear-gradient(105deg, #075ee8, #0979f0);
+}
+.assistant-bubble svg {
+  width: 22px;
+  height: 22px;
+}
+.assistant-bubble[data-open="true"] {
+  visibility: hidden;
+}
+.assistant-bubble-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.assistant-bubble-dot[data-working="true"] {
+  background: #ffd36b;
+}
+.sheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 38;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100vw);
+  border-left: 1px solid #cbdfee;
+  background: #fcfeff;
+  color: var(--foreground);
+  box-shadow: -18px 0 60px #0b314726;
+}
+.sheet:focus {
+  outline: none;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 10px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.sheet-head h2 {
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 680;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.sheet-actions .button-icon,
+.assistant-panel .chat-history-list .chat-history-archive {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+.sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.sheet-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 0 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.sheet-foot a,
+.sheet-foot .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  color: var(--primary);
+  font-weight: 600;
+}
+.sheet-foot svg {
+  width: 15px;
+  height: 15px;
+}
+.assistant-panel .alert {
+  margin: 14px;
+}
+.assistant-focus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.assistant-focus select {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+}
+.assistant-page .assistant-focus {
+  max-width: 420px;
+  margin-bottom: 14px;
+  padding: 0;
+  border: 0;
+}
+.assistant-panel .chat-main {
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.assistant-panel .chat-messages {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 14px;
+}
+.assistant-panel .chat-message {
+  max-width: 94%;
+  min-width: 0;
+}
+.assistant-panel .chat-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.assistant-panel .chat-history {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.assistant-panel .chat-history-list {
+  display: grid;
+  overflow-x: visible;
+}
+.assistant-panel .chat-history-item {
+  max-width: none;
+}
+.assistant-panel .chat-history-list button,
+.assistant-panel .chat-history-toggle,
+.assistant-panel .chat-card-actions .button,
+.assistant-panel .chat-notice-body .button {
+  min-height: 44px;
+}
+.assistant-panel .chat-history-list .chat-history-archive {
+  opacity: 1;
+}
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+.switch-row > span {
+  display: grid;
+  gap: 2px;
+  padding-top: 10px;
+}
+.switch-row small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.switch-compact {
+  align-items: center;
+  padding: 0;
+}
+.switch-compact > span {
+  padding-top: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.switch {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  margin: 8px 0;
+  border-radius: 999px;
+  background: #c9d9e6;
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px #0b314740;
+  transition: transform 0.15s;
+}
+.switch:checked {
+  background: var(--primary);
+}
+.switch:checked::after {
+  transform: translateX(16px);
+}
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.personal-context-settings {
+  display: grid;
+  gap: 4px;
+  padding-top: 14px;
+}
+.personal-context-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.personal-context-list > li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 21px;
+  border-top: 1px solid var(--border);
+}
+.personal-context-list > li[data-status="archived"] .personal-context-entry {
+  opacity: 0.7;
+}
+.personal-context-list > li > form {
+  flex: 1;
+}
+.personal-context-entry {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.personal-context-entry p {
+  overflow-wrap: anywhere;
+}
+.personal-context-list .row-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.personal-context-list .row-actions .button-icon {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+}
+.personal-context-form {
+  display: grid;
+  gap: 6px;
+}
+.personal-context-form small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.personal-context-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 12px;
+  margin-top: 6px;
+}
+.personal-context-fields > div {
+  display: grid;
+  gap: 6px;
+}
+@media (max-width: 760px) {
+  .assistant-bubble[data-above-nav="true"] {
+    bottom: calc(var(--mobile-nav-height) + 12px);
+  }
+  .assistant-bubble {
+    right: 16px;
+    bottom: 16px;
+  }
+  /* The composer of the project chat stays uncovered while typing. */
+  body:has(#orbit-chat-input:focus) .assistant-bubble {
+    display: none;
+  }
+  .sheet {
+    top: max(8px, env(safe-area-inset-top));
+    left: 0;
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid #cbdfee;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 48px #0b314733;
+  }
+  /* Above the bottom bar, which stays usable below the sheet. */
+  .sheet-above-nav {
+    bottom: var(--mobile-nav-height);
+  }
+  /* 16 px avoids the iOS focus zoom. */
+  .assistant-panel .chat-compose .textarea {
+    font-size: 16px;
+  }
+  /* A keyboard that resizes the viewport would lift the bar over the sheet. */
+  body:has(#assistant-panel-input:focus) .mobile-nav {
+    display: none;
+  }
+  body:has(#assistant-panel-input:focus) .sheet-above-nav {
+    bottom: 0;
+  }
+  .personal-context-list > li {
+    flex-direction: column;
+    padding: 12px 16px;
+  }
+  .personal-context-list .row-actions {
+    align-self: flex-end;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .assistant-bubble {
+    box-shadow: none;
+  }
+}
+@media (forced-colors: active) {
+  .assistant-bubble,
+  .sheet,
+  .project-badge {
+    border: 1px solid ButtonText;
+  }
+  .switch {
+    border: 1px solid ButtonText;
+  }
+  .switch:checked {
+    background: Highlight;
   }
 }
 .action-readiness {

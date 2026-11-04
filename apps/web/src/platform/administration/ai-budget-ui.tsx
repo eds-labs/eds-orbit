@@ -20,6 +20,8 @@ type BudgetView = {
   periodStart: string;
   budget: {
     monthlyMicros: number | null;
+    /** The personal assistant's monthly cap per member (ADR 0022 D-09). */
+    assistantPerUserMonthlyMicros?: number | null;
     providerCaps: Partial<Record<Provider, number>>;
     credits: Partial<Record<Provider, Credit>>;
     version: number;
@@ -66,6 +68,12 @@ const text = {
     creditField: (p: string) => `Balance at ${p} as last read (USD, empty: unknown)`,
     creditHint: "Orbit cannot read the balance; it is shown with the date you enter it.",
     save: "Save",
+    assistant: "Personal assistant per member",
+    assistantNone: "none: no paid assistant turns",
+    assistantField: "Monthly cap of the personal assistant per member (USD, empty: no paid assistant turns)",
+    assistantHint:
+      "Each member's assistant pays from their own personal space up to this amount a month; the organization budget counts it.",
+    perMonth: "a month",
     usage: "AI usage",
     usageIntro: "Spend of the current month across projects: settled, open and unclear reservations.",
     unclear: "unclear",
@@ -99,6 +107,12 @@ const text = {
     creditField: (p: string) => `Guthaben bei ${p}, zuletzt abgelesen (USD, leer: unbekannt)`,
     creditHint: "Orbit kann das Guthaben nicht abfragen; es wird mit dem Datum deiner Eingabe angezeigt.",
     save: "Speichern",
+    assistant: "Persönlicher Assistent pro Mitglied",
+    assistantNone: "keine: keine bezahlten Assistenten-Antworten",
+    assistantField: "Monatliche Obergrenze des persönlichen Assistenten pro Mitglied (USD, leer: keine bezahlten Assistenten-Antworten)",
+    assistantHint:
+      "Der Assistent jedes Mitglieds bezahlt aus dessen persönlichem Bereich bis zu diesem Betrag im Monat; das Organisationsbudget zählt ihn mit.",
+    perMonth: "im Monat",
     usage: "KI-Verbrauch",
     usageIntro: "Ausgaben des laufenden Monats über alle Projekte: abgerechnet, offen und unklar.",
     unclear: "unklar",
@@ -180,6 +194,12 @@ export function AiBudgetPanel({ base, locale }: { base: string; locale: Locale }
             </div>
           );
         })}
+        <div className="data-row">
+          <div>
+            <strong>{t.assistant}</strong>
+            <p>{assistantCapText(v.budget?.assistantPerUserMonthlyMicros, t)}</p>
+          </div>
+        </div>
       </div>
       {editing && (
         <BudgetForm
@@ -196,6 +216,65 @@ export function AiBudgetPanel({ base, locale }: { base: string; locale: Locale }
       )}
     </section>
   );
+}
+
+/** The member cap as shown: an amount a month, or none. */
+export function assistantCapText(micros: number | null | undefined, t: Text) {
+  return micros == null ? t.assistantNone : `${usd(micros)} ${t.perMonth}`;
+}
+
+/** The cap field's value as micros; empty is null (no paid assistant turns). */
+export function assistantCapMicros(values: FormValues): number | null {
+  return microsOf(values, "assistant") ?? null;
+}
+
+/** The fields of the budget form; the assistant cap after the monthly budget. */
+export function budgetFields(
+  t: Text,
+  view: Pick<BudgetView, "budget">,
+  caps: Partial<Record<Provider, number>>,
+  credits: Partial<Record<Provider, Credit>>,
+): FormField[] {
+  return [
+    {
+      name: "monthly",
+      label: t.monthly,
+      type: "number",
+      step: "0.01",
+      min: 0,
+      value: dollars(view.budget?.monthlyMicros),
+    },
+    {
+      name: "assistant",
+      label: t.assistantField,
+      type: "number",
+      step: "0.01",
+      min: 0,
+      value: dollars(view.budget?.assistantPerUserMonthlyMicros),
+      hint: t.assistantHint,
+    },
+    ...providers.map(
+      (p): FormField => ({
+        name: `cap-${p}`,
+        label: t.capField(providerName[p]),
+        type: "number",
+        step: "0.01",
+        min: 0,
+        value: dollars(caps[p]),
+      }),
+    ),
+    ...providers.map(
+      (p): FormField => ({
+        name: `credit-${p}`,
+        label: t.creditField(providerName[p]),
+        type: "number",
+        step: "0.01",
+        min: 0,
+        value: dollars(credits[p]?.amountMicros),
+        hint: t.creditHint,
+      }),
+    ),
+  ];
 }
 
 const dollars = (micros: number | null | undefined) =>
@@ -224,37 +303,7 @@ function BudgetForm({
   const mutation = useMutation(onSaved);
   const caps = { ...(view.budget?.providerCaps ?? {}), ...(useProposal ? view.proposal.providerCaps : {}) };
   const credits = { ...(useProposal ? view.proposal.credits : {}), ...(view.budget?.credits ?? {}) };
-  const fields: FormField[] = [
-    {
-      name: "monthly",
-      label: t.monthly,
-      type: "number",
-      step: "0.01",
-      min: 0,
-      value: dollars(view.budget?.monthlyMicros),
-    },
-    ...providers.map(
-      (p): FormField => ({
-        name: `cap-${p}`,
-        label: t.capField(providerName[p]),
-        type: "number",
-        step: "0.01",
-        min: 0,
-        value: dollars(caps[p]),
-      }),
-    ),
-    ...providers.map(
-      (p): FormField => ({
-        name: `credit-${p}`,
-        label: t.creditField(providerName[p]),
-        type: "number",
-        step: "0.01",
-        min: 0,
-        value: dollars(credits[p]?.amountMicros),
-        hint: t.creditHint,
-      }),
-    ),
-  ];
+  const fields = budgetFields(t, view, caps, credits);
   return (
     <Modal title={t.title} onClose={onClose}>
       <DataForm
@@ -277,6 +326,7 @@ function BudgetForm({
             };
             return put(`${base}/ai/budget`, {
               monthlyMicros: microsOf(values, "monthly") ?? null,
+              assistantPerUserMonthlyMicros: assistantCapMicros(values),
               providerCaps: Object.fromEntries(
                 providers.flatMap((p) => {
                   const cap = microsOf(values, `cap-${p}`);

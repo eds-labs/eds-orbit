@@ -25,6 +25,8 @@ import {
 } from "@/components/management";
 import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
 import { AccountView } from "@/platform/account/account-view";
+import { PersonalContextView } from "@/platform/account/personal-context";
+import { AssistantPage } from "@/platform/assistant/assistant-page";
 import {
   ConfirmEmailView,
   InviteView,
@@ -258,6 +260,22 @@ export const webRegistry: WebRegistry = {
       path: "account",
       component: AccountView,
       title: label("accountTitle"),
+      session: "required",
+    },
+    // The personal assistant (ADR 0022): its full page and "My context".
+    // Both answer "not found" while /api/assistant is 404 (flag off).
+    {
+      key: "account-assistant",
+      path: "account/assistant",
+      component: PersonalContextView,
+      title: { en: "My context", de: "Mein Kontext" },
+      session: "required",
+    },
+    {
+      key: "assistant",
+      path: "assistant",
+      component: AssistantPage,
+      title: { en: "Orbit Assistant", de: "Orbit Assistant" },
       session: "required",
     },
     {

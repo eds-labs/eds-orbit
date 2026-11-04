@@ -49,6 +49,7 @@ import {
   projectHref,
   routeEnabled,
   rewriteLegacyHref,
+  projectAwareHref,
   routeTable,
   navigationForFeatures,
   routesForFeatures,
@@ -98,6 +99,8 @@ import {
 import { agentPaths } from "@/platform/agents/api";
 import { agentPlatformVisible } from "@/platform/agents/logic";
 import { OrganizationAgents } from "@/platform/agents/org-agents";
+import { AssistantProvider } from "@/platform/assistant/assistant-provider";
+import type { AssistantLinks } from "@/platform/assistant/links";
 
 const LAST_PROJECT = "orbit.project";
 type ModuleStates = {
@@ -205,6 +208,15 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     if (signedOut) clearAttentionCache();
   }, [signedOut]);
   const renderers = useMemo(() => attentionRenderers(registry), [registry]);
+  // Card links of the personal assistant open in the card's project (WP3.8).
+  const projectsOfMember = identity.data?.projects;
+  const assistantLinks = useMemo(
+    (): AssistantLinks => ({
+      hrefFor: (id, href) => projectAwareHref(table, id, href),
+      projectName: (id) => projectsOfMember?.find((p) => p.id === id)?.name,
+    }),
+    [table, projectsOfMember],
+  );
   useEffect(() => {
     try {
       const lang = localStorage.getItem("orbit.locale");
@@ -547,22 +559,46 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       }
     />
   );
-  // Pages outside a project: pickers, administration and unknown addresses.
-  const frame = (children: ReactNode, wide = false) => (
-    <div className="picker-page">
-      <header>
-        <Brand />
-        <div className="topbar-actions">
-          {languageControl}
-          {userMenu()}
-        </div>
-      </header>
-      <main id="main" className={wide ? "admin-main" : "picker-main"}>
-        {signout.error && <Alert kind="error">{signout.error}</Alert>}
-        {children}
-      </main>
-    </div>
+  // The personal assistant (ADR 0022, WP3.8) around every authenticated page:
+  // the same element at the root of the project shell and of `frame`, so its
+  // state and a running reply survive navigation between them, and outside
+  // the keyed workspace <div>, so they survive project switches. Its
+  // organization: the open project's or organization's, else the last
+  // project's, else the server's default.
+  const assistantWorkspace =
+    project?.workspaceId ??
+    ("organizationId" in place ? place.organizationId : undefined) ??
+    me.projects.find((p) => p.id === lastProject())?.workspaceId;
+  const withAssistant = (tree: ReactNode, aboveNav = false) => (
+    <AssistantProvider
+      identity={me}
+      locale={locale}
+      pathname={pathname}
+      routeProjectId={project?.id}
+      workspaceId={assistantWorkspace}
+      links={assistantLinks}
+      aboveNav={aboveNav}
+    >
+      {tree}
+    </AssistantProvider>
   );
+  // Pages outside a project: pickers, administration and unknown addresses.
+  const frame = (children: ReactNode, wide = false) =>
+    withAssistant(
+      <div className="picker-page">
+        <header>
+          <Brand />
+          <div className="topbar-actions">
+            {languageControl}
+            {userMenu()}
+          </div>
+        </header>
+        <main id="main" className={wide ? "admin-main" : "picker-main"}>
+          {signout.error && <Alert kind="error">{signout.error}</Alert>}
+          {children}
+        </main>
+      </div>,
+    );
   if (standalone)
     return frame(
       <StandaloneContext.Provider
@@ -576,7 +612,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       >
         <standalone.component />
       </StandaloneContext.Provider>,
-      standalone.key === "account",
+      ["account", "account-assistant", "assistant"].includes(standalone.key),
     );
   // The system administration (ADR 0013); the API refuses everyone else.
   if (place.kind === "admin")
@@ -744,7 +780,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </option>
         ));
   const label = (r: Route) => r.nav?.label[locale] ?? r.key;
-  return (
+  return withAssistant(
     <ShellContext.Provider value={shell}>
       <div className="orbit">
         <a href="#main" className="skip-link">
@@ -979,7 +1015,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </Modal>
         )}
       </div>
-    </ShellContext.Provider>
+    </ShellContext.Provider>,
+    true,
   );
 }
 export function ModuleOff({

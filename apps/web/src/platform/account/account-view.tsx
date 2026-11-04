@@ -14,6 +14,8 @@ import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { DataForm, str } from "@/platform/ui/form";
 import { useStandalone } from "@/platform/shell/standalone-context";
 import { at, errorText } from "@/platform/administration/texts";
+import Link from "next/link";
+import { useAssistantPanel } from "@/platform/assistant/assistant-context";
 
 // The signed-in user's own account (/account, ADR 0013): name, language,
 // e-mail address, password and sessions. Every change goes through the API,
@@ -51,6 +53,7 @@ export function AccountView() {
   const email = useMutation();
   const sessionAction = useMutation(sessions.refresh);
   const [passwordKey, setPasswordKey] = useState(0);
+  const assistant = useAssistantPanel();
   if (profile.loading && !profile.data)
     return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!profile.data)
@@ -66,6 +69,23 @@ export function AccountView() {
             : "Profile, language, sign-in and sessions. Applies in every project."
         }
       />
+      {assistant?.available && (
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <h2>Orbit Assistant</h2>
+              <p>
+                {de
+                  ? "Was sich dein persönlicher Assistent merkt; nur du siehst es."
+                  : "What your personal assistant remembers; only you can see it."}
+              </p>
+            </div>
+            <Link className="button button-outline button-sm" href="/account/assistant">
+              {de ? "Mein Kontext" : "My context"}
+            </Link>
+          </div>
+        </section>
+      )}
       <section className="panel">
         <div className="panel-head">
           <div>

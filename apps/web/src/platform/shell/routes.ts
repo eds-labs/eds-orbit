@@ -432,6 +432,33 @@ export function rewriteLegacyHref(
   return route ? projectHref(projectId, route) + suffix : href;
 }
 
+/**
+ * An in-app link of a card that names its project (WP3.8): legacy paths
+ * ("/content", "/decisions") and project page paths ("/support/tickets?…")
+ * open in that project; absolute links, "/p/…" and pages outside projects
+ * stay as they are.
+ */
+export function projectAwareHref(
+  table: RouteTable,
+  projectId: string,
+  href: string,
+): string {
+  if (!href.startsWith("/") || href.startsWith("//")) return href;
+  const legacy = rewriteLegacyHref(table, projectId, href);
+  if (legacy !== href) return legacy;
+  const match = /^(\/[^?#]*)([?#].*)?$/.exec(href);
+  if (!match) return href;
+  const [, path, suffix = ""] = match;
+  const first = path!.split("/")[1] ?? "";
+  if (
+    RESERVED.has(first) ||
+    table.standalone.some((v) => v.path.split("/")[0] === first)
+  )
+    return href;
+  const prefixed = `/p/${encodeURIComponent(projectId)}${path}`;
+  return locate(prefixed, table).kind === "view" ? prefixed + suffix : href;
+}
+
 /** Same-origin search and hash of a legacy URL, kept across the redirect. */
 export function keptSuffix(search: string, hash: string): string {
   return `${search.startsWith("?") ? search : ""}${hash.startsWith("#") ? hash : ""}`;
