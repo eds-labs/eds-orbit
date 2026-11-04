@@ -58,3 +58,9 @@ Decided by Mario with the [Orbit Agents design](../superpowers/specs/2026-10-09-
 
 - The runtime port and the `legacy_responses` adapter are merged and are the only model loop. Specialists live in `apps/api/src/modules/marketing/agents/specialists/` and share a pooled run budget (R75) instead of per-step ceilings.
 - `runSpecialist` now delegates its call path to the platform task host `runStructured` (WP1.3) with unchanged reservation keys, budgets, statuses and codes. Configured agents (ADR 0021) run on the same task host with a per-call principal.
+
+## Addendum 2026-11-04: on-behalf principal for specialists
+
+With the agent platform (ADR 0021, plan `agent-platform-phase-1` WP1.9) a specialist's model turn no longer rests on the worker's infrastructure scope (`{userId: "worker", role: "owner"}`) alone. It acts on behalf of the owner who confirmed the assignment (`confirmation.userId`, the `assignment.confirm` decider). Before each model call and each tool call of the turn that member must still be a Marketing owner and hold the tool's permission (`authorizeOnBehalf` in `apps/api/src/platform/agents/principal.ts`, wired through the task host's `guard` and `beforeTool` hooks in `runSpecialist`). Otherwise the turn stops with `AGENT_PRINCIPAL_FORBIDDEN` before anything further is sent or paid: the task fails with that code, its `AgentRun` ends `blocked`, and the project gets the open exception `AGENT_PRINCIPAL_FORBIDDEN` naming the assignment.
+
+**Behaviour change:** demoting or removing the confirming owner now blocks that assignment's specialists until that member is an owner again or another owner confirms the assignment anew (a content change creates a new confirmation request). The worker scope still does the tasks' database work; reservation keys, budgets, statuses other than this refusal and results are unchanged.

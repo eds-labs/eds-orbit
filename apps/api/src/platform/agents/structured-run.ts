@@ -101,6 +101,12 @@ export type StructuredRunSpec<O, R = O> = {
     /** The work order's own checks before each tool call (agent active, same version). */
     current?: () => Promise<void>;
   };
+  /**
+   * Checked before each tool call runs, after the tool is found; a refusal
+   * ends the run instead of going back to the model (a module's own
+   * on-behalf check, e.g. Marketing's specialists, WP1.9).
+   */
+  beforeTool?(tool: OrbitTool): Promise<void>;
   /** Called after each tool call with its name, risk and outcome code (the work-order step log). */
   onStep?(step: StructuredRunStep): void | Promise<void>;
   /** A verified model the task class routes to for this run (a configured agent's choice). */
@@ -525,9 +531,15 @@ export async function runStructured<O, R = O>(
       const startedAt = new Date();
       let output: unknown;
       let failure: string | null = null;
+      let refused = false;
       try {
         const tool = findTool(spec.tools, call.name);
         if (!tool) throw new DomainError("AGENT_TOOL_NOT_ALLOWED", 403);
+        if (spec.beforeTool)
+          await spec.beforeTool(tool).catch((error: unknown) => {
+            refused = true;
+            throw error;
+          });
         const context = {
           scope,
           runId: spec.toolContext?.runId ?? agentRunId ?? spec.budget.callKey,
@@ -556,7 +568,8 @@ export async function runStructured<O, R = O>(
         failure = errorCode(error);
         // A lost right, a paused or changed agent stops the whole run: the
         // model never gets to try another tool (scenario D, ADR 0021 §5.4).
-        if (spec.principal && PRINCIPAL_STOPS.test(failure)) {
+        // So does a refusal of the caller's own check (beforeTool).
+        if (refused || (spec.principal && PRINCIPAL_STOPS.test(failure))) {
           await spec.onStep?.({
             index: callIndex,
             tool: findTool(spec.tools, call.name)?.name ?? "unknown_tool",

@@ -24,6 +24,7 @@ import type {
 } from "../governance/types.ts";
 import type { ActionHandler } from "../http/actions.ts";
 import type { AgentTemplate } from "../agents/definitions/templates.ts";
+import type { AgentListingsContribution } from "../agents/managed.ts";
 import type { RoutesContribution } from "../http/routes.ts";
 import type {
   AssistantContribution,
@@ -88,6 +89,8 @@ export type ModuleContributions = {
   routes?: RoutesContribution;
   /** Starting points for configured agents (ADR 0021), with guard rules users cannot remove. */
   agentTemplates?: readonly AgentTemplate[];
+  /** Read-only listings of agents the module manages itself, for the agent overview (WP1.9). */
+  agentListings?: AgentListingsContribution;
   /** The project's go-live readiness; at most one module provides it (WP2.1f). */
   readiness?: ReadinessProvider;
   /** Channels the module manages, by id, for display (WP2.1f). */
@@ -978,6 +981,17 @@ export function registeredAgentTemplates(
           throw new Error(`agent template ${template.key} registered twice`);
         out.push({ ...template, module: owner });
       }
+  return out;
+}
+
+/** Managed-agent listings of the enabled owners, platform first, then modules in registry order. */
+export function registeredAgentListings(
+  enabled?: ReadonlySet<string>,
+): Array<{ module: string; list: AgentListingsContribution }> {
+  const out: Array<{ module: string; list: AgentListingsContribution }> = [];
+  for (const [owner, c] of current().byModule)
+    if (c.agentListings && ownerEnabled(owner, enabled))
+      out.push({ module: owner, list: c.agentListings });
   return out;
 }
 

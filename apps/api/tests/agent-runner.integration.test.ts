@@ -11,6 +11,7 @@ import { PROJECT_READ } from "../src/platform/tenancy/permissions.ts";
 import { z } from "zod";
 import { APIError } from "openai";
 import {
+  authDb,
   closeDatabase,
   scoped,
   type DbTx,
@@ -167,7 +168,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       create(tx, project.owner, "assignments", {
         ...content,
         confirmation: {
-          userId: "owner",
+          userId: project.owner.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },
@@ -366,6 +367,81 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     } finally {
       registerSpecialist(echo("research"));
     }
+  });
+
+  it("runs on behalf of the confirming owner: demoted or removed, the turn stops before its next tool or model call (WP1.9)", async () => {
+    // A second project owner confirmed the assignment.
+    const confirmer = project.editor.userId;
+    const membership = { projectId: project.owner.projectId, userId: confirmer };
+    await authDb.projectMember.updateMany({
+      where: membership,
+      data: { role: "owner" },
+    });
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        confirmation: { ...data(row).confirmation, userId: confirmer },
+      });
+    });
+    const exceptions = async () =>
+      (await run((tx) => list(tx, project.owner, "exceptions")))
+        .map((row) => data(row))
+        .filter((x) => x.code === "AGENT_PRINCIPAL_FORBIDDEN");
+
+    // Demoted to editor while the first model call is out: its tool call is refused.
+    const research = await task("research");
+    mocked.replies.push(async () => {
+      await authDb.projectMember.updateMany({
+        where: membership,
+        data: { role: "editor" },
+      });
+      return { output: [lookupCall("beta")] };
+    });
+    mocked.replies.push(() => ({ output: [message('{"text":"late"}')] }));
+    await runAgentTask(worker(), research.id);
+    expect(mocked.requests).toHaveLength(1);
+    expect(await task("research")).toMatchObject({
+      status: "failed",
+      errorCode: "AGENT_PRINCIPAL_FORBIDDEN",
+      output: null,
+      costMicros: 7,
+    });
+    // The call before the refusal is settled; nothing was reserved after it.
+    expect(
+      (await reservations(research.id)).map((r) => [
+        r.state,
+        Number(r.settledMicros),
+      ]),
+    ).toEqual([["settled", 7]]);
+    const agentRun = await run((tx) =>
+      tx.agentRun.findFirstOrThrow({
+        where: { projectId: project.owner.projectId, subjectId: research.id },
+        include: { spans: true },
+      }),
+    );
+    expect(agentRun).toMatchObject({
+      status: "blocked",
+      errorCode: "AGENT_PRINCIPAL_FORBIDDEN",
+    });
+    // The tool never ran.
+    expect(agentRun.spans.map((span) => span.type)).toEqual(["model_call"]);
+    expect(await exceptions()).toMatchObject([
+      { status: "open", count: 1, resourceIds: [assignmentId] },
+    ]);
+
+    // Removed from the project before the next task: no model call at all.
+    await authDb.projectMember.deleteMany({ where: membership });
+    const analytics = await task("analytics");
+    await runAgentTask(worker(), analytics.id);
+    expect(mocked.requests).toHaveLength(1);
+    expect(await task("analytics")).toMatchObject({
+      status: "failed",
+      errorCode: "AGENT_PRINCIPAL_FORBIDDEN",
+      costMicros: 0,
+    });
+    expect(await reservations(analytics.id)).toEqual([]);
+    expect(await exceptions()).toMatchObject([{ status: "open", count: 2 }]);
   });
 
   it("reserves before and settles after every model call under the run's budget key", async () => {
@@ -1081,7 +1157,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       create(tx, project.owner, "assignments", {
         ...content,
         confirmation: {
-          userId: "owner",
+          userId: project.owner.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },

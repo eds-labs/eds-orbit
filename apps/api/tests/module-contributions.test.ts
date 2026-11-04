@@ -21,6 +21,7 @@ import {
   registeredRetention,
   registeredRoutes,
   registeredRoutesByOwner,
+  registeredAgentListings,
   registeredSchedulers,
   registeredTelegramCallback,
   registeredToolOwner,
@@ -36,6 +37,7 @@ import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { marketingRoutes } from "../src/modules/marketing/routes.ts";
 import { supportRoutes } from "../src/modules/support/routes.ts";
 import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
+import { agentRoutes } from "../src/platform/agents/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
@@ -79,6 +81,7 @@ describe("module contributions", () => {
     expect([...registeredJobs().keys()].sort()).toEqual(
       [
         "agent",
+        "agent_work",
         "analytics",
         "chat",
         "creative_preview",
@@ -132,6 +135,7 @@ describe("module contributions", () => {
 
   it("leaves the same kinds out of the project export as before (WP1.8)", () => {
     expect([...unexportedKinds()].sort()).toEqual([
+      "agent_failure_notices",
       "connectors",
       "drive_connection",
       "drive_oauth_state",
@@ -449,10 +453,11 @@ describe("module contributions", () => {
     // Registry order: knowledge before marketing, which depends on it.
     // Support counts only while ORBIT_SUPPORT is on; the server registers
     // its routes regardless and they answer 404 while it is off.
-    expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    expect(registeredRoutes()).toEqual([agentRoutes, knowledgeRoutes, marketingRoutes]);
     process.env.ORBIT_SUPPORT = "true";
     try {
       expect(registeredRoutes()).toEqual([
+        agentRoutes,
         knowledgeRoutes,
         supportRoutes,
         marketingRoutes,
@@ -464,6 +469,11 @@ describe("module contributions", () => {
       "support",
     );
     expect(registeredToolOwner("knowledge_search")).toBe("platform");
+  });
+
+  it("lists module-managed agents of enabled modules only: Marketing's assignments (WP1.9)", () => {
+    expect(registeredAgentListings().map((l) => l.module)).toEqual(["marketing"]);
+    expect(registeredAgentListings(new Set(["knowledge"]))).toEqual([]);
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {

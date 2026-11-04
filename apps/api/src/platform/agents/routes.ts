@@ -35,6 +35,7 @@ import {
   setAgentStatus,
   updateAgentDraft,
 } from "./definitions/service.ts";
+import { managedAgentGroups } from "./managed.ts";
 import { triggerableEvents } from "./triggers/declarations.ts";
 import {
   agentPlatformEnabled,
@@ -93,6 +94,10 @@ export const agentRoutes: RoutesContribution = ({ app, auth }) => {
         })),
       };
     }),
+  );
+  // Agents the enabled modules manage themselves (Marketing's assignments), read only (WP1.9).
+  app.get(`${BASE}/agents/managed`, (req) =>
+    inProject(auth, req, AGENTS_READ, (tx, scope) => managedAgentGroups(tx, scope)),
   );
   app.get(`${BASE}/agents/:id`, (req) =>
     inProject(auth, req, AGENTS_READ, async (tx, scope, p) => agentView(await readVisibleAgent(tx, scope, id(p)))),

@@ -21,6 +21,8 @@ import {
 import { agentTriggerSubscriber, TEST_PING } from "../src/platform/agents/triggers/events.ts";
 import { agentScheduleScheduler, slotsBetween } from "../src/platform/agents/triggers/schedule.ts";
 import { planChildWorkOrders } from "../src/platform/agents/work-orders/delegation.ts";
+import { managedAgentGroups } from "../src/platform/agents/managed.ts";
+import { create } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
 import { createPackageProject } from "./support/package-project.ts";
 
@@ -349,6 +351,66 @@ describe.skipIf(!enabled)("agent platform (ADR 0021, Phase 1)", () => {
     expect(await runIn((tx) => agentScheduleScheduler.nextDueAt(tx, p.owner, at))).toEqual(new Date("2026-11-05T09:00:00Z"));
     const listed = await runIn((tx) => listWorkOrders(tx, p.editor, { agentId: agent.id }));
     expect(listed.items).toHaveLength(1);
+  });
+
+  it("lists the assignments Marketing manages as read-only managed agents (WP1.9)", async () => {
+    const assignment = (name: string, status: string, schedule: Record<string, unknown>) =>
+      runIn((tx) =>
+        create(tx, p.owner, "assignments", {
+          name,
+          kind: "standing",
+          schedule: { weekdays: [], leadMinutes: 360, ...schedule },
+          contentType: "social",
+          channels: ["x-int"],
+          topicFrame: "Short updates about beta access",
+          image: false,
+          styleAssetIds: [],
+          vetoMinutes: 180,
+          monthlyBudgetMicros: 20_000_000,
+          status,
+          confirmation: null,
+          actionRequestId: null,
+        }),
+      );
+    const daily = await assignment("Daily product post", "active", { rhythm: "daily", times: ["10:00", "17:00"] });
+    const weekly = await assignment("Weekly digest", "paused", { rhythm: "weekly", weekdays: [1, 4], times: ["09:00"] });
+    await assignment("Old campaign", "ended", { rhythm: "daily", times: ["08:00"] });
+    const before = process.env.ORBIT_AGENTS;
+    process.env.ORBIT_AGENTS = "true";
+    try {
+      const { groups } = await runIn((tx) => managedAgentGroups(tx, p.editor));
+      expect(groups.map((g) => g.module)).toEqual(["marketing"]);
+      const link = `/p/${p.owner.projectId}/marketing/assignments`;
+      expect(groups[0]!.items).toEqual(
+        expect.arrayContaining([
+          {
+            id: daily.id,
+            name: "Daily product post",
+            status: "active",
+            schedule: expect.stringMatching(/^Daily at 10:00, 17:00 \(.+\)$/),
+            monthSpendMicros: 0,
+            monthBudgetMicros: 20_000_000,
+            link,
+          },
+          expect.objectContaining({
+            id: weekly.id,
+            status: "paused",
+            schedule: expect.stringMatching(/^Weekly on Mon, Thu at 09:00 \(/),
+          }),
+        ]),
+      );
+      // Ended assignments are left out.
+      expect(groups[0]!.items.map((i) => i.name)).not.toContain("Old campaign");
+      // A member without access to Marketing sees no Marketing group.
+      const hidden = await runIn((tx) => managedAgentGroups(tx, { ...p.editor, moduleRoles: { marketing: "none" } }));
+      expect(hidden.groups).toEqual([]);
+      // With Orbit Agents off Marketing lists nothing.
+      process.env.ORBIT_AGENTS = "false";
+      expect((await runIn((tx) => managedAgentGroups(tx, p.editor))).groups).toEqual([]);
+    } finally {
+      if (before === undefined) delete process.env.ORBIT_AGENTS;
+      else process.env.ORBIT_AGENTS = before;
+    }
   });
 });
 

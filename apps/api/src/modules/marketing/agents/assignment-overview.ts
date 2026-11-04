@@ -14,7 +14,11 @@ import {
   approvalModeOf,
 } from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
-import { assignmentMonthSpend } from "./specialists/runner.ts";
+import {
+  assignmentMonthSpend,
+  assignmentsMonthSpend,
+} from "./specialists/runner.ts";
+import type { ManagedAgentListing } from "../../../platform/agents/managed.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
 import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
@@ -142,6 +146,69 @@ export async function listAssignments(
     });
   }
   return { timezone: project.timezone, paused: project.paused, items };
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Daily at 10:00, 17:00 (Europe/Berlin)": when an assignment's posts are due. */
+export function scheduleSummary(schedule: unknown, timezone: string) {
+  const s = (schedule ?? {}) as Record<string, any>;
+  const times = Array.isArray(s.times) ? s.times.map(String).join(", ") : "";
+  const at = times ? ` at ${times}` : "";
+  const zone = ` (${timezone})`;
+  if (s.rhythm === "daily") return `Daily${at}${zone}`;
+  if (s.rhythm === "weekly") {
+    const days = (Array.isArray(s.weekdays) ? s.weekdays : [])
+      .map((day: unknown) => WEEKDAYS[Number(day)])
+      .filter(Boolean)
+      .join(", ");
+    return `Weekly${days ? ` on ${days}` : ""}${at}${zone}`;
+  }
+  if (s.rhythm === "once")
+    return `Once${s.date ? ` on ${s.date}` : ""}${at}${zone}`;
+  return undefined;
+}
+
+/**
+ * The project's assignments as managed agents for the platform's agent
+ * overview (ModuleContributions.agentListings, WP1.9): read only, ended ones
+ * left out, with the schedule, this UTC month's spend (as the budget check
+ * counts it) against the monthly budget and a link to the assignments page.
+ * Nothing while Orbit Agents is off.
+ */
+export async function assignmentListings(
+  tx: DbTx,
+  scope: Scope,
+  now = new Date(),
+): Promise<ManagedAgentListing[]> {
+  if (!agentsEnabled()) return [];
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+    select: { timezone: true },
+  });
+  const rows = (await list(tx, scope, "assignments"))
+    .filter((row) => data(row).status !== "ended")
+    .slice(0, 100);
+  const spend = await assignmentsMonthSpend(
+    tx,
+    scope,
+    rows.map((row) => row.id),
+    now,
+  );
+  const link = `/p/${scope.projectId}/marketing/assignments`;
+  return rows.map((row) => {
+    const d = data(row);
+    const schedule = scheduleSummary(d.schedule, project.timezone);
+    return {
+      id: row.id,
+      name: String(d.name ?? ""),
+      status: String(d.status ?? "draft"),
+      ...(schedule ? { schedule } : {}),
+      monthSpendMicros: spend.get(row.id) ?? 0,
+      monthBudgetMicros: Number(d.monthlyBudgetMicros ?? 0),
+      link,
+    };
+  });
 }
 
 /**

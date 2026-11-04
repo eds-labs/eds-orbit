@@ -65,7 +65,7 @@ This addendum takes effect with WP1.2 and only while `ORBIT_AGENT_MANDATES` and 
 ## Consequences
 
 - One rule change for tool visibility or execution applies to chat, MCP and agents at once.
-- Marketing specialists get a real on-behalf principal (WP1.9). A demoted confirming owner then blocks the specialist: an intended behaviour change, called out in its PR.
+- Marketing specialists get a real on-behalf principal (WP1.9). A demoted confirming owner then blocks the specialist: an intended behaviour change, called out in its PR. Implemented as a per-call owner re-check (`authorizeOnBehalf`, task host hooks `guard` and `beforeTool`); details in the ADR 0005 addendum of 2026-11-04. Module-managed agents such as assignments appear read-only in the overview through `ModuleContributions.agentListings` (`GET /api/projects/:projectId/agents/managed`).
 - New schema: one additive migration (`AgentWorkOrder`, the `AgentRun_kind_check` widening, agent spend attribution) that needs a Coolify-approved schema hash before the `main` push that deploys it.
 - New operational surface: a queue class, a scheduler contribution, an event subscriber and a retention task, all inert while the flags are off.
 - Rollback: switch the flags off. Routes return 404, triggers do nothing, stored definitions and work orders stay inert. The flagless refactors can be reverted on their own.

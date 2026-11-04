@@ -136,6 +136,41 @@ export async function authorizeAgentTool(
 }
 
 /**
+ * Authorizes work a module's own agent does on behalf of a member (the
+ * on-behalf principal, plan agent-platform-phase-1 WP1.9): Marketing's
+ * specialists act for the owner who confirmed their assignment. The member
+ * must still be an owner in `module` and, for a tool call, hold the tool's
+ * permission in the tool's module; read again on every call, so a demoted
+ * or removed member stops the work with AGENT_PRINCIPAL_FORBIDDEN. Returns
+ * the member's current scope in `module`; the caller keeps its own scope for
+ * its database work.
+ */
+export async function authorizeOnBehalf(
+  project: Pick<Scope, "workspaceId" | "projectId">,
+  userId: string | null | undefined,
+  module: string,
+  tool?: OrbitTool,
+): Promise<Scope> {
+  if (!userId) throw forbidden();
+  const actor = await actorScope(project.workspaceId, project.projectId, userId);
+  if (!actor) throw forbidden();
+  let own: Scope;
+  let toolAllowed = true;
+  try {
+    own = moduleScope(actor, module);
+    if (tool)
+      toolAllowed = can(
+        moduleScope(actor, registeredToolOwner(tool.name)),
+        tool.permission,
+      );
+  } catch {
+    throw forbidden();
+  }
+  if (own.role !== "owner" || !toolAllowed) throw forbidden();
+  return own;
+}
+
+/**
  * Whether `child` is within `parent` (monotonic narrowing for delegation,
  * ADR 0021 §8): every tool and module, the mode and the knowledge sources.
  */

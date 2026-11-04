@@ -18,6 +18,8 @@ import {
   update,
 } from "../../../../shared.ts";
 import { runStructured } from "../../../../platform/agents/structured-run.ts";
+import { authorizeOnBehalf } from "../../../../platform/agents/principal.ts";
+import type { OrbitTool } from "../../../../platform/agents/tools/registry.ts";
 import { budgetMonthStart, settle } from "../../../budget.ts";
 import {
   errorCode as telemetryErrorCode,
@@ -60,7 +62,11 @@ import { normalizeSourceUrl } from "./types.ts";
  * transmitted, then settled; a call whose outcome is unclear is settled
  * unknown and the task ends `outcome_unknown`. A task is never retried after a
  * paid request went out. When the task ends, its settled cost is stored on it
- * and on the run, and `startReadySteps` starts what can start next.
+ * and on the run, and `startReadySteps` starts what can start next. A model
+ * turn acts on behalf of the assignment's confirming owner (WP1.9): if that
+ * member is no longer a Marketing owner, the turn stops before its next model
+ * or tool call with AGENT_PRINCIPAL_FORBIDDEN and the assignment's owners see
+ * an exception.
  */
 const TASKS = "agent_tasks";
 const RUNS = "assignment_runs";
@@ -436,11 +442,37 @@ export function outputIssues(
 /** The AgentRun status of a task's failure code (other than an unclear outcome). */
 function failureStatus(code: string) {
   if (code === "AGENT_CANCELED") return "canceled" as const;
-  return /BUDGET|POLICY|PAUSED|REQUIRED|ROUTE_CHANGED|NOT_VERIFIED|PRICE/.test(
+  return /BUDGET|POLICY|PAUSED|REQUIRED|ROUTE_CHANGED|NOT_VERIFIED|PRICE|PRINCIPAL_FORBIDDEN/.test(
     code,
   )
     ? ("blocked" as const)
     : ("failed" as const);
+}
+
+/** Refusal of a specialist turn whose confirming owner lost the right to it (WP1.9). */
+export const AGENT_PRINCIPAL_FORBIDDEN = "AGENT_PRINCIPAL_FORBIDDEN";
+
+/**
+ * The on-behalf principal of a specialist turn (plan agent-platform-phase-1
+ * WP1.9): the turn acts for the owner who confirmed the assignment
+ * (`confirmation.userId`, the `assignment.confirm` decider). Before each
+ * model call and each tool call that member must still be a Marketing owner
+ * and hold the tool's permission; otherwise AGENT_PRINCIPAL_FORBIDDEN and
+ * nothing more is sent or paid. The task keeps the worker's scope for its
+ * own database work; only the authority is the owner's.
+ */
+async function assertOnBehalf(
+  scope: Scope,
+  assignment: Record<string, any>,
+  tool?: OrbitTool,
+) {
+  const userId = assignment.confirmation?.userId;
+  await authorizeOnBehalf(
+    scope,
+    typeof userId === "string" ? userId : null,
+    "marketing",
+    tool,
+  );
 }
 
 /**
@@ -498,14 +530,24 @@ export async function runSpecialist(
     },
     // After the project's pause (no new paid call, as generation and image generation).
     guard: async (tx, scope) => {
-      const ownedRefusal = await ownedPlanRefusal(
-        tx,
-        scope,
-        data(await entity(tx, scope, "assignments", task.assignmentId)),
+      const assignment = data(
+        await entity(tx, scope, "assignments", task.assignmentId),
       );
+      // The confirming owner still holds the assignment's authority (WP1.9).
+      await assertOnBehalf(scope, assignment);
+      const ownedRefusal = await ownedPlanRefusal(tx, scope, assignment);
       if (ownedRefusal) throw new DomainError(ownedRefusal, 409);
       await assertReviewCapacity(tx, scope, task.assignmentId, task.runId);
     },
+    // And before each tool call: a demoted owner stops the turn before the tool runs.
+    beforeTool: async (tool) =>
+      assertOnBehalf(
+        scope,
+        await scoped(scope.workspaceId, scope.projectId, async (tx) =>
+          data(await entity(tx, scope, "assignments", task.assignmentId)),
+        ),
+        tool,
+      ),
     ...(specialist.refresh ? { refresh: specialist.refresh } : {}),
     ...(specialist.prepareInput ? { prepareInput: specialist.prepareInput } : {}),
     ...(specialist.finalize ? { finalize: specialist.finalize } : {}),
@@ -794,6 +836,9 @@ export async function runAgentTask(scope: Scope, taskId: string) {
     // Nothing further starts for an exhausted assignment: its runs are canceled.
     if (failure?.code === ASSIGNMENT_BUDGET_EXHAUSTED)
       await exhaustAssignment(tx, scope, d.assignmentId);
+    // The confirming owner lost the authority (WP1.9): the owners see an exception.
+    if (failure?.code === AGENT_PRINCIPAL_FORBIDDEN && d.status === "running")
+      await exception(tx, scope, AGENT_PRINCIPAL_FORBIDDEN, d.assignmentId);
     await startReadySteps(tx, scope, d.runId);
   });
   // The review's result is saved; scheduling the approved posts is a step of

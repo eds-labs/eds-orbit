@@ -27,6 +27,7 @@ import { data } from "../../shared.ts";
 import { connectionsOf } from "../../platform/connections/connections.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
+import { assignmentListings } from "./agents/assignment-overview.ts";
 import { stopCallback } from "./agents/telegram-stop.ts";
 import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
@@ -93,6 +94,8 @@ export const marketingContributions: ModuleContributions = {
   attentionStatus: marketingAttentionStatus,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
+  // Assignments in the platform's agent overview, read only (WP1.9).
+  agentListings: (tx, scope) => assignmentListings(tx, scope),
   publicViews: {
     // Asset bytes never leave the server through the collection API.
     assets: (row) => {
