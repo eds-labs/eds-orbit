@@ -1,6 +1,6 @@
 # Agent platform, Phase 3: personal Orbit Assistant and global chat
 
-Status: **proposed plan, documentation only** (2026-11-04). Builds on [Phase 1](agent-platform-phase-1.md) and uses the [Phase 2](agent-platform-phase-2.md) Support agent as its first delegation target. Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§4.5, §7.4, §14). Work packages are **WP3.n**.
+Status: **accepted plan, not implemented** (2026-11-04; D-08, D-09, D-10 as recommended; D-17 changed to automatic memory with guardrails, see [ADR 0021](../adr/0021-agent-platform.md) addendum "Phases 3 and 4"). Builds on [Phase 1](agent-platform-phase-1.md) and uses the [Phase 2](agent-platform-phase-2.md) Support agent as its first delegation target. Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§4.5, §7.4, §14). Work packages are **WP3.n**.
 
 ## 0. Goal and scope
 
@@ -121,6 +121,7 @@ All rows below are [Fact] from `cc8a14cf`. The details are in architecture §2.6
 | `agent_delegate` | P | §2.5. |
 | `work_order_status` | R0 | Status and result of work orders the user requested or may read. |
 | `context_list` | R0 | The personal context (§2.6). |
+| `context_remember` | W0 | Saves an entry with a notice and undo, or proposes it as a card in fallback mode (§2.6, D-17). |
 
 *Cross-project knowledge search* is not a new union search. `knowledge_search` runs per target project and keeps its audiences; results are labelled.
 
@@ -188,12 +189,14 @@ All rows below are [Fact] from `cc8a14cf`. The details are in architecture §2.6
 ```text
 { category: "preference" | "project_note" | "decision" | "workflow",
   text ≤ 500, projectId?, source?: {conversationId, messageId},
-  status: "active" | "archived", createdBy: "user" | "assistant_confirmed" }
+  status: "active" | "archived", createdBy: "user" | "assistant" | "assistant_confirmed" }
 ```
 
 **Creation**
 - The user writes an entry on the "My context" page, or
-- the assistant calls `context_propose`. That returns a card ("Remember: …? Save / Edit / Dismiss"), and only the user's click saves it. There is no silent memory.
+- the assistant calls `context_remember` (D-17, automatic memory). The entry is saved at once and the conversation shows a notice ("Remembered: …" with Undo); nothing is saved silently.
+- **Guardrails.** Only what the user said in the turn may become an entry, never content from tool results. A deterministic screen refuses customer or third-party personal data, secrets and credentials, and health or financial details before saving (`PERSONAL_CONTEXT_NOT_ALLOWED`).
+- **Fallback mode.** A switch on "My context" turns automatic memory off; `context_remember` then returns a card ("Remember: …? Save / Edit / Dismiss") and only the user's click saves it.
 
 **Use**
 - Active entries are included in personal-mode instructions, at most 2 KB, newest and pinned first.
@@ -363,13 +366,15 @@ apps/web/src/components/chat.tsx  becomes a thin page using the hook (project mo
 ### WP3.7 Personal context
 
 - **Entity kind** `personal_context`, declared user-private in `platform/modules/platform-declaration.ts`.
-- **Tools:** `context_list`, `context_propose` (card).
+- **Tools:** `context_list`, `context_remember` (automatic save with notice and undo; card in fallback mode).
 - **Routes:** `GET/POST/PATCH/DELETE /api/assistant/context`, plus export.
 - **Page:** *Mein Kontext* under the account (`/account/assistant`).
 - **Prompt:** inclusion rules (§2.6).
 - **Tests:**
   - only the owner reads it (API, RLS, org owner, admin);
-  - proposals never save without a click;
+  - an automatic save always shows a notice, and undo removes the entry;
+  - the screen refuses personal data of others, secrets, health and financial details, and text from tool results;
+  - in fallback mode nothing saves without a click;
   - project-scoped entries appear only when that project is in focus;
   - export and delete;
   - the 2 KB budget;

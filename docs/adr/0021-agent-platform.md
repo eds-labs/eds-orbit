@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-04. Mario accepted the recommendations D-01 to D-07 and D-12 to D-14 of the [architecture plan](../plans/agent-platform-architecture.md) (§14) on 2026-11-04. On 2026-11-04 Mario also accepted the Phase 2 recommendations D-11, D-15 and D-16 (addendum "Phase 2: Support agent" below). The decisions for Phases 3 and 4 (D-08 to D-10, D-17 to D-20) are still open and are not part of this ADR.
+Accepted, 2026-11-04. Mario accepted the recommendations D-01 to D-07 and D-12 to D-14 of the [architecture plan](../plans/agent-platform-architecture.md) (§14) on 2026-11-04. On 2026-11-04 Mario also accepted the Phase 2 recommendations D-11, D-15 and D-16 (addendum "Phase 2: Support agent" below). On 2026-11-04 Mario answered the Phase 3 and 4 decisions D-08 to D-10 and D-17 to D-20 (addendum "Phases 3 and 4: owner decisions" below); D-17 and D-18 differ from the plan's recommendation.
 
 This ADR extends [ADR 0005](0005-agent-runtime.md), [ADR 0007](0007-tool-registry.md), [ADR 0008](0008-action-approvals.md) and [ADR 0019](0019-agent-mandates.md). It **supersedes** the sentence in [`docs/plans/marketing-agent-v2.md`](../plans/marketing-agent-v2.md) §1 "Do not introduce another assistant, autonomous agent framework, scheduler…" for the scope described here. Marketing Agent v2 otherwise stays valid.
 
@@ -79,3 +79,19 @@ Mario accepted the [Phase 2 plan](../plans/agent-platform-phase-2.md) recommenda
 - **D-16 Mandatable Support types for agents.** Internal note (`support_add_note`), reply draft (`support_prepare_reply`) and the new triage application (`support_apply_triage`: priority, category and tags only, never a downgrade from `urgent`, never status or assignee). Customer replies (`W1`) are never mandatable and the inbox rule `mcpOwnerRepliesWithoutApproval` never applies to agents. Ticket field changes through `support_update_ticket` stay owner decisions.
 
 Phase-local defaults T2-1 to T2-5 of the plan are taken as written.
+
+## Addendum (2026-11-04): Phases 3 and 4, owner decisions
+
+Mario answered the remaining decisions of the [architecture plan](../plans/agent-platform-architecture.md) (§14) on 2026-11-04. They are recorded here so the Phase 3 and 4 ADRs (0022 to 0024) start from them; nothing of Phases 3 and 4 is implemented yet.
+
+- **D-08 Personal space.** As recommended: one project of kind `personal` per (user, organization), with exactly that user as member and no implicit access for org owners or admins.
+- **D-09 Payer of assistant turns.** As recommended: the personal space pays its own model calls, within a spend authority derived from an org-level per-user monthly cap that org owners set and the user cannot raise. Paid work in a business project stays on that project's spend authority and approvals.
+- **D-10 Bubble.** As recommended: the bubble opens the personal assistant with the current project as focus; `/p/:id/assistant` stays unchanged; re-evaluated after Phase 3.
+- **D-17 Personal context: automatic memory, with guardrails** (differs from the recommendation "propose and confirm"). The assistant may save an entry itself. Guardrails:
+  - every saved entry shows as a notice in the conversation ("Remembered: …") with an undo;
+  - never saved: customer or third-party personal data, secrets and credentials, health or financial details, and content taken from tool results (only what the user said in the turn may become an entry);
+  - a switch on "My context" lets the user fall back to "propose and confirm";
+  - the user alone edits, archives, exports and deletes entries; entries never reach configured agents, work orders or MCP outputs.
+- **D-18 Proactive channels: in-app, e-mail and per-user Telegram in Phase 4** (differs from the recommendation "Telegram later"). Per-user Telegram reuses the existing Orbit bot and its code-only linking, follows the same dedupe, digest, quiet-hour and per-kind rules as e-mail, and carries notice text only, never customer content. Its exact link model and bot-permission review are part of the Phase 4 ADR.
+- **D-19 Voice.** As recommended: OpenAI transcription and speech behind a speech port; no audio stored by default, only text. The new processing purpose still needs Mario's provider approval before any live use.
+- **D-20 Realtime voice.** As recommended: only a spike and an ADR after transcription and speech are in use; no implementation planned.

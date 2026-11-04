@@ -1,6 +1,6 @@
 # Agent platform and personal Orbit Assistant: architecture overview
 
-Status: **accepted plan** (2026-11-04; decisions D-01 to D-07 and D-12 to D-14 recorded in [ADR 0021](../adr/0021-agent-platform.md)). Implementation in progress. Nothing here is implemented, migrated, flagged or deployed. Every decision marked **D-nn** (§14) needs Mario's answer before the work package that depends on it starts.
+Status: **accepted plan** (2026-11-04; all decisions D-01 to D-20 recorded in [ADR 0021](../adr/0021-agent-platform.md); D-17 automatic memory with guardrails and D-18 per-user Telegram in Phase 4 differ from the recommendations below). Implementation in progress. Nothing here is implemented, migrated, flagged or deployed. Every decision marked **D-nn** (§14) needs Mario's answer before the work package that depends on it starts.
 
 Requested by Mario on 2026-11-04: extend Orbit into a central, modular AI work platform with (A) a personal assistant per user, (B) user-configurable agents and (C) one shared platform underneath, without a second agent runtime, chat backend, MCP stack or approval system.
 
@@ -37,7 +37,7 @@ Phase plans:
     - Phase 1: 20–29 focused development days, 10 PRs.
     - Phase 2: 9–13 days, 6 PRs.
     - Phase 3: 18–26 days, 9 PRs.
-    - Phase 4: 13–19 days, 8 PRs, including the voice basics, plus an optional 3–5-day realtime-voice spike.
+    - Phase 4: 14.5–21 days, 8 PRs, including the voice basics and per-user Telegram (D-18), plus an optional 3–5-day realtime-voice spike.
 
     The first code package is the **capability layer** (WP1.1). It is a behaviour-preserving refactor with no flag and no migration.
 
@@ -710,7 +710,7 @@ Support applies the first two today; `redact()` is a gap (Phase 2).
 | 1 | Capability layer, principal, consolidated hosts, definitions, work orders, triggers, budgets, builder UI, entitlements port, Marketing convergence | 10 | 20–29 | Decisions D-01 to D-07, D-12 to D-14 |
 | 2 | Support events, agent tools, privacy wrapper, template, inbox `agent` mode, issue handoff, eval | 6 | 9–13 | Phase 1 WP1.1–WP1.7; D-11, D-15, D-16 |
 | 3 | Personal space, cross-project capability, staged tools, delegation, personal context, bubble and panel | 9 | 18–26 | Phase 1; D-05, D-08 to D-10, D-17 |
-| 4 | Signals, notification dedupe and digest, briefings, voice (STT/TTS); optional realtime voice spike | 8 | 13–19 (+3–5 spike) | Phases 1 and 3; D-18 to D-20 |
+| 4 | Signals, notification dedupe and digest, per-user Telegram, briefings, voice (STT/TTS); optional realtime voice spike | 8 | 14.5–21 (+3–5 spike) | Phases 1 and 3; D-18 to D-20 |
 | | **Total** | **33** | **60–87** (+3–5) | |
 
 The estimates assume Claude Code sessions with Mario's reviews. They exclude production rollout steps, paid evaluations and waiting time for decisions.

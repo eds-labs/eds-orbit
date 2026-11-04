@@ -1,6 +1,6 @@
 # Agent platform, Phase 4: proactive agents and voice
 
-Status: **proposed plan, documentation only** (2026-11-04). Builds on [Phase 1](agent-platform-phase-1.md) (work orders, events, triggers) and [Phase 3](agent-platform-phase-3.md) (personal space, panel). Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§14: D-18 to D-20). Work packages are **WP4.n**.
+Status: **accepted plan, not implemented** (2026-11-04; D-19 and D-20 as recommended; D-18 changed to in-app, e-mail and per-user Telegram in this phase, see [ADR 0021](../adr/0021-agent-platform.md) addendum "Phases 3 and 4"). Builds on [Phase 1](agent-platform-phase-1.md) (work orders, events, triggers) and [Phase 3](agent-platform-phase-3.md) (personal space, panel). Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§14: D-18 to D-20). Work packages are **WP4.n**.
 
 ## 0. Goal and scope
 
@@ -23,7 +23,7 @@ Proactivity runs on the existing events, due-marker scheduler, worker and notifi
 **Voice.** The personal chat gains voice input (speech-to-text) and spoken answers (text-to-speech), with the same tools, rights and approvals as text. Bidirectional realtime voice is only a spike and an ADR.
 
 **Out of scope**
-- Telegram or push notifications per user (D-18, later).
+- Push notifications to devices.
 - Phone calls.
 - Wake words.
 - Always-listening microphones.
@@ -46,7 +46,7 @@ All facts are from `cc8a14cf`; see architecture §2.5.
 | `DomainEvent` with per-subscriber idempotent jobs, depth ≤ 5, content-free payloads, project scope (`platform/events/events.ts`) | Event-triggered signals need no new bus |
 | The due marker `Project.workDueAt`, `SchedulerContribution.nextDueAt`, `PeriodicTask` with `wakeAt` (`platform/jobs/types.ts`); every project revisited at least every 5 minutes | Periodic signals and briefings use these; no cron, no polling loop |
 | `notifyMembers` (`platform/notifications/members.ts`): in-app + e-mail through the **project's** default mailbox; preferences per (project, user, kind); **no dedupe key, digest, rate limit or quiet hours**; the bell polls once a minute; routes are project-scoped | Add dedupe, digest and user-level preferences; read across projects |
-| Telegram `notify` dedupes by job key `notify:<kind>:<ref>` (owner bot per project) | A pattern only; per-user Telegram stays out of scope |
+| Telegram `notify` dedupes by job key `notify:<kind>:<ref>` (owner bot per project) | Per-user Telegram (D-18) reuses the bot, its code-only linking and this job-key pattern |
 | Module notification kinds exist already: seven Support kinds (SLA at risk or breached, handoff, …), Work PM escalations, Marketing assignment notices | Signals reuse them; nothing is detected twice |
 | `WorkPmFinding.fingerprint` with a partial unique index; the PM monitor buckets scans into 5-minute windows and runs at most one analysis per day | This is the dedupe and AI-on-demand template |
 | Realtime SSE with Redis wake-up, channels per (project, stream); `afterCommit` hooks (`platform/realtime/fanout.ts`, `packages/db`) | Channels keyed by the personal space give a user-level push |
@@ -240,16 +240,18 @@ The first adapter is OpenAI. Model ids come from the catalogue, never from code 
 - **Migration** `…_notification_dedupe` (§2.3): columns and the partial unique index.
 - **`notifyMembers`:** the `dedupeKey` and `delivery` options.
 - **User preferences:** the user-private entity in the personal space.
-- **Delivery rules:** quiet hours and the digest job (a personal-space scheduler contribution). The digest e-mail goes through the system SMTP only with D-18.
+- **Delivery rules:** quiet hours and the digest job (a personal-space scheduler contribution). The digest e-mail goes through the system SMTP (D-18).
+- **Per-user Telegram (D-18):** a user links their own Telegram chat to the personal space with a one-time code through the existing bot; delivery is a third channel beside in-app and e-mail with the same dedupe, digest, quiet hours and per-kind preferences, notice text only, never customer content; unlinking and `/stop` end delivery at once. Link model and bot-permission review in the WP4.0 ADR.
 - **Replace** the Phase 1 failure-notice guard with `dedupeKey`.
 - **Tests:**
   - a repeat in the bucket increments `occurrences`, with no new row and no new e-mail;
   - a severity increase marks the row unread;
-  - quiet hours defer e-mail;
+  - quiet hours defer e-mail and Telegram;
+  - a Telegram notice goes only to the linked chat of that user, once per dedupe key, and stops after unlinking;
   - the digest contains each item once;
   - per-project kind-off overrides the user-level setting;
   - the existing notification suites pass (`support-automations`, Work PM escalations, WP4.7 member notifications).
-- **Effort:** 2–3 days. **Schema hash approval.**
+- **Effort:** 3.5–5 days (including per-user Telegram). **Schema hash approval.**
 
 ### WP4.2 Signals and budget threshold events
 
@@ -489,14 +491,14 @@ Regenerate OpenAPI with `pnpm api:generate` and review the diff.
 | PR | Content | Estimate | Flag | Migration |
 |---|---|---|---|---|
 | 1 | WP4.0 ADRs 0023/0024 | 0.5 d | — | — |
-| 2 | WP4.1 notification dedupe, preferences, digest | 2–3 d | `ORBIT_PROACTIVE` | **yes** |
+| 2 | WP4.1 notification dedupe, preferences, digest, per-user Telegram | 3.5–5 d | `ORBIT_PROACTIVE` | **yes** |
 | 3 | WP4.2 signals + budget threshold events | 2–3 d | same | — |
 | 4 | WP4.3 cross-project inbox + badge | 1–1.5 d | same | — |
 | 5 | WP4.4 briefings + report template | 2–3 d | same | — |
 | 6 | WP4.5 speech port, units, routing | 2–3 d | `ORBIT_VOICE` | **yes** |
 | 7 | WP4.6 voice input | 2–3 d | same | — |
 | 8 | WP4.7 voice output + docs | 1–1.5 d | same | — |
-| | **Total** | **12.5–18.5 d** | | |
+| | **Total** | **14–20.5 d** | | |
 | — | WP4.8 realtime voice spike (optional, not merged) | 3–5 d | — | — |
 
 The proactive part (PRs 1–5) and the voice part (PRs 6–8) are independent once Phase 3 is done, so they can run in separate worktrees. Delivery follows the main workflow, with a schema hash for each migration and Mario's approval before any paid speech call.
