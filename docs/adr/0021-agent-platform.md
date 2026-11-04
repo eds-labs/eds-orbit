@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-11-04. Mario accepted the recommendations D-01 to D-07 and D-12 to D-14 of the [architecture plan](../plans/agent-platform-architecture.md) (§14) on 2026-11-04. The decisions for Phases 2 to 4 (D-08 to D-11, D-15 to D-20) are still open and are not part of this ADR.
+Accepted, 2026-11-04. Mario accepted the recommendations D-01 to D-07 and D-12 to D-14 of the [architecture plan](../plans/agent-platform-architecture.md) (§14) on 2026-11-04. On 2026-11-04 Mario also accepted the Phase 2 recommendations D-11, D-15 and D-16 (addendum "Phase 2: Support agent" below). The decisions for Phases 3 and 4 (D-08 to D-10, D-17 to D-20) are still open and are not part of this ADR.
 
 This ADR extends [ADR 0005](0005-agent-runtime.md), [ADR 0007](0007-tool-registry.md), [ADR 0008](0008-action-approvals.md) and [ADR 0019](0019-agent-mandates.md). It **supersedes** the sentence in [`docs/plans/marketing-agent-v2.md`](../plans/marketing-agent-v2.md) §1 "Do not introduce another assistant, autonomous agent framework, scheduler…" for the scope described here. Marketing Agent v2 otherwise stays valid.
 
@@ -69,3 +69,13 @@ This addendum takes effect with WP1.2 and only while `ORBIT_AGENT_MANDATES` and 
 - New schema: one additive migration (`AgentWorkOrder`, the `AgentRun_kind_check` widening, agent spend attribution) that needs a Coolify-approved schema hash before the `main` push that deploys it.
 - New operational surface: a queue class, a scheduler contribution, an event subscriber and a retention task, all inert while the flags are off.
 - Rollback: switch the flags off. Routes return 404, triggers do nothing, stored definitions and work orders stay inert. The flagless refactors can be reverted on their own.
+
+## Addendum (2026-11-04): Phase 2, Support agent
+
+Mario accepted the [Phase 2 plan](../plans/agent-platform-phase-2.md) recommendations on 2026-11-04:
+
+- **D-11 Provider for Support customer data.** OpenAI only, until Anthropic is legally reviewed. Enforced in code by a data-class provider allow-list (`platform/ai/data-class.ts`): a tool marked `dataClass: "customer_personal"` makes the task host refuse an agent route whose provider is not allowed, and the Support triage and draft pipelines refuse such a route too, before anything is sent (`AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA`). The allow-list is a code constant (`["openai"]`); widening it needs a recorded legal decision and a code change, not a setting.
+- **D-15 Inbox mode.** `SupportInbox.aiMode` gains the explicit value `agent` (migration, constraint widen). In an `agent` inbox the automatic triage and draft jobs are not queued; an active Support agent whose event trigger covers the inbox does the work. There is no automatic fallback to `draft` when the agent is inactive (T2-1): an attention item names the inbox.
+- **D-16 Mandatable Support types for agents.** Internal note (`support_add_note`), reply draft (`support_prepare_reply`) and the new triage application (`support_apply_triage`: priority, category and tags only, never a downgrade from `urgent`, never status or assignee). Customer replies (`W1`) are never mandatable and the inbox rule `mcpOwnerRepliesWithoutApproval` never applies to agents. Ticket field changes through `support_update_ticket` stay owner decisions.
+
+Phase-local defaults T2-1 to T2-5 of the plan are taken as written.

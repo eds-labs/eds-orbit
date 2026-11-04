@@ -1,6 +1,6 @@
 # Agent platform, Phase 2: Support agent as the reference implementation
 
-Status: **proposed plan, documentation only** (2026-11-04). It builds on [Phase 1](agent-platform-phase-1.md); overview and decisions are in [agent-platform-architecture.md](agent-platform-architecture.md) (decisions **D-nn**, §14). Work packages are **WP2.n**.
+Status: **accepted plan, implementation started** (2026-11-04; D-11, D-15 and D-16 accepted by Mario as recommended, recorded in [ADR 0021](../adr/0021-agent-platform.md)). It builds on [Phase 1](agent-platform-phase-1.md); overview and decisions are in [agent-platform-architecture.md](agent-platform-architecture.md) (decisions **D-nn**, §14). Work packages are **WP2.n**.
 
 ## 0. Goal and scope
 
