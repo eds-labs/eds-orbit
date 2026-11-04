@@ -1,5 +1,7 @@
 # Orbit Chat / Operator v1
 
+> Current description: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md) (project and personal mode, ADR 0022). This file is the history of project chat v1.
+
 Orbit Chat is a private, project-bound control surface. The UI is `/chat`; all business data and tool execution stay in Fastify and the existing modules. Chat text does not become a Verified Fact.
 
 ## API
