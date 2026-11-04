@@ -35,11 +35,16 @@ const RUN = "c48d9050-3dba-4ae0-851e-98d5b59e8002";
 
 async function stubAssistant(page: Page, projectId: string) {
   let sent = false;
+  // The real organization of the project, so the panel lists its projects.
+  const me = (await (await page.request.get("/api/me")).json()) as {
+    projects: Array<{ id: string; workspaceId: string }>;
+  };
+  const workspaceId = me.projects.find((p) => p.id === projectId)!.workspaceId;
   await page.route(/\/api\/assistant(\?.*)?$/, (route) =>
     route.fulfill({
       json: {
         enabled: true,
-        workspaceId: "w",
+        workspaceId,
         personalSpaceId: SPACE,
         capMicros: 5_000_000,
         autoMemory: true,

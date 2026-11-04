@@ -113,6 +113,21 @@ export function Sheet({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+  // Escape also closes the sheet when the focus got lost (a control inside
+  // was disabled or removed, so the page body has it); never while the
+  // focus is on another part of the page.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (sheetKeyAction(event) !== "close") return;
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
   if (!open) return null;
   return (
     <section
