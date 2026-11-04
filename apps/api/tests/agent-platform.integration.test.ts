@@ -301,6 +301,11 @@ describe.skipIf(!enabled)("agent platform (ADR 0021, Phase 1)", () => {
       await runIn((tx) => agentWorkJob.onLeaseExpired!(tx, worker(), { resourceId: id }));
     expect(await workOrder(sent.id)).toMatchObject({ status: "outcome_unknown", costUnknown: true });
     expect(await workOrder(fresh.id)).toMatchObject({ status: "queued" });
+    // Canceled while running, then lost: it gets its end.
+    const canceled = await runIn((tx) => startManualWorkOrder(tx, p.owner, agent.id, { requestId: randomUUID() }));
+    await runIn((tx) => tx.agentWorkOrder.update({ where: { id: canceled.id }, data: { status: "canceled" } }));
+    await runIn((tx) => agentWorkJob.onLeaseExpired!(tx, worker(), { resourceId: canceled.id }));
+    expect((await workOrder(canceled.id)).finishedAt).not.toBeNull();
   });
 
   it("starts one work order per event and subject, ignores agent events, and respects the flag", async () => {

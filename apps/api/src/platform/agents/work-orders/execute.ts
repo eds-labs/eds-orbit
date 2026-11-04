@@ -383,6 +383,14 @@ export const agentWorkJob: JobDef = {
    */
   async onLeaseExpired(tx, scope, job) {
     const row = await tx.agentWorkOrder.findFirst({ where: { id: String(job.resourceId), projectId: scope.projectId } });
+    // Canceled while running and then lost: it still needs its end (retention reads finishedAt).
+    if (row?.status === "canceled" && !row.finishedAt) {
+      await finishWorkOrder(tx, scope, row, {
+        status: "canceled",
+        costUnknown: await transmitted(tx, scope, row.id),
+      });
+      return;
+    }
     if (!row || row.status !== "running") return;
     if (await transmitted(tx, scope, row.id)) {
       await finishWorkOrder(tx, scope, row, { status: "outcome_unknown", code: "AGENT_OUTCOME_UNKNOWN", costUnknown: true });
