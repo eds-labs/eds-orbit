@@ -1,5 +1,21 @@
 # Requirements traceability
 
+## Agent platform, Phase 3: personal Orbit Assistant (ADR 0022; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flag off)
+
+Plan [plans/agent-platform-phase-3.md](plans/agent-platform-phase-3.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP3-1 | Bubble on every signed-in page, panel by keyboard and on 375 px without covering the nav | `apps/web/src/platform/assistant/*`, `platform/ui/sheet.tsx` | `assistant-shell.test.tsx`, `ui/sheet.test.tsx` | PASS_TEST (component); browser check open |
+| AP3-2 | Scenario B: one labelled answer across projects; no access gives only a refusal code | `platform/agents/project-{calls,reads}.ts`, `assistant/user-tools.ts` | `personal-assistant.integration.test.ts` | PASS_TEST (scripted model) |
+| AP3-3 | Scenario C: one confirmation, work orders survive a restart, one notice with result cards, no second paid call | `assistant/{delegation,notices}.ts` | `assistant-delegation.integration.test.ts`, `assistant-notices.integration.test.ts` | PASS_TEST (blank agent, scripted model) |
+| AP3-4 | Pending approvals across projects; inline decisions identical to the approvals page | `assistant/personal-mode.ts`, `project-cards.tsx` | `personal-mode.integration.test.ts`, `project-cards.test.tsx` | PASS_TEST |
+| AP3-5 | No org owner, admin or other user reads a personal space, its conversations or its context | `tenancy/member-scope.ts`, `assistant/personal-space.ts` | `personal-space.integration.test.ts`, access-matrix personal-space probe, `personal-context.integration.test.ts` | PASS_TEST (mutation-checked) |
+| AP3-6 | Personal context: automatic save with notice and Undo, refused content never saved, fallback proposals, edit, delete, export, project scope (D-17) | `assistant/personal-context.ts`, `user-tools.ts` | `personal-context.integration.test.ts`, `personal-mode.integration.test.ts`, `account/personal-context.test.tsx` | PASS_TEST |
+| AP3-7 | Taint: a proposal after reading another project is never auto-approved and names it | `governance/{action-requests,authorization}.ts` | `personal-assistant.integration.test.ts`, `personal-mode.integration.test.ts` | PASS_TEST |
+| AP3-8 | Turns paid within the org per-member cap; readable stop at the cap; user cannot raise it | `ai/spend-mandate.ts`, `ai/spend-policy.ts` | `personal-space.integration.test.ts`, `personal-mode.integration.test.ts` | PASS_TEST |
+| AP3-9 | Project chat and MCP unchanged; safety nets pass | `mcp/{adapter,visibility}.ts`, `tasks/tasks.ts` | MCP suites, `mcp-2-workflows`, chat-runner, limits, access and RLS matrices | PASS_TEST |
+
 ## Agent platform, Phase 2: Support agent (ADR 0021 D-11, D-15, D-16; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
 
 Plan [plans/agent-platform-phase-2.md](plans/agent-platform-phase-2.md), acceptance criteria §11.

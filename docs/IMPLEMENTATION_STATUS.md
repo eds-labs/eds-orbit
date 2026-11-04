@@ -1,5 +1,32 @@
 # Implementation status
 
+## Agent platform, Phase 3: personal Orbit Assistant (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PERSONAL_ASSISTANT` off)
+
+Decisions D-08, D-09, D-10 as recommended; D-17 automatic memory with guardrails (Mario, 2026-11-04; [ADR 0021](adr/0021-agent-platform.md) addendum, [ADR 0022](adr/0022-personal-space-assistant.md)). Plan: [Phase 3](plans/agent-platform-phase-3.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md).
+
+- **Built:**
+  - WP3.0: ADR 0022.
+  - WP3.1: personal space (`Project.kind = 'personal'`, migration `202611040003_personal_space`). Only its user has access; no implicit org-owner or administrator access. It is filtered from every business list, and the organization's AI usage shows it as one sum. Spend authority is a read-only projection of the new org per-member cap, which the user cannot change. Org owners have a per-member switch. The space is kept 30 days after its user leaves (daily clean-up, restored on rejoin) and deleted with the user.
+  - WP3.2: cross-project capability layer shared with MCP (`platform/agents/project-calls.ts`: target-project authorization, uniform refusals, test-mode nested-call guard). User tools `projects_list`, `my_overview`, `pending_approvals`, `agents_list`, `agent_work_order_status`. Taint rule (`requestedBy.crossProjectContext`, `CROSS_PROJECT_CONTEXT` blocks mandate auto-approval).
+  - WP3.3: provider-neutral staged loading. A stable user-tool list plus `load_project_tools` and a focus preload of at most 6; loaded definitions are appended for OpenAI and Claude. Project mode is unchanged.
+  - WP3.4: personal mode in the chat runner (versioned instructions, project list, focus, scoped context, a gate at send and run time, page-context hints, persisted taint, per-project card checks, `steps[]`). `GET /api/assistant`.
+  - WP3.5: decision cards with `actionRequest {id, version, packageHash, decidable, inline}` on the unchanged decide route; governance and full-page types link out.
+  - WP3.6: `agent_delegate` batches (requester ∩ sponsor ∩ allowlist, fan-out ≤ 10, one requester-only, non-mandatable `platform.agent.delegate` confirmation). Notice messages (`ChatMessage.role = 'notice'`, migration `202611040004_chat_notice_role`) when a batch finished, with no model call. New MCP tasks are stored as `AgentWorkOrder (target: assistant)`; legacy `orbit_tasks` stay readable.
+  - WP3.7: personal context store and routes, deterministic screen, grounding check, `context_remember` with a "Remembered" notice and Undo, or proposal cards when automatic memory is off.
+  - WP3.8: web bubble, non-modal panel and phone sheet, `/assistant`, `/account/assistant` ("My context"), decision buttons, project badges, readable errors, org cap field and member switch. `chat.tsx` is split into a hook and views with unchanged project behaviour.
+  - WP3.9: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md); `ORBIT_CHAT_V1.md` points to it.
+- **Deviations:**
+  - `search`/`fetch`/`orbit_projects` stay native MCP tools (unchanged contract).
+  - `work_order_status` is named `agent_work_order_status` (the `work_` prefix belongs to the Work module).
+  - `context_list` was dropped: the context is in the prompt, and the user-tool budget stays at 8.
+  - Delegation batches are sibling work orders sharing a `batchId` instead of a parent row.
+  - `platform.agent.delegate` is not mandatable, because a mandate cannot be limited to one agent; the optional per-agent start mandate of D-06 stays a follow-up.
+- **Verification (local):** full suite (API, worker, packages, evals, web) 525 files: 5,218 passed and 7 skipped. Two characterization checks did not yet know the new user tools and a kind spelled through a constant; both were fixed and re-run (26/26). Access matrix: a new probe calls every project route of a personal space as org owner and system administrator, and none lets them in; only the 8 new routes were added to the reviewed fixture. RLS matrix passes. The membership rule is mutation-checked. API and web typecheck are clean; source and boundary checks are clean. OpenAPI only adds paths. Not run: Playwright `assistant-panel.spec.ts` and a browser check; paid live turns.
+- **Before rollout:**
+  - Set the per-member cap in the test organization.
+  - Verify the production state of `ORBIT_MCP_TASKS` and the number of live MCP tasks. A code rollback after the fold-in leaves table-backed MCP tasks unreadable to the old reader.
+- **Production:** nothing deployed. **Migrations `202611040001` to `202611040004`: schema hash `de4a53246950f1c685033dbf0ce539afc46e247b9c13dcf299b21a538103b01b` (on `main` `469b1dae`; supersedes `4dfc5ec0…`) must be approved in Coolify before the `main` push.**
+
 ## Agent platform, Phase 2: Support agent (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; flags off)
 
 Decisions D-11, D-15, D-16 accepted by Mario on 2026-11-04 as recommended ([ADR 0021](adr/0021-agent-platform.md) addendum). Plan: [Phase 2](plans/agent-platform-phase-2.md). Docs: [SUPPORT.md](SUPPORT.md) "Support agent", [AGENT_PLATFORM.md](AGENT_PLATFORM.md).

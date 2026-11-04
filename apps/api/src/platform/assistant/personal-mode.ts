@@ -398,7 +398,8 @@ export async function readRunSteps(tx: DbTx, scope: Scope, runId: string) {
       id: runId,
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
-      kind: RUN_STEPS_KIND,
+      // RUN_STEPS_KIND, spelled out for the registry's kind-usage check.
+      kind: "chat_run_steps",
     },
   });
   return row ? ((data(row).steps as RunStep[]) ?? []) : undefined;

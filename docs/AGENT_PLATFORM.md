@@ -2,7 +2,7 @@
 
 User and operator guide for the agent platform of [ADR 0021](adr/0021-agent-platform.md). Not to be confused with the repository's root `AGENTS.md` (instructions for coding agents). Plans: [architecture](plans/agent-platform-architecture.md), [Phase 1](plans/agent-platform-phase-1.md).
 
-State (2026-11-04): Phases 1 and 2 are implemented on branch `claude/agent-platform-architecture-128114`. They are not merged, not deployed, and both flags are off by default. Phase 2 adds the Support agent, the reference template ([SUPPORT.md](SUPPORT.md), "Support agent").
+State (2026-11-04): Phases 1 to 3 are implemented on branch `claude/agent-platform-architecture-128114`. They are not merged, not deployed, and all flags are off by default. Phase 2 adds the Support agent, the reference template ([SUPPORT.md](SUPPORT.md), "Support agent"). Phase 3 adds the personal Orbit Assistant, which delegates to agents ([ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md)).
 
 ## What it is
 
@@ -133,7 +133,7 @@ The organization overview uses `GET /api/agents/summary`: per-project counts onl
 
 ## Rollout runbook
 
-1. The migrations `202611040001_agent_platform` and `202611040002_support_inbox_agent_mode` are additive. Approve its schema hash in Coolify **before** the `main` push that deploys it (`docs/deployment/COOLIFY.md`). The hash computed locally for this branch (both migrations, on `main` `469b1dae`) was `4dfc5ec04d82ad5a6293131454a5ff43a84301e7feb7302a000b47667e62d99d`; recompute it with `sh scripts/check-pve-schema.sh --print-hash` after rebasing onto the current `main`.
+1. The migrations `202611040001_agent_platform`, `202611040002_support_inbox_agent_mode`, `202611040003_personal_space` and `202611040004_chat_notice_role` are additive. Approve their schema hash in Coolify **before** the `main` push that deploys them (`docs/deployment/COOLIFY.md`). The hash computed locally for this branch (all four migrations, on `main` `469b1dae`) was `de4a53246950f1c685033dbf0ce539afc46e247b9c13dcf299b21a538103b01b`; recompute it with `sh scripts/check-pve-schema.sh --print-hash` after rebasing onto the current `main`.
 2. Deploy with both flags off. Nothing changes for users.
 3. Switch `ORBIT_AGENT_PLATFORM` on, still in a test project only. A first real run costs money and needs Mario's approval (at most USD 0.50).
 4. Switch `ORBIT_AGENT_AUTOMATION` on later, separately.

@@ -1,6 +1,6 @@
 # Agent platform, Phase 3: personal Orbit Assistant and global chat
 
-Status: **accepted plan, not implemented** (2026-11-04; D-08, D-09, D-10 as recommended; D-17 changed to automatic memory with guardrails, see [ADR 0021](../adr/0021-agent-platform.md) addendum "Phases 3 and 4"). Builds on [Phase 1](agent-platform-phase-1.md) and uses the [Phase 2](agent-platform-phase-2.md) Support agent as its first delegation target. Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§4.5, §7.4, §14). Work packages are **WP3.n**.
+Status: **accepted plan, implemented locally** (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged, flag off; see `docs/IMPLEMENTATION_STATUS.md`; D-08, D-09, D-10 as recommended; D-17 changed to automatic memory with guardrails, see [ADR 0021](../adr/0021-agent-platform.md) addendum "Phases 3 and 4"). Builds on [Phase 1](agent-platform-phase-1.md) and uses the [Phase 2](agent-platform-phase-2.md) Support agent as its first delegation target. Overview and decisions: [agent-platform-architecture.md](agent-platform-architecture.md) (§4.5, §7.4, §14). Work packages are **WP3.n**.
 
 ## 0. Goal and scope
 

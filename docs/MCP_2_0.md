@@ -6,8 +6,10 @@ only. Production rollout and live-client acceptance are separate steps.
 
 ## Architecture
 
-`orbit_create_task` stores a private `Entity(kind=orbit_tasks)` and a native
-ChatConversation, and creates a hash-bound `platform.task.start` ActionRequest in
+`orbit_create_task` stores a private work order (`AgentWorkOrder` with
+`target: assistant`, `origin: mcp`, ADR 0022 D-05; tasks created before
+Phase 3 stay readable as `Entity(kind=orbit_tasks)` until task retention
+removes them) and a native ChatConversation, and creates a hash-bound `platform.task.start` ActionRequest in
 one project-locked transaction. The idempotency key is scoped to project, user
 and client. Reusing a key with different normalized arguments is rejected.
 

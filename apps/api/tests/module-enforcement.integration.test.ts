@@ -225,6 +225,16 @@ describe.skipIf(!enabled)("Module activation enforcement", () => {
       "ai_models_update",
       "ai_spend_policy_get",
       "ai_spend_policy_update",
+      // The personal assistant's user tools and its action status (ADR 0022);
+      // only the personal channel offers them.
+      "projects_list",
+      "my_overview",
+      "pending_approvals",
+      "agents_list",
+      "agent_work_order_status",
+      "context_remember",
+      "agent_delegate",
+      "action_status",
       "knowledge_search",
     ]);
     expect(registeredToolOwner("knowledge_search")).toBe("platform");
