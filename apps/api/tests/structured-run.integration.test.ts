@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
+import { authDb, closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
+import type { AgentPrincipal } from "../src/platform/agents/principal.ts";
 import { DomainError } from "../src/shared.ts";
 import { PROJECT_READ, PROJECT_WRITE } from "../src/platform/tenancy/permissions.ts";
 import { defineTool, type OrbitTool } from "../src/platform/agents/tools/registry.ts";
@@ -217,5 +218,106 @@ describe.skipIf(!enabled)("structured runs", () => {
     );
     expect(mocked.requests[1].tools.some((t: any) => t.type === "web_search")).toBe(true);
     expect(searched).toMatchObject({ status: "ok", sources: ["https://example.org/a"] });
+  });
+  // ADR 0021 (WP1.3): a configured agent's run checks its principal on every call.
+  const agentCatalog = { title: { en: "Fixture", de: "Fixture" }, summary: { en: "Fixture.", de: "Fixture." } };
+  const writes: string[] = [];
+  const note: OrbitTool = defineTool({
+    name: "fixture_note",
+    namespace: "fixture",
+    description: "Stores a note.",
+    parameters: z.object({ text: z.string() }).strict(),
+    risk: "W0_internal",
+    permission: PROJECT_WRITE,
+    deferLoading: false,
+    exposure: { agent: true },
+    outputSchema: z.object({ stored: z.boolean() }),
+    catalog: agentCatalog,
+    async execute(_context, args) {
+      writes.push((args as { text: string }).text);
+      return { output: { stored: true }, cards: [] };
+    },
+  });
+  const agentLookup: OrbitTool = { ...lookup, exposure: { agent: true }, outputSchema: z.object({ text: z.string() }), catalog: agentCatalog };
+  const principal = (extra: Partial<AgentPrincipal> = {}): AgentPrincipal => ({
+    kind: "agent",
+    userId: project.editor.userId,
+    agentId: randomUUID(),
+    agentVersion: 1,
+    workOrderId: randomUUID(),
+    depth: 0,
+    allow: { tools: new Set(["fixture_note", "fixture_lookup"]), modules: new Set(), mode: "execute", knowledge: null },
+    ceilingMicros: 1_000_000,
+    ...extra,
+  });
+
+  it("runs W0 tools for a principal in execute mode and logs each step", async () => {
+    writes.length = 0;
+    const steps: unknown[] = [];
+    mocked.replies.push(call("fixture_note", { text: "a" }), message({ summary: "done", count: 1 }));
+    const result = await runStructured(scope(), spec({ tools: [note], principal: { agent: principal() }, onStep: (step) => void steps.push(step) }));
+    expect(result).toMatchObject({ status: "ok" });
+    expect(writes).toEqual(["a"]);
+    expect(steps).toEqual([{ index: 1, tool: "fixture_note", risk: "W0_internal", outcome: "succeeded" }]);
+  });
+
+  it("stops the whole run on a refused principal call, and nothing runs (scenario D)", async () => {
+    writes.length = 0;
+    // Draft mode may not write internally.
+    mocked.replies.push(call("fixture_note", { text: "b" }), message({ summary: "x", count: 0 }));
+    const draft = await runStructured(scope(), spec({ tools: [note], principal: { agent: principal({ allow: { ...principal().allow, mode: "draft" } }) } }));
+    expect(draft).toMatchObject({ status: "blocked", code: "AGENT_PRINCIPAL_FORBIDDEN" });
+    expect(writes).toEqual([]);
+    // The run stopped before asking for its final answer.
+    expect(mocked.replies).toHaveLength(1);
+    mocked.replies.length = 0;
+    // The sponsor is demoted between the first and the second tool call.
+    const demoting: OrbitTool = {
+      ...agentLookup,
+      async execute() {
+        await authDb.projectMember.update({
+          where: { projectId_userId: { projectId: scope().projectId, userId: project.editor.userId } },
+          data: { role: "viewer" },
+        });
+        return { output: { text: "read" }, cards: [] };
+      },
+    };
+    mocked.replies.push(call("fixture_lookup", { size: 1 }), call("fixture_note", { text: "c" }), message({ summary: "x", count: 0 }));
+    try {
+      const steps: Array<{ tool: string; code?: string }> = [];
+      const demoted = await runStructured(scope(), spec({ tools: [demoting, note], principal: { agent: principal() }, onStep: (st) => void steps.push(st) }));
+      expect(demoted).toMatchObject({ status: "blocked", code: "AGENT_PRINCIPAL_FORBIDDEN" });
+      expect(writes).toEqual([]);
+      expect(steps.map((st) => [st.tool, st.code])).toEqual([
+        ["fixture_lookup", undefined],
+        ["fixture_note", "AGENT_PRINCIPAL_FORBIDDEN"],
+      ]);
+      // The run stopped: the final answer was never requested.
+      expect(mocked.replies).toHaveLength(1);
+      mocked.replies.length = 0;
+    } finally {
+      await authDb.projectMember.update({
+        where: { projectId_userId: { projectId: scope().projectId, userId: project.editor.userId } },
+        data: { role: "editor" },
+      });
+    }
+    // The work order's own check (a changed agent version) stops it too.
+    mocked.replies.push(call("fixture_note", { text: "d" }), message({ summary: "x", count: 0 }));
+    const changed = await runStructured(scope(), spec({
+      tools: [note],
+      principal: { agent: principal(), current: async () => { throw new DomainError("AGENT_VERSION_CHANGED", 409); } },
+    }));
+    expect(changed).toMatchObject({ status: "blocked", code: "AGENT_VERSION_CHANGED" });
+    expect(writes).toEqual([]);
+    mocked.replies.length = 0;
+  });
+
+  it("stops when its cancellation signal fires", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    mocked.replies.push(message({ summary: "x", count: 0 }));
+    const result = await runStructured(scope(), spec({ signal: controller.signal }));
+    expect(result.status).not.toBe("ok");
+    mocked.replies.length = 0;
   });
 });

@@ -34,7 +34,12 @@ import { can } from "../tenancy/permissions.ts";
 import { legacyResponsesRuntime } from "./runtime/legacy-responses.ts";
 import type { BudgetedModel, ToolHost } from "./runtime/port.ts";
 import { findTool, responsesTool, type OrbitTool } from "./tools/registry.ts";
-import { capToolOutput, executeCapability } from "./capabilities.ts";
+import {
+  capToolOutput,
+  executeAgentCapability,
+  executeCapability,
+} from "./capabilities.ts";
+import type { AgentPrincipal } from "./principal.ts";
 
 // One bounded, schema-validated agent run for any module (ADR 0017 P-2).
 // The model sees read tools only; its answer is parsed by a strict schema
@@ -65,8 +70,23 @@ export type StructuredRunSpec<O> = {
   subject: { type: string; id: string };
   instructions: string;
   input: unknown;
-  /** Read tools the model may call; any other risk is refused. */
+  /**
+   * Tools the model may call. Without a principal only read tools (R0), with
+   * the run's scope checked once before the run. With a principal (a
+   * configured agent's work order, ADR 0021) every call goes through
+   * executeAgentCapability: allowlist, mode, module, the sponsor's and the
+   * requester's current rights, and `principal.current`, on every call.
+   */
   tools: readonly OrbitTool[];
+  principal?: {
+    agent: AgentPrincipal;
+    /** The work order's own checks before each tool call (agent active, same version). */
+    current?: () => Promise<void>;
+  };
+  /** Called after each tool call with its name, risk and outcome code (the work-order step log). */
+  onStep?(step: StructuredRunStep): void | Promise<void>;
+  /** Stops the run like its timeout (cancellation); checked between calls. */
+  signal?: AbortSignal;
   webSearch?: boolean;
   outputSchema: z.ZodType<O>;
   limits: StructuredRunLimits;
@@ -81,6 +101,15 @@ export type StructuredRunSpec<O> = {
   };
   /** Checked before each call, e.g. that the run's subject still wants it. */
   guard?(tx: DbTx, scope: Scope): Promise<void>;
+};
+
+/** One tool call as a step log records it: never arguments or results (ADR 0006). */
+export type StructuredRunStep = {
+  index: number;
+  tool: string;
+  risk: OrbitTool["risk"] | "unknown";
+  outcome: "succeeded" | "failed";
+  code?: string;
 };
 
 export type StructuredRunResult<O> =
@@ -183,7 +212,10 @@ export function structuredOutputSchema(schema: z.ZodType) {
 
 // A refusal before transmission: the run stops without cost.
 const BLOCKING =
-  /BUDGET|CEILING|POLICY|PAUSED|REQUIRED|ROUTE_CHANGED|NOT_VERIFIED|PRICE|MANDATE|CONTEXT_LIMIT|UNSUPPORTED/;
+  /BUDGET|CEILING|POLICY|PAUSED|REQUIRED|ROUTE_CHANGED|NOT_VERIFIED|PRICE|MANDATE|CONTEXT_LIMIT|UNSUPPORTED|PRINCIPAL_FORBIDDEN|AGENT_NOT_ACTIVE|AGENT_VERSION_CHANGED|AGENT_ENTITLEMENT/;
+/** Tool refusals that end a principal's run instead of going back to the model. */
+const PRINCIPAL_STOPS =
+  /^AGENT_(PRINCIPAL_FORBIDDEN|NOT_ACTIVE|VERSION_CHANGED|ENTITLEMENT|CANCELED)$/;
 
 /**
  * Runs one structured agent run. Refusals and failures come back as a
@@ -195,12 +227,14 @@ export async function runStructured<O>(
   scope: Scope,
   spec: StructuredRunSpec<O>,
 ): Promise<StructuredRunResult<O>> {
-  for (const tool of spec.tools) {
-    if (tool.risk !== "R0_read")
-      throw new DomainError("STRUCTURED_RUN_TOOL_RISK");
-    if (!can(scope, tool.permission))
-      throw new DomainError("STRUCTURED_RUN_TOOL_FORBIDDEN");
-  }
+  // A principal's tools are checked per call (executeAgentCapability).
+  if (!spec.principal)
+    for (const tool of spec.tools) {
+      if (tool.risk !== "R0_read")
+        throw new DomainError("STRUCTURED_RUN_TOOL_RISK");
+      if (!can(scope, tool.permission))
+        throw new DomainError("STRUCTURED_RUN_TOOL_FORBIDDEN");
+    }
   const routeVersion = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     openAiConfigurationVersion(tx, scope),
   );
@@ -218,7 +252,9 @@ export async function runStructured<O>(
     provider: "openai" as ProviderId,
     startedAt: new Date(),
   };
-  const deadline = AbortSignal.timeout(spec.limits.timeoutMs);
+  const deadline = spec.signal
+    ? AbortSignal.any([AbortSignal.timeout(spec.limits.timeoutMs), spec.signal])
+    : AbortSignal.timeout(spec.limits.timeoutMs);
   const instructions = `${BASE_INSTRUCTIONS} ${spec.instructions}`;
   const functionTools = spec.tools.map(responsesTool);
   const outputSchema = structuredOutputSchema(spec.outputSchema);
@@ -375,24 +411,51 @@ export async function runStructured<O>(
       try {
         const tool = findTool(spec.tools, call.name);
         if (!tool) throw new DomainError("AGENT_TOOL_NOT_ALLOWED", 403);
-        // Read tools run with the run's scope, checked once before the run
-        // (principal-checked execution follows in WP1.3).
-        const result = await executeCapability(
-          tool,
-          {
-            scope,
-            runId: agentRunId ?? spec.budget.callKey,
-            conversationId: spec.subject.id,
-            callIndex,
-          },
-          JSON.parse(call.arguments),
-          { validate: "tool", roleScope: "project" },
-        );
+        const context = {
+          scope,
+          runId: agentRunId ?? spec.budget.callKey,
+          conversationId: spec.subject.id,
+          callIndex,
+        };
+        // A principal's call is authorized again here; read tools without
+        // one run with the run's scope, checked once before the run.
+        const result = spec.principal
+          ? await executeAgentCapability(
+              spec.principal.agent,
+              tool,
+              context,
+              JSON.parse(call.arguments),
+              { current: spec.principal.current },
+            )
+          : await executeCapability(tool, context, JSON.parse(call.arguments), {
+              validate: "tool",
+              roleScope: "project",
+            });
         output = result.output;
       } catch (error) {
         failure = errorCode(error);
+        // A lost right, a paused or changed agent stops the whole run: the
+        // model never gets to try another tool (scenario D, ADR 0021 §5.4).
+        if (spec.principal && PRINCIPAL_STOPS.test(failure)) {
+          await spec.onStep?.({
+            index: callIndex,
+            tool: findTool(spec.tools, call.name)?.name ?? "unknown_tool",
+            risk: findTool(spec.tools, call.name)?.risk ?? "unknown",
+            outcome: "failed",
+            code: failure,
+          });
+          throw error;
+        }
         output = { error: failure };
       }
+      const known = findTool(spec.tools, call.name);
+      await spec.onStep?.({
+        index: callIndex,
+        tool: known ? known.name : "unknown_tool",
+        risk: known ? known.risk : "unknown",
+        outcome: failure ? "failed" : "succeeded",
+        ...(failure ? { code: failure } : {}),
+      });
       await recordSpan(scope, agentRunId, {
         type: "tool_call",
         // A model-supplied name is never stored.
