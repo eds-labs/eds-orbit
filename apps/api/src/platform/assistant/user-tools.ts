@@ -56,6 +56,7 @@ import { ProjectCallRefused } from "../agents/project-calls.ts";
 import { data, DomainError } from "../shared.ts";
 import type { ChatCard } from "./cards.ts";
 import { actionRequestCard } from "./personal-mode.ts";
+import { agentDelegate } from "./delegation.ts";
 import { appendNotice } from "./notices.ts";
 import {
   addContext,
@@ -261,6 +262,8 @@ async function projectOverview(
       const rows = await tx.agentWorkOrder.findMany({
         where: {
           projectId: scope.projectId,
+          // Agent work only: MCP tasks (target assistant) are user-private.
+          target: "agent",
           status: { in: ["failed", "blocked", "outcome_unknown"] },
           finishedAt: { gte: new Date(now.getTime() - DAY) },
         },
@@ -462,6 +465,29 @@ const WORK_ORDER_STATUSES = [
   "outcome_unknown",
 ] as const;
 
+const OPEN_WORK = new Set(["queued", "awaiting_start", "running", "waiting_approval"]);
+
+/**
+ * A delegation batch's status from its work orders (plan §2.5 step 3, as
+ * `taskSnapshot` derives a task's): running while any is open, succeeded
+ * when all succeeded, failed when none did, else partially_failed.
+ */
+export function batchStatus(statuses: readonly string[]) {
+  const counts: Record<string, number> = {};
+  for (const status of statuses) counts[status] = (counts[status] ?? 0) + 1;
+  const succeeded = counts.succeeded ?? 0;
+  const status = !statuses.length
+    ? "unknown"
+    : statuses.some((s) => OPEN_WORK.has(s))
+      ? "running"
+      : succeeded === statuses.length
+        ? "succeeded"
+        : succeeded === 0
+          ? "failed"
+          : "partially_failed";
+  return { status, total: statuses.length, counts };
+}
+
 /** What the assistant sees of a work order: status and result, never raw steps. */
 function workOrderSummary(view: ReturnType<typeof workOrderView>) {
   return {
@@ -486,11 +512,12 @@ export const workOrderStatus = defineTool({
   name: "agent_work_order_status",
   namespace: "agents",
   description:
-    "Status and result of agent work orders you requested or may view: one by id in its project, or the latest per project.",
+    "Status and result of agent work orders you requested or may view: one by id, a delegation batch by its batchId (with the batch status derived from its work orders), or the latest per project.",
   parameters: z
     .object({
       projectId: z.string().nullable().describe("The work order's project; null for all projects"),
       workOrderId: z.string().nullable(),
+      batchId: z.string().nullable().describe("A batch id agent_delegate returned"),
       status: z.enum(WORK_ORDER_STATUSES).nullable(),
     })
     .strict(),
@@ -504,11 +531,12 @@ export const workOrderStatus = defineTool({
       .object({
         projectId: z.uuid().nullish(),
         workOrderId: z.uuid().nullish(),
+        batchId: z.uuid().nullish(),
         status: z.enum(WORK_ORDER_STATUSES).nullish(),
       })
       .strict()
       .parse(dropNullFields(args ?? {}));
-    if (input.workOrderId && !input.projectId)
+    if ((input.workOrderId || input.batchId) && !input.projectId)
       throw new DomainError("PROJECT_REQUIRED", 400);
     if (!agentPlatformEnabled())
       return { output: { projects: [], error: "AGENT_PLATFORM_DISABLED" }, cards: [] };
@@ -517,6 +545,23 @@ export const workOrderStatus = defineTool({
       async (tx, scope) => {
         if (!can(scope, AGENTS_READ))
           throw new ProjectCallRefused("PERMISSION_DENIED");
+        if (input.batchId) {
+          const rows = await tx.agentWorkOrder.findMany({
+            where: {
+              projectId: scope.projectId,
+              target: "agent",
+              origin: "assistant",
+              requestedBy: { path: ["batchId"], equals: input.batchId },
+            },
+            orderBy: { createdAt: "asc" },
+            take: 10,
+          });
+          const visible = rows.filter((row) => maySeeWorkOrder(scope, row));
+          return {
+            batch: { batchId: input.batchId, ...batchStatus(visible.map((row) => row.status)) },
+            workOrders: visible.map((row) => workOrderSummary(workOrderView(row))),
+          };
+        }
         if (input.workOrderId) {
           const row = await readWorkOrder(tx, scope, input.workOrderId).catch(
             (error: unknown) => {
@@ -719,6 +764,7 @@ export const USER_TOOLS: readonly OrbitTool[] = [
   agentsListTool,
   workOrderStatus,
   contextRemember,
+  agentDelegate,
 ];
 
 /** The platform tools this file registers (user tools plus `action_status`). */

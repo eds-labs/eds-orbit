@@ -4,6 +4,7 @@ import { SUPPORT_NOTES_READ } from "./permissions.ts";
 import type { ConversationSections } from "../../platform/assistant/types.ts";
 import { data } from "../../shared.ts";
 import { withPlaceholders } from "./ai.ts";
+import { taskRecordByConversation } from "../../platform/tasks/tasks.ts";
 
 /** Native support artifacts created for a delegated task, visible in its normal conversation. */
 export const supportConversationResults: ConversationSections = async (
@@ -13,16 +14,8 @@ export const supportConversationResults: ConversationSections = async (
 ) => {
   const role = effectiveRole(scope, "support");
   if (role === "none" || !can({ role }, SUPPORT_NOTES_READ)) return {};
-  const task = await tx.entity.findFirst({
-    where: {
-      projectId: scope.projectId,
-      kind: "orbit_tasks",
-      AND: [
-        { data: { path: ["conversationId"], equals: conversationId } },
-        { data: { path: ["userId"], equals: scope.userId } },
-      ],
-    },
-  });
+  // Either task store (work order table or legacy entity).
+  const task = await taskRecordByConversation(tx, scope, conversationId, scope.userId);
   if (!task) return {};
   const requests = await tx.entity.findMany({
     where: {

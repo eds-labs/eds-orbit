@@ -191,7 +191,8 @@ export async function startManualWorkOrder(tx: DbTx, scope: Scope, agentId: stri
 /** Reads one work order the member may see (404 otherwise). */
 export async function readWorkOrder(tx: DbTx, scope: Scope, id: string) {
   authorize(scope, AGENTS_READ);
-  const row = await tx.agentWorkOrder.findFirst({ where: { id, projectId: scope.projectId } });
+  // Agent work only: an MCP task (target "assistant") is its user's alone.
+  const row = await tx.agentWorkOrder.findFirst({ where: { id, projectId: scope.projectId, target: "agent" } });
   if (!row || !maySeeWorkOrder(scope, row)) throw new DomainError("NOT_FOUND", 404);
   return row;
 }
@@ -213,6 +214,7 @@ export async function listWorkOrders(tx: DbTx, scope: Scope, raw: unknown) {
   const rows = await tx.agentWorkOrder.findMany({
     where: {
       projectId: scope.projectId,
+      target: "agent",
       ...(input.agentId ? { agentId: input.agentId } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(cursorRow ? { createdAt: { lt: cursorRow.createdAt } } : {}),

@@ -6,7 +6,7 @@ import { authDb, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
 import { registeredToolOwner } from "../modules/contributions.ts";
-import { data, DomainError, hash } from "../shared.ts";
+import { DomainError, hash } from "../shared.ts";
 import type { McpPrincipal } from "../mcp/principal.ts";
 
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
@@ -28,17 +28,11 @@ export async function taskDelegation(
   scope: Scope,
   runId: string,
 ): Promise<Delegation | null> {
-  const row = await tx.entity.findFirst({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "orbit_tasks",
-      data: { path: ["runId"], equals: runId },
-    },
-  });
-  return row
-    ? ({ ...data(row).delegation, taskId: row.id } as Delegation)
-    : null;
+  // Either task store: the work order table or a legacy `orbit_tasks`
+  // entity (tasks.ts, the compatibility reader; imported lazily, it imports this file).
+  const { taskRecordByRun } = await import("./tasks.ts");
+  const record = await taskRecordByRun(tx, scope, runId);
+  return record ? ({ ...record.delegation, taskId: record.id } as Delegation) : null;
 }
 
 export async function delegationPrincipal(

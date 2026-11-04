@@ -196,6 +196,12 @@ export type ActionDefinition<P> = {
   costCeilingMicros: (payload: P) => number;
   /** Module-owned exact proposal summary for native approval renderers. */
   summary?: (payload: P) => Record<string, unknown>;
+  /**
+   * Who of the members with the decider role may decide this request, for
+   * types only one person may confirm (an assistant delegation is confirmed
+   * by its requester, ADR 0021 D-06). Absent: every such member.
+   */
+  mayDecide?: (member: Scope, payload: P) => boolean;
   /** Rechecked at decision time; throws when the request no longer matches. */
   revalidate: (tx: DbTx, scope: Scope, payload: P) => Promise<void>;
   onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
@@ -579,6 +585,8 @@ export async function decideActionRequest(
   if (type.deciderRole === "owner")
     authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   else authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
+  if (type.mayDecide && !type.mayDecide(scope, type.payload.parse(d.payload)))
+    throw new DomainError("DECIDER_NOT_ALLOWED", 403);
   if (d.status !== "pending") {
     // A repeated click with the same decision returns the recorded result.
     if (
@@ -936,6 +944,10 @@ export function decidableBy(member: Scope, row: Row, now = new Date()) {
   } catch {
     return false;
   }
+  if (type.mayDecide) {
+    const payload = type.payload.safeParse(d.payload);
+    if (!payload.success || !type.mayDecide(scope, payload.data)) return false;
+  }
   return can(scope, type.deciderRole === "owner" ? PROJECT_OWN : PROJECT_WRITE);
 }
 
@@ -989,21 +1001,17 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         ...registeredActionType(String(d.actionType))?.summary?.(d.payload),
         ...(d.actionType === "platform.task.start"
           ? {
-              task: await tx.entity
-                .findFirst({
-                  where: {
-                    id: d.payload.taskId,
-                    projectId: scope.projectId,
-                    kind: "orbit_tasks",
-                  },
-                  select: { data: true },
-                })
+              // Either task store (platform/tasks/tasks.ts reads both).
+              task: await import("../tasks/tasks.ts")
+                .then(({ findTaskRecord }) =>
+                  findTaskRecord(tx, scope, String(d.payload.taskId)),
+                )
                 .then((t) =>
                   t
                     ? {
-                        description: data(t).description,
-                        mode: data(t).delegation.mode,
-                        modules: data(t).delegation.modules,
+                        description: t.description,
+                        mode: t.delegation.mode,
+                        modules: t.delegation.modules,
                       }
                     : null,
                 ),

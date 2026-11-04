@@ -38,6 +38,8 @@ export const agentWorkRetention: RetentionContribution = async (
      WHERE w."workspaceId" = ${scope.workspaceId}::uuid
        AND w."projectId" = ${scope.projectId}::uuid
        AND w."parentId" IS NULL
+       -- MCP tasks (target 'assistant') follow task retention (tasks/retention.ts).
+       AND w."target" = 'agent'
        AND w."finishedAt" < ${workOrderCutoff}
        AND NOT EXISTS (
          SELECT 1 FROM "AgentWorkOrder" d

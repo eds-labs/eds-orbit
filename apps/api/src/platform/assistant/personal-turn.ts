@@ -500,18 +500,24 @@ async function runUserTool(
   const { scope } = request.run;
   if (scope.userId !== request.userId || scope.workspaceId !== request.workspaceId)
     throw new DomainError("CHAT_TOOL_NOT_ALLOWED", 403);
-  const result = await tool.execute(
-    {
-      scope,
-      runId: request.run.runId,
-      conversationId: request.run.conversationId,
-      callIndex,
-      personal: {
-        noteProjects: (ids) => ids.forEach((id) => state.contextProjects.add(id)),
-        userText: request.userText ?? "",
-      },
-    },
-    args,
+  // A user tool that proposes (agent_delegate) records the turn's other
+  // projects like a project tool does (ADR 0022 §5).
+  const result = await crossProjectExecution.run(
+    { contextProjects: [...state.contextProjects] },
+    () =>
+      tool.execute(
+        {
+          scope,
+          runId: request.run.runId,
+          conversationId: request.run.conversationId,
+          callIndex,
+          personal: {
+            noteProjects: (ids) => ids.forEach((id) => state.contextProjects.add(id)),
+            userText: request.userText ?? "",
+          },
+        },
+        args,
+      ),
   );
   // User tools label their cards with the project themselves.
   state.cards.push(...result.cards);

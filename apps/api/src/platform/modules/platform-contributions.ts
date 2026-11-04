@@ -52,6 +52,10 @@ import { agentWorkJob } from "../agents/work-orders/execute.ts";
 import { agentRoutes } from "../agents/routes.ts";
 import { assistantRoutes } from "../assistant/routes.ts";
 import { personalAssistantTools } from "../assistant/user-tools.ts";
+import {
+  agentDelegateAction,
+  DELEGATE_ACTION,
+} from "../assistant/delegation.ts";
 import { delegationNoticeSubscriber } from "../assistant/notices.ts";
 import {
   agentTriggerSubscriber,
@@ -81,6 +85,8 @@ export const platformContributions: ModuleContributions = {
   },
   actionTypes: {
     "platform.task.start": taskStart,
+    // The personal assistant's delegation batches (ADR 0022 item 7).
+    [DELEGATE_ACTION]: agentDelegateAction,
     ...configurationActionTypes,
     ...aiModelActionTypes,
     ...spendPolicyActionTypes,

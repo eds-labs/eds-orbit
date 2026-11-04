@@ -17,6 +17,7 @@ import { requestContentPackageInTx } from "./agents/content-packages.ts";
 import { reviseDeliverable } from "./agents/content-packages.ts";
 import { actionPermissions } from "../../platform/tenancy/permissions.ts";
 import { creativeReads, creativeWrites } from "./creative/mcp-tools.ts";
+import { readTaskRecord } from "../../platform/tasks/tasks.ts";
 
 const page = z
   .object({
@@ -188,8 +189,8 @@ const writes = [
       })
       .strict(),
     async run(tx, scope, { taskId, ...args }, requester) {
-      const task = await entity(tx, scope, "orbit_tasks", taskId);
-      const d = data(task);
+      // Either task store (platform/tasks/tasks.ts reads both).
+      const d = await readTaskRecord(tx, scope, taskId);
       if (
         d.userId !== scope.userId ||
         (requester?.kind === "mcp" && d.clientId !== requester.clientId)
@@ -223,8 +224,7 @@ const writes = [
       })
       .strict(),
     async run(tx, scope, { taskId, ...args }, requester) {
-      const task = await entity(tx, scope, "orbit_tasks", taskId);
-      const d = data(task);
+      const d = await readTaskRecord(tx, scope, taskId);
       if (
         d.userId !== scope.userId ||
         (requester?.kind === "mcp" && d.clientId !== requester.clientId)

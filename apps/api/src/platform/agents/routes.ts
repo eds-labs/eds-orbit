@@ -176,7 +176,7 @@ export const agentRoutes: RoutesContribution = ({ app, auth }) => {
           .map((parsed) => parsed.data!.status);
         const failing = await tx.agentWorkOrder.groupBy({
           by: ["agentId"],
-          where: { projectId: project.id, status: { in: ["failed", "blocked", "outcome_unknown"] }, finishedAt: { gte: since } },
+          where: { projectId: project.id, target: "agent", status: { in: ["failed", "blocked", "outcome_unknown"] }, finishedAt: { gte: since } },
         });
         return {
           active: statuses.filter((s) => s === "active").length,

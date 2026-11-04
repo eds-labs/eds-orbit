@@ -37,7 +37,6 @@ import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { marketingRoutes } from "../src/modules/marketing/routes.ts";
 import { supportRoutes } from "../src/modules/support/routes.ts";
 import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
-import { agentRoutes } from "../src/platform/agents/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
@@ -63,7 +62,9 @@ describe("module contributions", () => {
             t.feature !== "mcp_tasks" &&
             t.feature !== "project_configuration" &&
             t.feature !== "project_administration" &&
-            t.feature !== "creative_studio",
+            t.feature !== "creative_studio" &&
+            // The personal assistant's tools (ADR 0022) are not chat tools.
+            t.exposure?.personal !== true,
         )
         .map((t) => t.name),
     ).toEqual(chatTools.map((t) => t.name));
@@ -136,6 +137,9 @@ describe("module contributions", () => {
   it("leaves the same kinds out of the project export as before (WP1.8)", () => {
     expect([...unexportedKinds()].sort()).toEqual([
       "agent_failure_notices",
+      // The personal space's own records (ADR 0022): settings, run steps, context.
+      "assistant_settings",
+      "chat_run_steps",
       "connectors",
       "drive_connection",
       "drive_oauth_state",
@@ -156,6 +160,7 @@ describe("module contributions", () => {
       "knowledge_proposals",
       "knowledge_runs",
       "orbit_tasks",
+      "personal_context",
       "public_sessions",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
@@ -218,6 +223,8 @@ describe("module contributions", () => {
       "email-inbound",
       "object-link-prune",
       "domain-event-retention",
+      // Personal spaces 30 days after their user left (ADR 0022).
+      "personal-space-cleanup",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
@@ -453,11 +460,13 @@ describe("module contributions", () => {
     // Registry order: knowledge before marketing, which depends on it.
     // Support counts only while ORBIT_SUPPORT is on; the server registers
     // its routes regardless and they answer 404 while it is off.
-    expect(registeredRoutes()).toEqual([agentRoutes, knowledgeRoutes, marketingRoutes]);
+    // The platform's routes: the agent platform's and the personal assistant's (ADR 0022).
+    const platformRoutes = platformContributions.routes;
+    expect(registeredRoutes()).toEqual([platformRoutes, knowledgeRoutes, marketingRoutes]);
     process.env.ORBIT_SUPPORT = "true";
     try {
       expect(registeredRoutes()).toEqual([
-        agentRoutes,
+        platformRoutes,
         knowledgeRoutes,
         supportRoutes,
         marketingRoutes,

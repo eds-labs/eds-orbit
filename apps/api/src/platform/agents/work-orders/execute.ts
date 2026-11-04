@@ -129,7 +129,8 @@ async function claim(tx: DbTx, scope: Scope, id: string, now: Date): Promise<Cla
   const { definition } = await readAgentDefinition(tx, scope, row.agentId!);
   const [agentRunning, projectRunning] = await Promise.all([
     tx.agentWorkOrder.count({ where: { projectId: scope.projectId, agentId: row.agentId, status: "running" } }),
-    tx.agentWorkOrder.count({ where: { projectId: scope.projectId, status: "running" } }),
+    // Agent work only: MCP tasks folded into the table (target "assistant") run as chat.
+    tx.agentWorkOrder.count({ where: { projectId: scope.projectId, target: "agent", status: "running" } }),
   ]);
   if (
     agentRunning >= definition.active!.limits.maxConcurrent ||
