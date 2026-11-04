@@ -2,7 +2,7 @@
 
 User and operator guide for the agent platform of [ADR 0021](adr/0021-agent-platform.md). Not to be confused with the repository's root `AGENTS.md` (instructions for coding agents). Plans: [architecture](plans/agent-platform-architecture.md), [Phase 1](plans/agent-platform-phase-1.md).
 
-State (2026-11-04): Phase 1 is implemented on branch `claude/agent-platform-architecture-128114`. It is not merged, not deployed, and both flags are off by default.
+State (2026-11-04): Phases 1 and 2 are implemented on branch `claude/agent-platform-architecture-128114`. They are not merged, not deployed, and both flags are off by default. Phase 2 adds the Support agent, the reference template ([SUPPORT.md](SUPPORT.md), "Support agent").
 
 ## What it is
 
@@ -46,6 +46,12 @@ A tool reaches agents only through an explicit, reviewed opt-in: `exposure.agent
 Phase 1 exposes:
 - **Reads:** Work (initiatives, task search, task, progress), Issues (search, issue, figures, duplicates), Knowledge (sources, verified facts) and Marketing (campaigns, content drafts, performance).
 - **Internal proposals:** propose a task comment, propose tasks, propose an issue report, propose a fact.
+
+Phase 2 adds the Support tools listed in [SUPPORT.md](SUPPORT.md) ("Support agent"). `support_list_tickets` is deliberately not offered: an agent works the ticket it was started for. A tool may set `agentMinMode` to be usable from a lower mode than its risk implies; Support's paid triage and draft tools, which only store suggestions, run from mode `draft`.
+
+**Provider allow-list per data class (D-11).** A catalogue entry may declare `dataClass: "customer_personal"`. An agent whose tools include one runs its own model calls only on an allowed provider, and the Support pipelines check every call: OpenAI only (`platform/ai/data-class.ts`, a code constant). Otherwise the call is refused before anything is reserved (`AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA`; the work order ends `blocked`).
+
+**Paid tools inside a turn.** A tool that makes its own paid call during an agent's turn gets the work order's budget through the agent execution context: it reserves under the work order's run key, is attributed to the agent and passes the same run and month ceiling check.
 
 Modes:
 - `read`: read tools only.
@@ -91,6 +97,10 @@ Recovery:
 
 Depth at most 2, at most 10 children per work order, at most 3 running work orders per project (configurable), no cycles, named targets only, and each child stays within the parent's tools, modules, mode, knowledge and remaining ceiling. The rules are in `platform/agents/work-orders/delegation.ts`. Phase 3 connects them to the personal assistant.
 
+## Subjects and erasure
+
+A work order may name a subject (`subjectType`, `subjectId`), such as `support.ticket`. A module that deletes the subject calls `deleteWorkOrdersForSubject` in the same transaction: the work orders, their children and their agent runs go with it. ActionRequests and reservations stay as recorded.
+
 ## Configuration
 
 | Variable | Default | Effect |
@@ -123,9 +133,10 @@ The organization overview uses `GET /api/agents/summary`: per-project counts onl
 
 ## Rollout runbook
 
-1. The migration `202611040001_agent_platform` is additive. Approve its schema hash in Coolify **before** the `main` push that deploys it (`docs/deployment/COOLIFY.md`). The hash computed locally for this branch was `5c88c46ed8281657c7805ef0ac301805f1bab2fc8e70bbfee7784b83d23df05e`; recompute it with `sh scripts/check-pve-schema.sh --print-hash` after rebasing onto the current `main`.
+1. The migrations `202611040001_agent_platform` and `202611040002_support_inbox_agent_mode` are additive. Approve its schema hash in Coolify **before** the `main` push that deploys it (`docs/deployment/COOLIFY.md`). The hash computed locally for this branch (both migrations, on `main` `469b1dae`) was `4dfc5ec04d82ad5a6293131454a5ff43a84301e7feb7302a000b47667e62d99d`; recompute it with `sh scripts/check-pve-schema.sh --print-hash` after rebasing onto the current `main`.
 2. Deploy with both flags off. Nothing changes for users.
 3. Switch `ORBIT_AGENT_PLATFORM` on, still in a test project only. A first real run costs money and needs Mario's approval (at most USD 0.50).
 4. Switch `ORBIT_AGENT_AUTOMATION` on later, separately.
+5. Support agent (Phase 2): before deploying, check that no project routes `support_triage`, `support_draft` or `agent_custom` to Anthropic (D-11 would refuse those calls). Then one synthetic test inbox in `agent` mode, a paid live eval within its cap (Mario's approval), and Mario's go for a real inbox.
 
 Rollback: switch the flags off. Routes answer 404, triggers stop, and stored definitions and work orders stay inert. The table and column stay.

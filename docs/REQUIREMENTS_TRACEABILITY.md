@@ -1,5 +1,22 @@
 # Requirements traceability
 
+## Agent platform, Phase 2: Support agent (ADR 0021 D-11, D-15, D-16; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-2.md](plans/agent-platform-phase-2.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP2-1 | Scenario A: one work order per ticket triages, drafts, proposes, notes under a mandate, never replies | `support/{agent-events,agent-tools,agent-template}.ts`, `agents/triggers/events.ts` | `support-agent.integration.test.ts` | PASS_TEST (scripted model) |
+| AP2-2 | No agent run for hard-rule tickets, unverified widget visitors or non-agent inboxes | `support/agent-events.ts`, `support/agent-gate.ts` | `support-agent.{unit,integration}.test.ts` | PASS_TEST |
+| AP2-3 | Scenario D: a lost sponsor role stops the run before the next tool | `agents/principal.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-4 | Model inputs without name, e-mail and platform redaction classes | `support/ai.ts` (`supportModelText`), `support/mcp-read.ts` | `support-agent.integration.test.ts` (mutation-checked), `support-ai.integration.test.ts` | PASS_TEST |
+| AP2-5 | Provider allow-list: Anthropic refused for customer data before transmission | `platform/ai/data-class.ts`, `agents/structured-run.ts`, `support/ai.ts` | `support-agent.integration.test.ts`, `support-agent.unit.test.ts` | PASS_TEST |
+| AP2-6 | Issue reports: agents propose, never acknowledge sensitive tickets | `support/issues-handoff.ts` | `support-agent.unit.test.ts`, issues suites | PASS_TEST (no dedicated agent report scenario) |
+| AP2-7 | Execution history on the ticket; erasure deletes work orders and runs | `support/workspace.ts`, `support/privacy.ts`, `agents/work-orders/service.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-8 | Send and close never automatic; inbox rule never for agents | `tasks/operation-tools.ts`, `support/mcp-tools.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-9 | Hard rules on subject (T2-3); offline hard-rule eval recall 1.0; agent eval set | `support/agent-events.ts`, `evals/support/agent-v1.json` | `evals/support/{hard-rules,agent}.test.ts` | PASS_TEST (no paid live run) |
+| AP2-10 | Inbox agent mode, no double jobs, manual draft kept, uncovered-inbox attention | `support/{inboxes,ai,workspace,attention}.ts`, migration `202611040002` | `support-agent.integration.test.ts` | PASS_TEST |
+
 ## Agent platform, Phase 1 (ADR 0021, 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
 
 Plan [plans/agent-platform-phase-1.md](plans/agent-platform-phase-1.md), acceptance criteria §11 (AC-1 to AC-12).

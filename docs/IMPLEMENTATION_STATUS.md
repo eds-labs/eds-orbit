@@ -1,5 +1,23 @@
 # Implementation status
 
+## Agent platform, Phase 2: Support agent (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; flags off)
+
+Decisions D-11, D-15, D-16 accepted by Mario on 2026-11-04 as recommended ([ADR 0021](adr/0021-agent-platform.md) addendum). Plan: [Phase 2](plans/agent-platform-phase-2.md). Docs: [SUPPORT.md](SUPPORT.md) "Support agent", [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
+
+- **Built:**
+  - WP2.1: content-free `support.ticket.created` and `support.message.received` events, declared triggerable with an inbox/channel filter; hard-rule hits, unverified widget visitors and non-agent inboxes never start an agent.
+  - WP2.2: Support tools for agents (reads with placeholders plus platform redaction, `support_similar_tickets`, paid `support_triage_suggest`/`support_draft_generate` inside the agent's budget, `support_apply_triage`, `support_hand_off`, notes, reply drafts, ticket changes, issue reports, send as proposal only); agent actor on timeline events, notes and drafts; inbox rule excluded for agents; `support_prepare_reply` runs the draft checks for every requester.
+  - WP2.3: platform redaction and subject screening in Support's model inputs (also for `draft` inboxes); data-class provider allow-list (OpenAI only) for agent routes and the Support pipelines; erasure and retention delete the ticket's work orders and runs.
+  - WP2.4: inbox AI mode `agent` (migration `202611040002_support_inbox_agent_mode`), no automatic jobs there, manual draft kept, attention item for an uncovered agent inbox; template `support.ticket_agent`.
+  - WP2.5: issue reports as owner-approved proposals; agents never acknowledge sensitive tickets; ticket detail `agent` summary.
+  - WP2.6: web inbox AI mode, ticket agent panel, agent timeline labels, apply-triage approval renderer, attention text, guided setup for the Support template.
+  - WP2.7: scenario suite `support-agent.integration.test.ts`, unit rules, offline eval `evals/support/agent-v1.json`; the live eval scores screened sensitive cases as hand-offs.
+- **Behaviour changes for existing `draft` inboxes:** subject hard-rule screening, platform redaction before the model, provider allow-list, draft checks in MCP `support_prepare_reply`, one extra content-free domain event per ticket and customer message.
+- **Not done:** paid live agent eval (needs Mario's approval, cap USD 3); owner notification for an uncovered agent inbox (attention item only); Support-specific work-order output schema; Playwright `support-agent.spec.ts` or a browser check; `support_list_tickets` deliberately not offered to agents; query-embedding cost of an agent's draft is not attributed to the work order.
+- **Verification (local):** API, worker, package and eval tests 403 files / 4,259 passed (7 skipped); web 104 files incl. 14 new Support agent tests; after rebasing onto `origin/main` `469b1dae` the web, Support, agent, access-matrix and RLS-matrix suites passed again (131 files, 1,093 tests); API and web typecheck clean; `next build` succeeds; source and boundary checks clean; the redaction assertion is mutation-checked. OpenAPI unchanged by Phase 2 (no new routes; the ticket detail is not in the generated contract). Not run: Playwright or a browser check, a paid live eval.
+- **Before rollout:** check that no project routes `support_triage`, `support_draft` (or a Support agent's `agent_custom`) to Anthropic; D-11 would refuse those calls.
+- **Production:** nothing deployed. **Migrations `202611040001` and `202611040002`: schema hash `4dfc5ec0…62d99d` (computed after rebasing onto `469b1dae`; supersedes `5c88c46e…`) must be approved in Coolify before the `main` push.**
+
 ## Agent platform, Phase 1 (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_AGENT_PLATFORM` and `ORBIT_AGENT_AUTOMATION` off)
 
 ADR [0021](adr/0021-agent-platform.md) (accepted; Mario's decisions D-01 to D-07 and D-12 to D-14 of 2026-11-04). Plans: [architecture](plans/agent-platform-architecture.md), [Phase 1](plans/agent-platform-phase-1.md). Guide: [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
@@ -15,10 +33,10 @@ ADR [0021](adr/0021-agent-platform.md) (accepted; Mario's decisions D-01 to D-07
 - **Not done:**
   - A periodic retention sweep: retention runs through the owner retention action only.
   - Organization-wide agent counting for `agentsMax`: counted per project until the entitlements table exists.
-  - Module agent templates: Support's template is Phase 2.
+  - Module agent templates: Support's template followed in Phase 2.
 - **Verification (local, own worktree test DB, 2026-11-04):** full `vitest run` 506 files, 5,074 tests passed (7 skipped); API and web typecheck clean; `next build` succeeds; source and boundary checks clean (0 violations); Coolify and PVE compose checks pass; OpenAPI and client regenerated (only the 18 new agent routes). Not run: Playwright e2e and a real browser check of the new pages.
 - **Before rollout:** check that every active production assignment has a `confirmation.userId` of a current owner (WP1.9 would otherwise block its specialists).
-- **Production:** nothing deployed. **Migration `202611040001_agent_platform`: new schema hash `5c88c46e…3df05e` (computed before rebasing; recompute) must be approved in Coolify before the `main` push.**
+- **Production:** nothing deployed. **Migration `202611040001_agent_platform`: the schema hash is now the one in the Phase 2 entry above (`4dfc5ec0…`), which includes Phase 2's migration.**
 
 ## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
 
