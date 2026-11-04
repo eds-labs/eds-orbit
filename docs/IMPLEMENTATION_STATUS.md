@@ -10,12 +10,14 @@ ADR [0021](adr/0021-agent-platform.md) (accepted; Mario's decisions D-01 to D-07
   - WP1.3: principal mode of `runStructured`; `runSpecialist` delegates to it with unchanged reservation keys; task class `agent_custom`.
   - WP1.4: `AgentWorkOrder` table (FORCE RLS), `agent_work` run kind, `BudgetReservation.agentId`, entitlements port, definition schema, retention.
   - WP1.5 to WP1.7: definitions service, builder catalogue, routes, work-order execution on the worker, schedule and event triggers, delegation core, failure notice.
-  - WP1.8: web pages; WP1.9: Marketing on-behalf principal and read-only listings — see their own entries below once merged into this branch.
+  - WP1.8: web agent management (`/p/:id/agents` overview, builder, versions, executions, execution detail; `/o/:orgId/agents`; sidebar entry *Agenten*; mandate form agents channel).
+  - WP1.9: Marketing specialists act on behalf of the assignment's confirming owner (**behaviour change:** a demoted or removed confirming owner blocks the specialists with `AGENT_PRINCIPAL_FORBIDDEN` and opens an exception); `agentListings` contribution and `GET /agents/managed` for module-managed agents.
 - **Not done:**
   - A periodic retention sweep: retention runs through the owner retention action only.
   - Organization-wide agent counting for `agentsMax`: counted per project until the entitlements table exists.
   - Module agent templates: Support's template is Phase 2.
-- **Verification (local, own worktree test DB):** targeted suites green (WP1.1: 949 tests; WP1.2: 1,049; Marketing parity 514; agent platform, access matrix, RLS matrix, queue dispatch). See the branch commits for counts.
+- **Verification (local, own worktree test DB, 2026-11-04):** full `vitest run` 506 files, 5,074 tests passed (7 skipped); API and web typecheck clean; `next build` succeeds; source and boundary checks clean (0 violations); Coolify and PVE compose checks pass; OpenAPI and client regenerated (only the 18 new agent routes). Not run: Playwright e2e and a real browser check of the new pages.
+- **Before rollout:** check that every active production assignment has a `confirmation.userId` of a current owner (WP1.9 would otherwise block its specialists).
 - **Production:** nothing deployed. **Migration `202611040001_agent_platform`: new schema hash `5c88c46e…3df05e` (computed before rebasing; recompute) must be approved in Coolify before the `main` push.**
 
 ## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
