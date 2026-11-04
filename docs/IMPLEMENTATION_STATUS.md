@@ -24,7 +24,7 @@ Decisions D-18 (per-user Telegram in this phase), D-19 and D-20 (Mario, 2026-11-
   - Speech routing uses the first active priced catalogue model (no persisted speech route yet).
   - Budget codes keep their existing names.
   - WP4.8 (realtime voice spike) was not built: it is optional, not merged and needs paid test minutes.
-- **Verification (local):** see the Phase 4 entry in `REQUIREMENTS_TRACEABILITY.md` and the full-suite line below.
+- **Verification (local):** the full suite (API, worker, packages, evals, web) ran over 534 files: 5,303 passed and 7 skipped. Three Marketing tests failed (`assignment-postiz-drafts`, `assignment-shared-posts`, `marketing-reports`). They fail identically on the commit without Phase 4 when run between 00:00 and 01:00 CET, when the local day and the UTC day differ, and they passed in the Phase 3 run the same evening, so this is a time-window artifact rather than a regression. New suites: proactive signals, delivery, briefing and summary; voice, speech and audio duration; web components. Evidence per acceptance criterion is in `REQUIREMENTS_TRACEABILITY.md`.
   - The access matrix gained 10 reviewed rows; no existing row changed.
   - OpenAPI only adds 7 paths.
   - API and web typecheck, boundaries, source checks and Compose checks are clean.
