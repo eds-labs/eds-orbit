@@ -58,11 +58,17 @@ export const MAX_DELEGATION_DEPTH = 2;
  * Which tool risks a mode permits: `read` reads only, `draft` also
  * proposes, `execute` also writes internally (W0).
  */
-export function modePermits(mode: AgentMode, risk: ToolRisk): boolean {
+export function modePermits(
+  mode: AgentMode,
+  risk: ToolRisk,
+  minMode?: AgentMode,
+): boolean {
+  if (minMode) return MODE_ORDER.indexOf(mode) >= MODE_ORDER.indexOf(minMode);
   if (risk === "R0_read") return true;
   if (risk === "P_proposal") return mode !== "read";
   return mode === "execute";
 }
+const MODE_ORDER: readonly AgentMode[] = ["read", "draft", "execute"];
 
 /**
  * The module a tool's use counts against: its owner, except the platform's
@@ -111,7 +117,7 @@ export async function authorizeAgentTool(
 ): Promise<Scope> {
   if (!exposedToAgent(tool) || !principal.allow.tools.has(tool.name))
     throw forbidden();
-  if (!modePermits(principal.allow.mode, tool.risk)) throw forbidden();
+  if (!modePermits(principal.allow.mode, tool.risk, tool.agentMinMode)) throw forbidden();
   const module = toolModule(tool);
   if (module && module !== "platform" && !principal.allow.modules.has(module))
     throw forbidden();

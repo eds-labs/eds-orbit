@@ -17,6 +17,7 @@ import {
 } from "../../../../../packages/ai/src/index.ts";
 import { DomainError } from "../../shared.ts";
 import { markTransmitted, reserve, settle } from "../ai/budget.ts";
+import { assertProviderAllowedForData, type DataClass } from "../ai/data-class.ts";
 import { planCall } from "../ai/call-plan.ts";
 import {
   openAiConfigurationVersion,
@@ -151,6 +152,12 @@ export type StructuredRunSpec<O, R = O> = {
     /** The caller's own ceiling, checked with the estimate before each reservation. */
     check?(tx: DbTx, scope: Scope, estimateMicros: number, now: Date): Promise<void>;
   };
+  /**
+   * The strictest data class the run's tools return (ADR 0021 D-11): a
+   * route whose provider may not receive it is refused before anything is
+   * sent (AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA).
+   */
+  dataClass?: DataClass;
   /** Checked before each call, e.g. that the run's subject still wants it. */
   guard?(tx: DbTx, scope: Scope): Promise<void>;
   /**
@@ -309,7 +316,7 @@ export function structuredOutputSchema(schema: z.ZodType) {
 
 // A refusal before transmission: the run stops without cost.
 const BLOCKING =
-  /BUDGET|CEILING|POLICY|PAUSED|REQUIRED|ROUTE_CHANGED|NOT_VERIFIED|PRICE|MANDATE|CONTEXT_LIMIT|UNSUPPORTED|PRINCIPAL_FORBIDDEN|AGENT_NOT_ACTIVE|AGENT_VERSION_CHANGED|AGENT_ENTITLEMENT/;
+  /BUDGET|CEILING|POLICY|PAUSED|REQUIRED|ROUTE_CHANGED|NOT_VERIFIED|PRICE|MANDATE|CONTEXT_LIMIT|UNSUPPORTED|PRINCIPAL_FORBIDDEN|AGENT_NOT_ACTIVE|AGENT_VERSION_CHANGED|AGENT_ENTITLEMENT|NOT_ALLOWED_FOR_DATA/;
 /** Tool refusals that end a principal's run instead of going back to the model. */
 const PRINCIPAL_STOPS =
   /^AGENT_(PRINCIPAL_FORBIDDEN|NOT_ACTIVE|VERSION_CHANGED|ENTITLEMENT|CANCELED)$/;
@@ -429,6 +436,7 @@ export async function runStructured<O, R = O>(
             ) + webSearchFee(route.model, searchesLeft, runtime),
           now,
         );
+        assertProviderAllowedForData(plan.provider, spec.dataClass);
         if (spec.budget.check)
           await spec.budget.check(tx, scope, plan.estimateMicros, now);
         const reservation = await reserve(
@@ -557,7 +565,7 @@ export async function runStructured<O, R = O>(
               tool,
               context,
               JSON.parse(call.arguments),
-              { current: spec.principal.current },
+              { current: spec.principal.current, budget: spec.budget },
             )
           : await executeCapability(tool, context, JSON.parse(call.arguments), {
               validate: "tool",

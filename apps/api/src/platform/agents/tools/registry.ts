@@ -125,6 +125,12 @@ export type OrbitTool = {
    * listed proposal never fails as not proposable.
    */
   mcpProposable?: () => boolean;
+  /**
+   * The lowest agent mode that may call the tool, instead of the default by
+   * risk (ADR 0021): an internal write that only stores a suggestion, such
+   * as Support's AI triage and draft, may run from mode "draft".
+   */
+  agentMinMode?: "read" | "draft" | "execute";
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 

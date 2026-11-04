@@ -13,6 +13,8 @@ import {
   slaDueAt,
 } from "./common.ts";
 import { supportActive } from "./gate.ts";
+import { activeEventTriggers } from "../../platform/agents/triggers/events.ts";
+import { SUPPORT_MESSAGE_RECEIVED, SUPPORT_TICKET_CREATED } from "./agent-events.ts";
 import { SUPPORT_TICKETS_READ } from "./permissions.ts";
 
 // The support module's attention items (UI restructure §4.1): tickets past or
@@ -168,6 +170,31 @@ async function releasedIssueTickets(tx: DbTx, scope: Scope) {
   return { count: Number(row?.n ?? 0), since: row?.since ?? null };
 }
 
+/**
+ * Inboxes in agent mode that no active agent's trigger covers (T2-1): their
+ * tickets get neither the automatic jobs nor agent work, so people handle
+ * them until the agent runs again. No fallback to draft mode.
+ */
+async function uncoveredAgentInboxes(tx: DbTx, scope: Scope) {
+  const inboxes = await tx.supportInbox.findMany({
+    where: { projectId: scope.projectId, aiMode: "agent", archivedAt: null },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+  if (!inboxes.length) return [];
+  const triggers = await activeEventTriggers(tx, scope, [
+    SUPPORT_TICKET_CREATED,
+    SUPPORT_MESSAGE_RECEIVED,
+  ]);
+  return inboxes.filter(
+    (inbox) =>
+      !triggers.some((t) => {
+        const ids = (t.filter as { inboxIds?: string[] }).inboxIds;
+        return !ids || ids.includes(inbox.id);
+      }),
+  );
+}
+
 export const supportAttention: AttentionContribution = async (
   tx,
   scope,
@@ -176,11 +203,12 @@ export const supportAttention: AttentionContribution = async (
   if (!can(scope, SUPPORT_TICKETS_READ)) return [];
   if (!(await supportActive(tx, scope))) return [];
   const soon = new Date(now.getTime() + SLA_AT_RISK_MINUTES * 60_000);
-  const [breached, atRisk, unassigned, released] = await Promise.all([
+  const [breached, atRisk, unassigned, released, uncovered] = await Promise.all([
     dueTickets(tx, scope, { to: now }),
     dueTickets(tx, scope, { from: now, to: soon }),
     unassignedTickets(tx, scope, soon),
     releasedIssueTickets(tx, scope),
+    uncoveredAgentInboxes(tx, scope),
   ]);
   const items = [
     ...(await slaItems(tx, scope, breached, "support_sla_breached")),
@@ -208,6 +236,16 @@ export const supportAttention: AttentionContribution = async (
       ...(released.since ? { since: released.since.toISOString() } : {}),
       params: {},
       ...TICKETS,
+    });
+  for (const inbox of uncovered)
+    items.push({
+      id: `support:agent_inactive:${inbox.id}`,
+      moduleId: "support",
+      kind: "support_agent_inactive",
+      severity: "warning",
+      params: { inboxId: inbox.id, inbox: inbox.name },
+      navKey: "support",
+      link: "/support",
     });
   return items;
 };

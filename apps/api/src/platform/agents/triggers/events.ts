@@ -43,8 +43,12 @@ export const agentTriggerSubscriber: EventSubscription = {
       if (!config.modules.includes(declared.module) && declared.module !== "platform") continue;
       for (const trigger of config.triggers) {
         if (trigger.kind !== "event" || trigger.type !== event.type) continue;
-        if (!declared.filter.safeParse(trigger.filter).success) continue;
-        if (!filterMatches(trigger.filter, event.data)) continue;
+        const filter = declared.filter.safeParse(trigger.filter);
+        if (!filter.success) continue;
+        const matches = declared.matches
+          ? declared.matches(filter.data, event.data)
+          : filterMatches(trigger.filter, event.data);
+        if (!matches) continue;
         try {
           await insertWorkOrder(tx, scope, {
             agentId: row.id,
@@ -64,6 +68,36 @@ export const agentTriggerSubscriber: EventSubscription = {
     }
   },
 };
+
+/**
+ * The event triggers of the project's active agents for these event types,
+ * with their parsed filters; empty while the platform or its automation is
+ * off. A module uses it to show what no agent covers (e.g. a Support inbox
+ * in agent mode without an active agent).
+ */
+export async function activeEventTriggers(
+  tx: Parameters<EventSubscription["handler"]>[0],
+  scope: Parameters<EventSubscription["handler"]>[1],
+  types: readonly string[],
+) {
+  if (!agentPlatformEnabled() || !agentAutomationEnabled()) return [];
+  const rows = await tx.entity.findMany({
+    where: { workspaceId: scope.workspaceId, projectId: scope.projectId, kind: AGENT_DEFINITIONS },
+  });
+  const out: Array<{ agentId: string; type: string; filter: unknown }> = [];
+  for (const row of rows) {
+    const parsed = AgentDefinition.safeParse(row.data);
+    if (!parsed.success || parsed.data.status !== "active" || !parsed.data.active) continue;
+    for (const trigger of parsed.data.active.triggers) {
+      if (trigger.kind !== "event" || !types.includes(trigger.type)) continue;
+      const declared = triggerableEvent(trigger.type);
+      if (!declared || !parsed.data.active.modules.includes(declared.module)) continue;
+      const filter = declared.filter.safeParse(trigger.filter);
+      if (filter.success) out.push({ agentId: row.id, type: trigger.type, filter: filter.data });
+    }
+  }
+  return out;
+}
 
 /** The test-only triggerable event (plan WP1.7): declared only under NODE_ENV=test. */
 export const TEST_PING = "platform.test.ping";

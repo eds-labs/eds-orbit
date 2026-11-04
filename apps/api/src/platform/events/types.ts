@@ -61,4 +61,11 @@ export type TriggerableEventDeclaration = {
   filter: import("zod").ZodType;
   /** The subject carries personal data (shown as a badge). */
   sensitive?: boolean;
+  /**
+   * Whether an event matches a trigger's parsed filter; default: every
+   * filter key equal to the data's (or among a listed set). A module also
+   * uses it for exclusions no filter can lift, e.g. Support never starts an
+   * agent for a hard-rule ticket.
+   */
+  matches?(filter: any, data: Record<string, unknown>): boolean;
 };

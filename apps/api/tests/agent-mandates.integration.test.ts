@@ -318,6 +318,8 @@ describe.skipIf(!enabled)("Agent mandates", () => {
         "marketing.mcp.marketing_create_campaign",
         "marketing.mcp.marketing_update_campaign",
         "support.mcp.support_add_note",
+        // ADR 0021 D-16: priority, category and tags only, for named agents.
+        "support.mcp.support_apply_triage",
         "support.mcp.support_prepare_reply",
         // Social drafts and cancelling a planned post change nothing outside (S7).
         "social.mcp.social_cancel",

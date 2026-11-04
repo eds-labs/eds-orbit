@@ -9,6 +9,7 @@ import {
   readTicketCustomerContext,
 } from "./customer-context.ts";
 import { supportActive } from "./gate.ts";
+import { assertAgentTicket, SUPPORT_AGENT_CATALOG } from "./agent-gate.ts";
 import {
   SUPPORT_CUSTOMER_CONTEXT_READ,
   SUPPORT_STATS_READ,
@@ -163,7 +164,8 @@ export const supportCustomerContext = defineTool({
   description:
     "Live subscription, feature and usage-limit status of a support ticket's verified customer, read from the customer's product. Use it for questions about the plan, a feature being enabled or not, and credits or limits and their reset date. A null value means unknown, never zero. If the status is not ok, say the account cannot be checked right now and never guess a cause.",
   parameters: z.object({ ticketId: z.string() }).strict(),
-  exposure: { assistant: true, mcp: true },
+  exposure: { assistant: true, mcp: true, agent: true },
+  catalog: SUPPORT_AGENT_CATALOG.customerContext,
   outputSchema: z
     .object({ schemaVersion: z.literal(1), result: z.unknown() })
     .strict(),
@@ -179,6 +181,7 @@ export const supportCustomerContext = defineTool({
       if (!(await supportActive(tx, context.scope)))
         throw new DomainError("MODULE_DISABLED", 404);
       authorize(context.scope, SUPPORT_CUSTOMER_CONTEXT_READ);
+      await assertAgentTicket(tx, context.scope, ticketId);
     });
     const read = await readTicketCustomerContext(
       context.scope,

@@ -8,6 +8,13 @@ import { supportRoutes } from "./routes.ts";
 import { supportRetentionTask } from "./privacy.ts";
 import { runSupportTask, SUPPORT_DRAFT, SUPPORT_TRIAGE } from "./ai.ts";
 import { supportTools } from "./tools.ts";
+import { supportAgentActions, supportAgentTools } from "./agent-tools.ts";
+import { supportAgentTemplates } from "./agent-template.ts";
+import {
+  SUPPORT_MESSAGE_RECEIVED,
+  SUPPORT_TICKET_CREATED,
+  supportTriggers,
+} from "./agent-events.ts";
 import { supportAttention } from "./attention.ts";
 import { widgetRoutes } from "./widget.ts";
 import { supportMailboxUse } from "./inboxes.ts";
@@ -43,7 +50,7 @@ export const supportContributions: ModuleContributions = {
           task: "triage",
           ticketId: job.resourceId,
           attemptKey: jobId,
-        }),
+        }).then(() => undefined),
     },
     {
       queueClass: SUPPORT_DRAFT,
@@ -56,12 +63,12 @@ export const supportContributions: ModuleContributions = {
           manual: String(job.idempotencyKey ?? "").startsWith(
             "support-draft-manual:",
           ),
-        }),
+        }).then(() => undefined),
     },
   ],
-  tools: [...supportTools, ...supportMcpTools],
+  tools: [...supportTools, ...supportMcpTools, ...supportAgentTools],
   conversationSections: supportConversationResults,
-  actionTypes: supportMcpActions,
+  actionTypes: { ...supportMcpActions, ...supportAgentActions },
   periodic: [supportEmailDelivery, supportRetentionTask],
   // The livechat widget's public API (WP5.4).
   publicRoutes: widgetRoutes,
@@ -70,12 +77,20 @@ export const supportContributions: ModuleContributions = {
   scheduler: supportScheduler,
   // Attention items: SLA breaches and unassigned tickets.
   attention: supportAttention,
+  // The Support agent template (ADR 0021 Phase 2).
+  agentTemplates: supportAgentTemplates,
   // Tickets as link targets of other modules (ADR 0016).
   linkTypes: supportLinkTypes,
   // Erasure tells other modules which tickets went (content-free); a
   // released product issue leaves a note on its tickets (ADR 0018).
   events: {
-    publishes: ["support.contact.erased"],
+    publishes: [
+      "support.contact.erased",
+      SUPPORT_TICKET_CREATED,
+      SUPPORT_MESSAGE_RECEIVED,
+    ],
     subscribes: [issueReleasedSubscriber],
+    // New tickets and customer messages may start a Support agent (ADR 0021 Phase 2).
+    triggers: supportTriggers,
   },
 };

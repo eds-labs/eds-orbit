@@ -5,6 +5,7 @@
  * turn. A crash after a paid call was sent ends as `outcome_unknown` and is
  * never sent again; a crash before any transmission starts from scratch.
  */
+import { strictestDataClass } from "../../ai/data-class.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { z } from "zod";
@@ -167,6 +168,8 @@ export async function finishWorkOrder(
   now = new Date(),
 ) {
   const current = await tx.agentWorkOrder.findFirst({ where: { id: row.id, projectId: scope.projectId } });
+  // Erased meanwhile with its subject (a deleted ticket): nothing to record.
+  if (!current) return null;
   // A cancel during the run wins over the run's own end.
   const status = current?.status === "canceled" ? "canceled" : outcome.status;
   const code = status === "canceled" ? "AGENT_CANCELED" : (outcome.code ?? null);
@@ -298,6 +301,8 @@ async function execute(base: Scope, row: WorkOrderRow) {
         .join(" "),
       input: { goal: row.goal, subject: row.subjectType ? { type: row.subjectType, id: row.subjectId } : null, input: row.input },
       tools,
+      // Customer data in any tool binds the agent's own route (D-11).
+      ...(strictestDataClass(tools) ? { dataClass: strictestDataClass(tools) } : {}),
       principal: {
         agent: principal,
         current: () => scoped(base.workspaceId, base.projectId, (tx) => assertCurrent(tx, base, row).then(() => undefined)),

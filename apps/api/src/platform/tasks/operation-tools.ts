@@ -72,7 +72,8 @@ type Operation = {
   mandate?: {
     maxCostMicrosPerAction: number;
     options?: Record<string, readonly string[]>;
-    check?(args: any, terms: AgentMandateTerms): string[];
+    /** `context` is the stored server-side `approvalContext`, when the operation has one. */
+    check?(args: any, terms: AgentMandateTerms, context?: unknown): string[];
     rightsTerms?(tx: DbTx, scope: Scope): Promise<Record<string, unknown>>;
   };
   /** Code-owned, default-off standing authorization for this owner's MCP calls only. */
@@ -297,7 +298,7 @@ export function approvedOperation(
             check: (p: z.infer<typeof payload>, terms: AgentMandateTerms) => {
               const args = op.input.safeParse(p.args);
               if (!args.success) return ["PAYLOAD_NOT_COVERED"];
-              return op.mandate!.check?.(args.data, terms) ?? [];
+              return op.mandate!.check?.(args.data, terms, p.approvalContext) ?? [];
             },
           },
         }
@@ -503,9 +504,15 @@ export function approvedOperation(
         // work orders carry one (chat-runner) but are recorded with their
         // task, and retain approval too (docs/SUPPORT_MCP.md).
         const delegated = Boolean(data(row).requestedBy?.taskId);
+        // A configured agent's proposal never uses it either (ADR 0021
+        // D-16): agents have no gateway channel, and the recorded requester
+        // is checked as well, so a later channel change cannot open it.
+        const byAgent =
+          Boolean(ctx.principal) || Boolean(data(row).requestedBy?.agentId);
         const currentActor =
           !old &&
           !delegated &&
+          !byAgent &&
           ctx.channel?.kind === "mcp" &&
           op.ownerMcpAutoApproval
             ? await actorScope(

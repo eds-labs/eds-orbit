@@ -231,14 +231,23 @@ describe("support AI live eval", () => {
           category?: string;
           language?: string;
           sensitive?: boolean;
+          model?: boolean;
         };
+        // A case the hard rules screened never reached the model: for a
+        // sensitive case that hand-off is the correct outcome, not a missed
+        // category or language (agent platform Phase 2, WP2.3).
+        const screened = after.model === false;
+        const handedOffCorrectly = screened && c.sensitive;
         report.triage.push({
           id: c.id,
           error,
-          category: after.category === c.category,
-          language: String(after.language ?? "")
-            .toLowerCase()
-            .startsWith(c.language),
+          screened,
+          category: handedOffCorrectly || after.category === c.category,
+          language:
+            handedOffCorrectly ||
+            String(after.language ?? "")
+              .toLowerCase()
+              .startsWith(c.language),
           sensitiveExpected: c.sensitive,
           sensitiveFlagged: after.sensitive === true,
         });

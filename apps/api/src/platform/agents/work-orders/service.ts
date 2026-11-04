@@ -290,3 +290,46 @@ export function workOrderView(row: Awaited<ReturnType<DbTx["agentWorkOrder"]["fi
     finishedAt: row.finishedAt,
   };
 }
+
+/**
+ * Deletes the work orders about these subjects, their delegated children and
+ * the agent runs that ran them (spans cascade), e.g. when Support deletes a
+ * ticket or erases a contact (ADR 0021 Phase 2, plan §2.4 item 9). Runs in
+ * the caller's project transaction; a work order still running ends without
+ * a record. ActionRequests and reservations stay as recorded.
+ */
+export async function deleteWorkOrdersForSubject(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  subjectType: string,
+  subjectIds: readonly string[],
+) {
+  if (!subjectIds.length) return 0;
+  const roots = await tx.agentWorkOrder.findMany({
+    where: { workspaceId: scope.workspaceId, projectId: scope.projectId, subjectType, subjectId: { in: [...subjectIds] } },
+    select: { id: true },
+  });
+  if (!roots.length) return 0;
+  const rootIds = roots.map((r) => r.id);
+  const tree = await tx.agentWorkOrder.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      OR: [{ id: { in: rootIds } }, { parentId: { in: rootIds } }, { rootId: { in: rootIds } }],
+    },
+    select: { id: true },
+  });
+  const ids = tree.map((r) => r.id);
+  await tx.agentRun.deleteMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      subjectType: "agent_work_order",
+      subjectId: { in: ids },
+    },
+  });
+  const deleted = await tx.agentWorkOrder.deleteMany({
+    where: { workspaceId: scope.workspaceId, projectId: scope.projectId, id: { in: ids } },
+  });
+  return deleted.count;
+}

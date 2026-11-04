@@ -16,7 +16,7 @@ import {
   registeredTools,
 } from "../modules/contributions.ts";
 import { effectiveRole, moduleScope } from "../tenancy/module-roles.ts";
-import { agentExecution } from "./agent-execution.ts";
+import { agentExecution, type AgentToolBudget } from "./agent-execution.ts";
 import { authorizeAgentTool, type AgentPrincipal } from "./principal.ts";
 import {
   availableTools,
@@ -141,11 +141,16 @@ export async function executeAgentCapability(
   tool: OrbitTool,
   context: Omit<ToolContext, "principal" | "channel">,
   args: unknown,
-  options: { current?: () => Promise<void> } = {},
+  options: { current?: () => Promise<void>; budget?: AgentToolBudget } = {},
 ): Promise<ToolResult> {
   const scope = await authorizeAgentTool(principal, context.scope, tool, options);
   const input = await agentArgs(tool, args);
-  return agentExecution.run({ principal, agentRunId: context.runId }, () =>
+  const store = {
+    principal,
+    agentRunId: context.runId,
+    ...(options.budget ? { budget: options.budget } : {}),
+  };
+  return agentExecution.run(store, () =>
     tool.execute({ ...context, scope, principal }, input),
   );
 }
