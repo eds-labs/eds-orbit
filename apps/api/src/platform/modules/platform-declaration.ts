@@ -14,6 +14,11 @@ export const platformDeclaration: PlatformDeclaration = {
       exported: false,
     },
     {
+      kind: "chat_run_steps",
+      description: "Progress steps of a personal assistant run, in its personal space (ADR 0022)",
+      exported: false,
+    },
+    {
       kind: "assistant_settings",
       description: "The personal assistant's settings in a personal space (ADR 0022)",
       exported: false,

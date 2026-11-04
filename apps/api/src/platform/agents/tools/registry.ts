@@ -71,7 +71,11 @@ export type ToolContext = {
   // tool reports every project whose data it returns, so the turn's
   // cross-project taint (contextProjects) covers it. Only the personal
   // turn host sets it.
-  personal?: { noteProjects(projectIds: readonly string[]): void };
+  personal?: {
+    noteProjects(projectIds: readonly string[]): void;
+    /** The user's latest message of the turn (`context_remember` grounds on it). */
+    userText: string;
+  };
 };
 /** An image a tool returns to an outside client (MCP image content), base64. */
 export type ToolImage = { data: string; mimeType: "image/png" | "image/jpeg" };

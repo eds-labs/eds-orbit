@@ -52,10 +52,17 @@ import {
   responsesTool,
   searchTools,
   type OrbitTool,
+  type ToolResult,
 } from "../agents/tools/registry.ts";
+import { scoped } from "../../../../../packages/db/src/index.ts";
 import { registeredTools } from "../modules/contributions.ts";
 import { DomainError } from "../shared.ts";
 import type { ChatCard } from "./cards.ts";
+import {
+  actionRequestCard,
+  readActionRequest,
+  type RunStep,
+} from "./personal-mode.ts";
 
 /** The host's own loading tool (plan §2.2): not a registry tool. */
 export const LOAD_PROJECT_TOOLS = "load_project_tools";
@@ -159,10 +166,11 @@ export type PersonalTurnRequest = {
   };
   /** Projects whose data entered earlier turns still in the conversation. */
   initialContextProjects?: readonly string[];
+  /** The user's latest message: what `context_remember` may ground on. */
+  userText?: string;
+  /** Progress of each tool call, for the run's `steps[]` (best effort). */
+  onStep?: (step: RunStep) => Promise<void>;
 };
-
-/** A card a project tool returned, with the project it belongs to. */
-export type ProjectCard = { projectId: string; card: ChatCard };
 
 export type PersonalTurn = {
   /** The accessible business projects (at most 50), for the instructions. */
@@ -178,8 +186,11 @@ export type PersonalTurn = {
   host: ToolHost;
   /** Every project whose data entered the turn so far. */
   contextProjects(): string[];
-  /** Cards of project tools, by project, in call order. */
-  cards: ProjectCard[];
+  /**
+   * Cards of the turn's tools in call order; a project tool's cards name
+   * their project, and approval cards carry `actionRequest` (WP3.5).
+   */
+  cards: ChatCard[];
 };
 
 type TurnState = {
@@ -193,7 +204,7 @@ type TurnState = {
   /** Definitions appended during the turn, in loading order. */
   appended: unknown[];
   contextProjects: Set<string>;
-  cards: ProjectCard[];
+  cards: ChatCard[];
 };
 
 /**
@@ -343,6 +354,33 @@ function failureOutput(error: unknown, projectId?: string) {
     : { error: code };
 }
 
+/** Reports one step to the request's `onStep`; a failing report never fails the call. */
+async function reportStep(
+  state: TurnState,
+  name: string,
+  projectId: string | undefined,
+  value: RunStep["state"],
+) {
+  if (!state.request.onStep) return;
+  const known =
+    name === LOAD_PROJECT_TOOLS ||
+    state.userTools.has(name) ||
+    state.loadedFor.has(name);
+  const project =
+    projectId && state.names.has(projectId)
+      ? { projectId, projectName: state.names.get(projectId)! }
+      : {};
+  try {
+    await state.request.onStep({
+      tool: known ? name : "unknown_tool",
+      ...project,
+      state: value,
+    });
+  } catch {
+    // Progress is a display aid; the call goes on.
+  }
+}
+
 function turnHost(state: TurnState): ToolHost {
   const { request } = state;
   const spanName = (name: string) =>
@@ -381,10 +419,14 @@ function turnHost(state: TurnState): ToolHost {
       let output: unknown;
       let failure: string | null = null;
       let projectId: string | undefined;
+      // Steps name only tools Orbit knows and projects the user may reach.
+      const step = (value: RunStep["state"]) =>
+        reportStep(state, call.name, projectId, value);
       try {
         const args = parseArguments(call.arguments);
         if (typeof args[PROJECT_ID_PARAM] === "string")
           projectId = args[PROJECT_ID_PARAM] as string;
+        await step("started");
         if (call.name === LOAD_PROJECT_TOOLS) output = await load(state, args);
         else if (state.userTools.has(call.name))
           output = await runUserTool(state, state.userTools.get(call.name)!, args, callIndex);
@@ -397,6 +439,7 @@ function turnHost(state: TurnState): ToolHost {
         output = failureOutput(error, projectId);
         failure = (output as { error: string }).error;
       }
+      await step(failure ? "failed" : "finished");
       await record(call.name, call.arguments, startedAt, failure);
       return capToolOutput(output);
     },
@@ -465,10 +508,13 @@ async function runUserTool(
       callIndex,
       personal: {
         noteProjects: (ids) => ids.forEach((id) => state.contextProjects.add(id)),
+        userText: request.userText ?? "",
       },
     },
     args,
   );
+  // User tools label their cards with the project themselves.
+  state.cards.push(...result.cards);
   return result.output;
 }
 
@@ -489,6 +535,7 @@ async function runProjectTool(
   if (!state.loadedFor.get(name)?.has(projectId))
     throw new DomainError("CHAT_TOOL_NOT_ALLOWED", 403);
   const { request } = state;
+  const projectName = state.names.get(projectId);
   const { result } = await executePersonalProjectCall({
     workspaceId: request.workspaceId,
     userId: request.userId,
@@ -500,18 +547,52 @@ async function runProjectTool(
       conversationId: request.run.conversationId,
       callIndex,
     },
-    // Every request the tool creates names the other projects of the turn.
-    wrap: (_tool, _scope, execute) =>
-      crossProjectExecution.run(
+    // Every request the tool creates names the other projects of the turn;
+    // a proposal's status cards say whether the member may decide it here.
+    wrap: async (tool, scope, execute) => {
+      const done = await crossProjectExecution.run(
         { contextProjects: [...state.contextProjects] },
         execute,
-      ),
+      );
+      return tool.risk === "P_proposal" ? withApprovalCards(scope, done) : done;
+    },
   });
   state.contextProjects.add(projectId);
-  for (const card of result.cards) state.cards.push({ projectId, card });
+  for (const card of result.cards)
+    state.cards.push({
+      ...card,
+      projectId,
+      ...(projectName !== undefined ? { projectName } : {}),
+    });
   return {
     projectId,
     ...projectLabel(state, projectId),
     result: result.output,
+  };
+}
+
+/**
+ * A proposal's result with its status cards bound to the request it made
+ * (WP3.5): id, version and package hash as stored, and whether the member
+ * may decide it in this project. Read after the tool's own transaction
+ * committed, in the same target-project call.
+ */
+async function withApprovalCards(
+  member: Scope,
+  result: ToolResult,
+): Promise<ToolResult> {
+  const output = result.output as { actionRequestId?: unknown } | null;
+  const id = typeof output?.actionRequestId === "string" ? output.actionRequestId : null;
+  if (!id) return result;
+  const row = await scoped(member.workspaceId, member.projectId, (tx) =>
+    readActionRequest(tx, member, id),
+  );
+  if (!row) return result;
+  const actionRequest = actionRequestCard(member, row);
+  return {
+    ...result,
+    cards: result.cards.map((card) =>
+      card.kind === "status" ? { ...card, actionRequest } : card,
+    ),
   };
 }

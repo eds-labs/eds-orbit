@@ -66,7 +66,10 @@ export type ChatCard = {
     | "assignment"
     | "marketing_plan"
     | "context_proposal"
-    | "notice";
+    | "notice"
+    // Internal (personal-mode.ts): stored with messages, never read back.
+    | "page_context"
+    | "turn_context";
   label: string;
   href?: string;
   status?: string;
@@ -94,6 +97,15 @@ export type ChatCard = {
     category: "preference" | "project_note" | "decision" | "workflow";
     projectId?: string;
   };
+  /** `page_context`: the hints a personal-mode user message carried (WP3.4). */
+  pageContext?: {
+    projectId?: string;
+    route?: string;
+    entity?: { type: string; id: string };
+  };
+  focusProjectId?: string;
+  /** `turn_context`: the projects whose data entered the turn (ADR 0022 §5). */
+  contextProjects?: string[];
   /** The metadata of a `notice` message, stored as its first card. */
   notice?: {
     kind: "work_order_finished" | "work_order_failed" | "context_saved";
@@ -131,4 +143,23 @@ export function checkToolResult<T extends z.ZodType>(
   )
     throw new Error("CHAT_TOOL_RESULT_LIMIT");
   return { result: parsed, cards: checkedCards };
+}
+
+/**
+ * Whether a card's resource is still what the card showed: a source still
+ * active, an asset still approved for use, at the card's version. Cards
+ * that fail it are shown as stale (WP2.2; per project in personal mode).
+ */
+export function resourceCardValid(
+  card: { kind: string; version?: number },
+  resource: { version: number; data: unknown } | undefined,
+) {
+  const d = (resource?.data ?? {}) as Record<string, unknown>;
+  return Boolean(
+    resource &&
+      resource.version === card.version &&
+      (card.kind === "source"
+        ? d.status === "active"
+        : d.usageApproved === true && d.assetStatus === "approved"),
+  );
 }

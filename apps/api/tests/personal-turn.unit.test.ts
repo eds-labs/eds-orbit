@@ -79,7 +79,11 @@ describe("personal user tools", () => {
       "pending_approvals",
       "agents_list",
       "agent_work_order_status",
+      "context_remember",
     ]);
+    // Within the plan's budget of eight with load_project_tools and the
+    // coming agent_delegate.
+    expect(names.length + 2).toBeLessThanOrEqual(8);
     for (const channel of ["assistant", "mcp", "agent"] as const) {
       const offered = resolveCapabilities(owner, {
         channel,
