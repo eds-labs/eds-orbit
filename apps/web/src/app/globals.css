@@ -5789,6 +5789,64 @@ a.support-row {
   color: var(--muted-foreground);
   padding-left: 12px;
 }
+/* The Support agent (ADR 0021 Phase 2): panel, author label, AI mode. */
+.support-agent-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+}
+.support-agent-panel h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+}
+.support-agent-panel dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+.support-agent-panel dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.support-agent-panel dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.support-agent-panel a,
+.support-ai-mode a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.support-agent-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin: 0;
+  font-size: 13px;
+}
+.support-agent-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.support-ai-mode {
+  display: grid;
+  gap: 4px;
+}
+.support-ai-mode > small {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
 .support-contact-panel dl {
   display: grid;
   gap: 2px;
@@ -7780,6 +7838,18 @@ a.support-row {
   font-size: 12px;
   color: var(--muted-foreground);
   line-height: 1.5;
+}
+.agents-guided {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 18px;
+}
+.agents-guided > li {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
 .agents-modal-form {
   display: grid;

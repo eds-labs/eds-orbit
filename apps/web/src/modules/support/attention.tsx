@@ -83,6 +83,17 @@ export const supportAttention: Readonly<Record<string, AttentionRenderer>> = {
       action: SHOW_TICKETS,
     };
   },
+  // An inbox in agent mode that no active agent covers (ADR 0021 Phase 2).
+  support_agent_inactive: (item, locale) => {
+    const inbox = String(item.params.inbox ?? "").trim() || "—";
+    return {
+      title:
+        locale === "de"
+          ? `Support-Agent für Posteingang ${inbox} inaktiv: Menschen bearbeiten die Tickets`
+          : `Support agent inactive for inbox ${inbox}: tickets are handled by people only`,
+      action: { en: "Open Support", de: "Support öffnen" },
+    };
+  },
   support_unassigned: (item, locale) => {
     const n = item.count ?? 1;
     // Unassigned tickets with an SLA item are listed above it.

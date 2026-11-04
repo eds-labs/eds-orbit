@@ -59,7 +59,28 @@ export type TicketDetail = {
   } | null;
   timeline: Array<Record<string, any>>;
   aiCostMicros?: number;
+  /** The latest configured-agent execution on the ticket (ADR 0021 Phase 2). */
+  agent?: TicketAgent | null;
 };
+/**
+ * The Support agent's latest work order on a ticket, content-free: status,
+ * error code, cost, its proposals and whether it handed the ticket off.
+ */
+export type TicketAgent = {
+  workOrderId: string;
+  agentId: string | null;
+  status: string;
+  errorCode: string | null;
+  spentMicros: number;
+  createdAt: string;
+  finishedAt: string | null;
+  actionRequestIds: string[];
+  handedOff: boolean;
+  /** A reason code (fixed list or check name), never text. */
+  handOffReason?: string | null;
+};
+/** An inbox's AI mode: off, drafts for people, or a configured agent. */
+export const AI_MODES = ["off", "draft", "agent"] as const;
 export type Inbox = {
   id: string;
   name: string;
@@ -236,6 +257,8 @@ export type TimelineEntry =
       authorUserId?: string | null;
       deliveryState?: string | null;
       attachments: Attachment[];
+      /** Written by the configured Support agent, not a person. */
+      byAgent?: boolean;
     }
   | {
       entry: "event";
@@ -244,6 +267,8 @@ export type TimelineEntry =
       before: Record<string, unknown>;
       after: Record<string, unknown>;
       createdAt: string;
+      /** Recorded by the configured Support agent (actor id = work order). */
+      byAgent?: boolean;
     };
 
 /** The server's timeline as typed entries (messages have a kind). */
@@ -262,6 +287,8 @@ export function timelineEntries(
           authorUserId: item.authorUserId ?? null,
           deliveryState: item.deliveryState ?? null,
           attachments: item.attachments ?? [],
+          // A configured agent's note carries its run and no person (Phase 2).
+          byAgent: !item.authorUserId && Boolean(item.agentRunId),
         }
       : {
           entry: "event",
@@ -270,6 +297,8 @@ export function timelineEntries(
           before: item.before ?? {},
           after: item.after ?? {},
           createdAt: item.createdAt,
+          // The agent's events name its work order as the AI actor.
+          byAgent: item.actorKind === "ai" && Boolean(item.actorId),
         },
   );
 }

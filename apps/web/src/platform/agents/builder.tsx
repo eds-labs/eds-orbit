@@ -13,6 +13,7 @@ import { useShell } from "@/platform/shell/shell-context";
 import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { moduleLabel } from "@/platform/shell/approval-presentation";
 import { AppLink } from "@/platform/ui/app-link";
+import type { AgentSetup } from "@/platform/shell/types";
 import { agentPaths, errorCode, useAgentAction } from "./api";
 import {
   activationBody,
@@ -165,6 +166,10 @@ function BuilderForm({
   const base = shell.hrefOf("agents");
   const readOnly = !isOwner || agent?.status === "disabled";
   const guard = template?.guard;
+  // A module's guided setup for its template, when creating (Phase 2).
+  const setup =
+    !agent && template ? shell.agentSetups?.[template.key] : undefined;
+  const [guided, setGuided] = useState(Boolean(setup));
 
   const update = (next: AgentConfig | ((c: AgentConfig) => AgentConfig)) => {
     setTouched(true);
@@ -222,6 +227,27 @@ function BuilderForm({
     (e) => e.module === "platform" || config.modules.includes(e.module),
   );
   const settingsHref = settingsSectionHref(shell.hrefOf("settings"), "ai");
+
+  if (setup && guided)
+    return (
+      <GuidedSetup
+        template={template!}
+        setup={setup}
+        config={config}
+        locale={locale}
+        readOnly={readOnly}
+        onChange={update}
+        monthly={monthly}
+        perRun={perRun}
+        onMonthly={setMonthly}
+        onPerRun={setPerRun}
+        problems={problems}
+        pending={save.pending}
+        code={save.code}
+        onSubmit={() => void submit()}
+        onShowAll={() => setGuided(false)}
+      />
+    );
 
   return (
     <div className="agents-builder">
@@ -551,36 +577,19 @@ function BuilderForm({
                 : "Ceilings in USD. All active agents together may not exceed the project's monthly AI spending limit."
             }
           >
-            <div className="agents-grid">
-              <label className="agents-field">
-                <span>{de ? "Pro Monat (USD)" : "Per month (USD)"}</span>
-                <input
-                  className="input"
-                  inputMode="decimal"
-                  value={monthly}
-                  aria-invalid={budgetMonthly === null || undefined}
-                  onChange={(e) => {
-                    setTouched(true);
-                    setMonthly(e.target.value);
-                  }}
-                />
-              </label>
-              <label className="agents-field">
-                <span>
-                  {de ? "Je Ausführung (USD)" : "Per execution (USD)"}
-                </span>
-                <input
-                  className="input"
-                  inputMode="decimal"
-                  value={perRun}
-                  aria-invalid={budgetRun === null || undefined}
-                  onChange={(e) => {
-                    setTouched(true);
-                    setPerRun(e.target.value);
-                  }}
-                />
-              </label>
-            </div>
+            <BudgetFields
+              monthly={monthly}
+              perRun={perRun}
+              locale={locale}
+              onMonthly={(v) => {
+                setTouched(true);
+                setMonthly(v);
+              }}
+              onPerRun={(v) => {
+                setTouched(true);
+                setPerRun(v);
+              }}
+            />
           </Section>
 
           <Section
@@ -753,6 +762,166 @@ function BuilderForm({
         )}
       </Section>
     </div>
+  );
+}
+
+/** The monthly and per-execution ceilings in USD, as text fields. */
+export function BudgetFields({
+  monthly,
+  perRun,
+  locale,
+  onMonthly,
+  onPerRun,
+}: {
+  monthly: string;
+  perRun: string;
+  locale: Locale;
+  onMonthly(value: string): void;
+  onPerRun(value: string): void;
+}) {
+  const de = locale === "de";
+  return (
+    <div className="agents-grid">
+      <label className="agents-field">
+        <span>{de ? "Pro Monat (USD)" : "Per month (USD)"}</span>
+        <input
+          className="input"
+          inputMode="decimal"
+          value={monthly}
+          aria-invalid={usdToMicros(monthly) === null || undefined}
+          onChange={(e) => onMonthly(e.target.value)}
+        />
+      </label>
+      <label className="agents-field">
+        <span>{de ? "Je Ausführung (USD)" : "Per execution (USD)"}</span>
+        <input
+          className="input"
+          inputMode="decimal"
+          value={perRun}
+          aria-invalid={usdToMicros(perRun) === null || undefined}
+          onChange={(e) => onPerRun(e.target.value)}
+        />
+      </label>
+    </div>
+  );
+}
+
+/**
+ * A template's guided setup (ADR 0021 Phase 2): the module's steps, then
+ * the budget and the create step. The agent is created as a draft; the
+ * owner reviews and activates it on the agent's page as for every agent.
+ * "All settings" switches to the full builder with the same values.
+ */
+export function GuidedSetup({
+  template,
+  setup,
+  config,
+  locale,
+  readOnly,
+  onChange,
+  monthly,
+  perRun,
+  onMonthly,
+  onPerRun,
+  problems,
+  pending,
+  code,
+  onSubmit,
+  onShowAll,
+}: {
+  template: AgentTemplate;
+  setup: AgentSetup;
+  config: AgentConfig;
+  locale: Locale;
+  readOnly: boolean;
+  onChange(next: AgentConfig): void;
+  monthly: string;
+  perRun: string;
+  onMonthly(value: string): void;
+  onPerRun(value: string): void;
+  problems: string[];
+  pending: boolean;
+  code: string | null;
+  onSubmit(): void;
+  onShowAll(): void;
+}) {
+  const de = locale === "de";
+  const budgetStep = setup.steps.length + 1;
+  return (
+    <form
+      className="agents-stack"
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <Section
+        id="guided"
+        title={`${de ? "Geführte Einrichtung" : "Guided setup"}: ${template.title[locale]}`}
+        description={template.summary[locale]}
+      >
+        <fieldset disabled={readOnly} className="agents-fieldset">
+          <ol className="agents-guided">
+            {setup.steps.map((step, i) => (
+              <li key={step.key}>
+                <p className="agents-field-title">
+                  {i + 1}. {step.title[locale]}
+                </p>
+                <step.component
+                  config={config}
+                  locale={locale}
+                  disabled={readOnly}
+                  onChange={onChange}
+                />
+              </li>
+            ))}
+            <li>
+              <p className="agents-field-title">
+                {budgetStep}. {de ? "Budget wählen" : "Choose the budget"}
+              </p>
+              <BudgetFields
+                monthly={monthly}
+                perRun={perRun}
+                locale={locale}
+                onMonthly={onMonthly}
+                onPerRun={onPerRun}
+              />
+            </li>
+            <li>
+              <p className="agents-field-title">
+                {budgetStep + 1}. {de ? "Anlegen" : "Create"}
+              </p>
+              <p className="agents-note">
+                {de
+                  ? "Der Agent wird als Entwurf angelegt. Danach prüfst und aktivierst du ihn als Owner; erst dann arbeitet er."
+                  : "The agent is created as a draft. You then review and activate it as an owner; only then does it work."}
+              </p>
+            </li>
+          </ol>
+        </fieldset>
+        {problems.length > 0 && !readOnly && (
+          <Alert kind="warning">
+            <ul>
+              {problems.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+          </Alert>
+        )}
+        <AgentError code={code} locale={locale} />
+        <div className="agents-actions">
+          {!readOnly && (
+            <Button type="submit" disabled={pending || problems.length > 0}>
+              {de ? "Agent als Entwurf anlegen" : "Create agent as draft"}
+            </Button>
+          )}
+          <Button type="button" variant="outline" onClick={onShowAll}>
+            {de ? "Alle Einstellungen" : "All settings"}
+          </Button>
+        </div>
+      </Section>
+    </form>
   );
 }
 

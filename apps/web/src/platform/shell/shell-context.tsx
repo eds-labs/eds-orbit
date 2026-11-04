@@ -2,6 +2,7 @@
 import { createContext, useContext, type ComponentType } from "react";
 import type { Route, RouteTable } from "./routes";
 import type {
+  AgentSetup,
   AttentionRenderer,
   ConnectorProvider,
   Label,
@@ -67,6 +68,8 @@ export type ShellContextValue = {
     providers: readonly ConnectorProvider[];
     extras: readonly ComponentType[];
   };
+  /** Guided agent setups of the enabled modules, by template key. */
+  agentSetups?: Readonly<Record<string, AgentSetup>>;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

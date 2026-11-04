@@ -378,6 +378,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         providers: active.flatMap((m) => m.connectors?.providers ?? []),
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
+      agentSetups: Object.assign({}, ...active.map((m) => m.agentSetups ?? {})),
     };
   }, [project, knownStates, registry, table, renderers, agentPlatform]);
   // Apart, so a loaded attention keeps the functions above unchanged.
