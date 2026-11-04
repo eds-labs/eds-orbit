@@ -227,7 +227,8 @@ describe("social posts view (ADR 0020, S4)", () => {
     expect(owner).toContain("It was published");
     expect(owner).toContain("It was not published");
     expect(owner).toContain("Test");
-    expect(owner).toContain("Posting has not been tested on this account yet.");
+    expect(owner).toContain("Posting has not been tested on this account yet: under Accounts, choose “Verify posting”");
+    expect(render(<PostsView />, { access: "owner", locale: "de" })).toContain("unter Konten „Posten prüfen“ wählen");
     expect(owner).toContain("Stop remaining publications");
     const editor = render(<PostsView />, { access: "editor" });
     expect(editor).not.toContain("It was published");

@@ -219,7 +219,8 @@ const en = {
       SOCIAL_MEDIA_CAROUSEL_RATIO: "All images need the same aspect ratio here.",
       SOCIAL_MEDIA_DIMENSIONS: "An image is too large for Telegram.",
       SOCIAL_ACCOUNT_NOT_ACTIVE: "The account needs to be reconnected.",
-      SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED: "Posting has not been tested on this account yet.",
+      SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED:
+        "Posting has not been tested on this account yet: under Accounts, choose “Verify posting” and approve the test post in Decisions.",
       SOCIAL_OPTIONS_INVALID: "An option is not valid for this platform.",
     } as Record<string, string>,
     genericIssue: "This platform would refuse the post.",
@@ -568,7 +569,8 @@ const de: SocialText = {
       SOCIAL_MEDIA_CAROUSEL_RATIO: "Alle Bilder brauchen hier dasselbe Seitenverhältnis.",
       SOCIAL_MEDIA_DIMENSIONS: "Ein Bild ist für Telegram zu groß.",
       SOCIAL_ACCOUNT_NOT_ACTIVE: "Das Konto muss neu verbunden werden.",
-      SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED: "Das Posten wurde auf diesem Konto noch nicht getestet.",
+      SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED:
+        "Das Posten wurde auf diesem Konto noch nicht getestet: unter Konten „Posten prüfen“ wählen und den Testbeitrag unter Entscheidungen freigeben.",
       SOCIAL_OPTIONS_INVALID: "Eine Option ist für diese Plattform ungültig.",
     },
     genericIssue: "Diese Plattform würde den Beitrag ablehnen.",
