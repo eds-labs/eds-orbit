@@ -459,9 +459,11 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       subjectId: runId,
       routeVersion: state.routeVersion,
     });
+    // A platform notice (ADR 0022) reaches the model as assistant-side
+    // context, marked as such; providers know no `notice` role.
     const input: any[] = state.messages.map((m) => ({
-      role: m.role,
-      content: m.text,
+      role: m.role === "notice" ? "assistant" : m.role,
+      content: m.role === "notice" ? `[Orbit notice] ${m.text}` : m.text,
     }));
     const cards: ChatCard[] = [];
     let modelCalls = 0;

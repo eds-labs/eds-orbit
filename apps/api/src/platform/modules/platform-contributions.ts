@@ -51,6 +51,7 @@ import { linkPrune } from "../links/links.ts";
 import { agentWorkJob } from "../agents/work-orders/execute.ts";
 import { agentRoutes } from "../agents/routes.ts";
 import { assistantRoutes } from "../assistant/routes.ts";
+import { delegationNoticeSubscriber } from "../assistant/notices.ts";
 import {
   agentTriggerSubscriber,
   TEST_PING,
@@ -129,7 +130,8 @@ export const platformContributions: ModuleContributions = {
       ...(process.env.NODE_ENV === "test" ? [TEST_PING] : []),
     ],
     // Agents may be started by any module's declared triggerable events.
-    subscribes: [agentTriggerSubscriber],
+    // Delegated work orders report back into the personal conversation (ADR 0022).
+    subscribes: [agentTriggerSubscriber, delegationNoticeSubscriber],
     ...(process.env.NODE_ENV === "test" ? { triggers: testPingTrigger } : {}),
   },
   // The project's mailbox over SMTP and IMAP (WP4.7), and customer context

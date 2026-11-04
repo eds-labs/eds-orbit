@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { splitNotice } from "./notices.ts";
 import { afterCommit, DbTx } from "../../../../../packages/db/src/index.ts";
 import { userScoped } from "../tenancy/scope.ts";
 import { type Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -137,8 +138,15 @@ export async function getConversation(scope: Scope, id: string) {
     });
     const messages = savedMessages.map((message) => ({
       ...message,
+      // A notice's metadata is its first stored card (ADR 0022, T3-2).
+      ...(message.role === "notice"
+        ? { notice: splitNotice(message.cards).notice ?? null }
+        : {}),
       cards: Array.isArray(message.cards)
-        ? (message.cards as any[]).map((card) => {
+        ? (message.role === "notice"
+            ? (splitNotice(message.cards).cards as any[])
+            : (message.cards as any[])
+          ).map((card) => {
             if (!card.resourceId) return card;
             const resource = cardResources.find(
               (candidate) => candidate.id === card.resourceId,

@@ -59,7 +59,14 @@ export type AssignmentCard = {
 
 export type ChatCard = {
   kind:
-    "source" | "asset" | "link" | "status" | "assignment" | "marketing_plan";
+    | "source"
+    | "asset"
+    | "link"
+    | "status"
+    | "assignment"
+    | "marketing_plan"
+    | "context_proposal"
+    | "notice";
   label: string;
   href?: string;
   status?: string;
@@ -67,6 +74,33 @@ export type ChatCard = {
   version?: number;
   assignment?: AssignmentCard;
   marketingPlan?: MarketingPlanView;
+  /**
+   * The business project a card belongs to (ADR 0022): personal-mode cards
+   * always name it, so links and decisions go to that project.
+   */
+  projectId?: string;
+  projectName?: string;
+  /** A decidable ActionRequest behind a `status` card (plan WP3.5). */
+  actionRequest?: {
+    id: string;
+    version: number;
+    packageHash: string;
+    decidable: boolean;
+    inline: boolean;
+  };
+  /** An entry the assistant proposes in "propose and confirm" mode (D-17). */
+  contextProposal?: {
+    text: string;
+    category: "preference" | "project_note" | "decision" | "workflow";
+    projectId?: string;
+  };
+  /** The metadata of a `notice` message, stored as its first card. */
+  notice?: {
+    kind: "work_order_finished" | "work_order_failed" | "context_saved";
+    key: string;
+    entryId?: string;
+    text?: string;
+  };
 };
 
 const cardSchema = z
