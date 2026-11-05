@@ -272,7 +272,9 @@ export async function installationRepositories(
  * installationId, privateKey}. The check reads the installation with the App
  * JWT (GET /app/installations/{id}), which proves key, app and installation
  * together and yields the account login; no token is minted and nothing is
- * written.
+ * written. The installation's `app_slug` must be the configured `appSlug`:
+ * the job finds its own issues by `creator={appSlug}[bot]`, so a wrong slug
+ * would make every reconcile look empty.
  */
 export const githubAppConnectionProvider: ConnectionProvider = {
   scopes: ["system", "workspace"],
@@ -280,10 +282,13 @@ export const githubAppConnectionProvider: ConnectionProvider = {
   label: { en: "GitHub App", de: "GitHub-App" },
   async check(_connection, credential) {
     const app = parseGithubAppSecret(credential);
-    const installation = await githubFetch<{ account?: { login?: unknown } }>(
-      `/app/installations/${app.installationId}`,
-      githubAppJwt(app),
-    );
+    const installation = await githubFetch<{
+      account?: { login?: unknown };
+      app_slug?: unknown;
+    }>(`/app/installations/${app.installationId}`, githubAppJwt(app));
+    const slug = installation?.app_slug;
+    if (typeof slug !== "string" || slug.toLowerCase() !== app.appSlug.toLowerCase())
+      throw new DomainError("GITHUB_APP_INVALID", 409);
     const login = installation?.account?.login;
     if (typeof login !== "string" || !login)
       throw new DomainError("GITHUB_REQUEST_FAILED", 409);

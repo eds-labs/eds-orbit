@@ -214,7 +214,7 @@ describe("GitHub App client", () => {
   });
 
   it("check reports read_verified with the account login", async () => {
-    const calls = transport(() => json({ account: { login: "acme" } }));
+    const calls = transport(() => json({ app_slug: "Orbit-Issues", account: { login: "acme" } }));
     const result = await githubAppConnectionProvider.check!(
       { baseUrl: "" },
       JSON.stringify(app),
@@ -227,6 +227,19 @@ describe("GitHub App client", () => {
     expect(calls[0]!.url).toBe("https://api.github.com/app/installations/456");
     expect(githubAppConnectionProvider.purposes).toEqual(["issues"]);
     expect(githubAppConnectionProvider.scopes).toEqual(["system", "workspace"]);
+  });
+
+  it("check refuses an installation of another App (slug mismatch or missing)", async () => {
+    for (const answer of [
+      { app_slug: "someone-elses-app", account: { login: "acme" } },
+      { account: { login: "acme" } },
+    ]) {
+      const calls = transport(() => json(answer));
+      const error = await codeOf(githubAppConnectionProvider.check!({ baseUrl: "" }, JSON.stringify(app)));
+      expect((error as unknown as { code: string }).code).toBe("GITHUB_APP_INVALID");
+      // The App JWT only: no installation token is minted.
+      expect(calls.map((c) => c.url)).toEqual(["https://api.github.com/app/installations/456"]);
+    }
   });
 
   it("maps an oversized real-transport answer to GITHUB_RESPONSE_TOO_LARGE", async () => {
