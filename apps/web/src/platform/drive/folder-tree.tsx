@@ -8,6 +8,7 @@ import {
   addChildren,
   emptyTree,
   expandPath,
+  focusTarget,
   keyMove,
   toggle,
   visibleRows,
@@ -78,7 +79,7 @@ export function FolderTree({
   }, [tree.expanded, tree.children]);
 
   const rows = useMemo(() => visibleRows(tree, rootId), [tree, rootId]);
-  const focusable = rows.some((r) => r.id === focus) ? focus : current;
+  const focusable = focusTarget(rows, focus, current);
 
   function activate(id: string) {
     const row = rows.find((r) => r.id === id);

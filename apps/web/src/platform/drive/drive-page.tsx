@@ -1,5 +1,4 @@
 "use client";
-import { useState } from "react";
 import { HardDrive } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useResource } from "@/lib/api";
@@ -27,7 +26,8 @@ export function DrivePage() {
   const status = useResource<DriveStatus>(drivePaths(project.id).status);
   const raw = search.get("folder");
   const folderId = driveFolderParam(raw);
-  const [ignored] = useState(() => Boolean(raw) && !folderId);
+  // Shown while the address holds a malformed folder id.
+  const ignored = Boolean(raw) && !folderId;
   const settings = settingsSectionHref(shell.hrefOf("settings"), "integrations");
 
   const head = <PageHead title={t.title} description={t.description} />;

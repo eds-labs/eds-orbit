@@ -131,3 +131,14 @@ export function keyMove(
     }
   }
 }
+
+/**
+ * The row that takes the tab stop: the focused row while visible, else the
+ * open folder, else the first row (the open folder may sit in a collapsed
+ * branch), so the tree stays reachable with the keyboard.
+ */
+export function focusTarget(rows: readonly TreeRow[], focus: string, current: string): string {
+  if (rows.some((r) => r.id === focus)) return focus;
+  if (rows.some((r) => r.id === current)) return current;
+  return rows[0]?.id ?? current;
+}

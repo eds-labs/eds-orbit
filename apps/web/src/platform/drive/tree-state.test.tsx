@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addChildren,
+  focusTarget,
   emptyTree,
   expandPath,
   keyMove,
@@ -104,5 +105,18 @@ describe("Drive tree keys", () => {
     expect(keyMove(rows, R, "ArrowUp", state)).toEqual({ focus: R });
     expect(keyMove(rows, "a", "End", state)).toEqual({ focus: "b" });
     expect(keyMove(rows, "b", "Home", state)).toEqual({ focus: R });
+  });
+});
+
+describe("Drive tree focus", () => {
+  const rows = [
+    { id: R, name: "Root", depth: 0, expanded: true, loaded: true },
+    { id: "a", name: "A", depth: 1, expanded: false, loaded: true },
+  ];
+  it("keeps a visible focus, else the open folder, else the first row", () => {
+    expect(focusTarget(rows, "a", R)).toBe("a");
+    expect(focusTarget(rows, "gone", "a")).toBe("a");
+    // The open folder was hidden by collapsing an ancestor with the mouse.
+    expect(focusTarget(rows, "gone", "hidden")).toBe(R);
   });
 });

@@ -47,13 +47,14 @@ function writeView(mode: "browse" | "pick", view: View) {
   }
 }
 
+const dateFormats = {
+  en: new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short" }),
+  de: new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short" }),
+};
 const formatDate = (value: string | undefined, locale: "en" | "de") =>
-  value
-    ? new Intl.DateTimeFormat(locale === "de" ? "de-DE" : "en-GB", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(value))
-    : "";
+  value ? dateFormats[locale].format(new Date(value)) : "";
+// Below this width the tree is a disclosure above the list (globals.css).
+const NARROW = "(max-width: 760px)";
 
 function FileIcon({ file }: { file: DriveFile }) {
   if (isDriveFolder(file)) return <Folder aria-hidden="true" />;
@@ -106,6 +107,24 @@ export function DriveBrowser({
   const [copied, setCopied] = useState<string | null>(null);
   const [more, setMore] = useState<{ key: string; files: DriveFile[]; next: string | null } | null>(null);
   const [moreError, setMoreError] = useState<string | null>(null);
+  // A search belongs to its folder: another folder (also by back and
+  // forward) starts without one.
+  const [searchedIn, setSearchedIn] = useState(folderId);
+  if (searchedIn !== folderId) {
+    setSearchedIn(folderId);
+    setQuery("");
+    setDraft("");
+  }
+  // The tree starts closed on phones and is always open on wider screens.
+  const [treeOpen, setTreeOpen] = useState(true);
+  useEffect(() => {
+    const narrow = globalThis.matchMedia?.(NARROW);
+    if (!narrow) return;
+    setTreeOpen(!narrow.matches);
+    const change = (event: MediaQueryListEvent) => setTreeOpen(!event.matches);
+    narrow.addEventListener("change", change);
+    return () => narrow.removeEventListener("change", change);
+  }, []);
   useEffect(() => setView(readView(mode)), [mode]);
 
   const listingPath = paths.files({ folderId, query, sort });
@@ -193,7 +212,11 @@ export function DriveBrowser({
 
   return (
     <div className="drive-layout">
-      <details className="drive-tree-panel" open>
+      <details
+        className="drive-tree-panel"
+        open={treeOpen}
+        onToggle={(event) => setTreeOpen((event.currentTarget as HTMLDetailsElement).open)}
+      >
         <summary>{t.folders}</summary>
         {root && (
           <FolderTree
