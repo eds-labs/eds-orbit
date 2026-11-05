@@ -156,6 +156,8 @@ export async function githubFetch<T = unknown>(
       },
     });
   } catch (error) {
+    if (error instanceof ConnectorError && error.code === "RESPONSE_TOO_LARGE")
+      throw new GithubSendError("GITHUB_RESPONSE_TOO_LARGE", write);
     const never = error instanceof ConnectorError && NEVER_SENT.has(error.code);
     throw new GithubSendError("GITHUB_UNAVAILABLE", !never);
   }
@@ -177,17 +179,12 @@ export async function githubFetch<T = unknown>(
   }
 }
 
-/**
- * A token for the installation. Callers pass the repository names (without
- * owner) the token may touch, or none for a metadata-only listing.
- */
-export async function installationToken(
+const REPO_NAME = /^(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/;
+
+async function mintToken(
   app: GithubAppSecret,
-  req: { repositories?: string[]; permissions: GithubPermissions },
+  body: { repositories?: string[]; permissions: GithubPermissions },
 ): Promise<string> {
-  const body: Record<string, unknown> = {};
-  if (req.repositories) body.repositories = req.repositories;
-  body.permissions = req.permissions;
   const result = await githubFetch<{ token?: unknown }>(
     `/app/installations/${app.installationId}/access_tokens`,
     githubAppJwt(app),
@@ -196,6 +193,28 @@ export async function installationToken(
   if (typeof result?.token !== "string" || !result.token)
     throw new GithubSendError("GITHUB_REQUEST_FAILED", false);
   return result.token;
+}
+
+/**
+ * A token for the installation, limited to exactly one repository (name
+ * without owner) and the given permissions.
+ */
+export async function installationToken(
+  app: GithubAppSecret,
+  req: { repositories: [string]; permissions: GithubPermissions },
+): Promise<string> {
+  const names: unknown = req.repositories;
+  if (
+    !Array.isArray(names) ||
+    names.length !== 1 ||
+    typeof names[0] !== "string" ||
+    !REPO_NAME.test(names[0])
+  )
+    throw new DomainError("GITHUB_APP_INVALID", 409);
+  return mintToken(app, {
+    repositories: [names[0]],
+    permissions: req.permissions,
+  });
 }
 
 const repositoryShape = z.object({
@@ -218,7 +237,7 @@ export async function getRepository(
   app: GithubAppSecret,
   fullName: string,
 ): Promise<GithubRepository> {
-  const match = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/.exec(fullName);
+  const match = /^([A-Za-z0-9_.-]+)\/((?!\.{1,2}$)[A-Za-z0-9_.-]+)$/.exec(fullName);
   if (!match) throw new GithubSendError("GITHUB_VALIDATION_FAILED", false);
   const token = await installationToken(app, {
     repositories: [match[2]!],
@@ -234,9 +253,7 @@ export async function installationRepositories(
   app: GithubAppSecret,
 ): Promise<GithubRepository[]> {
   // Listing needs the whole installation, so this token names no repository.
-  const token = await installationToken(app, {
-    permissions: { metadata: "read" },
-  });
+  const token = await mintToken(app, { permissions: { metadata: "read" } });
   const found: GithubRepository[] = [];
   for (let page = 1; found.length < MAX_REPOSITORIES; page += 1) {
     const result = await githubFetch<{ repositories?: unknown[] }>(

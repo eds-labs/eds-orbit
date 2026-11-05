@@ -4,6 +4,7 @@ import {
   createVerify,
   generateKeyPairSync,
 } from "node:crypto";
+import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import {
   getRepository,
   githubAppConnectionProvider,
@@ -226,5 +227,30 @@ describe("GitHub App client", () => {
     expect(calls[0]!.url).toBe("https://api.github.com/app/installations/456");
     expect(githubAppConnectionProvider.purposes).toEqual(["issues"]);
     expect(githubAppConnectionProvider.scopes).toEqual(["system", "workspace"]);
+  });
+
+  it("maps an oversized real-transport answer to GITHUB_RESPONSE_TOO_LARGE", async () => {
+    for (const [method, sent] of [["GET", false], ["POST", true]] as const) {
+      transport(() => {
+        throw new ConnectorError("RESPONSE_TOO_LARGE", method === "GET" ? "not_sent" : "unknown");
+      });
+      const error = await codeOf(githubFetch("/repos/o/r", "t", { method }));
+      expect(error.code).toBe("GITHUB_RESPONSE_TOO_LARGE");
+      expect(error.sent).toBe(sent);
+    }
+  });
+
+  it("installationToken refuses anything but exactly one valid repository", async () => {
+    const calls = transport(() => json({ token: "x" }, 201));
+    for (const repositories of [[], ["a", "b"], [".."], ["."], ["a/b"], [""]]) {
+      await expect(
+        installationToken(app, {
+          repositories: repositories as unknown as [string],
+          permissions: { issues: "read" },
+        }),
+      ).rejects.toMatchObject({ code: "GITHUB_APP_INVALID" });
+    }
+    await expect(getRepository(app, "o/..")).rejects.toBeTruthy();
+    expect(calls).toHaveLength(0);
   });
 });
