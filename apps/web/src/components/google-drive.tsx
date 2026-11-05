@@ -1,40 +1,12 @@
 "use client";
 import { useContext, useState } from "react";
-import {
-  api,
-  post,
-  uploadAssetTypes,
-  useMutation,
-  useResource,
-} from "@/lib/api";
+import { api, post, useMutation, useResource } from "@/lib/api";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { useWorkspace } from "./workspace-context";
-import { Alert, Button, Empty, Modal } from "./ui/primitives";
-import { DataForm, str } from "@/platform/ui/form";
-import { FolderOpen, RefreshCw } from "lucide-react";
+import { Alert, Button } from "./ui/primitives";
+import { FolderOpen } from "lucide-react";
+import type { DriveStatus } from "@/platform/drive/api";
 
-type Status = {
-  configured: boolean;
-  connected: boolean;
-  reconnectRequired: boolean;
-  lastRefreshFailedAt: string | null;
-  lastRefreshErrorCode: string | null;
-  account: string | null;
-  rootFolderId: string | null;
-  brandLogoFolderId: string | null;
-  brandImagesFolderId: string | null;
-  enabled: boolean;
-  scope: string;
-};
-type DriveFile = {
-  id: string;
-  name: string;
-  mimeType: string;
-  size?: string;
-  modifiedTime?: string;
-  webViewLink?: string;
-};
-const folderMime = "application/vnd.google-apps.folder";
 /**
  * What the recorded OAuth error means. `invalid_grant` on a token that
  * worked before is, in practice, the seven-day expiry Google applies to
@@ -53,29 +25,13 @@ export function refreshFailureText(code: string, de: boolean) {
 export function GoogleDriveSettings() {
   const { project, isOwner, locale, refresh } = useWorkspace();
   const base = `/projects/${encodeURIComponent(project.id)}/google-drive`;
-  const status = useResource<Status>(base);
+  const status = useResource<DriveStatus>(base);
   const [root, setRoot] = useState("");
   const [candidatePage, setCandidatePage] = useState<string | null>(null);
   const [showFolderChooser, setShowFolderChooser] = useState(false);
-  const [folder, setFolder] = useState<string | null>(null);
-  const [folderStack, setFolderStack] = useState<string[]>([]);
-  const [pageToken, setPageToken] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [view, setView] = useState<"grid" | "list">("grid");
-  const [importTypes, setImportTypes] = useState<Record<string, string>>({});
   const [health, setHealth] = useState<string | null>(null);
-  const [uploadOpen, setUploadOpen] = useState(false);
-  // Product screenshots and images come with the Creative Studio (R61).
-  const studio = useContext(ShellContext)?.features?.creativeStudio === true;
-  const files = useResource<{
-    files: DriveFile[];
-    folderId: string;
-    nextPageToken: string | null;
-  }>(
-    status.data?.enabled
-      ? `${base}/files?${new URLSearchParams({ ...(folder ? { folderId: folder } : {}), ...(query ? { query } : {}), ...(pageToken ? { pageToken } : {}) })}`
-      : null,
-  );
+  // The file browser is the Drive page (design 2026-11-05 §5.4).
+  const shell = useContext(ShellContext);
   const candidates = useResource<{
     folders: { id: string; name: string }[];
     nextPageToken: string | null;
@@ -89,7 +45,6 @@ export function GoogleDriveSettings() {
   const mutation = useMutation(() => {
     status.refresh();
     candidates.refresh();
-    files.refresh();
     refresh();
   });
   const enabled = status.data?.enabled;
@@ -263,271 +218,12 @@ export function GoogleDriveSettings() {
           </details>
         </div>
       )}
-      {enabled ? (
-        <>
-          <div className="page-actions">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setFolder(null);
-                setFolderStack([]);
-                setPageToken(null);
-                setQuery("");
-              }}
-            >
-              Root
-            </Button>
-            {folderStack.length > 0 && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setFolder(folderStack.at(-1) || null);
-                  setFolderStack(folderStack.slice(0, -1));
-                  setPageToken(null);
-                }}
-              >
-                Back
-              </Button>
-            )}
-            {isOwner && (
-              <Button variant="outline" onClick={() => setUploadOpen(true)}>
-                Upload to Drive
-              </Button>
-            )}
-            <Button variant="outline" onClick={files.refresh}>
-              <RefreshCw data-icon="inline-start" /> Sync from Drive
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setView(view === "grid" ? "list" : "grid")}
-            >
-              {view === "grid" ? "List view" : "Grid view"}
-            </Button>
-            <input
-              aria-label="Search files in folder"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPageToken(null);
-              }}
-              placeholder="Search files"
-            />
-          </div>
-          {files.error && <Alert kind="error">{files.error.message}</Alert>}
-          {files.data?.files.length ? (
-            <div className={view === "grid" ? "asset-library" : "data-list"}>
-              {files.data.files.map((file) => (
-                <article className="asset-card" key={file.id}>
-                  {file.mimeType.startsWith("image/") ? (
-                    <img
-                      src={`/api${base}/files/${encodeURIComponent(file.id)}/content`}
-                      alt={file.name}
-                    />
-                  ) : (
-                    <FolderOpen aria-hidden="true" />
-                  )}
-                  <strong>{file.name}</strong>
-                  <p>
-                    {file.mimeType} ·{" "}
-                    {file.size ? `${file.size} bytes` : "folder"}
-                  </p>
-                  <div className="page-actions">
-                    {file.mimeType === folderMime ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setFolderStack([...folderStack, folder ?? ""]);
-                          setFolder(file.id);
-                          setPageToken(null);
-                          setQuery("");
-                        }}
-                      >
-                        Open folder
-                      </Button>
-                    ) : (
-                      <>
-                        {isOwner && (
-                          <select
-                            aria-label={`Asset type for ${file.name}`}
-                            value={
-                              importTypes[file.id] ??
-                              (file.mimeType.startsWith("image/")
-                                ? "photo"
-                                : "document")
-                            }
-                            onChange={(e) =>
-                              setImportTypes({
-                                ...importTypes,
-                                [file.id]: e.target.value,
-                              })
-                            }
-                          >
-                            {(file.mimeType.startsWith("image/")
-                              ? uploadAssetTypes(studio)
-                              : ["document", "other"]
-                            ).map((type) => (
-                              <option key={type} value={type}>
-                                {type}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={!isOwner || mutation.pending}
-                          onClick={() =>
-                            mutation.run(() =>
-                              post(
-                                `${base}/files/${encodeURIComponent(file.id)}/import`,
-                                {
-                                  type:
-                                    importTypes[file.id] ??
-                                    (file.mimeType.startsWith("image/")
-                                      ? "photo"
-                                      : "document"),
-                                },
-                              ),
-                            )
-                          }
-                        >
-                          Add to library
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            mutation.run(() =>
-                              navigator.clipboard.writeText(
-                                `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view`,
-                              ),
-                            )
-                          }
-                        >
-                          Copy Drive link
-                        </Button>
-                        <a
-                          href={`https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open in Drive
-                        </a>
-                      </>
-                    )}
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <Empty
-              icon={FolderOpen}
-              title="No Drive files in this folder"
-              description="Choose a folder or search its contents."
-            />
-          )}
-          {files.data?.nextPageToken && (
-            <Button
-              variant="outline"
-              onClick={() => setPageToken(files.data?.nextPageToken ?? null)}
-            >
-              Next page
-            </Button>
-          )}
-          {pageToken && (
-            <Button variant="outline" onClick={() => setPageToken(null)}>
-              First page
-            </Button>
-          )}
-        </>
-      ) : null}
-      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      {uploadOpen && (
-        <Modal
-          title="Upload private Drive asset"
-          description="PNG, JPEG or WebP. The server validates the image and removes metadata before uploading."
-          onClose={() => setUploadOpen(false)}
-        >
-          <DataForm
-            fields={[
-              { name: "name", label: "Asset name", required: true },
-              {
-                name: "type",
-                label: "Asset type",
-                type: "select",
-                value: "photo",
-                options: uploadAssetTypes(studio).map((value) => ({
-                  value,
-                  label: value,
-                })),
-              },
-              {
-                name: "file",
-                label: "Image file",
-                type: "file",
-                accept: "image/png,image/jpeg,image/webp",
-                required: true,
-              },
-              { name: "source", label: "Source / creator", required: true },
-              {
-                name: "license",
-                label: "License / rights basis",
-                required: true,
-              },
-              {
-                name: "validUses",
-                label: "Valid uses (comma separated)",
-                value: "brand, social",
-                required: true,
-              },
-              {
-                name: "confirmRightsInformation",
-                label:
-                  "I confirm the source and rights information is accurate",
-                type: "checkbox",
-                required: true,
-              },
-            ]}
-            pending={mutation.pending}
-            error={mutation.error}
-            submitLabel="Upload as reference"
-            onCancel={() => setUploadOpen(false)}
-            onSubmit={async (values) => {
-              await mutation.run(async () => {
-                const file = values.file;
-                if (
-                  !(file instanceof File) ||
-                  !file.size ||
-                  file.size > 1_000_000
-                )
-                  throw new Error("ASSET_UPLOAD_TOO_LARGE");
-                const binary = new Uint8Array(await file.arrayBuffer());
-                let encoded = "";
-                for (let offset = 0; offset < binary.length; offset += 0x8000)
-                  encoded += String.fromCharCode(
-                    ...binary.subarray(offset, offset + 0x8000),
-                  );
-                const result = await post(`${base}/upload`, {
-                  name: str(values, "name"),
-                  type: str(values, "type"),
-                  mime: file.type,
-                  base64: btoa(encoded),
-                  source: str(values, "source"),
-                  license: str(values, "license"),
-                  validUses: str(values, "validUses")
-                    .split(",")
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                  confirmRightsInformation: true,
-                  ...(folder ? { folderId: folder } : {}),
-                });
-                setUploadOpen(false);
-                return result;
-              });
-            }}
-          />
-        </Modal>
+      {enabled && (
+        <p>
+          <a href={shell?.hrefOf("drive")}>
+            {locale === "de" ? "Google Drive öffnen" : "Open Google Drive"}
+          </a>
+        </p>
       )}
     </section>
   );

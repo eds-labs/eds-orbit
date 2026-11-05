@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   CircleCheck,
+  HardDrive,
   Home,
   Link2,
   MessageCircle,
@@ -16,6 +17,7 @@ import type {
 } from "@/platform/shell/types";
 import { Decisions } from "@/platform/shell/decisions";
 import { AgentsView } from "@/platform/agents/agents-view";
+import { DrivePage } from "@/platform/drive/drive-page";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -210,6 +212,20 @@ export const webRegistry: WebRegistry = {
       navGroup: "project",
       nav: { label: label("connectors"), icon: Link2, order: 100 },
       legacyPaths: ["/connectors"],
+    },
+    {
+      // The project's Google Drive folder (design 2026-11-05 §5.2): listed
+      // while Drive is set up; the shell sets "googleDrive".
+      key: "drive",
+      path: "drive",
+      component: DrivePage,
+      navGroup: "project",
+      nav: {
+        feature: "googleDrive",
+        label: { en: "Google Drive", de: "Google Drive" },
+        icon: HardDrive,
+        order: 105,
+      },
     },
     {
       key: "operations",
