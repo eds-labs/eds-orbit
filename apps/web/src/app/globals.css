@@ -13,6 +13,8 @@
   --danger: #ae3647;
   --success: #17725a;
   --shadow: 0 10px 32px rgba(42, 83, 126, 0.045);
+  /* The chevron every native select shows (appearance: none hides the OS one). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%234a6782' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
   /* The phone bottom bar (.mobile-nav): 1 px border, 9 px padding, 48 px
      entries and the bottom padding with the safe area. */
   --mobile-nav-height: calc(58px + max(9px, env(safe-area-inset-bottom)));
@@ -67,6 +69,39 @@ a {
 }
 button {
   cursor: pointer;
+}
+/* Native selects read as fields: border, background and a chevron. Scoped
+   rules (.input, .project-control …) still override this element default. */
+select {
+  appearance: none;
+  min-height: 36px;
+  padding: 7px 34px 7px 11px;
+  border: 1px solid #c3d6e6;
+  border-radius: 8px;
+  background-color: #fff;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 14px;
+  box-shadow: 0 1px 2px rgba(42, 83, 126, 0.06);
+  color: #173149;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+select:hover:not(:disabled) {
+  border-color: #8fb6d8;
+}
+select:focus {
+  border-color: #378ff6;
+}
+select:disabled {
+  cursor: not-allowed;
+  background-color: var(--muted);
+  opacity: 0.7;
 }
 a {
   color: inherit;
@@ -217,10 +252,12 @@ pre {
   min-width: 0;
   flex: 1;
   width: 100%;
-  background: transparent;
+  background-color: transparent;
+  box-shadow: none;
   border: 0;
   color: var(--foreground);
-  padding: 11px 8px;
+  padding: 11px 28px 11px 8px;
+  background-position: right 6px center;
   font-weight: 600;
   font-size: 13px;
 }
@@ -1465,6 +1502,15 @@ td:first-child {
 }
 .input::placeholder {
   color: #637b92;
+}
+/* .input resets the background: give selects styled as inputs their chevron. */
+select.input {
+  padding-right: 34px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 14px;
+  cursor: pointer;
 }
 .input[type="checkbox"] {
   width: 18px;
@@ -3748,10 +3794,12 @@ body:has(dialog[open]) {
     font-size: 14px;
     font-weight: 600;
     border: 0;
-    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
     min-height: 27px;
     color: #132d47;
-    padding: 0;
+    padding: 0 22px 0 0;
+    background-position: right 0 center;
     width: 100%;
   }
 }
@@ -6130,6 +6178,15 @@ a.support-row {
   display: grid;
   gap: 4px;
   font-size: 13px;
+}
+.support-controls label > span,
+.support-tags > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+.support-controls select {
+  min-width: 150px;
 }
 .support-form label.support-check,
 .settings-form label.settings-check {
