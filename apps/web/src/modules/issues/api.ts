@@ -154,6 +154,7 @@ export type GithubStatus = {
   /** The GitHub App's slug, not a user login. */
   account?: string;
   repositories: GithubRepositoryRef[];
+  /** The installation's repositories: only with `?available=1` (one GitHub call). */
   available?: Array<{ fullName: string; private: boolean; archived: boolean }>;
   error?: string;
 };

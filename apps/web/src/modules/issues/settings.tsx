@@ -22,8 +22,9 @@ function IssuesSettingsForm() {
   const t = issuesText(locale);
   const access = useIssuesAccess();
   const lists = useIssuesLists();
-  // Owners only; a 404 (feature off) or 403 leaves the section out.
-  const githubStatus = useResource<GithubStatus>(access.owner ? issuesPath(project.id, "/github/status") : null);
+  // Owners only; a 404 (feature off) or 403 leaves the section out. Only the
+  // settings picker asks for the installation's repositories (a GitHub call).
+  const githubStatus = useResource<GithubStatus>(access.owner ? issuesPath(project.id, "/github/status?available=1") : null);
   const [draft, setDraft] = useState<IssuesSettings | null>(null);
   useEffect(() => {
     if (lists.settings) setDraft(structuredClone(lists.settings));
@@ -172,6 +173,7 @@ function IssuesSettingsForm() {
             draft={draft}
             status={githubStatus.data}
             onChange={(repositories) => update({ github: { repositories } })}
+            onComponentsChange={(components) => update({ components })}
           />
         </fieldset>
       )}
@@ -187,17 +189,37 @@ function IssuesSettingsForm() {
 }
 
 /**
+ * Sets a component's default repository to an allow-list key, or removes it
+ * (`""`). A stored key that is not on the allow-list is ignored by the
+ * server and shown as "none" here.
+ */
+export function withComponentRepository(
+  components: IssuesSettings["components"],
+  componentKey: string,
+  repositoryKey: string,
+): IssuesSettings["components"] {
+  return components.map((c) => {
+    if (c.key !== componentKey) return c;
+    const { repository: _old, ...rest } = c;
+    return repositoryKey ? { ...rest, repository: repositoryKey } : rest;
+  });
+}
+
+/**
  * The GitHub allow-list (spec 2026-11-05 §5.3): the installed repositories
- * with the reason a public or archived one cannot be added, and the stored
- * list with its keys. The server stays authoritative.
+ * with the reason a public or archived one cannot be added, the stored list
+ * with its keys, and each component's default repository. The server stays
+ * authoritative.
  */
 export function GithubSettings({
   draft,
   onChange,
+  onComponentsChange = () => {},
   status,
 }: {
   draft: IssuesSettings;
   onChange: (repositories: IssuesSettings["github"]["repositories"]) => void;
+  onComponentsChange?: (components: IssuesSettings["components"]) => void;
   status: GithubStatus;
 }) {
   const { locale } = useWorkspace();
@@ -205,6 +227,7 @@ export function GithubSettings({
   const s = g.settings;
   const list = draft.github?.repositories ?? [];
   const known = new Set(list.map((r) => r.fullName.toLowerCase()));
+  const components = draft.components ?? [];
   return (
     <fieldset className="work-stack">
       <legend>{s.title}</legend>
@@ -263,6 +286,35 @@ export function GithubSettings({
           </ul>
           {list.length >= 20 && <p className="support-muted">{s.limit}</p>}
         </>
+      )}
+      <strong>{s.componentRepositories}</strong>
+      {components.length === 0 ? (
+        <p className="support-muted">{s.noComponents}</p>
+      ) : (
+        <ul className="settings-rows">
+          {components.map((c) => {
+            const current = c.repository && list.some((r) => r.key === c.repository) ? c.repository : "";
+            return (
+              <li key={c.key} className="work-settings-row">
+                <label>
+                  {c.label[locale] || c.key} <code>{c.key}</code>
+                  <select
+                    aria-label={`${s.componentRepository}: ${c.key}`}
+                    value={current}
+                    onChange={(e) => onComponentsChange(withComponentRepository(components, c.key, e.target.value))}
+                  >
+                    <option value="">{s.noRepository}</option>
+                    {list.map((r) => (
+                      <option key={r.key} value={r.key}>
+                        {r.key} · {r.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </fieldset>
   );

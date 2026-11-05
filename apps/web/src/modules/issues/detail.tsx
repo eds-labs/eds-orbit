@@ -597,6 +597,10 @@ export function IssueLink({ issueId, children }: { issueId: string; children: Re
   return <AppLink href={`${shell.hrefOf("issues-list")}?issue=${encodeURIComponent(issueId)}`}>{children}</AppLink>;
 }
 
+/** A quiet hint when reconcile found nothing yet (GitHub may still be indexing). */
+export const reconcileNote = (result: { status: string }, g: { notFoundYet: string }) =>
+  result.status === "outcome_unknown" ? g.notFoundYet : null;
+
 /**
  * The GitHub side of an issue (spec 2026-11-05 §5.3): linked issues, requests
  * in flight, and for the owner the create, link, refresh and unlink actions.
@@ -708,7 +712,12 @@ export function GithubBlock({ issue: d, canManage, onChanged = () => {} }: { iss
                   <Button
                     size="sm"
                     disabled={pending}
-                    onClick={() => run(() => send(issuesPath(project.id, `/github/requests/${encodeURIComponent(r.id)}/reconcile`), "POST"))}
+                    onClick={() =>
+                      run(
+                        () => send<{ status: string }>(issuesPath(project.id, `/github/requests/${encodeURIComponent(r.id)}/reconcile`), "POST"),
+                        (result) => setNote(reconcileNote(result, g)),
+                      )
+                    }
                   >
                     {g.reconcile}
                   </Button>
