@@ -97,6 +97,7 @@ const triageReply = text({
   priority: "high",
   sentiment: "neutral",
   summary: "The customer's deposit has not arrived.",
+  summaryDe: "Die Einzahlung des Kunden ist nicht angekommen.",
   sensitive: false,
 });
 const draftReply = text({
