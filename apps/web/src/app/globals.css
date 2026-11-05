@@ -1004,6 +1004,12 @@ pre {
   border: 1px dashed var(--border);
   border-radius: 8px;
 }
+/* The native file input never grows past the drop zone's padding. */
+.finance-upload > *,
+.finance-upload input[type="file"] {
+  min-width: 0;
+  max-width: 100%;
+}
 .finance-upload[data-over="true"] {
   border-color: var(--primary);
 }
@@ -1128,6 +1134,13 @@ pre {
   align-items: center;
   justify-content: space-between;
 }
+/* The title and its hint stack instead of running into each other. */
+.finance-link-row > div:has(> .field-hint) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
 .finance-sums [data-balanced="true"] dd {
   color: var(--success, inherit);
 }
@@ -1174,6 +1187,9 @@ pre {
   margin-bottom: 18px;
 }
 .panel {
+  /* The inset every piece of panel content shares with the head. */
+  --panel-inset: 21px;
+  --panel-inset-block: 18px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1186,7 +1202,87 @@ pre {
   gap: 14px;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 21px 12px;
+  padding: var(--panel-inset-block, 18px) var(--panel-inset, 21px) 12px;
+}
+/*
+ * Content placed straight into a panel. A panel has no padding: its head,
+ * body (.panel-body) and notes (.panel-note) carry the inset. Alerts, detail
+ * lists, count tiles, action rows, buttons and plain headings or text that
+ * sit directly in a panel otherwise touch its border, so they take the
+ * panel inset here. Full-bleed children (tables, divider rows, empty states)
+ * keep their own padding and are not listed. A component rule that is more
+ * specific (e.g. the settings sections) still wins.
+ */
+.panel
+  > :is(
+    .alert,
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .support-check,
+    .settings-check,
+    .skeleton,
+    .button
+  ),
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]) {
+  margin-inline: var(--panel-content-inset, var(--panel-inset));
+}
+.panel > :is(h2, h3, h4):not([class]):not(:first-child) {
+  margin-top: 14px;
+}
+.panel
+  > :is(
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .support-check,
+    .settings-check,
+    .skeleton,
+    .button
+  ):last-child,
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]):last-child {
+  margin-bottom: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+.panel
+  > :is(
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .button
+  ):first-child,
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]):first-child {
+  margin-top: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+/* Panels that pad themselves already. */
+.marketing-reports,
+.calendar-list {
+  --panel-content-inset: 0px;
+  --panel-content-inset-block: 0px;
+}
+/*
+ * Panels stacked in a plain page container (no grid or flex gap of its own)
+ * keep the page's section rhythm instead of touching each other.
+ */
+.main > div:not([class]) > .panel + .panel {
+  margin-top: 20px;
 }
 .panel-head p {
   font-size: 13px;
@@ -1963,7 +2059,7 @@ select.input {
   font-size: 16px;
 }
 .panel-note {
-  padding: 18px 21px 22px;
+  padding: 18px var(--panel-inset, 21px) 22px;
   font-size: 13px;
   color: var(--muted-foreground);
 }
@@ -2282,13 +2378,15 @@ select.input {
   align-items: start;
 }
 .settings-grid > .panel {
+  /* The panel's own bottom padding ends its content. */
+  --panel-content-inset-block: 0px;
   padding-bottom: 22px;
 }
 .settings-grid .detail-grid {
-  padding: 0 var(--settings-inset);
+  padding: 0 var(--settings-inset, 0px);
 }
 .settings-grid .panel > .button {
-  margin: 0 var(--settings-inset);
+  margin: 0 var(--settings-inset, var(--panel-inset, 21px));
 }
 /*
  * One rhythm for every settings section: panels stack with one gap (their own
@@ -2326,6 +2424,10 @@ select.input {
 }
 .settings-content .settings-grid .panel > .button {
   margin-bottom: 0;
+}
+/* Settings rows carry the inset on each row. */
+.settings-content .panel > .settings-rows {
+  margin-inline: 0;
 }
 .settings-content .panel > .detail-grid {
   margin: 8px 0 20px;
@@ -7089,18 +7191,39 @@ a.support-row {
   margin: 0 auto;
 }
 .panel-body {
-  padding: 0 21px 21px;
+  padding: 0 var(--panel-inset, 21px) 21px;
 }
+/* Every button group: buttons in a row never touch. */
 .panel-actions,
 .row-actions,
 .modal-actions,
 .admin-actions,
 .badge-row,
-.pager {
+.pager,
+.chat-message-actions,
+.support-privacy-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+/*
+ * Buttons that follow each other in plain flow (a wrapper without a layout
+ * class, where only a JSX space or nothing separates them) keep the action
+ * row gap. Flex and grid action groups above use gap and are not affected.
+ */
+:where(div, span, li, p, td):not([class]) > .button + .button {
+  margin-inline-start: 8px;
+}
+/*
+ * A checkbox or radio label used outside the support/settings forms that
+ * style it (task lists, finance reports, initiatives): the box keeps a gap
+ * to its text.
+ */
+label:is(.support-check, .settings-check) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .admin-actions,
 .pager {
