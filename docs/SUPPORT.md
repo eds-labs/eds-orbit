@@ -212,7 +212,7 @@ These are drafts for agents only; a person always sends (Q-17). The inbox switch
 
 | Task | When | What it does |
 |---|---|---|
-| Triage (`support_triage`) | each new ticket | Suggests language, category, priority, sentiment and a one-sentence summary. An empty category is filled; priority stays the agents' call. The summary is an internal note, and the suggestions are an `ai_triage` event without text. |
+| Triage (`support_triage`) | each new ticket | Suggests language, category, priority, sentiment and a one-sentence summary. An empty category is filled; priority stays the agents' call. The summary is an internal note, written in English (`bodyText`) and German (`bodyTranslations.de`) in the same call; each agent reads it in their UI language. The suggestions are an `ai_triage` event without text. |
 | Draft (`support_draft`) | each customer message, or an agent's "AI draft" (`POST /tickets/:id/ai-draft`) | Retrieves `support`-audience knowledge (WP3.5) for the latest customer message, then asks the model for a reply that cites `fact:<id>` and `chunk:<id>`. |
 
 **Checks on a draft**, before an agent sees it. The draft is withheld, and the ticket handed off, when:
@@ -220,7 +220,7 @@ These are drafts for agents only; a person always sends (Q-17). The inbox switch
 - the evidence pack is invalid;
 - it contains a forbidden promise or advice.
 
-Without evidence, an internal gap note replaces the draft and the ticket is handed off. A draft the model is unsure about is kept, but the ticket is handed off too.
+Without evidence, an internal gap note (English and German, like the triage summary) replaces the draft and the ticket is handed off. A draft the model is unsure about is kept, but the ticket is handed off too.
 
 **Hard rules** (`modules/support/hard-rules.ts`). Trading or investment questions, account security, billing and legal matters go straight to a human, without a model call. Since 2026-11-04 (ADR 0021 Phase 2, T2-3) the ticket subject is screened together with the latest customer message. The offline eval `evals/support/hard-rules.test.ts` requires recall 1.0 on its sensitive cases.
 

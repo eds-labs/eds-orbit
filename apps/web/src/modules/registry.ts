@@ -6,6 +6,7 @@ import {
   Home,
   Link2,
   MessageCircle,
+  ScrollText,
   Settings,
 } from "lucide-react";
 import { usd } from "@/lib/api";
@@ -29,6 +30,7 @@ import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
 import { AccountView } from "@/platform/account/account-view";
 import { PersonalContextView } from "@/platform/account/personal-context";
 import { AssistantPage } from "@/platform/assistant/assistant-page";
+import { ActivityLog } from "@/platform/assistant/activity-log";
 import {
   ConfirmEmailView,
   InviteView,
@@ -224,6 +226,20 @@ export const webRegistry: WebRegistry = {
         feature: "googleDrive",
         label: { en: "Google Drive", de: "Google Drive" },
         icon: HardDrive,
+        order: 102,
+      },
+    },
+    {
+      // External work orders (MCP 2.0), formerly above Orbit Chat. The entry
+      // shows while the server advertises "workOrders" (ORBIT_MCP_TASKS).
+      key: "activity",
+      path: "activity",
+      component: ActivityLog,
+      navGroup: "project",
+      nav: {
+        feature: "workOrders",
+        label: { en: "Activity log", de: "Aktivitätslog" },
+        icon: ScrollText,
         order: 105,
       },
     },

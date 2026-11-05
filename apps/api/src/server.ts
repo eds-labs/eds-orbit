@@ -3,6 +3,7 @@ import {
   commitTopic,
 } from "./modules/marketing/agents/novelty.ts";
 import { registerTaskRoutes } from "./platform/tasks/routes.ts";
+import { mcp2Enabled } from "./platform/tasks/operation-tools.ts";
 import {
   authorize,
   can,
@@ -817,6 +818,8 @@ export async function buildServer(
         agents: agentsEnabled(),
         customerContext: config.ORBIT_CUSTOMER_CONTEXT === "true",
         creativeStudio: config.ORBIT_CREATIVE_STUDIO === "true",
+        // External work orders (MCP 2.0): the project's activity log.
+        workOrders: mcp2Enabled(),
       },
       switchable: moduleSwitchingEnabled(),
       // The requesting member's role per module (WP4.5): "none" hides it.

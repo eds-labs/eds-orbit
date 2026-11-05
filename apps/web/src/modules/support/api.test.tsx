@@ -5,9 +5,19 @@ describe("support web helpers (WP5.2)", () => {
   it("builds the ticket list query, leaving empty filters out", () => {
     expect(
       ticketQuery({ view: "mine", status: "", q: " quokka ", cursor: null }),
-    ).toBe("view=mine&q=quokka");
+    ).toBe("view=mine&q=quokka&openOnly=true");
     expect(ticketQuery({ view: "all", status: "open", cursor: "abc=" })).toBe(
       "view=all&status=open&cursor=abc%3D",
+    );
+  });
+
+  it("hides resolved and closed tickets unless a status is chosen", () => {
+    expect(ticketQuery({ view: "all" })).toBe("view=all&openOnly=true");
+    expect(ticketQuery({ view: "all", status: "closed" })).toBe(
+      "view=all&status=closed",
+    );
+    expect(ticketQuery({ view: "all", status: "resolved" })).toBe(
+      "view=all&status=resolved",
     );
   });
 
@@ -69,5 +79,26 @@ describe("support web helpers (WP5.2)", () => {
       ["message", "m2"],
     ]);
     expect(entries[2]).toMatchObject({ internal: true });
+  });
+
+  it("shows an AI note in the reader's language when it has one", () => {
+    const summary = {
+      id: "m1",
+      kind: "system",
+      bodyText: "The deposit is missing.",
+      bodyTranslations: { de: "Die Einzahlung fehlt." },
+      createdAt: "t1",
+    };
+    const plain = { id: "m2", kind: "system", bodyText: "Old note", createdAt: "t2" };
+    expect(timelineEntries([summary, plain], "de")).toMatchObject([
+      { bodyText: "Die Einzahlung fehlt." },
+      { bodyText: "Old note" },
+    ]);
+    expect(timelineEntries([summary], "en")).toMatchObject([
+      { bodyText: "The deposit is missing." },
+    ]);
+    expect(timelineEntries([summary])).toMatchObject([
+      { bodyText: "The deposit is missing." },
+    ]);
   });
 });

@@ -70,6 +70,7 @@ export async function exportContact(tx: DbTx, scope: Scope, contactId: string) {
           kind: m.kind,
           internal: !m.visibleToCustomer,
           bodyText: m.bodyText,
+          ...(m.bodyTranslations ? { bodyTranslations: m.bodyTranslations } : {}),
           createdAt: m.createdAt,
           attachments: attachments
             .filter((a) => a.messageId === m.id)
