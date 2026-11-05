@@ -1,5 +1,9 @@
 import { n8nConnectionProvider } from "../automation/workflows.ts";
 import {
+  GITHUB_APP_PROVIDER,
+  githubAppConnectionProvider,
+} from "../connections/github-app.ts";
+import {
   anthropicConnectionProvider,
   openAiConnectionProvider,
 } from "../ai/connection-providers.ts";
@@ -191,6 +195,8 @@ export const platformContributions: ModuleContributions = {
       anthropic: anthropicConnectionProvider,
       // An automation layer such as n8n (WP3.7).
       n8n: n8nConnectionProvider,
+      // A GitHub App installation for issue synchronization.
+      [GITHUB_APP_PROVIDER]: githubAppConnectionProvider,
     },
   },
   jobs: [

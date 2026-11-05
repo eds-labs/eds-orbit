@@ -439,6 +439,7 @@ describe("module contributions", () => {
       "openai",
       "anthropic",
       "n8n",
+      "github_app",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
       // The social module's developer apps and managed accounts (ADR 0020).
@@ -456,10 +457,11 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("customer_context")?.owner).toBe(
       "platform",
     );
+    expect(registeredConnectionProvider("github_app")?.owner).toBe("platform");
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(6, 12))
+    for (const id of registeredConnectionProviderIds().slice(7, 13))
       expect(registeredConnectionProvider(id)?.owner).toBe("social");
-    for (const id of registeredConnectionProviderIds().slice(12))
+    for (const id of registeredConnectionProviderIds().slice(13))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

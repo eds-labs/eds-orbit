@@ -207,6 +207,9 @@ const baseConfigSchema = z.object({
   // Issue center (ADR 0018): off until its rollout is approved. Even when
   // "true", it works only in projects whose owner enabled the module.
   ORBIT_ISSUES: z.enum(["false", "true"]).default("false"),
+  // GitHub synchronization of issues (WP3.10a): off until its rollout is
+  // approved; needs ORBIT_ISSUES and a GitHub App connection.
+  ORBIT_ISSUES_GITHUB: z.enum(["false", "true"]).default("false"),
   // Social module (ADR 0020): off until its rollout is approved. Even when
   // "true", it works only in projects whose owner enabled the module.
   ORBIT_SOCIAL: z.enum(["false", "true"]).default("false"),
