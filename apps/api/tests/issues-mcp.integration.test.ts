@@ -328,7 +328,8 @@ describe.skipIf(!enabled)("issues_propose_github_issue (slice 1, Task 6)", () =>
     const proposal = await propose(p.owner, { number: issue.number });
     const row = await run((tx) => entity(tx, p.owner, "action_requests", proposal.actionRequestId));
     expect(JSON.stringify(data(row))).toContain("Checkout button does nothing");
-    for (const text of [JSON.stringify(proposal), JSON.stringify(data(row))]) expect(text).not.toContain("7731");
+    // The full sentinel prefix: a bare number could appear in a UUID or hash.
+    for (const text of [JSON.stringify(proposal), JSON.stringify(data(row))]) expect(text).not.toContain("SENTINEL-");
   });
 
   it("refuses at approval when the shared text changed after the proposal", async () => {
