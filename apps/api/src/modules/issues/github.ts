@@ -31,8 +31,10 @@ import { readIssuesSettings } from "./settings.ts";
 //   queued ──(checks pass, committed)──> sending ──POST──> done
 //      │                                    │  definite refusal ──> failed
 //      │ check fails ──> failed             │  unclear, not last ──> sending (rethrow; the
-//      │                                    │      retry lists the App's issues by marker
-//      │                                    │      before it posts again)
+//      │                                    │      retry lists the App's issues by marker;
+//      │                                    │      it posts again only when the complete
+//      │                                    │      listing is empty and the last POST is at
+//      │                                    │      least 2 minutes old, else it rethrows)
 //      │                                    │  unclear, last attempt ──> outcome_unknown
 //      │                                    │  check fails on retry ──> outcome_unknown
 //   outcome_unknown ──reconcile (list only, never creates)──> done, or failed
@@ -59,6 +61,16 @@ const IN_FLIGHT = ["queued", "sending"];
 const UNSETTLED = [...IN_FLIGHT, "outcome_unknown"];
 /** A reconcile settles "not found" only this long after the last POST was committed (replica lag). */
 const NOT_FOUND_AFTER_MS = 2 * 60_000;
+/**
+ * Thrown by a retry that must wait for GitHub's listing; the worker
+ * schedules another attempt (the message matches none of its blocking words).
+ */
+const RECONCILE_WAIT = "ISSUES_GITHUB_RECONCILE_WAIT";
+/** The request's last POST was committed at least NOT_FOUND_AFTER_MS ago. */
+const postIsOld = (value: Record<string, any>) => {
+  const sentAt = Date.parse(String(value.sendingAt ?? ""));
+  return Number.isFinite(sentAt) && Date.now() - sentAt >= NOT_FOUND_AFTER_MS;
+};
 const CREATE_PERMISSIONS: GithubPermissions = { issues: "write", metadata: "read" };
 export const READ_PERMISSIONS: GithubPermissions = { issues: "read", metadata: "read" };
 const LIST_PAGES = 3;
@@ -462,6 +474,14 @@ async function createOnce(scope: Scope, requestEntityId: string, last: boolean):
     if (found === "incomplete")
       return void (await settle(scope, requestEntityId, "outcome_unknown", "ISSUES_GITHUB_RECONCILE_INCOMPLETE"));
     if (found) return void (await linkRequest(scope, requestEntityId, found, SYSTEM));
+    // The same age gate as reconcile (R15): GitHub may not list an issue
+    // created seconds ago, so an empty listing proves nothing until the last
+    // POST is 2 minutes old. Retries come after seconds, so this usually
+    // ends `outcome_unknown` and the owner reconciles later.
+    if (!postIsOld(value)) {
+      if (!last) throw new Error(RECONCILE_WAIT);
+      return void (await settle(scope, requestEntityId, "outcome_unknown", "JOB_OUTCOME_UNKNOWN"));
+    }
   }
 
   // Commit `sending` before the POST, after checking everything once more.
@@ -545,8 +565,7 @@ export async function reconcileGithubRequest(
   if (!found) {
     // A complete, successful listing without the marker settles the request
     // only once the last POST is old enough for GitHub to list it.
-    const sentAt = Date.parse(String(step1.value.sendingAt ?? ""));
-    if (!Number.isFinite(sentAt) || Date.now() - sentAt < NOT_FOUND_AFTER_MS) return { status: "outcome_unknown" };
+    if (!postIsOld(step1.value)) return { status: "outcome_unknown" };
     const settled = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const row = await loadRequest(tx, scope, id);
       if (!row || row.version !== step1.version || data(row).status !== "outcome_unknown") return false;

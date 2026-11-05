@@ -206,6 +206,8 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     create: [] as Array<"ok" | "unclear" | "502" | "422">,
     /** The answer to listing the App's issues. */
     list: 200,
+    /** GitHub has not indexed the created issues yet: the listing is empty. */
+    lagging: false,
     /** Existing GitHub issues by number, for linking and refreshing. */
     remote: {} as Record<number, { state: string; state_reason?: string | null; pull_request?: object }>,
   };
@@ -223,7 +225,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
       if (u.startsWith(`${ISSUES_URL}?`) && method === "GET") {
         expect(u).toContain("creator=orbit-issues%5Bbot%5D");
         if (gh.list !== 200) return new Response("{}", { status: gh.list });
-        return new Response(JSON.stringify(gh.issues), { status: 200 });
+        return new Response(JSON.stringify(gh.lagging ? [] : gh.issues), { status: 200 });
       }
       const single = /^https:\/\/api\.github\.com\/repos\/o\/web\/issues\/(\d+)$/.exec(u);
       if (single && method === "GET") {
@@ -296,6 +298,13 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(response.json()).toMatchObject({ status: "queued" });
     return response.json().requestId as string;
   };
+  /** Moves the request's last POST 3 minutes into the past. */
+  const ageSending = (requestId: string) =>
+    p.run(async (tx) => {
+      const row = await tx.entity.findFirstOrThrow({ where: { id: requestId } });
+      const old = new Date(Date.now() - 3 * 60_000).toISOString();
+      await tx.entity.update({ where: { id: requestId }, data: { data: { ...data(row), sendingAt: old } } });
+    });
   const countRows = (issueId: string) =>
     p.run(async (tx) => ({
       requests: await tx.entity.count({ where: { projectId: p.owner.projectId, kind: REQUEST_KIND } }),
@@ -347,7 +356,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     process.env.ORBIT_ISSUES_GITHUB = "true";
     calls = [];
     // GitHub numbers stay unique across tests, as refs do in the project.
-    Object.assign(gh, { private: true, issues: [], create: [], list: 200, remote: {} });
+    Object.assign(gh, { private: true, issues: [], create: [], list: 200, lagging: false, remote: {} });
     fakeGithub();
   });
   afterEach(() => {
@@ -422,28 +431,65 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(refs.map((r) => r.externalId)).toEqual([externalId]);
   });
 
-  it("marks outcome_unknown on the last attempt and reconcile links later", async () => {
+  it("marks outcome_unknown on the last attempt without a second POST; reconcile settles it later", async () => {
     const issue = await readyIssue();
     const requestId = await requestCreate(issue.id);
-    gh.create = ["502", "502", "unclear"];
+    gh.create = ["502", "502", "502"];
     await expect(runJob(requestId, 1)).rejects.toMatchObject({ code: "GITHUB_UNAVAILABLE" });
-    // Attempt 2 of 3 is not the last one: it lists, finds nothing, posts and rethrows.
-    await expect(runJob(requestId, 2)).rejects.toMatchObject({ code: "GITHUB_UNAVAILABLE" });
-    expect(await request(requestId)).toMatchObject({ status: "sending", attempts: 2 });
+    // Attempts 2 and 3 run seconds after the unclear POST: an empty listing
+    // proves nothing yet (GitHub may lag), so neither posts again (R15).
+    await expect(runJob(requestId, 2)).rejects.toThrow("ISSUES_GITHUB_RECONCILE_WAIT");
+    expect(await request(requestId)).toMatchObject({ status: "sending", attempts: 1 });
     // The last attempt gives up without throwing.
     await runJob(requestId, 3);
-    expect(await request(requestId)).toMatchObject({ status: "outcome_unknown", code: "GITHUB_UNAVAILABLE", attempts: 3 });
-    expect(posts()).toHaveLength(3);
-    expect(gh.issues).toHaveLength(1);
+    expect(await request(requestId)).toMatchObject({ status: "outcome_unknown", code: "JOB_OUTCOME_UNKNOWN", attempts: 1 });
+    expect(posts()).toHaveLength(1);
     expect(await p.run((tx) => tx.issueExternalRef.count({ where: { issueId: issue.id } }))).toBe(0);
 
     expect((await call("editor", "POST", `/issues/github/requests/${requestId}/reconcile`)).statusCode).toBe(403);
+    const reconcile = () => call("owner", "POST", `/issues/github/requests/${requestId}/reconcile`);
+    // Still under 2 minutes after the POST: nothing settles.
+    expect((await reconcile()).json()).toEqual({ status: "outcome_unknown" });
+    expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
+    await ageSending(requestId);
+    const settled = await reconcile();
+    expect([settled.statusCode, settled.json()]).toEqual([200, { status: "failed" }]);
+    expect(await request(requestId)).toMatchObject({ status: "failed", code: "ISSUES_GITHUB_NOT_FOUND" });
+    expect(posts()).toHaveLength(1);
+  });
+
+  it("an empty listing right after an unclear POST makes no second POST; an old one does", async () => {
+    const issue = await readyIssue();
+    const requestId = await requestCreate(issue.id);
+    gh.create = ["502", "ok"];
+    await expect(runJob(requestId, 1)).rejects.toMatchObject({ code: "GITHUB_UNAVAILABLE" });
+    await expect(runJob(requestId, 2)).rejects.toThrow("ISSUES_GITHUB_RECONCILE_WAIT");
+    expect(calls.some((c) => c.method === "GET" && c.url.startsWith(`${ISSUES_URL}?`))).toBe(true);
+    expect(posts()).toHaveLength(1);
+    expect(await request(requestId)).toMatchObject({ status: "sending", attempts: 1 });
+    // The complete listing is still empty once the POST is 2 minutes old: definitely not created.
+    await ageSending(requestId);
+    await runJob(requestId, 3);
+    expect(posts()).toHaveLength(2);
+    expect(await request(requestId)).toMatchObject({ status: "done", attempts: 2 });
+  });
+
+  it("an issue GitHub lists late is linked by reconcile, never created twice", async () => {
+    const issue = await readyIssue();
+    const requestId = await requestCreate(issue.id);
+    gh.create = ["unclear"];
+    gh.lagging = true;
+    await expect(runJob(requestId, 1)).rejects.toMatchObject({ code: "GITHUB_UNAVAILABLE" });
+    await expect(runJob(requestId, 2)).rejects.toThrow("ISSUES_GITHUB_RECONCILE_WAIT");
+    await runJob(requestId, 3);
+    expect(await request(requestId)).toMatchObject({ status: "outcome_unknown", code: "JOB_OUTCOME_UNKNOWN" });
+    expect(posts()).toHaveLength(1);
+    gh.lagging = false;
     const reconciled = await call("owner", "POST", `/issues/github/requests/${requestId}/reconcile`);
-    expect(reconciled.statusCode).toBe(200);
-    expect(reconciled.json()).toEqual({ status: "done" });
-    expect(posts()).toHaveLength(3);
+    expect([reconciled.statusCode, reconciled.json()]).toEqual([200, { status: "done" }]);
     expect(await request(requestId)).toMatchObject({ status: "done", externalId: `o/web#${gh.issues[0]!.number}` });
     expect(await p.run((tx) => tx.issueExternalRef.count({ where: { issueId: issue.id } }))).toBe(1);
+    expect(posts()).toHaveLength(1);
   });
 
   it("outcome_unknown blocks a new request until reconcile settles it as not found", async () => {
@@ -466,11 +512,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect((await reconcile()).json()).toEqual({ status: "outcome_unknown" });
     expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
     // An incomplete or failing listing settles nothing either.
-    await p.run(async (tx) => {
-      const row = await tx.entity.findFirstOrThrow({ where: { id: requestId } });
-      const old = new Date(Date.now() - 3 * 60_000).toISOString();
-      await tx.entity.update({ where: { id: requestId }, data: { data: { ...data(row), sendingAt: old } } });
-    });
+    await ageSending(requestId);
     gh.list = 503;
     expect((await reconcile()).statusCode).toBe(409);
     expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
