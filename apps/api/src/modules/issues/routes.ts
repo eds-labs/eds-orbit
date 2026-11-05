@@ -9,17 +9,22 @@ import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { createLink, linksOf, linkTargets, removeLink } from "../../platform/links/links.ts";
 import { ISSUE_TYPE, issuesMembers, userActor, uuid } from "./common.ts";
 import { confirmCandidate, rejectCandidate } from "./duplicates.ts";
-import { requireIssues } from "./gate.ts";
+import { requireIssues, requireIssuesGithub } from "./gate.ts";
 import { issueView, setIssueStatus, setShareReview, updateIssue } from "./issues.ts";
 import { mergeIssue } from "./merge.ts";
 import {
+  ISSUES_GITHUB,
   ISSUES_READ,
   ISSUES_REPORT,
   ISSUES_SETTINGS,
   ISSUES_TRIAGE,
 } from "./permissions.ts";
 import { issueDetail, listIssues } from "./queries.ts";
-import { readIssuesSettings, saveIssuesSettings } from "./settings.ts";
+import { can } from "../../platform/tenancy/permissions.ts";
+import { DomainError } from "../../shared.ts";
+import { installationRepositories } from "../../platform/connections/github-app.ts";
+import { checkAvailable, githubApp, githubStatus, newRepositories } from "./github-connection.ts";
+import { issuesSettingsSchema, readIssuesSettings, saveIssuesSettings } from "./settings.ts";
 import { reportManually } from "./sources/manual.ts";
 import { createSource, disableSource, listSources } from "./sources.ts";
 import { issuesOverview } from "./stats.ts";
@@ -67,10 +72,35 @@ export const issuesRoutes: RoutesContribution = (context) => {
     inIssues(auth, req, ISSUES_READ, async (_tx, scope) => ({ items: await issuesMembers(scope) })),
   );
   app.get(`${BASE}/settings`, (req) => inIssues(auth, req, ISSUES_READ, (tx, scope) => readIssuesSettings(tx, scope)));
-  app.put(`${BASE}/settings`, (req) =>
-    inIssues(auth, req, ISSUES_SETTINGS, (tx, scope) => {
-      const { settings, version } = settingsInput.parse(req.body);
-      return saveIssuesSettings(tx, scope, settings, version);
+  app.put(`${BASE}/settings`, async (req) => {
+    const { settings, version } = settingsInput.parse(req.body);
+    const next = issuesSettingsSchema.parse(settings);
+    const path = req.params as Params;
+    const scope = await scopeFor(auth, req, path.projectId!, ISSUES_SETTINGS);
+    // The allow-list changes only with issues.github and is checked against
+    // the installation before the settings transaction opens.
+    const added = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await requireIssues(tx, scope);
+      const stored = (await readIssuesSettings(tx, scope)).settings;
+      const changed =
+        JSON.stringify(stored.github.repositories) !== JSON.stringify(next.github.repositories);
+      if (!changed) return null;
+      if (!can(scope, ISSUES_GITHUB)) throw new DomainError("FORBIDDEN", 403);
+      requireIssuesGithub();
+      const fresh = newRepositories(next, stored).map((r) => r.fullName);
+      return fresh.length ? { fresh, app: (await githubApp(tx, scope)).app } : null;
+    });
+    if (added)
+      checkAvailable(added.fresh, await installationRepositories(added.app));
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await requireIssues(tx, scope);
+      return saveIssuesSettings(tx, scope, next, version);
+    });
+  });
+  app.get(`${BASE}/github/status`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, (tx, scope) => {
+      requireIssuesGithub();
+      return githubStatus(tx, scope);
     }),
   );
 

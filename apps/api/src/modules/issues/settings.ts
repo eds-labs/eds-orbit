@@ -29,7 +29,7 @@ export const issuesSettingsSchema = z
           .object({
             key,
             label,
-            /** A repository key of the work module's settings, if any. */
+            /** A key of `github.repositories` (the allow-list), if any. */
             repository: key.optional(),
             team: z.string().trim().min(1).max(60).optional(),
           })
@@ -77,6 +77,32 @@ export const issuesSettingsSchema = z
         diagnosticsMonths: z.int().min(1).max(120),
       })
       .strict(),
+    /** GitHub: the allow-list of repositories issues may be created in. */
+    github: z
+      .object({
+        repositories: z
+          .array(
+            z
+              .object({
+                key,
+                fullName: z
+                  .string()
+                  .regex(/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/)
+                  .refine(
+                    (v) => v.split("/").every((part) => part !== "." && part !== ".."),
+                    "invalid repository name",
+                  ),
+              })
+              .strict(),
+          )
+          .max(20)
+          .refine(unique, "repository keys must be unique")
+          .refine(
+            (items) => new Set(items.map((i) => i.fullName.toLowerCase())).size === items.length,
+            "repositories must be unique",
+          ),
+      })
+      .strict(),
     /** Environment names that count as production for releases. */
     productionEnvironments: z
       .array(z.string().trim().min(1).max(40))
@@ -105,6 +131,7 @@ export const defaultIssuesSettings = (): IssuesSettings => ({
   sync: { autoFixReady: true, autoRelease: false },
   intake: { dailyReportCap: 500 },
   retention: { closedIssueMonths: 36, diagnosticsMonths: 12 },
+  github: { repositories: [] },
   productionEnvironments: ["production"],
 });
 
