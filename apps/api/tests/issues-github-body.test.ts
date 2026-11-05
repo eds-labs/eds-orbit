@@ -84,6 +84,16 @@ describe("githubIssueText", () => {
     expect(() => assertNoHits(githubIssueText(fields(), input))).not.toThrow();
   });
 
+  it("never flags the generated marker and Orbit link", () => {
+    // Real ids whose digit runs look like phone numbers to the strict profile.
+    const ids = {
+      requestId: "9de95c51-0035-4851-9698-62dbfd4b6aec",
+      orbitUrl: "https://orbit.example/p/07948255-011f-4b22-a3d8-1afb2ba02eef/issues/list?issue=96a36dd7-0651-4325-be58-e8b09b5c32f4",
+    };
+    expect(githubIssueText(fields(), ids).hits).toEqual({});
+    expect(githubIssueText(fields({ summary: "call +49 170 1234567" }), ids).hits).toEqual({ phone: 1 });
+  });
+
   it("title is truncated to 256 characters", () => {
     const { title } = githubIssueText(fields({ title: "x".repeat(400) }), input);
     expect(title).toHaveLength(256);

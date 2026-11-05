@@ -41,12 +41,15 @@ export function githubIssueText(
   ];
   if (fields.acceptanceCriteria.length)
     lines.push("", "### Acceptance criteria", ...fields.acceptanceCriteria.map((c) => `- ${c}`));
+  // The gate checks the issue's text only: the generated marker and link
+  // hold random ids whose digit runs can look like phone numbers.
+  const content = lines.slice(1).join("\n");
   lines.push("", `[Open in Orbit](${input.orbitUrl})`);
   const body = lines.join("\n");
 
   const counts: RedactionCounts = addCounts(
     redact(title, { profile: "strict" }).counts,
-    redact(body, { profile: "strict" }).counts,
+    redact(content, { profile: "strict" }).counts,
   );
   const hits: Record<string, number> = {};
   for (const [kind, n] of Object.entries(counts)) if (n && n > 0) hits[kind] = n;

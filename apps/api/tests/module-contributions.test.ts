@@ -102,6 +102,7 @@ describe("module contributions", () => {
         "index_evaluation_set",
         "ingestion",
         "issues_ai",
+        "issues_github",
         "issues_intake",
         "knowledge_analysis",
         "postiz_draft",

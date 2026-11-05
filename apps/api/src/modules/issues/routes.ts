@@ -24,6 +24,7 @@ import { can } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { installationRepositories } from "../../platform/connections/github-app.ts";
 import { checkAvailable, githubApp, githubStatus, newRepositories } from "./github-connection.ts";
+import { previewGithubIssue, reconcileGithubRequest, requestGithubIssue } from "./github.ts";
 import { issuesSettingsSchema, readIssuesSettings, saveIssuesSettings } from "./settings.ts";
 import { reportManually } from "./sources/manual.ts";
 import { createSource, disableSource, listSources } from "./sources.ts";
@@ -61,6 +62,7 @@ const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) 
 const linkInput = z
   .object({ targetType: z.string().regex(OBJECT_TYPE), targetId: uuid, relation: z.enum(LINK_RELATIONS) })
   .strict();
+const githubInput = z.object({ repository: z.string().min(1).max(100) }).strict();
 const targetsQuery = z.object({ type: z.string().regex(OBJECT_TYPE), q: z.string().max(200).default("") }).strict();
 
 /** Issue center routes (plan §4.2). */
@@ -103,6 +105,28 @@ export const issuesRoutes: RoutesContribution = (context) => {
       return githubStatus(tx, scope);
     }),
   );
+
+  // GitHub (owner only, spec 2026-11-05 §5.2): the exact text first, then a
+  // queued create; a request with an unknown outcome is reconciled, never
+  // created again.
+  app.post(`${BASE}/issues/:id/github/preview`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, (tx, scope, p) => {
+      requireIssuesGithub();
+      return previewGithubIssue(tx, scope, id(p), githubInput.parse(req.body).repository);
+    }),
+  );
+  app.post(`${BASE}/issues/:id/github`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, (tx, scope, p) => {
+      requireIssuesGithub();
+      return requestGithubIssue(tx, scope, id(p), githubInput.parse(req.body).repository, userActor(scope));
+    }),
+  );
+  app.post(`${BASE}/github/requests/:id/reconcile`, async (req) => {
+    const p = req.params as Params;
+    const scope = await scopeFor(auth, req, p.projectId!, ISSUES_GITHUB);
+    // GitHub is read outside any transaction; the function checks module and flag.
+    return reconcileGithubRequest(scope, id(p), userActor(scope));
+  });
 
   // Reports: a new issue or a report on a chosen issue (intake, §2.4).
   app.post(`${BASE}/issues`, (req) =>

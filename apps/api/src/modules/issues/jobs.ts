@@ -3,6 +3,7 @@ import type { JobDef } from "../../platform/jobs/types.ts";
 import { scrubWebhookBody, WEBHOOK_KIND } from "../../platform/http/webhooks.ts";
 import { audit, data, DomainError } from "../../shared.ts";
 import { issuesActive } from "./gate.ts";
+import { expireGithubRequest, ISSUES_GITHUB, runGithubCreate } from "./github.ts";
 import { ingestReport } from "./intake.ts";
 import { ISSUES_INTAKE, normalizeWebhook } from "./sources/webhook.ts";
 import { ISSUES_AI, runTriageJob } from "./triage.ts";
@@ -10,7 +11,8 @@ import { ISSUES_AI, runTriageJob } from "./triage.ts";
 // The issue center's background work (plan §4.3). A stored webhook
 // delivery becomes a report; afterwards its raw body is dropped whatever
 // the outcome (I-5). The intake calls no provider, so a retry is safe; the
-// AI triage never resends a call whose outcome is unclear.
+// AI triage never resends a call whose outcome is unclear, and the GitHub
+// job reconciles by its marker before it repeats a create.
 
 export const issuesJobs: JobDef[] = [
   {
@@ -61,5 +63,20 @@ export const issuesJobs: JobDef[] = [
     async handler({ scope, job }) {
       if (job.kind === "triage") await runTriageJob(scope, String(job.resourceId), Number(job.version));
     },
+  },
+  {
+    queueClass: ISSUES_GITHUB,
+    // Up to six bounded GitHub calls of 20 s each: the lease outlasts them,
+    // so a slow run is never overtaken by a retry of itself.
+    leaseMs: 300_000,
+    async handler({ scope, job }) {
+      // The worker has already counted this run in job.attempts.
+      if (job.kind === "create")
+        await runGithubCreate(scope, String(job.resourceId), {
+          attempts: Number(job.attempts),
+          maxAttempts: Number(job.maxAttempts),
+        });
+    },
+    onLeaseExpired: expireGithubRequest,
   },
 ];
