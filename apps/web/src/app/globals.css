@@ -6516,19 +6516,56 @@ a.support-row {
   font-weight: 600;
 }
 
-/* Private delegated work orders inside the existing assistant. */
-.assistant-tasks {
-  margin-bottom: 16px;
+/* The activity log of external work orders (formerly above Orbit Chat). */
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
 }
-.assistant-task {
-  margin: 0 16px 12px;
-  padding: 12px;
+.activity-item {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel);
+  box-shadow: var(--shadow);
 }
-.assistant-tasks > .form-actions {
-  margin: 0 16px 12px;
+.activity-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.activity-item-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-item-head .badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.activity-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.activity-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+.activity-item > .form-actions,
+.activity-more {
+  margin: 0;
+}
+.activity-more {
+  margin-top: 12px;
 }
 
 /* Reviewed project knowledge: clear reading surfaces, progressive disclosure. */
