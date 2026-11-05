@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { driveContent, driveFileInRoot } from "../../../platform/connections/google-drive.ts";
+import { driveContent } from "../../../platform/connections/google-drive.ts";
 import { DomainError } from "../../../shared.ts";
 import { uploadMedia, type MediaView } from "./library.ts";
 
@@ -21,13 +21,12 @@ const input = z
 
 export async function importDriveMedia(scope: Scope, raw: unknown): Promise<MediaView> {
   const { fileId, name } = input.parse(raw);
-  const meta = await driveFileInRoot(scope, fileId);
-  if (meta.mimeType.startsWith("video/")) throw new DomainError("SOCIAL_VIDEO_NOT_AVAILABLE", 415);
-  if (!IMAGE_TYPES.has(meta.mimeType)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
-  // The checksum pins the file the member chose: a change in between is refused.
-  const content = await driveContent(scope, fileId, {
-    md5Checksum: meta.md5Checksum,
-    modifiedTime: meta.modifiedTime,
+  // One Drive read: the type is checked on the metadata, before the download.
+  const content = await driveContent(scope, fileId, undefined, {
+    accept: (meta) => {
+      if (meta.mimeType.startsWith("video/")) throw new DomainError("SOCIAL_VIDEO_NOT_AVAILABLE", 415);
+      if (!IMAGE_TYPES.has(meta.mimeType)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
+    },
   });
-  return uploadMedia(scope, { bytes: content.bytes, mime: content.mime, name: name ?? meta.name });
+  return uploadMedia(scope, { bytes: content.bytes, mime: content.mime, name: name ?? content.name });
 }

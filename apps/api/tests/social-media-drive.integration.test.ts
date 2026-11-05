@@ -15,16 +15,17 @@ vi.mock("../src/platform/connections/google-drive.ts", async (original) => {
   const { DomainError } = await import("../src/shared.ts");
   return {
     ...actual,
-    driveFileInRoot: vi.fn(async (_scope: unknown, fileId: string) => {
-      if (drive.error) throw new DomainError(drive.error.code, drive.error.status);
-      const meta = drive.meta[fileId];
-      if (!meta) throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
-      return meta;
-    }),
-    driveContent: vi.fn(async (_scope: unknown, fileId: string) => {
-      drive.downloads.push(fileId);
-      return { bytes: drive.bytes, mime: drive.meta[fileId]!.mimeType };
-    }),
+    // The import reads Drive once: driveContent checks the type before the download.
+    driveContent: vi.fn(
+      async (_scope: unknown, fileId: string, _expected: unknown, options?: { accept?: (meta: object) => void }) => {
+        if (drive.error) throw new DomainError(drive.error.code, drive.error.status);
+        const meta = drive.meta[fileId];
+        if (!meta) throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
+        options?.accept?.(meta);
+        drive.downloads.push(fileId);
+        return { bytes: drive.bytes, mime: meta.mimeType, name: meta.name };
+      },
+    ),
   };
 });
 

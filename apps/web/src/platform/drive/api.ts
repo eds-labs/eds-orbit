@@ -11,6 +11,8 @@ export type DriveFile = {
   mimeType: string;
   size?: string;
   modifiedTime?: string;
+  /** Google's preview link; the browser loads it only through Orbit. */
+  thumbnailLink?: string;
 };
 export type DriveFolder = { id: string; name: string };
 export type DriveListing = {
@@ -82,9 +84,9 @@ export function drivePaths(projectId: string) {
       const text = search.toString();
       return `${base}/folders${text ? `?${text}` : ""}`;
     },
-    /** For <img src>: needs the /api prefix the fetch helpers add. */
-    content: (fileId: string) =>
-      `/api${base}/files/${encodeURIComponent(fileId)}/content`,
+    /** A small preview through Orbit (Google's thumbnail, about 400 px); for <img src>, with the /api prefix. */
+    thumbnail: (fileId: string) =>
+      `/api${base}/files/${encodeURIComponent(fileId)}/thumbnail`,
   };
 }
 

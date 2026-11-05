@@ -25,19 +25,23 @@ import { driveErrorText, driveText, driveTypeLabel } from "./labels";
 // and the modules' file actions; "pick" offers a choice per file instead,
 // for the Social composer and library.
 
-const VIEW_KEY = "orbit.drive.view";
+// Remembered per mode: browsing defaults to the table, choosing images to
+// the grid of previews.
 type View = "table" | "grid";
+const viewKey = (mode: "browse" | "pick") => `orbit.drive.view.${mode}`;
+const defaultView = (mode: "browse" | "pick"): View => (mode === "pick" ? "grid" : "table");
 
-function readView(): View {
+function readView(mode: "browse" | "pick"): View {
   try {
-    return globalThis.localStorage?.getItem(VIEW_KEY) === "grid" ? "grid" : "table";
+    const stored = globalThis.localStorage?.getItem(viewKey(mode));
+    return stored === "grid" || stored === "table" ? stored : defaultView(mode);
   } catch {
-    return "table";
+    return defaultView(mode);
   }
 }
-function writeView(view: View) {
+function writeView(mode: "browse" | "pick", view: View) {
   try {
-    globalThis.localStorage?.setItem(VIEW_KEY, view);
+    globalThis.localStorage?.setItem(viewKey(mode), view);
   } catch {
     // A blocked storage only loses the remembered view.
   }
@@ -95,12 +99,14 @@ export function DriveBrowser({
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState("");
   const [sort, setSort] = useState<DriveSort>("name");
-  const [view, setView] = useState<View>("table");
+  const [view, setView] = useState<View>(defaultView(mode));
+  // Previews that failed to load show the file's icon instead.
+  const [noPreview, setNoPreview] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [more, setMore] = useState<{ key: string; files: DriveFile[]; next: string | null } | null>(null);
   const [moreError, setMoreError] = useState<string | null>(null);
-  useEffect(() => setView(readView()), []);
+  useEffect(() => setView(readView(mode)), [mode]);
 
   const listingPath = paths.files({ folderId, query, sort });
   const listing = useResource<DriveListing>(listingPath);
@@ -244,7 +250,7 @@ export function DriveBrowser({
                 aria-pressed={view === value}
                 onClick={() => {
                   setView(value);
-                  writeView(value);
+                  writeView(mode, value);
                 }}
               >
                 {value === "table" ? <List data-icon="inline-start" /> : <LayoutGrid data-icon="inline-start" />}
@@ -321,8 +327,13 @@ export function DriveBrowser({
             <ul className="drive-grid">
               {files.map((file) => (
                 <li className="drive-card" key={file.id}>
-                  {isDriveImage(file) ? (
-                    <img src={paths.content(file.id)} alt={file.name} loading="lazy" />
+                  {file.thumbnailLink && !noPreview.has(file.id) ? (
+                    <img
+                      src={paths.thumbnail(file.id)}
+                      alt={file.name}
+                      loading="lazy"
+                      onError={() => setNoPreview((set) => new Set(set).add(file.id))}
+                    />
                   ) : (
                     <span className="asset-placeholder"><FileIcon file={file} /></span>
                   )}

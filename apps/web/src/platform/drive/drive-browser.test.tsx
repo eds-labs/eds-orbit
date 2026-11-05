@@ -35,7 +35,7 @@ const listing = {
   nextPageToken: null,
   files: [
     { id: "folderCCCC0001", name: "Campaign", mimeType: "application/vnd.google-apps.folder" },
-    { id: "imagePng000001", name: "Banner.png", mimeType: "image/png", size: "2048", modifiedTime: "2026-11-01T10:00:00.000Z" },
+    { id: "imagePng000001", name: "Banner.png", mimeType: "image/png", size: "2048", modifiedTime: "2026-11-01T10:00:00.000Z", thumbnailLink: "https://lh3.googleusercontent.com/x=s220" },
     { id: "videoMp4000001", name: "Clip.mp4", mimeType: "video/mp4", size: "5000000" },
   ],
 };
@@ -126,6 +126,16 @@ describe("Drive browser", () => {
     const html = render();
     expect(html).toContain("Google Drive did not answer. Try again.");
     expect(html).not.toContain("GOOGLE DRIVE REQUEST FAILED");
+  });
+
+  it("shows small Drive previews in the pick grid, never the full file", () => {
+    answers["/google-drive/files"] = listing;
+    const html = render({ mode: "pick", onPick: () => {} });
+    expect(html).toContain('src="/api/projects/p1/google-drive/files/imagePng000001/thumbnail"');
+    expect(html).not.toContain("/content");
+    // A file without a Drive preview shows its icon.
+    expect(html).not.toContain("videoMp4000001/thumbnail");
+    expect(html).not.toContain("https://lh3.googleusercontent.com");
   });
 
   it("accepts only Drive ids as folder parameter", () => {

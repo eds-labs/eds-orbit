@@ -502,6 +502,8 @@ async function ancestry(
   target: string,
   root: string,
   projectId?: string,
+  /** Receives the target's metadata when the walk read it. */
+  seen?: (node: DriveFile) => void,
 ): Promise<DrivePathItem[] | null> {
   const walked: Array<DrivePathItem & { folder: boolean }> = [];
   let current = target;
@@ -514,6 +516,7 @@ async function ancestry(
         cached.expiresAt,
       );
     const node = await file(token, current);
+    if (current === target) seen?.(node);
     walked.push({
       id: node.id,
       name: node.name,
@@ -659,23 +662,32 @@ export async function listDriveFolders(scope: Scope, raw: unknown) {
   };
 }
 /** One file's metadata, after checking it lies inside the project root. */
-export async function driveFileInRoot(scope: Scope, fileId: string) {
-  const conf = await storage(scope),
-    token = await accessToken(scope);
-  if (!(await isWithin(token, id.parse(fileId), conf.rootFolderId, scope.projectId)))
-    throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
-  return file(token, fileId);
+/**
+ * A file's metadata after checking it lies inside the root, reading it once:
+ * the parent walk starts with the file itself.
+ */
+async function fileInRoot(token: string, fileId: string, root: string, projectId: string) {
+  let meta: DriveFile | undefined;
+  const path = await ancestry(token, id.parse(fileId), root, projectId, (node) => {
+    meta = node;
+  });
+  if (!path) throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
+  // A cached folder chain skipped the read.
+  return meta ?? file(token, fileId);
 }
+/**
+ * A file's bytes (images and PDF, at most 20 MB). `accept` sees the metadata
+ * before anything is downloaded and may refuse the file by throwing.
+ */
 export async function driveContent(
   scope: Scope,
   fileId: string,
   expected?: { md5Checksum?: string; modifiedTime?: string },
+  options: { accept?: (meta: DriveFile) => void } = {},
 ) {
   const conf = await storage(scope),
     token = await accessToken(scope);
-  if (!(await isWithin(token, fileId, conf.rootFolderId, scope.projectId)))
-    throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
-  const meta = await file(token, fileId);
+  const meta = await fileInRoot(token, fileId, conf.rootFolderId, scope.projectId);
   if (expected?.md5Checksum && meta.md5Checksum !== expected.md5Checksum)
     throw new DomainError("DRIVE_ASSET_CHANGED", 409);
   if (
@@ -684,6 +696,7 @@ export async function driveContent(
     meta.modifiedTime !== expected.modifiedTime
   )
     throw new DomainError("DRIVE_ASSET_CHANGED", 409);
+  options.accept?.(meta);
   if (
     meta.mimeType === folderMime ||
     ![
@@ -709,7 +722,39 @@ export async function driveContent(
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > 20_000_000)
     throw new DomainError("GOOGLE_DRIVE_PREVIEW_TOO_LARGE", 413);
-  return { bytes, mime: meta.mimeType };
+  return { bytes, mime: meta.mimeType, name: meta.name };
+}
+const THUMBNAIL_MAX_BYTES = 2_000_000;
+const THUMBNAIL_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+/**
+ * Google's preview of a file at about 400 pixels (Drive page grid): small,
+ * and available for documents and videos too. Only a thumbnail link on
+ * Google's image host is fetched; anything else answers 404.
+ */
+export async function driveThumbnail(scope: Scope, fileId: string) {
+  const conf = await storage(scope),
+    token = await accessToken(scope);
+  const meta = await fileInRoot(token, fileId, conf.rootFolderId, scope.projectId);
+  let url: URL | null = null;
+  try {
+    url = meta.thumbnailLink ? new URL(meta.thumbnailLink) : null;
+  } catch {
+    url = null;
+  }
+  if (!url || url.protocol !== "https:" || !url.hostname.endsWith(".googleusercontent.com"))
+    throw new DomainError("GOOGLE_DRIVE_THUMBNAIL_MISSING", 404);
+  url.pathname = url.pathname.replace(/=s\d+$/, "=s400");
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    redirect: "error",
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) throw new DomainError("GOOGLE_DRIVE_DOWNLOAD_FAILED", 502);
+  const mime = (response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+  if (!THUMBNAIL_TYPES.has(mime)) throw new DomainError("GOOGLE_DRIVE_PREVIEW_UNSUPPORTED", 415);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > THUMBNAIL_MAX_BYTES) throw new DomainError("GOOGLE_DRIVE_PREVIEW_TOO_LARGE", 413);
+  return { bytes, mime };
 }
 async function ensureFolder(token: string, parent: string, name: string) {
   const url = new URL("https://www.googleapis.com/drive/v3/files");

@@ -100,6 +100,7 @@ import {
   browseDrive,
   listDriveFolders,
   driveContent,
+  driveThumbnail,
 } from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
@@ -1216,6 +1217,25 @@ export async function buildServer(
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
   });
+  app.get(
+    "/api/projects/:projectId/google-drive/files/:fileId/thumbnail",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const thumb = await driveThumbnail(
+        await scopeFor(auth, req, projectId),
+        fileId,
+      );
+      return reply
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "private, max-age=300")
+        .type(thumb.mime)
+        .send(thumb.bytes);
+    },
+  );
   app.get("/api/projects/:projectId/google-drive/folders", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return listDriveFolders(await scopeFor(auth, req, projectId), req.query);
