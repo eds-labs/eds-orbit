@@ -122,6 +122,18 @@ export async function previewGithubIssue(
 }
 
 /**
+ * A request in flight or with an unknown outcome may still create the
+ * issue: it must finish or be reconciled first (never a blind re-create).
+ */
+export async function assertNoUnsettledRequest(tx: DbTx, scope: Scope, issueId: string, fullName: string) {
+  const open = await tx.entity.findMany({
+    where: { projectId: scope.projectId, kind: REQUEST_KIND, data: { path: ["issueId"], equals: issueId } },
+  });
+  if (open.some((r) => UNSETTLED.includes(data(r).status) && sameName(String(data(r).fullName), fullName)))
+    throw new DomainError("ISSUES_GITHUB_REQUEST_STATE", 409);
+}
+
+/**
  * Queues the creation of a GitHub issue (spec §5.2 "Request"). The request
  * id is the entity id and the marker in the GitHub body.
  */
@@ -137,13 +149,7 @@ export async function requestGithubIssue(
   // One request at a time per issue: concurrent clicks queue up here.
   await tx.$queryRaw`SELECT id FROM "Issue" WHERE id = ${id}::uuid AND "projectId" = ${scope.projectId}::uuid FOR UPDATE`;
   const { issue, fields, repository } = await checkRequest(tx, scope, id, repositoryKey);
-  const open = await tx.entity.findMany({
-    where: { projectId: scope.projectId, kind: REQUEST_KIND, data: { path: ["issueId"], equals: issue.id } },
-  });
-  // A request in flight or with an unknown outcome may still create the
-  // issue: it must finish or be reconciled first (never a blind re-create).
-  if (open.some((r) => UNSETTLED.includes(data(r).status) && sameName(String(data(r).fullName), repository.fullName)))
-    throw new DomainError("ISSUES_GITHUB_REQUEST_STATE", 409);
+  await assertNoUnsettledRequest(tx, scope, issue.id, repository.fullName);
 
   const requestId = randomUUID();
   assertNoHits(githubIssueText(fields, { requestId, orbitUrl: issueOrbitUrl(scope.projectId, issue.id) }));

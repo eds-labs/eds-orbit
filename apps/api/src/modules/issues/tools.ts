@@ -6,10 +6,13 @@ import { ISSUES_SCOPE, WORK_SCOPE } from "../../platform/mcp/scopes.ts";
 import type { RequestedBy } from "../action-requests.ts";
 import { DomainError } from "../../shared.ts";
 import { componentKey, ISSUE_TYPES, issueKey, PRIORITIES, SEVERITIES, type IssueActor } from "./common.ts";
+import { assertNoHits } from "./github-body.ts";
+import { assertNoUnsettledRequest, previewGithubIssue, requestGithubIssue } from "./github.ts";
+import { requireIssuesGithub } from "./gate.ts";
 import { ingestReport } from "./intake.ts";
 import { assertTaxonomy, loadIssue, setIssueStatus, updateIssue } from "./issues.ts";
 import { mergeIssue } from "./merge.ts";
-import { ISSUES_READ, ISSUES_REPORT, ISSUES_TRIAGE } from "./permissions.ts";
+import { ISSUES_GITHUB, ISSUES_READ, ISSUES_REPORT, ISSUES_TRIAGE } from "./permissions.ts";
 import { issueDetail, listIssues } from "./queries.ts";
 import { readIssuesSettings } from "./settings.ts";
 import { issuesOverview } from "./stats.ts";
@@ -323,7 +326,58 @@ export const issuesProposeTask = approvedOperation({
   },
 });
 
-const proposals = [issuesProposeReport, issuesProposeUpdate, issuesProposeMerge, issuesProposeTask];
+const githubInput = z.object({ number, repository: z.string().trim().min(1).max(64) }).strict();
+
+async function checkGithubProposal(tx: DbTx, scope: Scope, args: z.infer<typeof githubInput>) {
+  requireIssuesGithub();
+  const issueId = await issueByNumber(tx, scope, args.number);
+  // Covers share review, status, allow-list, connection and an existing link.
+  const preview = await previewGithubIssue(tx, scope, issueId, args.repository);
+  await assertNoUnsettledRequest(tx, scope, issueId, preview.repository);
+  return preview;
+}
+
+export const issuesProposeGithubIssue = approvedOperation({
+  riskClass: "W0",
+  ...proposal,
+  // The issue leaves Orbit: only an owner decides, and only an owner may propose.
+  deciderRole: "owner" as const,
+  name: "issues_propose_github_issue",
+  agent: {
+    title: { en: "Propose GitHub issue", de: "GitHub-Issue vorschlagen" },
+    summary: { en: "Proposes creating a GitHub issue for approval.", de: "Schlägt das Anlegen eines GitHub-Issues zur Freigabe vor." },
+  },
+  description:
+    "Propose creating a GitHub issue from a confirmed, share-reviewed issue by number in an allowed repository key. The owner approves the exact title and text that will leave Orbit; nothing is sent before.",
+  input: githubInput,
+  permission: ISSUES_GITHUB,
+  summary: (args, context) => ({
+    operation: { kind: "issue_github", number: args.number, repository: args.repository },
+    // The exact text that will leave Orbit; no diagnostics, reports or ticket ids.
+    ...(context ? { preview: context } : {}),
+  }),
+  async validate(tx, scope, args) {
+    requireIssuesGithub();
+    const preview = await checkGithubProposal(tx, scope, args);
+    assertNoHits(preview);
+  },
+  async approvalContext(tx, scope, args) {
+    const { title, body, repository } = await checkGithubProposal(tx, scope, args);
+    return { repository, title, body };
+  },
+  // The owner approved exactly this text: a changed issue needs a new proposal.
+  async revalidateContext(tx, scope, args, saved) {
+    const { title, body, repository } = await checkGithubProposal(tx, scope, args);
+    const was = (saved ?? {}) as Record<string, unknown>;
+    if (was.title !== title || was.body !== body || was.repository !== repository)
+      throw new DomainError("ISSUES_GITHUB_TEXT_CHANGED", 409);
+  },
+  async run(tx, scope, args, requester) {
+    return requestGithubIssue(tx, scope, await issueByNumber(tx, scope, args.number), args.repository, actorOf(scope, requester));
+  },
+});
+
+const proposals = [issuesProposeReport, issuesProposeUpdate, issuesProposeMerge, issuesProposeTask, issuesProposeGithubIssue];
 
 /** The module's tools: reads first, then proposals. */
 export const issuesTools = [issuesSearch, issuesGet, issuesStats, issuesDuplicates, ...proposals.map((p) => p.tool)];
@@ -333,5 +387,5 @@ export const issuesActionTypes = Object.fromEntries(proposals.map((p) => [p.acti
 
 /** The assistant prompt fragment: short, factual, English. */
 export const issuesInstructions = [
-  "Issue center (module issues): product issues (ISS-12) aggregate redacted reports from Support, people and webhooks and are implemented by tasks. Status runs new → triage → confirmed → planned → in_progress → fix_ready (merged, not deployed) → released (in production) → verified → closed. Look issues up with issues_search or issues_get before proposing, pass the version you read, never put customer names or addresses into a report, and never claim a fix is live unless the issue is released. Proposals change nothing until a member approves them in Orbit.",
+  "Issue center (module issues): product issues (ISS-12) aggregate redacted reports from Support, people and webhooks and are implemented by tasks. Status runs new → triage → confirmed → planned → in_progress → fix_ready (merged, not deployed) → released (in production) → verified → closed. Look issues up with issues_search or issues_get before proposing, pass the version you read, never put customer names or addresses into a report, and never claim a fix is live unless the issue is released. Proposals change nothing until a member approves them in Orbit; issues_propose_github_issue needs an owner and sends the shown title and text to GitHub.",
 ];
