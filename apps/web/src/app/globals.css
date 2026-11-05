@@ -8470,3 +8470,209 @@ a.support-row {
   justify-content: flex-start;
   gap: 8px;
 }
+
+/* Google Drive browser (Drive page design 2026-11-05 §5.1). */
+.drive-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.drive-tree-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.drive-tree-panel > summary {
+  display: none;
+}
+.drive-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.drive-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding-block: 4px;
+  padding-inline-end: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.drive-tree-row:hover {
+  background: var(--muted);
+}
+.drive-tree-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.drive-tree-row.is-selected {
+  background: var(--muted);
+  font-weight: 600;
+}
+.drive-tree-row svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-tree-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drive-tree-more {
+  color: var(--primary);
+}
+.drive-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.drive-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.drive-breadcrumb li + li::before {
+  content: "/";
+  margin-inline-end: 4px;
+  color: var(--muted-foreground);
+}
+.drive-breadcrumb li[aria-current="page"] {
+  font-weight: 600;
+}
+.drive-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+}
+.drive-toolbar form {
+  display: flex;
+  gap: 6px;
+}
+.drive-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.drive-view-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+.drive-table-wrap {
+  overflow-x: auto;
+}
+.drive-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.drive-table th,
+.drive-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: middle;
+}
+.drive-table thead th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  font-size: 12px;
+}
+.drive-table tbody th {
+  font-weight: 500;
+}
+.drive-file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+}
+button.drive-file-name {
+  cursor: pointer;
+  color: var(--primary);
+}
+.drive-file-name svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-file-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.drive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.drive-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  min-width: 0;
+}
+.drive-card > img,
+.drive-card > .asset-placeholder {
+  width: 100%;
+  height: 140px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+.drive-card strong {
+  overflow-wrap: anywhere;
+}
+.drive-card p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .drive-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drive-tree-panel > summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 4px;
+  }
+  .drive-tree-panel {
+    max-height: none;
+  }
+}
