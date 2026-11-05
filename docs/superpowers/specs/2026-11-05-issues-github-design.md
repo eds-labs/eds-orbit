@@ -57,16 +57,15 @@ Assistant/MCP proposal → ActionRequest ─┴→ issues/github.ts ─ enqueue 
 
 ### 5.1 Platform: `apps/api/src/platform/connections/github-app.ts` (new)
 
-- **Connection provider `github_app`**, registered in `platform-contributions.ts` only while `ORBIT_ISSUES_GITHUB` is on.
+- **Connection provider `github_app`**, registered in `platform-contributions.ts` (always, like `n8n`; it is usable only through a grant, and the issues routes are flag-gated).
   - `scopes: ["system", "workspace"]`, `purposes: ["issues"]` (later `coding`, `knowledge`).
-  - Non-secret config: `appId` (digits), `appSlug` (`[a-z0-9-]+`), `installationId` (digits), validated in `normalize`. One connection = one App installation on one GitHub account.
-  - Secret: the App's PEM private key (sealed `ConnectionSecret`, entered by Mario in the administration; never logged, returned or shown).
-  - `check`: mints an App JWT, reads `GET /app/installations/{installationId}` → `read_verified` with capabilities `["github_issues"]`; failures map to `GITHUB_RECONNECT_REQUIRED` / `GITHUB_ACCESS_OR_RATE_LIMIT` / `GITHUB_REQUEST_FAILED`.
+  - Secret (one JSON string, like the social apps, because the administration form sends only `baseUrl` plus one secret): `{ appId, appSlug, installationId, privateKey }`. The PEM key is accepted with real newlines, `\n` escapes or spaces in place of newlines (a password field drops newlines) and normalized. One connection = one App installation on one GitHub account. Sealed `ConnectionSecret`, entered by Mario in the administration; never logged, returned or shown.
+  - `check`: mints an App JWT, reads `GET /app/installations/{installationId}` → `read_verified` with capabilities `["github_issues"]` and the non-secret `account` login; failures map to `GITHUB_RECONNECT_REQUIRED` / `GITHUB_ACCESS_OR_RATE_LIMIT` / `GITHUB_REQUEST_FAILED`.
 - **Client functions** (pure platform, no module names):
-  - `githubAppJwt(appId, privateKey, now)` — RS256, `iat = now − 60 s`, `exp = now + 9 min`.
-  - `installationToken(conn, key, { repositories: [name], permissions })` — `POST /app/installations/{id}/access_tokens` with an explicit repository list and permission map. Callers pass the minimum; slice 1 uses `{ issues: "write", metadata: "read" }`. Tokens are used for one operation and never stored.
+  - `githubAppJwt(app, now)` — RS256, `iat = now − 60 s`, `exp = now + 9 min`.
+  - `installationToken(app, { repositories: [name], permissions })` — `POST /app/installations/{id}/access_tokens` with an explicit repository list and permission map. Callers pass the minimum; slice 1 uses `{ issues: "write", metadata: "read" }`. Tokens are used for one operation and never stored.
   - `githubFetch(path, token, init)` — `https://api.github.com` only, `redirect: "error"`, 20 s timeout, `X-GitHub-Api-Version` as in knowledge, body capped at 1 MB before parsing, error mapping as above plus `GITHUB_VALIDATION_FAILED` (422) and `GITHUB_UNAVAILABLE` (5xx, network, timeout).
-  - `installationRepositories(conn, key)` — `GET /installation/repositories` (paged, max 500), returns `{ fullName, private, archived }`.
+  - `installationRepositories(app)` — `GET /installation/repositories` (paged, max 500), returns `{ fullName, private, archived }`.
 - An injectable transport (as in the Google Drive mock tests) so no test calls GitHub.
 
 ### 5.2 Issues module
@@ -171,7 +170,7 @@ Readers see existing refs (URL, state) in the detail as today; only the actions 
 
 1. Push to `main` with Mario's OK (no migration; flag off → no behaviour change).
 2. Mario creates the GitHub App "Orbit Issues": Repository permissions Issues read/write, Metadata read; webhook inactive; installable only on his account; installs it on selected **private** repositories.
-3. Mario creates the system connection `github_app` in the administration (App id, slug, installation id) and enters the private key himself; check → `read_verified`.
+3. Mario creates the system connection `github_app` in the administration and enters its secret JSON (App id, slug, installation id, private key) himself; check → `read_verified`.
 4. Grant to the organization and the project with purpose `issues`.
 5. Mario sets `ORBIT_ISSUES_GITHUB=true` in Coolify (with `ORBIT_ISSUES=true`) and redeploys.
 6. In the project's issue settings the owner picks the repositories and the components' default repositories.
