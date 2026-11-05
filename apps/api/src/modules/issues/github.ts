@@ -266,16 +266,21 @@ async function recheck(tx: DbTx, scope: Scope, value: RequestValue): Promise<Pre
 const loadRequest = (tx: DbTx, scope: Scope, id: string) =>
   tx.entity.findFirst({ where: { id, kind: REQUEST_KIND, projectId: scope.projectId } });
 
-/** Moves an unfinished request to `failed` or `outcome_unknown` (content-free audit). */
+/**
+ * Moves an unfinished request to `failed` or `outcome_unknown`
+ * (content-free audit). `from` lists the statuses it may leave; only the
+ * link step settles an `outcome_unknown` request.
+ */
 async function settleIn(
   tx: DbTx,
   scope: Scope,
   id: string,
   status: "failed" | "outcome_unknown",
   code: string,
+  from: readonly string[] = IN_FLIGHT,
 ) {
   const row = await loadRequest(tx, scope, id);
-  if (!row || !["queued", "sending"].includes(data(row).status)) return;
+  if (!row || !from.includes(data(row).status)) return;
   const value = data(row);
   await update(tx, scope, row, { ...value, status, code });
   await audit(tx, scope, status === "failed" ? "issues.github.failed" : "issues.github.outcome_unknown", id, {
@@ -355,24 +360,30 @@ async function linkRequest(
       where: { projectId: scope.projectId, system: "github", externalId },
     });
     if (existing && existing.issueId !== value.issueId) {
-      await settleIn(tx, scope, id, "failed", "ISSUES_GITHUB_ALREADY_LINKED");
+      // Also from `outcome_unknown` (reconcile): the request must not stay stuck.
+      await settleIn(tx, scope, id, "failed", "ISSUES_GITHUB_ALREADY_LINKED", ["sending", "outcome_unknown"]);
       return "failed";
     }
-    if (!existing)
-      await tx.issueExternalRef.create({
-        data: {
-          id: randomUUID(),
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          issueId: String(value.issueId),
-          system: "github",
-          externalId,
-          url: found.url,
-          state: "open",
-          syncedAt: new Date(),
-          createdBy: String(value.requestedBy),
-        },
-      });
+    if (existing) {
+      // Already linked to this issue (by hand meanwhile): the link step
+      // wrote its history then, so only the request settles.
+      await update(tx, scope, row, { ...value, status: "done", code: null, externalId });
+      return "done";
+    }
+    await tx.issueExternalRef.create({
+      data: {
+        id: randomUUID(),
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        issueId: String(value.issueId),
+        system: "github",
+        externalId,
+        url: found.url,
+        state: "open",
+        syncedAt: new Date(),
+        createdBy: String(value.requestedBy),
+      },
+    });
     await update(tx, scope, row, { ...value, status: "done", code: null, externalId });
     const issue = await tx.issue.findFirst({ where: { projectId: scope.projectId, id: String(value.issueId) } });
     await issueEvent(tx, scope, String(value.issueId), "github", actor, {}, {
@@ -581,7 +592,7 @@ export async function reconcileGithubRequest(
     return { status: settled ? "failed" : "outcome_unknown" };
   }
   const status = await linkRequest(scope, id, found, actor);
-  return { status: status === "done" ? "done" : "outcome_unknown" };
+  return { status: status === "done" || status === "failed" ? status : "outcome_unknown" };
 }
 
 /**
@@ -595,4 +606,17 @@ export async function expireGithubRequest(tx: DbTx, scope: Scope, job: Record<st
   const status = data(row).status;
   if (status === "sending") await settleIn(tx, scope, row.id, "outcome_unknown", "JOB_OUTCOME_UNKNOWN");
   else if (status === "queued") await settleIn(tx, scope, row.id, "failed", "JOB_OUTCOME_UNKNOWN");
+}
+
+/**
+ * A paused project blocks the job for good (the worker never retries it):
+ * a `queued` request fails (nothing was sent) and a `sending` one becomes
+ * `outcome_unknown`, so the owner can reconcile it or ask again later.
+ */
+export async function blockGithubRequest(tx: DbTx, scope: Scope, job: Record<string, any>) {
+  const row = await loadRequest(tx, scope, String(job.resourceId));
+  if (!row) return;
+  const status = data(row).status;
+  if (status === "sending") await settleIn(tx, scope, row.id, "outcome_unknown", "PROJECT_PAUSED");
+  else if (status === "queued") await settleIn(tx, scope, row.id, "failed", "PROJECT_PAUSED");
 }

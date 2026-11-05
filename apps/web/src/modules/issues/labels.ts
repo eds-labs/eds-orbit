@@ -229,6 +229,7 @@ const en = {
       ISSUES_NOT_FOUND: "The issue no longer exists.",
       ISSUES_DISABLED: "The issue center is switched off for this project.",
       GITHUB_APP_INVALID: "The GitHub App connection is invalid. Check it in the administration.",
+      PROJECT_PAUSED: "The project was paused before GitHub was asked. Request again once it runs.",
       REQUEST_FAILED: "The request failed.",
     } as Record<string, string>,
     settings: {
@@ -501,6 +502,7 @@ const de: IssuesText = {
       ISSUES_NOT_FOUND: "Das Issue gibt es nicht mehr.",
       ISSUES_DISABLED: "Das Issue-Center ist für dieses Projekt ausgeschaltet.",
       GITHUB_APP_INVALID: "Die GitHub-App-Verbindung ist ungültig. Prüfe sie in der Administration.",
+      PROJECT_PAUSED: "Das Projekt wurde pausiert, bevor GitHub angefragt wurde. Frage erneut an, sobald es wieder läuft.",
       REQUEST_FAILED: "Die Anfrage ist fehlgeschlagen.",
     },
     settings: {

@@ -3,7 +3,7 @@ import type { JobDef } from "../../platform/jobs/types.ts";
 import { scrubWebhookBody, WEBHOOK_KIND } from "../../platform/http/webhooks.ts";
 import { audit, data, DomainError } from "../../shared.ts";
 import { issuesActive } from "./gate.ts";
-import { expireGithubRequest, ISSUES_GITHUB, runGithubCreate } from "./github.ts";
+import { blockGithubRequest, expireGithubRequest, ISSUES_GITHUB, runGithubCreate } from "./github.ts";
 import { ingestReport } from "./intake.ts";
 import { ISSUES_INTAKE, normalizeWebhook } from "./sources/webhook.ts";
 import { ISSUES_AI, runTriageJob } from "./triage.ts";
@@ -78,5 +78,8 @@ export const issuesJobs: JobDef[] = [
         });
     },
     onLeaseExpired: expireGithubRequest,
+    // A disabled module has no hook: its jobs wait as blocked_dependency and
+    // the job retry action resumes them once the module is on again.
+    onBlockedByPause: (tx, job, scope) => blockGithubRequest(tx, scope, job),
   },
 ];

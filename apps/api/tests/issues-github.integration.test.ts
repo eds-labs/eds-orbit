@@ -521,6 +521,62 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(posts()).toHaveLength(1);
   });
 
+  it("reconcile settles an unclear request whose GitHub issue another Orbit issue holds", async () => {
+    /** An unclear create that GitHub lists only later: outcome_unknown, issue exists. */
+    const unclear = async () => {
+      const issue = await readyIssue();
+      const requestId = await requestCreate(issue.id);
+      gh.create = ["unclear"];
+      gh.lagging = true;
+      await expect(runJob(requestId, 1)).rejects.toBeTruthy();
+      await runJob(requestId, 3);
+      expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
+      gh.lagging = false;
+      return { issue, requestId, number: gh.issues.at(-1)!.number };
+    };
+    const reconcile = (requestId: string) => call("owner", "POST", `/issues/github/requests/${requestId}/reconcile`);
+
+    // Held by another Orbit issue: failed, not stuck in outcome_unknown.
+    const a = await unclear();
+    const other = await readyIssue();
+    await p.run((tx) =>
+      tx.issueExternalRef.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: p.owner.workspaceId,
+          projectId: p.owner.projectId,
+          issueId: other.id,
+          system: "github",
+          externalId: `o/web#${a.number}`,
+          url: `https://github.com/o/web/issues/${a.number}`,
+          state: "open",
+          createdBy: p.owner.userId,
+        },
+      }),
+    );
+    expect((await reconcile(a.requestId)).json()).toEqual({ status: "failed" });
+    expect(await request(a.requestId)).toMatchObject({ status: "failed", code: "ISSUES_GITHUB_ALREADY_LINKED" });
+    expect(
+      await p.run((tx) => tx.auditEvent.count({ where: { projectId: p.owner.projectId, action: "issues.github.failed", resourceId: a.requestId } })),
+    ).toBe(1);
+
+    // Linked to this issue by hand meanwhile: done, without a second "linked" record.
+    const b = await unclear();
+    gh.remote[b.number] = { state: "open" };
+    const manual = await call("owner", "POST", `/issues/issues/${b.issue.id}/github/link`, { url: `https://github.com/o/web/issues/${b.number}` });
+    expect(manual.statusCode).toBe(200);
+    const events = () => p.run((tx) => tx.issueEvent.count({ where: { issueId: b.issue.id, type: "github" } }));
+    const linkedAudits = () =>
+      p.run((tx) => tx.auditEvent.count({ where: { projectId: p.owner.projectId, action: "issues.github.linked", metadata: { path: ["issueId"], equals: b.issue.id } } }));
+    const domain = () => p.run((tx) => tx.domainEvent.count({ where: { projectId: p.owner.projectId, type: "issues.github.linked", subjectId: b.issue.id } }));
+    const before = { events: await events(), audits: await linkedAudits(), domain: await domain() };
+    expect((await reconcile(b.requestId)).json()).toEqual({ status: "done" });
+    expect(await request(b.requestId)).toMatchObject({ status: "done", externalId: `o/web#${b.number}` });
+    expect({ events: await events(), audits: await linkedAudits(), domain: await domain() }).toEqual(before);
+    expect(await p.run((tx) => tx.issueExternalRef.count({ where: { issueId: b.issue.id } }))).toBe(1);
+    expect(posts()).toHaveLength(2);
+  });
+
   it("outcome_unknown blocks a new request until reconcile settles it as not found", async () => {
     const issue = await readyIssue();
     const requestId = await requestCreate(issue.id);
@@ -596,6 +652,27 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(await request(requestId)).toMatchObject({ status: "sending" });
     await p.run((tx) => expire(tx, worker(), { resourceId: requestId, attempts: 3, maxAttempts: 3 }));
     expect(await request(requestId)).toMatchObject({ status: "outcome_unknown", code: "JOB_OUTCOME_UNKNOWN" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("a paused project settles a blocked request: queued fails, sending becomes reconcilable", async () => {
+    const block = registeredJobs().get(ISSUES_GITHUB)!.onBlockedByPause!;
+    const queuedIssue = await readyIssue();
+    const queued = await requestCreate(queuedIssue.id);
+    await p.run((tx) => block(tx, { resourceId: queued }, worker()));
+    expect(await request(queued)).toMatchObject({ status: "failed", code: "PROJECT_PAUSED" });
+
+    const sendingIssue = await readyIssue();
+    const sending = await requestCreate(sendingIssue.id);
+    await p.run(async (tx) => {
+      const row = await tx.entity.findFirstOrThrow({ where: { id: sending } });
+      await tx.entity.update({ where: { id: sending }, data: { data: { ...data(row), status: "sending", attempts: 1 } } });
+    });
+    await p.run((tx) => block(tx, { resourceId: sending }, worker()));
+    expect(await request(sending)).toMatchObject({ status: "outcome_unknown", code: "PROJECT_PAUSED" });
+    // A settled request is left alone.
+    await p.run((tx) => block(tx, { resourceId: queued }, worker()));
+    expect(await request(queued)).toMatchObject({ status: "failed", code: "PROJECT_PAUSED" });
     expect(calls).toHaveLength(0);
   });
 

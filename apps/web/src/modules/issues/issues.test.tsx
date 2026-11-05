@@ -317,7 +317,7 @@ describe("issue center web (ADR 0018)", () => {
     it("labels the GitHub refusals and hints when reconcile found nothing yet", () => {
       for (const locale of ["en", "de"] as const) {
         const g = issuesText(locale).github;
-        for (const code of ["ISSUES_VERSION_CONFLICT", "ISSUES_NOT_CONFIRMED", "GITHUB_APP_INVALID", "ISSUES_NOT_FOUND", "ISSUES_DISABLED", "VERSION_CONFLICT"])
+        for (const code of ["ISSUES_VERSION_CONFLICT", "ISSUES_NOT_CONFIRMED", "GITHUB_APP_INVALID", "ISSUES_NOT_FOUND", "ISSUES_DISABLED", "VERSION_CONFLICT", "PROJECT_PAUSED"])
           expect(g.errors[code], `${locale} ${code}`).toBeTruthy();
         expect(reconcileNote({ status: "done" }, g)).toBeNull();
       }
