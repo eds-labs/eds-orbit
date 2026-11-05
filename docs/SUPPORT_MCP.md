@@ -1,9 +1,12 @@
 # Native Support through MCP
 
 Support tools use the same module services, PostgreSQL tables, project lock,
-FORCE RLS, channel outbox and owner ActionRequests as Orbit itself. They are
-also registered for the Orbit Assistant; no second ticket API or agent workflow
-is involved. API contract version: `schemaVersion: 1`.
+FORCE RLS, channel outbox and owner ActionRequests as Orbit itself; no second
+ticket API is involved. The Orbit Assistant's in-app chat offers only the
+deferred Support tools its features list (`support_insights` returns counts
+only). Configured Support agents (ADR 0021 Phase 2, see `docs/SUPPORT.md`,
+"Support agent") use a reviewed subset of the same tools. API contract
+version: `schemaVersion: 1`.
 
 ## Activation and consent
 
@@ -186,7 +189,9 @@ It records the owner's standing decision as `channel: mcp_setting` with
 `inboxId` and `inboxVersion`; the same ActionRequest,
 active grant/scope checks and destination revalidation still apply. It does
 not change token scopes. Editors, delegated work orders, in-app agents,
-notes, status changes and paid AI keep individual approval. Enabling it
+configured agents (ADR 0021: checked by principal and by the recorded
+requester, pinned by test), notes, status changes and paid AI keep
+individual approval. Enabling it
 never sends existing pending proposals; retries keep their original state.
 Disabling it governs future calls and does not undo already queued messages.
 
@@ -337,3 +342,8 @@ Turning a feature off does not unsend an already transmitted message or cancel
 an already queued native delivery. Preserve receipts and reconcile uncertain
 sends; never retry blindly. Revoking a connection makes pending MCP approvals
 unusable through the existing grant validation/cancellation path.
+
+## Changes with the Support agent (2026-11-04, ADR 0021 Phase 2)
+
+- `support_prepare_reply` now runs the Support AI's draft checks for every requester: a draft with a forbidden promise or advice is refused (`SUPPORT_DRAFT_FORBIDDEN_PROMISE`, `SUPPORT_DRAFT_FORBIDDEN_ADVICE`). MCP tool names, shapes and approvals are otherwise unchanged; the new checks only refuse more.
+- Agent-only tools (`support_similar_tickets`, `support_triage_suggest`, `support_draft_generate`, `support_hand_off`, `support_apply_triage`) are not offered to MCP clients or the assistant.

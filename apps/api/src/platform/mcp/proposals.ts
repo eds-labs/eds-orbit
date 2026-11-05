@@ -8,6 +8,7 @@ import { McpProposalQuotaError } from "./errors.ts";
 import {
   MCP_PROPOSAL_DAY_CACHE_MAX,
   MCP_PROPOSAL_WINDOW_MS,
+  MCP_RATE_LIMITS,
   type McpRateLimiter,
   type RateRule,
 } from "./limits.ts";
@@ -280,4 +281,45 @@ export async function reserveProposal(
     throw error;
   }
   return reservation;
+}
+
+/**
+ * The same proposal quotas for delegated MCP work orders (ADR 0021 §7.3):
+ * before WP1.2 a work order's child proposals were neither counted nor
+ * recorded, because only the gateway enforced the quotas. The worker runs
+ * those turns, so both windows are read from the key's `mcp.proposal`
+ * events (shared by every process); a created proposal is recorded like a
+ * gateway call, and a deduplicated retry is neither charged nor recorded.
+ * Calls of one key in flight at once may overshoot by those calls, as the
+ * gateway's daily check may.
+ */
+export async function withDelegatedProposalQuota<T extends { output: unknown }>(
+  key: ProposalQuotaKey & { grantId: string },
+  tool: string,
+  run: () => Promise<T>,
+  limits: { perHour: number; perDay: number } = {
+    perHour: MCP_RATE_LIMITS.proposalsPerHour,
+    perDay: MCP_RATE_LIMITS.proposalsPerDay,
+  },
+  now: number = Date.now(),
+): Promise<T> {
+  const [hour, day] = await Promise.all([
+    countProposalEvents(key, new Date(now - MCP_PROPOSAL_WINDOW_MS)),
+    countProposalEvents(key, new Date(startOfUtcDay(now))),
+  ]);
+  if (hour >= limits.perHour || day >= limits.perDay)
+    throw new McpProposalQuotaError();
+  const result = await run();
+  const output = result.output as Record<string, unknown> | null;
+  if (!(output && typeof output === "object" && output.deduplicated === true))
+    await recordMcpProposal({
+      userId: key.userId,
+      clientId: key.clientId,
+      grantId: key.grantId,
+      workspaceId: key.workspaceId,
+      tool,
+      actionRequestId:
+        output && typeof output === "object" ? output.actionRequestId : null,
+    });
+  return result;
 }

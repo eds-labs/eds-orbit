@@ -10,7 +10,15 @@ import { assertProviderBudget } from "./provider-budget.ts";
 import { chargedGrant, reserveOnGrant, settleOnGrant } from "./central-ai.ts";
 import { runtimeProviderBudgets } from "./openai-configuration.ts";
 import { providerOfModel } from "../../../../../packages/ai/src/index.ts";
-import { reserveOnOrganization, settleOnOrganization } from "./org-budget.ts";
+import {
+  aiOrgBudgetEnabled,
+  organizationBudget,
+  organizationSpend,
+  reserveOnOrganization,
+  settleOnOrganization,
+} from "./org-budget.ts";
+import { emitBudgetThresholds, type ThresholdLayer } from "../signals/budget-threshold.ts";
+import { proactiveEnabled } from "../proactive/preferences.ts";
 /**
  * Start of the budget month that contains `at`: the first of the month at
  * 00:00 UTC. Project, assignment and reported month totals all count from it.
@@ -33,6 +41,9 @@ export async function reserve(
     taskClass?: string;
     model?: string;
     missionId?: string | null;
+    // The agent definition the reservation is made for (ADR 0021, plan
+    // §2.6); attribution only, no limit is derived from it here.
+    agentId?: string | null;
   },
 ) {
   // The platform's spending authority wins over the limits a caller passed
@@ -138,6 +149,7 @@ export async function reserve(
       taskClass: attribution?.taskClass ?? null,
       model: attribution?.model ?? null,
       missionId: attribution?.missionId ?? null,
+      agentId: attribution?.agentId ?? null,
       orgProvider,
       ...(granted
         ? {
@@ -158,7 +170,60 @@ export async function reserve(
       runKey,
       reservationIds: [reservation.id],
     });
+  // ADR 0023 item 7: threshold events at 80 % and 100 %, once per layer,
+  // scope, period and threshold; nothing while ORBIT_PROACTIVE is off.
+  if (proactiveEnabled())
+    await emitBudgetThresholds(
+      tx,
+      scope,
+      await thresholdLayers(tx, scope, {
+        monthly,
+        amount,
+        limit: policy.monthlyBudgetMicros,
+        month,
+        orgProvider,
+      }),
+    );
   return reservation;
+}
+
+/** The budget layers this reservation counts against, with spend before and after. */
+async function thresholdLayers(
+  tx: DbTx,
+  scope: Scope,
+  r: { monthly: number; amount: number; limit: number; month: Date; orgProvider: string | null },
+): Promise<ThresholdLayer[]> {
+  const period = r.month.toISOString().slice(0, 7);
+  const layers: ThresholdLayer[] = [
+    {
+      layer: "project_month",
+      scopeId: scope.projectId,
+      before: r.monthly,
+      after: r.monthly + r.amount,
+      amount: r.amount,
+      limit: r.limit,
+      period,
+    },
+  ];
+  if (!aiOrgBudgetEnabled() || !r.orgProvider) return layers;
+  // The counters include this reservation and stay locked by it.
+  const budget = await organizationBudget(tx, scope.workspaceId);
+  const spend = await organizationSpend(tx, scope.workspaceId, r.month);
+  const org = (layer: string, after: number, limit: number | null | undefined) => ({
+    layer,
+    scopeId: scope.workspaceId,
+    before: after - r.amount,
+    after,
+    amount: r.amount,
+    limit,
+    period,
+  });
+  layers.push(org("org_month", spend.total.spentMicros, budget?.monthlyMicros));
+  if (r.orgProvider === "openai" || r.orgProvider === "anthropic")
+    layers.push(
+      org(`org_${r.orgProvider}`, spend[r.orgProvider].spentMicros, budget?.providerCaps[r.orgProvider]),
+    );
+  return layers;
 }
 export async function settle(
   tx: DbTx,

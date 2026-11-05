@@ -12,7 +12,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     useResource: (path: string | null) => {
-      const key = Object.keys(answers).find((part) => path?.includes(part));
+      // The longest match wins: "/social/accounts" is part of ".../accounts/apps".
+      const key = Object.keys(answers)
+        .sort((a, b) => b.length - a.length)
+        .find((part) => path?.includes(part));
       const found = key === undefined ? undefined : answers[key];
       return {
         data: found ?? null,
@@ -134,6 +137,25 @@ describe("social accounts view (ADR 0020, S2)", () => {
     expect(render(<AccountsView />, { locale: "de" })).toContain("nur Mitglieder der Meta-App");
   });
 
+  it("says which developer app is missing before the owner taps connect", () => {
+    answers["/social/accounts"] = accounts;
+    answers["/social/accounts/apps"] = { x: "not_granted", meta: "invalid" };
+    const html = render(<AccountsView />);
+    expect(html).toContain("X is not set up yet");
+    expect(html).toContain("The keys of the Meta app are not valid");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Connect X<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Connect Facebook and Instagram<\/button>/);
+    const de = render(<AccountsView />, { locale: "de" });
+    expect(de).toContain("X ist noch nicht eingerichtet");
+    expect(de).toContain("Die Schlüssel der Meta-App sind ungültig");
+    answers["/social/accounts/apps"] = { x: "ready", meta: "ready" };
+    const ready = render(<AccountsView />);
+    expect(ready).not.toContain("is not set up yet");
+    expect(ready).not.toMatch(/<button[^>]*disabled=""[^>]*>Connect X<\/button>/);
+    expect(render(<AccountsView />, { access: "viewer" })).not.toContain("is not set up yet");
+    delete answers["/social/accounts/apps"];
+  });
+
   it("shows the outcome of a connection from the callback", () => {
     answers["/social/accounts"] = accounts;
     search.value = "connected=3";
@@ -153,7 +175,7 @@ describe("social accounts view (ADR 0020, S2)", () => {
       "SOCIAL_META_NO_PAGES",
       "SOCIAL_TELEGRAM_OWNER_BOT",
       "SOCIAL_TELEGRAM_BOT_CANNOT_POST",
-      "SOCIAL_TELEGRAM_NOT_A_CHANNEL",
+      "SOCIAL_TELEGRAM_PRIVATE_CHAT",
       "SOCIAL_PROVIDER_REJECTED",
       "SOCIAL_PROVIDER_UNAVAILABLE",
     ]) {
@@ -165,7 +187,7 @@ describe("social accounts view (ADR 0020, S2)", () => {
   it("asks for the bot token as a password that is never autofilled", () => {
     const html = render(<TelegramChannelForm onDone={() => {}} />);
     expect(html).toMatch(/<input[^>]*type="password"[^>]*autoComplete="off"|<input[^>]*autoComplete="off"[^>]*type="password"/i);
-    expect(html).toContain("Channel (@name or id)");
+    expect(html).toContain("Channel or group (@name or id)");
   });
 
   it("renders the reconnect attention item", () => {

@@ -22,7 +22,9 @@ export type RunKind =
   // A run of the AI project manager (ADR 0017).
   | "work_pm"
   // AI triage of an issue (ADR 0018).
-  | "issues";
+  | "issues"
+  // One agent work order (ADR 0021).
+  | "agent_work";
 /** What a run or span needs from a scope: where it belongs. */
 export type RunScope = Pick<Scope, "workspaceId" | "projectId">;
 export type SpanInput = {

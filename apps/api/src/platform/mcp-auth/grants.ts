@@ -79,6 +79,8 @@ export async function grantableWorkspace(userId: string, workspaceId: string) {
   const projects = await authDb.project.findMany({
     where: {
       workspaceId,
+      // Personal spaces are never grantable to an MCP client (ADR 0022).
+      kind: { not: "personal" },
       ...(membership.role === "owner" ? {} : { members: { some: { userId } } }),
     },
     select: { id: true, name: true },

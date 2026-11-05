@@ -24,6 +24,7 @@ import { supportText, type SupportText } from "./labels";
 import { TagEditor, finalizeTags, type TagDef } from "./tags";
 import { CustomerContextBinding } from "./customer-context";
 import { useShell } from "@/platform/shell/shell-context";
+import { AppLink } from "@/platform/ui/app-link";
 
 type Settings = {
   categories: Array<{ key: string; label: string }>;
@@ -122,6 +123,52 @@ export function inboxFormProblem(
   if (!allowedOrigins.length) return t.settings.originsMissing;
   const bad = allowedOrigins.filter((o) => !validOrigin(o));
   return bad.length ? `${t.settings.originInvalid} ${bad.join(", ")}` : null;
+}
+
+/**
+ * The inbox's AI mode (ADR 0021 Phase 2): off, drafts for people, or a
+ * configured Support agent. "Agent" is offered while the agent platform is
+ * on, and kept visible for an inbox already in it; the server refuses it
+ * with AGENT_PLATFORM_DISABLED otherwise.
+ */
+export function AiModeField({
+  value,
+  agentPlatform,
+  agentsHref,
+  onChange,
+  t,
+}: {
+  value: string;
+  agentPlatform: boolean;
+  agentsHref: string;
+  onChange: (mode: string) => void;
+  t: SupportText;
+}) {
+  const offerAgent = agentPlatform || value === "agent";
+  return (
+    <div className="support-ai-mode">
+      <label>
+        <span>{t.settings.aiMode}</span>
+        <select
+          className="input"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="off">{t.settings.aiOff}</option>
+          <option value="draft">{t.settings.aiDraft}</option>
+          {offerAgent && <option value="agent">{t.settings.aiAgent}</option>}
+        </select>
+      </label>
+      {value === "agent" && (
+        <small>
+          {t.settings.aiAgentHint}{" "}
+          {agentPlatform && (
+            <AppLink href={agentsHref}>{t.settings.aiAgentLink}</AppLink>
+          )}
+        </small>
+      )}
+    </div>
+  );
 }
 
 export function inboxBody(form: {
@@ -452,17 +499,13 @@ function InboxForm({
             <small>{t.settings.originsHint}</small>
           </label>
         )}
-        <label>
-          <span>{t.settings.aiMode}</span>
-          <select
-            className="input"
-            value={form.aiMode}
-            onChange={(e) => set({ aiMode: e.target.value })}
-          >
-            <option value="off">{t.settings.aiOff}</option>
-            <option value="draft">{t.settings.aiDraft}</option>
-          </select>
-        </label>
+        <AiModeField
+          value={form.aiMode}
+          agentPlatform={shell.features?.agentPlatform === true}
+          agentsHref={shell.hrefOf("agents")}
+          onChange={(aiMode) => set({ aiMode })}
+          t={t}
+        />
         <label>
           <span>{t.settings.language}</span>
           <select

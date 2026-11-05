@@ -29,6 +29,10 @@ export const MANDATE_MAX_DAYS = 90;
 
 export const agentMandatesEnabled = () =>
   loadConfig().ORBIT_AGENT_MANDATES === "true";
+/** The agents channel needs the agent platform too (ADR 0021 addendum). */
+export const agentPlatformEnabled = () =>
+  loadConfig().ORBIT_AGENT_PLATFORM === "true";
+export const AGENT_DEFINITIONS_KIND = "agent_definitions";
 
 /** What an owner grants (the request body). */
 export const agentMandateInput = z
@@ -39,6 +43,9 @@ export const agentMandateInput = z
     mcp: z.boolean(),
     // Only these MCP clients (their client ids) when given; any covered client otherwise.
     mcpClientIds: z.array(z.string().min(1).max(500)).max(10).default([]),
+    // Configured agents (ADR 0021 addendum): only the named agents, never all.
+    agents: z.boolean().default(false),
+    agentIds: z.array(z.uuid()).max(10).default([]),
     maxCostMicrosPerAction: z.number().int().min(0),
     maxActionsPerDay: z.number().int().min(1).max(100),
     days: z.number().int().min(1).max(MANDATE_MAX_DAYS),
@@ -146,10 +153,27 @@ export async function grantAgentMandate(
   const input = agentMandateInput.parse(raw);
   const type = mandatableType(input.actionType);
   const descriptor = type.mandate!;
-  if (!input.assistant && !input.mcp)
+  if (!input.assistant && !input.mcp && !input.agents)
     throw new DomainError("AGENT_MANDATE_NO_CHANNEL", 400);
   if (input.mcpClientIds.length && !input.mcp)
     throw new DomainError("AGENT_MANDATE_INVALID", 400);
+  // The agents channel names its agents; it never covers every agent.
+  if (input.agents !== input.agentIds.length > 0)
+    throw new DomainError("AGENT_MANDATE_INVALID", 400);
+  if (input.agents) {
+    if (!agentPlatformEnabled())
+      throw new DomainError("AGENT_PLATFORM_DISABLED", 409);
+    const found = await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: AGENT_DEFINITIONS_KIND,
+        id: { in: [...new Set(input.agentIds)] },
+      },
+    });
+    if (found !== new Set(input.agentIds).size)
+      throw new DomainError("AGENT_NOT_FOUND", 404);
+  }
   if (input.maxCostMicrosPerAction > descriptor.maxCostMicrosPerAction)
     throw new DomainError("AGENT_MANDATE_COST_TOO_HIGH", 409);
   for (const [key, values] of Object.entries(input.options)) {
@@ -183,6 +207,8 @@ export async function grantAgentMandate(
     assistant: input.assistant,
     mcp: input.mcp,
     mcpClientCount: input.mcpClientIds.length,
+    agents: input.agents,
+    agentCount: input.agentIds.length,
     maxCostMicrosPerAction: input.maxCostMicrosPerAction,
     maxActionsPerDay: input.maxActionsPerDay,
     endAt: record.endAt,

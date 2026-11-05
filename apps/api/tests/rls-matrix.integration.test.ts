@@ -25,6 +25,8 @@ const enabled = Boolean(
 const PROJECT_TABLES = [
   "AgentRun",
   "AgentSpan",
+  // Agent work orders (ADR 0021).
+  "AgentWorkOrder",
   "AuditEvent",
   "BudgetReservation",
   "ChunkEmbedding",
@@ -248,6 +250,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   const workInitiatives = new Map<string, string>();
   // An issue per project, for the same-project key check.
   const issueRows = new Map<string, string>();
+  // An agent work order per project, for the same-project key check.
+  const agentWorkOrders = new Map<string, string>();
 
   const synthetic = async () => {
     const row = await authDb.user.create({
@@ -434,6 +438,40 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           status: "succeeded",
           startedAt: new Date(),
           durationMs: 1,
+        },
+      });
+      // A root work order and one delegated child (ADR 0021).
+      const rootOrder = await tx.agentWorkOrder.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          target: "agent",
+          agentId: randomUUID(),
+          origin: "manual",
+          idempotencyKey: `rls:${randomUUID()}`,
+          requestedBy: { kind: "user", userId: s.userId },
+          allow: { tools: [] },
+          goal: "Synthetic RLS goal",
+          status: "succeeded",
+          ceilingMicros: 1n,
+        },
+      });
+      agentWorkOrders.set(s.projectId, rootOrder.id);
+      await tx.agentWorkOrder.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          target: "agent",
+          origin: "agent",
+          idempotencyKey: `rls:${randomUUID()}`,
+          requestedBy: { kind: "agent", userId: s.userId },
+          allow: { tools: [] },
+          parentId: rootOrder.id,
+          rootId: rootOrder.id,
+          depth: 1,
+          goal: "Synthetic RLS child goal",
+          status: "queued",
+          ceilingMicros: 1n,
         },
       });
       const profile = await tx.projectMarketingProfile.create({
@@ -1253,6 +1291,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         [randomUUID(), b.workspaceId, b.projectId],
       ],
       [
+        "AgentWorkOrder",
+        `INSERT INTO "AgentWorkOrder" (id, "workspaceId", "projectId", target, origin, "idempotencyKey", "requestedBy", allow, goal, status, "ceilingMicros") VALUES ($1::uuid, $2::uuid, $3::uuid, 'agent', 'manual', $1, '{}', '{}', 'x', 'queued', 1)`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
         "ChatConversation",
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
@@ -1338,6 +1381,33 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     expect(result.error ?? "inserted").toMatch(/foreign key/);
   });
 
+  it("keeps agent work order references inside one project, even past RLS", async () => {
+    // A work order of A cannot be delegated from a work order of C (same
+    // workspace) or of B (another workspace).
+    for (const target of [b, c]) {
+      const result = await attempt(
+        a,
+        `INSERT INTO "AgentWorkOrder" (id, "workspaceId", "projectId", target, origin, "idempotencyKey", "requestedBy", allow, "parentId", "rootId", depth, goal, status, "ceilingMicros")
+         VALUES ($1::uuid, $2::uuid, $3::uuid, 'agent', 'agent', $1, '{}', '{}', $4::uuid, $4::uuid, 1, 'x', 'queued', 1)`,
+        randomUUID(),
+        a.workspaceId,
+        a.projectId,
+        agentWorkOrders.get(target.projectId),
+      );
+      expect(result.error ?? "inserted").toMatch(/foreign key/);
+    }
+    // Delegation stays within two levels.
+    const deep = await attempt(
+      a,
+      `INSERT INTO "AgentWorkOrder" (id, "workspaceId", "projectId", target, origin, "idempotencyKey", "requestedBy", allow, depth, goal, status, "ceilingMicros")
+       VALUES ($1::uuid, $2::uuid, $3::uuid, 'agent', 'agent', $1, '{}', '{}', 3, 'x', 'queued', 1)`,
+      randomUUID(),
+      a.workspaceId,
+      a.projectId,
+    );
+    expect(deep.error ?? "inserted").toMatch(/AgentWorkOrder_depth_check/);
+  });
+
   it("deletes a project together with its support and finance rows", async () => {
     const owner = await synthetic();
     const doomed = await project(await workspace(owner), owner);
@@ -1349,7 +1419,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         t.startsWith("Finance") ||
         t.startsWith("Work") ||
         t.startsWith("Issue") ||
-        t.startsWith("Social"),
+        t.startsWith("Social") ||
+        t === "AgentWorkOrder",
     ))
       expect({ table, rows: await visible(doomed, table, doomed) }).toEqual({
         table,

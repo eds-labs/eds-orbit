@@ -8,6 +8,110 @@ The shell remounts on every in-app navigation (ruling R15), and its `useResource
 - **Not chosen:** hoisting the shell above the catch-all route so that it does not remount. That would change a documented assumption (R15) that the pages, the attention cache and the module states rely on. It would also lose the refetch after navigation altogether.
 - **Tests:** `platform/shell/session.test.tsx` (TTL, stale, in-flight sharing, refresh/drop, clear with requests in flight, 401/sign-out/sign-in/other-tab/write events through the real `api`, the state transitions). Browser e2e: CI on the draft PR; no local run, because the local Postgres/Redis containers were missing on 2026-11-03.
 
+## Agent platform, Phase 4: proactive notices and voice (2026-11-05, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PROACTIVE` and `ORBIT_VOICE` off)
+
+Decisions D-18 (per-user Telegram in this phase), D-19 and D-20 (Mario, 2026-11-04; [ADR 0023](adr/0023-proactive-signals.md), [ADR 0024](adr/0024-speech-port-voice.md)). Plan: [Phase 4](plans/agent-platform-phase-4.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md) ("Proactive notices and briefings", "Voice"), [EMAIL_AND_NOTIFICATIONS.md](EMAIL_AND_NOTIFICATIONS.md), [MODEL_ROUTING.md](MODEL_ROUTING.md) ("Speech").
+
+- **Built:**
+  - WP4.0: ADRs 0023 and 0024.
+  - WP4.1: notification dedupe (migration `202611050001_notification_dedupe`); a delivery job with user preferences in the personal space (quiet hours, digest, severity modes); the digest e-mail through system SMTP; per-user Telegram through the owner-bot flow in the personal space. The Phase 1 failure guard is replaced while the flag is on.
+  - WP4.2: `platform/signals/` (registry, event and periodic adapters, per-project switches). The budget threshold event comes from `reserve`. Initial signals; Support and Marketing are mappings.
+  - WP4.3: `GET /api/notifications/summary`, a content-free wake-up and SSE stream with a polling fallback, the bell "All projects" tab and the bubble badge.
+  - WP4.4: briefings (personal-space scheduler, deterministic notice in a "Briefings" conversation, optional e-mail, opt-in AI summary) and the Work template `work.weekly_report`.
+  - WP4.5: speech port and OpenAI adapter (injectable fetch, no SDK), dependency-free audio duration measurement, unit prices (migration `202611050002_ai_price_units`), speech catalogue entries and the admin catalogue UI, and audio budget helpers.
+  - WP4.6/WP4.7: the transcription route (raw body, caps, nothing stored), the speech route (streamed, character cap, card titles only), voice settings, the microphone button and read aloud in the panel and page.
+  - Flags `ORBIT_PERSONAL_ASSISTANT`, `ORBIT_PROACTIVE` and `ORBIT_VOICE` are wired into the config schema, `.env.example` and both Compose files.
+- **Deviations:**
+  - The briefing summarizer runs on the bounded task host without an agent definition, because a personal space has no agents.
+  - `task_due_soon` maps the existing daily due notice.
+  - The 100 % threshold means "limit reached or the next equal reservation would not fit".
+  - Organization-level thresholds deduplicate per reserving project.
+  - `delegation_done` always writes a notice.
+  - The transcription route takes the raw body (no multipart plugin installed).
+  - `synthesize` streams.
+  - Speech routing uses the first active priced catalogue model (no persisted speech route yet).
+  - Budget codes keep their existing names.
+  - WP4.8 (realtime voice spike) was not built: it is optional, not merged and needs paid test minutes.
+- **Verification (local):** the full suite (API, worker, packages, evals, web) ran over 534 files: 5,303 passed and 7 skipped. Three Marketing tests failed (`assignment-postiz-drafts`, `assignment-shared-posts`, `marketing-reports`). They fail identically on the commit without Phase 4 when run between 00:00 and 01:00 CET, when the local day and the UTC day differ, and they passed in the Phase 3 run the same evening, so this is a time-window artifact rather than a regression. New suites: proactive signals, delivery, briefing and summary; voice, speech and audio duration; web components. Evidence per acceptance criterion is in `REQUIREMENTS_TRACEABILITY.md`.
+  - The access matrix gained 10 reviewed rows; no existing row changed.
+  - OpenAPI only adds 7 paths.
+  - API and web typecheck, boundaries, source checks and Compose checks are clean.
+  - Every speech test uses a fake adapter.
+  - Playwright (2026-11-05, local dev server on this worktree's own database):
+    - **Flags on:** `assistant-panel.spec.ts` and `chat.spec.ts` pass after one real fix (Escape did not close the panel while a reply streamed; `a11fc163`) and two spec corrections.
+    - **Flags off (as in CI), full suite:** 24 passed, 25 skipped, 4 failed. On re-run `chat.spec.ts:629` and `workspace.spec.ts:172` pass, and `navigation.spec.ts:140` passes on a fresh database. `workspace.spec.ts:944` stays red in automation: after switching to a newly created project it waits on "Loading workspace…". The same steps work by hand in the browser. No server error; not resolved here.
+  - Not run: a live STT/TTS call (needs Mario's approval), the device check on iOS Safari and Android Chrome.
+- **Before rollout:**
+  - An administrator checks and saves the speech prices; they come from the subagent's knowledge as of 2025-03 and are marked "please check".
+  - The system SMTP sender is configured for digests.
+  - Confirm that Work task titles in digest e-mails are acceptable.
+- **Production:** nothing deployed. **Migrations `202611040001` to `202611050002`: schema hash `f641f3f978fa15b05d4b750000be02b1cf4d846cd11f1445152317335cd5b234` (on `main` `469b1dae`; supersedes `de4a5324…`) must be approved in Coolify before the `main` push.** The Compose files change too (three new flags, default off).
+
+## Agent platform, Phase 3: personal Orbit Assistant (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PERSONAL_ASSISTANT` off)
+
+Decisions D-08, D-09, D-10 as recommended; D-17 automatic memory with guardrails (Mario, 2026-11-04; [ADR 0021](adr/0021-agent-platform.md) addendum, [ADR 0022](adr/0022-personal-space-assistant.md)). Plan: [Phase 3](plans/agent-platform-phase-3.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md).
+
+- **Built:**
+  - WP3.0: ADR 0022.
+  - WP3.1: personal space (`Project.kind = 'personal'`, migration `202611040003_personal_space`). Only its user has access; no implicit org-owner or administrator access. It is filtered from every business list, and the organization's AI usage shows it as one sum. Spend authority is a read-only projection of the new org per-member cap, which the user cannot change. Org owners have a per-member switch. The space is kept 30 days after its user leaves (daily clean-up, restored on rejoin) and deleted with the user.
+  - WP3.2: cross-project capability layer shared with MCP (`platform/agents/project-calls.ts`: target-project authorization, uniform refusals, test-mode nested-call guard). User tools `projects_list`, `my_overview`, `pending_approvals`, `agents_list`, `agent_work_order_status`. Taint rule (`requestedBy.crossProjectContext`, `CROSS_PROJECT_CONTEXT` blocks mandate auto-approval).
+  - WP3.3: provider-neutral staged loading. A stable user-tool list plus `load_project_tools` and a focus preload of at most 6; loaded definitions are appended for OpenAI and Claude. Project mode is unchanged.
+  - WP3.4: personal mode in the chat runner (versioned instructions, project list, focus, scoped context, a gate at send and run time, page-context hints, persisted taint, per-project card checks, `steps[]`). `GET /api/assistant`.
+  - WP3.5: decision cards with `actionRequest {id, version, packageHash, decidable, inline}` on the unchanged decide route; governance and full-page types link out.
+  - WP3.6: `agent_delegate` batches (requester ∩ sponsor ∩ allowlist, fan-out ≤ 10, one requester-only, non-mandatable `platform.agent.delegate` confirmation). Notice messages (`ChatMessage.role = 'notice'`, migration `202611040004_chat_notice_role`) when a batch finished, with no model call. New MCP tasks are stored as `AgentWorkOrder (target: assistant)`; legacy `orbit_tasks` stay readable.
+  - WP3.7: personal context store and routes, deterministic screen, grounding check, `context_remember` with a "Remembered" notice and Undo, or proposal cards when automatic memory is off.
+  - WP3.8: web bubble, non-modal panel and phone sheet, `/assistant`, `/account/assistant` ("My context"), decision buttons, project badges, readable errors, org cap field and member switch. `chat.tsx` is split into a hook and views with unchanged project behaviour.
+  - WP3.9: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md); `ORBIT_CHAT_V1.md` points to it.
+- **Deviations:**
+  - `search`/`fetch`/`orbit_projects` stay native MCP tools (unchanged contract).
+  - `work_order_status` is named `agent_work_order_status` (the `work_` prefix belongs to the Work module).
+  - `context_list` was dropped: the context is in the prompt, and the user-tool budget stays at 8.
+  - Delegation batches are sibling work orders sharing a `batchId` instead of a parent row.
+  - `platform.agent.delegate` is not mandatable, because a mandate cannot be limited to one agent; the optional per-agent start mandate of D-06 stays a follow-up.
+- **Verification (local):** full suite (API, worker, packages, evals, web) 525 files: 5,218 passed and 7 skipped. Two characterization checks did not yet know the new user tools and a kind spelled through a constant; both were fixed and re-run (26/26). Access matrix: a new probe calls every project route of a personal space as org owner and system administrator, and none lets them in; only the 8 new routes were added to the reviewed fixture. RLS matrix passes. The membership rule is mutation-checked. API and web typecheck are clean; source and boundary checks are clean. OpenAPI only adds paths. Playwright and the browser check ran later with Phase 4 (see there). Not run: paid live turns.
+- **Before rollout:**
+  - Set the per-member cap in the test organization.
+  - Verify the production state of `ORBIT_MCP_TASKS` and the number of live MCP tasks. A code rollback after the fold-in leaves table-backed MCP tasks unreadable to the old reader.
+- **Production:** nothing deployed. **Migrations `202611040001` to `202611040004`: schema hash `de4a53246950f1c685033dbf0ce539afc46e247b9c13dcf299b21a538103b01b` (on `main` `469b1dae`; supersedes `4dfc5ec0…`) must be approved in Coolify before the `main` push.**
+
+## Agent platform, Phase 2: Support agent (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; flags off)
+
+Decisions D-11, D-15, D-16 accepted by Mario on 2026-11-04 as recommended ([ADR 0021](adr/0021-agent-platform.md) addendum). Plan: [Phase 2](plans/agent-platform-phase-2.md). Docs: [SUPPORT.md](SUPPORT.md) "Support agent", [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
+
+- **Built:**
+  - WP2.1: content-free `support.ticket.created` and `support.message.received` events, declared triggerable with an inbox/channel filter; hard-rule hits, unverified widget visitors and non-agent inboxes never start an agent.
+  - WP2.2: Support tools for agents (reads with placeholders plus platform redaction, `support_similar_tickets`, paid `support_triage_suggest`/`support_draft_generate` inside the agent's budget, `support_apply_triage`, `support_hand_off`, notes, reply drafts, ticket changes, issue reports, send as proposal only); agent actor on timeline events, notes and drafts; inbox rule excluded for agents; `support_prepare_reply` runs the draft checks for every requester.
+  - WP2.3: platform redaction and subject screening in Support's model inputs (also for `draft` inboxes); data-class provider allow-list (OpenAI only) for agent routes and the Support pipelines; erasure and retention delete the ticket's work orders and runs.
+  - WP2.4: inbox AI mode `agent` (migration `202611040002_support_inbox_agent_mode`), no automatic jobs there, manual draft kept, attention item for an uncovered agent inbox; template `support.ticket_agent`.
+  - WP2.5: issue reports as owner-approved proposals; agents never acknowledge sensitive tickets; ticket detail `agent` summary.
+  - WP2.6: web inbox AI mode, ticket agent panel, agent timeline labels, apply-triage approval renderer, attention text, guided setup for the Support template.
+  - WP2.7: scenario suite `support-agent.integration.test.ts`, unit rules, offline eval `evals/support/agent-v1.json`; the live eval scores screened sensitive cases as hand-offs.
+- **Behaviour changes for existing `draft` inboxes:** subject hard-rule screening, platform redaction before the model, provider allow-list, draft checks in MCP `support_prepare_reply`, one extra content-free domain event per ticket and customer message.
+- **Not done:** paid live agent eval (needs Mario's approval, cap USD 3); owner notification for an uncovered agent inbox (attention item only); Support-specific work-order output schema; Playwright `support-agent.spec.ts` or a browser check; `support_list_tickets` deliberately not offered to agents; query-embedding cost of an agent's draft is not attributed to the work order.
+- **Verification (local):** API, worker, package and eval tests 403 files / 4,259 passed (7 skipped); web 104 files incl. 14 new Support agent tests; after rebasing onto `origin/main` `469b1dae` the web, Support, agent, access-matrix and RLS-matrix suites passed again (131 files, 1,093 tests); API and web typecheck clean; `next build` succeeds; source and boundary checks clean; the redaction assertion is mutation-checked. OpenAPI unchanged by Phase 2 (no new routes; the ticket detail is not in the generated contract). Not run: Playwright or a browser check, a paid live eval.
+- **Before rollout:** check that no project routes `support_triage`, `support_draft` (or a Support agent's `agent_custom`) to Anthropic; D-11 would refuse those calls.
+- **Production:** nothing deployed. **Migrations `202611040001` and `202611040002`: schema hash `4dfc5ec0…62d99d` (computed after rebasing onto `469b1dae`; supersedes `5c88c46e…`) must be approved in Coolify before the `main` push.**
+
+## Agent platform, Phase 1 (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_AGENT_PLATFORM` and `ORBIT_AGENT_AUTOMATION` off)
+
+ADR [0021](adr/0021-agent-platform.md) (accepted; Mario's decisions D-01 to D-07 and D-12 to D-14 of 2026-11-04). Plans: [architecture](plans/agent-platform-architecture.md), [Phase 1](plans/agent-platform-phase-1.md). Guide: [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
+
+- **Built:**
+  - WP1.1: shared capability layer for chat, MCP and the task host; behaviour unchanged except JSON-safe output caps.
+  - WP1.2: agent principal (sponsor ∩ requester ∩ allowlist, re-checked per call), central agent attribution of ActionRequests, mandate agents channel, MCP proposal quotas for delegated work orders.
+  - WP1.3: principal mode of `runStructured`; `runSpecialist` delegates to it with unchanged reservation keys; task class `agent_custom`.
+  - WP1.4: `AgentWorkOrder` table (FORCE RLS), `agent_work` run kind, `BudgetReservation.agentId`, entitlements port, definition schema, retention.
+  - WP1.5 to WP1.7: definitions service, builder catalogue, routes, work-order execution on the worker, schedule and event triggers, delegation core, failure notice.
+  - WP1.8: web agent management (`/p/:id/agents` overview, builder, versions, executions, execution detail; `/o/:orgId/agents`; sidebar entry *Agenten*; mandate form agents channel).
+  - WP1.9: Marketing specialists act on behalf of the assignment's confirming owner (**behaviour change:** a demoted or removed confirming owner blocks the specialists with `AGENT_PRINCIPAL_FORBIDDEN` and opens an exception); `agentListings` contribution and `GET /agents/managed` for module-managed agents.
+- **Not done:**
+  - A periodic retention sweep: retention runs through the owner retention action only.
+  - Organization-wide agent counting for `agentsMax`: counted per project until the entitlements table exists.
+  - Module agent templates: Support's template followed in Phase 2.
+- **Verification (local, own worktree test DB, 2026-11-04):** full `vitest run` 506 files, 5,074 tests passed (7 skipped); API and web typecheck clean; `next build` succeeds; source and boundary checks clean (0 violations); Coolify and PVE compose checks pass; OpenAPI and client regenerated (only the 18 new agent routes). Not run: Playwright e2e and a real browser check of the new pages.
+- **Before rollout:** check that every active production assignment has a `confirmation.userId` of a current owner (WP1.9 would otherwise block its specialists).
+- **Production:** nothing deployed. **Migration `202611040001_agent_platform`: the schema hash is now the one in the Phase 2 entry above (`4dfc5ec0…`), which includes Phase 2's migration.**
+
 ## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
 
 Plan: [superpowers/plans/2026-11-03-social-p3-polish.md](superpowers/plans/2026-11-03-social-p3-polish.md).

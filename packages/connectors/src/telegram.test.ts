@@ -259,15 +259,29 @@ describe("Telegram bot client: channel checks for publishing (ADR 0020)", () => 
     ];
     const { calls, fetch } = recorder(() => replies.shift()!);
     const client = createTelegramClient({ token: TOKEN, fetch });
-    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "administrator", canPostMessages: true });
-    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "member", canPostMessages: false });
+    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "administrator", canPostMessages: true, canSendMessages: true });
+    expect(await client.getChatMember(-1001234567890, 42)).toEqual({ status: "member", canPostMessages: false, canSendMessages: true });
     expect(JSON.parse(String(calls[0]!.init.body))).toEqual({ chat_id: -1001234567890, user_id: 42 });
   });
 
   it("getChatMember lets the channel creator post", async () => {
     const { fetch } = recorder(() => ok({ status: "creator", user: { id: 42, is_bot: true, first_name: "Orbit" } }));
     const client = createTelegramClient({ token: TOKEN, fetch });
-    expect(await client.getChatMember(-1001, 42)).toEqual({ status: "creator", canPostMessages: true });
+    expect(await client.getChatMember(-1001, 42)).toEqual({ status: "creator", canPostMessages: true, canSendMessages: true });
+  });
+
+  it("getChatMember reports whether the bot may write in a group", async () => {
+    const user = { id: 42, is_bot: true, first_name: "Orbit" };
+    const replies = [
+      ok({ status: "restricted", is_member: true, can_send_messages: false, user }),
+      ok({ status: "restricted", is_member: true, can_send_messages: true, user }),
+      ok({ status: "left", user }),
+      ok({ status: "kicked", user }),
+    ];
+    const { fetch } = recorder(() => replies.shift()!);
+    const client = createTelegramClient({ token: TOKEN, fetch });
+    const can = async () => (await client.getChatMember(-100777, 42)).canSendMessages;
+    expect([await can(), await can(), await can(), await can()]).toEqual([false, true, false, false]);
   });
 
   it("the channel checks never leak the token", async () => {

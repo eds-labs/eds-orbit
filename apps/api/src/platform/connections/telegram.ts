@@ -440,6 +440,11 @@ const TEXT = {
   ownerOnly: "Nur der Owner kann pausieren.",
   noAccess: "Keine Berechtigung mehr für dieses Projekt.",
   invalid: "Ungültige Aktion.",
+  // A bot linked in the user's own personal space (ADR 0023): notices only.
+  linkedPersonal:
+    "Verbunden. Orbit schickt dir hier kurze Hinweise zu deinen Benachrichtigungen. /stop beendet das.",
+  helpPersonal: "Hinweise kommen automatisch. Befehl: /stop beendet sie.",
+  stopped: "Beendet. Orbit schickt dir hier nichts mehr. Neu verbinden nur in Orbit.",
 };
 
 // A link code sent on its own: one base64url word (the code is 12 characters).
@@ -520,6 +525,15 @@ export async function handleTelegramWebhook(
       }
       if (c.status === "disabled")
         return { status: 200 as const, handled: "disabled" };
+      // In a personal space the bot only delivers notices (ADR 0023): no
+      // /pause, and /stop ends delivery.
+      const personal =
+        (
+          await tx.project.findFirst({
+            where: { id: projectId },
+            select: { kind: true },
+          })
+        )?.kind === "personal";
       const parsed = update_.safeParse(input.body);
       if (!parsed.success)
         return { status: 200 as const, handled: "malformed" };
@@ -602,7 +616,10 @@ export async function handleTelegramWebhook(
           linkCodeExpiresAt: null,
         });
         await audit(tx, creator, "telegram.linked", row.id);
-        replies.push({ kind: "message", text: TEXT.linked });
+        replies.push({
+          kind: "message",
+          text: personal ? TEXT.linkedPersonal : TEXT.linked,
+        });
         return done("linked");
       }
 
@@ -639,6 +656,18 @@ export async function handleTelegramWebhook(
         const cmd = command(u.message.text);
         if (cmd?.name === "start")
           replies.push({ kind: "message", text: TEXT.alreadyLinked });
+        else if (personal && cmd?.name === "stop") {
+          await update(
+            tx,
+            actor,
+            row,
+            disabled(row, actor.userId, "STOPPED"),
+          );
+          await audit(tx, actor, "telegram.stopped", row.id);
+          replies.push({ kind: "message", text: TEXT.stopped });
+          return done("stopped");
+        } else if (personal)
+          replies.push({ kind: "message", text: TEXT.helpPersonal });
         else if (cmd?.name === "pause") {
           const current = await tx.project.findUniqueOrThrow({
             where: { id: system.projectId },

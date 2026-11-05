@@ -55,6 +55,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/assistant/context/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "DELETE /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -463,6 +471,54 @@
     "sysadmin": "not_found:USER_NOT_FOUND",
     "owner": "not_found"
   },
+  "GET /api/agents/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/context": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/context/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/voice-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/google-drive/callback": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
@@ -509,6 +565,22 @@
     "viewer": "allowed:200",
     "editor": "allowed:200",
     "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/notifications/stream": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/notifications/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/openapi.json": {
@@ -670,6 +742,78 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/agent-work-orders": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agent-work-orders/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/agents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/catalog": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/managed": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/templates": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found:AGENT_NOT_FOUND",
+    "sysadmin": "not_found",
+    "owner": "not_found:AGENT_NOT_FOUND"
+  },
+  "GET /api/projects/{projectId}/agents/{id}/versions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found:AGENT_NOT_FOUND",
+    "sysadmin": "not_found",
+    "owner": "not_found:AGENT_NOT_FOUND"
+  },
+  "GET /api/projects/{projectId}/agents/{id}/versions/{version}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "GET /api/projects/{projectId}/ai-budget": {
     "anonymous": "unauthenticated",
@@ -1591,7 +1735,23 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/signal-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/social/accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/accounts/apps": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -2119,6 +2279,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "PATCH /api/assistant/context/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "PATCH /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",
@@ -2150,6 +2318,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "PATCH /api/projects/{projectId}/agents/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "PATCH /api/projects/{projectId}/content/{id}": {
     "anonymous": "unauthenticated",
@@ -2478,6 +2654,30 @@
     "editor": "not_found",
     "sysadmin": "not_found:USER_NOT_FOUND",
     "owner": "not_found"
+  },
+  "POST /api/assistant/context": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/assistant/speech": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/assistant/transcriptions": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:415",
+    "viewer": "allowed:415",
+    "editor": "allowed:415",
+    "sysadmin": "not_found",
+    "owner": "allowed:415"
   },
   "POST /api/automation/callbacks/{projectId}/{runId}": {
     "anonymous": "not_found",
@@ -3348,6 +3548,78 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agent-work-orders/{id}/cancel": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/agent-work-orders/{id}/retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/agents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/activate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/disable": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/duplicate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found:AGENT_NOT_FOUND"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/pause": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/resume": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/runs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
@@ -4743,6 +5015,30 @@
     "sysadmin": "allowed:400",
     "owner": "not_found"
   },
+  "PUT /api/assistant/context/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/assistant/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/assistant/voice-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "PUT /api/organizations/{workspaceId}/ai/budget": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4784,6 +5080,14 @@
     "owner": "allowed:400"
   },
   "PUT /api/organizations/{workspaceId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "PUT /api/organizations/{workspaceId}/members/{userId}/assistant": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
@@ -4884,6 +5188,14 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/signal-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:OWNER_REQUIRED",
+    "editor": "forbidden:OWNER_REQUIRED",
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },

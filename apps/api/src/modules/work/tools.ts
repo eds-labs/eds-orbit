@@ -85,6 +85,10 @@ const taskNumber = z.int().min(1);
 export const workListInitiatives = readOperation({
   ...shared,
   name: "work_list_initiatives",
+  agent: {
+    title: { en: "Initiatives", de: "Initiativen" },
+    summary: { en: "Lists the project's initiatives.", de: "Listet die Initiativen des Projekts." },
+  },
   description:
     "List the project's initiatives (Vorhaben) with key, title, status, health, dates and task counts per status category.",
   input: z
@@ -103,6 +107,10 @@ export const workListInitiatives = readOperation({
 export const workSearchTasks = readOperation({
   ...shared,
   name: "work_search_tasks",
+  agent: {
+    title: { en: "Search tasks", de: "Aufgaben suchen" },
+    summary: { en: "Searches the project's tasks.", de: "Durchsucht die Aufgaben des Projekts." },
+  },
   description:
     "Find tasks by words in title or description or by #number, filtered by status category, priority, assignee (me, none or a user id), initiative key and due date (overdue, week, none). Look tasks up before proposing changes.",
   input: z
@@ -152,6 +160,10 @@ export const workSearchTasks = readOperation({
 export const workGetTask = readOperation({
   ...shared,
   name: "work_get_task",
+  agent: {
+    title: { en: "Read task", de: "Aufgabe lesen" },
+    summary: { en: "Reads one task with its details.", de: "Liest eine Aufgabe mit Details." },
+  },
   description:
     "Read one task by number: fields, version, checklist, subtasks, dependencies, linked objects and the latest comments and history.",
   input: z.object({ number: taskNumber }).strict(),
@@ -190,6 +202,10 @@ export const workGetTask = readOperation({
 export const workProgress = readOperation({
   ...shared,
   name: "work_progress",
+  agent: {
+    title: { en: "Progress", de: "Fortschritt" },
+    summary: { en: "Reads progress figures of the project's work.", de: "Liest Fortschrittszahlen der Projektarbeit." },
+  },
   description:
     "Progress of the project or one initiative: open, overdue, due-this-week and blocked counts and progress per initiative.",
   input: z.object({ initiativeKey: initiativeKey.optional() }).strict(),
@@ -303,6 +319,10 @@ export const workProposeTasks = approvedOperation({
   mandate: { maxCostMicrosPerAction: 0 },
   ...proposal,
   name: "work_propose_tasks",
+  agent: {
+    title: { en: "Propose tasks", de: "Aufgaben vorschlagen" },
+    summary: { en: "Proposes new tasks for approval.", de: "Schlägt neue Aufgaben zur Freigabe vor." },
+  },
   description:
     "Propose a batch of 1 to 25 new tasks, optionally in an initiative (by key) and milestone. Never invent assignees: use member ids from Orbit or leave them out. Dates are YYYY-MM-DD.",
   input: tasksInput,
@@ -421,6 +441,10 @@ export const workProposeComment = approvedOperation({
   mandate: { maxCostMicrosPerAction: 0 },
   ...proposal,
   name: "work_propose_comment",
+  agent: {
+    title: { en: "Propose comment", de: "Kommentar vorschlagen" },
+    summary: { en: "Proposes a task comment for approval.", de: "Schlägt einen Aufgabenkommentar zur Freigabe vor." },
+  },
   description: "Propose a comment on one task by number.",
   input: commentInput,
   permission: WORK_WRITE,

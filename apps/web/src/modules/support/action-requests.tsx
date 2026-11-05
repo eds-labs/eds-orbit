@@ -4,6 +4,7 @@ import type { ActionRequestRenderer } from "@/platform/assistant/extensions";
 import { Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { AppLink } from "@/platform/ui/app-link";
+import { supportText, type SupportText } from "./labels";
 
 const names = [
   "support_send_reply",
@@ -213,7 +214,107 @@ export const supportTaxonomyRenderer: ActionRequestRenderer = {
     );
   },
 };
+type TriageFields = {
+  priority?: string;
+  category?: string | null;
+  tags?: string[];
+};
+const TRIAGE_FIELDS = ["priority", "category", "tags"] as const;
+
+/** One triage field as text: the priority word, the key, or the tag keys. */
+function triageValue(
+  field: (typeof TRIAGE_FIELDS)[number],
+  value: TriageFields[typeof field] | undefined,
+  de: boolean,
+) {
+  if (field === "priority" && typeof value === "string")
+    return (
+      supportText(de ? "de" : "en").priority[
+        value as keyof SupportText["priority"]
+      ] ?? value
+    );
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
+  return typeof value === "string" && value ? value : "—";
+}
+
+/**
+ * The Support agent's triage proposal (ADR 0021 Phase 2): each proposed
+ * field before and after, with only the ticket link as reference; no
+ * customer text. Status and assignee are never part of it.
+ */
+export const supportTriageRenderer: ActionRequestRenderer = {
+  accepts: (item) => item.summary?.operation?.kind === "support_apply_triage",
+  component: ({ item, de, pending, decide }) => {
+    const { project } = useWorkspace();
+    const op = item.summary.operation as {
+      ticketId: string;
+      ticketNumber?: number;
+      after?: TriageFields;
+      before?: TriageFields;
+    };
+    const after = op.after ?? {};
+    const fields = TRIAGE_FIELDS.filter((f) => after[f] !== undefined);
+    const names: Record<(typeof TRIAGE_FIELDS)[number], string> = de
+      ? { priority: "Priorität", category: "Kategorie", tags: "Tags" }
+      : { priority: "Priority", category: "Category", tags: "Tags" };
+    return (
+      <article className="action-request">
+        <h3>{de ? "Triage auf Ticket anwenden" : "Apply triage to ticket"}</h3>
+        <AppLink
+          href={`/p/${encodeURIComponent(project.id)}/support/tickets?ticket=${encodeURIComponent(op.ticketId)}`}
+        >
+          {de ? "Ticket öffnen" : "Open ticket"}
+          {op.ticketNumber ? ` #${op.ticketNumber}` : ""}
+        </AppLink>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">{de ? "Feld" : "Field"}</th>
+                <th scope="col">{de ? "Bisher" : "Before"}</th>
+                <th scope="col">{de ? "Danach" : "After"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fields.map((field) => (
+                <tr key={field}>
+                  <th scope="row">{names[field]}</th>
+                  <td>
+                    {op.before
+                      ? triageValue(field, op.before[field], de)
+                      : de
+                        ? "unbekannt"
+                        : "unknown"}
+                  </td>
+                  <td>{triageValue(field, after[field], de)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="panel-note">
+          {de
+            ? "Vorschlag des Support-Agenten. Die Freigabe ändert nur diese Felder; Status und Zuständigkeit bleiben. Hat jemand das Ticket inzwischen geändert, wird der Vorschlag abgelehnt."
+            : "Proposed by the Support agent. Approval changes only these fields; status and assignee stay. If someone changed the ticket meanwhile, the proposal is refused."}
+        </p>
+        <div className="form-actions">
+          <Button disabled={pending} onClick={() => decide("approve")}>
+            {de ? "Freigeben" : "Approve"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={pending}
+            onClick={() => decide("reject")}
+          >
+            {de ? "Ablehnen" : "Reject"}
+          </Button>
+        </div>
+      </article>
+    );
+  },
+};
 export const supportActionRequests = {
+  "support.mcp.support_apply_triage": supportTriageRenderer,
   ...Object.fromEntries(
     names.map((name) => [`support.mcp.${name}`, supportDecisionRenderer]),
   ),

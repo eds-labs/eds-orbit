@@ -16,6 +16,9 @@ type Mandate = {
   assistant: boolean;
   mcp: boolean;
   mcpClientIds: string[];
+  /** The agents channel (ADR 0021 addendum): only the named agents. */
+  agents?: boolean;
+  agentIds?: string[];
   maxCostMicrosPerAction: number;
   maxActionsPerDay: number;
   options: Record<string, string[]>;
@@ -36,6 +39,105 @@ type MandatableType = {
   mandate: Mandate | null;
 };
 type View = { enabled: boolean; items: MandatableType[] };
+/** An agent as the picker shows it (GET /api/projects/:id/agents). */
+type AgentChoice = { id: string; name: string; status: string };
+
+/** The agents channel names at most this many agents. */
+export const MANDATE_MAX_AGENTS = 10;
+
+/**
+ * The channel fields of a mandate's POST body. The agents channel always
+ * names its agents (never every agent): off, it sends no ids.
+ */
+export function mandateChannels(input: {
+  assistant: boolean;
+  mcp: boolean;
+  mcpClientIds: string[];
+  agents: boolean;
+  agentIds: string[];
+}) {
+  const agents = input.agents && input.agentIds.length > 0;
+  return {
+    assistant: input.assistant,
+    mcp: input.mcp,
+    mcpClientIds: input.mcp ? input.mcpClientIds : [],
+    agents,
+    agentIds: agents ? input.agentIds.slice(0, MANDATE_MAX_AGENTS) : [],
+  };
+}
+
+/**
+ * The agents channel of the mandate form: a checkbox and the agents it
+ * names (at most ten). Rendered only while the agents API answers.
+ */
+export function AgentChannel({
+  de,
+  choices,
+  agents,
+  agentIds,
+  onAgents,
+  onAgentIds,
+}: {
+  de: boolean;
+  choices: AgentChoice[];
+  agents: boolean;
+  agentIds: string[];
+  onAgents(on: boolean): void;
+  onAgentIds(ids: string[]): void;
+}) {
+  const full = agentIds.length >= MANDATE_MAX_AGENTS;
+  return (
+    <div className="agent-mandate-agents">
+      <label>
+        <input
+          type="checkbox"
+          checked={agents}
+          onChange={(e) => onAgents(e.target.checked)}
+        />{" "}
+        {de
+          ? `Eigene Agenten dieses Projekts (nur die gewählten, höchstens ${MANDATE_MAX_AGENTS})`
+          : `This project's own agents (only the chosen ones, at most ${MANDATE_MAX_AGENTS})`}
+      </label>
+      {agents && (
+        <fieldset>
+          <legend>{de ? "Welche Agenten" : "Which agents"}</legend>
+          {choices.length === 0 && (
+            <p className="chat-package-note">
+              {de ? "Dieses Projekt hat noch keine Agenten." : "This project has no agents yet."}
+            </p>
+          )}
+          {choices.map((agent) => {
+            const checked = agentIds.includes(agent.id);
+            return (
+              <label key={agent.id}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={!checked && full}
+                  onChange={(e) =>
+                    onAgentIds(
+                      e.target.checked
+                        ? [...agentIds, agent.id]
+                        : agentIds.filter((id) => id !== agent.id),
+                    )
+                  }
+                />{" "}
+                {agent.name}
+                {agent.status !== "active" &&
+                  ` (${de ? "nicht aktiv" : "not active"})`}
+              </label>
+            );
+          })}
+          {!agentIds.length && (
+            <p className="chat-package-note" role="status">
+              {de ? "Wähle mindestens einen Agenten." : "Choose at least one agent."}
+            </p>
+          )}
+        </fieldset>
+      )}
+    </div>
+  );
+}
 
 const OPTION_LABELS: Record<string, { en: string; de: string }> = {
   "art:generate": { en: "new AI image (paid)", de: "neues KI-Bild (kostenpflichtig)" },
@@ -115,6 +217,9 @@ function MandateRow({
           ? m.mcpClientIds.length
             ? `MCP (${m.mcpClientIds.length} ${de ? "Apps" : "apps"})`
             : "MCP"
+          : null,
+        m.agents && m.agentIds?.length
+          ? `${de ? "Agenten" : "Agents"} (${m.agentIds.length})`
           : null,
       ].filter(Boolean)
     : [];
@@ -202,6 +307,20 @@ function MandateForm({
       : type.options,
   );
   const [rights, setRights] = useState(current?.generatedImageRights ?? false);
+  const [agents, setAgents] = useState(current?.agents ?? false);
+  const [agentIds, setAgentIds] = useState<string[]>(current?.agentIds ?? []);
+  // The agents channel exists only while the agents API answers (flag on).
+  const agentList = useResource<{ items: AgentChoice[] }>(
+    `/projects/${encodeURIComponent(project.id)}/agents`,
+  );
+  const agentChannel = Boolean(agentList.data) && !agentList.error;
+  const channels = mandateChannels({
+    assistant,
+    mcp,
+    mcpClientIds: current?.mcpClientIds ?? [],
+    agents: agentChannel && agents,
+    agentIds,
+  });
   const save = useMutation(onClose);
   const toggle = (key: string, value: string) =>
     setOptions((prev) => {
@@ -223,9 +342,7 @@ function MandateForm({
         void save.run(() =>
           post(collectionPath(project.id, "agent-mandates"), {
             actionType: type.actionType,
-            assistant,
-            mcp,
-            mcpClientIds: current?.mcpClientIds ?? [],
+            ...channels,
             maxCostMicrosPerAction: Math.round(Number(costUsd) * 1_000_000),
             maxActionsPerDay: Number(perDay),
             days: Number(days),
@@ -255,10 +372,22 @@ function MandateForm({
             ? "Verbundene Apps (MCP), die du selbst autorisiert hast"
             : "Connected apps (MCP) you authorized yourself"}
         </label>
+        {agentChannel && (
+          <AgentChannel
+            de={de}
+            choices={(agentList.data?.items ?? []).filter(
+              (a) => a.status !== "disabled",
+            )}
+            agents={agents}
+            agentIds={agentIds}
+            onAgents={setAgents}
+            onAgentIds={setAgentIds}
+          />
+        )}
         <p className="chat-package-note">
           {de
-            ? "Gilt nur für Anfragen, die du selbst stellst. Delegierte Arbeitsaufträge brauchen weiter eine Freigabe."
-            : "Covers only requests you make yourself. Delegated work orders still need an approval."}
+            ? "Assistent und Apps: nur Anfragen, die du selbst stellst. Agenten: nur die gewählten, solange ihre aktive Version gilt. Delegierte Arbeitsaufträge brauchen weiter eine Freigabe."
+            : "Assistant and apps: only requests you make yourself. Agents: only the chosen ones, while their active version stands. Delegated work orders still need an approval."}
         </p>
       </fieldset>
       {Object.entries(type.options).map(([key, values]) => (
@@ -320,7 +449,14 @@ function MandateForm({
       )}
       {save.error && <Alert kind="error">{save.error}</Alert>}
       <div className="chat-links">
-        <Button type="submit" disabled={save.pending || (!assistant && !mcp)}>
+        <Button
+          type="submit"
+          disabled={
+            save.pending ||
+            (!channels.assistant && !channels.mcp && !channels.agents) ||
+            (agentChannel && agents && !agentIds.length)
+          }
+        >
           {de ? "Berechtigung speichern" : "Save permission"}
         </Button>
         <Button type="button" variant="outline" onClick={onClose}>

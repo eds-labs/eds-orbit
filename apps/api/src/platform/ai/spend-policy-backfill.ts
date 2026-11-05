@@ -34,7 +34,11 @@ export async function backfillSpendPolicies(
   options: { workspaceId?: string; apply?: boolean } = {},
 ): Promise<BackfillRow[]> {
   const projects = await authDb.project.findMany({
-    where: options.workspaceId ? { workspaceId: options.workspaceId } : {},
+    // Personal spaces have no own keys or policies (ADR 0022).
+    where: {
+      kind: { not: "personal" },
+      ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
+    },
     select: { id: true, name: true, workspaceId: true },
     orderBy: { createdAt: "asc" },
   });

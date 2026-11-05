@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { authDb, type Prisma } from "../../../../../packages/db/src/index.ts";
-import { priceCatalog } from "../../../../../packages/ai/src/index.ts";
+import { priceCatalog, priceUnits } from "../../../../../packages/ai/src/index.ts";
 import { DomainError } from "../shared.ts";
 import { mergeCatalog } from "../ai/catalog.ts";
 import { systemAudit } from "./audit.ts";
@@ -25,6 +25,15 @@ export const modelPriceInput = z
     outputMicrosPerMillion: micros.optional(),
     cachedInputMicrosPerMillion: micros.optional(),
     perImageMicros: z.number().int().min(0).max(10_000_000).optional(),
+    // Speech models (ADR 0024): USD micros per audio minute or character,
+    // up to six decimals. The unit, when given, must be the model's own.
+    unit: z.enum(priceUnits).optional(),
+    unitPriceMicros: z
+      .number()
+      .min(0)
+      .max(100_000_000)
+      .refine((v) => Math.abs(v * 1e6 - Math.round(v * 1e6)) < 1e-6, "UNIT_PRICE_PRECISION")
+      .optional(),
   })
   .strict();
 
@@ -62,6 +71,13 @@ export async function setModelPrice(
   if (priceGiven && !entry.rate) throw new DomainError("MODEL_HAS_NO_TOKEN_PRICE", 400);
   if (input.perImageMicros !== undefined && entry.purpose !== "image")
     throw new DomainError("MODEL_HAS_NO_IMAGE_PRICE", 400);
+  // A unit price only for a speech model and only in its own unit.
+  if (input.unit !== undefined || input.unitPriceMicros !== undefined) {
+    if (!entry.unitPrice) throw new DomainError("MODEL_HAS_NO_UNIT_PRICE", 400);
+    if (input.unit !== undefined && input.unit !== entry.unitPrice.unit)
+      throw new DomainError("PRICE_UNIT_UNKNOWN", 400);
+    if (input.unitPriceMicros === undefined) throw new DomainError("UNIT_PRICE_REQUIRED", 400);
+  }
   return authDb.$transaction(async (tx) => {
     const current = await tx.aiModelPrice.findFirst({
       where: { ...where(target), modelId },
@@ -86,8 +102,13 @@ export async function setModelPrice(
       ...(input.active !== undefined ? { active: input.active } : {}),
       ...(rate ? { rate: rate as Prisma.InputJsonValue } : {}),
       ...(input.perImageMicros !== undefined ? { perImageMicros: input.perImageMicros } : {}),
+      ...(input.unitPriceMicros !== undefined
+        ? { unit: entry.unitPrice!.unit, unitPriceMicros: input.unitPriceMicros.toFixed(6) }
+        : {}),
       // A price entered now is dated now (D-3).
-      ...(priceGiven || input.perImageMicros !== undefined ? { verifiedAt: now } : {}),
+      ...(priceGiven || input.perImageMicros !== undefined || input.unitPriceMicros !== undefined
+        ? { verifiedAt: now }
+        : {}),
       updatedBy: actorId,
       updatedAt: now,
     };

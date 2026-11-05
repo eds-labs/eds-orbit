@@ -221,7 +221,7 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
         ...content,
         // As a confirmed assignment: the confirmation covers exactly this content.
         confirmation: {
-          userId: "owner",
+          userId: project.owner.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },

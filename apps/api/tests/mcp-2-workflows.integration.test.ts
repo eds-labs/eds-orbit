@@ -282,13 +282,13 @@ describe.skipIf(!enabled)(
       await decide(made.actionRequestId);
       const task = await readTask(project.owner, made.taskId);
       // Simulate an insufficient saved ceiling before the queued run dispatches.
-      await run(async (tx) => {
-        const row = await entity(tx, project.owner, "orbit_tasks", made.taskId);
-        await update(tx, project.owner, row, {
-          ...data(row),
-          delegation: { ...data(row).delegation, ceilingMicros: 1 },
-        });
-      });
+      // New tasks are work order rows (WP3.6): the ceiling is its column.
+      await run((tx) =>
+        tx.agentWorkOrder.update({
+          where: { id: made.taskId },
+          data: { ceilingMicros: 1n },
+        }),
+      );
       const calls = model.calls;
       await runChatJob(project.owner, project.owner.userId, task.runId);
       expect(model.calls).toBe(calls);
@@ -903,9 +903,10 @@ describe.skipIf(!enabled)(
       await decide(made.actionRequestId, "reject");
       const task = await readTask(project.owner, made.taskId);
       await run(async (tx) => {
-        await tx.entity.update({
+        // New tasks are work order rows (WP3.6), aged by their creation.
+        await tx.agentWorkOrder.update({
           where: { id: made.taskId },
-          data: { updatedAt: new Date(0) },
+          data: { createdAt: new Date(0) },
         });
         await taskRetention(tx, project.owner, {
           cutoff: new Date(1),

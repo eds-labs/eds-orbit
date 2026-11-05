@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { splitNotice } from "./notices.ts";
 import { afterCommit, DbTx } from "../../../../../packages/db/src/index.ts";
 import { userScoped } from "../tenancy/scope.ts";
 import { type Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -8,11 +9,28 @@ import { registeredConversationSections } from "../modules/contributions.ts";
 import { visibleModules } from "../tenancy/module-roles.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import { publishChange } from "../realtime/fanout.ts";
+import { resourceCardValid, type ChatCard } from "./cards.ts";
+import {
+  assertPersonalTurnAllowed,
+  hintsCard,
+  isInternalCard,
+  pageContextInput,
+  projectCardsChecked,
+  projectKind,
+  readRunSteps,
+  storedHints,
+  validateHints,
+  type RunStep,
+} from "./personal-mode.ts";
 
 export const sendInput = z
   .object({
     text: z.string().trim().min(1).max(4000),
     clientRequestId: z.uuid(),
+    // Personal mode only (ADR 0022 §9): hints the server checks and keeps
+    // only for a business project the sender may read; ignored elsewhere.
+    pageContext: pageContextInput.optional(),
+    focusProjectId: z.uuid().optional(),
   })
   .strict();
 // The user-scoped transaction moved to the platform (WP1.1).
@@ -114,6 +132,12 @@ export async function listConversations(
 }
 
 export async function getConversation(scope: Scope, id: string) {
+  // Cards of other projects (personal mode) are checked afterwards, each in
+  // its own project's transaction, never inside this one.
+  return projectCardsChecked(scope, await conversationRead(scope, id));
+}
+
+async function conversationRead(scope: Scope, id: string) {
   return chatScoped(scope, async (tx) => {
     const row = await conversation(tx, scope, id);
     const savedMessages = await tx.chatMessage.findMany({
@@ -135,25 +159,34 @@ export async function getConversation(scope: Scope, id: string) {
         id: { in: cardIds },
       },
     });
-    const messages = savedMessages.map((message) => ({
-      ...message,
-      cards: Array.isArray(message.cards)
-        ? (message.cards as any[]).map((card) => {
-            if (!card.resourceId) return card;
-            const resource = cardResources.find(
-              (candidate) => candidate.id === card.resourceId,
-            );
-            const valid =
-              resource &&
-              resource.version === card.version &&
-              (card.kind === "source"
-                ? data(resource).status === "active"
-                : data(resource).usageApproved === true &&
-                  data(resource).assetStatus === "approved");
-            return { ...card, status: valid ? card.status : "stale" };
-          })
-        : [],
-    }));
+    const messages = savedMessages.map((message) => {
+      // A personal-mode user message's hints (internal card, WP3.4).
+      const hints = message.role === "user" ? storedHints(message.cards) : null;
+      return {
+        ...message,
+        // A notice's metadata is its first stored card (ADR 0022, T3-2).
+        ...(message.role === "notice"
+          ? { notice: splitNotice(message.cards).notice ?? null }
+          : {}),
+        ...(hints ? { pageContext: hints } : {}),
+        cards: Array.isArray(message.cards)
+          ? (message.role === "notice"
+              ? (splitNotice(message.cards).cards as any[])
+              : (message.cards as any[])
+            )
+              .filter((card) => !isInternalCard(card))
+              .map((card) => {
+                // A card of another project is checked in that project.
+                if (!card.resourceId || card.projectId) return card;
+                const resource = cardResources.find(
+                  (candidate) => candidate.id === card.resourceId,
+                );
+                const valid = resourceCardValid(card, resource);
+                return { ...card, status: valid ? card.status : "stale" };
+              })
+          : [],
+      };
+    });
     const runs = await tx.chatRun.findMany({
       where: { ...where(scope), conversationId: id },
       orderBy: { createdAt: "desc" },
@@ -224,9 +257,18 @@ export async function getConversation(scope: Scope, id: string) {
 }
 
 export async function sendMessage(scope: Scope, id: string, raw: unknown) {
-  const input = sendInput.parse(raw);
+  const { pageContext, focusProjectId, ...input } = sendInput.parse(raw);
+  // A personal space (ADR 0022): the gate, then the hints, both checked
+  // before its transaction (the hints read other projects).
+  const project = await projectKind(scope.projectId);
+  let cards: ChatCard[] | undefined;
+  if (project?.kind === "personal") {
+    await assertPersonalTurnAllowed(scope, project);
+    const hints = await validateHints(scope, { pageContext, focusProjectId });
+    if (hints.pageContext || hints.focusProjectId) cards = [hintsCard(hints)];
+  }
   return chatScoped(scope, (tx) =>
-    sendMessageInTransaction(tx, scope, id, input),
+    sendMessageInTransaction(tx, scope, id, input, cards),
   );
 }
 
@@ -236,6 +278,8 @@ export async function sendMessageInTransaction(
   scope: Scope,
   id: string,
   input: z.infer<typeof sendInput>,
+  // Internal cards stored with the user message (personal-mode hints).
+  cards?: ChatCard[],
 ) {
   const thread = await conversation(tx, scope, id);
   const prior = await tx.chatRun.findUnique({
@@ -272,6 +316,7 @@ export async function sendMessageInTransaction(
       sequence: (last?.sequence ?? 0) + 1,
       role: "user",
       text: input.text,
+      ...(cards?.length ? { cards: cards as object[] } : {}),
     },
   });
   const run = await tx.chatRun.create({
@@ -344,6 +389,8 @@ export function runSnapshot(run: {
   partialText: string | null;
   errorCode: string | null;
   sequence: number;
+  /** A personal run's progress steps (WP3.4); absent in project chat. */
+  steps?: RunStep[];
 }) {
   return {
     id: run.id,
@@ -351,6 +398,7 @@ export function runSnapshot(run: {
     partialText: run.partialText,
     errorCode: run.errorCode,
     sequence: run.sequence,
+    ...(run.steps ? { steps: run.steps } : {}),
   };
 }
 
@@ -360,7 +408,9 @@ export async function getRun(scope: Scope, runId: string) {
       where: { ...where(scope), id: runId },
     });
     if (!run) throw new DomainError("NOT_FOUND", 404);
-    return run;
+    // Progress steps exist for personal runs only (WP3.4).
+    const steps = await readRunSteps(tx, scope, runId);
+    return steps ? { ...run, steps } : run;
   });
 }
 

@@ -149,3 +149,14 @@ WP5.1 (skeleton and data model) does not depend on the open answers, as long as:
 Code work can therefore start. The pilot itself (WP5.9) stays blocked until §1.2 and §1.3 are confirmed.
 
 WP5.1 is planned in `docs/superpowers/plans/2026-10-17-wp51-support-skeleton.md` and documented in `docs/SUPPORT.md`.
+
+---
+
+## 4. Addendum (2026-11-04): configured Support agents
+
+Decided by Mario with the agent platform Phase 2 plan ([ADR 0021](../../docs/adr/0021-agent-platform.md), D-11, D-15, D-16):
+
+- Q-12a (OpenAI under its DPA) also covers configured Support agents. **No other provider** receives Support customer data until a separate legal review; a code allow-list enforces it for agent routes and for the existing Support triage and draft pipelines.
+- An inbox opts into the agent with the explicit AI mode `agent`. `off` and `draft` keep their meaning.
+- Q-17 stays: no AI text reaches a customer without a person. Agents may at most propose a reply; a mandate can cover notes, reply drafts and triage (priority, category, tags), never a reply.
+- Privacy hardening that also affects `draft` inboxes: hard rules screen the subject too, and model inputs pass through the platform redaction (phones, IBANs, cards, IPs, wallets, secrets) after the placeholders.

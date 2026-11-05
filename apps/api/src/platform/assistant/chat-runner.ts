@@ -45,14 +45,15 @@ import { actorScope } from "../../modules/member-scope.ts";
 import type { ChatCard } from "./cards.ts";
 import {
   registeredAssistants,
-  registeredToolOwner,
   registeredTools,
 } from "../modules/contributions.ts";
+import { visibleModules } from "../tenancy/module-roles.ts";
 import {
-  effectiveRole,
-  moduleScope,
-  visibleModules,
-} from "../tenancy/module-roles.ts";
+  capabilityFeatures,
+  capToolOutput,
+  executeCapability,
+  resolveCapabilities,
+} from "../agents/capabilities.ts";
 import { moduleSwitchingEnabled } from "../modules/activation.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import {
@@ -69,6 +70,29 @@ import {
 import type { BudgetedModel, ToolHost } from "../../modules/agents/runtime/port.ts";
 import { legacyResponsesRuntime } from "../../modules/agents/runtime/legacy-responses.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { withDelegatedProposalQuota } from "../mcp/proposals.ts";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import {
+  assertPersonalTurnAllowed,
+  contextProjectsOf,
+  memoryInstruction,
+  PERSONAL_INSTRUCTIONS,
+  personalContextSection,
+  projectsInTurn,
+  recordRunStep,
+  storedHints,
+  turnContextCard,
+} from "./personal-mode.ts";
+import {
+  preparePersonalTurn,
+  projectListSection,
+  type PersonalTurn,
+} from "./personal-turn.ts";
+import {
+  listContext,
+  readAssistantSettings,
+  type ContextEntry,
+} from "./personal-context.ts";
 
 // Span names come from this fixed set; the model-supplied name is never stored.
 const toolSpanName = (name: unknown) =>
@@ -132,6 +156,70 @@ export function staticChatBytes() {
     }),
   );
 }
+/**
+ * What a personal turn reads in its personal-space transaction (WP3.4):
+ * the latest user message and its hints, the projects earlier turns of
+ * the conversation read (they still taint), the personal context and the
+ * memory setting.
+ */
+async function personalTurnInputs(tx: DbTx, scope: Scope, conversationId: string) {
+  const latest = await tx.chatMessage.findFirst({
+    where: { conversationId, userId: scope.userId, role: "user" },
+    orderBy: { sequence: "desc" },
+    select: { text: true, cards: true },
+  });
+  const earlier = await tx.chatMessage.findMany({
+    where: {
+      conversationId,
+      userId: scope.userId,
+      role: { in: ["assistant", "notice"] },
+    },
+    orderBy: { sequence: "desc" },
+    select: { role: true, cards: true },
+    take: 200,
+  });
+  const hints = storedHints(latest?.cards);
+  return {
+    userText: latest?.text ?? "",
+    focusProjectId:
+      hints?.focusProjectId ?? hints?.pageContext?.projectId ?? null,
+    contextProjects: contextProjectsOf(earlier),
+    context: await listContext(tx, scope),
+    autoMemory: (await readAssistantSettings(tx, scope)).autoMemory,
+  };
+}
+
+/** The personal-mode instructions of one turn: rules, memory, projects, context. */
+function personalInstructions(
+  turn: PersonalTurn,
+  inputs: { userText: string; context: ContextEntry[]; autoMemory: boolean },
+) {
+  const named = projectsInTurn(inputs.userText, turn.projects, turn.focusProjectId);
+  return [
+    PERSONAL_INSTRUCTIONS,
+    memoryInstruction(inputs.autoMemory),
+    projectListSection(turn.projects, {
+      truncated: turn.truncated,
+      focusProjectId: turn.focusProjectId,
+    }),
+    personalContextSection(inputs.context, named).text,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * A personal answer's cards: at most 20 visible ones, then the internal
+ * card that records the turn's context projects for later turns.
+ */
+function personalMessageCards(turn: PersonalTurn) {
+  const projects = turn.contextProjects();
+  return [
+    ...turn.cards.slice(0, 20),
+    ...(projects.length ? [turnContextCard(projects)] : []),
+  ] as object[];
+}
+
 async function snapshot(scope: Scope, runId: string, text: string) {
   const saved = await chatScoped(scope, async (tx) => {
     const run = await tx.chatRun.findFirst({
@@ -219,15 +307,12 @@ function chatToolHost(host: {
           tool,
         );
         // The tool runs with the member's role in its module (WP4.5).
-        const result = await delegatedExecution.run(
-          host.delegation ?? (undefined as any),
-          () =>
-            tool.execute(
+        const execute = () =>
+          delegatedExecution.run(host.delegation ?? (undefined as any), () =>
+            executeCapability(
+              tool,
               {
-                scope: moduleScope(
-                  currentScope,
-                  registeredToolOwner(tool.name),
-                ),
+                scope: currentScope,
                 runId,
                 conversationId,
                 callIndex,
@@ -244,7 +329,22 @@ function chatToolHost(host: {
               },
               args,
             ),
-        );
+          );
+        // A delegated work order's proposals count against the MCP
+        // proposal quotas of its user and client (ADR 0021 §7.3).
+        const result =
+          host.delegation && tool.risk === "P_proposal"
+            ? await withDelegatedProposalQuota(
+                {
+                  userId: host.delegation.userId,
+                  clientId: host.delegation.clientId,
+                  grantId: host.delegation.grantId,
+                  workspaceId: scope.workspaceId,
+                },
+                tool.name,
+                execute,
+              )
+            : await execute();
         output = result.output;
         cards.push(...result.cards);
       } catch (error) {
@@ -286,7 +386,7 @@ function chatToolHost(host: {
         toolFailure = validationCode ?? telemetryErrorCode(error);
       }
       await recordTool();
-      return JSON.stringify(output).slice(0, 12000);
+      return capToolOutput(output);
     },
   };
 }
@@ -396,12 +496,18 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       });
+      // A personal space (ADR 0022): the gate again at run time.
+      await assertPersonalTurnAllowed(scope, project);
       if (project.paused) throw new DomainError("PROJECT_PAUSED");
       const messages = await tx.chatMessage.findMany({
         where: { conversationId: run.conversationId, userId: scope.userId },
         orderBy: { sequence: "desc" },
         take: 12,
       });
+      const personal =
+        project.kind === "personal"
+          ? await personalTurnInputs(tx, scope, run.conversationId)
+          : null;
       await tx.chatRun.update({
         where: { id: runId },
         data: { status: "running", sequence: { increment: 1 } },
@@ -413,6 +519,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         project,
         routeVersion,
         delegation: await taskDelegation(tx, scope, runId),
+        personal,
       };
     });
     runChanged(scope, runId);
@@ -445,9 +552,11 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       subjectId: runId,
       routeVersion: state.routeVersion,
     });
+    // A platform notice (ADR 0022) reaches the model as assistant-side
+    // context, marked as such; providers know no `notice` role.
     const input: any[] = state.messages.map((m) => ({
-      role: m.role,
-      content: m.text,
+      role: m.role === "notice" ? "assistant" : m.role,
+      content: m.role === "notice" ? `[Orbit notice] ${m.text}` : m.text,
     }));
     const cards: ChatCard[] = [];
     let modelCalls = 0;
@@ -486,24 +595,19 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     const assistants = registeredAssistants(
       state.delegation ? new Set(state.delegation.modules) : enabled,
     );
-    const features = assistants.flatMap((a) =>
-      a.features({ toolSearch, fullTools }),
-    );
     // Module operations are for delegated MCP work orders; the in-app chat
-    // has its own tools for the same work, and the ~22 KB of operation
-    // schemas left a Claude chat too little room (CHAT_CONTEXT_LIMIT).
-    if (state.delegation && loadConfig().ORBIT_MCP_TASKS === "true")
-      features.push("mcp_tasks");
-    if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
-      features.push("project_configuration");
-    if (loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
-      features.push("project_administration");
+    // has its own tools for the same work (capabilities.ts).
+    const features = capabilityFeatures(assistants, {
+      toolSearch,
+      fullTools,
+      moduleOperations: state.delegation !== null,
+    });
     // Each tool is offered by the member's role in the tool's module.
     // Tools meant for outside clients only (exposure.assistant: false) never appear.
-    let offered = registeredTools(enabled).filter((tool) => {
-      if (!exposedToAssistant(tool)) return false;
-      const role = effectiveRole(scope, registeredToolOwner(tool.name));
-      return role !== "none" && availableTools([tool], role, features).length;
+    let offered = resolveCapabilities(scope, {
+      channel: "assistant",
+      enabled,
+      features,
     });
     if (state.delegation) {
       const permitted: OrbitTool[] = [];
@@ -552,14 +656,47 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       ...offered.filter((tool) => !deferred.includes(tool)).map(responsesTool),
       ...(deferred.length ? [TOOL_SEARCH] : []),
     ];
+    // Personal mode (ADR 0022, WP3.4): its own instructions and staged
+    // tools; project mode keeps the instructions and tool list above.
+    const personalTurn = state.personal
+      ? await preparePersonalTurn({
+          mode: "personal",
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          focusProjectId: state.personal.focusProjectId,
+          run: {
+            runId,
+            conversationId: state.run.conversationId,
+            scope,
+            agentRunId,
+          },
+          initialContextProjects: state.personal.contextProjects,
+          userText: state.personal.userText,
+          onStep: async (step) => {
+            const saved = await chatScoped(scope, (tx) =>
+              recordRunStep(tx, scope, runId, step),
+            );
+            runChanged(scope, runId, saved.sequence);
+          },
+        })
+      : null;
+    const instructionsForRun =
+      personalTurn && state.personal
+        ? personalInstructions(personalTurn, state.personal)
+        : runInstructions;
+    // Project mode: the same list for every call. Personal mode: the fixed
+    // list plus the tools loaded so far in this turn (staged loading).
+    const toolsForCall = (loaded: unknown[] | undefined) =>
+      personalTurn ? [...personalTurn.staticTools, ...(loaded ?? [])] : toolDefinitions;
     const budgetedModel: BudgetedModel = {
       async call(request) {
         await assertDelegation(scope, state.delegation);
+        const callTools = toolsForCall(request.loadedTools);
         const bytes = Buffer.byteLength(
           JSON.stringify({
             input: request.input,
-            instructions: runInstructions,
-            tools: toolDefinitions,
+            instructions: instructionsForRun,
+            tools: callTools,
           }),
         );
         if (bytes > MAX_INPUT_BYTES)
@@ -638,8 +775,8 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         const stream = await streamChat({
           route: prepared.modelRoute,
           input: request.input,
-          tools: toolDefinitions,
-          instructions: runInstructions,
+          tools: callTools,
+          instructions: instructionsForRun,
           reservationId: prepared.reservationId,
           runtime: prepared.runtime,
           signal: request.signal,
@@ -770,16 +907,18 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     await legacyResponsesRuntime.runTurn({
       input,
       model: budgetedModel,
-      tools: chatToolHost({
-        scope,
-        runId,
-        conversationId: state.run.conversationId,
-        agentRunId,
-        offered,
-        deferred,
-        cards,
-        delegation: state.delegation,
-      }),
+      tools:
+        personalTurn?.host ??
+        chatToolHost({
+          scope,
+          runId,
+          conversationId: state.run.conversationId,
+          agentRunId,
+          offered,
+          deferred,
+          cards,
+          delegation: state.delegation,
+        }),
       limits: { maxModelCalls: MAX_MODEL_CALLS, maxToolCalls: MAX_TOOL_CALLS },
       signal: controller.signal,
     });
@@ -803,7 +942,9 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
           sequence: (last?.sequence ?? 0) + 1,
           role: "assistant",
           text: fullText || "No answer was produced.",
-          cards: cards.slice(0, 20),
+          cards: personalTurn
+            ? personalMessageCards(personalTurn)
+            : cards.slice(0, 20),
         },
       });
       await tx.chatRun.update({
@@ -835,7 +976,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       failedStatus =
         run.status === "canceled"
           ? "canceled"
-          : /MCP_|BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|COST_CEILING_CHANGED|EVIDENCE_CHANGED|INDEX_CHANGED|ROUTE_CHANGED|RETRIEVAL|REFUSAL|UNSUPPORTED/.test(
+          : /MCP_|BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|COST_CEILING_CHANGED|ASSISTANT_|EVIDENCE_CHANGED|INDEX_CHANGED|ROUTE_CHANGED|RETRIEVAL|REFUSAL|UNSUPPORTED/.test(
                 code,
               )
             ? "blocked"

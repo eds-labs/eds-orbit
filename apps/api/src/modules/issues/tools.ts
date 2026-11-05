@@ -48,6 +48,10 @@ async function issueByNumber(tx: DbTx, scope: Scope, n: number) {
 export const issuesSearch = readOperation({
   ...shared,
   name: "issues_search",
+  agent: {
+    title: { en: "Search issues", de: "Issues suchen" },
+    summary: { en: "Searches the issue center.", de: "Durchsucht das Issue-Center." },
+  },
   description:
     "Find product issues by words or ISS-number, filtered by status (open, triage, all or one status), severity and component. Returns redacted titles, counts and the version to pass to proposals.",
   input: z
@@ -92,6 +96,10 @@ export const issuesSearch = readOperation({
 export const issuesGet = readOperation({
   ...shared,
   name: "issues_get",
+  agent: {
+    title: { en: "Read issue", de: "Issue lesen" },
+    summary: { en: "Reads one issue with its details.", de: "Liest ein Issue mit Details." },
+  },
   description:
     "Read one issue by number: fields, version, redacted reports (no diagnostics), pending duplicate candidates, linked tasks and tickets (ticket titles stay in Orbit), deliveries and recent history.",
   input: z.object({ number }).strict(),
@@ -127,6 +135,10 @@ export const issuesGet = readOperation({
 export const issuesStats = readOperation({
   ...shared,
   name: "issues_stats",
+  agent: {
+    title: { en: "Issue figures", de: "Issue-Kennzahlen" },
+    summary: { en: "Reads issue counts by status and severity.", de: "Liest Issue-Zahlen nach Status und Schwere." },
+  },
   description: "The issue center's dashboard numbers: open, critical, awaiting triage, fix ready, released, by component and source, and median lead times in hours.",
   input: z.object({}).strict(),
   permission: ISSUES_READ,
@@ -139,6 +151,10 @@ export const issuesStats = readOperation({
 export const issuesDuplicates = readOperation({
   ...shared,
   name: "issues_duplicates",
+  agent: {
+    title: { en: "Find duplicates", de: "Duplikate finden" },
+    summary: { en: "Finds likely duplicate issues.", de: "Findet wahrscheinliche Issue-Duplikate." },
+  },
   description: "Pending duplicate candidates of one issue by number, with score and reason codes. Merging needs a person's approval.",
   input: z.object({ number }).strict(),
   permission: ISSUES_READ,
@@ -165,6 +181,10 @@ export const issuesProposeReport = approvedOperation({
   riskClass: "W0",
   ...proposal,
   name: "issues_propose_report",
+  agent: {
+    title: { en: "Propose issue", de: "Issue vorschlagen" },
+    summary: { en: "Proposes a new issue report for approval.", de: "Schlägt eine neue Issue-Meldung zur Freigabe vor." },
+  },
   description:
     "Propose a product issue report: a new issue, or a report on an existing issue by number. Never include customer names, e-mail addresses or account identifiers; Orbit redacts them anyway.",
   input: reportInput,

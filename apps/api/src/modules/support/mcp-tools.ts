@@ -6,9 +6,10 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { inboxRulesSchema } from "./settings.ts";
 import { loadInbox } from "./inboxes.ts";
-import { screenCustomerText } from "./hard-rules.ts";
+import { screenCustomerText, screenDraft } from "./hard-rules.ts";
+import { assertAgentTicket, byAgent, SUPPORT_AGENT_CATALOG } from "./agent-gate.ts";
 import { requireSpendMandate } from "../../platform/ai/spend-mandate.ts";
-import { withPlaceholders } from "./ai.ts";
+import { supportActor, withPlaceholders } from "./ai.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -183,6 +184,7 @@ async function validateTicket(
   args: { ticketId: string },
 ) {
   await existingTicket(tx, scope, args);
+  await assertAgentTicket(tx, scope, args.ticketId);
 }
 /** Kept in the hash-bound owner approval, never returned as an MCP customer DTO. */
 async function replyDestination(
@@ -268,6 +270,8 @@ const replyOperations = [{ name: "support_send_reply", field: "bodyText" }].map(
       ...shared,
       ...destinationApproval,
       name,
+      // Agents may only propose it; a person always decides (ADR 0021 D-16).
+      agent: SUPPORT_AGENT_CATALOG.sendReply,
       permission: SUPPORT_TICKETS_REPLY,
       async ownerMcpAutoApproval(tx, scope, args) {
         const currentTicket = await tx.supportTicket.findFirst({
@@ -304,17 +308,22 @@ const noteOperations = [{ name: "support_add_note", field: "bodyText" }].map(
       mandate: { maxCostMicrosPerAction: 0 },
       ...shared,
       name,
+      agent: SUPPORT_AGENT_CATALOG.note,
       permission: SUPPORT_NOTES_WRITE,
       description:
         "Propose an internal native ticket note. Only owner approval stores it; it can never become a public customer reply or queue external delivery.",
       input: ticket.extend({ [field]: z.string().trim().min(1).max(20_000) }),
       validate: validateTicket,
       executionResult: currentMessageReceipt,
-      async run(tx, scope, args) {
+      async run(tx, scope, args, requester) {
         return messageReceipt(
-          await noteOnTicket(tx, scope, args.ticketId, {
-            bodyText: args[field],
-          }),
+          await noteOnTicket(
+            tx,
+            scope,
+            args.ticketId,
+            { bodyText: args[field] },
+            supportActor(scope, requester as never),
+          ),
         );
       },
     }),
@@ -329,7 +338,12 @@ const writes = [
     requires: [],
     description:
       "Propose native status, priority, assignee, category or label changes. Only explicitly supplied fields change. Merged tickets are immutable.",
+    agent: SUPPORT_AGENT_CATALOG.updateTicket,
     async validate(tx, scope, { ticketId, ...change }) {
+      await assertAgentTicket(tx, scope, ticketId);
+      // Agents never resolve or close a ticket (template rule, plan §2.5).
+      if (byAgent() && (change.status === "resolved" || change.status === "closed"))
+        throw new DomainError("SUPPORT_AGENT_STATUS_NOT_ALLOWED", 409);
       await validateTicketUpdate(tx, scope, ticketId, change);
     },
     permission: SUPPORT_TICKETS_ASSIGN,
@@ -344,8 +358,11 @@ const writes = [
         .optional(),
       tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     }),
-    async run(tx, scope, { ticketId, ...change }) {
-      const row = await updateTicket(tx, scope, ticketId, change);
+    async run(tx, scope, { ticketId, ...change }, requester) {
+      const actor = supportActor(scope, requester as never);
+      if (actor.kind === "ai" && (change.status === "resolved" || change.status === "closed"))
+        throw new DomainError("SUPPORT_AGENT_STATUS_NOT_ALLOWED", 409);
+      const row = await updateTicket(tx, scope, ticketId, change, actor);
       return {
         id: row.id,
         ticketId: row.id,
@@ -364,12 +381,24 @@ const writes = [
     mandate: { maxCostMicrosPerAction: 0 },
     ...shared,
     name: "support_prepare_reply",
-    validate: validateTicket,
+    agent: SUPPORT_AGENT_CATALOG.prepareReply,
+    // The Support AI's draft checks for every requester (plan WP2.2): a
+    // promise or advice is refused, as the AI pipeline withholds it.
+    async validate(tx, scope, args) {
+      await validateTicket(tx, scope, args);
+      const problems = screenDraft(args.bodyText);
+      if (problems.length)
+        throw new DomainError(
+          `SUPPORT_DRAFT_${problems[0]!.replace("forbidden:", "FORBIDDEN_").toUpperCase()}`,
+          422,
+        );
+    },
     description:
       "Save an editable reply draft in the native ticket timeline. Approval of this action only saves the draft and never sends it.",
     permission: SUPPORT_TICKETS_REPLY,
     input: ticket.extend({ bodyText: z.string().trim().min(1).max(4000) }),
-    async run(tx, scope, { ticketId, bodyText }) {
+    async run(tx, scope, { ticketId, bodyText }, requester) {
+      const actor = supportActor(scope, requester as never);
       const found = await tx.supportTicket.findFirst({
         where: { id: ticketId, projectId: scope.projectId },
       });
@@ -383,7 +412,8 @@ const writes = [
           kind: "ai_draft",
           bodyText,
           channel: "internal",
-          authorUserId: scope.userId,
+          authorUserId: actor.kind === "user" ? actor.userId : null,
+          agentRunId: actor.kind === "ai" ? actor.agentRunId : null,
           visibleToCustomer: false,
         },
       });
@@ -417,8 +447,11 @@ function aliasTool(
   const parameters = base.parameters
     .omit({ bodyText: true })
     .extend({ [field]: base.parameters.shape.bodyText });
+  // Aliases serve older outside clients only; agents use the base tool.
+  const { catalog: _catalog, ...rest } = base;
   return defineTool({
-    ...base,
+    ...rest,
+    exposure: { assistant: base.exposure?.assistant, mcp: base.exposure?.mcp },
     name,
     mcpProjectRequired: true,
     parameters,

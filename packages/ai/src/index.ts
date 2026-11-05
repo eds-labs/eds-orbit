@@ -35,6 +35,9 @@ export * from "./provider-budget.ts";
 export * from "./catalog.ts";
 export * from "./presets.ts";
 export * from "./image-models.ts";
+export * from "./speech.ts";
+export * from "./audio-duration.ts";
+export { openAiSpeechProvider } from "./providers/openai-speech.ts";
 // Upper bounds of the copy craft and image copy fields: a sanity cap on the
 // model's answer. The template's own, smaller limits are a review problem
 // (one revision), never an unusable answer.

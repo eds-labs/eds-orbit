@@ -72,6 +72,11 @@ Hosts must be public DNS names that resolve to public addresses only. IP literal
 - **Privacy.** Notices and preferences are private to each member by row-level security (the chat tables' policy).
 - **Links.** A link is an Orbit path: a leading `/`, no second `/` or `\` after it, and no backslash, whitespace or control character anywhere. Browsers read `/\x` and `/<tab>/x` as `//x`, another site. The API, the database check and the bell apply the same rule.
 - **Bell.** It shows the unread count (polled every minute), a list with mark-as-read and settings per kind. Links are followed only within Orbit.
+- **Proactive delivery (ADR 0023, `ORBIT_PROACTIVE`, off by default).**
+  - **Dedupe.** `notifyMembers` accepts `dedupeKey`, `severity` and `delivery`. A repeat of the same key raises `occurrences` on the open row and sends no second e-mail or Telegram message; a severity rise marks it unread.
+  - **Delivery job.** The first occurrence queues one delivery job. It re-checks access and the kind switch, then applies the user's preferences from their personal space: e-mail and Telegram per severity (immediate, digest or off) and quiet hours.
+  - **Digest.** The digest e-mail goes through the system SMTP sender with titles, counts and links only. Per-user Telegram uses the user's own bot linked to their personal space.
+  - **Flag off.** With the flag off, all of this is skipped and notifications behave exactly as above. See [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md), "Proactive notices and briefings".
 
 ## Dependencies
 

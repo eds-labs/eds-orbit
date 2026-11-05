@@ -421,6 +421,41 @@ describe.skipIf(!enabled)("support AI", () => {
     expect((await ticketRow(t.ticketId)).aiState).toBe("handed_off");
   });
 
+  it("screens the subject too and redacts phone numbers and IBANs before the model (agent platform T2-3, §2.4)", async () => {
+    const refund = await run((tx) =>
+      createTicket(tx, project.owner, {
+        inboxId,
+        channel: "email",
+        inbound: {
+          externalId: `<${randomUUID()}@example.org>`,
+          contact: { email: "anna@example.org", name: "Anna Customer" },
+          subject: "Refund for my order",
+          bodyText: "Hello, see subject.",
+          attachments: [],
+        },
+      }),
+    );
+    await runSupportTask(worker(), { task: "triage", ticketId: refund.ticketId });
+    await runSupportTask(worker(), { task: "draft", ticketId: refund.ticketId });
+    expect(mocked.requests).toHaveLength(0);
+    expect((await ticketRow(refund.ticketId)).aiState).toBe("handed_off");
+
+    const t = await ticket("My deposit is late. Call +49 151 23456789, IBAN DE89 3704 0044 0532 0130 00.");
+    mocked.replies.push({
+      language: "en",
+      category: "deposits",
+      priority: "normal",
+      sentiment: "neutral",
+      summary: "Late deposit.",
+      sensitive: false,
+    });
+    await runSupportTask(worker(), { task: "triage", ticketId: t.ticketId });
+    const sent = JSON.stringify(mocked.requests[0].input);
+    expect(sent).not.toContain("23456789");
+    expect(sent).not.toContain("DE89");
+    expect(sent).toContain("[phone removed]");
+  });
+
   it("never repeats the paid call of a job (review fix 5)", async () => {
     const t = await ticket("How long does a deposit take?");
     mocked.search.mockResolvedValue(ready);

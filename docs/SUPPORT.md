@@ -101,7 +101,7 @@ Every route sits below `/api/projects/:projectId/support`.
 Further rules:
 - An e-mail inbox needs `emailConnectionId`: a verified mailbox of the project (else 400 `INBOX_MAILBOX_INVALID`; its own unchanged mailbox may be awaiting a login check). Its address is that mailbox's own address; an `emailAddress` given must be that address (else 400 `INBOX_ADDRESS_NOT_MAILBOX`). No two live inboxes answer from one mailbox or address (409 `INBOX_MAILBOX_TAKEN`; also a partial unique index). Without the e-mail channel the inbox has no mailbox.
 - A widget inbox needs at least one exact origin.
-- The AI mode is `off` (the default) or `draft`. A widget answer without a human follows only with WP5.6, after Q-17.
+- The AI mode is `off` (the default), `draft` or `agent` (ADR 0021 D-15; only while `ORBIT_AGENT_PLATFORM` is on, otherwise `AGENT_PLATFORM_DISABLED`). A widget answer without a human follows only with WP5.6, after Q-17.
 
 ## Agent workspace (WP5.2)
 
@@ -208,7 +208,7 @@ The widget's public API lives at `/api/public/support/<publicKey>/…`. It is mo
 
 ## Support AI (WP5.6)
 
-These are drafts for agents only; a person always sends (Q-17). The inbox switch is `aiMode`: `off` (default) or `draft`.
+These are drafts for agents only; a person always sends (Q-17). The inbox switch is `aiMode`: `off` (default), `draft`, or `agent`, where a configured Support agent does the work instead of these jobs (see "Support agent" below).
 
 | Task | When | What it does |
 |---|---|---|
@@ -222,12 +222,14 @@ These are drafts for agents only; a person always sends (Q-17). The inbox switch
 
 Without evidence, an internal gap note replaces the draft and the ticket is handed off. A draft the model is unsure about is kept, but the ticket is handed off too.
 
-**Hard rules** (`modules/support/hard-rules.ts`). Trading or investment questions, account security, billing and legal matters go straight to a human, without a model call. The offline eval `evals/support/hard-rules.test.ts` requires recall 1.0 on its sensitive cases.
+**Hard rules** (`modules/support/hard-rules.ts`). Trading or investment questions, account security, billing and legal matters go straight to a human, without a model call. Since 2026-11-04 (ADR 0021 Phase 2, T2-3) the ticket subject is screened together with the latest customer message. The offline eval `evals/support/hard-rules.test.ts` requires recall 1.0 on its sensitive cases.
 
 **Handoff.** `aiState` becomes `handed_off`, with a `handoff` event carrying the reason and the `support_ai_handoff` notification.
 
 **Personal data (Q-12a, option B).**
 - The model never sees the contact's name or any e-mail address; placeholders stand in, and the agent's draft gets the name back.
+- Since 2026-11-04 every model input also passes the platform redaction (`platform/privacy/redact.ts`): phone numbers, IBANs, card numbers, IP addresses, wallet addresses, transaction hashes, secrets and credential URLs are replaced (`supportModelText`).
+- Only providers allowed for customer data receive a call: OpenAI (Q-12a, ADR 0021 D-11). A route or budget fallback to another provider is refused before anything is reserved (`AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA`). **Check before deploying** that no project routes `support_triage` or `support_draft` to Anthropic; such a project's Support AI would stop with this code.
 - The platform always sends `store: false`, and there is no trace export.
 - Telemetry stores input hashes only.
 
@@ -259,7 +261,42 @@ The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `do
 
 The second run on 2026-10-17, after the handoff instruction was sharpened, cost $0.0221 (`docs/evidence/support-ai-eval-2026-10-17-run2.json`). It handed off 2/2 but still FAILED: triage category and language reached only 10/12. The two misses, T09 and T11, are sensitive questions that the hard rules now hand off before any model call (review fix 4), so they get no model category or language by design. The eval still scores them as model triage.
 
+Since 2026-11-04 the live eval counts a sensitive case the hard rules screened as a correct hand-off (category and language are not applicable), as the Phase 2 plan requires.
+
 **Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
+
+## Support agent (ADR 0021 Phase 2)
+
+Implemented on branch `claude/agent-platform-architecture-128114` (2026-11-04); not merged, not deployed. Needs `ORBIT_AGENT_PLATFORM` (and `ORBIT_AGENT_AUTOMATION` for event triggers). Guide: `docs/AGENT_PLATFORM.md`.
+
+**Inbox agent mode (D-15).** An owner sets an inbox's AI mode to `agent` (migration `202611040002_support_inbox_agent_mode`). The automatic triage and draft jobs are then not queued; the manual "AI draft" button keeps working. An active agent whose event trigger covers the inbox does the work. There is no fallback to `draft`: an inbox in agent mode that no active agent covers shows the attention item `support_agent_inactive`, and people handle its tickets.
+
+**Events.** `support.ticket.created` and `support.message.received` (not for automatic messages), content-free: `{ticketId, messageId?, inboxId, channel, verifiedIdentity, hardRuleHit, agentMode}`. Declared triggerable with the filter `{inboxIds?, channels?}`. A hard-rule hit, an unverified widget visitor or an inbox not in agent mode never starts an agent; no filter can lift that. A burst of messages coalesces into one open work order per agent and ticket.
+
+**Template `support.ticket_agent`.** Locked rules (customer text is data, never send, never resolve or close, hand off on sensitive topics or missing evidence, duplicate-first issue reports); defaults: mode `draft`, 6 model and 10 tool calls, 120 s, USD 5 a month and USD 0.10 a run, 200 runs a day, 120 s debounce for messages.
+
+**Tools for agents** (all `dataClass: customer_personal`):
+
+| Tool | Kind | For agents |
+|---|---|---|
+| `support_get_ticket`, `support_list_messages` | read | placeholders plus platform redaction; sensitive bodies withheld; internal notes only with `support.notes.read` |
+| `support_customer_context`, `support_list_categories`, `support_list_tags` | read | as for MCP |
+| `support_similar_tickets` | read, agent only | same inbox, 90 days: ids, numbers, status, category; never another customer's text |
+| `support_triage_suggest`, `support_draft_generate` | paid, agent only, from mode `draft` | the existing pipelines with all checks, inside the agent's turn: reserved under the work order (`agent-work-order:<id>:support:…`), attributed to the agent, Support's daily cap still applies; one call per work order and customer message |
+| `support_apply_triage` | proposal, agent only | priority, category and tags only; owner or editor decides (T2-2); mandatable, never a downgrade from `urgent` (T2-4); a human change meanwhile refuses it (`SUPPORT_TICKET_CHANGED`, T2-5) |
+| `support_add_note`, `support_prepare_reply` | proposal | mandatable for a named agent; notes are labelled as AI (`agentRunId`, no author user) |
+| `support_update_ticket` | proposal | owner decision, never mandatable; agents may never set `resolved` or `closed` (`SUPPORT_AGENT_STATUS_NOT_ALLOWED`) |
+| `support_hand_off` | internal write, mode `execute` | hands the ticket to the team with a reason from a fixed list |
+| `support_report_issue` | proposal | owner decision; an agent can never acknowledge a sensitive ticket (`SUPPORT_SENSITIVE_ACK_REQUIRED`) |
+| `support_send_reply` | proposal (`W1`) | not in the template defaults; always an individual human decision, never a mandate or the inbox rule |
+
+Every ticket tool refuses for an agent when the ticket's inbox is not in agent mode or its customer is an unverified widget visitor (`SUPPORT_AGENT_NOT_ENABLED`), and when its subject or latest customer message hits a hard rule (`SUPPORT_HARD_RULE`; the hand-off still works).
+
+**Actor.** Agent timeline events use `actorKind = "ai"` with `actorId` = the work order id; audit entries name the agent and the work order, never text. The ticket detail gains `agent {workOrderId, status, errorCode, spentMicros, actionRequestIds, handedOff}`.
+
+**Erasure.** Deleting tickets (retention, contact erasure) deletes the work orders about them, their children and their agent runs (`deleteWorkOrdersForSubject`).
+
+**Not built in Phase 2:** an owner notification when an agent inbox becomes uncovered (the attention item shows it), a Support-specific work-order output schema, and a paid live agent eval (needs Mario's approval, cap USD 3, OpenAI only).
 
 ## Customer context (ADR 0011)
 

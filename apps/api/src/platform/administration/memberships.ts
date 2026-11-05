@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { markPersonalSpaceLeft } from "../assistant/personal-space.ts";
 import {
   authDb,
   type DbTx,
@@ -64,6 +65,44 @@ async function membership(tx: DbTx, workspaceId: string, userId: string) {
   });
   if (!row) throw new DomainError("MEMBER_NOT_FOUND", 404);
   return row;
+}
+
+/**
+ * Switches the personal assistant on or off for one member (ADR 0022). It
+ * changes nothing in the member's personal space, which only its user can
+ * read; it only stops further assistant use.
+ */
+export async function setMemberAssistant(
+  actor: Actor,
+  workspaceId: string,
+  userId: string,
+  raw: unknown,
+) {
+  if (actor.kind === "project_owner")
+    throw new DomainError("WORKSPACE_OWNER_REQUIRED", 403);
+  const { enabled } = z.object({ enabled: z.boolean() }).strict().parse(raw);
+  return authDb.$transaction(async (tx) => {
+    const current = await membership(tx, workspaceId, userId);
+    if (current.assistantEnabled === enabled) return { userId, enabled };
+    await tx.workspaceMember.update({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      data: { assistantEnabled: enabled },
+    });
+    await systemAudit(
+      {
+        actorId: actor.userId,
+        action: enabled
+          ? "workspace_member.assistant_enabled"
+          : "workspace_member.assistant_disabled",
+        targetType: "user",
+        targetId: userId,
+        workspaceId,
+        metadata: { by: actor.kind },
+      },
+      tx,
+    );
+    return { userId, enabled };
+  });
 }
 
 /** Changes a member's organization role (owner or member). */
@@ -137,6 +176,8 @@ export async function removeWorkspaceMember(
     );
   });
   await revokeUserGrants({ userId, actorId: actor.userId, workspaceId });
+  // The personal space stays 30 days, then the daily clean-up deletes it.
+  await markPersonalSpaceLeft(workspaceId, userId);
   return { removed: true };
 }
 
@@ -145,8 +186,10 @@ async function projectInWorkspace(
   workspaceId: string,
   projectId: string,
 ) {
+  // A personal space's membership is not administered (ADR 0022): it is
+  // reported as missing, so it is not even confirmed to exist.
   const project = await tx.project.findFirst({
-    where: { id: projectId, workspaceId },
+    where: { id: projectId, workspaceId, kind: { not: "personal" } },
     select: { id: true },
   });
   if (!project) throw new DomainError("NOT_FOUND", 404);

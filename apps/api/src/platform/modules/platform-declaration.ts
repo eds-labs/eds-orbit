@@ -8,6 +8,35 @@ import { platformPermissions } from "../tenancy/permissions.ts";
 export const platformDeclaration: PlatformDeclaration = {
   entityKinds: [
     { kind: "orbit_tasks", description: "User-private delegated assistant tasks", exported: false },
+    {
+      kind: "personal_context",
+      description: "User-private personal assistant notes in a personal space (ADR 0022)",
+      exported: false,
+    },
+    {
+      kind: "chat_run_steps",
+      description: "Progress steps of a personal assistant run, in its personal space (ADR 0022)",
+      exported: false,
+    },
+    {
+      kind: "assistant_settings",
+      description: "The personal assistant's settings in a personal space (ADR 0022)",
+      exported: false,
+    },
+    {
+      kind: "notification_preferences",
+      description: "User-private delivery preferences in a personal space: quiet hours, digest, briefing (ADR 0023)",
+      exported: false,
+    },
+    {
+      kind: "proactive_state",
+      description: "Digest and briefing slots of a personal space's scheduler (ADR 0023)",
+      exported: false,
+    },
+    {
+      kind: "signal_settings",
+      description: "The project's switched-off proactive signals (ADR 0023)",
+    },
     { kind: "jobs", description: "Durable jobs dispatched through the outbox" },
     { kind: "exceptions", description: "Open operational exceptions by code" },
     {
@@ -22,6 +51,10 @@ export const platformDeclaration: PlatformDeclaration = {
     {
       kind: "agent_mandates",
       description: "Owner-granted, bounded agent mandates for internal actions (ADR 0019)",
+    },
+    {
+      kind: "agent_definitions",
+      description: "Project agents: draft and active configuration, activation (ADR 0021)",
     },
     {
       kind: "openai_configuration",
@@ -51,6 +84,11 @@ export const platformDeclaration: PlatformDeclaration = {
     {
       kind: "email_inbound_state",
       description: "The last fetched IMAP UID per mailbox",
+      exported: false,
+    },
+    {
+      kind: "agent_failure_notices",
+      description: "Day markers of sent agent failure notices (one per agent, code and day)",
       exported: false,
     },
     {
@@ -136,6 +174,8 @@ export const platformDeclaration: PlatformDeclaration = {
     "AuditEvent",
     "AgentRun",
     "AgentSpan",
+    // Agent work orders (ADR 0021).
+    "AgentWorkOrder",
     "ChatConversation",
     "ChatMessage",
     "ChatRun",

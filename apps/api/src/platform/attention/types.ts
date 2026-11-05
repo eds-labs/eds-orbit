@@ -78,3 +78,18 @@ export type AttentionStatusContribution = (
   scope: Scope,
   now: Date,
 ) => Promise<Pick<AttentionStatus, "mode">>;
+
+/**
+ * A module's part of the personal assistant's `my_overview` (ADR 0022,
+ * plan agent-platform-phase-3 §2.2): a small JSON-safe summary for the
+ * member, such as their open tasks or ticket counts, read in the project's
+ * transaction with the member's role in the module, while the module is
+ * enabled. Null when the role may not read it (the overview then shows
+ * PERMISSION_DENIED for the module). Never message bodies or customer
+ * addresses: titles and counts the member may already read.
+ */
+export type AssistantOverviewContribution = (
+  tx: DbTx,
+  scope: Scope,
+  now: Date,
+) => Promise<Record<string, unknown> | null>;

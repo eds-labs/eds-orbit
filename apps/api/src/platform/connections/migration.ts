@@ -46,7 +46,11 @@ const hasChannels = (provider: string) =>
 /** Every project connection with its key fingerprint; read-only. */
 export async function connectionInventory(filter: { workspaceId?: string } = {}) {
   const projects = await authDb.project.findMany({
-    where: filter.workspaceId ? { workspaceId: filter.workspaceId } : {},
+    // Personal spaces have no own keys or policies (ADR 0022).
+    where: {
+      kind: { not: "personal" },
+      ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
+    },
     select: { id: true, name: true, workspaceId: true },
     orderBy: { createdAt: "asc" },
   });

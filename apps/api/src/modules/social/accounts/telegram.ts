@@ -8,8 +8,10 @@ import { providerFailure } from "./errors.ts";
 import { socialFetch } from "./http.ts";
 import { saveConnectedAccount } from "./store.ts";
 
-// Telegram publishing channels (ADR 0020, S-D3): a separate bot, entered
-// by the owner, that is an administrator allowed to post in the channel.
+// Telegram publishing channels and groups (ADR 0020, S-D3): a separate bot,
+// entered by the owner, that is an administrator allowed to post in the
+// channel, or a member allowed to write in the group. Private chats are not
+// accounts.
 // Only outgoing reads here: never getUpdates, setWebhook, deleteWebhook,
 // logOut or close, so no other process's webhook is disturbed.
 
@@ -44,12 +46,12 @@ export async function connectTelegramChannel(
           throw new DomainError("SOCIAL_TELEGRAM_CHAT_INVALID", 400);
         throw error;
       });
-    if (info.type !== "channel") throw new DomainError("SOCIAL_TELEGRAM_NOT_A_CHANNEL", 409);
+    if (info.type === "private") throw new DomainError("SOCIAL_TELEGRAM_PRIVATE_CHAT", 409);
     member = await client.getChatMember(info.id, bot.id);
   } catch (error) {
     throw providerFailure(error);
   }
-  if (!member.canPostMessages) throw new DomainError("SOCIAL_TELEGRAM_BOT_CANNOT_POST", 409);
+  if (!telegramMayPost(info.type, member)) throw new DomainError("SOCIAL_TELEGRAM_BOT_CANNOT_POST", 409);
   const handle = info.username ? `@${info.username}` : (info.title ?? String(info.id));
   return saveConnectedAccount(scope, {
     platform: "telegram",
@@ -57,6 +59,14 @@ export async function connectTelegramChannel(
     handle,
     displayName: info.title ?? handle,
     secret: JSON.stringify({ botToken }),
-    config: { chatId: String(info.id), botId: String(bot.id), botUsername: bot.username },
+    config: { chatId: String(info.id), chatType: info.type, botId: String(bot.id), botUsername: bot.username },
   });
+}
+
+/** Whether the bot may publish: a channel needs the posting right, a group a writing member. Accounts from before groups have no `chatType` and are channels. */
+export function telegramMayPost(
+  chatType: unknown,
+  member: { canPostMessages: boolean; canSendMessages: boolean },
+): boolean {
+  return chatType === "group" || chatType === "supergroup" ? member.canSendMessages : member.canPostMessages;
 }

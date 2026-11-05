@@ -52,7 +52,12 @@ const chatInfo = z
   })
   .passthrough();
 const chatMember = z
-  .object({ status: z.string().min(1), can_post_messages: z.boolean().optional() })
+  .object({
+    status: z.string().min(1),
+    can_post_messages: z.boolean().optional(),
+    can_send_messages: z.boolean().optional(),
+    is_member: z.boolean().optional(),
+  })
   .passthrough();
 
 function keyboard(buttons: TelegramButton[] | undefined) {
@@ -371,6 +376,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
         canPostMessages:
           member.status === "creator" ||
           (member.status === "administrator" && member.can_post_messages === true),
+        // In a group or supergroup: a member writes unless restricted.
+        canSendMessages:
+          ["creator", "administrator", "member"].includes(member.status) ||
+          (member.status === "restricted" && member.is_member === true && member.can_send_messages === true),
       };
     },
     async answerCallbackQuery(id: string, text: string) {

@@ -34,6 +34,9 @@ export type SocialAccount = {
 };
 export type SocialAccounts = { items: SocialAccount[] };
 
+/** GET /projects/:projectId/social/accounts/apps (owners): which developer app can start a connection. */
+export type SocialAppReadiness = Record<"x" | "meta", "ready" | "not_granted" | "invalid">;
+
 /** GET /projects/:projectId/social/media (S3). */
 export type SocialMedia = {
   id: string;

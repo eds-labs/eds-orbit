@@ -17,6 +17,7 @@ import { requestContentPackageInTx } from "./agents/content-packages.ts";
 import { reviseDeliverable } from "./agents/content-packages.ts";
 import { actionPermissions } from "../../platform/tenancy/permissions.ts";
 import { creativeReads, creativeWrites } from "./creative/mcp-tools.ts";
+import { readTaskRecord } from "../../platform/tasks/tasks.ts";
 
 const page = z
   .object({
@@ -57,6 +58,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "marketing_campaigns",
+    agent: {
+      title: { en: "Campaigns", de: "Kampagnen" },
+      summary: { en: "Lists marketing campaigns and their status.", de: "Listet Marketing-Kampagnen und ihren Status." },
+    },
     description:
       "List native marketing missions/campaigns and their status. Use orbit_create_task for complete researched campaigns and existing project_status for channels/readiness.",
     permission: PROJECT_READ,
@@ -66,6 +71,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "marketing_content",
+    agent: {
+      title: { en: "Content drafts", de: "Inhaltsentwürfe" },
+      summary: { en: "Lists saved content drafts with previews.", de: "Listet gespeicherte Inhaltsentwürfe mit Vorschau." },
+    },
     description:
       "List saved native content drafts and their status, with compact body previews.",
     permission: PROJECT_READ,
@@ -75,6 +84,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "marketing_performance",
+    agent: {
+      title: { en: "Performance", de: "Performance" },
+      summary: { en: "Reads imported performance measurements.", de: "Liest importierte Performance-Messwerte." },
+    },
     description:
       "Read already imported Matomo/Postiz performance measurements; does not run a new external import.",
     permission: PROJECT_READ,
@@ -176,8 +189,8 @@ const writes = [
       })
       .strict(),
     async run(tx, scope, { taskId, ...args }, requester) {
-      const task = await entity(tx, scope, "orbit_tasks", taskId);
-      const d = data(task);
+      // Either task store (platform/tasks/tasks.ts reads both).
+      const d = await readTaskRecord(tx, scope, taskId);
       if (
         d.userId !== scope.userId ||
         (requester?.kind === "mcp" && d.clientId !== requester.clientId)
@@ -211,8 +224,7 @@ const writes = [
       })
       .strict(),
     async run(tx, scope, { taskId, ...args }, requester) {
-      const task = await entity(tx, scope, "orbit_tasks", taskId);
-      const d = data(task);
+      const d = await readTaskRecord(tx, scope, taskId);
       if (
         d.userId !== scope.userId ||
         (requester?.kind === "mcp" && d.clientId !== requester.clientId)

@@ -21,6 +21,7 @@ import {
   registeredRetention,
   registeredRoutes,
   registeredRoutesByOwner,
+  registeredAgentListings,
   registeredSchedulers,
   registeredTelegramCallback,
   registeredToolOwner,
@@ -61,7 +62,9 @@ describe("module contributions", () => {
             t.feature !== "mcp_tasks" &&
             t.feature !== "project_configuration" &&
             t.feature !== "project_administration" &&
-            t.feature !== "creative_studio",
+            t.feature !== "creative_studio" &&
+            // The personal assistant's tools (ADR 0022) are not chat tools.
+            t.exposure?.personal !== true,
         )
         .map((t) => t.name),
     ).toEqual(chatTools.map((t) => t.name));
@@ -79,7 +82,12 @@ describe("module contributions", () => {
     expect([...registeredJobs().keys()].sort()).toEqual(
       [
         "agent",
+        "agent_work",
         "analytics",
+        // Proactive layer (ADR 0023): delivery decisions, digests, briefings.
+        "assistant_briefing",
+        "notification_delivery",
+        "notification_digest",
         "chat",
         "creative_preview",
         "domain_event",
@@ -132,6 +140,10 @@ describe("module contributions", () => {
 
   it("leaves the same kinds out of the project export as before (WP1.8)", () => {
     expect([...unexportedKinds()].sort()).toEqual([
+      "agent_failure_notices",
+      // The personal space's own records (ADR 0022): settings, run steps, context.
+      "assistant_settings",
+      "chat_run_steps",
       "connectors",
       "drive_connection",
       "drive_oauth_state",
@@ -151,7 +163,11 @@ describe("module contributions", () => {
       "knowledge_profiles",
       "knowledge_proposals",
       "knowledge_runs",
+      // Proactive layer (ADR 0023): user-private preferences and scheduler marks.
+      "notification_preferences",
       "orbit_tasks",
+      "personal_context",
+      "proactive_state",
       "public_sessions",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
@@ -214,6 +230,10 @@ describe("module contributions", () => {
       "email-inbound",
       "object-link-prune",
       "domain-event-retention",
+      // Personal spaces 30 days after their user left (ADR 0022).
+      "personal-space-cleanup",
+      // Periodic signal detectors (ADR 0023), off while ORBIT_PROACTIVE is off.
+      "signals-periodic",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
@@ -449,10 +469,13 @@ describe("module contributions", () => {
     // Registry order: knowledge before marketing, which depends on it.
     // Support counts only while ORBIT_SUPPORT is on; the server registers
     // its routes regardless and they answer 404 while it is off.
-    expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    // The platform's routes: the agent platform's and the personal assistant's (ADR 0022).
+    const platformRoutes = platformContributions.routes;
+    expect(registeredRoutes()).toEqual([platformRoutes, knowledgeRoutes, marketingRoutes]);
     process.env.ORBIT_SUPPORT = "true";
     try {
       expect(registeredRoutes()).toEqual([
+        platformRoutes,
         knowledgeRoutes,
         supportRoutes,
         marketingRoutes,
@@ -464,6 +487,11 @@ describe("module contributions", () => {
       "support",
     );
     expect(registeredToolOwner("knowledge_search")).toBe("platform");
+  });
+
+  it("lists module-managed agents of enabled modules only: Marketing's assignments (WP1.9)", () => {
+    expect(registeredAgentListings().map((l) => l.module)).toEqual(["marketing"]);
+    expect(registeredAgentListings(new Set(["knowledge"]))).toEqual([]);
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {

@@ -19,7 +19,11 @@ const view = (s: Status) => ({
 
 export async function keyRuleReport(filter: { workspaceId?: string } = {}) {
   const projects = await authDb.project.findMany({
-    where: filter.workspaceId ? { workspaceId: filter.workspaceId } : {},
+    // Personal spaces have no own keys or policies (ADR 0022).
+    where: {
+      kind: { not: "personal" },
+      ...(filter.workspaceId ? { workspaceId: filter.workspaceId } : {}),
+    },
     select: { id: true, name: true, workspaceId: true },
     orderBy: { createdAt: "asc" },
   });

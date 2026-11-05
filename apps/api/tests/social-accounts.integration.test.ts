@@ -41,14 +41,14 @@ describe.skipIf(!enabled)("social accounts", () => {
       headers: { origin, cookie: cookies[who], [CLIENT_IP_HEADER]: ip() },
       ...(payload ? { payload } : {}),
     });
-  const telegram = (chatId: string) =>
+  const telegram = (chatId: string, chatType?: string) =>
     saveConnectedAccount(owner, {
       platform: "telegram",
       externalId: chatId,
       handle: `Channel ${chatId}`,
       displayName: `Channel ${chatId}`,
       secret: JSON.stringify({ botToken: BOT }),
-      config: { chatId, botId: "2222", botUsername: "orbit_pub_bot" },
+      config: { chatId, botId: "2222", botUsername: "orbit_pub_bot", ...(chatType ? { chatType } : {}) },
     });
   const account = (id: string) => scoped(workspaceId, projectId, (tx) => tx.socialAccount.findUniqueOrThrow({ where: { id } }));
 
@@ -186,6 +186,14 @@ describe.skipIf(!enabled)("social accounts", () => {
     const lost = await call("owner", "POST", `/accounts/${accountId}/check`);
     expect(lost.json()).toEqual({ ok: false, code: "SOCIAL_TELEGRAM_BOT_CANNOT_POST" });
     expect(await account(accountId)).toMatchObject({ status: "reconnect_required" });
+  });
+
+  it("checks a Telegram group by whether the bot may still write there", async () => {
+    const { accountId } = await telegram("-1006", "supergroup");
+    member = { status: "member", user: { id: 2222, is_bot: true, first_name: "Pub" } };
+    expect((await call("owner", "POST", `/accounts/${accountId}/check`)).json()).toEqual({ ok: true });
+    member = { status: "restricted", is_member: true, can_send_messages: false, user: { id: 2222, is_bot: true, first_name: "Pub" } };
+    expect((await call("owner", "POST", `/accounts/${accountId}/check`)).json()).toEqual({ ok: false, code: "SOCIAL_TELEGRAM_BOT_CANNOT_POST" });
   });
 
   it("restores an account on an owner's check once its cause is fixed", async () => {

@@ -11,10 +11,16 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
-  availableTools,
   exposedToMcp,
   type OrbitTool,
 } from "../../modules/agents/tools/registry.ts";
+import { capabilityFeatures } from "../agents/capabilities.ts";
+import {
+  authorizeProjectCapability,
+  isProjectRefusal,
+  projectCapabilities,
+  type ProjectToolsPolicy,
+} from "../agents/project-calls.ts";
 import { moduleSwitchingEnabled } from "../modules/activation.ts";
 import {
   moduleAvailable,
@@ -25,7 +31,7 @@ import {
 } from "../modules/contributions.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import { DomainError } from "../shared.ts";
-import { effectiveRole, visibleModules } from "../tenancy/module-roles.ts";
+import { visibleModules } from "../tenancy/module-roles.ts";
 import { projectScope, type McpPrincipal } from "./principal.ts";
 import {
   FINANCE_EXTRACT_SCOPE,
@@ -111,25 +117,22 @@ async function enabledForTools(
  * Proposal tools (P_proposal) are also gated by the central switch
  * ORBIT_MCP_PROPOSALS, read on every call: this one check backs the list and
  * every call, so turning the switch off takes effect at once and a hidden
- * tool is refused like any other unlisted one.
+ * tool is refused like any other unlisted one. This is the MCP channel's
+ * policy for the shared cross-project layer (agents/project-calls.ts).
  */
-async function allowedTools(
-  principal: McpPrincipal,
-  scope: Scope,
-): Promise<OrbitTool[]> {
-  const enabled = visibleModules(scope, await enabledForTools(scope));
-  const features = registeredAssistants(enabled).flatMap((assistant) =>
-    assistant.features({ toolSearch: true }),
-  );
-  if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
-  if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
-    features.push("project_configuration");
-  if (loadConfig().ORBIT_MCP_PROJECT_ADMINISTRATION === "true")
-    features.push("project_administration");
+function mcpToolsPolicy(principal: McpPrincipal): ProjectToolsPolicy {
   const proposals = loadConfig().ORBIT_MCP_PROPOSALS === "true";
-  return registeredTools(enabled)
-    .filter((tool) => {
-      if (!exposedToMcp(tool)) return false;
+  return {
+    channel: "mcp",
+    state: async (scope) => ({ enabled: await enabledForTools(scope) }),
+    // Role, module and feature rules are the assistant's (capabilities.ts);
+    // MCP adds its own gates below and never widens that set.
+    features: (enabled) =>
+      capabilityFeatures(registeredAssistants(enabled), {
+        toolSearch: true,
+        moduleOperations: true,
+      }),
+    filter: (tool) => {
       if (tool.risk === "P_proposal" && !proposals) return false;
       // A proposal whose action type outside clients may not propose now.
       if (tool.risk === "P_proposal" && tool.mcpProposable?.() === false)
@@ -141,16 +144,26 @@ async function allowedTools(
         !(owner && principal.modules.includes(owner))
       )
         return false;
-      const role = effectiveRole(scope, owner);
-      if (role === "none") return false;
-      if (!availableTools([tool], role, features).length) return false;
       // The risk scope plus every content scope the tool lists (all-of).
       return (
         principal.scopes.has(requiredScope(tool)) &&
         (tool.mcpScopes ?? []).every((s) => principal.scopes.has(s))
       );
-    })
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    },
+  };
+}
+
+const byName = (a: OrbitTool, b: OrbitTool) =>
+  a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+
+/** The tools the principal may use with this scope, in name order. */
+async function allowedTools(
+  principal: McpPrincipal,
+  scope: Scope,
+): Promise<OrbitTool[]> {
+  return (await projectCapabilities(scope, mcpToolsPolicy(principal))).sort(
+    byName,
+  );
 }
 
 /**
@@ -165,22 +178,35 @@ export async function visibleMcpTools(
 }
 
 /**
- * The same checks for one call: the tool and the project scope to run it
- * with. 404 NOT_FOUND for the project (checked first, so a tool name never
- * reveals a project), 403 MCP_TOOL_NOT_ALLOWED for a tool the principal may
- * not list there.
+ * The same checks for one call, through the shared cross-project
+ * authorization (agents/project-calls.ts): the tool and the project scope
+ * to run it with. 404 NOT_FOUND for the project (checked first, so a tool
+ * name never reveals a project), 403 MCP_TOOL_NOT_ALLOWED for a tool the
+ * principal may not list there; the uniform refusal codes map onto these
+ * two MCP codes, so MCP answers exactly as before.
  */
 export async function authorizeMcpCall(
   principal: McpPrincipal,
   toolName: string,
   projectId: string,
 ): Promise<{ tool: OrbitTool; scope: Scope }> {
-  const scope = await projectScope(principal, projectId);
-  const tool = (await allowedTools(principal, scope)).find(
-    (candidate) => candidate.name === toolName,
-  );
-  if (!tool) throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
-  return { tool, scope };
+  try {
+    return await authorizeProjectCapability(
+      {
+        workspaceId: principal.workspaceId,
+        userId: principal.userId,
+        projectId,
+        toolName,
+        admits: (id) => principal.projectIds.includes(id),
+      },
+      mcpToolsPolicy(principal),
+    );
+  } catch (error) {
+    if (!isProjectRefusal(error)) throw error;
+    throw error.refusal === "PROJECT_FORBIDDEN"
+      ? new DomainError("NOT_FOUND", 404)
+      : new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
+  }
 }
 
 /**

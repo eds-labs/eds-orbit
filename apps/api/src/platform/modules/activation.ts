@@ -66,6 +66,13 @@ export async function setModuleEnabled(
   const module = registry.modules.find((m) => m.id === moduleId);
   if (!module || !moduleAvailable(moduleId))
     throw new DomainError("MODULE_NOT_FOUND", 404);
+  // A personal space runs no business module (ADR 0022).
+  const project = await tx.project.findFirst({
+    where: { id: scope.projectId, workspaceId: scope.workspaceId },
+    select: { kind: true },
+  });
+  if (project?.kind === "personal")
+    throw new DomainError("PERSONAL_SPACE_NO_MODULES", 409);
   const states = await listModuleStates(tx, scope, registry);
   const current = states.find((s) => s.id === moduleId)!;
   if (enabled) {

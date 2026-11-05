@@ -17,8 +17,10 @@ import {
 } from "./action-requests.ts";
 import {
   activeMandateRow,
+  AGENT_DEFINITIONS_KIND,
   AGENT_MANDATES,
   agentMandatesEnabled,
+  agentPlatformEnabled,
   mandateApprovalsToday,
   mandateInForce,
   mandateTerms,
@@ -47,14 +49,23 @@ const PAID = ["C1", "C2"];
  * MCP requester with a task) and every other requester are never covered.
  */
 async function requesterReasons(
+  tx: DbTx,
   scope: Scope,
   row: ActionRequestRow,
   record: AgentMandateRecord,
   mcpScopes: readonly string[] | undefined,
 ): Promise<string[]> {
   const by = data(row).requestedBy as Record<string, any>;
+  // A proposal made after another project's data entered the turn (ADR
+  // 0022 §5): a human in this project decides, whatever the mandate says.
+  if (Array.isArray(by?.crossProjectContext) && by.crossProjectContext.length)
+    return ["CROSS_PROJECT_CONTEXT"];
   if (!record.members.includes(String(by?.userId)))
     return ["REQUESTER_NOT_COVERED"];
+  // A configured agent (ADR 0021 addendum): only a mandate that names it,
+  // while the agent is active at the version the request was made with.
+  if (by.kind === "agent" && by.agentId)
+    return agentReasons(tx, scope, by, record);
   if (by.kind === "agent")
     return record.assistant ? [] : ["CHANNEL_NOT_COVERED"];
   if (by.kind !== "mcp") return ["REQUESTER_NOT_COVERED"];
@@ -67,6 +78,36 @@ async function requesterReasons(
     scopes: mcpScopes,
   });
   return stands ? [] : ["MCP_GRANT_ENDED"];
+}
+
+/**
+ * Whether a configured agent's request is covered: the agent platform is on,
+ * the mandate's agents channel names the agent, and the agent is still
+ * active at the version the request was made with.
+ */
+async function agentReasons(
+  tx: DbTx,
+  scope: Scope,
+  by: Record<string, any>,
+  record: AgentMandateRecord,
+): Promise<string[]> {
+  if (!agentPlatformEnabled()) return ["AGENT_PLATFORM_DISABLED"];
+  if (record.agents !== true || !(record.agentIds ?? []).includes(by.agentId))
+    return ["AGENT_NOT_COVERED"];
+  // Read in the deciding project transaction (never a nested one).
+  const agent = await tx.entity.findFirst({
+    where: {
+      id: String(by.agentId),
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: AGENT_DEFINITIONS_KIND,
+    },
+  });
+  const definition = agent ? (data(agent) as Record<string, any>) : null;
+  if (definition?.status !== "active") return ["AGENT_NOT_ACTIVE"];
+  if (definition.activation?.version !== by.agentVersion)
+    return ["AGENT_VERSION_CHANGED"];
+  return [];
 }
 
 /** The grantor's scope in the type's module while they are still an owner there, else null. */
@@ -117,7 +158,9 @@ export async function resolveAuthorization(
   const module = registeredActionTypeOwner(actionType) ?? "platform";
   if (!(await ownerScope(scope, record.grantedBy, module)))
     reasons.push("GRANTOR_NOT_OWNER");
-  reasons.push(...(await requesterReasons(scope, row, record, type.mcpScopes)));
+  reasons.push(
+    ...(await requesterReasons(tx, scope, row, record, type.mcpScopes)),
+  );
   const ceiling = Number(d.costCeilingMicros ?? 0);
   if (
     ceiling > record.maxCostMicrosPerAction ||

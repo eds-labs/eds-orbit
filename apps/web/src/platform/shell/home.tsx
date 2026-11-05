@@ -9,6 +9,7 @@ import { Button, Empty, Input, Skeleton } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { storeAssistantDraft } from "./assistant-draft";
+import { useAssistantPanel } from "@/platform/assistant/assistant-context";
 import { useAttention } from "./attention";
 import { AttentionList } from "./attention-list";
 import { useShell } from "./shell-context";
@@ -27,6 +28,25 @@ export function greeting(date: Date, locale: Locale): string {
   return labels[locale][
     hour < 11 ? "goodMorning" : hour < 18 ? "goodDay" : "goodEvening"
   ];
+}
+
+/**
+ * Hands the prompt to the personal assistant's panel (WP3.8) when the member
+ * has it, else to Orbit Chat; never sends it. False for an empty prompt.
+ */
+export function openAssistantPrompt(
+  text: string,
+  panel: {
+    enabled: boolean;
+    openPanel(options: { draft: string }): void;
+  } | null,
+  fallback: (draft: string) => void,
+): boolean {
+  const draft = text.trim();
+  if (!draft) return false;
+  if (panel?.enabled) panel.openPanel({ draft });
+  else fallback(draft);
+  return true;
 }
 
 /**
@@ -197,15 +217,25 @@ function AssistantPrompt() {
   const { project, t } = useWorkspace();
   const shell = useShell();
   const router = useRouter();
+  const panel = useAssistantPanel();
   const [text, setText] = useState("");
   return (
     <form
       className="home-prompt"
       onSubmit={(event) => {
         event.preventDefault();
-        submitAssistantPrompt(project.id, text, shell.hrefOf("chat"), (href) =>
-          router.push(href),
-        );
+        if (
+          openAssistantPrompt(text, panel, (draft) =>
+            submitAssistantPrompt(
+              project.id,
+              draft,
+              shell.hrefOf("chat"),
+              (href) => router.push(href),
+            ),
+          ) &&
+          panel?.enabled
+        )
+          setText("");
       }}
     >
       <label htmlFor="home-assistant-input" className="sr-only">

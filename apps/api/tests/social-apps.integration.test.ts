@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import { createConnection, grantConnection } from "../src/platform/administration/connections.ts";
 import { registeredConnectionProvider } from "../src/platform/modules/contributions.ts";
-import { appCredentials, redirectUri } from "../src/modules/social/accounts/apps.ts";
+import { appCredentials, appReadiness, redirectUri } from "../src/modules/social/accounts/apps.ts";
 import { setSocialFetchForTests, socialFetch } from "../src/modules/social/accounts/http.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
@@ -20,6 +20,7 @@ const META_SECRET = JSON.stringify({ appId: "1234567890", appSecret: "meta-app-s
 describe.skipIf(!enabled)("social developer apps", () => {
   let p: Awaited<ReturnType<typeof createSocialProject>>;
   let other: Awaited<ReturnType<typeof createSocialProject>>;
+  let third: Awaited<ReturnType<typeof createSocialProject>>;
   const admin = { userId: `admin-${randomUUID()}`, role: "admin" as const };
   const created: string[] = [];
 
@@ -45,12 +46,14 @@ describe.skipIf(!enabled)("social developer apps", () => {
     process.env.ORBIT_SOCIAL = "true";
     p = await createSocialProject();
     other = await createSocialProject({ name: "Synthetic social B" });
+    third = await createSocialProject({ name: "Synthetic social C" });
   });
   afterEach(() => setSocialFetchForTests(null));
   afterAll(async () => {
     await authDb.connection.deleteMany({ where: { id: { in: created } } });
     await p?.cleanup();
     await other?.cleanup();
+    await third?.cleanup();
     await closeDatabase();
   });
 
@@ -87,6 +90,15 @@ describe.skipIf(!enabled)("social developer apps", () => {
     );
     expect(error?.code).toBe("SOCIAL_APP_INVALID");
     expect(error?.message).not.toContain("leaky-secret-value");
+  });
+
+  it("tells which developer apps are ready, not granted or invalid, without the secret", async () => {
+    expect(await third.run((tx) => appReadiness(tx, third.owner))).toEqual({ x: "not_granted", meta: "not_granted" });
+    await app("social.app.x", X_SECRET, third);
+    await app("social.app.meta", JSON.stringify({ appId: "12", appSecret: "leaky-secret-value" }), third);
+    const readiness = await third.run((tx) => appReadiness(tx, third.owner));
+    expect(readiness).toEqual({ x: "ready", meta: "invalid" });
+    expect(JSON.stringify(readiness)).not.toContain("leaky-secret-value");
   });
 
   it("checks a Meta app with its app token in a header, never in the URL", async () => {

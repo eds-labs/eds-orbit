@@ -117,6 +117,15 @@ describe.skipIf(!enabled)("social OAuth routes", () => {
     expect(state.startsWith(`${projectId}.`)).toBe(true);
   });
 
+  it("tells only the owner which developer apps are ready", async () => {
+    const url = `/api/projects/${projectId}/social/accounts/apps`;
+    expect((await request("editor", "GET", url)).statusCode).toBe(403);
+    expect((await request("viewer", "GET", url)).statusCode).toBe(403);
+    const response = await request("owner", "GET", url);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ x: "not_granted", meta: "not_granted" });
+  });
+
   it("refuses an unknown app", async () => {
     const response = await request("owner", "POST", `/api/projects/${projectId}/social/accounts/connect/myspace`);
     expect(response.statusCode).toBe(400);

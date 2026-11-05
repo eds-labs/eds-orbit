@@ -9,7 +9,9 @@ import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
 import { deliverMessage } from "./channels/deliver.ts";
 import { notifyAssigned, notifyMentions } from "./automations.ts";
-import { SUPPORT_DRAFT, ticketAiCost } from "./ai.ts";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { SUPPORT_DRAFT, ticketAiCost, type SupportActor } from "./ai.ts";
+import { SUPPORT_TICKET_SUBJECT } from "./agent-events.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
 import {
   attachFiles,
@@ -438,6 +440,53 @@ export async function ticketDetail(
     },
     timeline,
     aiCostMicros: await ticketAiCost(tx, id),
+    agent: await ticketAgentSummary(tx, scope, id),
+  };
+}
+
+/**
+ * The latest configured-agent work order about the ticket (ADR 0021 Phase
+ * 2), content-free: status, code, cost, how many proposals it made and
+ * whether it handed off. Null while the agent platform is off or no agent
+ * worked on the ticket.
+ */
+async function ticketAgentSummary(tx: DbTx, scope: Scope, ticketId: string) {
+  if (loadConfig().ORBIT_AGENT_PLATFORM !== "true") return null;
+  const row = await tx.agentWorkOrder.findFirst({
+    where: {
+      projectId: scope.projectId,
+      subjectType: SUPPORT_TICKET_SUBJECT,
+      subjectId: ticketId,
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  if (!row) return null;
+  const result = (row.result ?? {}) as { actionRequestIds?: unknown };
+  const handoff = await tx.supportTicketEvent.findFirst({
+    where: {
+      projectId: scope.projectId,
+      ticketId,
+      type: "handoff",
+      actorKind: "ai",
+      actorId: row.id,
+    },
+    select: { after: true },
+  });
+  // A reason code from a fixed list or a check name, never text.
+  const reason = (handoff?.after as { reason?: unknown } | null)?.reason;
+  return {
+    workOrderId: row.id,
+    agentId: row.agentId,
+    status: row.status,
+    errorCode: row.errorCode,
+    spentMicros: Number(row.spentMicros),
+    createdAt: row.createdAt,
+    finishedAt: row.finishedAt,
+    actionRequestIds: Array.isArray(result.actionRequestIds)
+      ? (result.actionRequestIds as string[]).slice(0, 20)
+      : [],
+    handedOff: Boolean(handoff),
+    handOffReason: typeof reason === "string" ? reason.slice(0, 80) : null,
   };
 }
 
@@ -522,6 +571,7 @@ export async function noteOnTicket(
   scope: Scope,
   id: string,
   raw: unknown,
+  actor: SupportActor = { kind: "user", userId: scope.userId },
 ) {
   const input = noteInput.parse(raw);
   await loadTicket(tx, scope, id);
@@ -532,7 +582,9 @@ export async function noteOnTicket(
       projectId: scope.projectId,
       ticketId: id,
       kind: "internal_note",
-      authorUserId: scope.userId,
+      // A configured agent's note is labelled as AI by its run, not a person.
+      authorUserId: actor.kind === "user" ? actor.userId : null,
+      agentRunId: actor.kind === "ai" ? actor.agentRunId : null,
       bodyText: input.bodyText,
       channel: "internal",
       visibleToCustomer: false,
@@ -551,6 +603,9 @@ export async function noteOnTicket(
   await audit(tx, scope, "support.ticket.noted", id, {
     ticketId: id,
     messageId: message.id,
+    ...(actor.kind === "ai"
+      ? { agentId: actor.agentId, workOrderId: actor.workOrderId }
+      : {}),
   });
   return { ...message, attachments: [] };
 }
@@ -614,6 +669,7 @@ export async function updateTicket(
   scope: Scope,
   id: string,
   raw: unknown,
+  actor: SupportActor = { kind: "user", userId: scope.userId },
 ) {
   const { input, ticket, settings } = await validateTicketUpdate(
     tx,
@@ -641,8 +697,8 @@ export async function updateTicket(
     await ticketEvent(tx, scope, {
       ticketId: id,
       type,
-      actorKind: "user",
-      actorId: scope.userId,
+      actorKind: actor.kind,
+      actorId: actor.kind === "user" ? actor.userId : actor.workOrderId,
       before: { [field]: prev },
       after: { [field]: next },
       createdAt: now,
@@ -671,6 +727,9 @@ export async function updateTicket(
   await audit(tx, scope, "support.ticket.updated", id, {
     ticketId: id,
     changed,
+    ...(actor.kind === "ai"
+      ? { agentId: actor.agentId, workOrderId: actor.workOrderId }
+      : {}),
   });
   return updated;
 }
@@ -913,7 +972,9 @@ export async function requestDraft(tx: DbTx, scope: Scope, id: string) {
   const inbox = await tx.supportInbox.findFirst({
     where: { id: ticket.inboxId },
   });
-  if (inbox?.aiMode !== "draft") throw new DomainError("AI_OFF", 409);
+  // The manual draft button also works while an agent works the inbox (D-15).
+  if (inbox?.aiMode !== "draft" && inbox?.aiMode !== "agent")
+    throw new DomainError("AI_OFF", 409);
   const message = await tx.supportMessage.findFirst({
     where: { ticketId: id, kind: "customer" },
     orderBy: { createdAt: "desc" },

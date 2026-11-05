@@ -179,6 +179,14 @@ describe.skipIf(!enabled)("member notifications", () => {
     // The viewer mutes the kind in-app and wants it by e-mail instead.
     const prefs = await call("viewer", "GET", "/notification-preferences");
     expect(prefs.json().kinds).toEqual([
+      // The platform's own kind (agent platform, ADR 0021) comes first.
+      {
+        kind: "agent_work_failed",
+        moduleId: "platform",
+        label: { en: "Agent run failed", de: "Agenten-Ausführung fehlgeschlagen" },
+        inApp: true,
+        email: false,
+      },
       {
         kind: "task_assigned",
         moduleId: "tasks",

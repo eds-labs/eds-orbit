@@ -96,6 +96,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "knowledge_sources",
+    agent: {
+      title: { en: "Knowledge sources", de: "Wissensquellen" },
+      summary: { en: "Lists knowledge sources and their state, no contents.", de: "Listet Wissensquellen und ihren Zustand, ohne Inhalte." },
+    },
     description:
       "List native knowledge sources and their rights, sync, freshness and search index state (documents, chunks, embedded chunks, search mode, blockers such as generated_authority or stale_documents); does not expose document contents.",
     permission: PROJECT_READ,
@@ -105,6 +109,10 @@ const reads = [
   readOperation({
     ...shared,
     name: "knowledge_facts",
+    agent: {
+      title: { en: "Verified facts", de: "Geprüfte Fakten" },
+      summary: { en: "Lists verified, model-usable facts.", de: "Listet geprüfte, für Modelle nutzbare Fakten." },
+    },
     description:
       "List verified model-usable facts from active model-usable sources. Candidates and withdrawn facts are not facts. search/fetch provide compatible citations.",
     permission: PROJECT_READ,
@@ -236,6 +244,10 @@ const writes = [
     mandate: { maxCostMicrosPerAction: 0 },
     ...shared,
     name: "knowledge_propose_fact",
+    agent: {
+      title: { en: "Propose fact", de: "Fakt vorschlagen" },
+      summary: { en: "Proposes a fact candidate for approval.", de: "Schlägt einen Fakt-Kandidaten zur Freigabe vor." },
+    },
     // Spends nothing (reviewed 2026-10-24, ADR 0015 E-5): it records a
     // candidate, never a verified fact; no budget is needed.
     requires: [],

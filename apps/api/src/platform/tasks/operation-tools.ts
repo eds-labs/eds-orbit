@@ -5,6 +5,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import {
   defineTool,
+  type ToolCatalogEntry,
   type ToolContext,
   type ToolFeature,
   type ToolImage,
@@ -21,6 +22,7 @@ import {
 import { approveUnderMandate } from "../governance/authorization.ts";
 import { agentMandatesEnabled } from "../governance/agent-mandates.ts";
 import { userScoped } from "../tenancy/scope.ts";
+import { agentRequester } from "../agents/principal.ts";
 import { actorScope } from "../tenancy/member-scope.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
 import { authorize, can, PROJECT_OWN } from "../tenancy/permissions.ts";
@@ -41,6 +43,11 @@ type Operation = {
   input: z.ZodObject;
   permission: PermissionDef;
   sensitive?: boolean;
+  /**
+   * Offers the operation to configured agents (ADR 0021) with this builder
+   * catalogue entry. A reviewed decision per operation, like `mandate`.
+   */
+  agent?: ToolCatalogEntry;
   /**
    * Extra explicit MCP content scopes (all required), e.g. a finance scope.
    * `sensitive` keeps meaning `orbit:support`.
@@ -65,7 +72,8 @@ type Operation = {
   mandate?: {
     maxCostMicrosPerAction: number;
     options?: Record<string, readonly string[]>;
-    check?(args: any, terms: AgentMandateTerms): string[];
+    /** `context` is the stored server-side `approvalContext`, when the operation has one. */
+    check?(args: any, terms: AgentMandateTerms, context?: unknown): string[];
     rightsTerms?(tx: DbTx, scope: Scope): Promise<Record<string, unknown>>;
   };
   /** Code-owned, default-off standing authorization for this owner's MCP calls only. */
@@ -227,7 +235,8 @@ export function readOperation(op: Operation) {
     parameters: modelParameters(op.input),
     risk: "R0_read",
     permission: op.permission,
-    exposure: { assistant: op.assistant ?? true, mcp: true },
+    exposure: { assistant: op.assistant ?? true, mcp: true, ...(op.agent ? { agent: true } : {}) },
+    ...(op.agent ? { catalog: op.agent } : {}),
     outputSchema: op.output ? envelope.extend({ result: op.output }) : envelope,
     deferLoading: true,
     feature: op.feature ?? "mcp_tasks",
@@ -289,7 +298,7 @@ export function approvedOperation(
             check: (p: z.infer<typeof payload>, terms: AgentMandateTerms) => {
               const args = op.input.safeParse(p.args);
               if (!args.success) return ["PAYLOAD_NOT_COVERED"];
-              return op.mandate!.check?.(args.data, terms) ?? [];
+              return op.mandate!.check?.(args.data, terms, p.approvalContext) ?? [];
             },
           },
         }
@@ -359,6 +368,18 @@ export function approvedOperation(
       if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
       const asModule = moduleScope(actor, op.module);
       await check(tx, asModule, op);
+      // A configured agent's proposal also needs its requester's current
+      // rights (ADR 0021 §2): the sponsor is the actor checked above.
+      const by = data(row).requestedBy;
+      if (by?.kind === "agent" && by.requesterUserId && by.requesterUserId !== actor.userId) {
+        const requester = await actorScope(
+          scope.workspaceId,
+          scope.projectId,
+          String(by.requesterUserId),
+        );
+        if (!requester) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
+        await check(tx, moduleScope(requester, op.module), op);
+      }
       await tx.$executeRaw`SELECT set_config('app.user_id',${actor.userId},true)`;
       const args = op.input.parse(p.args);
       await op.validate?.(tx, asModule, args);
@@ -405,7 +426,8 @@ export function approvedOperation(
     feature: op.feature ?? "mcp_tasks",
     mcpProposable: () => (op.proposable ?? mcp2Enabled)(),
     deferLoading: true,
-    exposure: { assistant: op.assistant ?? true, mcp: true },
+    exposure: { assistant: op.assistant ?? true, mcp: true, ...(op.agent ? { agent: true } : {}) },
+    ...(op.agent ? { catalog: op.agent } : {}),
     outputSchema: proposalOutput,
     ...(op.ownerMcpAutoApproval
       ? { openWorld: true as const, mcpDirectEffect: true as const }
@@ -418,7 +440,9 @@ export function approvedOperation(
             args,
             idempotencyKey,
           })
-        : { kind: "agent", userId: ctx.scope.userId, agentRunId: ctx.runId };
+        : ctx.principal
+          ? agentRequester(ctx.principal, ctx.runId)
+          : { kind: "agent", userId: ctx.scope.userId, agentRunId: ctx.runId };
       return userScoped(ctx.scope, async (tx) => {
         await check(tx, ctx.scope, op);
         const old = await tx.entity.findFirst({
@@ -480,9 +504,15 @@ export function approvedOperation(
         // work orders carry one (chat-runner) but are recorded with their
         // task, and retain approval too (docs/SUPPORT_MCP.md).
         const delegated = Boolean(data(row).requestedBy?.taskId);
+        // A configured agent's proposal never uses it either (ADR 0021
+        // D-16): agents have no gateway channel, and the recorded requester
+        // is checked as well, so a later channel change cannot open it.
+        const byAgent =
+          Boolean(ctx.principal) || Boolean(data(row).requestedBy?.agentId);
         const currentActor =
           !old &&
           !delegated &&
+          !byAgent &&
           ctx.channel?.kind === "mcp" &&
           op.ownerMcpAutoApproval
             ? await actorScope(

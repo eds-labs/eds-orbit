@@ -1,5 +1,72 @@
 # Requirements traceability
 
+## Agent platform, Phase 4: proactive notices and voice (ADR 0023, ADR 0024; 2026-11-05, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-4.md](plans/agent-platform-phase-4.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP4-1 | Scenario E: one deduplicated notice per agent, code and day for sponsor and managers; no model call for detection or delivery | `platform/signals/`, `notifications/members.ts` | `proactive-signals.integration.test.ts` (provider spy, 500-failure storm) | PASS_TEST |
+| AP4-2 | Urgent and due items, aging approvals, budget thresholds once per period, delegations reach the right users; quiet hours respected | `signals/*`, `proactive/delivery.ts`, `ai/budget.ts` | `proactive-signals`, `proactive-delivery` integration tests (threshold race) | PASS_TEST |
+| AP4-3 | Bell "All projects" and bubble badge without data from inaccessible projects | `proactive/{summary,wake}.ts`, web bell and badge | `proactive-summary.integration.test.ts`, web component tests | PASS_TEST |
+| AP4-4 | Deterministic daily briefing at local time; optional AI summary within ceiling and cap | `proactive/{briefing,summarizer,scheduler}.ts` | `proactive-briefing.integration.test.ts` (DST, no model without opt-in) | PASS_TEST |
+| AP4-5 | Voice input: transcript into the composer, same turn as typed text, no audio stored, cost per audio minute | `assistant/voice*.ts`, `packages/ai/src/{speech,audio-duration}.ts` | `voice.integration.test.ts`, `speech.test.ts`, `audio-duration.test.ts`, `voice.test.tsx` | PASS_TEST (fake adapter); device check open |
+| AP4-6 | Read aloud per message, cost per character within the cap | `assistant/voice.ts` | `voice.integration.test.ts` | PASS_TEST (fake adapter) |
+| AP4-7 | Flags off: nothing proactive or voice-related runs; existing notifications unchanged | flags `ORBIT_PROACTIVE`, `ORBIT_VOICE` | flag-off regressions (notifications, support automations, Work PM, Telegram) | PASS_TEST |
+| AP4-8 | Per-user Telegram only to the user's linked chat, once per key, stops on `/stop` or unlink | `connections/telegram.ts`, `proactive/delivery.ts` | `proactive-delivery.integration.test.ts` | PASS_TEST |
+
+## Agent platform, Phase 3: personal Orbit Assistant (ADR 0022; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flag off)
+
+Plan [plans/agent-platform-phase-3.md](plans/agent-platform-phase-3.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP3-1 | Bubble on every signed-in page, panel by keyboard and on 375 px without covering the nav | `apps/web/src/platform/assistant/*`, `platform/ui/sheet.tsx` | `assistant-shell.test.tsx`, `ui/sheet.test.tsx` | PASS_TEST (component); browser check open |
+| AP3-2 | Scenario B: one labelled answer across projects; no access gives only a refusal code | `platform/agents/project-{calls,reads}.ts`, `assistant/user-tools.ts` | `personal-assistant.integration.test.ts` | PASS_TEST (scripted model) |
+| AP3-3 | Scenario C: one confirmation, work orders survive a restart, one notice with result cards, no second paid call | `assistant/{delegation,notices}.ts` | `assistant-delegation.integration.test.ts`, `assistant-notices.integration.test.ts` | PASS_TEST (blank agent, scripted model) |
+| AP3-4 | Pending approvals across projects; inline decisions identical to the approvals page | `assistant/personal-mode.ts`, `project-cards.tsx` | `personal-mode.integration.test.ts`, `project-cards.test.tsx` | PASS_TEST |
+| AP3-5 | No org owner, admin or other user reads a personal space, its conversations or its context | `tenancy/member-scope.ts`, `assistant/personal-space.ts` | `personal-space.integration.test.ts`, access-matrix personal-space probe, `personal-context.integration.test.ts` | PASS_TEST (mutation-checked) |
+| AP3-6 | Personal context: automatic save with notice and Undo, refused content never saved, fallback proposals, edit, delete, export, project scope (D-17) | `assistant/personal-context.ts`, `user-tools.ts` | `personal-context.integration.test.ts`, `personal-mode.integration.test.ts`, `account/personal-context.test.tsx` | PASS_TEST |
+| AP3-7 | Taint: a proposal after reading another project is never auto-approved and names it | `governance/{action-requests,authorization}.ts` | `personal-assistant.integration.test.ts`, `personal-mode.integration.test.ts` | PASS_TEST |
+| AP3-8 | Turns paid within the org per-member cap; readable stop at the cap; user cannot raise it | `ai/spend-mandate.ts`, `ai/spend-policy.ts` | `personal-space.integration.test.ts`, `personal-mode.integration.test.ts` | PASS_TEST |
+| AP3-9 | Project chat and MCP unchanged; safety nets pass | `mcp/{adapter,visibility}.ts`, `tasks/tasks.ts` | MCP suites, `mcp-2-workflows`, chat-runner, limits, access and RLS matrices | PASS_TEST |
+
+## Agent platform, Phase 2: Support agent (ADR 0021 D-11, D-15, D-16; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-2.md](plans/agent-platform-phase-2.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP2-1 | Scenario A: one work order per ticket triages, drafts, proposes, notes under a mandate, never replies | `support/{agent-events,agent-tools,agent-template}.ts`, `agents/triggers/events.ts` | `support-agent.integration.test.ts` | PASS_TEST (scripted model) |
+| AP2-2 | No agent run for hard-rule tickets, unverified widget visitors or non-agent inboxes | `support/agent-events.ts`, `support/agent-gate.ts` | `support-agent.{unit,integration}.test.ts` | PASS_TEST |
+| AP2-3 | Scenario D: a lost sponsor role stops the run before the next tool | `agents/principal.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-4 | Model inputs without name, e-mail and platform redaction classes | `support/ai.ts` (`supportModelText`), `support/mcp-read.ts` | `support-agent.integration.test.ts` (mutation-checked), `support-ai.integration.test.ts` | PASS_TEST |
+| AP2-5 | Provider allow-list: Anthropic refused for customer data before transmission | `platform/ai/data-class.ts`, `agents/structured-run.ts`, `support/ai.ts` | `support-agent.integration.test.ts`, `support-agent.unit.test.ts` | PASS_TEST |
+| AP2-6 | Issue reports: agents propose, never acknowledge sensitive tickets | `support/issues-handoff.ts` | `support-agent.unit.test.ts`, issues suites | PASS_TEST (no dedicated agent report scenario) |
+| AP2-7 | Execution history on the ticket; erasure deletes work orders and runs | `support/workspace.ts`, `support/privacy.ts`, `agents/work-orders/service.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-8 | Send and close never automatic; inbox rule never for agents | `tasks/operation-tools.ts`, `support/mcp-tools.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-9 | Hard rules on subject (T2-3); offline hard-rule eval recall 1.0; agent eval set | `support/agent-events.ts`, `evals/support/agent-v1.json` | `evals/support/{hard-rules,agent}.test.ts` | PASS_TEST (no paid live run) |
+| AP2-10 | Inbox agent mode, no double jobs, manual draft kept, uncovered-inbox attention | `support/{inboxes,ai,workspace,attention}.ts`, migration `202611040002` | `support-agent.integration.test.ts` | PASS_TEST |
+
+## Agent platform, Phase 1 (ADR 0021, 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-1.md](plans/agent-platform-phase-1.md), acceptance criteria §11 (AC-1 to AC-12).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP-1 | One capability layer for chat, MCP and the task host | `platform/agents/capabilities.ts`, `assistant/chat-runner.ts`, `mcp/{visibility,adapter}.ts`, `agents/structured-run.ts` | `capabilities.test.ts` (equivalence matrix), chat/MCP/structured-run suites | PASS_TEST |
+| AP-2 | Agent principal re-checked on every call (scenario D) | `agents/principal.ts`, `agents/agent-execution.ts`, `tasks/operation-tools.ts` | `agent-principal.test.ts`, `agent-mandates.integration.test.ts`, `structured-run.integration.test.ts`, `agent-platform.integration.test.ts` | PASS_TEST (mutation-checked requester re-check) |
+| AP-3 | Mandates cover only named agents; W1+ never automatic | `governance/{agent-mandates,authorization}.ts` | `agent-mandates.integration.test.ts` | PASS_TEST |
+| AP-4 | Versioned definitions, draft/active split, hash-bound owner activation (AC-1, AC-3) | `agents/definitions/{schema,service,catalog,templates,store}.ts` | `agent-definitions-schema.unit.test.ts`, `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-5 | Roles: owner manage, editor read/run, viewer none, outsider 404 (AC-2) | `tenancy/permissions.ts`, `agents/routes.ts` | access matrix (reviewed) | PASS_TEST |
+| AP-6 | Durable work orders on the worker, restart and unknown outcome (AC-4) | `agents/work-orders/{service,execute}.ts`, migration `202611040001_agent_platform` | `agent-platform.integration.test.ts`, `rls-matrix`, `queue-dispatch` | PASS_TEST |
+| AP-7 | Schedule and event triggers, one work order per slot/event, debounce, no agent chains (AC-7) | `agents/triggers/{schedule,events,declarations}.ts` | `agent-platform.integration.test.ts` (DST, stale slot, burst, flag) | PASS_TEST |
+| AP-8 | Failure notice once per agent, code and day without a model call (AC-8) | `agents/work-orders/execute.ts` | `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-9 | Budgets: run and month ceilings, spend attributed to the agent | `agents/work-orders/execute.ts`, `ai/budget.ts` | `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-10 | Marketing unchanged on shared primitives (AC-9) | `marketing/agents/specialists/runner.ts` | Marketing agent suites, reservation parity fixture | PASS_TEST |
+| AP-11 | Retention of work orders and AgentRun/AgentSpan (AC-11) | `agents/work-orders/retention.ts` | `agent-work-retention.integration.test.ts` | PASS_TEST (owner retention action only) |
+| AP-12 | Entitlements port, default unlimited | `platform/entitlements/entitlements.ts` | `entitlements.unit.test.ts` | PASS_TEST |
+
 ## Social module (ADR 0020, 2026-11-02, branches `claude/social-module-plan` and `claude/social-s2`; flag off)
 
 Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Phases S1 to S5 are implemented (branches, not merged).

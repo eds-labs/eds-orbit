@@ -8,6 +8,7 @@ import { appCredentials } from "./apps.ts";
 import { providerFailure, responseFailure } from "./errors.ts";
 import { socialFetch } from "./http.ts";
 import { metaHealth } from "./meta.ts";
+import { telegramMayPost } from "./telegram.ts";
 import { accountCredentials, markReconnectRequired } from "./vault.ts";
 import { X_USER } from "./x.ts";
 
@@ -35,7 +36,9 @@ async function probe(scope: Scope, accountId: string, manual: boolean): Promise<
       String(credentials.config.chatId),
       Number(credentials.config.botId),
     );
-    return member.canPostMessages ? { ok: true } : { ok: false, code: "SOCIAL_TELEGRAM_BOT_CANNOT_POST" };
+    return telegramMayPost(credentials.config.chatType, member)
+      ? { ok: true }
+      : { ok: false, code: "SOCIAL_TELEGRAM_BOT_CANNOT_POST" };
   }
   const app = await scoped(scope.workspaceId, scope.projectId, (tx) => appCredentials(tx, scope, "meta"));
   const health = await metaHealth(app.meta!, credentials.accessToken, credentials.platform, credentials.externalId);

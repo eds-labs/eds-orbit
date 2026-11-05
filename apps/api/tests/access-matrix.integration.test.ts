@@ -7,6 +7,8 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { registeredActionNames } from "../src/platform/modules/contributions.ts";
+import { moduleRegistry } from "../src/modules/registry.ts";
+import { ensurePersonalSpace } from "../src/platform/assistant/personal-space.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 // Rerun with UPDATE_ACCESS_MATRIX=1 to rewrite the expectation after an
@@ -55,6 +57,14 @@ Object.assign(process.env, {
   ORBIT_CREATIVE_STUDIO: "true",
   // Agent mandates (ADR 0019): owner-only routes; nothing is granted here.
   ORBIT_AGENT_MANDATES: "true",
+  // Agent platform (ADR 0021): routes answer 404 while it is off.
+  ORBIT_AGENT_PLATFORM: "true",
+  // Personal spaces (ADR 0022): probed for org owners and administrators.
+  ORBIT_PERSONAL_ASSISTANT: "true",
+  // Proactive layer (ADR 0023): preferences, summary, stream, signal switches.
+  ORBIT_PROACTIVE: "true",
+  // Voice (ADR 0024): routes answer 404 while it is off; nothing reaches a provider.
+  ORBIT_VOICE: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
@@ -151,7 +161,9 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
   const users: string[] = [];
   const workspaces: string[] = [];
   const cookies: Partial<Record<Role, string>> = {};
-  let workspaceId: string, projectId: string;
+  let workspaceId: string, projectId: string, personalId: string;
+  // Who reached the editor's personal space, per project route (ADR 0022).
+  const personal: Record<string, Partial<Record<Role, string>>> = {};
   const origin = process.env.APP_ORIGIN!;
   const actual: Record<string, Record<Role, string>> = {};
   // A fresh documentation address per request: no request shares a rate-limit bucket.
@@ -173,10 +185,10 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
   }
 
   /** Concrete requests for one route template. */
-  function expand(method: string, template: string) {
+  function expand(method: string, template: string, project = projectId) {
     const fill = (path: string) =>
       path
-        .replaceAll("{projectId}", projectId)
+        .replaceAll("{projectId}", project)
         .replaceAll("{workspaceId}", workspaceId)
         .replace(/\{[A-Za-z]+Id\}|\{id\}/g, () => randomUUID());
     if (template.endsWith("/{collection}"))
@@ -307,6 +319,23 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
           ),
       )
       .sort((x, y) => x.key.localeCompare(y.key));
+    // The editor's personal space, probed before anything else: its own user
+    // may read it, the org owner and a system administrator are strangers.
+    personalId = (
+      await ensurePersonalSpace(workspaceId, accounts.editor!.id, moduleRegistry())
+    ).projectId;
+    const personalRequests = Object.entries(spec.paths)
+      .filter(([template]) => template.startsWith("/api/projects/{projectId}"))
+      .flatMap(([template, methods]) =>
+        Object.keys(methods)
+          .map((m) => m.toUpperCase())
+          .flatMap((method) =>
+            expand(method, template, personalId).map((r) => ({ ...r, method })),
+          ),
+      );
+    for (const role of ["owner", "sysadmin"] as const)
+      for (const r of personalRequests)
+        (personal[r.key] ??= {})[role] = await call(role, r.method, r.url);
     // Least privileged first; the owner's writes (pause included) come last.
     for (const role of ROLES)
       for (const r of requests)
@@ -384,6 +413,20 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
           !["not_found", "unauthenticated"].includes(roles.sysadmin),
       )
       .map(([key, roles]) => `${key}: ${roles.sysadmin}`);
+    expect(reached).toEqual([]);
+  });
+
+  it("treats org owners and system administrators as strangers in a personal space", () => {
+    expect(Object.keys(personal).length).toBeGreaterThan(100);
+    const reached = Object.entries(personal).flatMap(([key, roles]) =>
+      (["owner", "sysadmin"] as const)
+        .filter(
+          (role) =>
+            !PRE_AUTH_VALIDATION.includes(key) &&
+            !["not_found", "unauthenticated"].includes(roles[role]!),
+        )
+        .map((role) => `${key} [${role}]: ${roles[role]}`),
+    );
     expect(reached).toEqual([]);
   });
 

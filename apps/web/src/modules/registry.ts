@@ -1,5 +1,6 @@
 import {
   Activity,
+  Bot,
   CircleCheck,
   Home,
   Link2,
@@ -14,6 +15,7 @@ import type {
   WebRegistry,
 } from "@/platform/shell/types";
 import { Decisions } from "@/platform/shell/decisions";
+import { AgentsView } from "@/platform/agents/agents-view";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -23,6 +25,8 @@ import {
 } from "@/components/management";
 import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
 import { AccountView } from "@/platform/account/account-view";
+import { PersonalContextView } from "@/platform/account/personal-context";
+import { AssistantPage } from "@/platform/assistant/assistant-page";
 import {
   ConfirmEmailView,
   InviteView,
@@ -154,6 +158,22 @@ export const webRegistry: WebRegistry = {
       legacyPaths: ["/chat"],
     },
     {
+      // Configured agents (ADR 0021, WP1.8): a platform page, not a module.
+      // The entry shows only while the agents API answers for the member
+      // (flag on, owner or editor); the shell sets "agentPlatform".
+      key: "agents",
+      path: "agents",
+      subpaths: true,
+      component: AgentsView,
+      navGroup: "top",
+      nav: {
+        feature: "agentPlatform",
+        label: { en: "Agents", de: "Agenten" },
+        icon: Bot,
+        order: 30,
+      },
+    },
+    {
       // Marketing's content approvals. Approval requests of every module
       // (ActionRequests) are the platform's "decisions" page below, which
       // needs no module (checked for ADR 0015, plan step 2.9).
@@ -240,6 +260,22 @@ export const webRegistry: WebRegistry = {
       path: "account",
       component: AccountView,
       title: label("accountTitle"),
+      session: "required",
+    },
+    // The personal assistant (ADR 0022): its full page and "My context".
+    // Both answer "not found" while /api/assistant is 404 (flag off).
+    {
+      key: "account-assistant",
+      path: "account/assistant",
+      component: PersonalContextView,
+      title: { en: "My context", de: "Mein Kontext" },
+      session: "required",
+    },
+    {
+      key: "assistant",
+      path: "assistant",
+      component: AssistantPage,
+      title: { en: "Orbit Assistant", de: "Orbit Assistant" },
       session: "required",
     },
     {

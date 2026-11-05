@@ -6,6 +6,7 @@ import type {
 } from "@/platform/assistant/extensions";
 import type { AttentionItem } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
+import type { AgentConfig } from "@/platform/agents/types";
 
 // The web side of the module contract (plans/orbit-modularization/03 §10).
 // It lives in the web app rather than packages/module-contracts because it
@@ -46,6 +47,12 @@ export type ViewDef = {
   key: string;
   /** Path below the owner's root: "" for the root itself, else one segment. */
   path: string;
+  /**
+   * The page also owns every path below its own, such as
+   * /p/:projectId/agents/<agentId>/executions/<id>, and reads the rest of
+   * the pathname itself. Not for a root view (path "").
+   */
+  subpaths?: true;
   component: ComponentType;
   nav?: NavEntry;
   /** Server-advertised feature may replace or hide navigation without losing the route. */
@@ -141,6 +148,27 @@ export type ConnectorProvider = {
   Configure?: ComponentType<{ onClose(): void }>;
 };
 
+/** One step of a module's guided agent setup; it edits the new agent's draft. */
+export type AgentSetupStepProps = {
+  config: AgentConfig;
+  locale: Locale;
+  disabled?: boolean;
+  onChange(next: AgentConfig): void;
+};
+
+/**
+ * A guided setup for one of the module's agent templates (ADR 0021 Phase 2):
+ * the module's own steps, shown before the platform's budget and create
+ * steps. Activation stays the owner's step on the agent's page.
+ */
+export type AgentSetup = {
+  steps: ReadonlyArray<{
+    key: string;
+    title: Label;
+    component: ComponentType<AgentSetupStepProps>;
+  }>;
+};
+
 /** The web manifest of a module, mounted at /p/:projectId/<id>. */
 export type WebModule = {
   /** Same id as the server module (GET /api/projects/:id/modules). */
@@ -182,6 +210,8 @@ export type WebModule = {
     /** Cards shown after the platform's own connections. */
     extras?: readonly ComponentType[];
   };
+  /** Guided setups of the module's agent templates, by template key. */
+  agentSetups?: Readonly<Record<string, AgentSetup>>;
 };
 
 /** Everything the shell can show, assembled by the composition root. */
