@@ -764,7 +764,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(byId["o/web#201"]).toMatchObject({ state: "closed", stateReason: "completed", error: null });
     expect(byId["o/web#202"]).toMatchObject({ state: "closed", stateReason: "not_planned", error: null });
     expect(byId["o/web#203"]).toMatchObject({ state: "closed", stateReason: null, error: null });
-    expect(byId["o/web#204"]).toMatchObject({ state: "open", error: "GITHUB_RECONNECT_REQUIRED" });
+    expect(byId["o/web#204"]).toMatchObject({ state: "open", error: "ISSUES_GITHUB_NOT_FOUND" });
     expect(byId["gone/repo#1"]).toMatchObject({ state: "open", error: "ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED" });
     expect(byId["TICKET-9"]).toBeUndefined();
     // Only the allow-listed repository was contacted, with a read-only token.
@@ -823,6 +823,22 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     ])
       expect([response.statusCode, code(response)]).toEqual([404, "ISSUES_GITHUB_DISABLED"]);
     expect(calls).toHaveLength(0);
+    expect(await refsOf(issue.id)).toHaveLength(0);
+  });
+
+  it("reports a missing GitHub issue as not found, a failing token mint as reconnect", async () => {
+    const issue = await readyIssue();
+    const missing = await link(issue.id, "https://github.com/o/web/issues/501");
+    expect([missing.statusCode, code(missing)]).toEqual([404, "ISSUES_GITHUB_NOT_FOUND"]);
+    expect(await refsOf(issue.id)).toHaveLength(0);
+
+    gh.remote[502] = { state: "open" };
+    setGithubFetchForTests(async (url) => {
+      calls.push({ method: "POST", url: String(url), body: "" });
+      return new Response("{}", { status: 401 });
+    });
+    const mint = await link(issue.id, "https://github.com/o/web/issues/502");
+    expect([mint.statusCode, code(mint)]).toEqual([409, "GITHUB_RECONNECT_REQUIRED"]);
     expect(await refsOf(issue.id)).toHaveLength(0);
   });
 });

@@ -45,7 +45,15 @@ async function readIssue(app: Awaited<ReturnType<typeof githubApp>>["app"], full
     token = await installationToken(app, { repositories: [repo], permissions: READ_PERMISSIONS });
     tokens.set(fullName, token);
   }
-  const issue = await githubFetch<GithubIssue>(`/repos/${fullName}/issues/${number}`, token);
+  let issue: GithubIssue;
+  try {
+    issue = await githubFetch<GithubIssue>(`/repos/${fullName}/issues/${number}`, token);
+  } catch (error) {
+    // The token for this repository was just minted: a 401/404/410 on the single issue means it is gone.
+    if (error instanceof DomainError && error.code === "GITHUB_RECONNECT_REQUIRED")
+      throw new DomainError("ISSUES_GITHUB_NOT_FOUND", 404);
+    throw error;
+  }
   if (!issue || issue.number !== number || (issue.state !== "open" && issue.state !== "closed"))
     throw new DomainError("GITHUB_REQUEST_FAILED", 409);
   return issue;
@@ -77,7 +85,7 @@ export async function linkGithubIssue(
     const issue = await loadIssue(tx, scope, issueId);
     const repository = allowListed((await readIssuesSettings(tx, scope)).settings, parsed.fullName);
     if (!repository) throw new DomainError("ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED", 409);
-    splitName(repository.fullName);
+    splitName(repository.fullName); // validation only: refuses names that cannot form a path
     const externalId = githubExternalId(repository.fullName, parsed.number);
     const taken = await tx.issueExternalRef.findFirst({
       where: { projectId: scope.projectId, system: "github", externalId: { equals: externalId, mode: "insensitive" } },
