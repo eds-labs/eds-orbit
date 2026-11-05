@@ -26,6 +26,7 @@ export async function githubApp(
   const granted = await resolveConnection(tx, scope, {
     provider: GITHUB_APP_PROVIDER,
     purpose: GITHUB_ISSUES_PURPOSE,
+    module: "issues",
   });
   const raw = granted ? await connectionSecret(tx, granted.connection.id) : null;
   if (!granted || !raw) throw new DomainError("ISSUES_GITHUB_NOT_CONNECTED", 409);
@@ -54,22 +55,50 @@ export function componentRepository(
 const codeOf = (error: unknown) =>
   error instanceof DomainError ? error.code : "GITHUB_REQUEST_FAILED";
 
-/** Connection state and the allow-list; GitHub failures come back as `error`. */
-export async function githubStatus(tx: DbTx, scope: Scope) {
+type StoredStatus =
+  | { connected: false; repositories: IssuesSettings["github"]["repositories"] }
+  | {
+      connected: true;
+      error: string;
+      repositories: IssuesSettings["github"]["repositories"];
+    }
+  | {
+      connected: true;
+      account: string;
+      app: GithubAppSecret;
+      repositories: IssuesSettings["github"]["repositories"];
+    };
+
+/**
+ * Step 1 of the status, inside the project transaction: the allow-list, the
+ * grant and the secret. It calls no provider.
+ */
+export async function githubStoredStatus(tx: DbTx, scope: Scope): Promise<StoredStatus> {
   const { settings } = await readIssuesSettings(tx, scope);
   const repositories = settings.github.repositories;
-  let connected: Awaited<ReturnType<typeof githubApp>>;
   try {
-    connected = await githubApp(tx, scope);
+    const { app } = await githubApp(tx, scope);
+    return { connected: true, account: app.appSlug, app, repositories };
   } catch (error) {
     if (error instanceof DomainError && error.code === "ISSUES_GITHUB_NOT_CONNECTED")
-      return { connected: false as const, repositories };
+      return { connected: false, repositories };
     // A stored secret that no longer parses: connected, but unusable.
-    return { connected: true as const, error: codeOf(error), repositories };
+    return { connected: true, error: codeOf(error), repositories };
   }
-  const account = connected.app.appSlug;
+}
+
+/**
+ * Step 2, after the transaction closed: the connection state and the
+ * allow-list, plus the installation's repositories only when the caller
+ * asks for them (the settings picker). GitHub failures come back as `error`;
+ * the secret never leaves this function.
+ */
+export async function githubStatus(stored: StoredStatus, options: { available: boolean }) {
+  if (!stored.connected || "error" in stored) return stored;
+  const { account, repositories } = stored;
+  if (!options.available) return { connected: true as const, account, repositories };
   try {
-    const available = (await installationRepositories(connected.app)).map(
+    const available = (await installationRepositories(stored.app)).map(
       ({ fullName, private: isPrivate, archived }) => ({
         fullName,
         private: isPrivate,

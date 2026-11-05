@@ -23,7 +23,7 @@ import { issueDetail, listIssues } from "./queries.ts";
 import { can } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { installationRepositories } from "../../platform/connections/github-app.ts";
-import { checkAvailable, githubApp, githubStatus, newRepositories } from "./github-connection.ts";
+import { checkAvailable, githubApp, githubStatus, githubStoredStatus, newRepositories } from "./github-connection.ts";
 import { linkGithubIssue, refreshGithubRefs, unlinkGithubRef } from "./github-links.ts";
 import { previewGithubIssue, reconcileGithubRequest, requestGithubIssue } from "./github.ts";
 import { issuesSettingsSchema, readIssuesSettings, saveIssuesSettings } from "./settings.ts";
@@ -65,6 +65,8 @@ const linkInput = z
   .strict();
 const githubLinkInput = z.object({ url: z.string().min(1).max(300) }).strict();
 const githubInput = z.object({ repository: z.string().min(1).max(100) }).strict();
+/** `available=1` lists the installation's repositories (one GitHub call). */
+const statusQuery = z.object({ available: z.enum(["0", "1"]).default("0") });
 const targetsQuery = z.object({ type: z.string().regex(OBJECT_TYPE), q: z.string().max(200).default("") }).strict();
 
 /** Issue center routes (plan §4.2). */
@@ -101,12 +103,16 @@ export const issuesRoutes: RoutesContribution = (context) => {
       return saveIssuesSettings(tx, scope, next, version);
     });
   });
-  app.get(`${BASE}/github/status`, (req) =>
-    inIssues(auth, req, ISSUES_GITHUB, (tx, scope) => {
+  // The stored state in the transaction; the installation's repositories
+  // (a GitHub call) only on request and only after the transaction closed.
+  app.get(`${BASE}/github/status`, async (req) => {
+    const stored = await inIssues(auth, req, ISSUES_GITHUB, (tx, scope) => {
       requireIssuesGithub();
-      return githubStatus(tx, scope);
-    }),
-  );
+      return githubStoredStatus(tx, scope);
+    });
+    const { available } = statusQuery.parse(req.query ?? {});
+    return githubStatus(stored, { available: available === "1" });
+  });
 
   // GitHub (owner only, spec 2026-11-05 §5.2): the exact text first, then a
   // queued create; a request with an unknown outcome is reconciled, never

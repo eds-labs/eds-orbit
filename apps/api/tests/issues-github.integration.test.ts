@@ -10,7 +10,7 @@ import { registeredJobs } from "../src/platform/modules/contributions.ts";
 import { data } from "../src/shared.ts";
 import { userActor } from "../src/modules/issues/common.ts";
 import { ISSUES_GITHUB, REQUEST_KIND } from "../src/modules/issues/github.ts";
-import { componentRepository } from "../src/modules/issues/github-connection.ts";
+import { componentRepository, githubApp } from "../src/modules/issues/github-connection.ts";
 import { createIssue, setIssueStatus, setShareReview, updateIssue } from "../src/modules/issues/issues.ts";
 import {
   defaultIssuesSettings,
@@ -128,16 +128,45 @@ describe.skipIf(!enabled)("issues GitHub allow-list and status", () => {
         purposes: ["issues"],
         modules: ["issues"],
       });
-    const granted = await call("owner", "GET", "/issues/github/status");
+    // The detail block's status: stored state only, no GitHub call.
+    githubCalls = 0;
+    const plain = await call("owner", "GET", "/issues/github/status");
+    expect(plain.json()).toEqual({ connected: true, account: "orbit-issues", repositories: [] });
+    expect(githubCalls).toBe(0);
+    const granted = await call("owner", "GET", "/issues/github/status?available=1");
     expect(granted.json()).toMatchObject({ connected: true, account: "orbit-issues" });
     expect(granted.json().available.map((r: { fullName: string }) => r.fullName)).toEqual(["acme/web", "acme/public-site", "acme/old"]);
+    expect(githubCalls).toBeGreaterThan(0);
     expect(JSON.stringify(granted.json())).not.toMatch(/PRIVATE KEY|ghs_fake/);
 
     setGithubFetchForTests(async () => new Response("nope", { status: 500 }));
-    const failing = await call("owner", "GET", "/issues/github/status");
+    expect((await call("owner", "GET", "/issues/github/status")).json()).toEqual(plain.json());
+    const failing = await call("owner", "GET", "/issues/github/status?available=1");
     expect(failing.statusCode).toBe(200);
     expect(failing.json()).toMatchObject({ connected: true });
     expect(typeof failing.json().error).toBe("string");
+  });
+
+  it("uses only a GitHub grant released for the issues module", async () => {
+    const other = await createConnection(admin, { provider: "github_app", label: "Synthetic GitHub (social)", config: {}, secret: SECRET });
+    try {
+      // A second project whose grants name another module only.
+      const q = await createIssuesProject();
+      try {
+        for (const projectId of [undefined, q.owner.projectId])
+          await grantConnection(admin, other.id, {
+            workspaceId: q.owner.workspaceId,
+            ...(projectId ? { projectId } : {}),
+            purposes: ["issues"],
+            modules: ["social"],
+          });
+        await expect(q.run((tx) => githubApp(tx, q.owner))).rejects.toMatchObject({ code: "ISSUES_GITHUB_NOT_CONNECTED" });
+      } finally {
+        await q.cleanup();
+      }
+    } finally {
+      await authDb.connection.deleteMany({ where: { id: other.id } });
+    }
   });
 
   it("saves the allow-list only for private, unarchived installation repositories", async () => {
