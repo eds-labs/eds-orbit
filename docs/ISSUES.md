@@ -136,16 +136,17 @@ A create request is a project entity. States:
 | State | Meaning |
 |---|---|
 | `queued` | accepted, the worker job has not started |
-| `sending` | checks passed and the state is committed before the POST; a crash or unclear outcome leaves it here and the retry reconciles first |
+| `sending` | checks passed and the state is committed before the POST; a crash or unclear outcome leaves it here and the retry reconciles first. Reconcile refuses it (`ISSUES_GITHUB_REQUEST_STATE`): it settles only through the job |
 | `done` | the GitHub issue exists and the link is stored |
 | `failed` | definite refusal or a failed re-check, with a code; a new request is possible |
 | `outcome_unknown` | the last attempt was unclear; only reconcile (never a blind re-create) can settle it |
 
-- Before any repeated POST, the job lists the App's issues in the repository and looks for the marker; a match is linked instead of created again.
+- Before any repeated POST, the job lists the App's issues in the repository and looks for the marker; a match is linked instead of created again. It posts again only when that listing is complete, empty, and the last POST is at least 2 minutes old (GitHub may not list a fresh issue yet). A younger POST makes the retry wait (`ISSUES_GITHUB_RECONCILE_WAIT`, retried by the worker); the last attempt then settles `outcome_unknown` (`JOB_OUTCOME_UNKNOWN`). Since the worker retries within seconds, an unclear send usually ends `outcome_unknown`, and the owner reconciles it a few minutes later.
 - A new create for the same issue and repository is blocked (`ISSUES_GITHUB_REQUEST_STATE`) while a request is unsettled (`queued`, `sending`, `outcome_unknown`).
-- Reconcile (`POST .../github/requests/:id/reconcile`) only lists. It links a found issue (`done`). It marks the request `failed` with `ISSUES_GITHUB_NOT_FOUND` only after a complete, empty listing taken at least 2 minutes after the last send; otherwise it stays `outcome_unknown` (`ISSUES_GITHUB_RECONCILE_INCOMPLETE` when the listing was cut off).
-- No GitHub call runs inside a database transaction. The job re-checks flag, issue, share review (editing the issue after the request fails it), allow-list, grant and that the repository is still private.
-- If the module is disabled while a retry is pending, the request stays `sending`; it settles when the module is enabled again and the job runs, or by reconcile.
+- Reconcile (`POST .../github/requests/:id/reconcile`) only lists. It links a found issue (`done`); if another Orbit issue already holds that GitHub issue, the request settles `failed` with `ISSUES_GITHUB_ALREADY_LINKED`. It marks the request `failed` with `ISSUES_GITHUB_NOT_FOUND` only after a complete, empty listing taken at least 2 minutes after the last send; otherwise it stays `outcome_unknown` (`ISSUES_GITHUB_RECONCILE_INCOMPLETE` when the listing was cut off).
+- No GitHub call runs inside a database transaction: the job, reconcile, link, refresh, the allow-list check on saving the settings and the status route read the database first and call GitHub after the transaction closed. The job re-checks flag, issue, share review (editing the issue after the request fails it), allow-list, grant and that the repository is still private.
+- If the project is paused, the worker blocks the job for good and the request settles: `queued` becomes `failed` and `sending` becomes `outcome_unknown` (code `PROJECT_PAUSED`; reconcile or a new request afterwards).
+- If the module is disabled while a job is pending, the job waits as `blocked_dependency` (`MODULE_DISABLED`) and the request keeps its state, `queued` or `sending`. Reconcile does not settle `sending`; once the module is on again, the job retry action runs the job, which reconciles first.
 
 ### Links
 
@@ -153,7 +154,7 @@ A link is an `IssueExternalRef` with `system = "github"` and `externalId` `owner
 
 History events use type `github` with an `action` (`requested`, `linked`, `unlinked`, and so on); audits and domain events (`issues.github.linked`) hold ids, codes and the repository name only.
 
-The status route reports the connection; its `account` is the App slug.
+The status route (`GET .../github/status`) reports the connection and the allow-list from the database; its `account` is the App slug. Only with `?available=1` (the settings picker) does it also list the installation's repositories, one GitHub call after the transaction. The issue detail never asks for them.
 
 ### Assistant and MCP
 
@@ -164,12 +165,12 @@ The status route reports the connection; its `account` is the App slug.
 | Code | Meaning |
 |---|---|
 | `ISSUES_GITHUB_DISABLED` | flag off (404) |
-| `ISSUES_GITHUB_NOT_CONNECTED` | no usable grant with purpose `issues` |
+| `ISSUES_GITHUB_NOT_CONNECTED` | no usable grant with purpose `issues` (and module `issues`, if the grant restricts modules) |
 | `ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED` | not allow-listed, unknown to the installation, or archived |
 | `ISSUES_GITHUB_REPOSITORY_PUBLIC` | the repository is public |
 | `ISSUES_GITHUB_ALREADY_LINKED` | the issue is already linked in that repository, or the GitHub issue is linked elsewhere |
 | `ISSUES_GITHUB_REQUEST_STATE` | a new create is blocked by an unsettled request, or reconcile was asked for a request that is not `outcome_unknown` |
-| `ISSUES_GITHUB_NOT_FOUND` | reconcile found no GitHub issue; a new request is possible |
+| `ISSUES_GITHUB_NOT_FOUND` | reconcile found no GitHub issue (a new request is possible), or link/refresh read a GitHub issue that no longer exists (404) |
 | `ISSUES_GITHUB_RECONCILE_INCOMPLETE` | the lookup could not cover all issues; the request stays `outcome_unknown` |
 | `ISSUES_GITHUB_REDACTION_HIT` | strict redaction found personal data in the fields |
 | `ISSUES_GITHUB_URL_INVALID` | not a GitHub issue URL of the supported form |
@@ -177,7 +178,9 @@ The status route reports the connection; its `account` is the App slug.
 | `ISSUES_GITHUB_TEXT_CHANGED` | the text changed after approval |
 | `ISSUES_SHARE_REVIEW_REQUIRED`, `ISSUES_NOT_CONFIRMED` | existing gates |
 | `GITHUB_APP_INVALID`, `GITHUB_RECONNECT_REQUIRED`, `GITHUB_ACCESS_OR_RATE_LIMIT`, `GITHUB_VALIDATION_FAILED`, `GITHUB_UNAVAILABLE`, `GITHUB_RESPONSE_TOO_LARGE`, `GITHUB_REQUEST_FAILED` | platform GitHub client |
-| `JOB_OUTCOME_UNKNOWN` | the job runner lost the outcome; a `sending` request becomes `outcome_unknown` |
+| `JOB_OUTCOME_UNKNOWN` | the job runner lost the outcome (lease expired after the last attempt, or the last retry still had to wait for GitHub's listing): a `sending` request becomes `outcome_unknown`, a `queued` one `failed` |
+| `PROJECT_PAUSED` | the project was paused before the job ran: `queued` becomes `failed`, `sending` becomes `outcome_unknown` |
+| `ISSUES_VERSION_CONFLICT` | the issue changed between the request and the job; request again |
 
 There is no separate archived-repository code; archived repositories use `ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED`.
 

@@ -29,14 +29,14 @@ Done by a person with administration access, never by an agent. Administration â
   {"appId": "...", "appSlug": "...", "installationId": "...", "privateKey": "-----BEGIN RSA PRIVATE KEY-----..."}
   ```
 
-  The field is a single-line password input and drops line breaks. Orbit therefore accepts the PEM with real newlines, with `\n` escapes, or with spaces in place of newlines, and rebuilds the original form. Do not paste the key anywhere else, and never into documentation, chat or tickets.
-- Run the connection check. It mints an App token and reads the installation: success gives `read_verified`, capability `github_issues`, and the App slug as the account. Failures show `GITHUB_RECONNECT_REQUIRED`, `GITHUB_ACCESS_OR_RATE_LIMIT` or `GITHUB_REQUEST_FAILED`.
+  The field is a single-line password input and drops line breaks. Real line breaks inside a JSON string are invalid JSON anyway, so paste the key either as one line (the field turns the line breaks of a copied `.pem` into spaces; Orbit restores them) or with each line break written as `\n`. Orbit rebuilds the original PEM from both forms. Do not paste the key anywhere else, and never into documentation, chat or tickets.
+- Run the connection check. It signs an App JWT and reads the installation (`GET /app/installations/{id}`); it mints no installation token and writes nothing. The installation must belong to the App named by `appSlug` (compared case-insensitively), otherwise the check refuses with `GITHUB_APP_INVALID`: reconcile finds Orbit's issues by their creator `<appSlug>[bot]`, so a wrong slug would hide them. Success gives `read_verified`, capability `github_issues`, and the App slug as the account. Other failures show `GITHUB_RECONNECT_REQUIRED`, `GITHUB_ACCESS_OR_RATE_LIMIT` or `GITHUB_REQUEST_FAILED`.
 
 The secret is sealed with `CREDENTIAL_KEY` and is never logged, returned or shown again.
 
 ## 4. Grant it to the project
 
-Grant the connection to the organization and then to the project with purpose **`issues`**. A project without an active grant with that purpose cannot use it (`ISSUES_GITHUB_NOT_CONNECTED`). Revoking the grant stops the next job attempt.
+Grant the connection to the organization and then to the project with purpose **`issues`**. If the grant restricts modules, it must include **`issues`** (a grant without a module restriction serves every module). A project without such an active grant cannot use it (`ISSUES_GITHUB_NOT_CONNECTED`). Revoking the grant stops the next job attempt.
 
 ## 5. Switch the flag on
 
@@ -52,8 +52,8 @@ Each operation mints a short-lived installation token for exactly the repositori
 
 | Operation | Token permissions | Repositories |
 |---|---|---|
-| Create a GitHub issue (including reconcile lookups and the repository privacy check) | Issues: write, Metadata: read | the one target repository |
-| Link an existing issue, refresh state, repository check | Issues: read, Metadata: read | the one target repository |
+| Create a GitHub issue (the POST and the job's marker lookup before a repeated write) | Issues: write, Metadata: read | the one target repository |
+| Repository privacy re-check before every write, link an existing issue, refresh state, reconcile (owner action) | Issues: read, Metadata: read | the one target repository |
 | Repository listing for the settings picker | Metadata: read only | the whole installation |
 | Connection check | App JWT only (reads the installation) | none |
 
@@ -71,7 +71,7 @@ Preview, create, inspect the GitHub body (marker, fields, Orbit link, no custome
 ## Troubleshooting
 
 - `ISSUES_GITHUB_NOT_CONNECTED`: no active grant with purpose `issues`, or the connection is not usable.
-- `GITHUB_APP_INVALID`: the secret JSON is incomplete or the key cannot be read. Re-enter the whole JSON.
+- `GITHUB_APP_INVALID`: the secret JSON is incomplete, the key cannot be read, or the installation belongs to another App than `appSlug`. Re-enter the whole JSON.
 - `GITHUB_RECONNECT_REQUIRED`: GitHub rejected the App (wrong key, App suspended, or uninstalled).
 - `GITHUB_ACCESS_OR_RATE_LIMIT`: the installation lacks access to the repository, or a rate limit applies; retry later.
 - `ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED`: not in the allow-list, not in the installation, or archived.
