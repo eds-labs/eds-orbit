@@ -279,12 +279,8 @@ describe("issue center web (ADR 0018)", () => {
       const item = {
         actionType: "issues.mcp.issues_propose_github_issue",
         summary: {
-          operation: {
-            kind: "issue_github",
-            number: 7,
-            repository: "web",
-            approvalContext: { repository: "o/web", title: "Checkout fails", body: "Paying ends\nwith an error." },
-          },
+          operation: { kind: "issue_github", number: 7, repository: "web" },
+          preview: { repository: "o/web", title: "Checkout fails", body: "Paying ends\nwith an error." },
         },
       };
       expect(issuesDecisionRenderer.accepts(item as never)).toBe(true);
@@ -294,6 +290,9 @@ describe("issue center web (ADR 0018)", () => {
       expect(html).toContain("Checkout fails");
       expect(html).toContain("Paying ends");
       expect(html).toContain("GitHub-Issue");
+      // Without a preview the repository key still shows.
+      const bare = { ...item, summary: { operation: item.summary.operation } };
+      expect(renderToStaticMarkup(<Card item={bare as never} de pending={false} decide={() => {}} />)).toContain("web");
     });
 
     it("reads GitHub history events by their action", () => {

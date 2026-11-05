@@ -777,7 +777,7 @@ export function GithubBlock({ issue: d, canManage, onChanged = () => {} }: { iss
         </div>
       )}
       {note && <p className="support-muted">{note}</p>}
-      {error && <Alert kind="error">{error}</Alert>}
+      {error && !previewing && <Alert kind="error">{error}</Alert>}
       {previewing && repository && (
         <Modal title={g.preview} description={g.exactText} onClose={() => setPreviewing(null)} wide>
           <div className="work-stack">

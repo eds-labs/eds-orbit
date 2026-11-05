@@ -10,14 +10,14 @@ import { issuesText } from "./labels";
 const KINDS = ["issue_report", "issue_update", "issue_merge", "issue_task", "support_issue_report", "issue_github"];
 
 /** The repository and the exact text that will leave Orbit, read-only. */
-function GithubText({ context }: { context: unknown }) {
+function GithubText({ context, fallback }: { context: unknown; fallback?: unknown }) {
   const c = (context ?? {}) as Record<string, unknown>;
   const text = (v: unknown) => (typeof v === "string" ? v : null);
   return (
     <>
-      {text(c.repository) && (
+      {(text(c.repository) ?? text(fallback)) && (
         <p>
-          <strong>{text(c.repository)}</strong>
+          <strong>{text(c.repository) ?? text(fallback)}</strong>
         </p>
       )}
       {text(c.title) && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text(c.title)}</pre>}
@@ -46,7 +46,7 @@ export const issuesDecisionRenderer: ActionRequestRenderer = {
         {typeof op.number === "number" && <p>ISS-{op.number}</p>}
         {typeof op.intoNumber === "number" && <p>→ ISS-{op.intoNumber}</p>}
         {typeof op.issueNumber === "number" && <p>ISS-{op.issueNumber}</p>}
-        {op.kind === "issue_github" && <GithubText context={op.approvalContext} />}
+        {op.kind === "issue_github" && <GithubText context={item.summary.preview} fallback={op.repository} />}
         {Array.isArray(op.fields) && op.fields.length > 0 && <p>{op.fields.join(", ")}</p>}
         <p className="panel-note">{t.decisions.once}</p>
         <div className="form-actions">
