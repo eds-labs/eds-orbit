@@ -9,6 +9,7 @@ import { SocialOverview } from "./overview";
 import { PostsView } from "./posts/posts-view";
 import { CalendarView } from "./calendar/calendar-view";
 import { AnalyticsView } from "./analytics";
+import { AddToSocialAction } from "./drive-action";
 
 const nav = (key: keyof ReturnType<typeof socialText>["nav"]) => ({
   en: socialText("en").nav[key],
@@ -33,6 +34,8 @@ export const socialWeb: WebModule = {
   groupOrder: 12,
   attention: socialAttention,
   actionRequests: socialActionRequests,
+  // Images from the Google Drive page into the media library (design 2026-11-05).
+  drive: { fileActions: [AddToSocialAction] },
   views: [
     { key: "social", path: "", component: SocialOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
     { key: "social.calendar", path: "calendar", component: CalendarView, nav: { label: nav("calendar"), icon: CalendarDays, order: 10 } },
