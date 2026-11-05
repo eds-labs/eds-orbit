@@ -334,6 +334,15 @@ Verification (local, worktree database):
 
 **Pushed to main on 2026-10-26 with Mario's approval.** The push deploys the additive migration `202610260001_issues_core`. Before the push, `origin/main` (`925b6798`, `bd26490b`: the task class `knowledge_evaluation` next to `issue_triage`) was merged in and everything was checked again. The full suite passed with 3,908 tests, 7 skipped and 0 failed. Root and web `tsc`, the source check, boundaries, the Coolify compose check and `next build` were green, and OpenAPI was unchanged after the merge. `ORBIT_ISSUES` stays off; nothing was enabled and no paid call was made. Further rollout steps (`ORBIT_ISSUES`, `ORBIT_MODULE_ROLES`, enabling it in projects, AI triage routes and the first live run, an n8n source with `ORBIT_PUBLIC_INGRESS`, GitHub App, Sentry) each need their own approval ([ISSUES.md](ISSUES.md#rollout-runbook-each-step-needs-marios-approval)).
 
+
+### Issues, GitHub slice 1 (WP3.10a, 2026-11-05, branch `claude/jolly-haslett-d18222`)
+
+Spec: [superpowers/specs/2026-11-05-issues-github-design.md](superpowers/specs/2026-11-05-issues-github-design.md); guides: [integrations/github-app.md](integrations/github-app.md), [ISSUES.md](ISSUES.md#github).
+
+- **Implemented and tested on the branch:** the platform `github_app` connection provider and client, the issues `github` settings allow-list, preview/create/link/refresh/unlink/reconcile routes, the `issues_github` worker job with marker-based exactly-once, the owner-decided proposal `issues_propose_github_issue`, web block and settings, OpenAPI and client regenerated.
+- **Not merged, not deployed, not enabled:** `ORBIT_ISSUES_GITHUB` is off; no GitHub App exists yet, no connection or grant, no live acceptance. No migration, so no schema hash approval is needed.
+- **Not built:** inbound PR/check linking via repository webhooks (10b) and release detection (10c) are planned. Sentry and monitoring sources (WP3.14) and the vector and AI judge duplicate stages remain not built.
+
 ## Index check without JSON (2026-10-26, local)
 
 Knowledge → search index: a fully embedded generation offers "Check" (German UI: "Prüfen"). Orbit writes the test questions itself (task class `knowledge_evaluation`, one batch of 15 passages per `index_evaluation_set` job, paid within the AI budget, estimate shown first), builds the control questions without a model, shows everything for review (untick questions), and starts the normal live evaluation (`start-evaluation-set`). The panel shows phase, progress and the result in words and is translated (en/de); the JSON field is gone. New owner actions `generate-evaluation-set` and `start-evaluation-set` (access matrix reviewed: owner only, editors and viewers forbidden). No migration, no flag, OpenAPI unchanged. The questions are model-written from the passages, not independently labeled (Mario's decision, 2026-10-26).

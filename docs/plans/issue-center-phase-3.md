@@ -502,6 +502,9 @@ Settings sections (group "Issues"): components, categories, sources (webhook URL
 - **Effort:** 3–4 PT.
 
 ### WP3.10 GitHub App connection, webhooks, issue creation, PR/check linking
+
+Split (2026-11-05, spec [2026-11-05-issues-github-design.md](../superpowers/specs/2026-11-05-issues-github-design.md)): **10a** App connection, issue creation and linking, no webhooks, no migration (implemented and tested on a branch, not merged, flag off); **10b** inbound PR and check linking through repository webhooks (planned); **10c** deployment and release detection (planned). The file list and tests below describe the original combined scope.
+
 - **Files:** `platform/connections/providers/github-app.ts`, `issues/github.ts`, `sources/github.ts`, migration `0002_issues_github`, admin connections UI entry (ADR 0014 UI), a new integration page docs/integrations/github-app.md (to be written).
 - **Dependencies:** WP3.4; Mario's approval of a GitHub App with the listed permissions (**new external integration**).
 - **Tests:** signature verification; token minting with the minimal permission set (asserted); repository allow-list; issue body contains only redacted fields; PR matching by body/branch/coding run; checks recorded; idempotent webhook replays.

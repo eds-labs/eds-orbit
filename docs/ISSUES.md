@@ -32,7 +32,7 @@ Public webhook sources also need `ORBIT_PUBLIC_INGRESS=true`.
 | `issues.report` | owner, editor | new issues and reports, Support hand-in (with `support.tickets.read`) |
 | `issues.triage` | owner, editor | fields, status, assignee, merges, duplicate decisions, tasks, deliveries, share review, AI triage |
 | `issues.diagnostics.read` (sensitive) | owner, editor | the diagnostics block of reports; never exposed through tools or MCP |
-| `issues.github` (sensitive) | owner | reserved for the GitHub App (WP3.10, after the MVP) |
+| `issues.github` (sensitive) | owner | GitHub: preview, create, link, refresh, unlink, reconcile, the connection status and the repository allow-list (with `issues.settings`); see [GitHub](#github) |
 | `issues.settings` | owner | components, categories, thresholds, automation, retention, inbound sources |
 
 A typical role setup with module roles: support staff `support: editor`, `issues: editor`, `work: none` or `viewer`; developers `support: none` or `viewer`, `issues: editor`, `work: editor`. Developers then see redacted issues and a "Support ticket (restricted)" placeholder instead of ticket titles (Q-P3-1).
@@ -116,7 +116,70 @@ Counts (open, critical, new in 7 days, awaiting triage, fix ready, released in 3
 | `issues_search`, `issues_get`, `issues_stats`, `issues_duplicates` | read; never diagnostics | `orbit:issues` |
 | `issues_propose_report`, `issues_propose_update`, `issues_propose_merge` | proposals decided by an editor | `orbit:issues` |
 | `issues_propose_task` | proposal decided by an editor | `orbit:issues` + `orbit:work` |
+| `issues_propose_github_issue` | proposal decided by the owner (`issues.github`) | `orbit:issues` |
 | `support_report_issue` (Support) | proposal decided by the owner | `orbit:support` + `orbit:issues` |
+
+## GitHub
+
+Slice 1 (WP3.10a), spec [2026-11-05-issues-github-design.md](superpowers/specs/2026-11-05-issues-github-design.md), setup in [integrations/github-app.md](integrations/github-app.md). Implemented and tested on a branch; not merged, not deployed. Gated by `ORBIT_ISSUES_GITHUB` (default `false`; needs `ORBIT_ISSUES` and `ORBIT_CONNECTIONS`). The owner can create a GitHub issue from a confirmed, share-reviewed issue in an allow-listed private repository, link an existing GitHub issue, refresh its state and unlink it. Nothing flows back automatically: GitHub state never changes the Orbit status, and Orbit never comments, labels or closes on GitHub.
+
+### What is sent
+
+Only the shareable fields (key, title, summary, type, severity, components, acceptance criteria) and the Orbit link, after strict redaction. Any detector hit refuses the request with `ISSUES_GITHUB_REDACTION_HIT` (counts, never text); nothing is rewritten silently. Reports, diagnostics, ticket ids and links, reporter or customer names, AI triage output and comments are never included. The title is `[ISS-12] <title>`; the body starts with a hidden marker `<!-- orbit-ref:<requestId> -->`.
+
+The approval preview and the preview route show the text with a placeholder marker id; the body actually sent carries the real request id.
+
+### Requests and exactly-once
+
+A create request is a project entity. States:
+
+| State | Meaning |
+|---|---|
+| `queued` | accepted, the worker job has not started |
+| `sending` | checks passed and the state is committed before the POST; a crash or unclear outcome leaves it here and the retry reconciles first |
+| `done` | the GitHub issue exists and the link is stored |
+| `failed` | definite refusal or a failed re-check, with a code; a new request is possible |
+| `outcome_unknown` | the last attempt was unclear; only reconcile (never a blind re-create) can settle it |
+
+- Before any repeated POST, the job lists the App's issues in the repository and looks for the marker; a match is linked instead of created again.
+- A new create for the same issue and repository is blocked (`ISSUES_GITHUB_REQUEST_STATE`) while a request is unsettled (`queued`, `sending`, `outcome_unknown`).
+- Reconcile (`POST .../github/requests/:id/reconcile`) only lists. It links a found issue (`done`). It marks the request `failed` with `ISSUES_GITHUB_NOT_FOUND` only after a complete, empty listing taken at least 2 minutes after the last send; otherwise it stays `outcome_unknown` (`ISSUES_GITHUB_RECONCILE_INCOMPLETE` when the listing was cut off).
+- No GitHub call runs inside a database transaction. The job re-checks flag, issue, share review (editing the issue after the request fails it), allow-list, grant and that the repository is still private.
+- If the module is disabled while a retry is pending, the request stays `sending`; it settles when the module is enabled again and the job runs, or by reconcile.
+
+### Links
+
+A link is an `IssueExternalRef` with `system = "github"` and `externalId` `owner/repo#n`. The stored state is only `open` or `closed` (a database constraint; no migration was added). The close reason (`state_reason`) is shown after a refresh but not stored. Refresh is limited to once per minute per issue. Link accepts only `https://github.com/{owner}/{repo}/issues/{n}` of an allow-listed repository, refuses pull requests, and one GitHub issue can link to one Orbit issue only. Unlink removes the Orbit link only.
+
+History events use type `github` with an `action` (`requested`, `linked`, `unlinked`, and so on); audits and domain events (`issues.github.linked`) hold ids, codes and the repository name only.
+
+The status route reports the connection; its `account` is the App slug.
+
+### Assistant and MCP
+
+`issues_propose_github_issue` is an ActionRequest the owner decides; the approval card shows repository, title and body preview. The approved text is bound to the previewed text: if the issue changed in between, the run fails with `ISSUES_GITHUB_TEXT_CHANGED`. It is not offered to configured agents. An external client's confirmation is not Orbit authorization.
+
+### Error codes
+
+| Code | Meaning |
+|---|---|
+| `ISSUES_GITHUB_DISABLED` | flag off (404) |
+| `ISSUES_GITHUB_NOT_CONNECTED` | no usable grant with purpose `issues` |
+| `ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED` | not allow-listed, unknown to the installation, or archived |
+| `ISSUES_GITHUB_REPOSITORY_PUBLIC` | the repository is public |
+| `ISSUES_GITHUB_ALREADY_LINKED` | the issue is already linked in that repository, or the GitHub issue is linked elsewhere |
+| `ISSUES_GITHUB_REQUEST_STATE` | a new create is blocked by an unsettled request, or reconcile was asked for a request that is not `outcome_unknown` |
+| `ISSUES_GITHUB_NOT_FOUND` | reconcile found no GitHub issue; a new request is possible |
+| `ISSUES_GITHUB_RECONCILE_INCOMPLETE` | the lookup could not cover all issues; the request stays `outcome_unknown` |
+| `ISSUES_GITHUB_REDACTION_HIT` | strict redaction found personal data in the fields |
+| `ISSUES_GITHUB_URL_INVALID` | not a GitHub issue URL of the supported form |
+| `ISSUES_GITHUB_REFRESH_TOO_SOON` | refreshed within the last minute (429) |
+| `ISSUES_GITHUB_TEXT_CHANGED` | the text changed after approval |
+| `ISSUES_SHARE_REVIEW_REQUIRED`, `ISSUES_NOT_CONFIRMED` | existing gates |
+| `GITHUB_APP_INVALID`, `GITHUB_RECONNECT_REQUIRED`, `GITHUB_ACCESS_OR_RATE_LIMIT`, `GITHUB_VALIDATION_FAILED`, `GITHUB_UNAVAILABLE`, `GITHUB_RESPONSE_TOO_LARGE`, `GITHUB_REQUEST_FAILED` | platform GitHub client |
+| `JOB_OUTCOME_UNKNOWN` | the job runner lost the outcome; a `sending` request becomes `outcome_unknown` |
+
+There is no separate archived-repository code; archived repositories use `ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED`.
 
 ## Retention and erasure
 
@@ -131,7 +194,8 @@ Counts (open, critical, new in 7 days, awaiting triage, fix ready, released in 3
 4. Enable Issues in the Support project (uLiquid, then FamilyPlan, Q-P3-2), configure components and production environments.
 5. Optional: AI triage. Route `issue_triage` in Settings → AI and set the ceiling; the first live run is its own approval.
 6. Optional: an n8n source. This needs `ORBIT_PUBLIC_INGRESS`, a source in Settings → Issues and the secret in n8n's credentials.
-7. Later: the GitHub App (WP3.10), Sentry and monitoring (WP3.14), each with its own approval.
+7. GitHub (slice 1, WP3.10a): the steps are in [integrations/github-app.md](integrations/github-app.md); the flag `ORBIT_ISSUES_GITHUB` stays off until Mario approves each step.
+8. Later: inbound PR and check linking (10b), release detection (10c), Sentry and monitoring (WP3.14), each with its own approval.
 
 ## Rollback
 
@@ -139,7 +203,7 @@ Set `ORBIT_ISSUES=false` and redeploy: everything stops and nothing is deleted. 
 
 ## Not built in this phase
 
-- GitHub App, inbound GitHub issues, automatic deployment detection (WP3.10).
+- Inbound GitHub issues, PR and check linking by webhook (10b) and automatic deployment detection (10c). The GitHub App for creating and linking issues is slice 1, see [GitHub](#github).
 - Sentry and monitoring sources (WP3.14).
 - Vector and AI judge duplicate stages.
 - Attachment routes (the table exists).

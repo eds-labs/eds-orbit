@@ -147,7 +147,9 @@ Mario's tests A–F for the MCP Creative Studio integration. Guide: [MARKETING_C
 | IC-13 Web: dashboard, list with detail, triage, releases, settings with sources; Support action and chips | `apps/web/src/modules/issues/`, `support/issue-report.tsx`; `issues.test.tsx`, shell tests | PASS_TEST (unit); e2e spec not run |
 | IC-14 Assistant and MCP tools with `orbit:issues`; diagnostics never in tool output; `support_report_issue` needs both scopes | `issues/tools.ts`, `support/issues-handoff.ts`, `platform/mcp/scopes.ts`; `issues-mcp.integration.test.ts`, gateway test | PASS_TEST (local; flags off) |
 | IC-15 Retention 36 months for closed issues, 12 for diagnostics | `issues/retention.ts`; `issues-retention.integration.test.ts` | PASS_TEST (local) |
-| IC-16 GitHub App, Sentry and monitoring sources, vector and AI judge stages | — | NOT_BUILT (after the MVP, separate approvals) |
+| IC-16a GitHub App: create and link GitHub issues (WP3.10a) | `apps/api/src/modules/issues/github*.ts`, `platform/connections/github-app.ts`, [github-app.md](integrations/github-app.md) | IMPLEMENTED and tested on a branch; not merged, not deployed, flag `ORBIT_ISSUES_GITHUB` off |
+| IC-16b Inbound PR/check linking (10b), release detection (10c) | spec §11 | PLANNED (own spec and approval) |
+| IC-16c Sentry and monitoring sources, vector and AI judge stages | — | NOT_BUILT (after the MVP, separate approvals) |
 
 ## AI project manager phase 2 (ADR 0017, 2026-10-25)
 
