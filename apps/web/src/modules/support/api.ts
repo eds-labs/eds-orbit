@@ -195,7 +195,10 @@ export const VIEWS = ["mine", "unassigned", "all"] as const;
 export const supportPath = (projectId: string, rest = "") =>
   `/projects/${encodeURIComponent(projectId)}/support${rest}`;
 
-/** The list query: only set filters, trimmed search, the cursor encoded. */
+/**
+ * The list query: only set filters, trimmed search, the cursor encoded. Without
+ * a status it lists open tickets only.
+ */
 export function ticketQuery(filters: {
   view: string;
   status?: string | null;
@@ -211,6 +214,9 @@ export function ticketQuery(filters: {
     const value = typeof raw === "string" ? raw.trim() : raw;
     if (value) params.set(key, value);
   }
+  // Resolved and closed tickets stay out of every view until their status is
+  // chosen explicitly; otherwise the lists fill up with finished work.
+  if (!params.has("status")) params.set("openOnly", "true");
   return params.toString();
 }
 
@@ -274,7 +280,13 @@ export type TimelineEntry =
 /** The server's timeline as typed entries (messages have a kind). */
 export function timelineEntries(
   items: Array<Record<string, any>>,
+  locale?: string,
 ): TimelineEntry[] {
+  // AI notes may carry their body per UI locale; bodyText is the English one.
+  const body = (item: Record<string, any>): string =>
+    (locale && typeof item.bodyTranslations?.[locale] === "string"
+      ? item.bodyTranslations[locale]
+      : item.bodyText) ?? "";
   return items.map((item) =>
     item.kind
       ? {
@@ -282,7 +294,7 @@ export function timelineEntries(
           id: item.id,
           kind: item.kind,
           internal: item.kind === "internal_note" || item.kind === "ai_draft",
-          bodyText: item.bodyText ?? "",
+          bodyText: body(item),
           createdAt: item.createdAt,
           authorUserId: item.authorUserId ?? null,
           deliveryState: item.deliveryState ?? null,

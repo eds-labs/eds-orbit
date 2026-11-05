@@ -215,8 +215,11 @@ legacy 2025-11-25 protocol continue to poll the tools. No Tasks-extension or
 
 ## Native UI and data lifecycle
 
-Orbit Chat shows a compact private work-order history, phase and blockers,
-conversation/results link and cancellation. The existing approval inbox shows
+The project's activity log (`/p/:projectId/activity`, sidebar group Project,
+shown while `ORBIT_MCP_TASKS` is on) lists the member's private work orders
+with status, start and end time, blockers, a link to the conversation and its
+results in Orbit Chat, and cancellation. Orbit Chat itself no longer lists
+them (2026-11-05). The existing approval inbox shows
 the exact task or operation payload. Support changes appear in the same ticket
 records; campaigns, packages, documents and facts use their normal module UI.
 

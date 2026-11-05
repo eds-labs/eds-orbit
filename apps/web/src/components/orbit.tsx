@@ -73,6 +73,7 @@ import {
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
 import {
   moduleSettingsSection,
   settingsSectionHref,
@@ -278,6 +279,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   useEffect(() => {
     setMenu(false);
   }, [pathname]);
+  useScrollTopOnNavigate(pathname);
   useEffect(() => {
     if (!project) return;
     try {

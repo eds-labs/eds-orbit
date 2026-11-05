@@ -1,5 +1,4 @@
 "use client";
-import { AssistantTasks } from "@/platform/assistant/tasks";
 import { takeAssistantDraft } from "@/platform/shell/assistant-draft";
 import { useContext, useEffect, useState } from "react";
 import { Badge } from "./ui/primitives";
@@ -91,7 +90,6 @@ export function OrbitChat() {
       {extensions.map((extension, index) =>
         extension.navigation ? <extension.navigation key={index} /> : null,
       )}
-      <AssistantTasks open={(id) => conversation.open(id)} />
       <div className="chat-context">
         <Badge tone="blue">{project.name}</Badge>
         <span>
