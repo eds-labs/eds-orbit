@@ -73,6 +73,7 @@ import {
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
 import {
   moduleSettingsSection,
   settingsSectionHref,
@@ -98,6 +99,8 @@ import {
 } from "@/platform/shell/pickers";
 import { agentPaths } from "@/platform/agents/api";
 import { agentPlatformVisible } from "@/platform/agents/logic";
+import { drivePaths, type DriveStatus } from "@/platform/drive/api";
+import { driveFeature, type DriveFeature } from "@/platform/drive/feature";
 import { OrganizationAgents } from "@/platform/agents/org-agents";
 import { AssistantProvider } from "@/platform/assistant/assistant-provider";
 import type { AssistantLinks } from "@/platform/assistant/links";
@@ -192,6 +195,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       : null,
   );
   const agentPlatform = agentPlatformVisible(memberRole, agentsProbe);
+  // The Google Drive page (design 2026-11-05 §5.2): listed while the project
+  // has a Drive folder. The status is read from Orbit, not from Google.
+  // It reloads with the workspace revision, like the module states.
+  const driveStatus = useResource<DriveStatus>(
+    project ? `${drivePaths(project.id).status}?revision=${revision}` : null,
+  );
+  const [driveKnown, setDriveKnown] = useState<DriveFeature>(null);
+  const drive = project
+    ? driveFeature(driveKnown, project.id, driveStatus.data)
+    : null;
+  // Kept in state so a reload keeps it (render-time update, converges at once).
+  if (drive?.projectId !== driveKnown?.projectId || drive?.enabled !== driveKnown?.enabled)
+    setDriveKnown(drive);
+  const googleDrive = drive?.enabled === true;
   // Shared by the sidebar badges and the home page (§4.4), through a 30 s
   // cache that outlives the remount on navigation (ruling R15).
   const attention = useAttentionLoad(
@@ -261,6 +278,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   useEffect(() => {
     setMenu(false);
   }, [pathname]);
+  useScrollTopOnNavigate(pathname);
   useEffect(() => {
     if (!project) return;
     try {
@@ -337,7 +355,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       const module = registry.modules.find((m) => m.id === id);
       return moduleShown(states, id, module?.optIn === true, module?.minAccess);
     };
-    const features = { ...knownStates?.features, agentPlatform };
+    const features = { ...knownStates?.features, agentPlatform, googleDrive };
     const nav = navOrder(navigationForFeatures(table.routes, features));
     const active = registry.modules.filter((m) => enabled(m.id));
     return {
@@ -390,9 +408,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         providers: active.flatMap((m) => m.connectors?.providers ?? []),
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
+      drive: {
+        fileActions: active.flatMap((m) => m.drive?.fileActions ?? []),
+        toolbar: active.flatMap((m) => m.drive?.toolbar ?? []),
+      },
       agentSetups: Object.assign({}, ...active.map((m) => m.agentSetups ?? {})),
     };
-  }, [project, knownStates, registry, table, renderers, agentPlatform]);
+  }, [project, knownStates, registry, table, renderers, agentPlatform, googleDrive]);
   // Apart, so a loaded attention keeps the functions above unchanged.
   const shell = useMemo(
     (): ShellContextValue | null => base && { ...base, attention },

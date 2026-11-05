@@ -13,6 +13,8 @@
   --danger: #ae3647;
   --success: #17725a;
   --shadow: 0 10px 32px rgba(42, 83, 126, 0.045);
+  /* The chevron every native select shows (appearance: none hides the OS one). */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%234a6782' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E");
   /* The phone bottom bar (.mobile-nav): 1 px border, 9 px padding, 48 px
      entries and the bottom padding with the safe area. */
   --mobile-nav-height: calc(58px + max(9px, env(safe-area-inset-bottom)));
@@ -67,6 +69,39 @@ a {
 }
 button {
   cursor: pointer;
+}
+/* Native selects read as fields: border, background and a chevron. Scoped
+   rules (.input, .project-control …) still override this element default. */
+select {
+  appearance: none;
+  min-height: 36px;
+  padding: 7px 34px 7px 11px;
+  border: 1px solid #c3d6e6;
+  border-radius: 8px;
+  background-color: #fff;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 14px;
+  box-shadow: 0 1px 2px rgba(42, 83, 126, 0.06);
+  color: #173149;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s;
+}
+select:hover:not(:disabled) {
+  border-color: #8fb6d8;
+}
+select:focus {
+  border-color: #378ff6;
+}
+select:disabled {
+  cursor: not-allowed;
+  background-color: var(--muted);
+  opacity: 0.7;
 }
 a {
   color: inherit;
@@ -217,10 +252,12 @@ pre {
   min-width: 0;
   flex: 1;
   width: 100%;
-  background: transparent;
+  background-color: transparent;
+  box-shadow: none;
   border: 0;
   color: var(--foreground);
-  padding: 11px 8px;
+  padding: 11px 28px 11px 8px;
+  background-position: right 6px center;
   font-weight: 600;
   font-size: 13px;
 }
@@ -967,6 +1004,12 @@ pre {
   border: 1px dashed var(--border);
   border-radius: 8px;
 }
+/* The native file input never grows past the drop zone's padding. */
+.finance-upload > *,
+.finance-upload input[type="file"] {
+  min-width: 0;
+  max-width: 100%;
+}
 .finance-upload[data-over="true"] {
   border-color: var(--primary);
 }
@@ -1091,6 +1134,13 @@ pre {
   align-items: center;
   justify-content: space-between;
 }
+/* The title and its hint stack instead of running into each other. */
+.finance-link-row > div:has(> .field-hint) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
 .finance-sums [data-balanced="true"] dd {
   color: var(--success, inherit);
 }
@@ -1137,6 +1187,9 @@ pre {
   margin-bottom: 18px;
 }
 .panel {
+  /* The inset every piece of panel content shares with the head. */
+  --panel-inset: 21px;
+  --panel-inset-block: 18px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1149,7 +1202,87 @@ pre {
   gap: 14px;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 21px 12px;
+  padding: var(--panel-inset-block, 18px) var(--panel-inset, 21px) 12px;
+}
+/*
+ * Content placed straight into a panel. A panel has no padding: its head,
+ * body (.panel-body) and notes (.panel-note) carry the inset. Alerts, detail
+ * lists, count tiles, action rows, buttons and plain headings or text that
+ * sit directly in a panel otherwise touch its border, so they take the
+ * panel inset here. Full-bleed children (tables, divider rows, empty states)
+ * keep their own padding and are not listed. A component rule that is more
+ * specific (e.g. the settings sections) still wins.
+ */
+.panel
+  > :is(
+    .alert,
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .support-check,
+    .settings-check,
+    .skeleton,
+    .button
+  ),
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]) {
+  margin-inline: var(--panel-content-inset, var(--panel-inset));
+}
+.panel > :is(h2, h3, h4):not([class]):not(:first-child) {
+  margin-top: 14px;
+}
+.panel
+  > :is(
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .support-check,
+    .settings-check,
+    .skeleton,
+    .button
+  ):last-child,
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]):last-child {
+  margin-bottom: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+.panel
+  > :is(
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .button
+  ):first-child,
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]):first-child {
+  margin-top: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+/* Panels that pad themselves already. */
+.marketing-reports,
+.calendar-list {
+  --panel-content-inset: 0px;
+  --panel-content-inset-block: 0px;
+}
+/*
+ * Panels stacked in a plain page container (no grid or flex gap of its own)
+ * keep the page's section rhythm instead of touching each other.
+ */
+.main > div:not([class]) > .panel + .panel {
+  margin-top: 20px;
 }
 .panel-head p {
   font-size: 13px;
@@ -1465,6 +1598,15 @@ td:first-child {
 }
 .input::placeholder {
   color: #637b92;
+}
+/* .input resets the background: give selects styled as inputs their chevron. */
+select.input {
+  padding-right: 34px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 14px;
+  cursor: pointer;
 }
 .input[type="checkbox"] {
   width: 18px;
@@ -1917,7 +2059,7 @@ td:first-child {
   font-size: 16px;
 }
 .panel-note {
-  padding: 18px 21px 22px;
+  padding: 18px var(--panel-inset, 21px) 22px;
   font-size: 13px;
   color: var(--muted-foreground);
 }
@@ -2236,13 +2378,15 @@ td:first-child {
   align-items: start;
 }
 .settings-grid > .panel {
+  /* The panel's own bottom padding ends its content. */
+  --panel-content-inset-block: 0px;
   padding-bottom: 22px;
 }
 .settings-grid .detail-grid {
-  padding: 0 var(--settings-inset);
+  padding: 0 var(--settings-inset, 0px);
 }
 .settings-grid .panel > .button {
-  margin: 0 var(--settings-inset);
+  margin: 0 var(--settings-inset, var(--panel-inset, 21px));
 }
 /*
  * One rhythm for every settings section: panels stack with one gap (their own
@@ -2280,6 +2424,10 @@ td:first-child {
 }
 .settings-content .settings-grid .panel > .button {
   margin-bottom: 0;
+}
+/* Settings rows carry the inset on each row. */
+.settings-content .panel > .settings-rows {
+  margin-inline: 0;
 }
 .settings-content .panel > .detail-grid {
   margin: 8px 0 20px;
@@ -3748,10 +3896,12 @@ body:has(dialog[open]) {
     font-size: 14px;
     font-weight: 600;
     border: 0;
-    background: transparent;
+    background-color: transparent;
+    box-shadow: none;
     min-height: 27px;
     color: #132d47;
-    padding: 0;
+    padding: 0 22px 0 0;
+    background-position: right 0 center;
     width: 100%;
   }
 }
@@ -6131,6 +6281,15 @@ a.support-row {
   gap: 4px;
   font-size: 13px;
 }
+.support-controls label > span,
+.support-tags > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+.support-controls select {
+  min-width: 150px;
+}
 .support-form label.support-check,
 .settings-form label.settings-check {
   display: flex;
@@ -6459,19 +6618,56 @@ a.support-row {
   font-weight: 600;
 }
 
-/* Private delegated work orders inside the existing assistant. */
-.assistant-tasks {
-  margin-bottom: 16px;
+/* The activity log of external work orders (formerly above Orbit Chat). */
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
 }
-.assistant-task {
-  margin: 0 16px 12px;
-  padding: 12px;
+.activity-item {
+  display: grid;
+  gap: 8px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius);
   background: var(--panel);
+  box-shadow: var(--shadow);
 }
-.assistant-tasks > .form-actions {
-  margin: 0 16px 12px;
+.activity-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.activity-item-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.activity-item-head .badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.activity-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.activity-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+.activity-item > .form-actions,
+.activity-more {
+  margin: 0;
+}
+.activity-more {
+  margin-top: 12px;
 }
 
 /* Reviewed project knowledge: clear reading surfaces, progressive disclosure. */
@@ -6995,18 +7191,39 @@ a.support-row {
   margin: 0 auto;
 }
 .panel-body {
-  padding: 0 21px 21px;
+  padding: 0 var(--panel-inset, 21px) 21px;
 }
+/* Every button group: buttons in a row never touch. */
 .panel-actions,
 .row-actions,
 .modal-actions,
 .admin-actions,
 .badge-row,
-.pager {
+.pager,
+.chat-message-actions,
+.support-privacy-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+/*
+ * Buttons that follow each other in plain flow (a wrapper without a layout
+ * class, where only a JSX space or nothing separates them) keep the action
+ * row gap. Flex and grid action groups above use gap and are not affected.
+ */
+:where(div, span, li, p, td):not([class]) > .button + .button {
+  margin-inline-start: 8px;
+}
+/*
+ * A checkbox or radio label used outside the support/settings forms that
+ * style it (task lists, finance reports, initiatives): the box keeps a gap
+ * to its text.
+ */
+label:is(.support-check, .settings-check) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .admin-actions,
 .pager {
@@ -8469,4 +8686,210 @@ a.support-row {
   flex-direction: row;
   justify-content: flex-start;
   gap: 8px;
+}
+
+/* Google Drive browser (Drive page design 2026-11-05 §5.1). */
+.drive-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.drive-tree-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.drive-tree-panel > summary {
+  display: none;
+}
+.drive-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.drive-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding-block: 4px;
+  padding-inline-end: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.drive-tree-row:hover {
+  background: var(--muted);
+}
+.drive-tree-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.drive-tree-row.is-selected {
+  background: var(--muted);
+  font-weight: 600;
+}
+.drive-tree-row svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-tree-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drive-tree-more {
+  color: var(--primary);
+}
+.drive-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.drive-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.drive-breadcrumb li + li::before {
+  content: "/";
+  margin-inline-end: 4px;
+  color: var(--muted-foreground);
+}
+.drive-breadcrumb li[aria-current="page"] {
+  font-weight: 600;
+}
+.drive-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+}
+.drive-toolbar form {
+  display: flex;
+  gap: 6px;
+}
+.drive-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.drive-view-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+.drive-table-wrap {
+  overflow-x: auto;
+}
+.drive-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.drive-table th,
+.drive-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: middle;
+}
+.drive-table thead th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  font-size: 12px;
+}
+.drive-table tbody th {
+  font-weight: 500;
+}
+.drive-file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+}
+button.drive-file-name {
+  cursor: pointer;
+  color: var(--primary);
+}
+.drive-file-name svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-file-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.drive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.drive-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  min-width: 0;
+}
+.drive-card > img,
+.drive-card > .asset-placeholder {
+  width: 100%;
+  height: 140px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+.drive-card strong {
+  overflow-wrap: anywhere;
+}
+.drive-card p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .drive-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drive-tree-panel > summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 4px;
+  }
+  .drive-tree-panel {
+    max-height: none;
+  }
 }

@@ -1,5 +1,6 @@
 "use client";
-import { useReducer, useState } from "react";
+import { useContext, useReducer, useState } from "react";
+import { ShellContext } from "@/platform/shell/shell-context";
 import { ApiError } from "@/lib/api";
 import { Alert, Badge, Button, Field, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
@@ -42,6 +43,11 @@ export function PostEditor({
   const all = socialText(locale);
   const t = all.posts;
   const [post, setPost] = useState<PostView | null>(initial);
+  // Drive images copied into the library while the post is open; the
+  // page's library list is not reloaded, as a reload remounts the editor.
+  const [imported, setImported] = useState<SocialMedia[]>([]);
+  const allMedia = [...library, ...imported.filter((m) => !library.some((l) => l.id === m.id))];
+  const googleDrive = useContext(ShellContext)?.features?.googleDrive === true;
   const [state, dispatch] = useReducer(editorReducer, initial, (p) =>
     p ? editorReducer(emptyEditor(), { type: "load", post: p }) : emptyEditor(),
   );
@@ -186,7 +192,9 @@ export function PostEditor({
         state={state}
         dispatch={dispatch}
         accounts={accounts}
-        library={library}
+        library={allMedia}
+        driveEnabled={googleDrive}
+        onImported={(media) => setImported((list) => [...list, media])}
         known={[...(post?.baseMedia ?? []), ...(post?.variants.flatMap((v) => v.media) ?? [])]}
         issues={issues}
         disabled={locked}

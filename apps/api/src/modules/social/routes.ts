@@ -18,6 +18,7 @@ import { assertModuleEnabledFor } from "../../platform/modules/enforcement.ts";
 import { authorize } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { listMedia, mediaContent, removeMedia, updateMedia, uploadMedia } from "./media/library.ts";
+import { importDriveMedia } from "./media/from-drive.ts";
 import { servePublicMedia } from "./media/public-url.ts";
 import { inSocial, SOCIAL_BASE, type Params } from "./http-scope.ts";
 import { requireSocial } from "./gate.ts";
@@ -195,6 +196,17 @@ export const socialRoutes: RoutesContribution = (context) => {
         return reply.code(201).send(media);
       },
     );
+  });
+  // An image from the project's Google Drive (Drive page design 2026-11-05):
+  // checked like an upload; the Drive read happens outside a transaction.
+  app.post(`${BASE}/media/from-drive`, { config: UPLOAD_RATE }, async (req, reply) => {
+    (req as { orbitModule?: string }).orbitModule = "social";
+    const { projectId } = req.params as Params;
+    const member = await scopeFor(auth, req, projectId);
+    await assertModuleEnabledFor(member, "social");
+    authorize(member, SOCIAL_COMPOSE);
+    await scoped(member.workspaceId, member.projectId, (tx) => requireSocial(tx, member));
+    return reply.code(201).send(await importDriveMedia(member, req.body));
   });
   app.get(`${BASE}/media`, (req) => inSocial(auth, req, SOCIAL_READ, (tx, scope) => listMedia(tx, scope)));
   app.get(`${BASE}/media/:mediaId/content`, async (req, reply) => {

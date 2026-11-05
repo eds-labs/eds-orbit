@@ -3,6 +3,7 @@ import {
   commitTopic,
 } from "./modules/marketing/agents/novelty.ts";
 import { registerTaskRoutes } from "./platform/tasks/routes.ts";
+import { mcp2Enabled } from "./platform/tasks/operation-tools.ts";
 import {
   authorize,
   can,
@@ -97,7 +98,9 @@ import {
   configureRoot,
   rootCandidates,
   browseDrive,
+  listDriveFolders,
   driveContent,
+  driveThumbnail,
 } from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
@@ -816,6 +819,8 @@ export async function buildServer(
         agents: agentsEnabled(),
         customerContext: config.ORBIT_CUSTOMER_CONTEXT === "true",
         creativeStudio: config.ORBIT_CREATIVE_STUDIO === "true",
+        // External work orders (MCP 2.0): the project's activity log.
+        workOrders: mcp2Enabled(),
       },
       switchable: moduleSwitchingEnabled(),
       // The requesting member's role per module (WP4.5): "none" hides it.
@@ -1211,6 +1216,29 @@ export async function buildServer(
   app.get("/api/projects/:projectId/google-drive/files", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
+  });
+  app.get(
+    "/api/projects/:projectId/google-drive/files/:fileId/thumbnail",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const thumb = await driveThumbnail(
+        await scopeFor(auth, req, projectId),
+        fileId,
+      );
+      return reply
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "private, max-age=300")
+        .type(thumb.mime)
+        .send(thumb.bytes);
+    },
+  );
+  app.get("/api/projects/:projectId/google-drive/folders", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return listDriveFolders(await scopeFor(auth, req, projectId), req.query);
   });
   app.get(
     "/api/projects/:projectId/google-drive/files/:fileId/content",

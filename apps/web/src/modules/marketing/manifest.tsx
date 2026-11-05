@@ -31,6 +31,7 @@ import {
   Missions,
 } from "@/modules/marketing/work";
 import { MarketingHomeCard } from "./home";
+import { AddToLibraryAction, UploadToDriveToolbar } from "./drive/drive-actions";
 import { AssignmentsPage } from "./assignments-page";
 import { MarketingOverview } from "./overview";
 
@@ -63,6 +64,8 @@ export const marketingWeb: WebModule = {
   attention: marketingAttention,
   settings: marketingSettings,
   setupLinks: [PolicySetupLink],
+  // Brand asset import and upload on the Google Drive page (design 2026-11-05).
+  drive: { fileActions: [AddToLibraryAction], toolbar: [UploadToDriveToolbar] },
   connectors: {
     providers: marketingConnectorProviders,
     extras: marketingConnectorExtras,

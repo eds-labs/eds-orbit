@@ -163,6 +163,25 @@ describe.skipIf(!enabled)("Module activation API", () => {
     }
   });
 
+  it("advertises external work orders, so the activity log shows in the menu", async () => {
+    const previous = process.env.ORBIT_MCP_TASKS;
+    try {
+      for (const enabled of [false, true]) {
+        process.env.ORBIT_MCP_TASKS = String(enabled);
+        const response = await call(
+          "viewer",
+          "GET",
+          `/api/projects/${projectId}/modules`,
+        );
+        expect(response.statusCode).toBe(200);
+        expect(response.json().features.workOrders).toBe(enabled);
+      }
+    } finally {
+      if (previous === undefined) delete process.env.ORBIT_MCP_TASKS;
+      else process.env.ORBIT_MCP_TASKS = previous;
+    }
+  });
+
   it("hides the project's modules from non-members and callers without a session", async () => {
     expect(
       (await call("outsider", "GET", `/api/projects/${projectId}/modules`))

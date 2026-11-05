@@ -241,6 +241,7 @@ describe.skipIf(!enabled)("support AI", () => {
       priority: "high",
       sentiment: "negative",
       summary: "[customer name] reports a missing deposit.",
+      summaryDe: "[customer name] meldet eine fehlende Einzahlung.",
       sensitive: false,
     });
     await runSupportTask(worker(), { task: "triage", ticketId: t.ticketId });
@@ -270,6 +271,10 @@ describe.skipIf(!enabled)("support AI", () => {
     expect(summary!.bodyText).toContain(
       "Anna Customer reports a missing deposit.",
     );
+    // The team reads the summary in its UI language (de or en).
+    expect(summary!.bodyTranslations).toEqual({
+      de: "Anna Customer meldet eine fehlende Einzahlung.",
+    });
     const runs = await run((tx) =>
       tx.agentRun.findMany({ where: { subjectId: t.ticketId } }),
     );
@@ -361,6 +366,9 @@ describe.skipIf(!enabled)("support AI", () => {
       (m) => m.kind === "ai_draft",
     )!;
     expect(draft.bodyText).toMatch(/no approved knowledge/i);
+    expect(draft.bodyTranslations).toMatchObject({
+      de: expect.stringMatching(/kein freigegebenes Wissen/i),
+    });
     expect((await ticketRow(t.ticketId)).aiState).toBe("handed_off");
   });
 
@@ -447,6 +455,7 @@ describe.skipIf(!enabled)("support AI", () => {
       priority: "normal",
       sentiment: "neutral",
       summary: "Late deposit.",
+      summaryDe: "Verspätete Einzahlung.",
       sensitive: false,
     });
     await runSupportTask(worker(), { task: "triage", ticketId: t.ticketId });

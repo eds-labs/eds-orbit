@@ -7,6 +7,10 @@ import type {
 import type { AttentionItem } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import type { AgentConfig } from "@/platform/agents/types";
+import type {
+  DriveFileActionProps,
+  DriveToolbarProps,
+} from "@/platform/drive/api";
 
 // The web side of the module contract (plans/orbit-modularization/03 §10).
 // It lives in the web app rather than packages/module-contracts because it
@@ -212,6 +216,15 @@ export type WebModule = {
   };
   /** Guided setups of the module's agent templates, by template key. */
   agentSetups?: Readonly<Record<string, AgentSetup>>;
+  /**
+   * Actions on the Google Drive page (design 2026-11-05 §5.3): per file and
+   * in its toolbar. Each component checks its own role and file type and
+   * renders nothing where it does not apply.
+   */
+  drive?: {
+    fileActions?: readonly ComponentType<DriveFileActionProps>[];
+    toolbar?: readonly ComponentType<DriveToolbarProps>[];
+  };
 };
 
 /** Everything the shell can show, assembled by the composition root. */

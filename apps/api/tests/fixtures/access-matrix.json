@@ -1351,6 +1351,22 @@
     "sysadmin": "not_found",
     "owner": "allowed:409"
   },
+  "GET /api/projects/{projectId}/google-drive/files/{fileId}/thumbnail": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "sysadmin": "not_found",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/google-drive/folders": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "sysadmin": "not_found",
+    "owner": "allowed:409"
+  },
   "GET /api/projects/{projectId}/google-drive/health": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4528,6 +4544,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/social/media": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/media/from-drive": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",

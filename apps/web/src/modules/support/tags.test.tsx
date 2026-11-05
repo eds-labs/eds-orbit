@@ -70,7 +70,7 @@ describe("support tags (Chatwoot-style labels)", () => {
 
   it("filters the ticket list by tag and category", () => {
     expect(ticketQuery({ view: "all", tag: "vip", category: "billing" })).toBe(
-      "view=all&tag=vip&category=billing",
+      "view=all&tag=vip&category=billing&openOnly=true",
     );
   });
 });

@@ -1,5 +1,5 @@
 // The social module's client side (ADR 0020): types of the /social API.
-import { ApiError } from "@/lib/api";
+import { ApiError, post } from "@/lib/api";
 
 export type SocialApproval = "owner_each" | "editor_each";
 
@@ -215,3 +215,10 @@ export type PostMetrics = { postId: string; publications: PostMetricsPublication
 /** GET …/social/analytics?days (S8). */
 export type AnalyticsItem = PostMetrics & { title: string | null; excerpt: string; publishedAt: string };
 export type AnalyticsResponse = { items: AnalyticsItem[] };
+
+/** POST /projects/:projectId/social/media/from-drive: a Drive image into the library. */
+export const importFromDrive = (projectId: string, fileId: string, name?: string) =>
+  post<SocialMedia>(socialPath(projectId, "/media/from-drive"), { fileId, ...(name ? { name } : {}) });
+
+/** The Drive files Social takes (the server's media library types). */
+export const SOCIAL_DRIVE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);

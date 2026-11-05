@@ -22,6 +22,8 @@ export function VariantTabs({
   issues,
   disabled,
   locale,
+  driveEnabled,
+  onImported,
 }: {
   projectId: string;
   state: EditorState;
@@ -33,6 +35,9 @@ export function VariantTabs({
   issues: Record<string, ValidationIssue[]>;
   disabled?: boolean;
   locale: "en" | "de";
+  /** Offers Google Drive images in the media pickers (design 2026-11-05). */
+  driveEnabled?: boolean;
+  onImported?: (media: SocialMedia) => void;
 }) {
   const all = socialText(locale);
   const t = all.posts;
@@ -83,6 +88,8 @@ export function VariantTabs({
           target="base"
           legend={t.baseMedia}
           library={library}
+          driveEnabled={driveEnabled}
+          onImported={onImported}
           known={known}
           selected={state.baseMedia}
           disabled={disabled}
@@ -149,6 +156,8 @@ export function VariantTabs({
                   target={a.id}
                   legend={t.ownMedia}
                   library={library}
+                  driveEnabled={driveEnabled}
+                  onImported={onImported}
                   known={known}
                   selected={own.media}
                   disabled={disabled}

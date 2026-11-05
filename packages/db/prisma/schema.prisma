@@ -503,6 +503,8 @@ model SupportMessage {
   agentRunId        String?                  @db.Uuid
   bodyText          String
   bodyHtml          String?
+  /// Internal notes only: the body per UI locale, e.g. {"de": "…"}; bodyText is English.
+  bodyTranslations  Json?
   channel           String
   externalId        String?
   deliveryState     String?

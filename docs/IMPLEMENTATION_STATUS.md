@@ -1,5 +1,27 @@
 # Implementation status
 
+## Google Drive page and Social Drive picker (2026-11-05, live on `main` since `b6e98e93`, follow-ups on branch `claude/dreamy-grothendieck-0cf6ec`)
+
+Decisions DB-1 to DB-4 (Mario, 2026-11-05): own Drive page in the "Project" group, images only (videos stay S3b), existing actions plus "Add to Social media", server-side ancestry with a 60 s cache. Design: [spec](superpowers/specs/2026-11-05-drive-browser-design.md), [plan](superpowers/plans/2026-11-05-drive-browser.md). Docs: [integrations/google-drive.md](integrations/google-drive.md) ("Drive page"), [SOCIAL.md](SOCIAL.md) ("From Google Drive").
+
+- **Built:** `ancestry()` with a per-process cache and `GET …/google-drive/folders`; `path`, `rootName`, `sort` and `kind` on `GET …/google-drive/files`; `POST …/social/media/from-drive`; shared web Drive tree and browser (`apps/web/src/platform/drive/`); the Drive page with `WebModule.drive` contributions (Marketing import and upload moved from the settings card, Social "Add to Social media"); the composer's Drive tab and the library's "Add from Google Drive". No migration, no new dependency, no flag.
+- **Deviations:** see the plan's ledger rulings (the post editor keeps imported images locally instead of reloading the page library; search applies on submit).
+- **Follow-ups (review minors):** one Drive metadata read per file and per Social import; grid previews from Drive thumbnails (`GET …/files/:fileId/thumbnail`); the navigation entry follows the status after a connect; search per folder; reachable tree tab stop; the tree starts closed on phones.
+- **Verification (local):** full suite, lint, typecheck and build pass; no real Google calls (Drive is mocked in tests). Deployed 2026-11-05 11:42 UTC (Coolify, `b6e98e93`); not yet checked in the browser against a real Drive.
+
+## Support and shell UI improvements (2026-11-05, branch `claude/support-ui-improvements-77a270`, not merged)
+
+Mario's list of 2026-11-05; his decisions: hide resolved and closed tickets by default, AI notes in the reader's language, external work orders on a page of their own. GitHub for Issues (WP3.10), a UI spacing audit and Google Drive (tree, Social picker) run in separate sessions.
+
+- **Built:**
+  - Support inbox: without a chosen status every view asks for `openOnly=true`; resolved and closed tickets appear only when their status is selected ("All open" / "Alle offenen").
+  - A global `select` style (border, chevron, hover, focus, disabled); scoped rules still override it. Support's ticket fields get clearer labels.
+  - Triage writes its summary in English (`bodyText`) and German (`SupportMessage.bodyTranslations.de`) in the same model call; the knowledge-gap note has a German version. The ticket timeline shows the reader's UI language; MCP, agents and exports keep the English body. Migration `202611050003_support_message_translations` (one nullable JSONB column). The contact export includes the translations.
+  - The shell renders from `app/(shell)/layout.tsx` instead of the page under `[[...route]]`, which Next.js remounted on every path: no boot screen, refetch or sidebar scroll reset per click. New pages start at the top (`useScrollTopOnNavigate`); back/forward keeps the browser's position. `scripts/boundaries.json` moves the `root:web` zone to the layout.
+  - Activity log `/p/:projectId/activity` (sidebar group Project) for external work orders, replacing the panel above Orbit Chat; `/modules` advertises `features.workOrders` (`ORBIT_MCP_TASKS`).
+- **Verification (local):** `pnpm lint`, `pnpm typecheck` and `pnpm build` pass. The full suite: 5,314 passed, 7 skipped, 1 failed (`work-pm-monitor` "at most one scan per five minutes", timing-dependent; passes 3 of 3 runs alone, untouched area). Browser check on this worktree's web server: the sidebar element and its scroll position survive navigation, new pages start at the top, back works, the inbox requests `openOnly=true`, the select style and the activity log (with injected sample data) render. Not run: Playwright (the shared dev port 4310 was taken by another stack), a live triage model call.
+- **Production:** nothing deployed. The migration needs a newly approved schema hash in Coolify before the `main` push.
+
 ## Agent platform, Phase 4: proactive notices and voice (2026-11-05, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PROACTIVE` and `ORBIT_VOICE` off)
 
 Decisions D-18 (per-user Telegram in this phase), D-19 and D-20 (Mario, 2026-11-04; [ADR 0023](adr/0023-proactive-signals.md), [ADR 0024](adr/0024-speech-port-voice.md)). Plan: [Phase 4](plans/agent-platform-phase-4.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md) ("Proactive notices and briefings", "Voice"), [EMAIL_AND_NOTIFICATIONS.md](EMAIL_AND_NOTIFICATIONS.md), [MODEL_ROUTING.md](MODEL_ROUTING.md) ("Speech").

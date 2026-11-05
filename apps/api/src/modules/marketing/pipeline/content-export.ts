@@ -25,7 +25,10 @@ export async function exportAssetContent(
           modifiedTime: asset.driveModifiedTime,
         })
       : assetBytes(asset);
-  return content.mime === "image/png" ? content : null;
+  // Bytes and type only, whatever else the Drive read returns.
+  return content.mime === "image/png"
+    ? { bytes: content.bytes, mime: content.mime }
+    : null;
 }
 
 /**

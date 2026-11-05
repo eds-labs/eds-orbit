@@ -158,7 +158,7 @@ export function TicketView({
       </header>
       <div className="support-ticket-body">
         <ol className="support-timeline" aria-label={t.tickets}>
-          {timelineEntries(detail.data.timeline).map((entry) => (
+          {timelineEntries(detail.data.timeline, locale).map((entry) => (
             <TimelineItem
               key={`${entry.entry}-${entry.id}`}
               entry={entry}

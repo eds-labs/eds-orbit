@@ -172,6 +172,7 @@ const triageOutput = z
     priority: z.enum(["low", "normal", "high", "urgent"]),
     sentiment: z.enum(["negative", "neutral", "positive"]),
     summary: z.string().max(400),
+    summaryDe: z.string().max(400),
     sensitive: z.boolean(),
   })
   .strict();
@@ -206,7 +207,7 @@ const TRIAGE_INSTRUCTIONS = (categories: string[]) =>
     "You triage one support ticket for the support team.",
     RULES,
     `Pick a category from: ${categories.join(", ") || "(none configured)"}; or null.`,
-    "Suggest a priority, the customer's language (ISO code), the sentiment and a one-sentence summary.",
+    "Suggest a priority, the customer's language (ISO code), the sentiment and a one-sentence summary for the team: summary in English, summaryDe the same sentence in German, whatever the customer's language.",
     "Set sensitive to true for billing, account security, legal or trading questions.",
   ].join("\n");
 
@@ -639,6 +640,8 @@ async function triage(
         ticketId,
         kind: "system",
         bodyText: restoreName(result.summary, ctx.contact),
+        // The team reads the summary in its UI language (en is the body).
+        bodyTranslations: { de: restoreName(result.summaryDe, ctx.contact) },
         channel: "internal",
         visibleToCustomer: false,
         agentRunId: currentAgentExecution()?.agentRunId ?? null,
@@ -660,6 +663,8 @@ async function triage(
 
 const GAP_NOTE =
   "No approved knowledge covers this question yet. Please answer it yourself; consider adding the answer to the support sources.";
+const GAP_NOTE_DE =
+  "Zu dieser Frage gibt es noch kein freigegebenes Wissen. Bitte beantworte sie selbst und ergänze die Antwort gegebenenfalls in den Support-Quellen.";
 
 /** What a draft run did, for the agent tool. */
 export type DraftOutcome =
@@ -678,6 +683,7 @@ async function storeDraft(
   bodyText: string,
   after: Record<string, unknown>,
   handoffReason: string | null,
+  bodyTranslations?: { de: string },
 ): Promise<DraftOutcome> {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const ticket = await tx.supportTicket.findFirstOrThrow({
@@ -693,6 +699,7 @@ async function storeDraft(
           ticketId,
           kind: "ai_draft",
           bodyText,
+          ...(bodyTranslations ? { bodyTranslations } : {}),
           channel: "internal",
           visibleToCustomer: false,
           agentRunId: currentAgentExecution()?.agentRunId ?? null,
@@ -781,6 +788,7 @@ async function draft(
       GAP_NOTE,
       { evidence: "insufficient", citations: 0 },
       "insufficient_evidence",
+      { de: GAP_NOTE_DE },
     );
   const content = [
     `Customer message: ${query}`,
