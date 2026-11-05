@@ -137,6 +137,28 @@ export type Candidate = {
   reasons: string[];
   issue: { id: string; key: string; title: string; status: IssueStatus; reportCount: number } | null;
 };
+export type ExternalRef = { id: string; system: string; externalId: string; url: string | null; state: string | null };
+export type GithubRequestStatus = "queued" | "sending" | "done" | "failed" | "outcome_unknown";
+export type GithubRequestView = {
+  id: string;
+  status: GithubRequestStatus;
+  /** The repository's full name (owner/name). */
+  repository: string;
+  code?: string | null;
+  externalId?: string | null;
+  requestedAt: string;
+};
+export type GithubRepositoryRef = { key: string; fullName: string };
+export type GithubStatus = {
+  connected: boolean;
+  /** The GitHub App's slug, not a user login. */
+  account?: string;
+  repositories: GithubRepositoryRef[];
+  available?: Array<{ fullName: string; private: boolean; archived: boolean }>;
+  error?: string;
+};
+export type GithubPreview = { title: string; body: string; repository: string; hits: Record<string, number> };
+export type RefreshedRef = ExternalRef & { stateReason?: string | null; error?: string | null };
 export type IssueDetail = {
   issue: Issue;
   reports: Report[];
@@ -144,7 +166,8 @@ export type IssueDetail = {
   links: LinkView[];
   progress: { tasks: number; done: number; restricted: number };
   deliveries: Delivery[];
-  externalRefs: Array<{ id: string; system: string; externalId: string; url: string | null; state: string | null }>;
+  externalRefs: ExternalRef[];
+  githubRequests: GithubRequestView[];
   timeline: Array<{ id: string; type: string; actorKind: string; actorId: string | null; after: Record<string, unknown>; createdAt: string }>;
   permissions: { diagnostics: boolean };
 };
@@ -193,6 +216,7 @@ export type IssuesSettings = {
   intake: { dailyReportCap: number };
   retention: { closedIssueMonths: number; diagnosticsMonths: number };
   productionEnvironments: string[];
+  github: { repositories: GithubRepositoryRef[] };
 };
 export type Source = { id: string; name: string; kind: "webhook" | "n8n"; status: string; path: string; createdAt: string };
 export type Member = { userId: string; name: string; role: "owner" | "editor" | "viewer" };
@@ -232,4 +256,25 @@ export function hours(value: number | null, locale: "en" | "de") {
 /** A time as the member reads it. */
 export function when(value: string, locale: "en" | "de") {
   return new Date(value).toLocaleString(locale === "de" ? "de-DE" : "en-GB", { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** The API's error code of a failed call, if it sent one. */
+export function codeOf(error: unknown): string {
+  return typeof (error as { code?: unknown })?.code === "string" ? (error as { code: string }).code : "REQUEST_FAILED";
+}
+
+/** The status of a request that is not settled: the repository is still busy. */
+export const GITHUB_OPEN_REQUEST = ["queued", "sending", "outcome_unknown"] as const;
+
+const KEY_PATTERN = /^[a-z][a-z0-9_]{1,40}$/;
+/** A settings key (same pattern as the server) for a repository, unique among `taken`. */
+export function repositoryKey(fullName: string, taken: string[]): string {
+  const name = fullName.split("/")[1] ?? fullName;
+  let base = name.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!/^[a-z]/.test(base)) base = `repo_${base}`;
+  base = base.slice(0, 36).replace(/_+$/g, "");
+  if (base.length < 2) base = "repo";
+  let key = base;
+  for (let n = 2; taken.includes(key) || !KEY_PATTERN.test(key); n++) key = `${base.slice(0, 36)}_${n}`;
+  return key;
 }

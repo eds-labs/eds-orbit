@@ -7,7 +7,24 @@ import { issuesText } from "./labels";
 // assistant or an MCP client proposes, decided by an editor (Support's
 // hand-in by the owner).
 
-const KINDS = ["issue_report", "issue_update", "issue_merge", "issue_task", "support_issue_report"];
+const KINDS = ["issue_report", "issue_update", "issue_merge", "issue_task", "support_issue_report", "issue_github"];
+
+/** The repository and the exact text that will leave Orbit, read-only. */
+function GithubText({ context }: { context: unknown }) {
+  const c = (context ?? {}) as Record<string, unknown>;
+  const text = (v: unknown) => (typeof v === "string" ? v : null);
+  return (
+    <>
+      {text(c.repository) && (
+        <p>
+          <strong>{text(c.repository)}</strong>
+        </p>
+      )}
+      {text(c.title) && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text(c.title)}</pre>}
+      {text(c.body) && <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{text(c.body)}</pre>}
+    </>
+  );
+}
 
 export const issuesDecisionRenderer: ActionRequestRenderer = {
   accepts: (item) => KINDS.includes(item.summary?.operation?.kind),
@@ -20,6 +37,7 @@ export const issuesDecisionRenderer: ActionRequestRenderer = {
       issue_merge: t.decisions.merge,
       issue_task: t.decisions.task,
       support_issue_report: t.decisions.supportReport,
+      issue_github: t.decisions.github,
     }[op.kind as string];
     return (
       <article className="action-request">
@@ -28,6 +46,7 @@ export const issuesDecisionRenderer: ActionRequestRenderer = {
         {typeof op.number === "number" && <p>ISS-{op.number}</p>}
         {typeof op.intoNumber === "number" && <p>→ ISS-{op.intoNumber}</p>}
         {typeof op.issueNumber === "number" && <p>ISS-{op.issueNumber}</p>}
+        {op.kind === "issue_github" && <GithubText context={op.approvalContext} />}
         {Array.isArray(op.fields) && op.fields.length > 0 && <p>{op.fields.join(", ")}</p>}
         <p className="panel-note">{t.decisions.once}</p>
         <div className="form-actions">
@@ -45,6 +64,6 @@ export const issuesDecisionRenderer: ActionRequestRenderer = {
 
 export const issuesActionRequests = {
   ...Object.fromEntries(
-    ["issues_propose_report", "issues_propose_update", "issues_propose_merge", "issues_propose_task"].map((name) => [`issues.mcp.${name}`, issuesDecisionRenderer]),
+    ["issues_propose_report", "issues_propose_update", "issues_propose_merge", "issues_propose_task", "issues_propose_github_issue"].map((name) => [`issues.mcp.${name}`, issuesDecisionRenderer]),
   ),
 };

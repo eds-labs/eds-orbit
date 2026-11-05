@@ -2,11 +2,11 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useMutation, useResource } from "@/lib/api";
-import { Alert, Button, Input, Loading } from "@/components/ui/primitives";
+import { Alert, Badge, Button, Input, Loading } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import type { SettingsSection } from "@/platform/shell/types";
 import { ResourceError } from "@/platform/ui/collection";
-import { issuesPath, send, type IssuesSettings, type Source } from "./api";
+import { issuesPath, repositoryKey, send, type GithubStatus, type IssuesSettings, type Source } from "./api";
 import { issuesText, type IssuesText } from "./labels";
 import { useIssuesAccess, useIssuesLists } from "./shared";
 
@@ -22,6 +22,8 @@ function IssuesSettingsForm() {
   const t = issuesText(locale);
   const access = useIssuesAccess();
   const lists = useIssuesLists();
+  // Owners only; a 404 (feature off) or 403 leaves the section out.
+  const githubStatus = useResource<GithubStatus>(access.owner ? issuesPath(project.id, "/github/status") : null);
   const [draft, setDraft] = useState<IssuesSettings | null>(null);
   useEffect(() => {
     if (lists.settings) setDraft(structuredClone(lists.settings));
@@ -164,6 +166,15 @@ function IssuesSettingsForm() {
           </div>
         </fieldset>
       </fieldset>
+      {githubStatus.data && (
+        <fieldset disabled={!access.owner || mutation.pending} className="work-stack">
+          <GithubSettings
+            draft={draft}
+            status={githubStatus.data}
+            onChange={(repositories) => update({ github: { repositories } })}
+          />
+        </fieldset>
+      )}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       {access.owner && (
         <Button type="submit" disabled={!valid || mutation.pending}>
@@ -172,6 +183,88 @@ function IssuesSettingsForm() {
       )}
       {access.owner && <SourcesPanel t={t} />}
     </form>
+  );
+}
+
+/**
+ * The GitHub allow-list (spec 2026-11-05 §5.3): the installed repositories
+ * with the reason a public or archived one cannot be added, and the stored
+ * list with its keys. The server stays authoritative.
+ */
+export function GithubSettings({
+  draft,
+  onChange,
+  status,
+}: {
+  draft: IssuesSettings;
+  onChange: (repositories: IssuesSettings["github"]["repositories"]) => void;
+  status: GithubStatus;
+}) {
+  const { locale } = useWorkspace();
+  const g = issuesText(locale).github;
+  const s = g.settings;
+  const list = draft.github?.repositories ?? [];
+  const known = new Set(list.map((r) => r.fullName.toLowerCase()));
+  return (
+    <fieldset className="work-stack">
+      <legend>{s.title}</legend>
+      <p className="support-muted">{s.intro}</p>
+      {!status.connected ? (
+        <p className="support-muted">{g.notConnected}</p>
+      ) : (
+        status.account && (
+          <p>
+            {s.account}: <code>{status.account}</code>
+          </p>
+        )
+      )}
+      {status.error && <Alert kind="warning">{g.errors[status.error] ?? g.errors.REQUEST_FAILED}</Alert>}
+      <strong>{s.allowList}</strong>
+      {list.length === 0 ? (
+        <p className="support-muted">{s.none}</p>
+      ) : (
+        <ul className="settings-rows">
+          {list.map((r) => (
+            <li key={r.key} className="work-settings-row">
+              <code>{r.key}</code>
+              <span>{r.fullName}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => onChange(list.filter((x) => x.key !== r.key))}>
+                {s.remove}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(status.available?.length ?? 0) > 0 && (
+        <>
+          <strong>{s.available}</strong>
+          <ul className="settings-rows">
+            {status.available!.map((r) => {
+              const added = known.has(r.fullName.toLowerCase());
+              const reason = !r.private ? s.onlyPrivate : r.archived ? s.archived : null;
+              return (
+                <li key={r.fullName} className="work-settings-row">
+                  <span>{r.fullName}</span>
+                  {reason && <Badge tone="warning">{reason}</Badge>}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={Boolean(reason) || added || list.length >= 20}
+                    onClick={() =>
+                      onChange([...list, { key: repositoryKey(r.fullName, list.map((x) => x.key)), fullName: r.fullName }])
+                    }
+                  >
+                    {added ? s.added : s.add}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+          {list.length >= 20 && <p className="support-muted">{s.limit}</p>}
+        </>
+      )}
+    </fieldset>
   );
 }
 

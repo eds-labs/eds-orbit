@@ -15,9 +15,14 @@ import {
   SEVERITIES,
   TRANSITIONS,
   when,
+  codeOf,
+  GITHUB_OPEN_REQUEST,
   type Delivery,
+  type GithubPreview,
+  type GithubStatus,
   type IssueDetail,
   type IssuePage,
+  type RefreshedRef,
 } from "./api";
 import { issuesText, type IssuesText } from "./labels";
 import { SeverityBadge, StatusBadge, useIssuesAccess, useIssuesLists } from "./shared";
@@ -306,6 +311,8 @@ export function IssueDetailView({
         </ul>
       </section>
 
+      <GithubBlock issue={d} canManage={access.owner && issue.status !== "duplicate"} onChanged={changed} />
+
       <section className="panel work-stack" aria-labelledby="issue-deliveries">
         <div className="panel-head">
           <h3 id="issue-deliveries">{t.deliveries}</h3>
@@ -326,7 +333,9 @@ export function IssueDetailView({
             <li key={e.id} className="work-settings-row">
               <span>{when(e.createdAt, locale)}</span>
               <span>
-                {e.type}
+                {e.type === "github" && typeof e.after.action === "string"
+                  ? (t.github.events[e.after.action] ?? t.github.title)
+                  : e.type}
                 {typeof e.after.status === "string" && ` → ${t.status[e.after.status as keyof IssuesText["status"]] ?? e.after.status}`}
               </span>
             </li>
@@ -586,4 +595,219 @@ export function DeliveryList({ t, items, locale }: { t: IssuesText; items: Deliv
 export function IssueLink({ issueId, children }: { issueId: string; children: React.ReactNode }) {
   const shell = useShell();
   return <AppLink href={`${shell.hrefOf("issues-list")}?issue=${encodeURIComponent(issueId)}`}>{children}</AppLink>;
+}
+
+/**
+ * The GitHub side of an issue (spec 2026-11-05 §5.3): linked issues, requests
+ * in flight, and for the owner the create, link, refresh and unlink actions.
+ * Nothing renders while the feature is off (the status route answers 404).
+ */
+export function GithubBlock({ issue: d, canManage, onChanged = () => {} }: { issue: IssueDetail; canManage: boolean; onChanged?: () => void }) {
+  const { project, locale } = useWorkspace();
+  const t = issuesText(locale);
+  const g = t.github;
+  const lists = useIssuesLists();
+  const base = issuesPath(project.id, `/issues/${encodeURIComponent(d.issue.id)}`);
+  const status = useResource<GithubStatus>(canManage ? issuesPath(project.id, "/github/status") : null);
+  const manage = canManage && Boolean(status.data);
+  const refs = d.externalRefs.filter((r) => r.system === "github");
+  const requests = (d.githubRequests ?? []).filter((r) => r.status !== "done");
+  const repositories = status.data?.repositories ?? [];
+  const preferred = d.issue.components
+    .map((c) => lists.settings?.components.find((x) => x.key === c)?.repository)
+    .find((key) => key && repositories.some((r) => r.key === key));
+  const [chosen, setChosen] = useState<string | null>(null);
+  const repository = repositories.find((r) => r.key === (chosen ?? preferred)) ?? repositories[0] ?? null;
+  const [url, setUrl] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const [previewing, setPreviewing] = useState<GithubPreview | null>(null);
+  if (!refs.length && !requests.length && !manage) return null;
+
+  async function run<T>(task: () => Promise<T>, onDone?: (result: T) => void) {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    setNote(null);
+    try {
+      const result = await task();
+      onDone?.(result);
+      onChanged();
+    } catch (e) {
+      const code = codeOf(e);
+      // A refresh within a minute is not a failure.
+      if (code === "ISSUES_GITHUB_REFRESH_TOO_SOON") setNote(g.refreshSoon);
+      else setError(g.errors[code] ?? g.errors.REQUEST_FAILED!);
+    } finally {
+      setPending(false);
+    }
+  }
+  const busy = repository ? requests.find((r) => r.repository === repository.fullName && (GITHUB_OPEN_REQUEST as readonly string[]).includes(r.status)) : undefined;
+  const reviewed = d.issue.shareReviewed;
+  return (
+    <section className="panel work-stack" aria-labelledby="issue-github">
+      <div className="panel-head">
+        <h3 id="issue-github">{g.title}</h3>
+        {manage && refs.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() =>
+              run(
+                () => send<{ refs: RefreshedRef[] }>(`${base}/github/refresh`, "POST"),
+                (result) => {
+                  const failed = result.refs.find((r) => r.error);
+                  if (failed?.error) setError(g.errors[failed.error] ?? g.errors.REQUEST_FAILED!);
+                },
+              )
+            }
+          >
+            {g.refresh}
+          </Button>
+        )}
+      </div>
+      {refs.length === 0 && requests.length === 0 && <p className="support-muted">{g.noRefs}</p>}
+      {refs.length > 0 && (
+        <ul className="support-rows">
+          {refs.map((r) => (
+            <li key={r.id} className="work-settings-row">
+              {r.url ? (
+                <a href={r.url} target="_blank" rel="noopener noreferrer">
+                  {r.externalId}
+                </a>
+              ) : (
+                <span>{r.externalId}</span>
+              )}
+              {r.state && <Badge tone={r.state === "open" ? "success" : "neutral"}>{g.state[r.state] ?? r.state}</Badge>}
+              {manage && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={pending}
+                  onClick={() => run(() => send(`${base}/github/${encodeURIComponent(r.id)}`, "DELETE"))}
+                >
+                  {g.unlink}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {requests.length > 0 && (
+        <ul className="support-rows">
+          {requests.map((r) => (
+            <li key={r.id} className="work-settings-row">
+              <span>{r.repository}</span>
+              <Badge tone={r.status === "failed" ? "danger" : r.status === "outcome_unknown" ? "warning" : "neutral"}>{g.requestState[r.status] ?? r.status}</Badge>
+              {r.status === "failed" && r.code && <span className="support-muted">{g.errors[r.code] ?? g.errors.REQUEST_FAILED}</span>}
+              {r.status === "outcome_unknown" && manage && (
+                <>
+                  <span className="support-muted">{g.errors.JOB_OUTCOME_UNKNOWN}</span>
+                  <Button
+                    size="sm"
+                    disabled={pending}
+                    onClick={() => run(() => send(issuesPath(project.id, `/github/requests/${encodeURIComponent(r.id)}/reconcile`), "POST"))}
+                  >
+                    {g.reconcile}
+                  </Button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {manage && status.data && !status.data.connected && <p className="support-muted">{g.notConnected}</p>}
+      {manage && status.data?.connected && (
+        <div className="work-stack">
+          {repositories.length === 0 ? (
+            <p className="support-muted">{g.noRepositories}</p>
+          ) : (
+            <div className="work-actions">
+              <label>
+                {g.repository}
+                <select value={repository?.key ?? ""} onChange={(e) => setChosen(e.target.value)}>
+                  {repositories.map((r) => (
+                    <option key={r.key} value={r.key}>
+                      {r.key} · {r.fullName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {busy ? (
+                busy.status === "outcome_unknown" ? null : (
+                  <Button size="sm" disabled>
+                    {g.creating}
+                  </Button>
+                )
+              ) : (
+                <Button
+                  size="sm"
+                  disabled={pending || !reviewed || !repository}
+                  onClick={() =>
+                    repository &&
+                    run(
+                      () => send<GithubPreview>(`${base}/github/preview`, "POST", { repository: repository.key }),
+                      (preview) => setPreviewing(preview),
+                    )
+                  }
+                >
+                  {g.create}
+                </Button>
+              )}
+            </div>
+          )}
+          {!reviewed && (
+            <p className="support-muted">
+              <strong>{g.needsShareReview}</strong> · {g.needsShareReviewHint}
+            </p>
+          )}
+          <div className="work-actions">
+            <Input aria-label={g.link} placeholder={g.linkPlaceholder} value={url} onChange={(e) => setUrl(e.target.value)} />
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={pending || !url.trim()}
+              onClick={() => run(() => send(`${base}/github/link`, "POST", { url: url.trim() }), () => setUrl(""))}
+            >
+              {g.link}
+            </Button>
+          </div>
+        </div>
+      )}
+      {note && <p className="support-muted">{note}</p>}
+      {error && <Alert kind="error">{error}</Alert>}
+      {previewing && repository && (
+        <Modal title={g.preview} description={g.exactText} onClose={() => setPreviewing(null)} wide>
+          <div className="work-stack">
+            <p>
+              <strong>{previewing.repository}</strong>
+            </p>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{previewing.title}</pre>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{previewing.body}</pre>
+            {Object.keys(previewing.hits).length > 0 && (
+              <Alert kind="warning">
+                {g.hits}: {Object.entries(previewing.hits).map(([name, count]) => `${name} (${count})`).join(", ")}
+              </Alert>
+            )}
+            {error && <Alert kind="error">{error}</Alert>}
+            <div className="form-actions">
+              <Button variant="outline" onClick={() => setPreviewing(null)}>
+                {t.cancel}
+              </Button>
+              {Object.keys(previewing.hits).length === 0 && (
+                <Button
+                  disabled={pending}
+                  onClick={() => run(() => send(`${base}/github`, "POST", { repository: repository.key }), () => setPreviewing(null))}
+                >
+                  {g.confirm}
+                </Button>
+              )}
+            </div>
+          </div>
+        </Modal>
+      )}
+    </section>
+  );
 }
