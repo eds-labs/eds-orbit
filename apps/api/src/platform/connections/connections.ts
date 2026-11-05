@@ -142,6 +142,27 @@ export type ConnectionProvider = {
    * connector action or the administration.
    */
   managedByModule?: true;
+  /**
+   * The parts of a secret that is a JSON object, one form field each, so
+   * the administration asks for them separately and builds the JSON itself.
+   * `pattern` is an HTML pattern for the browser; `validateSecret` stays
+   * the authority on the server.
+   */
+  secretFields?: ReadonlyArray<SecretField>;
+  /** Refuses a malformed secret before it is stored; never echoes it. */
+  validateSecret?: (secret: string) => void;
+  /** Path on the Orbit origin the provider must call back (OAuth apps). */
+  callbackPath?: string;
+};
+
+/** One part of a JSON secret, for the administration forms. */
+export type SecretField = {
+  key: string;
+  label: { en: string; de: string };
+  /** Shown masked and never prefilled. */
+  secret?: boolean;
+  pattern?: string;
+  hint?: { en: string; de: string };
 };
 
 /** The owner scopes a provider allows. */

@@ -1,6 +1,6 @@
 import type { ConnectionProvider } from "../../../platform/connections/connections.ts";
 import { DomainError } from "../../../shared.ts";
-import { metaAppSecret, parseAppSecret } from "./apps.ts";
+import { metaAppSecret, parseAppSecret, xAppSecret } from "./apps.ts";
 import { socialFetch } from "./http.ts";
 import { META_GRAPH } from "./meta.ts";
 
@@ -23,6 +23,15 @@ async function checkMetaApp(_connection: Record<string, unknown>, credential: st
   return { status: "read_verified", capabilities: ["social_oauth"] };
 }
 
+/** Refuses a malformed app secret when it is entered (422, no echo). */
+const validator = (schema: Parameters<typeof parseAppSecret>[0]) => (secret: string) => {
+  try {
+    parseAppSecret(schema, secret);
+  } catch {
+    throw new DomainError("SOCIAL_APP_INVALID", 422);
+  }
+};
+
 const account = (en: string, de: string): ConnectionProvider => ({
   scopes: ["project"],
   managedByModule: true,
@@ -37,12 +46,60 @@ export const socialConnectionProviders: Record<string, ConnectionProvider> = {
     purposes: ["social_oauth"],
     label: { en: "Meta app (Facebook and Instagram)", de: "Meta-App (Facebook und Instagram)" },
     check: checkMetaApp,
+    callbackPath: "/api/social/oauth/callback/meta",
+    secretFields: [
+      {
+        key: "appId",
+        label: { en: "App ID", de: "App-ID" },
+        pattern: "\\d{5,20}",
+        hint: {
+          en: "Meta for Developers → your app → App settings → Basic.",
+          de: "Meta for Developers → deine App → App-Einstellungen → Allgemeines.",
+        },
+      },
+      {
+        key: "appSecret",
+        label: { en: "App secret", de: "App-Secret" },
+        secret: true,
+        pattern: ".{16,200}",
+        hint: { en: "On the same page, behind “Show”.", de: "Auf derselben Seite hinter „Anzeigen“." },
+      },
+      {
+        key: "configId",
+        label: { en: "Configuration ID", de: "Konfigurations-ID" },
+        pattern: "\\d{5,20}",
+        hint: {
+          en: "Facebook Login for Business → Configurations: the configuration with the page and Instagram permissions.",
+          de: "Facebook Login for Business → Konfigurationen: die Konfiguration mit den Seiten- und Instagram-Berechtigungen.",
+        },
+      },
+    ],
+    validateSecret: validator(metaAppSecret),
   },
   "social.app.x": {
     scopes: ["system"],
     purposes: ["social_oauth"],
     label: { en: "X app", de: "X-App" },
     checkUnsupported: "SOCIAL_APP_NOT_CHECKABLE",
+    callbackPath: "/api/social/oauth/callback/x",
+    secretFields: [
+      {
+        key: "clientId",
+        label: { en: "Client ID", de: "Client-ID" },
+        pattern: ".{10,200}",
+        hint: {
+          en: "X developer portal → your app → Keys and tokens → OAuth 2.0 Client ID and Client Secret (not the API key).",
+          de: "X Developer Portal → deine App → Keys and tokens → OAuth 2.0 Client ID and Client Secret (nicht der API Key).",
+        },
+      },
+      {
+        key: "clientSecret",
+        label: { en: "Client secret", de: "Client-Secret" },
+        secret: true,
+        pattern: ".{10,200}",
+      },
+    ],
+    validateSecret: validator(xAppSecret),
   },
   "social.account.x": account("X account", "X-Konto"),
   "social.account.facebook": account("Facebook Page", "Facebook-Seite"),

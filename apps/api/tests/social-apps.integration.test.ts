@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
-import { createConnection, grantConnection } from "../src/platform/administration/connections.ts";
+import { centralProviders, createConnection, grantConnection, rotateSecret } from "../src/platform/administration/connections.ts";
 import { registeredConnectionProvider } from "../src/platform/modules/contributions.ts";
 import { appCredentials, appReadiness, redirectUri } from "../src/modules/social/accounts/apps.ts";
 import { setSocialFetchForTests, socialFetch } from "../src/modules/social/accounts/http.ts";
+import { sealSecret } from "../src/platform/connections/secrets.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
@@ -39,6 +40,13 @@ describe.skipIf(!enabled)("social developer apps", () => {
       modules: ["social"],
     });
     return connection.id;
+  };
+  // A malformed secret stored before entry validation existed: written
+  // straight into the active secret row, as the forms now refuse it.
+  const legacyMalformedApp = async (provider: string, secret: string, grantTo: typeof p) => {
+    const id = await app(provider, provider === "social.app.meta" ? META_SECRET : X_SECRET, grantTo);
+    await authDb.connectionSecret.updateMany({ where: { connectionId: id, state: "active" }, data: sealSecret(secret) });
+    return id;
   };
 
   beforeAll(async () => {
@@ -83,7 +91,7 @@ describe.skipIf(!enabled)("social developer apps", () => {
   });
 
   it("refuses a malformed app secret without echoing it", async () => {
-    await app("social.app.meta", JSON.stringify({ appId: "12", appSecret: "leaky-secret-value" }), other);
+    await legacyMalformedApp("social.app.meta", JSON.stringify({ appId: "12", appSecret: "leaky-secret-value" }), other);
     const error = await other.run((tx) => appCredentials(tx, other.owner, "meta")).then(
       () => undefined,
       (e: Error & { code?: string }) => e,
@@ -95,10 +103,51 @@ describe.skipIf(!enabled)("social developer apps", () => {
   it("tells which developer apps are ready, not granted or invalid, without the secret", async () => {
     expect(await third.run((tx) => appReadiness(tx, third.owner))).toEqual({ x: "not_granted", meta: "not_granted" });
     await app("social.app.x", X_SECRET, third);
-    await app("social.app.meta", JSON.stringify({ appId: "12", appSecret: "leaky-secret-value" }), third);
+    await legacyMalformedApp("social.app.meta", JSON.stringify({ appId: "12", appSecret: "leaky-secret-value" }), third);
     const readiness = await third.run((tx) => appReadiness(tx, third.owner));
     expect(readiness).toEqual({ x: "ready", meta: "invalid" });
     expect(JSON.stringify(readiness)).not.toContain("leaky-secret-value");
+  });
+
+  it("offers a separate field per key and the callback path for each developer app", () => {
+    const providers = centralProviders();
+    const fields = (id: string) =>
+      providers.find((p) => p.id === id)!.secretFields!.map((f) => [f.key, Boolean(f.secret)]);
+    expect(fields("social.app.x")).toEqual([
+      ["clientId", false],
+      ["clientSecret", true],
+    ]);
+    expect(fields("social.app.meta")).toEqual([
+      ["appId", false],
+      ["appSecret", true],
+      ["configId", false],
+    ]);
+    expect(providers.find((p) => p.id === "social.app.x")!.callbackPath).toBe("/api/social/oauth/callback/x");
+    expect(providers.find((p) => p.id === "social.app.meta")!.callbackPath).toBe("/api/social/oauth/callback/meta");
+    for (const p of providers.filter((p) => !p.id.startsWith("social.app.")))
+      expect(p).not.toHaveProperty("secretFields");
+    // The browser's patterns accept what the server accepts.
+    for (const [id, secret] of [
+      ["social.app.x", JSON.parse(X_SECRET)],
+      ["social.app.meta", JSON.parse(META_SECRET)],
+    ] as const)
+      for (const f of providers.find((p) => p.id === id)!.secretFields!)
+        expect(new RegExp(`^(?:${f.pattern})$`).test(secret[f.key]), `${id} ${f.key}`).toBe(true);
+  });
+
+  it("refuses a malformed developer app secret when it is stored or replaced, without echoing it", async () => {
+    const leaky = JSON.stringify({ appId: "12ab", appSecret: "leaky-secret-value-123", configId: "9876543210" });
+    const created = await createConnection(admin, { provider: "social.app.meta", label: "Bad", config: {}, secret: leaky }).then(
+      () => undefined,
+      (e: Error & { code?: string; status?: number }) => e,
+    );
+    expect(created).toMatchObject({ code: "SOCIAL_APP_INVALID", status: 422 });
+    expect(JSON.stringify(created) + created?.message).not.toContain("leaky-secret-value");
+    const id = await app("social.app.x", X_SECRET, third);
+    await expect(rotateSecret(admin, id, { secret: JSON.stringify({ clientId: "short", clientSecret: "x" }) })).rejects.toMatchObject({
+      code: "SOCIAL_APP_INVALID",
+      status: 422,
+    });
   });
 
   it("checks a Meta app with its app token in a header, never in the URL", async () => {
