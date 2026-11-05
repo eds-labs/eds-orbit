@@ -438,7 +438,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(await p.run((tx) => tx.issueExternalRef.count({ where: { issueId: issue.id } }))).toBe(1);
   });
 
-  it("reconcile never creates and keeps outcome_unknown when nothing is found", async () => {
+  it("outcome_unknown blocks a new request until reconcile settles it as not found", async () => {
     const issue = await readyIssue();
     const requestId = await requestCreate(issue.id);
     gh.create = ["502", "502", "502"];
@@ -446,10 +446,39 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     await expect(runJob(requestId, 2)).rejects.toBeTruthy();
     await runJob(requestId, 3);
     expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
+    expect(typeof (await request(requestId)).sendingAt).toBe("string");
     const before = posts().length;
-    const reconciled = await call("owner", "POST", `/issues/github/requests/${requestId}/reconcile`);
-    expect(reconciled.json()).toEqual({ status: "outcome_unknown" });
+    const reconcile = () => call("owner", "POST", `/issues/github/requests/${requestId}/reconcile`);
+
+    // While the outcome is unknown, no new request may create the issue again.
+    const again = await call("owner", "POST", `/issues/issues/${issue.id}/github`, { repository: "web" });
+    expect([again.statusCode, code(again)]).toEqual([409, "ISSUES_GITHUB_REQUEST_STATE"]);
+
+    // An empty listing right after the POST settles nothing (GitHub may lag).
+    expect((await reconcile()).json()).toEqual({ status: "outcome_unknown" });
+    expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
+    // An incomplete or failing listing settles nothing either.
+    await p.run(async (tx) => {
+      const row = await tx.entity.findFirstOrThrow({ where: { id: requestId } });
+      const old = new Date(Date.now() - 3 * 60_000).toISOString();
+      await tx.entity.update({ where: { id: requestId }, data: { data: { ...data(row), sendingAt: old } } });
+    });
+    gh.list = 503;
+    expect((await reconcile()).statusCode).toBe(409);
+    expect(await request(requestId)).toMatchObject({ status: "outcome_unknown" });
+    gh.list = 200;
+
+    // A complete, empty listing after 2 minutes: definitely not created.
+    expect((await reconcile()).json()).toEqual({ status: "failed" });
+    expect(await request(requestId)).toMatchObject({ status: "failed", code: "ISSUES_GITHUB_NOT_FOUND" });
+    expect(
+      await p.run((tx) => tx.auditEvent.count({ where: { projectId: p.owner.projectId, action: "issues.github.failed", resourceId: requestId } })),
+    ).toBe(1);
     expect(posts()).toHaveLength(before);
+    // Reconciling a failed request is refused; a new request is allowed now.
+    expect(code(await reconcile())).toBe("ISSUES_GITHUB_REQUEST_STATE");
+    const fresh = await requestCreate(issue.id);
+    expect(fresh).not.toBe(requestId);
   });
 
   it("never posts again when the listing fails", async () => {
@@ -517,7 +546,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     const requestId = await requestCreate(ready.id);
     // A request in flight blocks a second one.
     const twice = await call("owner", "POST", `/issues/issues/${ready.id}/github`, { repository: "web" });
-    expect([twice.statusCode, code(twice)]).toEqual([409, "ISSUES_GITHUB_ALREADY_LINKED"]);
+    expect([twice.statusCode, code(twice)]).toEqual([409, "ISSUES_GITHUB_REQUEST_STATE"]);
     await runJob(requestId);
     const linked = await call("owner", "POST", `/issues/issues/${ready.id}/github`, { repository: "web" });
     expect([linked.statusCode, code(linked)]).toEqual([409, "ISSUES_GITHUB_ALREADY_LINKED"]);

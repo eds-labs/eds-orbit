@@ -35,7 +35,9 @@ import { readIssuesSettings } from "./settings.ts";
 //      │                                    │      before it posts again)
 //      │                                    │  unclear, last attempt ──> outcome_unknown
 //      │                                    │  check fails on retry ──> outcome_unknown
-//   outcome_unknown ──reconcile (list only, never creates)──> done
+//   outcome_unknown ──reconcile (list only, never creates)──> done, or failed
+//      (ISSUES_GITHUB_NOT_FOUND) when the complete listing has no marker and
+//      the last POST was committed at least 2 minutes ago
 //
 // No GitHub call runs inside a database transaction. `sending` is committed
 // before the POST, so a crash mid-POST leaves `sending` and the next attempt
@@ -53,6 +55,10 @@ const PREVIEW_REQUEST_ID = "00000000-0000-0000-0000-000000000000";
 /** Statuses an issue must have left before it may go to GitHub. */
 const NOT_READY = ["new", "triage", "needs_info", "duplicate"];
 const IN_FLIGHT = ["queued", "sending"];
+/** Requests that block a new one for the same issue and repository. */
+const UNSETTLED = [...IN_FLIGHT, "outcome_unknown"];
+/** A reconcile settles "not found" only this long after the last POST was committed (replica lag). */
+const NOT_FOUND_AFTER_MS = 2 * 60_000;
 const CREATE_PERMISSIONS: GithubPermissions = { issues: "write", metadata: "read" };
 const READ_PERMISSIONS: GithubPermissions = { issues: "read", metadata: "read" };
 const LIST_PAGES = 3;
@@ -134,8 +140,10 @@ export async function requestGithubIssue(
   const open = await tx.entity.findMany({
     where: { projectId: scope.projectId, kind: REQUEST_KIND, data: { path: ["issueId"], equals: issue.id } },
   });
-  if (open.some((r) => IN_FLIGHT.includes(data(r).status) && sameName(String(data(r).fullName), repository.fullName)))
-    throw new DomainError("ISSUES_GITHUB_ALREADY_LINKED", 409);
+  // A request in flight or with an unknown outcome may still create the
+  // issue: it must finish or be reconciled first (never a blind re-create).
+  if (open.some((r) => UNSETTLED.includes(data(r).status) && sameName(String(data(r).fullName), repository.fullName)))
+    throw new DomainError("ISSUES_GITHUB_REQUEST_STATE", 409);
 
   const requestId = randomUUID();
   assertNoHits(githubIssueText(fields, { requestId, orbitUrl: issueOrbitUrl(scope.projectId, issue.id) }));
@@ -467,7 +475,12 @@ async function createOnce(scope: Scope, requestEntityId: string, last: boolean):
       await settleIn(tx, scope, row.id, status, "ISSUES_VERSION_CONFLICT");
       return false;
     }
-    await update(tx, scope, row, { ...data(row), status: "sending", attempts: Number(data(row).attempts ?? 0) + 1 });
+    await update(tx, scope, row, {
+      ...data(row),
+      status: "sending",
+      attempts: Number(data(row).attempts ?? 0) + 1,
+      sendingAt: new Date().toISOString(),
+    });
     return true;
   });
   if (!go) return;
@@ -498,13 +511,15 @@ async function createOnce(scope: Scope, requestEntityId: string, last: boolean):
 
 /**
  * Looks for the GitHub issue of a request whose outcome is unknown and links
- * it when found. It only reads GitHub: it never creates an issue.
+ * it when found. It only reads GitHub: it never creates an issue. A
+ * definite "not found" (complete listing, last POST at least 2 minutes old)
+ * settles it as `failed` ISSUES_GITHUB_NOT_FOUND, which allows a new request.
  */
 export async function reconcileGithubRequest(
   scope: Scope,
   requestEntityId: string,
   actor: IssueActor,
-): Promise<{ status: "done" | "outcome_unknown" }> {
+): Promise<{ status: "done" | "outcome_unknown" | "failed" }> {
   const id = uuid.parse(requestEntityId);
   const step1 = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await requireIssues(tx, scope);
@@ -514,13 +529,32 @@ export async function reconcileGithubRequest(
     const value = data(row);
     if (value.status === "done") return null;
     if (value.status !== "outcome_unknown") throw new DomainError("ISSUES_GITHUB_REQUEST_STATE", 409);
-    return { value, app: (await githubApp(tx, scope)).app };
+    return { value, version: row.version, app: (await githubApp(tx, scope)).app };
   });
   if (!step1) return { status: "done" };
   const [owner, repo] = splitName(String(step1.value.fullName));
   const token = await installationToken(step1.app, { repositories: [repo], permissions: READ_PERMISSIONS });
   const found = await findByMarker(step1.app, token, owner, repo, step1.value);
-  if (!found || found === "incomplete") return { status: "outcome_unknown" };
+  if (found === "incomplete") return { status: "outcome_unknown" };
+  if (!found) {
+    // A complete, successful listing without the marker settles the request
+    // only once the last POST is old enough for GitHub to list it.
+    const sentAt = Date.parse(String(step1.value.sendingAt ?? ""));
+    if (!Number.isFinite(sentAt) || Date.now() - sentAt < NOT_FOUND_AFTER_MS) return { status: "outcome_unknown" };
+    const settled = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await loadRequest(tx, scope, id);
+      if (!row || row.version !== step1.version || data(row).status !== "outcome_unknown") return false;
+      const value = data(row);
+      await update(tx, scope, row, { ...value, status: "failed", code: "ISSUES_GITHUB_NOT_FOUND" });
+      await audit(tx, scope, "issues.github.failed", id, {
+        issueId: value.issueId,
+        repository: value.fullName,
+        code: "ISSUES_GITHUB_NOT_FOUND",
+      });
+      return true;
+    });
+    return { status: settled ? "failed" : "outcome_unknown" };
+  }
   const status = await linkRequest(scope, id, found, actor);
   return { status: status === "done" ? "done" : "outcome_unknown" };
 }
