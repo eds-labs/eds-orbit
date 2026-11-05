@@ -24,6 +24,7 @@ import { can } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { installationRepositories } from "../../platform/connections/github-app.ts";
 import { checkAvailable, githubApp, githubStatus, newRepositories } from "./github-connection.ts";
+import { linkGithubIssue, refreshGithubRefs, unlinkGithubRef } from "./github-links.ts";
 import { previewGithubIssue, reconcileGithubRequest, requestGithubIssue } from "./github.ts";
 import { issuesSettingsSchema, readIssuesSettings, saveIssuesSettings } from "./settings.ts";
 import { reportManually } from "./sources/manual.ts";
@@ -62,6 +63,7 @@ const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) 
 const linkInput = z
   .object({ targetType: z.string().regex(OBJECT_TYPE), targetId: uuid, relation: z.enum(LINK_RELATIONS) })
   .strict();
+const githubLinkInput = z.object({ url: z.string().min(1).max(300) }).strict();
 const githubInput = z.object({ repository: z.string().min(1).max(100) }).strict();
 const targetsQuery = z.object({ type: z.string().regex(OBJECT_TYPE), q: z.string().max(200).default("") }).strict();
 
@@ -119,6 +121,24 @@ export const issuesRoutes: RoutesContribution = (context) => {
     inIssues(auth, req, ISSUES_GITHUB, (tx, scope, p) => {
       requireIssuesGithub();
       return requestGithubIssue(tx, scope, id(p), githubInput.parse(req.body).repository, userActor(scope));
+    }),
+  );
+  // Link an existing GitHub issue, refresh its state, unlink (GitHub is read
+  // outside any transaction; unlink is a pure database change).
+  app.post(`${BASE}/issues/:id/github/link`, async (req) => {
+    const p = req.params as Params;
+    const scope = await scopeFor(auth, req, p.projectId!, ISSUES_GITHUB);
+    return linkGithubIssue(scope, id(p), githubLinkInput.parse(req.body).url, userActor(scope));
+  });
+  app.post(`${BASE}/issues/:id/github/refresh`, async (req) => {
+    const p = req.params as Params;
+    const scope = await scopeFor(auth, req, p.projectId!, ISSUES_GITHUB);
+    return { refs: await refreshGithubRefs(scope, id(p), userActor(scope)) };
+  });
+  app.delete(`${BASE}/issues/:id/github/:refId`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, async (tx, scope, p) => {
+      await unlinkGithubRef(tx, scope, id(p), id(p, "refId"), userActor(scope));
+      return { id: id(p, "refId"), deleted: true };
     }),
   );
   app.post(`${BASE}/github/requests/:id/reconcile`, async (req) => {

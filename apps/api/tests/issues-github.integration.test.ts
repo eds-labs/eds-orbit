@@ -187,7 +187,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
   const origin = process.env.APP_ORIGIN!;
   const ip = () => `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
   const code = (r: { json(): { error?: { code: string } } }) => r.json().error?.code;
-  const call = (who: keyof typeof cookies, method: "GET" | "POST", url: string, payload?: object) =>
+  const call = (who: keyof typeof cookies, method: "GET" | "POST" | "DELETE", url: string, payload?: object) =>
     app.inject({
       method,
       url: `/api/projects/${p.owner.projectId}${url}`,
@@ -206,6 +206,8 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     create: [] as Array<"ok" | "unclear" | "502" | "422">,
     /** The answer to listing the App's issues. */
     list: 200,
+    /** Existing GitHub issues by number, for linking and refreshing. */
+    remote: {} as Record<number, { state: string; state_reason?: string | null; pull_request?: object }>,
   };
   const posts = () => calls.filter((c) => c.method === "POST" && c.url === ISSUES_URL);
   const fakeGithub = () =>
@@ -222,6 +224,12 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
         expect(u).toContain("creator=orbit-issues%5Bbot%5D");
         if (gh.list !== 200) return new Response("{}", { status: gh.list });
         return new Response(JSON.stringify(gh.issues), { status: 200 });
+      }
+      const single = /^https:\/\/api\.github\.com\/repos\/o\/web\/issues\/(\d+)$/.exec(u);
+      if (single && method === "GET") {
+        const number = Number(single[1]);
+        const found = gh.remote[number];
+        return found ? new Response(JSON.stringify({ number, ...found }), { status: 200 }) : new Response("{}", { status: 404 });
       }
       if (u === ISSUES_URL && method === "POST") {
         const mode = gh.create.shift() ?? "ok";
@@ -339,7 +347,7 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     process.env.ORBIT_ISSUES_GITHUB = "true";
     calls = [];
     // GitHub numbers stay unique across tests, as refs do in the project.
-    Object.assign(gh, { private: true, issues: [], create: [], list: 200 });
+    Object.assign(gh, { private: true, issues: [], create: [], list: 200, remote: {} });
     fakeGithub();
   });
   afterEach(() => {
@@ -664,5 +672,157 @@ describe.skipIf(!enabled)("issues GitHub create requests", () => {
     expect(stored).not.toContain(CANARY);
     expect(stored).not.toContain("ghs_fake");
     expect(stored).not.toContain("Clicking checkout");
+  });
+
+  const refsOf = (issueId: string) => p.run((tx) => tx.issueExternalRef.findMany({ where: { issueId }, orderBy: { createdAt: "asc" } }));
+  const link = (issueId: string, url: string, who: "owner" | "editor" = "owner") =>
+    call(who, "POST", `/issues/issues/${issueId}/github/link`, { url });
+  const addRef = (issueId: string, externalId: string, syncedAt: Date | null, system = "github", state = "open") =>
+    p.run((tx) =>
+      tx.issueExternalRef.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: p.owner.workspaceId,
+          projectId: p.owner.projectId,
+          issueId,
+          system,
+          externalId,
+          url: null,
+          state,
+          syncedAt,
+          createdBy: "test",
+        },
+      }),
+    );
+
+  it("links an existing GitHub issue with a read-only token", async () => {
+    const issue = await readyIssue();
+    gh.remote[101] = { state: "open" };
+    const linked = await link(issue.id, "https://github.com/o/web/issues/101#issuecomment-1");
+    expect(linked.statusCode).toBe(200);
+    expect(linked.json()).toMatchObject({ system: "github", externalId: "o/web#101", url: "https://github.com/o/web/issues/101", state: "open" });
+    const tokens = calls.filter((c) => c.url.endsWith("/access_tokens")).map((c) => JSON.parse(c.body));
+    expect(tokens).toEqual([{ repositories: ["web"], permissions: { issues: "read", metadata: "read" } }]);
+    expect(calls.filter((c) => c.method !== "POST").map((c) => c.url)).toEqual(["https://api.github.com/repos/o/web/issues/101"]);
+    expect(calls.every((c) => c.method === "GET" || c.url.endsWith("/access_tokens"))).toBe(true);
+    expect(await refsOf(issue.id)).toHaveLength(1);
+    const events = await p.run((tx) => tx.issueEvent.findMany({ where: { issueId: issue.id, type: "github" } }));
+    expect(events.map((e) => e.after)).toEqual([expect.objectContaining({ action: "linked", via: "manual", externalId: "o/web#101" })]);
+    expect(await p.run((tx) => tx.auditEvent.count({ where: { projectId: p.owner.projectId, action: "issues.github.linked", resourceId: linked.json().id } }))).toBe(1);
+    expect(await p.run((tx) => tx.domainEvent.count({ where: { projectId: p.owner.projectId, type: "issues.github.linked", subjectId: issue.id } }))).toBe(1);
+    // The same GitHub issue cannot be linked twice, to another or to the same Orbit issue.
+    const other = await readyIssue();
+    const second = await link(other.id, "https://github.com/O/Web/issues/101");
+    expect([second.statusCode, code(second)]).toEqual([409, "ISSUES_GITHUB_ALREADY_LINKED"]);
+    const again = await link(issue.id, "https://github.com/o/web/issues/101");
+    expect([again.statusCode, code(again)]).toEqual([409, "ISSUES_GITHUB_ALREADY_LINKED"]);
+    expect(await refsOf(other.id)).toHaveLength(0);
+    expect(await refsOf(issue.id)).toHaveLength(1);
+  });
+
+  it("refuses pull requests and unlisted or invalid URLs before any GitHub call", async () => {
+    const issue = await readyIssue();
+    gh.remote[102] = { state: "open", pull_request: {} };
+    const pr = await link(issue.id, "https://github.com/o/web/issues/102");
+    expect([pr.statusCode, code(pr)]).toEqual([400, "ISSUES_GITHUB_URL_INVALID"]);
+    expect(calls.length).toBeGreaterThan(0);
+
+    calls = [];
+    const refused: Array<[string, number, string]> = [
+      ["https://github.com/o/other/issues/5", 409, "ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED"],
+      ["https://github.com/o/web/pull/5", 400, "ISSUES_GITHUB_URL_INVALID"],
+      ["https://example.com/o/web/issues/5", 400, "ISSUES_GITHUB_URL_INVALID"],
+      ["https://github.com/o/web/issues/0", 400, "ISSUES_GITHUB_URL_INVALID"],
+      ["not a url", 400, "ISSUES_GITHUB_URL_INVALID"],
+    ];
+    for (const [url, status, expected] of refused) {
+      const response = await link(issue.id, url);
+      expect([url, response.statusCode, code(response)]).toEqual([url, status, expected]);
+    }
+    expect(calls).toHaveLength(0);
+    expect(await refsOf(issue.id)).toHaveLength(0);
+  });
+
+  it("refreshes the state of linked issues and keeps going past failures", async () => {
+    const issue = await readyIssue();
+    const old = new Date(Date.now() - 3_600_000);
+    await addRef(issue.id, "o/web#201", old);
+    await addRef(issue.id, "o/web#202", old);
+    await addRef(issue.id, "o/web#203", old);
+    await addRef(issue.id, "o/web#204", old);
+    await addRef(issue.id, "gone/repo#1", old, "github", "open");
+    await addRef(issue.id, "TICKET-9", old, "jira", "open");
+    gh.remote[201] = { state: "closed", state_reason: "completed" };
+    gh.remote[202] = { state: "closed", state_reason: "not_planned" };
+    gh.remote[203] = { state: "closed", state_reason: null };
+    // 204 does not exist on GitHub any more.
+    const before = await p.run((tx) => tx.issue.findUnique({ where: { id: issue.id } }));
+
+    const refreshed = await call("owner", "POST", `/issues/issues/${issue.id}/github/refresh`);
+    expect(refreshed.statusCode).toBe(200);
+    const byId = Object.fromEntries(refreshed.json().refs.map((r: { externalId: string }) => [r.externalId, r]));
+    expect(byId["o/web#201"]).toMatchObject({ state: "closed", stateReason: "completed", error: null });
+    expect(byId["o/web#202"]).toMatchObject({ state: "closed", stateReason: "not_planned", error: null });
+    expect(byId["o/web#203"]).toMatchObject({ state: "closed", stateReason: null, error: null });
+    expect(byId["o/web#204"]).toMatchObject({ state: "open", error: "GITHUB_RECONNECT_REQUIRED" });
+    expect(byId["gone/repo#1"]).toMatchObject({ state: "open", error: "ISSUES_GITHUB_REPOSITORY_NOT_ALLOWED" });
+    expect(byId["TICKET-9"]).toBeUndefined();
+    // Only the allow-listed repository was contacted, with a read-only token.
+    expect(calls.every((c) => c.url.includes("/o/web") || c.url.endsWith("/access_tokens"))).toBe(true);
+    expect(calls.filter((c) => c.url.endsWith("/access_tokens")).map((c) => JSON.parse(c.body))).toEqual([
+      { repositories: ["web"], permissions: { issues: "read", metadata: "read" } },
+    ]);
+    const stored = await refsOf(issue.id);
+    expect(stored.find((r) => r.system === "jira")).toMatchObject({ state: "open", syncedAt: old });
+    expect(stored.find((r) => r.externalId === "o/web#204")!.syncedAt).toEqual(old);
+    expect(stored.find((r) => r.externalId === "o/web#201")!.syncedAt!.getTime()).toBeGreaterThan(old.getTime());
+    // The Orbit issue itself is untouched.
+    expect(await p.run((tx) => tx.issue.findUnique({ where: { id: issue.id } }))).toEqual(before);
+
+    calls = [];
+    const soon = await call("owner", "POST", `/issues/issues/${issue.id}/github/refresh`);
+    expect([soon.statusCode, code(soon)]).toEqual([429, "ISSUES_GITHUB_REFRESH_TOO_SOON"]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("unlinks only the github ref of that issue", async () => {
+    const issue = await readyIssue();
+    const other = await readyIssue();
+    const gitRef = await addRef(issue.id, "o/web#301", null);
+    const jira = await addRef(issue.id, "TICKET-301", null, "jira");
+    const foreign = await addRef(other.id, "o/web#302", null);
+    const del = (refId: string, issueId = issue.id, who: "owner" | "editor" = "owner") =>
+      call(who, "DELETE", `/issues/issues/${issueId}/github/${refId}`);
+
+    expect((await del(jira.id)).statusCode).toBe(404);
+    expect((await del(foreign.id)).statusCode).toBe(404);
+    expect((await del(gitRef.id, issue.id, "editor")).statusCode).toBe(403);
+    expect(await refsOf(issue.id)).toHaveLength(2);
+
+    const removed = await del(gitRef.id);
+    expect(removed.statusCode).toBe(200);
+    expect((await refsOf(issue.id)).map((r) => r.system)).toEqual(["jira"]);
+    expect(await refsOf(other.id)).toHaveLength(1);
+    expect(calls).toHaveLength(0);
+    const events = await p.run((tx) => tx.issueEvent.findMany({ where: { issueId: issue.id, type: "github" } }));
+    expect(events.map((e) => e.after)).toEqual([expect.objectContaining({ action: "unlinked", externalId: "o/web#301" })]);
+    expect(await p.run((tx) => tx.auditEvent.count({ where: { projectId: p.owner.projectId, action: "issues.github.unlinked", resourceId: gitRef.id } }))).toBe(1);
+    expect(await p.run((tx) => tx.domainEvent.count({ where: { projectId: p.owner.projectId, type: "issues.github.unlinked", subjectId: issue.id } }))).toBe(1);
+  });
+
+  it("limits link and refresh to the owner and the flag", async () => {
+    const issue = await readyIssue();
+    gh.remote[401] = { state: "open" };
+    expect((await link(issue.id, "https://github.com/o/web/issues/401", "editor")).statusCode).toBe(403);
+    expect((await call("editor", "POST", `/issues/issues/${issue.id}/github/refresh`)).statusCode).toBe(403);
+    delete process.env.ORBIT_ISSUES_GITHUB;
+    for (const response of [
+      await link(issue.id, "https://github.com/o/web/issues/401"),
+      await call("owner", "POST", `/issues/issues/${issue.id}/github/refresh`),
+      await call("owner", "DELETE", `/issues/issues/${issue.id}/github/${randomUUID()}`),
+    ])
+      expect([response.statusCode, code(response)]).toEqual([404, "ISSUES_GITHUB_DISABLED"]);
+    expect(calls).toHaveLength(0);
+    expect(await refsOf(issue.id)).toHaveLength(0);
   });
 });

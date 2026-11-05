@@ -60,7 +60,7 @@ const UNSETTLED = [...IN_FLIGHT, "outcome_unknown"];
 /** A reconcile settles "not found" only this long after the last POST was committed (replica lag). */
 const NOT_FOUND_AFTER_MS = 2 * 60_000;
 const CREATE_PERMISSIONS: GithubPermissions = { issues: "write", metadata: "read" };
-const READ_PERMISSIONS: GithubPermissions = { issues: "read", metadata: "read" };
+export const READ_PERMISSIONS: GithubPermissions = { issues: "read", metadata: "read" };
 const LIST_PAGES = 3;
 const PAGE_SIZE = 100;
 /** `since` reaches back this far, for clock skew between Orbit and GitHub. */
@@ -68,7 +68,7 @@ const SINCE_SKEW_MS = 5 * 60_000;
 const SYSTEM: IssueActor = { kind: "system", id: null };
 
 /** `owner/name` of an allow-list entry; dot names never reach a path. */
-function splitName(fullName: string): [string, string] {
+export function splitName(fullName: string): [string, string] {
   const match = /^([A-Za-z0-9_.-]{1,100})\/([A-Za-z0-9_.-]{1,100})$/.exec(fullName);
   const parts = match ? [match[1]!, match[2]!] : [];
   if (parts.length !== 2 || parts.some((p) => p === "." || p === ".."))
