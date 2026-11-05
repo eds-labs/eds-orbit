@@ -13,7 +13,7 @@ import { moduleScope } from "../src/platform/tenancy/module-roles.ts";
 import { registeredActionType, registeredTools } from "../src/platform/modules/contributions.ts";
 import { userActor } from "../src/modules/issues/common.ts";
 import { REQUEST_KIND } from "../src/modules/issues/github.ts";
-import { createIssue, setIssueStatus, setShareReview } from "../src/modules/issues/issues.ts";
+import { createIssue, setIssueStatus, setShareReview, updateIssue } from "../src/modules/issues/issues.ts";
 import { readIssuesSettings, saveIssuesSettings } from "../src/modules/issues/settings.ts";
 import { createConnection, grantConnection } from "../src/platform/administration/connections.ts";
 import { setGithubFetchForTests } from "../src/platform/connections/github-app.ts";
@@ -294,8 +294,7 @@ describe.skipIf(!enabled)("issues_propose_github_issue (slice 1, Task 6)", () =>
     expect(text).toContain("o/web");
     expect(text).toContain("Checkout button does nothing");
     expect(text).toContain("Clicking checkout leaves the cart unchanged.");
-    expect(text).not.toMatch(/diagnostics|aiTriage/);
-    await expect(decide(p.editor, proposal.actionRequestId)).rejects.toThrow();
+    await expect(decide(p.editor, proposal.actionRequestId)).rejects.toThrow(/OWNER_REQUIRED/);
     expect(await requests()).toBe(before);
     await decide(p.owner, proposal.actionRequestId);
     expect(await requests()).toBe(before + 1);
@@ -305,6 +304,47 @@ describe.skipIf(!enabled)("issues_propose_github_issue (slice 1, Task 6)", () =>
     await expect(propose(p.owner, { number: issue.number })).rejects.toThrow(/ISSUES_GITHUB_REQUEST_STATE/);
   });
 
+  it("leaks no report, diagnostics, ticket id or triage text into the approval or the tool output", async () => {
+    const issue = await readyIssue();
+    await run(async (tx) => {
+      await tx.issueReport.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: p.owner.workspaceId,
+          projectId: p.owner.projectId,
+          issueId: issue.id,
+          sourceKind: "support",
+          externalSystem: "support",
+          externalId: "SENTINEL-TICKET-7731",
+          title: "SENTINEL-REPORT-TITLE-7731",
+          symptoms: "SENTINEL-SYMPTOMS-7731",
+          diagnostics: { route: "SENTINEL-DIAGNOSTICS-7731" },
+          occurredAt: new Date(),
+          reportedByKind: "integration",
+        },
+      });
+      await tx.issue.update({ where: { id: issue.id }, data: { aiTriage: { note: "SENTINEL-TRIAGE-7731" } } });
+    });
+    const proposal = await propose(p.owner, { number: issue.number });
+    const row = await run((tx) => entity(tx, p.owner, "action_requests", proposal.actionRequestId));
+    expect(JSON.stringify(data(row))).toContain("Checkout button does nothing");
+    for (const text of [JSON.stringify(proposal), JSON.stringify(data(row))]) expect(text).not.toContain("7731");
+  });
+
+  it("refuses at approval when the shared text changed after the proposal", async () => {
+    const issue = await readyIssue();
+    const before = await requests();
+    const proposal = await propose(p.owner, { number: issue.number });
+    await run(async (tx) => {
+      const actor = userActor(p.owner);
+      const current = await tx.issue.findUniqueOrThrow({ where: { id: issue.id } });
+      const edited = await updateIssue(tx, p.owner, issue.id, { expectedVersion: current.version, summary: "A different description." }, actor);
+      await setShareReview(tx, p.owner, issue.id, { reviewed: true, expectedVersion: edited.version }, actor);
+    });
+    await expect(decide(p.owner, proposal.actionRequestId)).rejects.toThrow(/ISSUES_GITHUB_TEXT_CHANGED/);
+    expect(await requests()).toBe(before);
+  });
+
   it("refuses text the redaction would block, with counts only", async () => {
     const issue = await readyIssue();
     // Stored text that slipped past intake redaction (written directly).
@@ -312,6 +352,7 @@ describe.skipIf(!enabled)("issues_propose_github_issue (slice 1, Task 6)", () =>
     const failure = await propose(p.owner, { number: issue.number }).catch((e) => e);
     expect(String(failure?.message ?? failure)).toMatch(/ISSUES_GITHUB_REDACTION_HIT/);
     expect(String(failure?.message ?? failure)).not.toContain("jan@example");
+    expect(await run((tx) => tx.entity.count({ where: { projectId: p.owner.projectId, kind: "action_requests", data: { path: ["payload", "args", "number"], equals: issue.number } } }))).toBe(0);
   });
 
   it("is refused while the GitHub flag is off", async () => {

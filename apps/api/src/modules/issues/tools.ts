@@ -343,10 +343,6 @@ export const issuesProposeGithubIssue = approvedOperation({
   // The issue leaves Orbit: only an owner decides, and only an owner may propose.
   deciderRole: "owner" as const,
   name: "issues_propose_github_issue",
-  agent: {
-    title: { en: "Propose GitHub issue", de: "GitHub-Issue vorschlagen" },
-    summary: { en: "Proposes creating a GitHub issue for approval.", de: "Schlägt das Anlegen eines GitHub-Issues zur Freigabe vor." },
-  },
   description:
     "Propose creating a GitHub issue from a confirmed, share-reviewed issue by number in an allowed repository key. The owner approves the exact title and text that will leave Orbit; nothing is sent before.",
   input: githubInput,
