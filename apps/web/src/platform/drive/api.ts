@@ -34,6 +34,8 @@ export type DriveStatus = {
   lastRefreshErrorCode: string | null;
   account: string | null;
   rootFolderId: string | null;
+  /** Absent from an API before 2026-11-05. */
+  rootName?: string | null;
   brandLogoFolderId: string | null;
   brandImagesFolderId: string | null;
   enabled: boolean;

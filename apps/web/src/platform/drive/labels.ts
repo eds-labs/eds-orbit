@@ -59,6 +59,15 @@ const en = {
   video: "Video",
   image: "Image",
   file: "File",
+  errors: {
+    GOOGLE_DRIVE_REQUEST_FAILED: "Google Drive did not answer. Try again.",
+    GOOGLE_DRIVE_OAUTH_FAILED:
+      "The Drive access could not be renewed. Try again in a moment; if it keeps failing, an owner has to reconnect Google Drive.",
+    GOOGLE_DRIVE_STORAGE_NOT_CONFIGURED: "Google Drive is not set up for this project.",
+    GOOGLE_DRIVE_NOT_CONNECTED: "Google Drive is not set up for this project.",
+    GOOGLE_DRIVE_NOT_CONFIGURED: "Google Drive is not set up on this server.",
+  } as Record<string, string>,
+  genericError: "Google Drive could not be read. Try again.",
 };
 type DriveText = typeof en;
 
@@ -119,6 +128,15 @@ const de: DriveText = {
   video: "Video",
   image: "Bild",
   file: "Datei",
+  errors: {
+    GOOGLE_DRIVE_REQUEST_FAILED: "Google Drive hat nicht geantwortet. Bitte erneut versuchen.",
+    GOOGLE_DRIVE_OAUTH_FAILED:
+      "Der Drive-Zugriff konnte nicht erneuert werden. Bitte gleich erneut versuchen; klappt es weiter nicht, muss ein Owner Google Drive erneut verbinden.",
+    GOOGLE_DRIVE_STORAGE_NOT_CONFIGURED: "Google Drive ist für dieses Projekt nicht eingerichtet.",
+    GOOGLE_DRIVE_NOT_CONNECTED: "Google Drive ist für dieses Projekt nicht eingerichtet.",
+    GOOGLE_DRIVE_NOT_CONFIGURED: "Google Drive ist auf diesem Server nicht eingerichtet.",
+  },
+  genericError: "Google Drive konnte nicht gelesen werden. Bitte erneut versuchen.",
 };
 
 export const driveText = (locale: "en" | "de"): DriveText =>
@@ -135,3 +153,9 @@ export function driveTypeLabel(mimeType: string, locale: "en" | "de") {
         : t.file)
   );
 }
+
+/** The text for a Drive error code; unknown codes get the generic text. */
+export const driveErrorText = (code: string, locale: "en" | "de") => {
+  const t = driveText(locale);
+  return t.errors[code] ?? t.genericError;
+};

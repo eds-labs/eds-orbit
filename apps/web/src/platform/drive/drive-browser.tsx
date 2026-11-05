@@ -12,12 +12,13 @@ import {
   openInDriveUrl,
   type DriveFile,
   type DriveFileActionProps,
+  type DriveFolder,
   type DriveListing,
   type DriveSort,
   type DriveToolbarProps,
 } from "./api";
 import { FolderTree } from "./folder-tree";
-import { driveText, driveTypeLabel } from "./labels";
+import { driveErrorText, driveText, driveTypeLabel } from "./labels";
 
 // The Drive browser (design 2026-11-05 §5.1): tree on the left, the open
 // folder on the right as a table or a grid. "browse" shows the platform's
@@ -67,6 +68,8 @@ export function DriveBrowser({
   pickPending,
   fileActions = [],
   toolbar = [],
+  root: rootHint,
+  settingsHref,
   locale,
 }: {
   projectId: string;
@@ -81,6 +84,10 @@ export function DriveBrowser({
   pickPending?: string | null;
   fileActions?: readonly ComponentType<DriveFileActionProps>[];
   toolbar?: readonly ComponentType<DriveToolbarProps>[];
+  /** The project folder, so the tree shows before the first listing. */
+  root?: DriveFolder;
+  /** Where an owner reconnects Google Drive. */
+  settingsHref?: string;
   locale: "en" | "de";
 }) {
   const t = driveText(locale);
@@ -108,11 +115,17 @@ export function DriveBrowser({
   }, [outside, folderId]);
 
   const data = listing.path === listingPath || listing.path === undefined ? listing.data : null;
+  // The last listing keeps the tree and the breadcrumb on screen while the
+  // next folder loads (a new path empties the resource first).
+  const [last, setLast] = useState<DriveListing | null>(null);
+  if (data && data !== last) setLast(data);
+  const shown = data ?? last;
   const extra = more?.key === listingPath ? more : null;
   const files = [...(data?.files ?? []), ...(extra?.files ?? [])];
   const next = extra ? extra.next : (data?.nextPageToken ?? null);
-  const root = data?.path[0];
+  const root = shown?.path[0] ?? rootHint;
   const current = data?.folderId ?? folderId ?? root?.id ?? "";
+  const errorCode = listing.error instanceof ApiError ? listing.error.code : listing.error ? "REQUEST_FAILED" : null;
 
   const open = (id: string | null) => {
     setNotice(null);
@@ -180,8 +193,8 @@ export function DriveBrowser({
           <FolderTree
             projectId={projectId}
             rootId={root.id}
-            rootName={data?.rootName ?? root.name}
-            path={data?.path ?? []}
+            rootName={shown?.rootName ?? root.name}
+            path={shown?.path ?? [root]}
             current={current}
             onSelect={(id) => open(id)}
             locale={locale}
@@ -189,11 +202,11 @@ export function DriveBrowser({
         )}
       </details>
       <div className="drive-main">
-        {data && (
+        {shown && (
           <nav aria-label={t.pathLabel} className="drive-breadcrumb">
             <ol>
-              {data.path.map((item, i) =>
-                i === data.path.length - 1 ? (
+              {shown.path.map((item, i) =>
+                i === shown.path.length - 1 ? (
                   <li key={item.id} aria-current="page">{item.name}</li>
                 ) : (
                   <li key={item.id}>
@@ -246,7 +259,28 @@ export function DriveBrowser({
             toolbar.map((Tool, i) => <Tool key={i} projectId={projectId} folderId={current} onDone={refresh} />)}
         </div>
         {(notice || outside) && <Alert kind="warning">{notice ?? t.outsideRoot}</Alert>}
-        {listing.error && !outside && <Alert kind="error">{listing.error.message}</Alert>}
+        {errorCode === "GOOGLE_DRIVE_RECONNECT_REQUIRED" ? (
+          <Alert kind="error">
+            {t.reconnect}
+            {settingsHref && (
+              <p>
+                <a href={settingsHref}>{t.toSettings}</a>
+              </p>
+            )}
+          </Alert>
+        ) : (
+          errorCode &&
+          !outside && (
+            <Alert kind="error">
+              {driveErrorText(errorCode, locale)}
+              {errorCode === "GOOGLE_DRIVE_OAUTH_FAILED" && settingsHref && (
+                <p>
+                  <a href={settingsHref}>{t.toSettings}</a>
+                </p>
+              )}
+            </Alert>
+          )
+        )}
         {files.length ? (
           view === "table" ? (
             <div className="drive-table-wrap">
@@ -305,7 +339,7 @@ export function DriveBrowser({
         ) : (
           data && <Empty icon={Folder} title={t.empty} description={t.emptyHint} />
         )}
-        {moreError && <Alert kind="error">{moreError}</Alert>}
+        {moreError && <Alert kind="error">{driveErrorText(moreError, locale)}</Alert>}
         {next && (
           <Button variant="outline" onClick={loadMore}>
             {t.loadMore}

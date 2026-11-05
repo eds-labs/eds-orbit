@@ -74,6 +74,12 @@ export function DrivePage() {
         mode="browse"
         fileActions={shell.drive?.fileActions}
         toolbar={shell.drive?.toolbar}
+        root={
+          status.data.rootFolderId
+            ? { id: status.data.rootFolderId, name: status.data.rootName ?? t.title }
+            : undefined
+        }
+        settingsHref={isOwner ? settings : undefined}
         locale={locale}
       />
     </>

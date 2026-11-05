@@ -1,10 +1,6 @@
 import { z } from "zod";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import {
-  driveContent,
-  driveFileId,
-  driveFileInRoot,
-} from "../../../platform/connections/google-drive.ts";
+import { driveContent, driveFileInRoot } from "../../../platform/connections/google-drive.ts";
 import { DomainError } from "../../../shared.ts";
 import { uploadMedia, type MediaView } from "./library.ts";
 
@@ -14,8 +10,13 @@ import { uploadMedia, type MediaView } from "./library.ts";
 // upload (normalized, metadata removed, JPEG rendition). Videos wait for S3b.
 
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+// The Drive id shape, checked here too: nothing of the Drive module is used
+// at load time, so suites that replace it whole still load the routes.
 const input = z
-  .object({ fileId: driveFileId, name: z.string().min(1).max(200).optional() })
+  .object({
+    fileId: z.string().regex(/^[A-Za-z0-9_-]{10,100}$/),
+    name: z.string().min(1).max(200).optional(),
+  })
   .strict();
 
 export async function importDriveMedia(scope: Scope, raw: unknown): Promise<MediaView> {

@@ -106,6 +106,28 @@ describe("Drive browser", () => {
     expect(render()).toContain("Folder not found in the project folder");
   });
 
+  it("keeps the folder tree while the next folder loads", () => {
+    delete answers["/google-drive/files"];
+    const html = render({ root: { id: "rootFolder0001", name: "Root" } });
+    expect(html).toContain('role="tree"');
+    expect(html).toContain(">Root<");
+  });
+
+  it("explains a required reconnect while browsing", () => {
+    answers["/google-drive/files"] = new ApiError("GOOGLE_DRIVE_RECONNECT_REQUIRED", 409);
+    const html = render({ settingsHref: "/p/p1/settings?section=integrations" });
+    expect(html).toContain("Google rejected the stored Drive access");
+    expect(html).toContain('href="/p/p1/settings?section=integrations"');
+    expect(html).not.toContain("GOOGLE DRIVE RECONNECT REQUIRED");
+  });
+
+  it("says in words when Google does not answer", () => {
+    answers["/google-drive/files"] = new ApiError("GOOGLE_DRIVE_REQUEST_FAILED", 502);
+    const html = render();
+    expect(html).toContain("Google Drive did not answer. Try again.");
+    expect(html).not.toContain("GOOGLE DRIVE REQUEST FAILED");
+  });
+
   it("accepts only Drive ids as folder parameter", () => {
     expect(driveFolderParam("../x")).toBeNull();
     expect(driveFolderParam(null)).toBeNull();

@@ -124,6 +124,31 @@ describe("Drive ancestry", () => {
     expect(fetched).toContain("folderBBBB0001");
   });
 
+  it("a cache hit does not extend the 60 s bound", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p1");
+    vi.setSystemTime(start + 59_000);
+    fetched = [];
+    await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p1");
+    expect(fetched).toEqual([]);
+    vi.setSystemTime(start + 61_000);
+    await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p1");
+    expect(fetched).toContain("folderBBBB0001");
+  });
+
+  it("a chain built on a cached ancestor expires with that ancestor", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    await driveAncestry("token", "folderAAAA0001", "rootFolder0001", "p1");
+    vi.setSystemTime(start + 30_000);
+    await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p1");
+    vi.setSystemTime(start + 61_000);
+    fetched = [];
+    await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p1");
+    expect(fetched).toContain("folderAAAA0001");
+  });
+
   it("forgetDriveAncestry clears one project", async () => {
     await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p1");
     await driveAncestry("token", "folderBBBB0001", "rootFolder0001", "p2");

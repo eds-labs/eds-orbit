@@ -140,6 +140,7 @@ export async function connectionStatus(scope: Scope) {
       lastRefreshErrorCode: data(connection).lastRefreshErrorCode ?? null,
       account: data(connection).account ?? null,
       rootFolderId: data(storage).rootFolderId ?? null,
+      rootName: data(storage).rootName ?? null,
       brandLogoFolderId: data(storage).brandLogoFolderId ?? null,
       brandImagesFolderId: data(storage).brandImagesFolderId ?? null,
       enabled: data(storage).enabled === true,
@@ -462,11 +463,22 @@ function cachedAncestry(projectId: string, root: string, folder: string) {
     ancestryCache.delete(key);
     return null;
   }
-  return hit.path;
+  return hit;
 }
-function rememberAncestry(projectId: string, root: string, path: DrivePathItem[]) {
-  const expiresAt = Date.now() + ANCESTRY_TTL_MS;
-  for (let i = 0; i < path.length; i++) {
+/**
+ * Caches the chains of `path[from…]`. They expire with the oldest check they
+ * rest on (`notAfter`, a cached ancestor's expiry), so a hit never extends
+ * the bound: every link was verified within the last TTL.
+ */
+function rememberAncestry(
+  projectId: string,
+  root: string,
+  path: DrivePathItem[],
+  from = 0,
+  notAfter = Number.POSITIVE_INFINITY,
+) {
+  const expiresAt = Math.min(Date.now() + ANCESTRY_TTL_MS, notAfter);
+  for (let i = from; i < path.length; i++) {
     const key = ancestryKey(projectId, root, path[i]!.id);
     ancestryCache.delete(key);
     ancestryCache.set(key, { path: path.slice(0, i + 1), expiresAt });
@@ -495,7 +507,12 @@ async function ancestry(
   let current = target;
   for (let depth = 0; depth < 30; depth++) {
     const cached = projectId ? cachedAncestry(projectId, root, current) : null;
-    if (cached) return finish([...cached, ...strip([...walked].reverse())]);
+    if (cached)
+      return finish(
+        [...cached.path, ...strip([...walked].reverse())],
+        cached.path.length,
+        cached.expiresAt,
+      );
     const node = await file(token, current);
     walked.push({
       id: node.id,
@@ -510,12 +527,12 @@ async function ancestry(
   function strip(items: typeof walked) {
     return items.map(({ id, name }) => ({ id, name }));
   }
-  function finish(path: DrivePathItem[]) {
+  function finish(path: DrivePathItem[], from = 0, notAfter?: number) {
     if (projectId) {
       // Folders only: the last item may be a file.
       const last = walked[0];
       const folders = last && !last.folder ? path.slice(0, -1) : path;
-      rememberAncestry(projectId, root, folders);
+      rememberAncestry(projectId, root, folders, from, notAfter);
     }
     return path;
   }
