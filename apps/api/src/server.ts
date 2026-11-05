@@ -97,6 +97,7 @@ import {
   configureRoot,
   rootCandidates,
   browseDrive,
+  listDriveFolders,
   driveContent,
 } from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
@@ -1211,6 +1212,10 @@ export async function buildServer(
   app.get("/api/projects/:projectId/google-drive/files", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
+  });
+  app.get("/api/projects/:projectId/google-drive/folders", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return listDriveFolders(await scopeFor(auth, req, projectId), req.query);
   });
   app.get(
     "/api/projects/:projectId/google-drive/files/:fileId/content",

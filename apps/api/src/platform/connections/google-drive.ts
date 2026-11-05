@@ -29,6 +29,12 @@ const pageInput = z.object({
   folderId: id.optional(),
   query: z.string().max(120).optional(),
   pageToken: z.string().max(500).optional(),
+  sort: z.enum(["name", "modified"]).optional(),
+  kind: z.enum(["all", "image"]).optional(),
+});
+const foldersInput = z.object({
+  parentId: id.optional(),
+  pageToken: z.string().max(500).optional(),
 });
 type DriveFile = {
   id: string;
@@ -211,6 +217,7 @@ export async function finishConnect(scope: Scope, state: string, code: string) {
     if (old) await update(tx, scope, old, value);
     else await create(tx, scope, "drive_connection", value);
   });
+  forgetDriveAncestry(scope.projectId);
   return autoConfigureRoot(scope, tokens.access_token);
 }
 export async function testDriveConnection(scope: Scope) {
@@ -231,6 +238,7 @@ export async function testDriveConnection(scope: Scope) {
   };
 }
 export async function disconnect(scope: Scope) {
+  forgetDriveAncestry(scope.projectId);
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const row = await one(tx, scope, "drive_connection");
     if (row) await tx.entity.delete({ where: { id: row.id } });
@@ -303,22 +311,61 @@ async function file(token: string, fileId: string): Promise<DriveFile> {
     token,
   );
 }
+export type DriveSort = "name" | "modified";
+export type DriveKind = "all" | "image";
+/** The files.list URL of one folder's children, folders first. */
+export function driveChildrenUrl(
+  parent: string,
+  options: {
+    query?: string;
+    pageToken?: string;
+    sort?: DriveSort;
+    kind?: DriveKind;
+  } = {},
+) {
+  const url = new URL("https://www.googleapis.com/drive/v3/files");
+  const kind =
+    options.kind === "image"
+      ? ` and (mimeType = '${folderMime}' or mimeType contains 'image/')`
+      : "";
+  const name = options.query
+    ? ` and name contains '${escapeQuery(options.query)}'`
+    : "";
+  url.searchParams.set(
+    "q",
+    `'${escapeQuery(parent)}' in parents and trashed = false${kind}${name}`,
+  );
+  url.searchParams.set("fields", `nextPageToken,files(${fileFields})`);
+  url.searchParams.set("pageSize", "100");
+  url.searchParams.set(
+    "orderBy",
+    options.sort === "modified" ? "folder,modifiedTime desc" : "folder,name",
+  );
+  if (options.pageToken) url.searchParams.set("pageToken", options.pageToken);
+  return url.toString();
+}
+/** The files.list URL of one folder's subfolders, by name. */
+export function driveFoldersUrl(parent: string, pageToken?: string) {
+  const url = new URL("https://www.googleapis.com/drive/v3/files");
+  url.searchParams.set(
+    "q",
+    `'${escapeQuery(parent)}' in parents and mimeType = '${folderMime}' and trashed = false`,
+  );
+  url.searchParams.set("fields", "nextPageToken,files(id,name)");
+  url.searchParams.set("pageSize", "200");
+  url.searchParams.set("orderBy", "name");
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
+  return url.toString();
+}
 async function children(
   token: string,
   parent: string,
   query?: string,
   pageToken?: string,
+  options: { sort?: DriveSort; kind?: DriveKind } = {},
 ) {
-  const url = new URL("https://www.googleapis.com/drive/v3/files");
-  url.searchParams.set(
-    "q",
-    `'${escapeQuery(parent)}' in parents and trashed = false${query ? ` and name contains '${escapeQuery(query)}'` : ""}`,
-  );
-  url.searchParams.set("fields", `nextPageToken,files(${fileFields})`);
-  url.searchParams.set("pageSize", "100");
-  if (pageToken) url.searchParams.set("pageToken", pageToken);
   return googleJson<{ files: DriveFile[]; nextPageToken?: string }>(
-    url.toString(),
+    driveChildrenUrl(parent, { query, pageToken, ...options }),
     token,
   );
 }
@@ -394,15 +441,92 @@ async function autoConfigureRoot(scope: Scope, token: string) {
   await configureRootWithToken(scope, { rootFolderId: match.id }, token);
   return true;
 }
-async function isWithin(token: string, target: string, root: string) {
+export type DrivePathItem = { id: string; name: string };
+// Verified folder chains (root first), so a click in the tree does not walk
+// the parents again. A folder moved out of the root stays browsable for at
+// most the TTL on one process; the token reads the whole Drive anyway, the
+// root organizes projects (design 2026-11-05 §4.1).
+const ANCESTRY_TTL_MS = 60_000;
+const ANCESTRY_MAX = 1_000;
+const ancestryCache = new Map<
+  string,
+  { path: DrivePathItem[]; expiresAt: number }
+>();
+const ancestryKey = (projectId: string, root: string, folder: string) =>
+  `${projectId}:${root}:${folder}`;
+function cachedAncestry(projectId: string, root: string, folder: string) {
+  const key = ancestryKey(projectId, root, folder);
+  const hit = ancestryCache.get(key);
+  if (!hit) return null;
+  if (hit.expiresAt <= Date.now()) {
+    ancestryCache.delete(key);
+    return null;
+  }
+  return hit.path;
+}
+function rememberAncestry(projectId: string, root: string, path: DrivePathItem[]) {
+  const expiresAt = Date.now() + ANCESTRY_TTL_MS;
+  for (let i = 0; i < path.length; i++) {
+    const key = ancestryKey(projectId, root, path[i]!.id);
+    ancestryCache.delete(key);
+    ancestryCache.set(key, { path: path.slice(0, i + 1), expiresAt });
+  }
+  while (ancestryCache.size > ANCESTRY_MAX)
+    ancestryCache.delete(ancestryCache.keys().next().value!);
+}
+/** Drops the cached folder chains of one project (root changed, reconnect). */
+export function forgetDriveAncestry(projectId: string) {
+  const prefix = `${projectId}:`;
+  for (const key of [...ancestryCache.keys()])
+    if (key.startsWith(prefix)) ancestryCache.delete(key);
+}
+/**
+ * The chain from `root` to `target` (root first, target last), or null when
+ * walking up the first parents does not reach the root within 30 levels.
+ * With a project id, folder chains are cached; a file is never cached.
+ */
+async function ancestry(
+  token: string,
+  target: string,
+  root: string,
+  projectId?: string,
+): Promise<DrivePathItem[] | null> {
+  const walked: Array<DrivePathItem & { folder: boolean }> = [];
   let current = target;
   for (let depth = 0; depth < 30; depth++) {
-    if (current === root) return true;
+    const cached = projectId ? cachedAncestry(projectId, root, current) : null;
+    if (cached) return finish([...cached, ...strip([...walked].reverse())]);
     const node = await file(token, current);
+    walked.push({
+      id: node.id,
+      name: node.name,
+      folder: node.mimeType === folderMime,
+    });
+    if (current === root) return finish(strip([...walked].reverse()));
     current = node.parents?.[0] ?? "";
-    if (!current) return false;
+    if (!current) return null;
   }
-  return false;
+  return null;
+  function strip(items: typeof walked) {
+    return items.map(({ id, name }) => ({ id, name }));
+  }
+  function finish(path: DrivePathItem[]) {
+    if (projectId) {
+      // Folders only: the last item may be a file.
+      const last = walked[0];
+      const folders = last && !last.folder ? path.slice(0, -1) : path;
+      rememberAncestry(projectId, root, folders);
+    }
+    return path;
+  }
+}
+async function isWithin(
+  token: string,
+  target: string,
+  root: string,
+  projectId?: string,
+) {
+  return (await ancestry(token, target, root, projectId)) !== null;
 }
 async function storage(scope: Scope) {
   const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
@@ -412,6 +536,7 @@ async function storage(scope: Scope) {
     throw new DomainError("GOOGLE_DRIVE_STORAGE_NOT_CONFIGURED", 409);
   return data(row) as {
     rootFolderId: string;
+    rootName?: string;
     brandLogoFolderId?: string;
     brandImagesFolderId?: string;
     generatedAssetsFolderId?: string;
@@ -428,12 +553,13 @@ async function configureRootWithToken(
   input: z.infer<typeof rootInput>,
   token: string,
 ) {
+  forgetDriveAncestry(scope.projectId);
   const root = await file(token, input.rootFolderId);
   if (root.mimeType !== folderMime)
     throw new DomainError("GOOGLE_DRIVE_ROOT_NOT_FOLDER");
   for (const folderId of [input.brandLogoFolderId, input.brandImagesFolderId]) {
     if (!folderId) continue;
-    if (!(await isWithin(token, folderId, root.id)))
+    if (!(await isWithin(token, folderId, root.id, scope.projectId)))
       throw new DomainError("GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT", 403);
     if ((await file(token, folderId)).mimeType !== folderMime)
       throw new DomainError("GOOGLE_DRIVE_BRAND_FOLDER_INVALID", 400);
@@ -478,14 +604,50 @@ export async function browseDrive(scope: Scope, raw: unknown) {
     conf = await storage(scope),
     token = await accessToken(scope);
   const folderId = input.folderId ?? conf.rootFolderId;
-  if (!(await isWithin(token, folderId, conf.rootFolderId)))
-    throw new DomainError("GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT", 403);
-  const page = await children(token, folderId, input.query, input.pageToken);
+  const path = await ancestry(
+    token,
+    folderId,
+    conf.rootFolderId,
+    scope.projectId,
+  );
+  if (!path) throw new DomainError("GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT", 403);
+  const page = await children(token, folderId, input.query, input.pageToken, {
+    sort: input.sort,
+    kind: input.kind,
+  });
   return {
     folderId,
     files: page.files,
     nextPageToken: page.nextPageToken ?? null,
+    path,
+    rootName: conf.rootName ?? path[0]?.name ?? null,
   };
+}
+/** The subfolders of one folder inside the root, for the Drive tree. */
+export async function listDriveFolders(scope: Scope, raw: unknown) {
+  const input = foldersInput.parse(raw),
+    conf = await storage(scope),
+    token = await accessToken(scope);
+  const parentId = input.parentId ?? conf.rootFolderId;
+  if (!(await isWithin(token, parentId, conf.rootFolderId, scope.projectId)))
+    throw new DomainError("GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT", 403);
+  const page = await googleJson<{
+    files: Array<{ id: string; name: string }>;
+    nextPageToken?: string;
+  }>(driveFoldersUrl(parentId, input.pageToken), token);
+  return {
+    parentId,
+    folders: page.files.map(({ id, name }) => ({ id, name })),
+    nextPageToken: page.nextPageToken ?? null,
+  };
+}
+/** One file's metadata, after checking it lies inside the project root. */
+export async function driveFileInRoot(scope: Scope, fileId: string) {
+  const conf = await storage(scope),
+    token = await accessToken(scope);
+  if (!(await isWithin(token, id.parse(fileId), conf.rootFolderId, scope.projectId)))
+    throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
+  return file(token, fileId);
 }
 export async function driveContent(
   scope: Scope,
@@ -494,7 +656,7 @@ export async function driveContent(
 ) {
   const conf = await storage(scope),
     token = await accessToken(scope);
-  if (!(await isWithin(token, fileId, conf.rootFolderId)))
+  if (!(await isWithin(token, fileId, conf.rootFolderId, scope.projectId)))
     throw new DomainError("GOOGLE_DRIVE_FILE_OUTSIDE_ROOT", 403);
   const meta = await file(token, fileId);
   if (expected?.md5Checksum && meta.md5Checksum !== expected.md5Checksum)
@@ -569,6 +731,7 @@ export function driveReconnectRequired(
  */
 export {
   accessToken as driveAccessToken,
+  ancestry as driveAncestry,
   children as driveChildren,
   isWithin as driveContains,
   file as driveFile,
