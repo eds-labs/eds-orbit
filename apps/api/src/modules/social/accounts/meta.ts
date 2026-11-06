@@ -13,7 +13,9 @@ import { markReconnectRequired } from "./vault.ts";
 // Meta (Facebook Pages and linked Instagram accounts) through Facebook Login
 // for Business (ADR 0020, S-D4). The person picks Pages and Instagram
 // accounts in Meta's dialog; every granted Page with a posting task becomes
-// an account, and so does its linked Instagram professional account. Page
+// an account, and so does its linked Instagram professional account. A Page
+// picked in the dialog can be missing from /me/accounts (seen 06.11.2026),
+// so the Pages named by the token's granular scopes are read by ID too. Page
 // tokens obtained with a long-lived user token do not expire. The SDK has
 // no Facebook provider, so this is Orbit code. The Graph API version is
 // pinned here only.
@@ -22,24 +24,26 @@ export const META_GRAPH_VERSION = "v26.0";
 export const META_GRAPH = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 const META_DIALOG = `https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth`;
 const MAX_PAGES = 5;
+// Picked Pages read one by one when /me/accounts does not list them.
+const MAX_GRANTED_LOOKUPS = 25;
+const GRAPH_ID = /^\d{1,32}$/;
 const POSTING_TASKS = new Set(["CREATE_CONTENT", "MANAGE"]);
 // Graph error codes of a throttle (app, user, Page, custom, business use case).
 const RATE_LIMIT_CODES = new Set([4, 17, 32, 341, 613, 80001, 80002]);
 
 const tokenResponse = z.object({ access_token: z.string().min(1) });
 const meResponse = z.object({ id: z.string().min(1), name: z.string().optional() });
+const pageSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  access_token: z.string().min(1).optional(),
+  tasks: z.array(z.string()).optional(),
+  instagram_business_account: z
+    .object({ id: z.string().min(1), username: z.string().optional(), name: z.string().optional() })
+    .optional(),
+});
 const pagesResponse = z.object({
-  data: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string(),
-      access_token: z.string().min(1).optional(),
-      tasks: z.array(z.string()).optional(),
-      instagram_business_account: z
-        .object({ id: z.string().min(1), username: z.string().optional(), name: z.string().optional() })
-        .optional(),
-    }),
-  ),
+  data: z.array(pageSchema),
   paging: z.object({ next: z.string().optional() }).optional(),
 });
 const debugResponse = z.object({
@@ -129,6 +133,30 @@ async function grantedPages(token: string) {
   return pages;
 }
 
+/** The Page IDs the person picked for posting (granular scopes of the user token, read with the app token). */
+async function pickedPageIds(app: MetaAppSecret, token: string): Promise<string[]> {
+  const debug = await graphOk(debugResponse, withQuery("/debug_token", { input_token: token }), {
+    bearer: `${app.appId}|${app.appSecret}`,
+  });
+  const posting = (debug.data.granular_scopes ?? []).find((s) => s.scope === "pages_manage_posts");
+  return [...new Set((posting?.target_ids ?? []).filter((id) => GRAPH_ID.test(id)))].slice(0, MAX_GRANTED_LOOKUPS);
+}
+
+/** Reads one picked Page by ID; a Page Meta refuses to show is skipped. */
+async function pickedPage(token: string, pageId: string) {
+  const result = await graph(
+    withQuery(`/${pageId}`, { fields: "id,name,access_token,instagram_business_account{id,username,name}" }),
+    { bearer: token },
+  );
+  if (!result.ok) {
+    const failure = metaFailure(result.status, graphError(result.body));
+    if (failure.code === "SOCIAL_PROVIDER_REJECTED") return undefined;
+    throw failure;
+  }
+  const parsed = pageSchema.safeParse(result.body);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export const metaConnect: ConnectHandler = {
   async begin(tx, scope) {
     const app = await appCredentials(tx, scope, "meta");
@@ -163,6 +191,13 @@ export const metaConnect: ConnectHandler = {
     const pages = (await grantedPages(token)).filter(
       (page) => page.access_token && page.tasks?.some((task) => POSTING_TASKS.has(task)),
     );
+    const listed = new Set(pages.map((page) => page.id));
+    for (const id of await pickedPageIds(app.meta!, token)) {
+      if (listed.has(id)) continue;
+      // pages_manage_posts names this Page; a Page token confirms the posting task.
+      const page = await pickedPage(token, id);
+      if (page?.access_token) pages.push(page);
+    }
     if (!pages.length) throw new DomainError("SOCIAL_META_NO_PAGES", 409);
     const granted = new Set<string>();
     for (const page of pages) {
