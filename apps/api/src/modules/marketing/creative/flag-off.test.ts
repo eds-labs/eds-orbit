@@ -33,8 +33,11 @@ const MERGE_BASE = {
     "b6e00de0908172e95e4271a521cc25874266d430768047d04c6ba224b8fd8dc1",
   strategySchema:
     "5f4c6960138bec2fdf93ea547899c5220ffaeda59fe378f314814a681b73d71a",
+  // Changed on purpose 2026-11-07: the banner field's description no longer
+  // names one brand's look as the default (brand banners from the project's
+  // brand kit, docs/plans/marketing-brand-banners-and-draft-decisions.md).
   assignmentTools:
-    "d3b5400a8a03b861108674ac5515b109ffeb5ece996cc3c4e61ae2984d4a23fb",
+    "d7800162a638c81b125ba05f2fbd0e693993f7f4f7b2e7da9931682e1c5f84a6",
   configurationUpdate:
     "0e3a3f31320594924d8a0e4e9011251493b76815f6329ee60aada20cef2b946a",
 };

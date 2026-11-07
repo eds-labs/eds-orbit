@@ -5119,6 +5119,40 @@ body:has(dialog[open]) {
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* Approval card actions: always visible, wrapping instead of overflowing. */
+.approval-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.form-actions.approval-actions {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+.approval-history {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.approval-history > summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.approval-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+@media (max-width: 760px) {
+  .form-actions.approval-actions > .button {
+    flex: 1 1 calc(50% - 8px);
+    min-height: 44px;
+  }
+}
 /* Agent hub on the overview: live run graph, up next and health. */
 .agent-activity {
   margin-bottom: 18px;

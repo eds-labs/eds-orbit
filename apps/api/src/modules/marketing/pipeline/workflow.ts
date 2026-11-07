@@ -1,6 +1,7 @@
 import { refuseWhileDraining } from "../publishing/backend.ts";
 import { summarizeMetrics } from "../analytics/metric-report.ts";
 import { finishMissionRun } from "./planning.ts";
+import { refuseClosedContent } from "./content-decisions.ts";
 import {
   authorize,
   PROJECT_OWN,
@@ -682,6 +683,8 @@ export async function reviewContent(
   humanConfirm = false,
 ) {
   let c = await entity(tx, scope, "content", id);
+  // A rejected or archived draft stays closed: a review cannot reopen it.
+  refuseClosedContent(data(c));
   if (c.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   if (humanConfirm) {
     authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");

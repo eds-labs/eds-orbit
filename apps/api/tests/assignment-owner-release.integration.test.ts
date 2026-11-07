@@ -56,9 +56,11 @@ import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { releaseAssignmentDraft } from "../src/modules/agents/owner-release.ts";
 import {
+  draftDecisionHistory,
   draftsAwaitingOwner,
   upcomingAssignmentPosts,
 } from "../src/modules/agents/assignment-overview.ts";
+import { decideDraft } from "../src/modules/marketing/pipeline/content-decisions.ts";
 import {
   vetoPublication,
   withdrawAssignmentPublications,
@@ -386,7 +388,7 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     ).toHaveLength(1);
   });
 
-  it("moves to the next free slot of the day when the run slot is taken or passed", async () => {
+  it("moves to the next free slot of the day when the run slot is taken", async () => {
     await h.setPolicy({ maxPerDay: 3 });
     const { drafts, slots } = await leftForOwner();
     // Another post sits on the first slot.
@@ -416,14 +418,30 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
       requestedAt: slots[0]!.at,
       publicationId: moved.publicationId,
     });
-    // A slot that has passed moves to the next half hour still ahead.
+  });
+
+  it("never catches up a slot that has passed: a late release is refused and publishes nothing", async () => {
+    const { drafts, slots } = await leftForOwner();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(at(slots[1]!.at, 10));
-    const late = await release(project.owner, drafts[1]!);
-    expect(late).toMatchObject({
-      result: "released",
-      scheduledAt: at(slots[1]!.at, 30).toISOString(),
-      requestedAt: slots[1]!.at,
+    expect(await code(release(project.owner, drafts[1]!))).toBe("SLOT_PASSED");
+    expect(await publications()).toEqual([]);
+    expect(await h.rows("postiz_drafts")).toEqual([]);
+    expect((await contents())[1]).toMatchObject({
+      status: "needs_review",
+      version: drafts[1]!.version,
+    });
+    expect((await mission(drafts[1]!.missionId)).allowedActions).toEqual([
+      "draft",
+    ]);
+    // The list shows it as expired (attention counts only pending drafts).
+    const pending = await h.run((tx) => draftsAwaitingOwner(tx, project.owner));
+    expect(pending.map((d) => d.id)).not.toContain(drafts[1]!.id);
+    const all = await h.run((tx) =>
+      draftsAwaitingOwner(tx, project.owner, { includeExpired: true }),
+    );
+    expect(all.find((d) => d.id === drafts[1]!.id)).toMatchObject({
+      state: "expired",
     });
   });
 
@@ -647,6 +665,163 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
   });
 
   // CS-D6 (R64): the drafts' thumbnails come with the Creative Studio.
+  const decide = (
+    scope: typeof project.owner,
+    draft: Record<string, any>,
+    decision: "reject" | "discard" | "archive",
+    extra: { reason?: string; version?: number } = {},
+  ) =>
+    h.run((tx) =>
+      decideDraft(tx, scope, draft.id, decision, {
+        version: extra.version ?? (draft.version as number),
+        ...(extra.reason ? { reason: extra.reason } : {}),
+      }),
+    );
+  const audits = (action: string) =>
+    h.run((tx) =>
+      tx.auditEvent.findMany({
+        where: { projectId: project.owner.projectId, action },
+      }),
+    );
+
+  it("rejects a draft with a reason: it is never released, reviewed, approved or published again", async () => {
+    const { drafts, slots } = await leftForOwner();
+    const [first] = drafts;
+    const rejected = await decide(project.owner, first!, "reject", {
+      reason: "Image does not match the brand",
+    });
+    expect(rejected).toMatchObject({ result: "decided", status: "rejected" });
+    const row = (await contents())[0]!;
+    expect(row).toMatchObject({
+      status: "rejected",
+      ownerDecision: {
+        action: "rejected",
+        by: project.owner.userId,
+        reason: "Image does not match the brand",
+      },
+    });
+    // The run slot is free again and the draft is off the list.
+    const [run] = await h.rows("assignment_runs");
+    expect(
+      run!.slots.find((slot: any) => slot.at === slots[0]!.at),
+    ).toMatchObject({ releaseReason: "OWNER_REJECTED" });
+    const listed = await h.run((tx) =>
+      draftsAwaitingOwner(tx, project.owner, { includeExpired: true }),
+    );
+    expect(listed.map((d) => d.id)).not.toContain(first!.id);
+    const history = await h.run((tx) =>
+      draftDecisionHistory(tx, project.owner),
+    );
+    expect(history).toEqual([
+      expect.objectContaining({
+        id: first!.id,
+        state: "rejected",
+        reason: "Image does not match the brand",
+      }),
+    ]);
+    // Closed for good.
+    expect(await code(release(project.owner, row))).toBe("CONTENT_CLOSED");
+    expect(
+      await code(
+        h.run((tx) =>
+          reviewContent(tx, project.owner, row.id, row.version, true),
+        ),
+      ),
+    ).toBe("CONTENT_CLOSED");
+    const checked = await h.run((tx) =>
+      preflight(tx, project.owner, row.id, { test: true }),
+    );
+    expect(checked.blockers).toContain("CONTENT_CLOSED");
+    expect(
+      await code(
+        h.run((tx) =>
+          publishIntent(tx, project.owner, {
+            contentId: row.id,
+            version: row.version,
+            scheduledAt: slots[0]!.at,
+          }),
+        ),
+      ),
+    ).toMatch(/CONTENT_CLOSED|SAVE_SCHEDULE_BEFORE_APPROVAL/);
+    expect(await publications()).toEqual([]);
+    // The audit records the decision, never the reason's text.
+    const recorded = await audits("content.owner_rejected");
+    expect(recorded).toHaveLength(1);
+    expect(JSON.stringify(recorded)).not.toContain("does not match");
+    // Repeating it changes nothing.
+    expect(
+      await decide(project.owner, row, "reject", { version: 99 }),
+    ).toMatchObject({ result: "unchanged" });
+  });
+
+  it("lets only the owner decide, with a clear refusal for others", async () => {
+    const { drafts } = await leftForOwner();
+    for (const scope of [project.editor, project.viewer])
+      for (const decision of ["reject", "discard", "archive"] as const)
+        expect(await code(decide(scope, drafts[0]!, decision))).toBe(
+          "OWNER_REQUIRED",
+        );
+    expect(
+      await code(decide(project.owner, drafts[0]!, "reject", { version: 99 })),
+    ).toBe("VERSION_CONFLICT");
+    expect((await contents())[0]).toMatchObject({
+      status: "needs_review",
+      version: drafts[0]!.version,
+    });
+  });
+
+  it("discards a draft into the archive and archives decided items out of the overview, keeping them traceable", async () => {
+    const { drafts } = await leftForOwner();
+    const discarded = await decide(project.owner, drafts[0]!, "discard");
+    expect(discarded).toMatchObject({ status: "archived" });
+    expect((await contents())[0]).toMatchObject({
+      status: "archived",
+      statusBeforeArchive: "needs_review",
+      archiveReason: "OWNER_DISCARDED",
+      archivedBy: project.owner.userId,
+      ownerDecision: { action: "discarded" },
+    });
+    let history = await h.run((tx) => draftDecisionHistory(tx, project.owner));
+    expect(history).toEqual([
+      expect.objectContaining({ id: drafts[0]!.id, state: "archived" }),
+    ]);
+    // Archive it out of the overview: hidden, but listed on request.
+    const row = (await contents())[0]!;
+    await decide(project.owner, row, "archive");
+    history = await h.run((tx) => draftDecisionHistory(tx, project.owner));
+    expect(history).toEqual([]);
+    history = await h.run((tx) =>
+      draftDecisionHistory(tx, project.owner, { includeHidden: true }),
+    );
+    expect(history).toEqual([
+      expect.objectContaining({ id: drafts[0]!.id, hidden: true }),
+    ]);
+    expect((await contents())[0]!.status).toBe("archived");
+    expect(await audits("content.owner_discarded")).toHaveLength(1);
+    expect(await audits("content.owner_archived")).toHaveLength(1);
+  });
+
+  it("archives an expired draft as SLOT_PASSED", async () => {
+    const { drafts, slots } = await leftForOwner();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at(slots[0]!.at, 5));
+    await decide(project.owner, drafts[0]!, "archive");
+    expect((await contents())[0]).toMatchObject({
+      status: "archived",
+      archiveReason: "SLOT_PASSED",
+    });
+  });
+
+  it("refuses to reject a released post: Stop is the way back", async () => {
+    const { drafts } = await leftForOwner();
+    await release(project.owner, drafts[0]!);
+    const row = (await contents())[0]!;
+    expect(await code(decide(project.owner, row, "reject"))).toMatch(
+      /DRAFT_HAS_PUBLICATION|DRAFT_NOT_DECIDABLE/,
+    );
+    expect((await publications())[0]!.status).not.toBe("blocked_dependency");
+  });
+
   it("lists a draft's image for its thumbnail only with the Creative Studio on", async () => {
     await leftForOwner();
     const flag = process.env.ORBIT_CREATIVE_STUDIO;

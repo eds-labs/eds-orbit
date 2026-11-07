@@ -20,7 +20,7 @@ export type ArtCorrection = {
 /** The longest prompt the studio sends. */
 const MAX_PROMPT = 4000;
 
-const IMAGERY_STYLE = {
+export const IMAGERY_STYLE = {
   photo: "a realistic photograph with natural light and true-to-life materials",
   illustration:
     "a crafted illustration with confident shapes, clean edges and rich colour",
@@ -30,7 +30,7 @@ const IMAGERY_STYLE = {
 } as const;
 
 /** A colour as a word an image model understands ("dark teal"); hex alone it reads poorly. */
-function colourWord(hex: string): string {
+export function colourWord(hex: string): string {
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/iu.exec(hex);
   if (!match) return "";
   const [r, g, b] = match.slice(1).map((part) => parseInt(part, 16) / 255) as [

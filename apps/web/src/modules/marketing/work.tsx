@@ -4,7 +4,7 @@ import { contentLanguageOptions } from "@/platform/project-settings/project-conf
 import { AppLink } from "@/platform/ui/app-link";
 import { openExceptions, pausedPosts } from "./approval-lists";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
-import { approvalItems } from "./draft-cleanup";
+import { APPROVAL_STATUSES, approvalItems } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
 import {
   AdaptationDialog,
@@ -47,6 +47,7 @@ import {
   Modal,
   Status,
   Input,
+  Textarea,
 } from "@/components/ui/primitives";
 import {
   DataForm,
@@ -70,7 +71,7 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { EvidenceItems } from "@/platform/ui/evidence";
-import { UpcomingAssignmentPosts } from "./assignments";
+import { decisionErrorText, UpcomingAssignmentPosts } from "./assignments";
 export function Missions() {
   const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
   const resource = useCollection("missions");
@@ -1361,7 +1362,137 @@ export function ContentDetail({
           </>
         )}
       </div>
+      {APPROVAL_STATUSES.includes(String(current.data.status)) && (
+        <DraftDecisionSection
+          content={current}
+          canDecide={isOwner}
+          de={locale === "de"}
+          onDone={() => {
+            refresh();
+            resource.refresh();
+            onClose();
+          }}
+        />
+      )}
     </Modal>
+  );
+}
+
+/**
+ * The owner's reject or discard of a draft in its detail view (the same
+ * decisions as on the approvals page; nothing is deleted). Others see the
+ * actions disabled with the reason, not missing buttons.
+ */
+function DraftDecisionSection({
+  content,
+  canDecide,
+  de,
+  onDone,
+}: {
+  content: Entity;
+  canDecide: boolean;
+  de: boolean;
+  onDone: () => void;
+}) {
+  const { project } = useWorkspace();
+  const [mode, setMode] = useState<"reject" | "discard" | null>(null);
+  const [reason, setReason] = useState("");
+  const mutation = useMutation(onDone);
+  const decide = (decision: "reject" | "discard") =>
+    mutation.run(() =>
+      action(project.id, `${decision}-content`, {
+        contentId: content.id,
+        version: content.version,
+        ...(decision === "reject" && reason.trim()
+          ? { reason: reason.trim() }
+          : {}),
+      }),
+    );
+  return (
+    <section
+      className="draft-decision"
+      aria-label={de ? "Entscheidung" : "Decision"}
+    >
+      {mutation.error && (
+        <Alert kind="error">{decisionErrorText(mutation.error, de)}</Alert>
+      )}
+      {!canDecide && (
+        <p className="panel-note" role="note">
+          {de
+            ? "Nur ein Owner kann diesen Entwurf ablehnen oder verwerfen."
+            : "Only an owner can reject or discard this draft."}
+        </p>
+      )}
+      {mode === null && (
+        <div className="form-actions approval-actions">
+          <Button
+            variant="outline"
+            disabled={!canDecide || mutation.pending}
+            onClick={() => setMode("reject")}
+          >
+            {de ? "Ablehnen" : "Reject"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!canDecide || mutation.pending}
+            onClick={() => setMode("discard")}
+          >
+            {de ? "Verwerfen" : "Discard"}
+          </Button>
+        </div>
+      )}
+      {mode === "reject" && (
+        <div className="draft-decision-confirm">
+          <p>
+            {de
+              ? "Der Entwurf wird nicht veröffentlicht und kann nicht erneut eingeplant werden."
+              : "The draft will not be published and cannot be scheduled again."}
+          </p>
+          <label className="field-label" htmlFor="draft-reject-reason">
+            {de ? "Grund (optional)" : "Reason (optional)"}
+          </label>
+          <Textarea
+            id="draft-reject-reason"
+            rows={3}
+            maxLength={500}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+          <div className="form-actions approval-actions">
+            <Button variant="outline" onClick={() => setMode(null)}>
+              {de ? "Abbrechen" : "Cancel"}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={mutation.pending}
+              onClick={() => decide("reject")}
+            >
+              {de ? "Ablehnen" : "Reject"}
+            </Button>
+          </div>
+        </div>
+      )}
+      {mode === "discard" && (
+        <div className="draft-decision-confirm">
+          <p>
+            {de
+              ? "Der Entwurf wird aus dem aktiven Ablauf entfernt und archiviert. Verlauf und Prüfprotokoll bleiben erhalten."
+              : "The draft leaves the active workflow and is archived. History and audit records stay."}
+          </p>
+          <div className="form-actions approval-actions">
+            <Button variant="outline" onClick={() => setMode(null)}>
+              {de ? "Abbrechen" : "Cancel"}
+            </Button>
+            <Button
+              disabled={mutation.pending}
+              onClick={() => decide("discard")}
+            >
+              {de ? "Verwerfen" : "Discard"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 /** Owner-confirmed handoff of a reviewed version to Postiz as a draft only. */
@@ -1598,6 +1729,15 @@ export function ApprovalInbox() {
             : "The decisions that need your attention."
         }
       />
+      <p className="panel-note">
+        {de
+          ? "Freigabeanfragen anderer Bereiche (z. B. Social, Support) findest du unter "
+          : "Approval requests of other areas (e.g. Social, Support) are under "}
+        <AppLink href="/decisions">
+          {de ? "App-Freigaben" : "App approvals"}
+        </AppLink>
+        .
+      </p>
       <DraftCleanup />
       <ResourceError
         error={content.error || exceptions.error}

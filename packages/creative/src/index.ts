@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { BrandPalette } from "./brand.ts";
 import { CreativeError } from "./errors.ts";
+import {
+  bannerPaletteValid,
+  DEFAULT_BANNER_PALETTE,
+  type BannerPalette,
+} from "./banner-brand.ts";
 export * from "./analysis.ts";
+export * from "./banner-brand.ts";
 export * from "./brand.ts";
 export * from "./color.ts";
 export * from "./compose.ts";
@@ -261,12 +267,13 @@ async function rasterize(rendered: {
 }
 
 /**
- * The brand banner (R78): one fixed 16:9 layout in the uLiquid style. Over a
- * background (the assignment run's generated art without text or logos, or
- * the template's own navy and waves) it places a dark shade on the left for
- * legibility, the approved logo with the wordmark, a two-part headline in
- * capitals (part 1 white, part 2 cyan), a subline, an outlined button (left
- * out when its label is empty), a
+ * The brand banner (R78): one fixed 16:9 layout in the project's palette
+ * (`BannerInput.palette`, derived from its brand kit by `bannerPalette`).
+ * Over a background (the assignment run's generated art without text or
+ * logos, or the palette's base and waves) it places a shade in the base
+ * colour on the left for legibility, the approved logo with the wordmark, a
+ * two-part headline in capitals (part 1 in the text colour, part 2 in the
+ * accent), a subline, an outlined button (left out when its label is empty), a
  * divider and the footer domain on the left, and a glass card holding the
  * approved logo on the right. The copy is used exactly as given (only shown
  * in capitals for the headline); text that does not fit throws
@@ -304,6 +311,9 @@ export type BannerInput = {
   // The approved logo asset's stored SHA-256: the bytes must match it.
   logoSha256?: string;
   backgroundDataUri?: string;
+  // The project's colours (`bannerPalette` of its brand kit); absent, the
+  // first banner's palette (`DEFAULT_BANNER_PALETTE`).
+  palette?: BannerPalette;
 };
 
 const BANNER = {
@@ -319,11 +329,6 @@ const BANNER = {
   bottom: 770,
   divider: 806,
   card: { x: 1188, y: 450, size: 248 },
-  navy: "#040B1A",
-  navyLight: "#0B1D3A",
-  cyan: "#22D3EE",
-  cyanDeep: "#0EA5E9",
-  white: "#FFFFFF",
 } as const;
 const upper = (value: string) => value.trim().toUpperCase();
 
@@ -447,6 +452,9 @@ export function renderBrandBanner(input: BannerInput) {
   if (!Object.hasOwn(bannerTemplates, input.template))
     throw new CreativeError("INVALID_TEMPLATE_INPUT");
   const layout = bannerLayout(input.text, input.brandName, input.footer);
+  if (input.palette !== undefined && !bannerPaletteValid(input.palette))
+    throw new CreativeError("INVALID_TEMPLATE_INPUT");
+  const palette = input.palette ?? DEFAULT_BANNER_PALETTE;
   if (input.logoApproved !== true)
     return {
       status: "blocked_asset" as const,
@@ -470,7 +478,8 @@ export function renderBrandBanner(input: BannerInput) {
     rasterLogo ?? `data:image/svg+xml;base64,${logo.toString("base64")}`;
   const background = dataImage(input.backgroundDataUri);
   const [w, h] = bannerTemplates[input.template];
-  const { margin, headline, subline, button, card, cyan, white, navy } = BANNER;
+  const { margin, headline, subline, button, card } = BANNER;
+  const { base: navy, text: white, accent: cyan } = palette;
   const family = "Inter, DejaVu Sans, Arial, sans-serif";
   const words = input.brandName.trim().split(/\s+/u);
   const accentWord = words.length > 1 ? words.pop()! : null;
@@ -491,11 +500,11 @@ export function renderBrandBanner(input: BannerInput) {
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-labelledby="title desc">`,
     `<title id="title">${escape(`${input.text.headline1} ${input.text.headline2}`)}</title><desc id="desc">${escape(input.text.subline)}</desc>`,
     `<defs>`,
-    `<linearGradient id="base" x2="1" y2="1"><stop stop-color="${navy}"/><stop offset="1" stop-color="${BANNER.navyLight}"/></linearGradient>`,
+    `<linearGradient id="base" x2="1" y2="1"><stop stop-color="${navy}"/><stop offset="1" stop-color="${palette.baseEnd}"/></linearGradient>`,
     `<linearGradient id="shade" x2="1"><stop stop-color="${navy}" stop-opacity=".94"/><stop offset=".42" stop-color="${navy}" stop-opacity=".8"/><stop offset=".62" stop-color="${navy}" stop-opacity="0"/></linearGradient>`,
-    `<linearGradient id="accent" x2="1"><stop stop-color="${cyan}"/><stop offset="1" stop-color="${BANNER.cyanDeep}"/></linearGradient>`,
+    `<linearGradient id="accent" x2="1"><stop stop-color="${cyan}"/><stop offset="1" stop-color="${palette.accentEnd}"/></linearGradient>`,
     `<radialGradient id="glow" cx="${card.x}" cy="${card.y}" r="360" gradientUnits="userSpaceOnUse"><stop stop-color="${cyan}" stop-opacity=".28"/><stop offset="1" stop-color="${cyan}" stop-opacity="0"/></radialGradient>`,
-    `<linearGradient id="glass" x2="0" y2="1"><stop stop-color="#16325A" stop-opacity=".9"/><stop offset="1" stop-color="${navy}" stop-opacity=".92"/></linearGradient>`,
+    `<linearGradient id="glass" x2="0" y2="1"><stop stop-color="${palette.cardTop}" stop-opacity=".9"/><stop offset="1" stop-color="${navy}" stop-opacity=".92"/></linearGradient>`,
     `</defs>`,
     `<rect data-layer="base" width="${w}" height="${h}" fill="url(#base)"/>`,
     background

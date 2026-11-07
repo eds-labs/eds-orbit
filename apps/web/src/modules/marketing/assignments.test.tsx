@@ -10,8 +10,10 @@ import {
   refreshOnConflict,
   UpcomingPostList,
   AwaitingOwnerDraftList,
+  decisionErrorText,
   type AssignmentItem,
   type AwaitingOwnerDraft,
+  type DraftHistoryItem,
   type UpcomingPost,
 } from "./assignments";
 
@@ -340,7 +342,7 @@ describe("AwaitingOwnerDraftList", () => {
     expect(html).toContain("Vom Review-Agenten geprüft");
   });
 
-  it("shows what the review left open and offers no button to others", () => {
+  it("shows what the review left open and explains the missing right instead of hiding the actions", () => {
     const html = render(
       [draft({ agentApproved: false, problems: ["LINK_UNVERIFIED"] })],
       false,
@@ -349,8 +351,88 @@ describe("AwaitingOwnerDraftList", () => {
     expect(html).toContain(
       "Der Review-Agent hat diesen Entwurf an dich übergeben",
     );
+    // The actions stay visible, disabled, with the reason.
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Freigeben</);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Ablehnen</);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Verwerfen</);
+    expect(html).toContain(
+      "Nur ein Owner kann freigeben, ablehnen, verwerfen oder archivieren.",
+    );
+  });
+
+  it("offers release, reject and discard on a pending draft, with its state", () => {
+    const html = render([draft({ state: "pending" })]);
+    expect(html).toContain(">Ausstehend<");
+    expect(html).toContain(">Freigeben<");
+    expect(html).toContain(">Ablehnen<");
+    expect(html).toContain(">Verwerfen<");
+    expect(html).not.toMatch(/disabled=""/);
+    expect(html).toContain("Ein abgelaufener Termin wird nicht nachgeholt.");
+  });
+
+  it("offers no release on an expired draft, only reject and archive", () => {
+    const html = render([draft({ state: "expired" })]);
+    expect(html).toContain(">Abgelaufen<");
     expect(html).not.toContain(">Freigeben<");
-    expect(html).toContain("Nur ein Owner kann freigeben");
+    expect(html).toContain(">Ablehnen<");
+    expect(html).toContain(">Archivieren<");
+    expect(html).toContain("Er wird nicht nachgeholt");
+  });
+
+  it("names a brand mismatch in words", () => {
+    const html = render([draft({ problems: ["BANNER_BRAND_MISMATCH"] })]);
+    expect(html).toContain("Bildstil passt nicht zum Brandkit");
+    expect(html).toContain('title="BANNER_BRAND_MISMATCH"');
+  });
+
+  it("shows the history with clear states and archives only decided items", () => {
+    const entry = (changes: Partial<DraftHistoryItem>): DraftHistoryItem => ({
+      id: "c-" + (changes.state ?? "x"),
+      version: 2,
+      state: "rejected",
+      channel: "x-int",
+      channelName: "Synthetic X",
+      excerpt: "Old text",
+      assignmentName: "Two posts a day",
+      decidedAt: "2026-11-06T10:00:00.000Z",
+      reason: null,
+      hidden: false,
+      slotAt: "2026-11-06T17:00:00.000Z",
+      ...changes,
+    });
+    const html = renderToStaticMarkup(
+      <AwaitingOwnerDraftList
+        items={[]}
+        history={[
+          entry({ state: "released" }),
+          entry({ state: "rejected", reason: "Off brand" }),
+          entry({ state: "archived", id: "c-hidden", hidden: true }),
+        ]}
+        onShowArchived={() => {}}
+        projectId="p1"
+        de
+        timezone="Europe/Berlin"
+        canRelease
+        pending={false}
+        onRelease={() => {}}
+      />,
+    );
+    expect(html).toContain("Verlauf (3)");
+    expect(html).toContain(">Freigegeben<");
+    expect(html).toContain(">Abgelehnt<");
+    expect(html).toContain(">Archiviert<");
+    expect(html).toContain("Grund: Off brand");
+    expect(html).toContain("Archivierte anzeigen");
+    // Only the rejected, not yet archived item can be archived.
+    expect(html.match(/>Archivieren</g)).toHaveLength(1);
+  });
+
+  it("turns refusal codes into sentences", () => {
+    expect(decisionErrorText("OWNER_REQUIRED", true)).toContain(
+      "Nur ein Owner",
+    );
+    expect(decisionErrorText("SLOT_PASSED", false)).toContain("not caught up");
+    expect(decisionErrorText("SOMETHING_ELSE", true)).toBe("SOMETHING_ELSE");
   });
 
   it("renders nothing without drafts", () => {

@@ -35,6 +35,10 @@ import {
 } from "./brand/drive-assets.ts";
 import { exportContentBundle } from "./pipeline/content-export.ts";
 import { invalidateContent } from "./pipeline/content-invalidation.ts";
+import {
+  decideDraft,
+  draftDecisionInput,
+} from "./pipeline/content-decisions.ts";
 import { withGenerationProvenance } from "./pipeline/content-provenance.ts";
 import {
   assertContentCampaignContext,
@@ -48,6 +52,7 @@ import { mapPostizChannel, mirrorPostizHistory, socialMapping } from "./publishi
 import { agentsEnabled, setAssignmentStatus } from "./agents/assignments.ts";
 import {
   assignmentStatusInput,
+  draftDecisionHistory,
   draftsAwaitingOwner,
   listAssignments,
   upcomingAssignmentPosts,
@@ -257,12 +262,46 @@ export const marketingRoutes: RoutesContribution = (context) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
-    return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        draftsAwaitingOwner(tx, scope),
-      ),
-    };
+    const query = z
+      .object({ archived: z.enum(["true", "false"]).optional() })
+      .passthrough()
+      .parse(req.query ?? {});
+    return scoped(scope.workspaceId, projectId, async (tx) => ({
+      // Pending drafts and those whose slot passed (state `expired`).
+      items: await draftsAwaitingOwner(tx, scope, { includeExpired: true }),
+      // The owner's decisions of the last days; archived ones on request.
+      history: await draftDecisionHistory(tx, scope, {
+        includeHidden: query.archived === "true",
+      }),
+    }));
   });
+
+  // The owner's reject, discard or archive of one draft (content-decisions.ts).
+  app.post(
+    "/api/projects/:projectId/assignment-drafts/:id/:decision",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, id, decision } = req.params as {
+        projectId: string;
+        id: string;
+        decision: string;
+      };
+      // Roles are checked first, as for the release.
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const parsed = z
+        .enum(["reject", "discard", "archive"])
+        .safeParse(decision);
+      if (!parsed.success) throw new DomainError("NOT_FOUND", 404);
+      const input = draftDecisionInput.parse(req.body);
+      return scoped(scope.workspaceId, projectId, async (tx) => {
+        const row = await entity(tx, scope, "content", z.uuid().parse(id));
+        // Only assignment drafts go through this route; other content uses the actions.
+        if (typeof data(row).assignmentRunId !== "string")
+          throw new DomainError("NOT_FOUND", 404);
+        return decideDraft(tx, scope, row.id, parsed.data, input);
+      });
+    },
+  );
 
   app.post(
     "/api/projects/:projectId/assignment-drafts/:id/release",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hash } from "../../../shared.ts";
+import { visualIdentity } from "../../../../../../packages/schemas/src/index.ts";
 import { assignmentHash, assignmentInput } from "./assignments.ts";
 import {
   BANNER_LINK_NOT_ALLOWED,
@@ -15,8 +16,8 @@ import {
   bannerBackgroundPrompt,
   bannerInstruction,
   bannerTextProblems,
+  BANNER_LAYOUT_NEEDS,
   ctaButton,
-  DEFAULT_BANNER_STYLE,
   footerDomain,
   officialFooter,
   withCtaButton,
@@ -226,15 +227,66 @@ describe("banner copy checks (R78)", () => {
     ).toBeNull();
   });
 
-  it("generates only background art from the default or the owner's style", () => {
-    expect(DEFAULT_BANNER_STYLE).toContain("no text");
-    expect(DEFAULT_BANNER_STYLE).toContain("no logos");
-    expect(bannerBackgroundPrompt({ template: "brand_landscape" })).toBe(
-      DEFAULT_BANNER_STYLE,
+  it("builds the background art from the project's own brand kit", () => {
+    // A light, family brand (FamilyPlan-like data; the code names no brand).
+    const light = visualIdentity.parse({
+      primaryColor: "#F97316",
+      secondaryColor: "#0F766E",
+      accentColor: "#FACC15",
+      backgroundColor: "#FFF8F0",
+      surfaceColor: "#FFFFFF",
+      textColor: "#1F2937",
+      designRules: ["Warm, everyday family moments."],
+      imagery: {
+        kind: "illustration",
+        mood: "friendly, warm and optimistic",
+        subjects: "families planning their week at the kitchen table",
+        avoid: ["neon"],
+      },
+      forbiddenDesigns: ["Dark futuristic tech scenes"],
+    });
+    const prompt = bannerBackgroundPrompt(
+      { template: "brand_landscape" },
+      light,
     );
-    expect(
-      bannerBackgroundPrompt({ template: "brand_landscape", style: "Warmer" }),
-    ).toBe(`${DEFAULT_BANNER_STYLE}\nOwner's style notes: Warmer`);
+    expect(prompt.startsWith(BANNER_LAYOUT_NEEDS)).toBe(true);
+    expect(prompt).toContain("No text");
+    expect(prompt).toContain("no logos");
+    expect(prompt).toContain("light and airy");
+    expect(prompt).toContain("friendly, warm and optimistic");
+    expect(prompt).toContain("families planning their week");
+    expect(prompt).toContain("#F97316");
+    expect(prompt).toContain("Warm, everyday family moments.");
+    expect(prompt).toContain("Avoid: neon; Dark futuristic tech scenes.");
+    // No other brand's look is carried in the code.
+    for (const word of [
+      "fintech",
+      "navy",
+      "cyan",
+      "glass",
+      "#040B1A",
+      "#22D3EE",
+    ])
+      expect(prompt.toLowerCase()).not.toContain(word.toLowerCase());
+
+    // A dark brand gets a dark base from its own kit.
+    const dark = visualIdentity.parse({
+      primaryColor: "#22D3EE",
+      secondaryColor: "#0B1D3A",
+      accentColor: "#22D3EE",
+      backgroundColor: "#040B1A",
+      surfaceColor: "#0B1D3A",
+      textColor: "#FFFFFF",
+    });
+    const darkPrompt = bannerBackgroundPrompt(
+      { template: "brand_landscape", style: "Frosted glass cards" },
+      dark,
+    );
+    expect(darkPrompt).toContain("Overall tone: dark");
+    expect(darkPrompt).toContain("polished, modern and professional");
+    expect(darkPrompt.split("\n").at(-1)).toBe(
+      "Owner's style notes (take precedence over the brand defaults above): Frosted glass cards",
+    );
   });
 });
 
