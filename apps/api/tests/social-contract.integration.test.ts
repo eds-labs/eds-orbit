@@ -9,6 +9,7 @@ import {
   importOriginMedia,
   originPostStatus,
   publishingBlockers,
+  recentPosts,
   recentPublishedTexts,
   socialPublishingAvailable,
   submitOriginPost,
@@ -284,5 +285,80 @@ describe.skipIf(!enabled)("social contract for Marketing", () => {
     // The origin's own handed-over post is not its duplicate.
     expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [telegram], 7, { excludePostIds: [postId] }))).not.toContain("Status text");
     expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [x], 7))).not.toContain("Status text");
+  });
+
+  it("recentPosts returns native published and scheduled posts, not Marketing hand-offs or the Postiz mirror, and nothing of another project", async () => {
+    const day = 86_400_000;
+    const post = (
+      q: typeof p,
+      accountId: string,
+      body: string,
+      fields: Record<string, unknown>,
+      publishedAt: Date | null = null,
+    ) =>
+      q.run(async (tx) => {
+        const id = randomUUID();
+        await tx.socialPost.create({
+          data: {
+            id,
+            workspaceId: q.owner.workspaceId,
+            projectId: q.owner.projectId,
+            baseText: body,
+            baseMedia: [],
+            scheduleTimezone: "UTC",
+            createdBy: q.owner.userId,
+            ...fields,
+          } as any,
+        });
+        const variantId = randomUUID();
+        await tx.socialPostVariant.create({
+          data: {
+            id: variantId,
+            workspaceId: q.owner.workspaceId,
+            projectId: q.owner.projectId,
+            postId: id,
+            accountId,
+            body,
+            contentHash: "a".repeat(64),
+          },
+        });
+        if (publishedAt)
+          await tx.socialPublication.create({
+            data: {
+              id: randomUUID(),
+              workspaceId: q.owner.workspaceId,
+              projectId: q.owner.projectId,
+              variantId,
+              accountId,
+              idempotencyKey: randomUUID(),
+              status: "published",
+              publishedAt,
+            },
+          });
+        return id;
+      });
+    const now = Date.now();
+    await post(p, x, "Native published", { status: "published" }, new Date(now - 2 * day));
+    await post(p, x, "L".repeat(400), { status: "scheduled", scheduleMode: "at", scheduledAt: new Date(now + day) });
+    await post(p, x, "Marketing hand-off", { status: "published", origin: "marketing", originModule: "marketing", originType: "publication", originId: randomUUID(), originVersion: 1 }, new Date(now - day));
+    await post(p, x, "Postiz mirror", { status: "published", origin: "legacy_postiz", readOnly: true, originModule: "postiz", originType: "publication", originId: randomUUID(), originVersion: 1 }, new Date(now - day));
+    await post(p, x, "Still a draft", { status: "draft" });
+    await post(p, x, "Too old", { status: "published" }, new Date(now - 40 * day));
+    await post(other, (await other.run((tx) => tx.socialAccount.findFirstOrThrow({ where: { projectId: other.owner.projectId } }))).id, "Foreign", { status: "published" }, new Date(now - day));
+    const since = new Date(now - 30 * day);
+    const rows = await p.run((tx) => recentPosts(tx, p.owner, [x, telegram], since));
+    expect(rows.map((r) => [r.text.slice(0, 20), r.status])).toEqual(
+      expect.arrayContaining([
+        ["Native published", "published"],
+        ["L".repeat(20), "scheduled"],
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.text.startsWith("LLL"))!.text).toHaveLength(280);
+    expect(rows.every((r) => r.accountId === x)).toBe(true);
+    expect(await p.run((tx) => recentPosts(tx, p.owner, [], since))).toEqual([]);
+    // Another project's account id yields nothing here.
+    const foreign = (await other.run((tx) => tx.socialAccount.findFirstOrThrow({ where: { projectId: other.owner.projectId } }))).id;
+    expect(await p.run((tx) => recentPosts(tx, p.owner, [foreign], since))).toEqual([]);
   });
 });

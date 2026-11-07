@@ -70,6 +70,8 @@ import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
 import { data, list, update } from "../src/shared.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
+import { strategySpecialist } from "../src/modules/marketing/agents/specialists/strategy.ts";
+import { reserveTopic } from "../src/modules/marketing/agents/novelty.ts";
 import { releaseAssignmentDraft } from "../src/modules/marketing/agents/owner-release.ts";
 import { draftsAwaitingOwner } from "../src/modules/marketing/agents/assignment-overview.ts";
 import {
@@ -618,5 +620,87 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
     const done = await publications();
     expect(done.map((p) => p.status)).toEqual(["published", "published"]);
     for (const p of done) expect(String(p.releaseUrl ?? "")).toContain("https://example.test/");
+  });
+
+  it("the strategy input of a 30-day assignment carries 30 days of history, recentTopics and a Social-native post", async () => {
+    daily = await dailyProject(tomorrowMorning(), { native: true });
+    const { h, project, accounts, channels } = daily;
+    const { owner } = project;
+    const day = 86_400_000;
+    // A native post by hand on Facebook 20 days ago, beyond the 14-day default.
+    await h.run(async (tx) => {
+      const id = randomUUID();
+      const variantId = randomUUID();
+      await tx.socialPost.create({
+        data: {
+          id,
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          status: "published",
+          baseText: "Hand-written native post about onboarding",
+          baseMedia: [],
+          scheduleTimezone: "UTC",
+          createdBy: owner.userId,
+        },
+      });
+      await tx.socialPostVariant.create({
+        data: {
+          id: variantId,
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          postId: id,
+          accountId: accounts.facebook.id,
+          body: "Hand-written native post about onboarding",
+          contentHash: "a".repeat(64),
+        },
+      });
+      await tx.socialPublication.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          variantId,
+          accountId: accounts.facebook.id,
+          idempotencyKey: randomUUID(),
+          status: "published",
+          publishedAt: new Date(Date.now() - 20 * day),
+        },
+      });
+      await reserveTopic(tx, owner, {
+        channel: channels[0]!,
+        identity: { topic: "Onboarding", angle: "First week", pillar: "Education" },
+        ownerKey: "history:test",
+        holdDays: 30,
+      });
+    });
+    const prepare = async (changes: Record<string, unknown>) => {
+      const assignment = await h.makeAssignment({ channels, ...changes });
+      const prepared = await h.run((tx) =>
+        strategySpecialist.prepareInput!(tx, owner, {
+          assignment: data(assignment),
+          run: { slots: [] },
+        }),
+      );
+      return prepared.input as any;
+    };
+    const long = await prepare({ historyDays: 30 });
+    expect(long.channelHistory.days).toBe(30);
+    expect(
+      long.channelHistory.channels.flatMap((c: any) => c.posts).map((p: any) => p.text),
+    ).toContain("Hand-written native post about onboarding");
+    expect(long.recentTopics).toEqual([
+      expect.objectContaining({
+        channel: channels[0],
+        topic: "Onboarding",
+        angle: "First week",
+        pillar: "Education",
+      }),
+    ]);
+    const short = await prepare({});
+    expect(short.channelHistory.days).toBe(14);
+    expect(
+      short.channelHistory.channels.flatMap((c: any) => c.posts).map((p: any) => p.text),
+    ).not.toContain("Hand-written native post about onboarding");
+    expect(strategySpecialist.instructions).toMatch(/recentTopics/);
   });
 });

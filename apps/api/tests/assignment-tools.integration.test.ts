@@ -609,6 +609,35 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     });
   });
 
+  it("assignment_propose accepts historyDays and assignment_change needs a new confirmation for it", async () => {
+    const proposed = await turn(project.editor, [
+      [call("assignment_propose", proposeArgs({ historyDays: 30 }))],
+      [answer("Proposed.")],
+    ]);
+    expect(proposed.cards[0]).toMatchObject({
+      assignment: { historyDays: 30 },
+    });
+    expect(data(await assignmentOf(proposed.results[0].assignmentId))).toMatchObject({
+      historyDays: 30,
+    });
+    const refused = await turn(project.editor, [
+      [call("assignment_propose", proposeArgs({ name: "Too short", historyDays: 7 }))],
+      [answer("Refused.")],
+    ]);
+    expect(refused.results[0]).toMatchObject({
+      error: "ASSIGNMENT_VALIDATION_FAILED",
+      invalidFields: ["historyDays"],
+    });
+    const id = await confirmed();
+    const version = (await assignmentOf(id)).version;
+    const { results } = await turn(project.editor, [
+      [call("assignment_change", changeArgs(id, version, "change", patch({ historyDays: 45 })))],
+      [answer("Awaiting.")],
+    ]);
+    expect(results[0]).toMatchObject({ status: "awaiting_confirmation" });
+    expect(data(await assignmentOf(id))).toMatchObject({ status: "draft", historyDays: 45 });
+  });
+
   it("sets one text for all channels and a format at proposal and change (R76, R77)", async () => {
     // Fits X without long posts (280): 210 characters, a newline and the link.
     const format = {

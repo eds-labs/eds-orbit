@@ -11,6 +11,7 @@ import { decideActionRequest } from "../src/modules/action-requests.ts";
 import {
   assignmentHash,
   assignmentInput,
+  historyDaysOf,
   proposeAssignment,
   setAssignmentStatus,
   updateAssignment,
@@ -464,5 +465,16 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
     expect(
       await run((tx) => list(tx, project.owner, "assignments")),
     ).toHaveLength(1);
+  });
+
+  it("historyDays outside 14..60 is refused; absent means 14", () => {
+    for (const bad of [13, 61, 20.5])
+      expect(assignmentInput.safeParse({ ...base, historyDays: bad }).success).toBe(false);
+    for (const good of [14, 30, 60])
+      expect(assignmentInput.safeParse({ ...base, historyDays: good }).success).toBe(true);
+    expect(historyDaysOf({})).toBe(14);
+    expect(historyDaysOf({ historyDays: 30 })).toBe(30);
+    expect(assignmentHash({ ...base, historyDays: 30 })).not.toBe(assignmentHash(base));
+    expect(assignmentHash({ ...base, historyDays: 14 })).toBe(assignmentHash(base));
   });
 });

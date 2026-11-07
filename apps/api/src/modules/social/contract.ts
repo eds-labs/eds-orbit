@@ -279,6 +279,70 @@ export async function recentPublishedTexts(
 }
 
 /**
+ * What was made by hand in Social on the accounts since `since`: posts that
+ * went out (published, partially published) or are lined up (scheduled,
+ * approved, publishing), newest first, at most 100. Marketing's own
+ * hand-offs (already Orbit content) and the Postiz mirror are left out. The
+ * text is the account's variant, cut to 280.
+ */
+export async function recentPosts(
+  tx: DbTx,
+  scope: Scope,
+  accountIds: string[],
+  since: Date,
+): Promise<Array<{ accountId: string; text: string; at: string; status: "published" | "scheduled" }>> {
+  if (!accountIds.length) return [];
+  // Posts first: the Postiz mirror can be large and must not crowd these out.
+  const posts = new Map(
+    (
+      await tx.socialPost.findMany({
+        where: {
+          projectId: scope.projectId,
+          status: { in: ["published", "partially_published", "scheduled", "approved", "publishing"] },
+          origin: { not: "legacy_postiz" },
+          AND: [
+            { OR: [{ originModule: null }, { originModule: { not: "marketing" } }] },
+            { OR: [{ scheduledAt: { gte: since } }, { updatedAt: { gte: since } }, { createdAt: { gte: since } }] },
+          ],
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 1000,
+      })
+    ).map((post) => [post.id, post]),
+  );
+  if (!posts.size) return [];
+  const variants = await tx.socialPostVariant.findMany({
+    where: { projectId: scope.projectId, accountId: { in: accountIds }, postId: { in: [...posts.keys()] } },
+    select: { id: true, accountId: true, body: true, postId: true },
+  });
+  if (!variants.length) return [];
+  const published = new Map<string, Date>();
+  for (const pub of await tx.socialPublication.findMany({
+    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) }, status: "published", publishedAt: { not: null } },
+    select: { variantId: true, publishedAt: true },
+  }))
+    published.set(pub.variantId, pub.publishedAt!);
+  return variants
+    .flatMap((variant) => {
+      const post = posts.get(variant.postId);
+      if (!post) return [];
+      const at = published.get(variant.id) ?? post.scheduledAt ?? post.approvedAt ?? post.createdAt;
+      return [
+        {
+          accountId: variant.accountId,
+          text: variant.body.slice(0, 280),
+          at,
+          status: ["published", "partially_published"].includes(post.status) ? ("published" as const) : ("scheduled" as const),
+        },
+      ];
+    })
+    .filter((row) => row.at >= since)
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 100)
+    .map((row) => ({ ...row, at: row.at.toISOString() }));
+}
+
+/**
  * Takes back an origin post the origin no longer wants (a stop, a pause, a
  * calendar block, an invalidated source): `canceled` when nothing went out,
  * `sent` when a delivery already left (its result still counts).

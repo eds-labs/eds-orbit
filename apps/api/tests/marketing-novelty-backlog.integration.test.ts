@@ -36,6 +36,7 @@ import {
   reserveTopic,
   topicKey,
   marketingHistory,
+  recentTopicIdentities,
   assertDistinctDraft,
   prepareContentNovelty,
   commitTopic,
@@ -720,6 +721,108 @@ describe.skipIf(!enabled)(
       expect(assignmentHash({ ...d, pendingReviewLimit: undefined })).toBe(
         assignmentHash(d),
       );
+    });
+
+    it("a reservation with holdDays 30 blocks the same topic and angle on day 29 and allows it on day 31", async () => {
+      const t0 = new Date();
+      const at = (days: number) => new Date(t0.valueOf() + days * 86400000);
+      const hold30 = (ownerKey: string, now: Date) =>
+        run((tx) =>
+          reserveTopic(
+            tx,
+            project.owner,
+            { channel: X, identity, ownerKey, holdDays: 30 },
+            now,
+          ),
+        );
+      await hold30("long:a", t0);
+      await expect(hold30("long:b", at(29))).rejects.toMatchObject({
+        code: "TOPIC_ANGLE_RESERVED",
+      });
+      await expect(hold30("long:c", at(31))).resolves.toBeTruthy();
+      // Without holdDays the hold is the 14-day default.
+      await run((tx) =>
+        reserveTopic(
+          tx,
+          project.owner,
+          {
+            channel: X,
+            identity: { ...identity, angle: "Short hold" },
+            ownerKey: "short:a",
+          },
+          t0,
+        ),
+      );
+      await expect(
+        run((tx) =>
+          reserveTopic(
+            tx,
+            project.owner,
+            {
+              channel: X,
+              identity: { ...identity, angle: "Short hold" },
+              ownerKey: "short:b",
+            },
+            at(15),
+          ),
+        ),
+      ).resolves.toBeTruthy();
+    });
+    it("recentTopicIdentities lists the last 30 days' topics, newest first", async () => {
+      const reserve = (angle: string, pillar: string) =>
+        run((tx) =>
+          reserveTopic(tx, project.owner, {
+            channel: X,
+            identity: { topic: "Beta access", angle, pillar },
+            ownerKey: `own:${angle}`,
+            holdDays: 30,
+          }),
+        );
+      const first = await reserve("First angle", "Education");
+      await reserve("Second angle", "Proof");
+      const released = await reserve("Released angle", "Proof");
+      await run((tx) =>
+        update(tx, project.owner, released, {
+          ...data(released),
+          state: "released",
+        }),
+      );
+      // The first one happened 20 days ago.
+      await run((tx) =>
+        tx.entity.update({
+          where: { id: first.id },
+          data: { createdAt: new Date(Date.now() - 20 * 86400000) },
+        }),
+      );
+      await reserve("Elsewhere", "Proof");
+      const since = (days: number) => new Date(Date.now() - days * 86400000);
+      const list30 = await run((tx) =>
+        recentTopicIdentities(tx, project.owner, [X], since(30)),
+      );
+      expect(list30.map((r) => r.angle)).toEqual([
+        "Elsewhere",
+        "Second angle",
+        "First angle",
+      ]);
+      expect(list30[2]).toEqual({
+        channel: X,
+        topic: "Beta access",
+        angle: "First angle",
+        pillar: "Education",
+        at: expect.any(String),
+      });
+      expect(
+        (
+          await run((tx) =>
+            recentTopicIdentities(tx, project.owner, [X], since(14)),
+          )
+        ).map((r) => r.angle),
+      ).toEqual(["Elsewhere", "Second angle"]);
+      expect(
+        await run((tx) =>
+          recentTopicIdentities(tx, project.owner, [TELEGRAM], since(30)),
+        ),
+      ).toEqual([]);
     });
   },
 );

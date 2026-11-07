@@ -197,6 +197,14 @@ const proposeShape = {
       "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
     ),
   approvalMode,
+  historyDays: z
+    .number()
+    .int()
+    .nullable()
+    .optional()
+    .describe(
+      "Days of earlier posts and topics the strategy must not repeat, 14 to 60; 14 when absent (30 for a daily assignment on several channels is typical). Part of the confirmed content. null preserves the existing value",
+    ),
   sharedAcrossChannels,
   format,
   banner,
@@ -274,6 +282,14 @@ const changeFields = (withCreative: boolean) =>
           "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
         ),
       approvalMode,
+      historyDays: z
+        .number()
+        .int()
+        .nullable()
+        .optional()
+        .describe(
+          "Days of earlier posts and topics the strategy must not repeat, 14 to 60; 14 when absent (30 for a daily assignment on several channels is typical). Part of the confirmed content. null preserves the existing value",
+        ),
       sharedAcrossChannels,
       format,
       banner,
@@ -352,6 +368,7 @@ export function assignmentCardOf(row: {
     delivery: deliveryOf(d),
     approvalMode: approvalModeOf(d),
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
+    ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
     ...(d.format ? { format: d.format } : {}),
     ...(d.banner ? { banner: d.banner } : {}),
     ...(d.creative ? { creative: d.creative } : {}),
@@ -655,6 +672,7 @@ export const assignmentTools: readonly OrbitTool[] = [
               delivery: deliveryOf(d),
               approvalMode: approvalModeOf(d),
               sharedAcrossChannels: sharedAcrossChannelsOf(d),
+              ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
               format: d.format ?? null,
               banner: d.banner ?? null,
               // Only when set: the output of other assignments stays as it was (CS-D6).
@@ -677,7 +695,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_change",
     namespace: "assignments",
     description:
-      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, historyDays, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     get parameters() {
       return offersCreative() ? changeWithCreative : changeParameters;
     },

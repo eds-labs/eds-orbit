@@ -13,6 +13,11 @@ import {
   DomainError,
 } from "../../../shared.ts";
 import {
+  accountForChannel,
+  recentPosts,
+  socialPublishingAvailable,
+} from "../../social/contract.ts";
+import {
   draftSimilarity,
   DUPLICATE_DRAFT_SIMILARITY,
 } from "../pipeline/draft-similarity.ts";
@@ -167,7 +172,7 @@ export async function marketingHistory(
     id: string;
     channel: string;
     source: "orbit" | "external" | "reservation";
-    recordKind: "content" | "channel_posts" | "reservation";
+    recordKind: "content" | "channel_posts" | "reservation" | "social_posts";
     status: string;
     title: string;
     text: string;
@@ -292,6 +297,51 @@ export async function marketingHistory(
       publication: null,
     });
   }
+  // Posts made natively in Social (not Marketing's own hand-offs, not the
+  // Postiz mirror) are other tools' output from Marketing's point of view.
+  // Social being unreadable must not break the history.
+  if (await socialPublishingAvailable(tx, scope)) {
+    // A savepoint keeps a failed Social read from aborting the whole history.
+    await tx.$executeRaw`SAVEPOINT social_history`;
+    try {
+      const byAccount = new Map<string, string[]>();
+      for (const channel of channels) {
+        const account = await accountForChannel(tx, scope, channel);
+        if (account)
+          byAccount.set(account.accountId, [
+            ...(byAccount.get(account.accountId) ?? []),
+            channel,
+          ]);
+      }
+      const posts = byAccount.size
+        ? await recentPosts(tx, scope, [...byAccount.keys()], since)
+        : [];
+      for (const [index, post] of posts.entries())
+        for (const channel of byAccount.get(post.accountId) ?? [])
+          append({
+            id: `social:${post.accountId}:${index}`,
+            channel,
+            source: "external",
+            recordKind: "social_posts",
+            status: post.status,
+            createdAt: post.at,
+            origin: "manual",
+            title: "Social post",
+            text: post.text.slice(0, 280),
+            claims: [],
+            at: post.at,
+            missionId: null,
+            topic: null,
+            publication: null,
+          });
+      await tx.$executeRaw`RELEASE SAVEPOINT social_history`;
+    } catch (error) {
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT social_history`;
+      await tx.$executeRaw`RELEASE SAVEPOINT social_history`;
+      // Tests must see programming errors; production keeps the history.
+      if (process.env.VITEST) throw error;
+    }
+  }
   // Reserve room for each source before filling unused capacity. A busy local
   // backlog must not erase the cached external evidence or held briefs.
   const candidates = items.splice(0);
@@ -347,6 +397,48 @@ export async function marketingHistory(
   };
 }
 
+/** The topic and angle of every reservation not released since `since`, newest first (at most 60). */
+export async function recentTopicIdentities(
+  tx: DbTx,
+  scope: Scope,
+  channels: string[],
+  since: Date,
+): Promise<
+  Array<{
+    channel: string;
+    topic: string;
+    angle: string;
+    pillar: string;
+    at: string;
+  }>
+> {
+  if (!channels.length) return [];
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: NOVELTY_KIND,
+      createdAt: { gte: since },
+    },
+    orderBy: { createdAt: "desc" },
+    take: LIMIT,
+  });
+  return rows
+    .filter(
+      (row) =>
+        data(row).state !== "released" &&
+        channels.includes(String(data(row).channel ?? "")),
+    )
+    .slice(0, 60)
+    .map((row) => ({
+      channel: String(data(row).channel),
+      topic: String(data(row).topic ?? ""),
+      angle: String(data(row).angle ?? ""),
+      pillar: String(data(row).pillar ?? ""),
+      at: row.createdAt.toISOString(),
+    }));
+}
+
 /** Exact identity only: shared product facts are not an angle conflict. The
  * existing project transaction serializes every reservation/claim check. */
 export async function reserveTopic(
@@ -359,9 +451,12 @@ export async function reserveTopic(
     missionId?: string;
     runId?: string;
     contentId?: string;
+    /** How long the topic and angle stay taken (default HISTORY_DAYS). */
+    holdDays?: number;
   },
   now = new Date(),
 ) {
+  const holdDays = input.holdDays ?? HISTORY_DAYS;
   const identity = topicIdentity.parse(input.identity),
     key = topicKey(input.channel, identity);
   if (!canonicalTopic(identity.topic) || !canonicalTopic(identity.angle))
@@ -389,7 +484,7 @@ export async function reserveTopic(
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       kind: "content",
-      ...currentWindow(new Date(now.valueOf() - HISTORY_DAYS * 86400000)),
+      ...currentWindow(new Date(now.valueOf() - holdDays * 86400000)),
       AND: [
         { data: { path: ["channel"], equals: input.channel } },
         { data: { path: ["noveltyKey"], equals: key } },
@@ -415,7 +510,7 @@ export async function reserveTopic(
     missionId: input.missionId ?? null,
     runId: input.runId ?? null,
     state: "held",
-    expiresAt: new Date(now.valueOf() + HISTORY_DAYS * 86400000).toISOString(),
+    expiresAt: new Date(now.valueOf() + holdDays * 86400000).toISOString(),
   });
 }
 export async function assertDistinctDraft(
