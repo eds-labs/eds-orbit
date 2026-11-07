@@ -567,7 +567,13 @@ async function executeInProject(
   projectId: string,
 ): Promise<unknown> {
   const { principal, requestId } = state;
-  if ((tool.mcpScopes ?? []).some((scope) => !principal.scopes.has(scope))) {
+  // The scopes discovery assumed: the content scopes and `orbit:write`
+  // (visibility.ts). A missing one is an OAuth step-up, not a refusal.
+  const needed = [
+    ...(requiredScope(tool) === "orbit:write" ? ["orbit:write"] : []),
+    ...(tool.mcpScopes ?? []),
+  ];
+  if (needed.some((scope) => !principal.scopes.has(scope))) {
     // Recheck the requested project before asking for OAuth step-up. A tool
     // discovered in another project cannot disclose or authorize this one.
     const discovered = (
@@ -575,7 +581,7 @@ async function executeInProject(
     ).find((candidate) => candidate.name === tool.name);
     if (!discovered) throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
     throw new McpScopeRequiredError(
-      [...new Set([...principal.scopes, ...(tool.mcpScopes ?? [])])],
+      [...new Set([...principal.scopes, ...needed])],
       state.resource,
     );
   }

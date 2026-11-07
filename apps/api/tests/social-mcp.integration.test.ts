@@ -194,7 +194,9 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     const discovery = ours(
       (await visibleMcpToolsForDiscovery(await grantFor(owner(), ["orbit:read"]), owner().projectId)).map((t) => t.name),
     );
-    expect(discovery).toEqual(READS);
+    // Discovery assumes the content scope and orbit:write (not orbit:propose),
+    // so a client can ask for the scopes the library writes declare.
+    expect(discovery).toEqual([...READS, "social_media_import", "social_media_upload"].sort());
     expect(await names(await grantFor(p.viewer, ALL))).toEqual(VIEWER_READS);
   });
 

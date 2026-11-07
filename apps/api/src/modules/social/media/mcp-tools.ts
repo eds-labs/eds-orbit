@@ -207,7 +207,10 @@ const result = (output: z.infer<typeof writeOutput>) => ({ output: writeOutput.p
 const DRIVE_FOLDER = "application/vnd.google-apps.folder";
 const driveInput = z
   .object({
-    folderId: z.string().regex(/^[A-Za-z0-9_-]{10,100}$/).optional(),
+    // A folder's driveFileId or a pasted Drive folder link (driveFolderIdOf).
+    folderId: z.string().trim().min(1).max(2000).optional(),
+    // Folder names below the project's root, separated by "/".
+    path: z.string().trim().min(1).max(500).optional(),
     query: z.string().trim().min(1).max(120).optional(),
     sort: z.enum(["name", "modified"]).optional(),
     pageToken: z.string().max(500).optional(),
@@ -243,11 +246,68 @@ const driveOutput = z
  * own Drive connection and only inside the configured root (the Drive page's
  * browse, images only). A Google call, so it runs outside a transaction.
  */
+/** A Drive folder id, also from a pasted Drive folder link (…/folders/<id>, ?id=<id>); null otherwise. */
+export function driveFolderIdOf(input: string): string | null {
+  const value = input.trim();
+  if (DRIVE_ID.test(value)) return value;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !/(^|\.)(drive|docs)\.google\.com$/.test(url.hostname)) return null;
+    const candidate =
+      url.pathname.match(/\/folders\/([A-Za-z0-9_-]{10,100})(\/|$)/)?.[1] ?? url.searchParams.get("id") ?? "";
+    return DRIVE_ID.test(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+const sameName = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+
+/**
+ * The folder at `path` (folder names below the root, "/"-separated), one
+ * name per level; 404 SOCIAL_DRIVE_FOLDER_NOT_FOUND when a level has no such
+ * folder, 409 SOCIAL_DRIVE_FOLDER_AMBIGUOUS when it has several.
+ */
+async function folderAtPath(scope: Scope, path: string): Promise<string | undefined> {
+  let folderId: string | undefined;
+  for (const name of path.split("/").map((part) => part.trim()).filter(Boolean)) {
+    const page = await browseDrive(scope, { folderId, query: name, kind: "image" });
+    const matches = page.files.filter((f) => f.mimeType === DRIVE_FOLDER && sameName(f.name, name));
+    if (matches.length > 1) throw new DomainError("SOCIAL_DRIVE_FOLDER_AMBIGUOUS", 409);
+    if (!matches[0]) throw new DomainError("SOCIAL_DRIVE_FOLDER_NOT_FOUND", 404);
+    folderId = matches[0].id;
+  }
+  return folderId;
+}
+
+/**
+ * The folder to list: `path`, else `folderId` as an id or link. A folderId
+ * Google cannot read is tried as a folder name or path below the root
+ * (clients often pass the name they saw), and is otherwise not found.
+ */
+async function driveFolder(scope: Scope, args: DriveArgs) {
+  const listing = { query: args.query, sort: args.sort, pageToken: args.pageToken, kind: "image" as const };
+  if (args.path) return browseDrive(scope, { ...listing, folderId: await folderAtPath(scope, args.path) });
+  if (!args.folderId) return browseDrive(scope, listing);
+  const id = driveFolderIdOf(args.folderId);
+  if (id) {
+    try {
+      return await browseDrive(scope, { ...listing, folderId: id });
+    } catch (error) {
+      if (!(error instanceof DomainError && error.code === "GOOGLE_DRIVE_REQUEST_FAILED")) throw error;
+      if (/^https:/i.test(args.folderId)) throw new DomainError("SOCIAL_DRIVE_FOLDER_NOT_FOUND", 404);
+    }
+  } else if (/^https?:/i.test(args.folderId)) {
+    throw new DomainError("SOCIAL_DRIVE_FOLDER_NOT_FOUND", 404);
+  }
+  return browseDrive(scope, { ...listing, folderId: await folderAtPath(scope, args.folderId) });
+}
+
 export const socialDriveFilesTool = defineTool({
   name: "social_drive_files",
   namespace: "social",
   description:
-    "Folders and images (PNG, JPEG, WebP, GIF) in the project's Google Drive folder, read through Orbit's own Drive connection: driveFileId for social_media_import (source=drive). Without folderId the project's root folder; query matches names in that folder; sort name/modified; pageToken pages.",
+    "Folders and images (PNG, JPEG, WebP, GIF) in the project's Google Drive folder, read through Orbit's own Drive connection: driveFileId for social_media_import (source=drive). Without folderId or path the project's root folder. Open a subfolder with folderId = the driveFileId of a folder item (or a Drive folder link), or with path = folder names from the root, e.g. \"04_Website/02_Social\". query matches names in that one folder (not its subfolders); sort name/modified; pageToken pages.",
   parameters: modelParameters(driveInput),
   risk: "R0_read",
   permission: SOCIAL_COMPOSE,
@@ -261,7 +321,7 @@ export const socialDriveFilesTool = defineTool({
   async execute(ctx, raw) {
     const args = serviceArgs(driveInput, raw) as DriveArgs;
     await guard(ctx.scope, SOCIAL_COMPOSE);
-    const page = await browseDrive(ctx.scope, { ...args, kind: "image" });
+    const page = await driveFolder(ctx.scope, args);
     const number = (value: unknown) => (Number.isFinite(Number(value)) && value !== undefined ? Number(value) : null);
     return {
       output: driveOutput.parse({
