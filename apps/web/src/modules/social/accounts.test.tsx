@@ -156,6 +156,22 @@ describe("social accounts view (ADR 0020, S2)", () => {
     delete answers["/social/accounts/apps"];
   });
 
+  it("sends a missing project grant to the organization settings for organization owners", () => {
+    answers["/social/accounts"] = accounts;
+    answers["/social/accounts/apps"] = { x: "project_not_granted", meta: "ready" };
+    const plain = render(<AccountsView />);
+    expect(plain).toContain("X is not granted to this project yet");
+    expect(plain).toContain(">Hide</button>");
+    expect(plain).not.toContain('href="/o/w1/settings"');
+    identity.workspaces[0]!.canManage = true;
+    try {
+      expect(render(<AccountsView />)).toMatch(/<a[^>]*href="\/o\/w1\/settings"[^>]*>Open organization settings<\/a>/);
+    } finally {
+      delete identity.workspaces[0]!.canManage;
+      delete answers["/social/accounts/apps"];
+    }
+  });
+
   it("shows the outcome of a connection from the callback", () => {
     answers["/social/accounts"] = accounts;
     search.value = "connected=3";

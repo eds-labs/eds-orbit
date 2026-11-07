@@ -35,7 +35,12 @@ export type SocialAccount = {
 export type SocialAccounts = { items: SocialAccount[] };
 
 /** GET /projects/:projectId/social/accounts/apps (owners): which developer app can start a connection. */
-export type SocialAppReadiness = Record<"x" | "meta", "ready" | "not_granted" | "invalid">;
+/**
+ * "project_not_granted": the organization holds the app and an owner of the
+ * organization still grants it to the project; "not_granted": the
+ * administration still adds or grants it.
+ */
+export type SocialAppReadiness = Record<"x" | "meta", "ready" | "project_not_granted" | "not_granted" | "invalid">;
 
 /** GET /projects/:projectId/social/media (S3). */
 export type SocialMedia = {

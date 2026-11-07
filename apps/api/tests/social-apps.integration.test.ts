@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
-import { centralProviders, createConnection, grantConnection, rotateSecret } from "../src/platform/administration/connections.ts";
+import { centralProviders, createConnection, grantConnection, revokeConnectionGrant, rotateSecret } from "../src/platform/administration/connections.ts";
 import { registeredConnectionProvider } from "../src/platform/modules/contributions.ts";
 import { appCredentials, appReadiness, redirectUri } from "../src/modules/social/accounts/apps.ts";
 import { setSocialFetchForTests, socialFetch } from "../src/modules/social/accounts/http.ts";
@@ -107,6 +107,24 @@ describe.skipIf(!enabled)("social developer apps", () => {
     const readiness = await third.run((tx) => appReadiness(tx, third.owner));
     expect(readiness).toEqual({ x: "ready", meta: "invalid" });
     expect(JSON.stringify(readiness)).not.toContain("leaky-secret-value");
+  });
+
+  it("tells an app granted to the organization but not to the project apart", async () => {
+    const connection = await createConnection(admin, {
+      provider: "social.app.x",
+      label: "Synthetic organization-only X app",
+      config: {},
+      secret: X_SECRET,
+    });
+    created.push(connection.id);
+    const grant = await grantConnection(admin, connection.id, {
+      workspaceId: other.owner.workspaceId,
+      purposes: ["social_oauth"],
+      modules: ["social"],
+    });
+    expect((await other.run((tx) => appReadiness(tx, other.owner))).x).toBe("project_not_granted");
+    await revokeConnectionGrant(admin, grant.id);
+    expect((await other.run((tx) => appReadiness(tx, other.owner))).x).toBe("not_granted");
   });
 
   it("offers a separate field per key and the callback path for each developer app", () => {

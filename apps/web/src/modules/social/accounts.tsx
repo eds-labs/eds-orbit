@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
+import { AppHint, HiddenAppsNote, appsToHide, readHiddenApps, writeHiddenApps, type SocialApp } from "./app-hints";
 import { PostizMigration } from "./legacy";
 import { socialPath, type SocialAccount, type SocialAccounts, type SocialAppReadiness, type SocialMediaList } from "./api";
 import { accountMessage, socialText } from "./labels";
@@ -214,7 +215,7 @@ function AccountRow({
 }
 
 export function AccountsView() {
-  const { project, locale, isOwner, refresh } = useWorkspace();
+  const { project, identity, locale, isOwner, refresh } = useWorkspace();
   const t = socialText(locale).accounts;
   const params = useSearchParams();
   const accounts = useResource<SocialAccounts>(socialPath(project.id, "/accounts"));
@@ -231,7 +232,20 @@ export function AccountsView() {
   }, []);
   // Owners learn before tapping "connect" whether a developer app is missing.
   const apps = useResource<SocialAppReadiness>(isOwner ? socialPath(project.id, "/accounts/apps") : null);
-  const notReady = (["x", "meta"] as const).filter((app) => apps.data && apps.data[app] !== "ready");
+  const readiness = apps.data;
+  const notReady = (["x", "meta"] as const).filter((app) => readiness && readiness[app] !== "ready");
+  // Notices of platforms this project does not use; loaded after mount so
+  // the server markup matches.
+  const [hidden, setHidden] = useState<ReadonlySet<SocialApp>>(() => new Set());
+  useEffect(() => setHidden(readHiddenApps(project.id)), [project.id]);
+  const hiddenApps = appsToHide(readiness, hidden);
+  const changeHidden = (next: ReadonlySet<SocialApp>) => {
+    setHidden(next);
+    writeHiddenApps(project.id, next);
+  };
+  const settingsHref = identity.workspaces.find((w) => w.id === project.workspaceId)?.canManage
+    ? `/o/${encodeURIComponent(project.workspaceId)}/settings`
+    : null;
   const connected = params.get("connected");
   const failed = params.get("error");
   const banner =
@@ -265,7 +279,11 @@ export function AccountsView() {
       <PageHead title={t.title} description={t.intro}>
         {isOwner && (
           <>
-            {connectButton("x")} {connectButton("meta")}{" "}
+            {(["x", "meta"] as const)
+              .filter((app) => !hiddenApps.includes(app))
+              .map((app) => (
+                <Fragment key={app}>{connectButton(app)} </Fragment>
+              ))}
             <Button variant="outline" onClick={() => setTelegram((open) => !open)}>
               {t.addTelegram}
             </Button>
@@ -273,11 +291,22 @@ export function AccountsView() {
         )}
       </PageHead>
       {banner && <Alert kind={banner.kind}>{banner.text}</Alert>}
-      {notReady.map((app) => (
-        <Alert key={app} kind="warning">
-          {apps.data?.[app] === "invalid" ? t.appInvalid[app] : t.appNotGranted[app]}
-        </Alert>
-      ))}
+      {readiness &&
+        notReady
+          .filter((app) => !hiddenApps.includes(app))
+          .map((app) => (
+            <AppHint
+              key={app}
+              app={app}
+              state={readiness[app] as Exclude<SocialAppReadiness[SocialApp], "ready">}
+              settingsHref={settingsHref}
+              locale={locale}
+              onHide={() => changeHidden(new Set([...hidden, app]))}
+            />
+          ))}
+      {hiddenApps.length > 0 && (
+        <HiddenAppsNote apps={hiddenApps} locale={locale} onShow={() => changeHidden(new Set())} />
+      )}
       <Alert kind="info">{t.metaNote}</Alert>
       {isOwner && telegram && (
         <TelegramChannelForm
