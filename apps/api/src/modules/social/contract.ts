@@ -37,6 +37,20 @@ export type SocialAccountRef = {
 
 const SOCIAL_CHANNEL = /^social:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
+/** Whether a Marketing channel reference is a native `social:<accountId>` one. */
+export function isSocialChannel(channel: string): boolean {
+  return SOCIAL_CHANNEL.test(channel);
+}
+
+/** The handle of each of the project's connected accounts by its `social:<accountId>` reference. */
+export async function socialChannelHandles(tx: DbTx, scope: Scope): Promise<Map<string, string>> {
+  const rows = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId, status: { not: "disabled" } },
+    select: { id: true, handle: true },
+  });
+  return new Map(rows.map((row) => [`social:${row.id}`, row.handle]));
+}
+
 /** Whether the project can publish through Social now (switch and module). */
 export function socialPublishingAvailable(tx: DbTx, scope: Scope): Promise<boolean> {
   return socialActive(tx, scope);

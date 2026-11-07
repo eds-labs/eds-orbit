@@ -5,6 +5,7 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { socialChannelHandles } from "../../social/contract.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
 import {
@@ -52,13 +53,15 @@ export const vetoInput = z
 const EXCERPT = 280;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Postiz channel names of the project by channel ID, as the owner knows them. */
+/** Channel names of the project by channel ID (Postiz channels and `social:` accounts), as the owner knows them. */
 export async function channelNames(tx: DbTx, scope: Scope) {
   const names = new Map<string, string>();
   for (const row of await list(tx, scope, "connectors"))
     if (data(row).provider === "postiz")
       for (const channel of assignedPostizChannels(data(row)))
         names.set(String(channel.id), String(channel.name ?? channel.id));
+  for (const [channel, handle] of await socialChannelHandles(tx, scope))
+    names.set(channel, handle);
   return names;
 }
 const namesOf = (channels: unknown, names: Map<string, string>) =>

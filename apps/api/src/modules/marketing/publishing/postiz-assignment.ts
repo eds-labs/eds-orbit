@@ -12,6 +12,8 @@ import {
 import { POSTING_TIME } from "./posting-slots.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
 import { grantedConnections } from "../../../platform/connections/central.ts";
+import { accountForChannel, isSocialChannel } from "../../social/contract.ts";
+import { publishingBackend } from "./backend.ts";
 
 export const postizAssignmentInput = z
   .object({
@@ -133,10 +135,21 @@ export async function assertAssignedSocialChannels(
   scope: Scope,
   integrationIds: string[],
 ) {
+  const native = integrationIds.filter(isSocialChannel);
+  if (native.length) {
+    // A native reference names a Social account; it needs the Social backend.
+    if ((await publishingBackend(tx, scope)) !== "social")
+      throw new DomainError("SOCIAL_CHANNEL_REQUIRES_SOCIAL_BACKEND", 409);
+    for (const id of native)
+      if (!(await accountForChannel(tx, scope, id)))
+        throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
+  }
+  const postiz = integrationIds.filter((id) => !isSocialChannel(id));
+  if (!postiz.length) return;
   const assigned = new Set(
     (await assignedSocialChannels(tx, scope)).map((channel) => channel.id),
   );
-  if (integrationIds.some((id) => !assigned.has(id)))
+  if (postiz.some((id) => !assigned.has(id)))
     throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
 }
 

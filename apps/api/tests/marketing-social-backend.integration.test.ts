@@ -7,6 +7,9 @@ import { publishIntent } from "../src/modules/marketing/pipeline/workflow.ts";
 import { bookPostizDraft } from "../src/modules/marketing/agents/draft-delivery.ts";
 import { submitOriginPost } from "../src/modules/social/contract.ts";
 import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
+import { assertAssignedSocialChannels } from "../src/modules/marketing/publishing/postiz-assignment.ts";
+import { resolveChannelRules } from "../src/modules/marketing/publishing/channel-rules.ts";
+import { channelNames } from "../src/modules/marketing/agents/assignment-overview.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 
@@ -297,5 +300,103 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
       await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { legacyPostizIntegrationId: X } }));
       await backend("postiz");
     }
+  });
+
+  describe("native social:<accountId> channels (G9)", () => {
+    const code = async (work: Promise<unknown>) => {
+      try {
+        await work;
+        return null;
+      } catch (error) {
+        return (error as Error).message;
+      }
+    };
+    const check = (channels: string[]) => run((tx) => assertAssignedSocialChannels(tx, project.owner, channels));
+
+    it("accepts a social: reference on the Social backend", async () => {
+      await backend("social");
+      try {
+        await expect(check([`social:${accountId}`])).resolves.toBeUndefined();
+        const names = await run((tx) => channelNames(tx, project.owner));
+        expect(names.get(`social:${accountId}`)).toBe("@orbit_x");
+      } finally {
+        await backend("postiz");
+      }
+    });
+
+    it("refuses a social: reference on the Postiz backend", async () => {
+      expect(await code(check([`social:${accountId}`]))).toBe("SOCIAL_CHANNEL_REQUIRES_SOCIAL_BACKEND");
+    });
+
+    it("refuses another project's account and a disabled one", async () => {
+      const other = await createPackageProject({ name: "Synthetic other project" });
+      try {
+        const foreign = await scoped(other.owner.workspaceId, other.owner.projectId, async (tx) => {
+          const account = await tx.socialAccount.create({
+            data: {
+              id: randomUUID(),
+              workspaceId: other.owner.workspaceId,
+              projectId: other.owner.projectId,
+              connectionId: randomUUID(),
+              platform: "x",
+              externalId: "9",
+              handle: "@other",
+              displayName: "Other",
+              capability: "write_verified",
+              createdBy: other.owner.userId,
+            },
+          });
+          return account.id;
+        });
+        await backend("social");
+        try {
+          expect(await code(check([`social:${foreign}`]))).toBe("POSTIZ_CHANNEL_NOT_ASSIGNED");
+          expect(await code(check([`social:${randomUUID()}`]))).toBe("POSTIZ_CHANNEL_NOT_ASSIGNED");
+          await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { status: "disabled" } }));
+          expect(await code(check([`social:${accountId}`]))).toBe("POSTIZ_CHANNEL_NOT_ASSIGNED");
+        } finally {
+          await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { status: "active" } }));
+          await backend("postiz");
+        }
+      } finally {
+        await other.cleanup();
+      }
+    });
+
+    it("channel rules for a social: Instagram channel require media", async () => {
+      process.env.ORBIT_CREATIVE_STUDIO = "true";
+      const instagram = await run(async (tx) => {
+        const account = await tx.socialAccount.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            connectionId: randomUUID(),
+            platform: "instagram",
+            externalId: "ig-1",
+            handle: "synthetic.ig",
+            displayName: "IG",
+            capability: "write_verified",
+            createdBy: project.owner.userId,
+          },
+        });
+        return account.id;
+      });
+      try {
+        const rules = await run((tx) => resolveChannelRules(tx, project.owner, `social:${instagram}`, "social", true));
+        expect(rules).toMatchObject({
+          providerIdentifier: "instagram",
+          connectorId: null,
+          connectorVersion: null,
+          characterLimit: 2200,
+          liveCapabilityKnown: true,
+          mediaRequired: true,
+          postingTime: null,
+        });
+      } finally {
+        delete process.env.ORBIT_CREATIVE_STUDIO;
+        await run((tx) => tx.socialAccount.delete({ where: { id: instagram } }));
+      }
+    });
   });
 });

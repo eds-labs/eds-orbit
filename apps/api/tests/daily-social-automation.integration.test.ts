@@ -76,7 +76,10 @@ import {
   nextAssignmentRunAt,
   planAssignmentRuns,
 } from "../src/modules/marketing/agents/assignment-runs.ts";
-import { dispatchPublication } from "../src/modules/marketing/publishing/publisher.ts";
+import {
+  dispatchPublication,
+  reconcilePublication,
+} from "../src/modules/marketing/publishing/publisher.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { addBrandKit } from "./support/package-creative.ts";
 import {
@@ -155,7 +158,10 @@ const tomorrowMorning = () => {
  * lead, delivery `publish`, approval `human_each` and one art per run.
  * `morning` is the planner's clock for runs that are planned.
  */
-async function dailyProject(morning = tomorrowMorning()) {
+async function dailyProject(
+  morning = tomorrowMorning(),
+  options: { native?: boolean } = {},
+) {
   const project = await createPackageProject();
   const h = assignmentRun(project, morning);
   const { owner } = project;
@@ -219,7 +225,8 @@ async function dailyProject(morning = tomorrowMorning()) {
           handle,
           displayName: handle,
           capability: "write_verified",
-          legacyPostizIntegrationId: channel,
+          // A native project names the account itself (`social:<accountId>`).
+          ...(options.native ? {} : { legacyPostizIntegrationId: channel }),
           createdBy: owner.userId,
         },
       });
@@ -229,11 +236,15 @@ async function dailyProject(morning = tomorrowMorning()) {
     };
   });
   await h.run((tx) => forcePublishingBackend(tx, owner, "social"));
+  const channels = options.native
+    ? [`social:${accounts.facebook.id}`, `social:${accounts.instagram.id}`]
+    : [FACEBOOK, INSTAGRAM];
+  if (options.native) await h.setPolicy({ channels });
   // Lumora brand kit: the project opts in to automatic creatives; both
   // channels take the default 1080x1350 feed portrait.
   await addBrandKit(project);
   const assignment = await h.makeAssignment({
-    channels: [FACEBOOK, INSTAGRAM],
+    channels,
     schedule: DAILY_SCHEDULE,
     image: true,
     creative: { artPer: "run", imageKind: "auto" },
@@ -242,7 +253,7 @@ async function dailyProject(morning = tomorrowMorning()) {
   });
   const contents = async () =>
     (await h.rows("content")).sort((a, b) =>
-      String(a.channel).localeCompare(String(b.channel)),
+      channels.indexOf(a.channel) - channels.indexOf(b.channel),
     );
   const publications = () => h.rows("publications");
   const socialPosts = () =>
@@ -273,6 +284,7 @@ async function dailyProject(morning = tomorrowMorning()) {
     h,
     assignment,
     accounts,
+    channels,
     contents,
     publications,
     socialPosts,
@@ -547,5 +559,64 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       "scheduled_remote",
     ]);
     expect(await daily.socialPosts()).toHaveLength(2);
+  });
+
+  it("an assignment on social: channels is released and handed to Social at the slot", async () => {
+    liveSocialEnv();
+    daily = await dailyProject(tomorrowMorning(), { native: true });
+    const { project, accounts, channels, contents, publications, socialPosts, reviewed, release } =
+      daily;
+    await daily.drafted();
+    await reviewed();
+    const drafts = await contents();
+    expect(drafts.map((d) => d.channel)).toEqual(channels);
+    for (const draft of drafts) await release(draft);
+    const pubs = await publications();
+    expect(pubs).toHaveLength(2);
+    const slot = new Date(pubs[0]!.scheduledAt);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(slot.valueOf() + MINUTE));
+    for (const pub of pubs) await dispatchPublication(project.owner, pub.id);
+    expect((await publications()).map((p) => p.status)).toEqual([
+      "scheduled_remote",
+      "scheduled_remote",
+    ]);
+    // One Social post per account, handed over once.
+    const posts = await socialPosts();
+    expect(posts).toHaveLength(2);
+    const variants = await daily.h.run((tx) =>
+      tx.socialPostVariant.findMany({
+        where: { projectId: project.owner.projectId },
+      }),
+    );
+    expect(variants.map((v) => v.accountId).sort()).toEqual(
+      [accounts.facebook.id, accounts.instagram.id].sort(),
+    );
+    // Social publishes; Marketing reconciles the permalink.
+    await daily.h.run(async (tx) => {
+      for (const variant of variants)
+        await tx.socialPublication.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            variantId: variant.id,
+            accountId: variant.accountId,
+            idempotencyKey: randomUUID(),
+            status: "published",
+            externalPostId: `ext-${variant.id}`,
+            permalink: `https://example.test/${variant.id}`,
+            publishedAt: new Date(),
+          },
+        });
+      await tx.socialPost.updateMany({
+        where: { projectId: project.owner.projectId },
+        data: { status: "published" },
+      });
+    });
+    for (const pub of pubs) await reconcilePublication(project.owner, pub.id);
+    const done = await publications();
+    expect(done.map((p) => p.status)).toEqual(["published", "published"]);
+    for (const p of done) expect(String(p.releaseUrl ?? "")).toContain("https://example.test/");
   });
 });
