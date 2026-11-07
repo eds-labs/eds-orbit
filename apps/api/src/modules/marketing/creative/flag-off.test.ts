@@ -20,12 +20,13 @@ import {
 import { strategySpecialistFor } from "../agents/specialists/strategy.ts";
 import { assignmentTools } from "../tools/assignment-tools.ts";
 
-// CS-D6 (R64): with ORBIT_CREATIVE_STUDIO off, every prompt and tool schema
-// the Creative Studio touched is byte for byte what it was at the merge base
-// ad29a197 (SHA-256 of its JSON). The hashes were taken from that commit's
-// code; a change here is a production change with the flag off.
-// Daily social automation (2026-11-07) deliberately re-pinned strategyInstructions
-// (historyDays, recentTopics) and assignmentTools (historyDays, retry action).
+// CS-D6 (R64): with ORBIT_CREATIVE_STUDIO off, the prompts and tool schemas the
+// Creative Studio touched do not change with the flag (SHA-256 of their JSON).
+// The draft, configuration and strategy answer schema hashes are byte for byte
+// the merge base ad29a197. The strategy instructions and the assignment tool
+// schemas pin the state after the daily social automation changes (2026-11-07:
+// historyDays, recentTopics, retry action), which changed them regardless of
+// the flag. A further change here is a production change with the flag off.
 const MERGE_BASE = {
   draftInstructions:
     "ee036ae211ef752f1d57845f850865bbcdbbdd9cf49da6aa8b925161dc1b4077",

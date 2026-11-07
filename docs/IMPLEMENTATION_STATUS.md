@@ -15,7 +15,12 @@ Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07
   - G8: owner attention items `marketing_policy_expiring` and `platform_spend_authority_expiring`, 7 days ahead.
   - G9: `social:<accountId>` channels on the Social backend (platform-enabled check, lowercase only, refused on Postiz, listed in `marketing_policy_get` options; no web picker, ruling R5).
 - **Deviation (R2):** a failed image leaves the run `partial` (nothing delivered), not `failed` as the spec table says.
-- **Verification (local):** see the final checks below; the full suite, lint, typecheck, boundaries and build results are in the task report. Browser end-to-end check: not yet run (controller runs it after review).
+- **Verification (local):**
+  - Lint, API and web typecheck, `node scripts/boundaries.mjs` (0 new violations) and `git diff --check` pass.
+  - Full vitest suite on this worktree's own test DB: first run 5568 passed, 3 failed, 7 skipped; the 3 failures were the pinned prompt and tool-schema hashes in `flag-off.test.ts` (changed on purpose by this branch). After re-pinning: 553 files passed, 1 skipped; 5571 passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
+  - `pnpm build` was verified in parts (`tsc --noEmit` plus `next build`); `pnpm db:generate` was not run.
+  - Browser end-to-end check: not yet run (the controller runs it after review).
+  - No flags or production configuration were changed.
 - **Production:** nothing deployed. Rollout steps 1 to 6 each need Mario's explicit approval; the first real post happens only when he releases it.
 
 ## Google Drive page and Social Drive picker (2026-11-05, live on `main` since `b6e98e93`, follow-ups on branch `claude/dreamy-grothendieck-0cf6ec`)

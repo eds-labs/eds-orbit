@@ -47,8 +47,15 @@ Card values:
 | creative | `{ artPer: "run" }` |
 | historyDays | `30` |
 | channels | `social:<facebook-account-id>`, `social:<instagram-account-id>` |
-| topic frame | Primary themes and secondary themes as written in the spec's topic frame; the topic list lives in `topicFrame` and the profile, never in code |
+| topic frame | See below; the topic list lives in `topicFrame` and the profile, never in code |
 | budget | Monthly cap fitting one image plus text per day |
+
+Topic frame (theme names are German because they are content):
+
+- Audience: Eltern mit Kindern, insbesondere Schulkindern, im DACH-Raum.
+- Primary themes: Familienkalender und gemeinsame Terminorganisation; Aufgaben für Kinder mit Punkten und Belohnungen; Schule, Stundenpläne und Schulalltag; Einkaufslisten und gemeinsames Einkaufen; Essensplanung und Rezepte; Familienorganisation und weniger Alltagsstress.
+- Secondary themes: Budgetverwaltung; Familienchat; Freiwillige Standortfreigabe; KI-Unterstützung, only where the features are demonstrably available.
+- Constraints: vary topics and avoid repeats; claims must match the actually available FamilyPlan features; no invented features, prices, ratings or usage numbers; the existing marketing strategy and project knowledge take precedence over this list.
 
 ### Step 6. First day
 

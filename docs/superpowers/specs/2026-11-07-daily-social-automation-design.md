@@ -73,7 +73,7 @@ Pause, resume and end stay as they are. Changing content stays the confirmation 
 
 ### G8. Expiry warnings
 
-Attention items for the owner 7 days before the active marketing policy's `endAt` and before the AI spend authority's `endAt` (`marketing_policy_expiring`, `ai_spend_authority_expiring`, counts and dates only, link to the place to extend). Nothing is extended automatically. Both FamilyPlan dates are 2026-11-19.
+Attention items for the owner 7 days before the active marketing policy's `endAt` and before the AI spend authority's `endAt` (`marketing_policy_expiring`, `platform_spend_authority_expiring`, counts and dates only, link to the place to extend). Nothing is extended automatically. Both FamilyPlan dates are 2026-11-19.
 
 ### G9. Native Social account references in assignments and policies
 
