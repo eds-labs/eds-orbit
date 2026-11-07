@@ -1,5 +1,9 @@
 # Implementation status
 
+## Ads module: plan and decisions (2026-11-07; documentation only, nothing implemented)
+
+Plan: [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (programme for a standalone `ads` module: Meta Ads, then ChatGPT Ads, then Google Ads; decisions A-D1–A-D19 accepted as recommended by Mario on 2026-11-07). ADR: [adr/0025-ads-module.md](adr/0025-ads-module.md) (proposed). [ADR 0008](adr/0008-action-approvals.md) gains the addendum of 2026-11-07 (F1/F2 may be proposed over MCP, chat and agents; owner decides in the web UI with recent authentication) and `plans/orbit-modularization/09-mcp-gateway.md` §6.1 follows it; both take effect with the ads steps A7 and A10. Next: step A0's spike (own Meta app in development mode, no spend; needs Mario), then A1. No code, migration, flag, developer app or provider call exists.
+
 ## Social media over MCP: library list, import and upload (2026-11-07, live since 19:44 UTC via `a4b25ced`)
 
 Mario's task 2026-11-07: make the native Social module's media library usable through MCP (ChatGPT, Claude) without a second media store. Docs: [SOCIAL.md](SOCIAL.md) ("Media over MCP").
