@@ -12,6 +12,8 @@
 
 **Baseline:** `origin/main` at `0f61b24d` (2026-11-07). The Orbit findings in §2 come from static source reading of that revision. The platform facts in §2.6 come from the official documentation of Meta, OpenAI and Google, read on 2026-11-07. Nothing was executed against production, no provider was called, no dependency was installed, no account or app was created.
 
+**Decisions:** A-D1 to A-D19 accepted as recommended by Mario on 2026-11-07 (§3); ADR: [adr/0025-ads-module.md](../../adr/0025-ads-module.md) (proposed).
+
 ---
 
 ## Global Constraints
@@ -187,9 +189,9 @@
 10. **Production schema hash and compose hash:** a new flag in `docker-compose.yml` forces regenerating the PVE compose and its hash file; every migration needs a new approved schema hash in Coolify before the push (`docs/deployment/COOLIFY.md`).
 11. **Closed lists:** module lists in tests (`module-registry.test.ts`, `module-contributions.test.ts`, `extensibility.integration.test.ts`, web `nav-groups.test.tsx`, `settings-nav.test.tsx`), `rls-matrix` table classification, `access-matrix` flags and public routes, `queue-dispatch` queue list, model task classes.
 
-## 3. Decisions for Mario (A-D1 … A-D19)
+## 3. Decisions (A-D1 … A-D19, decided by Mario on 2026-11-07)
 
-Each row gives the recommendation first. Nothing is decided yet; A0 records the answers in ADR 0025.
+**Mario accepted every recommendation on 2026-11-07** ("All as recommended"). The decisions are recorded in [ADR 0025](../../adr/0025-ads-module.md) (proposed); A-D6 and A-D7 also in the [ADR 0008 addendum of 2026-11-07](../../adr/0008-action-approvals.md) and `plans/orbit-modularization/09-mcp-gateway.md` §6.1. The table keeps the options and reasons for traceability. The phase 2 and 3 decisions (O-D, G-D in §12.2 and §12.3) are still open.
 
 | ID | Question | Recommendation | Why | Alternative |
 | --- | --- | --- | --- | --- |
@@ -542,7 +544,7 @@ A0 ─► A1 ─► A2 ─► A3 ─► A4 ─► A5 ══► M1 read-only repo
 
 | Step | Scope | Depends on | Acceptance criteria |
 | --- | --- | --- | --- |
-| **A0** Decisions, ADR, spike (docs + throw-away branch) | Answers to A-D1…A-D19 in ADR 0025 (proposed) and the ADR 0008 / gateway amendment; Meta app (Business type, Marketing API product) in development mode on Mario's own business, no spend: confirm the minimal permission set, token type (A-D3), tier Limited behaviour, usage headers, `validate_only`, previews, insights fields, whether a sandbox ad account still exists, and that an ad account without a funding source accepts paused objects but cannot deliver; ad-blocker test (A-D1); record sanitized fixtures for the fake Graph server | — | Decisions recorded; §2.6 rows marked *unverified* or *(snippet)* for Meta confirmed or corrected; fixtures reviewed for secrets and personal data |
+| **A0** Decisions, ADR, spike (docs + throw-away branch) | **Done 2026-11-07:** answers to A-D1…A-D19 in ADR 0025 (proposed) and the ADR 0008 / gateway amendment. **Open:** Meta app (Business type, Marketing API product) in development mode on Mario's own business, no spend: confirm the minimal permission set, token type (A-D3), tier Limited behaviour, usage headers, `validate_only`, previews, insights fields, whether a sandbox ad account still exists, and that an ad account without a funding source accepts paused objects but cannot deliver; ad-blocker test (A-D1); record sanitized fixtures for the fake Graph server | — | Decisions recorded; §2.6 rows marked *unverified* or *(snippet)* for Meta confirmed or corrected; fixtures reviewed for secrets and personal data |
 | **A1** Module skeleton | Manifest, `ORBIT_ADS` flag (config, compose, PVE render, compose check), permissions, gate, settings, boundaries zones, web module shell with empty states, registry entries, migration `ads_core` | A0 | Flag off → 404 `ADS_DISABLED`; opt-in per project; module, registry, contributions, nav, settings-nav, access-matrix, RLS-matrix tests updated and green; no other module's behaviour changes |
 | **A2** Provider seam, Meta transport, fake Graph server | `providers/types.ts`, registry, Meta Graph client (version pin, `appsecret_proof`, pagination, error classification, usage headers), `packages/money` with currency offsets, fake Graph server with scenarios (5xx after commit, timeouts, rate limits with headers, validation errors, async reports, pagination) | A1 | Contract tests against fixtures; error mapping table complete; exact conversions for 2-decimal and 0-decimal currencies; no network in tests |
 | **A3** Meta connection and accounts | `ads.app.meta` provider, OAuth begin/callback, token vault, ad account discovery, assignment (one project per account and org), health task, expiry warning, `reconnect_required`, data-deletion callback, Konten & Verbindungen UI | A2 | E2E connect with the fake provider; negative tests (other project, editor, viewer, reused state, foreign redirect, token leak scan, data-deletion signature); audit rows content-free |
