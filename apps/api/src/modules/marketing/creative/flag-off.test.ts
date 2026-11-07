@@ -24,17 +24,19 @@ import { assignmentTools } from "../tools/assignment-tools.ts";
 // the Creative Studio touched is byte for byte what it was at the merge base
 // ad29a197 (SHA-256 of its JSON). The hashes were taken from that commit's
 // code; a change here is a production change with the flag off.
+// Daily social automation (2026-11-07) deliberately re-pinned strategyInstructions
+// (historyDays, recentTopics) and assignmentTools (historyDays, retry action).
 const MERGE_BASE = {
   draftInstructions:
     "ee036ae211ef752f1d57845f850865bbcdbbdd9cf49da6aa8b925161dc1b4077",
   draftSchema:
     "1d377f83216d8f0bde5f5117fe034ff2f3ccdd13dd448ae8351cade7bbc91181",
   strategyInstructions:
-    "b6e00de0908172e95e4271a521cc25874266d430768047d04c6ba224b8fd8dc1",
+    "169b0d2d29451342c577fdb295a8a7a5c32f2e5445055c29662dacca410f907d",
   strategySchema:
     "5f4c6960138bec2fdf93ea547899c5220ffaeda59fe378f314814a681b73d71a",
   assignmentTools:
-    "d3b5400a8a03b861108674ac5515b109ffeb5ece996cc3c4e61ae2984d4a23fb",
+    "8c0f9a93fc6b9a113607395a0932c56ee64621fb6f642dc1f5cad06479c00bfd",
   configurationUpdate:
     "0e3a3f31320594924d8a0e4e9011251493b76815f6329ee60aada20cef2b946a",
 };
