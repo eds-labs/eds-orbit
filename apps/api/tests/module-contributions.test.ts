@@ -170,6 +170,9 @@ describe("module contributions", () => {
       "personal_context",
       "proactive_state",
       "public_sessions",
+      // MCP media idempotency receipts and one-time upload sessions (Social).
+      "social_media_receipt",
+      "social_media_upload",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
       "telegram_connections",

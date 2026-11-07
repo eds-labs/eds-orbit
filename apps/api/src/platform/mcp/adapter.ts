@@ -819,6 +819,7 @@ export async function mcpServerFor(
       scopes: tool.mcpScopes,
       inputSchema: inputSchemaFor(tool, single),
       outputSchema,
+      ...(tool.mcpMeta ? { meta: tool.mcpMeta } : {}),
       run: (args, call) =>
         executeRegistryTool(principalState, tool, args, call, name),
     });

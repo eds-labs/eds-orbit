@@ -259,6 +259,9 @@ const TELEGRAM_ROUTES = new Set([
   "/api/projects/:projectId/telegram/disconnect",
 ]);
 // Orbit Agents routes (assignments, assignment posts), by registered pattern.
+// The social module's upload session URL (modules/social/media/upload-sessions.ts):
+// a signed one-time token, no cookie, so no browser Origin is required.
+const SOCIAL_UPLOAD_URL = /^\/api\/public\/social\/media-uploads\/[A-Za-z0-9_.-]{1,200}$/;
 const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/assignments",
   "/api/projects/:projectId/assignments/:id/status",
@@ -432,6 +435,9 @@ export async function buildServer(
       ) &&
       // The public API checks the Origin itself, against its key (WP4.2b).
       !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
+      // Social upload sessions: the signed one-time URL is the credential,
+      // sent by an MCP client without a browser origin or cookie.
+      !(req.method === "PUT" && SOCIAL_UPLOAD_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )

@@ -5318,5 +5318,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
+  },
+  "PUT /api/public/social/media-uploads/{token}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   }
 }

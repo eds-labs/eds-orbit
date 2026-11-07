@@ -20,8 +20,9 @@ registerModules();
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 const ENV = { ORBIT_SOCIAL: "true", ORBIT_MODULES: "true", ORBIT_MCP_PROPOSALS: "true", ORBIT_MCP_TASKS: "true" };
-const READS = ["social_accounts", "social_calendar", "social_post_get", "social_post_status", "social_validate"];
-const VIEWER_READS = READS.filter((n) => n !== "social_validate");
+const READS = ["social_accounts", "social_calendar", "social_drive_files", "social_media_list", "social_post_get", "social_post_status", "social_validate"];
+// The check and the Drive list (for importing) need social.compose.
+const VIEWER_READS = READS.filter((n) => n !== "social_validate" && n !== "social_drive_files");
 const DRAFTS = ["social_cancel", "social_draft_create", "social_draft_update"];
 const PUBLISHING = ["social_publish_now", "social_schedule"];
 const PROPOSALS = [...DRAFTS, ...PUBLISHING].sort();

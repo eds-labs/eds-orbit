@@ -199,7 +199,7 @@ Support runs only with `ORBIT_SUPPORT=true` **and** the module enabled in the pr
 
 ## Social accounts (ADR 0020, S2; `ORBIT_SOCIAL` off)
 
-- Periodic tasks per project with the module enabled: `social-account-health` (every 6 h, at most 20 accounts per run; refusals set `reconnect_required`, outages are recorded only) and `social-oauth-state-cleanup` (removes OAuth states expired more than a day ago).
+- Periodic tasks per project with the module enabled: `social-account-health` (every 6 h, at most 20 accounts per run; refusals set `reconnect_required`, outages are recorded only) `social-oauth-state-cleanup` (removes OAuth states expired more than a day ago) and `social-media-mcp-cleanup` (hourly; removes MCP media upload sessions after a day and idempotency receipts after 30 days).
 - An account in `reconnect_required` shows as an attention item and notifies the owners once (`social_account_reconnect`, e-mail on by default). The fix is a new connection by an owner; nothing is retried automatically.
 - Developer apps are system connections (`social.app.meta`, `social.app.x`) with an organization grant and a project grant; revoking a grant stops new connections and X token refreshes for that project.
 - Meta's data-deletion callback needs `ORBIT_PUBLIC_INGRESS=true` and the public route `/api/callbacks/social/meta-data-deletion`; it disconnects the Meta user's accounts in all projects and audits only the confirmation code. Meta shows people the status page `/data-deletion?code=…` (public, no account), which needs the public route `/api/public/social/data-deletion/<code>` too.

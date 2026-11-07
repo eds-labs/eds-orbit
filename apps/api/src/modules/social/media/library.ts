@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prepareSocialImage } from "../../../../../../packages/creative/src/index.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -29,7 +29,7 @@ const starts = (bytes: Uint8Array, signature: number[], at = 0) =>
   signature.every((value, i) => bytes[at + i] === value);
 
 /** The image type the bytes start with; the declared type is not trusted. */
-function sniffImage(bytes: Uint8Array): "png" | "jpeg" | "webp" | null {
+export function sniffImage(bytes: Uint8Array): "png" | "jpeg" | "webp" | null {
   if (starts(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return "png";
   if (starts(bytes, [0xff, 0xd8, 0xff])) return "jpeg";
   if (starts(bytes, [0x52, 0x49, 0x46, 0x46]) && starts(bytes, [0x57, 0x45, 0x42, 0x50], 8)) return "webp";
@@ -88,6 +88,23 @@ export async function uploadMedia(
   scope: Scope,
   input: { bytes: Uint8Array; mime: string; name?: unknown },
 ): Promise<MediaView> {
+  return (await ingestMedia(scope, input)).media;
+}
+
+/** How an image entered the library, for the content-free audit record. */
+export type MediaSource = "upload" | "drive" | "url" | "orbit_file" | "mcp_upload" | "mcp_upload_session";
+
+/**
+ * `uploadMedia` with options for outside clients (MCP): `reuseIdentical`
+ * returns a live library image with the same normalized bytes instead of a
+ * second copy (`duplicate: true`), so a retried import stores nothing twice;
+ * `altText` is saved with the new image; `source` goes into the audit record.
+ */
+export async function ingestMedia(
+  scope: Scope,
+  input: { bytes: Uint8Array; mime: string; name?: unknown },
+  options: { reuseIdentical?: boolean; altText?: string | null; source?: MediaSource } = {},
+): Promise<{ media: MediaView; duplicate: boolean }> {
   const mime = input.mime.toLowerCase().split(";")[0]!.trim();
   if (mime.startsWith("video/")) throw new DomainError("SOCIAL_VIDEO_NOT_AVAILABLE", 415);
   if (!sniffImage(input.bytes)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
@@ -101,6 +118,17 @@ export async function uploadMedia(
       throw new DomainError("SOCIAL_MEDIA_INVALID", 422);
     }
   });
+  if (options.reuseIdentical) {
+    // The normalized original is deterministic, so its hash finds the same image.
+    const digest = createHash("sha256").update(prepared.original.bytes).digest("hex");
+    const existing = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      tx.socialMediaAsset.findFirst({
+        where: { projectId: scope.projectId, sha256: digest, archivedAt: null },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+    );
+    if (existing) return { media: view(existing), duplicate: true };
+  }
   const ext = prepared.original.mime === "image/png" ? "png" : "jpg";
   // The stored type may differ from the upload's (an opaque PNG becomes a
   // JPEG), so the name takes the stored type's extension.
@@ -124,8 +152,18 @@ export async function uploadMedia(
     await discard(scope, original.id);
     throw error;
   }
+  let stored: { media: MediaView; duplicate: boolean };
   try {
-    return await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    stored = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      // Again under the project lock (scoped): of two identical images
+      // arriving at once, the second finds the first here.
+      if (options.reuseIdentical) {
+        const first = await tx.socialMediaAsset.findFirst({
+          where: { projectId: scope.projectId, sha256: original.sha256, archivedAt: null },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        });
+        if (first) return { media: view(first), duplicate: true };
+      }
       const row = await tx.socialMediaAsset.create({
         data: {
           id: randomUUID(),
@@ -142,16 +180,24 @@ export async function uploadMedia(
           jpegHeight: prepared.jpeg.height,
           jpegSize: jpeg.size,
           sha256: original.sha256,
+          altText: options.altText?.trim() || null,
           createdBy: scope.userId,
         },
       });
-      await audit(tx, scope, "social.media.uploaded", row.id, { mime: row.mime, size: row.size });
-      return view(row);
+      await audit(tx, scope, "social.media.uploaded", row.id, {
+        mime: row.mime,
+        size: row.size,
+        ...(options.source ? { source: options.source } : {}),
+      });
+      return { media: view(row), duplicate: false };
     });
   } catch (error) {
     await discard(scope, original.id, jpeg.id);
     throw error;
   }
+  // The copy that lost the race is not kept.
+  if (stored.duplicate) await discard(scope, original.id, jpeg.id);
+  return stored;
 }
 
 /** The library: images not archived, newest first. */
@@ -162,6 +208,70 @@ export async function listMedia(tx: DbTx, scope: Scope): Promise<{ items: MediaV
     take: 200,
   });
   return { items: rows.map(view) };
+}
+
+export type MediaSearch = {
+  query?: string;
+  mimes?: readonly string[];
+  order?: "newest" | "oldest";
+  limit: number;
+  cursor?: string;
+};
+
+const cursorShape = z.object({ at: z.iso.datetime(), id: z.uuid() }).strict();
+const encodeCursor = (row: { createdAt: Date; id: string }) =>
+  Buffer.from(JSON.stringify({ at: row.createdAt.toISOString(), id: row.id })).toString("base64url");
+function decodeCursor(raw: string) {
+  try {
+    const parsed = cursorShape.parse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
+    return { at: new Date(parsed.at), id: parsed.id };
+  } catch {
+    throw new DomainError("SOCIAL_MEDIA_CURSOR_INVALID", 422);
+  }
+}
+
+/**
+ * A page of the library for outside clients: live images whose name
+ * contains `query` (case-insensitive) and whose stored type is one of
+ * `mimes`, by creation time; `nextCursor` continues after the last item.
+ */
+export async function searchMedia(
+  tx: DbTx,
+  scope: Scope,
+  search: MediaSearch,
+): Promise<{ items: MediaView[]; nextCursor: string | null }> {
+  const desc = search.order !== "oldest";
+  const after = search.cursor ? decodeCursor(search.cursor) : null;
+  const rows = await tx.socialMediaAsset.findMany({
+    where: {
+      projectId: scope.projectId,
+      archivedAt: null,
+      ...(search.query ? { name: { contains: search.query, mode: "insensitive" as const } } : {}),
+      ...(search.mimes ? { mime: { in: [...search.mimes] } } : {}),
+      ...(after
+        ? {
+            OR: [
+              { createdAt: desc ? { lt: after.at } : { gt: after.at } },
+              { createdAt: after.at, id: desc ? { lt: after.id } : { gt: after.id } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: desc ? [{ createdAt: "desc" }, { id: "desc" }] : [{ createdAt: "asc" }, { id: "asc" }],
+    take: search.limit + 1,
+  });
+  const page = rows.slice(0, search.limit);
+  return {
+    items: page.map(view),
+    nextCursor: rows.length > search.limit ? encodeCursor(page[page.length - 1]!) : null,
+  };
+}
+
+/** One live library image of the project, or 404. */
+export async function mediaById(tx: DbTx, scope: Scope, id: string): Promise<MediaView> {
+  const row = await tx.socialMediaAsset.findFirst({ where: { id, projectId: scope.projectId, archivedAt: null } });
+  if (!row) throw notFound();
+  return view(row);
 }
 
 const updateInput = z

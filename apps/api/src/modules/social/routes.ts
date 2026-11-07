@@ -20,6 +20,7 @@ import { DomainError } from "../../shared.ts";
 import { listMedia, mediaContent, removeMedia, updateMedia, uploadMedia } from "./media/library.ts";
 import { importDriveMedia } from "./media/from-drive.ts";
 import { servePublicMedia } from "./media/public-url.ts";
+import { receiveUpload, verifyUploadToken } from "./media/upload-sessions.ts";
 import { inSocial, SOCIAL_BASE, type Params } from "./http-scope.ts";
 import { requireSocial } from "./gate.ts";
 import { socialPostRoutes } from "./posts/routes.ts";
@@ -38,6 +39,7 @@ const accountParam = z.object({ accountId: z.uuid() }).passthrough();
 const mediaParam = z.object({ mediaId: z.uuid() }).passthrough();
 const renditionQuery = z.object({ rendition: z.enum(["original", "jpeg"]).default("original") }).passthrough();
 const UPLOAD_RATE = { rateLimit: { max: 60, timeWindow: "1 minute" } };
+const UPLOAD_TYPES = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp" } as const;
 const callbackQuery = z
   .object({
     state: z.string().min(40).max(200),
@@ -242,6 +244,48 @@ export const socialRoutes: RoutesContribution = (context) => {
         .send(Buffer.from(media.bytes));
     },
   );
+  // Upload sessions (MCP social_media_upload): the raw bytes of one image to
+  // a signed one-time URL. The token is checked before a byte of the body is
+  // read; the session, the member's rights and the image after.
+  app.register(async (child) => {
+    const types = ["application/octet-stream", ...Object.values(UPLOAD_TYPES)];
+    child.addContentTypeParser(
+      types,
+      { parseAs: "buffer", bodyLimit: loadConfig().FILES_MAX_BYTES },
+      (_req, body, done) => done(null, body),
+    );
+    child.put(
+      "/api/public/social/media-uploads/:token",
+      {
+        bodyLimit: loadConfig().FILES_MAX_BYTES,
+        config: UPLOAD_RATE,
+        onRequest: async (req) => {
+          (req as { orbitModule?: string }).orbitModule = "social";
+          const { token } = z.object({ token: z.string().max(200) }).parse(req.params);
+          if (!verifyUploadToken(token)) throw new DomainError("NOT_FOUND", 404);
+          const type = (req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
+          if (!types.includes(type)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
+        },
+      },
+      async (req, reply) => {
+        const { token } = z.object({ token: z.string().max(200) }).parse(req.params);
+        if (!Buffer.isBuffer(req.body)) throw new DomainError("FILE_BODY_REQUIRED", 415);
+        const media = await receiveUpload(token, {
+          bytes: req.body,
+          contentType: String(req.headers["content-type"] ?? ""),
+        });
+        return reply.code(201).send({
+          mediaId: media.id,
+          name: media.name,
+          mime: media.mime,
+          width: media.width,
+          height: media.height,
+          size: media.size,
+          duplicate: media.duplicate,
+        });
+      },
+    );
+  });
   app.patch(`${BASE}/media/:mediaId`, (req) =>
     inSocial(auth, req, SOCIAL_COMPOSE, (tx, scope) =>
       updateMedia(tx, scope, mediaParam.parse(req.params).mediaId, req.body),
