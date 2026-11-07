@@ -44,6 +44,7 @@ import {
 } from "./scopes.ts";
 
 export type McpScope = "orbit:read" | "orbit:propose" | "orbit:write";
+const WRITE_SCOPE: McpScope = "orbit:write";
 
 /** The OAuth scope a tool needs: R0 reads, P proposals, W0 internal writes. */
 export function requiredScope(tool: Pick<OrbitTool, "risk">): McpScope {
@@ -240,6 +241,9 @@ export async function principalModules(
  * The content scopes (`orbit:support`, `orbit:finance.read`,
  * `orbit:finance.extract`, the work scopes, `orbit:social`) are assumed here so a client such as ChatGPT,
  * which asks for the scopes its listed tools declare, can request them.
+ * The write scope `orbit:write` (internal writes such as the Social media
+ * library imports) is assumed for the same reason; `orbit:propose` is not,
+ * so a user's choice not to allow proposals keeps them out of the list.
  */
 export async function visibleMcpToolsForDiscovery(
   principal: McpPrincipal,
@@ -250,6 +254,7 @@ export async function visibleMcpToolsForDiscovery(
       ...principal,
       scopes: new Set([
         ...principal.scopes,
+        WRITE_SCOPE,
         SUPPORT_SCOPE,
         FINANCE_READ_SCOPE,
         FINANCE_EXTRACT_SCOPE,

@@ -20,6 +20,9 @@ vi.mock("../src/platform/connections/google-drive.ts", async (original) => {
     browseDrive: vi.fn(async (_scope: unknown, input: { folderId?: string; query?: string; kind?: string }) => {
       drive.browsed.push(input);
       if (input.folderId === "outsideRoot0001") throw new DomainError("GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT", 403);
+      // Google answers an unknown id (such as a folder name) with an error.
+      if (input.folderId && !["rootFolder00001", "subFolder000001"].includes(input.folderId))
+        throw new DomainError("GOOGLE_DRIVE_REQUEST_FAILED", 502);
       return {
         folderId: input.folderId ?? "rootFolder00001",
         path: [{ id: "rootFolder00001", name: "FamilyPlan" }],
@@ -321,6 +324,22 @@ describe.skipIf(!enabled)("social media MCP tools (library, Drive, URL, upload s
     // Images only, whatever the client asks for.
     expect(drive.browsed).toEqual([{ query: "FamilyPlan", sort: "modified", kind: "image" }]);
     expect(await code("social_drive_files", { folderId: "outsideRoot0001" })).toBe("GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT");
+    // A subfolder by its id, its Drive link, its name or its path.
+    for (const args of [
+      { folderId: "subFolder000001" },
+      { folderId: "https://drive.google.com/drive/folders/subFolder000001?usp=sharing" },
+      { folderId: "Kampagnen" },
+      { path: "kampagnen" },
+      { path: "/Kampagnen/" },
+    ]) {
+      drive.browsed = [];
+      expect((await op("social_drive_files", args)).folderId, JSON.stringify(args)).toBe("subFolder000001");
+      expect(drive.browsed.at(-1), JSON.stringify(args)).toMatchObject({ folderId: "subFolder000001", kind: "image" });
+    }
+    expect(await code("social_drive_files", { path: "Kampagnen/Nope" })).toBe("SOCIAL_DRIVE_FOLDER_NOT_FOUND");
+    expect(await code("social_drive_files", { folderId: "Unbekannter_Ordner" })).toBe("SOCIAL_DRIVE_FOLDER_NOT_FOUND");
+    expect(await code("social_drive_files", { folderId: "https://evil.example/drive/folders/subFolder000001" })).toBe("SOCIAL_DRIVE_FOLDER_NOT_FOUND");
+    expect(await code("social_drive_files", { folderId: "https://drive.google.com/drive/folders/missingFolder01" })).toBe("SOCIAL_DRIVE_FOLDER_NOT_FOUND");
     // Viewers cannot import, so they do not browse Drive here either.
     expect(await code("social_drive_files", {}, await grantFor(p.viewer, WRITE))).toBe("MCP_TOOL_NOT_ALLOWED");
   });
