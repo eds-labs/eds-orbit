@@ -1,4 +1,5 @@
 import { validateEvidence } from "../../../platform/knowledge/services.ts";
+import { errorCode } from "../../telemetry.ts";
 import { htmlToText } from "./channel-posts.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -300,7 +301,9 @@ export async function marketingHistory(
   // Posts made natively in Social (not Marketing's own hand-offs, not the
   // Postiz mirror) are other tools' output from Marketing's point of view.
   // Social being unreadable must not break the history.
+  let social: "ok" | "failed" | "unavailable" = "unavailable";
   if (await socialPublishingAvailable(tx, scope)) {
+    social = "ok";
     // A savepoint keeps a failed Social read from aborting the whole history.
     await tx.$executeRaw`SAVEPOINT social_history`;
     try {
@@ -338,8 +341,10 @@ export async function marketingHistory(
     } catch (error) {
       await tx.$executeRaw`ROLLBACK TO SAVEPOINT social_history`;
       await tx.$executeRaw`RELEASE SAVEPOINT social_history`;
-      // Tests must see programming errors; production keeps the history.
-      if (process.env.VITEST) throw error;
+      // The rest of the history stays; the marker and truncation say what is missing.
+      social = "failed";
+      truncated = true;
+      console.error("Orbit Social history read failed", errorCode(error));
     }
   }
   // Reserve room for each source before filling unused capacity. A busy local
@@ -348,12 +353,21 @@ export async function marketingHistory(
   const chosen = new Set<string>();
   for (const channel of channels) {
     const own = candidates.filter((i) => i.channel === channel);
+    // Posts made by hand in Social keep their own slot: busy Orbit history
+    // must not hide them from the strategy.
     for (const [source, count] of [
       ["orbit", 4],
       ["reservation", 2],
       ["external", 2],
+      ["social_posts", 1],
     ] as const)
-      for (const item of own.filter((i) => i.source === source).slice(0, count))
+      for (const item of own
+        .filter((i) =>
+          source === "social_posts"
+            ? i.recordKind === "social_posts"
+            : i.source === source && i.recordKind !== "social_posts",
+        )
+        .slice(0, count))
         chosen.add(item.id);
     let count = own.filter((i) => chosen.has(i.id)).length;
     for (const item of own)
@@ -376,8 +390,20 @@ export async function marketingHistory(
         : now.valueOf() - successAt > 2 * 3600000
           ? "stale"
           : "fresh";
+  // Source-balanced trim: the tail goes first, but a channel's last native
+  // Social post is the last thing to be dropped.
   while (Buffer.byteLength(JSON.stringify(items)) > 10000 && items.length) {
-    items.pop();
+    let index = items.length - 1;
+    while (
+      index > 0 &&
+      items[index]!.recordKind === "social_posts" &&
+      items.filter(
+        (i) =>
+          i.recordKind === "social_posts" && i.channel === items[index]!.channel,
+      ).length === 1
+    )
+      index--;
+    items.splice(index, 1);
     truncated = true;
   }
   return {
@@ -387,6 +413,7 @@ export async function marketingHistory(
     truncated,
     scanLimit: LIMIT,
     perChannelLimit: PER_CHANNEL,
+    social: { coverage: social },
     remote: {
       coverage,
       lastAttemptAt: marker.attemptedAt ?? null,
@@ -398,6 +425,32 @@ export async function marketingHistory(
 }
 
 /** The topic and angle of every reservation not released since `since`, newest first (at most 60). */
+/** Longest recentTopics entry fields and the list's byte budget in the strategy input. */
+export const RECENT_TOPIC_FIELD_LIMITS = { topic: 120, angle: 200, pillar: 80 };
+export const RECENT_TOPICS_BYTES = 12_000;
+
+/** Caps each entry and drops the oldest until the list fits its byte budget. */
+export function boundRecentTopics<
+  T extends { topic: string; angle: string; pillar: string },
+>(topics: T[]): { topics: T[]; truncated: boolean } {
+  const capped = topics.map((t) => ({
+    ...t,
+    topic: t.topic.slice(0, RECENT_TOPIC_FIELD_LIMITS.topic),
+    angle: t.angle.slice(0, RECENT_TOPIC_FIELD_LIMITS.angle),
+    pillar: t.pillar.slice(0, RECENT_TOPIC_FIELD_LIMITS.pillar),
+  }));
+  let truncated = false;
+  // Newest first: the oldest entries are at the end.
+  while (
+    capped.length &&
+    Buffer.byteLength(JSON.stringify(capped)) > RECENT_TOPICS_BYTES
+  ) {
+    capped.pop();
+    truncated = true;
+  }
+  return { topics: capped, truncated };
+}
+
 export async function recentTopicIdentities(
   tx: DbTx,
   scope: Scope,

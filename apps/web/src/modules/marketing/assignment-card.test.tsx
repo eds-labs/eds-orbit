@@ -75,6 +75,23 @@ describe("AssignmentCard", () => {
     expect(html).toMatch(/datetime="2026-10-16T12:00:00.000Z"/i);
   });
 
+  it("shows the topic history window the owner confirms, 14 when absent", () => {
+    expect(render(false)).toContain("Themen der letzten 14 Tage bleiben gesperrt");
+    const html = renderToStaticMarkup(
+      <AssignmentCard
+        assignment={{ ...assignment(false), historyDays: 30 }}
+        status="draft"
+        request={{ id: "request", version: 1, packageHash: "a".repeat(64), status: "pending" }}
+        de={false}
+        canDecide
+        pending={false}
+        onConfirm={() => {}}
+        onReject={() => {}}
+      />,
+    );
+    expect(html).toContain("Topics of the last 30 days stay closed");
+  });
+
   it("requires the consent checkbox for image assignments", () => {
     const html = render(true);
     expect(html).toContain(CONSENT);

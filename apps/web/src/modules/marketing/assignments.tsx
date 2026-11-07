@@ -53,6 +53,7 @@ export type AssignmentItem = Pick<
   monthCostMicros: number;
   monthlyBudgetMicros: number;
   pendingReviewLimit?: number;
+  historyDays?: number;
   backlog?: {
     limit: number | null;
     pending: number;
@@ -287,6 +288,13 @@ export function AssignmentTable({
                   </small>
                   {item.sharedAcrossChannels && (
                     <small>{sharedText(true, de, item.image)}</small>
+                  )}
+                  {item.historyDays !== undefined && (
+                    <small>
+                      {de
+                        ? `Themen der letzten ${item.historyDays} Tage bleiben gesperrt`
+                        : `Topics of the last ${item.historyDays} days stay closed`}
+                    </small>
                   )}
                   {item.format && (
                     <small>

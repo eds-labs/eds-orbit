@@ -11,6 +11,23 @@ import {
   vi,
 } from "vitest";
 import { randomUUID } from "node:crypto";
+const social = vi.hoisted(() => ({ fail: false }));
+vi.mock("../src/modules/social/contract.ts", async (original) => {
+  const actual =
+    await original<typeof import("../src/modules/social/contract.ts")>();
+  return {
+    ...actual,
+    // With `fail`, Social looks available and its read throws.
+    socialPublishingAvailable: (...args: Parameters<typeof actual.socialPublishingAvailable>) =>
+      social.fail ? Promise.resolve(true) : actual.socialPublishingAvailable(...args),
+    accountForChannel: (...args: Parameters<typeof actual.accountForChannel>) =>
+      social.fail
+        ? Promise.resolve({ accountId: "00000000-0000-4000-8000-000000000001" } as any)
+        : actual.accountForChannel(...args),
+    recentPosts: (...args: Parameters<typeof actual.recentPosts>) =>
+      social.fail ? Promise.reject(new Error("SOCIAL_READ_BOOM")) : actual.recentPosts(...args),
+  };
+});
 const paid = vi.hoisted(() => ({
   generate: vi.fn(),
   embed: vi.fn(),
@@ -36,6 +53,7 @@ import {
   reserveTopic,
   topicKey,
   marketingHistory,
+  boundRecentTopics,
   recentTopicIdentities,
   assertDistinctDraft,
   prepareContentNovelty,
@@ -823,6 +841,59 @@ describe.skipIf(!enabled)(
           recentTopicIdentities(tx, project.owner, [TELEGRAM], since(30)),
         ),
       ).toEqual([]);
+    });
+    it("keeps the history and marks Social coverage when the Social read fails", async () => {
+      await run((tx) =>
+        create(tx, project.owner, "content", {
+          channel: X,
+          title: "Own draft",
+          body: "Own draft body",
+          status: "needs_review",
+        }),
+      );
+      const history = (channels = [X]) =>
+        run((tx) => marketingHistory(tx, project.owner, channels));
+      const normal = await history();
+      expect(normal.social).toEqual({ coverage: "unavailable" });
+      social.fail = true;
+      const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const failed = await history();
+        expect(failed.social).toEqual({ coverage: "failed" });
+        expect(failed.truncated).toBe(true);
+        expect(failed.items.map((i) => i.title)).toEqual(
+          normal.items.map((i) => i.title),
+        );
+        expect(failed.items.length).toBeGreaterThan(0);
+        expect(quiet).toHaveBeenCalledWith(
+          "Orbit Social history read failed",
+          expect.any(String),
+        );
+      } finally {
+        social.fail = false;
+        quiet.mockRestore();
+      }
+    });
+    it("caps recentTopics entries and the list's byte budget, oldest first, and flags it", () => {
+      const entries = Array.from({ length: 60 }, (_, i) => ({
+        channel: X,
+        topic: `T${i} ${"t".repeat(300)}`,
+        angle: `A${i} ${"a".repeat(500)}`,
+        pillar: `P${i} ${"p".repeat(300)}`,
+        at: new Date(Date.now() - i * 1000).toISOString(),
+      }));
+      const bounded = boundRecentTopics(entries);
+      expect(bounded.truncated).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(bounded.topics))).toBeLessThanOrEqual(12_000);
+      expect(bounded.topics.length).toBeLessThan(60);
+      expect(bounded.topics[0]!.topic).toHaveLength(120);
+      expect(bounded.topics[0]!.angle).toHaveLength(200);
+      expect(bounded.topics[0]!.pillar).toHaveLength(80);
+      // The newest stay, the oldest go.
+      expect(bounded.topics[0]!.topic.startsWith("T0 ")).toBe(true);
+      const small = boundRecentTopics(entries.slice(0, 3));
+      expect(small.truncated).toBe(false);
+      expect(small.topics).toHaveLength(3);
     });
   },
 );

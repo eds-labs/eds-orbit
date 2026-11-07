@@ -67,11 +67,11 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
 });
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
-import { data, list, update } from "../src/shared.ts";
+import { create, data, list, update } from "../src/shared.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { strategySpecialist } from "../src/modules/marketing/agents/specialists/strategy.ts";
-import { reserveTopic } from "../src/modules/marketing/agents/novelty.ts";
+import { marketingHistory, reserveTopic } from "../src/modules/marketing/agents/novelty.ts";
 import { releaseAssignmentDraft } from "../src/modules/marketing/agents/owner-release.ts";
 import { draftsAwaitingOwner } from "../src/modules/marketing/agents/assignment-overview.ts";
 import {
@@ -702,5 +702,86 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       short.channelHistory.channels.flatMap((c: any) => c.posts).map((p: any) => p.text),
     ).not.toContain("Hand-written native post about onboarding");
     expect(strategySpecialist.instructions).toMatch(/recentTopics/);
+  });
+
+  it("native Social posts survive a busy Orbit history in the history and the strategy input", async () => {
+    daily = await dailyProject(tomorrowMorning(), { native: true });
+    const { h, project, accounts, channels } = daily;
+    const { owner } = project;
+    await h.run(async (tx) => {
+      for (const [account, channel, name] of [
+        [accounts.facebook, channels[0]!, "Facebook"],
+        [accounts.instagram, channels[1]!, "Instagram"],
+      ] as const) {
+        for (let i = 0; i < 10; i++)
+          await create(tx, owner, "content", {
+            channel,
+            title: `Busy ${name} ${i}`,
+            body: `Busy ${name} draft ${i}`,
+            status: "needs_review",
+          });
+        const id = randomUUID();
+        const variantId = randomUUID();
+        await tx.socialPost.create({
+          data: {
+            id,
+            workspaceId: owner.workspaceId,
+            projectId: owner.projectId,
+            status: "published",
+            baseText: `Native ${name} post`,
+            baseMedia: [],
+            scheduleTimezone: "UTC",
+            createdBy: owner.userId,
+          },
+        });
+        await tx.socialPostVariant.create({
+          data: {
+            id: variantId,
+            workspaceId: owner.workspaceId,
+            projectId: owner.projectId,
+            postId: id,
+            accountId: account.id,
+            body: `Native ${name} post`,
+            contentHash: "a".repeat(64),
+          },
+        });
+        await tx.socialPublication.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: owner.workspaceId,
+            projectId: owner.projectId,
+            variantId,
+            accountId: account.id,
+            idempotencyKey: randomUUID(),
+            status: "published",
+            publishedAt: new Date(Date.now() - 3 * 86_400_000),
+          },
+        });
+      }
+    });
+    const history = await h.run((tx) =>
+      marketingHistory(tx, owner, channels),
+    );
+    expect(
+      history.items
+        .filter((i) => i.recordKind === "social_posts")
+        .map((i) => i.text)
+        .sort(),
+    ).toEqual(["Native Facebook post", "Native Instagram post"]);
+    const assignment = await h.makeAssignment({ channels });
+    const prepared = await h.run((tx) =>
+      strategySpecialist.prepareInput!(tx, owner, {
+        assignment: data(assignment),
+        run: { slots: [] },
+      }),
+    );
+    const texts = (prepared.input as any).channelHistory.channels.flatMap(
+      (c: any) => c.posts.map((p: any) => p.text),
+    );
+    expect(texts).toContain("Native Facebook post");
+    expect(texts).toContain("Native Instagram post");
+    expect((prepared.input as any).channelHistory.social).toEqual({
+      coverage: "ok",
+    });
   });
 });

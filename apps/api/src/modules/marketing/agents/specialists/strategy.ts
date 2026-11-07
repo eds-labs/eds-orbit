@@ -1,5 +1,9 @@
 import { historyDaysOf } from "../assignments.ts";
-import { marketingHistory, recentTopicIdentities } from "../novelty.ts";
+import {
+  boundRecentTopics,
+  marketingHistory,
+  recentTopicIdentities,
+} from "../novelty.ts";
 import { z } from "zod";
 import { agentKnowledgeSearch } from "../../tools/agent-tools.ts";
 import { channelTools } from "../../tools/channel-tools.ts";
@@ -185,11 +189,13 @@ async function withContext(
     ? historyDaysOf(input.assignment)
     : STRATEGY_HISTORY_DAYS;
   const history = await marketingHistory(tx, scope, channels, now, days);
-  const recentTopics = await recentTopicIdentities(
-    tx,
-    scope,
-    channels,
-    new Date(now.valueOf() - days * 86400000),
+  const recent = boundRecentTopics(
+    await recentTopicIdentities(
+      tx,
+      scope,
+      channels,
+      new Date(now.valueOf() - days * 86400000),
+    ),
   );
   const usable = (await listUsableFacts(tx, scope, now)).filter(
     (row) =>
@@ -213,6 +219,7 @@ async function withContext(
     channelHistory: {
       days: history.days,
       remote: history.remote,
+      social: history.social,
       truncated: history.truncated,
       channels: channels.map((channelId) => ({
         channelId,
@@ -229,7 +236,8 @@ async function withContext(
       })),
     },
     // Compact list of the topics and angles taken in the window, newest first.
-    recentTopics,
+    recentTopics: recent.topics,
+    ...(recent.truncated ? { recentTopicsTruncated: true } : {}),
     facts: offeredFacts(usable, input.assignment),
   };
   // The answer is checked against every usable key, not only the offered ones.

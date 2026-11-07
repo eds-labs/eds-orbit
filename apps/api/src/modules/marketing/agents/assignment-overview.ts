@@ -145,6 +145,7 @@ export async function listAssignments(
       ...(d.pendingReviewLimit !== undefined
         ? { pendingReviewLimit: d.pendingReviewLimit }
         : {}),
+      ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
       latestRun: await latestAssignmentResult(tx, scope, row.id),
       backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:
