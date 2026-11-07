@@ -9,6 +9,7 @@ import type { SocialPlatform } from "../accounts/store.ts";
 import { markWriteVerified } from "../accounts/verify-write.ts";
 import { lockPublication, postOfPublication } from "./claim.ts";
 import { sendMode } from "./gates.ts";
+import { LATE_WINDOW_MS } from "./lateness.ts";
 import { publicationView, type PublicationView } from "./publication-view.ts";
 import { DELIVER, DISPATCH, RECONCILE } from "./queues.ts";
 import { refreshPostStatus } from "./status.ts";
@@ -19,7 +20,6 @@ import { refreshPostStatus } from "./status.ts";
 // deliveries due within the last 30 minutes go out (no surprise late posts).
 // The owner settles an unclear send; nothing is ever resent.
 
-const LATE_WINDOW_MS = 30 * 60_000;
 const ACTIVE_JOB = ["queued", "retry_scheduled", "blocked_dependency"];
 
 async function cancelJobs(tx: DbTx, scope: Scope, publicationId: string) {

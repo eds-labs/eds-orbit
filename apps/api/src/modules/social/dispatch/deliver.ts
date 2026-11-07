@@ -104,6 +104,7 @@ export async function deliverPublication(scope: Scope, id: string): Promise<Outc
   });
   if (claim.kind === "skip") return { status: "succeeded", errorCode: null };
   if (claim.kind === "blocked") return { status: "succeeded", errorCode: claim.code };
+  if (claim.kind === "expired") return { status: "succeeded", errorCode: "SOCIAL_SLOT_EXPIRED" };
   if (claim.kind === "later") return { status: "succeeded", errorCode: "SOCIAL_THROTTLED" };
   if (claim.mode === "test") {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>

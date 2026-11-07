@@ -11,6 +11,7 @@ import { senderFor, type SendResult } from "../adapters/registry.ts";
 import { publicMediaEnabled } from "../media/public-url.ts";
 import { packageOf } from "../posts/posts.ts";
 import { platformEnabled, sendMode, type SendMode } from "./gates.ts";
+import { expirePublication, sendDeadline } from "./lateness.ts";
 import { DELIVER, RECONCILE } from "./queues.ts";
 import { refreshPostStatus } from "./status.ts";
 import { takeThrottle } from "./throttle.ts";
@@ -31,6 +32,7 @@ export type ClaimResult =
   | { kind: "claimed"; fence: string; mode: SendMode }
   | { kind: "skip"; reason: string }
   | { kind: "blocked"; code: string }
+  | { kind: "expired" }
   | { kind: "later"; at: Date };
 
 export const lockPublication = async (tx: DbTx, scope: Scope, id: string) => {
@@ -68,6 +70,11 @@ export async function claimPublication(tx: DbTx, scope: Scope, id: string, now: 
   if (!due) return { kind: "skip", reason: pub.status };
   const post = await postOfPublication(tx, scope, pub.variantId);
   if (post.status !== "publishing") return { kind: "skip", reason: `post_${post.status}` };
+  const deadline = sendDeadline(post);
+  if (now > deadline) {
+    await expirePublication(tx, scope, id);
+    return { kind: "expired" };
+  }
   const account = await tx.socialAccount.findFirstOrThrow({ where: { id: pub.accountId, projectId: scope.projectId } });
   const platform = account.platform as SocialPlatform;
   const mode = sendMode();
@@ -86,7 +93,13 @@ export async function claimPublication(tx: DbTx, scope: Scope, id: string, now: 
   if ((await packageOf(tx, scope, post.id)).hash !== post.packageHash) return blocked("SOCIAL_APPROVAL_STALE");
   if (mode === "live") {
     const throttle = await takeThrottle(tx, scope, { id: account.id, platform }, now);
-    if (!throttle.ok) return { kind: "later", at: throttle.until };
+    if (!throttle.ok) {
+      if (throttle.until > deadline) {
+        await expirePublication(tx, scope, id);
+        return { kind: "expired" };
+      }
+      return { kind: "later", at: throttle.until };
+    }
   }
   const fence = randomUUID();
   await tx.socialPublication.update({
@@ -213,6 +226,12 @@ export async function finishPublication(
       }
       if (result.retry === "after-delay" && pub.attempts < MAX_ATTEMPTS) {
         const next = new Date(now.getTime() + Math.max(result.delayMs ?? 0, MIN_RETRY_MS));
+        // A retry that would go out too late is not scheduled at all.
+        if (next > sendDeadline(post)) {
+          await expirePublication(tx, scope, id);
+          await event(tx, scope, "social.publication.failed", id, post.id, account.platform);
+          return;
+        }
         await tx.socialPublication.update({
           where: { id },
           data: {

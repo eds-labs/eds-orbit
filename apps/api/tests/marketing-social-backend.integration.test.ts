@@ -205,6 +205,52 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     expect((await run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: stopped.postId } }))).status).toBe("canceled");
   });
 
+  it("Marketing reconciles a Social SOCIAL_SLOT_EXPIRED as failed with the same code", async () => {
+    await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { legacyPostizIntegrationId: X } }));
+    const pubId = randomUUID();
+    const { postId } = await run((tx) =>
+      submitOriginPost(tx, project.owner, {
+        origin: { module: "marketing", type: "publication", id: pubId, version: 1 },
+        accountId,
+        text: `Expired ${pubId}`,
+        mediaIds: [],
+        mode: "now",
+        packageHash: "2".repeat(64),
+      }),
+    );
+    const row = await run((tx) =>
+      create(tx, project.owner, "publications", {
+        contentId,
+        channel: X,
+        status: "scheduled_remote",
+        publishingBackend: "social",
+        remoteId: postId,
+        scheduledAt: new Date().toISOString(),
+        test: false,
+      }),
+    );
+    await run(async (tx) => {
+      const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId } });
+      await tx.socialPublication.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          variantId: variant.id,
+          accountId,
+          idempotencyKey: randomUUID(),
+          status: "failed",
+          retryDisposition: "never",
+          lastErrorCode: "SOCIAL_SLOT_EXPIRED",
+        },
+      });
+      await tx.socialPost.update({ where: { id: postId }, data: { status: "failed" } });
+    });
+    await reconcilePublication(project.owner, row.id);
+    const after = await run(async (tx) => data(await entity(tx, project.owner, "publications", row.id)));
+    expect(after).toMatchObject({ status: "failed", remoteState: "failed", reason: "SOCIAL_SLOT_EXPIRED" });
+  });
+
   it("drains Postiz: nothing new goes to Postiz, pending posts keep their package (S10)", async () => {
     const before = await run((tx) => packageFor(tx, project.owner, contentId));
     await backend("postiz_draining");
