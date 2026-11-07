@@ -76,7 +76,12 @@ const namesOf = (channels: unknown, names: Map<string, string>) =>
       .map((id) => [id, names.get(id)!]),
   );
 
-async function rowsById(tx: DbTx, scope: Scope, kind: string, ids: unknown[]) {
+export async function rowsById(
+  tx: DbTx,
+  scope: Scope,
+  kind: string,
+  ids: unknown[],
+) {
   const wanted = [
     ...new Set(ids.filter((id): id is string => typeof id === "string")),
   ].filter((id) => UUID.test(id));

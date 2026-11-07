@@ -895,6 +895,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/assignments/{id}/detail": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/projects/{projectId}/assistant-tasks": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

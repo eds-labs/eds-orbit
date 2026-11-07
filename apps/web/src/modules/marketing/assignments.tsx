@@ -2,6 +2,8 @@
 import { RunOperationView, type RunOperation } from "./run-operation";
 import { AppLink } from "@/platform/ui/app-link";
 import { useContext, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { AssignmentDetail } from "./assignment-detail";
 import {
   ApiError,
   collectionPath,
@@ -108,6 +110,8 @@ export type AwaitingOwnerDraft = {
   // What the release does: schedule the post or book a Postiz draft (R73).
   delivery?: "publish" | "postiz_draft";
 };
+const UUID_PARAM =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";
 
@@ -225,6 +229,23 @@ export function useAssignments() {
   };
 }
 
+/** The owner's "retry run" button of the table and the detail view. */
+export function RetryRunButton({
+  de,
+  disabled,
+  onClick,
+}: {
+  de: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button size="sm" variant="outline" disabled={disabled} onClick={onClick}>
+      {de ? "Lauf wiederholen" : "Retry run"}
+    </Button>
+  );
+}
+
 const share = (cost: number, budget: number) =>
   budget > 0 ? Math.round((cost / budget) * 100) : null;
 
@@ -237,6 +258,7 @@ export function AssignmentTable({
   pending,
   onStatus,
   onRetry,
+  detailHref,
 }: {
   items: AssignmentItem[];
   de: boolean;
@@ -246,6 +268,8 @@ export function AssignmentTable({
   onStatus: (item: AssignmentItem, status: NextStatus) => void;
   // Retries the item's failed run (owner only; needs `retryableRunId`).
   onRetry?: (item: AssignmentItem, runId: string) => void;
+  // Where a row opens its detail (`?assignment=<id>`); absent: no link.
+  detailHref?: (item: AssignmentItem) => string;
 }) {
   const [ending, setEnding] = useState("");
   const locale = de ? "de" : "en";
@@ -275,6 +299,13 @@ export function AssignmentTable({
               <tr key={item.id}>
                 <td>
                   <strong>{item.name}</strong>
+                  {detailHref && (
+                    <small>
+                      <AppLink href={detailHref(item)}>
+                        {de ? "Details" : "Details"}
+                      </AppLink>
+                    </small>
+                  )}
                   <small>
                     {
                       (contentTypeLabels[item.contentType] ?? [
@@ -362,14 +393,11 @@ export function AssignmentTable({
                   {editor && item.status !== "ended" && (
                     <div className="form-actions">
                       {role === "owner" && item.retryableRunId && onRetry && (
-                        <Button
-                          size="sm"
-                          variant="outline"
+                        <RetryRunButton
+                          de={de}
                           disabled={pending}
                           onClick={() => onRetry(item, item.retryableRunId!)}
-                        >
-                          {de ? "Lauf wiederholen" : "Retry run"}
-                        </Button>
+                        />
                       )}
                       {stoppable && (
                         <Button
@@ -461,69 +489,82 @@ export function Assignments({
   const mutation = useMutation(refresh);
   const role: Role = isOwner ? "owner" : canEdit ? "editor" : "viewer";
   const items = data?.items ?? [];
+  const search = useSearchParams();
+  const wanted = search?.get("assignment") ?? "";
+  const selected = UUID_PARAM.test(wanted) ? wanted : "";
+  const listHref = `/p/${project.id}/marketing/assignments`;
   return (
-    <section className="panel">
-      {!headless && (
-        <div className="panel-head">
-          <div>
-            <h2>{ASSIGNMENTS_TEXT.title[locale]}</h2>
-            <p>{ASSIGNMENTS_TEXT.description[locale]}</p>
+    <>
+      {selected && (
+        <AssignmentDetail assignmentId={selected} closeHref={listHref} />
+      )}
+      <section className="panel">
+        {!headless && (
+          <div className="panel-head">
+            <div>
+              <h2>{ASSIGNMENTS_TEXT.title[locale]}</h2>
+              <p>{ASSIGNMENTS_TEXT.description[locale]}</p>
+            </div>
+            <Button asChild variant="outline">
+              <AppLink href="/chat">{ASSIGNMENTS_TEXT.change[locale]}</AppLink>
+            </Button>
           </div>
-          <Button asChild variant="outline">
-            <AppLink href="/chat">{ASSIGNMENTS_TEXT.change[locale]}</AppLink>
-          </Button>
-        </div>
-      )}
-      {data?.paused && (
-        <Alert kind="warning">
-          {de
-            ? "Das Projekt ist pausiert: Kein Auftrag läuft, bis du es unter Betrieb fortsetzt."
-            : "The project is paused: no assignment runs until you resume it under Operations."}
-        </Alert>
-      )}
-      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      {resource.error && !agentsOff(resource.error) && (
-        <Alert kind="error">{resource.error.message}</Alert>
-      )}
-      {!data && resource.loading ? (
-        <Loading />
-      ) : items.length ? (
-        <AssignmentTable
-          items={items}
-          de={de}
-          timezone={data?.timezone ?? project.timezone}
-          role={role}
-          pending={mutation.pending}
-          onRetry={(_item, runId) =>
-            mutation.run(async () => {
-              await post(
-                collectionPath(project.id, `assignment-runs/${runId}/retry`),
-                {},
-              );
-              refresh();
-            })
-          }
-          onStatus={(item, status) =>
-            mutation.run(() =>
-              refreshOnConflict(
-                () =>
-                  post(
-                    collectionPath(project.id, `assignments/${item.id}/status`),
-                    { status, version: item.version },
-                  ),
-                refresh,
-              ),
-            )
-          }
-        />
-      ) : (
-        <p className="panel-note">
-          {de
-            ? "Noch keine Aufträge. Beschreibe im Chat, was Orbit regelmäßig für dich erledigen soll."
-            : "No assignments yet. Describe in the chat what Orbit should do for you regularly."}
-        </p>
-      )}
-    </section>
+        )}
+        {data?.paused && (
+          <Alert kind="warning">
+            {de
+              ? "Das Projekt ist pausiert: Kein Auftrag läuft, bis du es unter Betrieb fortsetzt."
+              : "The project is paused: no assignment runs until you resume it under Operations."}
+          </Alert>
+        )}
+        {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+        {resource.error && !agentsOff(resource.error) && (
+          <Alert kind="error">{resource.error.message}</Alert>
+        )}
+        {!data && resource.loading ? (
+          <Loading />
+        ) : items.length ? (
+          <AssignmentTable
+            items={items}
+            de={de}
+            timezone={data?.timezone ?? project.timezone}
+            role={role}
+            pending={mutation.pending}
+            detailHref={(item) => `${listHref}?assignment=${item.id}`}
+            onRetry={(_item, runId) =>
+              mutation.run(async () => {
+                await post(
+                  collectionPath(project.id, `assignment-runs/${runId}/retry`),
+                  {},
+                );
+                refresh();
+              })
+            }
+            onStatus={(item, status) =>
+              mutation.run(() =>
+                refreshOnConflict(
+                  () =>
+                    post(
+                      collectionPath(
+                        project.id,
+                        `assignments/${item.id}/status`,
+                      ),
+                      { status, version: item.version },
+                    ),
+                  refresh,
+                ),
+              )
+            }
+          />
+        ) : (
+          <p className="panel-note">
+            {de
+              ? "Noch keine Aufträge. Beschreibe im Chat, was Orbit regelmäßig für dich erledigen soll."
+              : "No assignments yet. Describe in the chat what Orbit should do for you regularly."}
+          </p>
+        )}
+      </section>
+    </>
   );
 }
 

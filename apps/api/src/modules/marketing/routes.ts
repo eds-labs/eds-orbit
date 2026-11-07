@@ -60,6 +60,7 @@ import {
   upcomingAssignmentPosts,
   vetoInput,
 } from "./agents/assignment-overview.ts";
+import { assignmentDetail } from "./agents/assignment-detail.ts";
 import { retryAssignmentRun } from "./agents/assignment-runs.ts";
 import { agentActivity } from "./agents/agent-activity.ts";
 import { vetoPublication } from "./agents/veto.ts";
@@ -225,6 +226,16 @@ export const marketingRoutes: RoutesContribution = (context) => {
     const scope = await scopeFor(auth, req, projectId);
     return scoped(scope.workspaceId, projectId, (tx) =>
       listAssignments(tx, scope),
+    );
+  });
+
+  // One assignment with its runs, deliverables and platform status (G7); any project member.
+  app.get("/api/projects/:projectId/assignments/:id/detail", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      assignmentDetail(tx, scope, z.uuid().parse(id)),
     );
   });
 
