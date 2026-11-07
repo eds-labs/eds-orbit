@@ -1336,9 +1336,12 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
       });
       await h.setPolicy({ channels: ["other-int"] });
       vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(Date.parse(pubs[1]!.scheduledAt) + MINUTE);
-      for (const pub of [...pubs, ...pubs])
-        await h.run((tx) => claimPublication(tx, project.owner, pub.id));
+      // Each post is claimed within its own grace period (a later claim would be SLOT_EXPIRED).
+      for (const pub of pubs) {
+        vi.setSystemTime(Date.parse(pub.scheduledAt) + MINUTE);
+        for (const _ of [0, 1])
+          await h.run((tx) => claimPublication(tx, project.owner, pub.id));
+      }
       vi.useRealTimers();
       expect((await h.rows("publications")).map((pub) => pub.status)).toEqual([
         "blocked_dependency",
@@ -1354,6 +1357,26 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
       expect(text).toContain("blockiert");
       expect(text).toContain("Synthetic X");
       expect(text).toContain("SCOPE_NOT_ALLOWED");
+    });
+
+    it("tells the owner a post started too late in words, not as SLOT_EXPIRED", async () => {
+      await linkBot();
+      await h.makeAssignment();
+      const planned = await reviewedRun();
+      await planned.run();
+      const pubs = (await h.rows("publications")).sort((a, b) =>
+        String(a.scheduledAt).localeCompare(String(b.scheduledAt)),
+      );
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.parse(pubs[0]!.scheduledAt) + 31 * MINUTE);
+      await h.run((tx) => claimPublication(tx, project.owner, pubs[0]!.id));
+      vi.useRealTimers();
+      const jobs = await jobsOf("blocked");
+      expect(jobs).toHaveLength(1);
+      await send(jobs[0]!.id);
+      const text = textOf(sent()[0]!);
+      expect(text).toContain("Termin war schon vorbei");
+      expect(text).not.toContain("SLOT_EXPIRED");
     });
 
     it("reports a draft the agent approved that waits for the owner while agent authority is off (R71)", async () => {

@@ -29,6 +29,7 @@ import {
   runProblems,
   SLOT_UNAVAILABLE,
 } from "./assignment-runs.ts";
+import { SLOT_EXPIRED } from "./veto.ts";
 import { budgetMonthStart } from "../../budget.ts";
 import { localDate } from "./scheduling.ts";
 
@@ -285,11 +286,13 @@ async function dropped(
   const reason =
     entry.code === SLOT_UNAVAILABLE
       ? "Kein freier Slot an dem Tag"
-      : entry.code === "POSTIZ_DRAFTS_DISABLED"
-        ? "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS)"
-        : entry.code === "AGENT_REVIEW_NOT_ACCEPTED"
-          ? "Die Agenten-Freigabe gilt nicht mehr (Freigabe-Schalter aus oder Bot getrennt); der Entwurf geht nicht an Postiz"
-          : entry.code;
+      : entry.code === SLOT_EXPIRED
+        ? "Der Termin ist vorbei"
+        : entry.code === "POSTIZ_DRAFTS_DISABLED"
+          ? "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS)"
+          : entry.code === "AGENT_REVIEW_NOT_ACCEPTED"
+            ? "Die Agenten-Freigabe gilt nicht mehr (Freigabe-Schalter aus oder Bot getrennt); der Entwurf geht nicht an Postiz"
+            : entry.code;
   return plain(
     [
       "Beitrag entfällt",
@@ -389,9 +392,11 @@ const FACT_CODES = [
 const reasonText = (code: string) =>
   code === SLOT_UNAVAILABLE
     ? "kein freier Slot an dem Tag"
-    : FACT_CODES.includes(code)
-      ? `Fakten fehlen (${code})`
-      : code;
+    : code === SLOT_EXPIRED
+      ? "der Termin ist vorbei"
+      : FACT_CODES.includes(code)
+        ? `Fakten fehlen (${code})`
+        : code;
 
 /**
  * Deliverables that got no slot: of a new run (`ref` is the run id) or of a
@@ -507,7 +512,13 @@ async function blocked(
   const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
   const p = data(pubRow);
   if (!pubRow || p.status !== "blocked_dependency") return { skip: "STALE" };
-  const why = ((p.blockers ?? []) as unknown[]).map(String);
+  const why = ((p.blockers ?? []) as unknown[])
+    .map(String)
+    .map((code) =>
+      code === SLOT_EXPIRED
+        ? "Der Termin war schon vorbei (mehr als 30 Minuten)"
+        : code,
+    );
   return plain(
     [
       "Beitrag blockiert",
@@ -604,7 +615,8 @@ async function postizDraftUnknown(
   // Resolved meanwhile, or never unclear: nothing to check.
   if (!row || h.status !== "outcome_unknown") return { skip: "STALE" };
   // A project on Social (S9) has its drafts in Social.
-  const where = (await publishingBackend(tx, scope)) === "social" ? "Social" : "Postiz";
+  const where =
+    (await publishingBackend(tx, scope)) === "social" ? "Social" : "Postiz";
   return plain(
     [
       `${where}-Fehler beim Entwurf`,

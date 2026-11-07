@@ -283,6 +283,21 @@ async function dailyProject(morning = tomorrowMorning()) {
 }
 
 /** Pins what the daily social automation relies on, so later tasks cannot break it unnoticed. */
+/** Live-mode environment so the hand-off to Social is real (a test publication never reaches Social). */
+function liveSocialEnv() {
+  vi.stubEnv("EXECUTION_MODE", "live");
+  vi.stubEnv("ENABLE_EXTERNAL_WRITES", "true");
+  vi.stubEnv("ORBIT_SOCIAL_PLATFORMS", "facebook,instagram");
+  // The media hand-off stores the rendition as a platform file.
+  vi.stubEnv("ORBIT_FILES", "true");
+  vi.stubEnv("FILES_BACKEND", "database");
+  vi.stubEnv("FILES_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
+  // Instagram fetches media by a signed public URL.
+  vi.stubEnv("ORBIT_SOCIAL_MEDIA_PUBLIC", "true");
+  vi.stubEnv("ORBIT_PUBLIC_INGRESS", "true");
+  provider.liveIndex = true;
+}
+
 describe.skipIf(!enabled)("Daily social automation baseline", () => {
   let daily: Awaited<ReturnType<typeof dailyProject>>;
 
@@ -461,18 +476,7 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
   });
 
   it("a redelivered publication job makes one Social post", async () => {
-    // Live mode, so the hand-off to Social is real (a test publication never reaches Social).
-    vi.stubEnv("EXECUTION_MODE", "live");
-    vi.stubEnv("ENABLE_EXTERNAL_WRITES", "true");
-    vi.stubEnv("ORBIT_SOCIAL_PLATFORMS", "facebook,instagram");
-    // The media hand-off stores the rendition as a platform file.
-    vi.stubEnv("ORBIT_FILES", "true");
-    vi.stubEnv("FILES_BACKEND", "database");
-    vi.stubEnv("FILES_ENCRYPTION_KEY", randomBytes(32).toString("hex"));
-    // Instagram fetches media by a signed public URL.
-    vi.stubEnv("ORBIT_SOCIAL_MEDIA_PUBLIC", "true");
-    vi.stubEnv("ORBIT_PUBLIC_INGRESS", "true");
-    provider.liveIndex = true;
+    liveSocialEnv();
     daily = await dailyProject();
     const { project, contents, publications, socialPosts, reviewed, release } =
       daily;
@@ -498,5 +502,50 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
     // The queue delivers the job again: nothing new is handed over.
     for (const pub of pubs) await dispatchPublication(project.owner, pub.id);
     expect(await socialPosts()).toHaveLength(2);
+  });
+
+  async function releasedAt(minutesAfterSlot: number) {
+    liveSocialEnv();
+    daily = await dailyProject();
+    await daily.drafted();
+    await daily.reviewed();
+    for (const draft of await daily.contents()) await daily.release(draft);
+    const pubs = await daily.publications();
+    expect(pubs).toHaveLength(2);
+    const slot = new Date(pubs[0]!.scheduledAt);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(slot.valueOf() + minutesAfterSlot * MINUTE));
+    return pubs;
+  }
+
+  it("a publication job 31 minutes after the slot is blocked with SLOT_EXPIRED", async () => {
+    const pubs = await releasedAt(31);
+    for (const pub of pubs)
+      await dispatchPublication(daily.project.owner, pub.id);
+    const after = await daily.publications();
+    expect(after.map((p) => p.status)).toEqual([
+      "blocked_dependency",
+      "blocked_dependency",
+    ]);
+    for (const p of after) expect(p.blockers).toEqual(["SLOT_EXPIRED"]);
+    expect(await daily.socialPosts()).toHaveLength(0);
+    const open = (await daily.h.rows("exceptions")).filter(
+      (x) => x.code === "PUBLISH_PREFLIGHT_BLOCKED" && x.status === "open",
+    );
+    expect(open).toHaveLength(1);
+    expect(open[0]!.resourceIds).toEqual(
+      expect.arrayContaining(pubs.map((p) => p.id)),
+    );
+  });
+
+  it("a publication job 29 minutes after the slot still goes out", async () => {
+    const pubs = await releasedAt(29);
+    for (const pub of pubs)
+      await dispatchPublication(daily.project.owner, pub.id);
+    expect((await daily.publications()).map((p) => p.status)).toEqual([
+      "scheduled_remote",
+      "scheduled_remote",
+    ]);
+    expect(await daily.socialPosts()).toHaveLength(2);
   });
 });
