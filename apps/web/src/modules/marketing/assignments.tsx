@@ -45,6 +45,8 @@ export type AssignmentItem = Pick<
   | "banner"
 > & {
   latestRun?: { operation?: RunOperation } | null;
+  // The latest run when the owner can still retry it before its slot (G6); else null.
+  retryableRunId?: string | null;
   version: number;
   status: string;
   schedule: AssignmentContent["schedule"];
@@ -234,6 +236,7 @@ export function AssignmentTable({
   role,
   pending,
   onStatus,
+  onRetry,
 }: {
   items: AssignmentItem[];
   de: boolean;
@@ -241,6 +244,8 @@ export function AssignmentTable({
   role: Role;
   pending: boolean;
   onStatus: (item: AssignmentItem, status: NextStatus) => void;
+  // Retries the item's failed run (owner only; needs `retryableRunId`).
+  onRetry?: (item: AssignmentItem, runId: string) => void;
 }) {
   const [ending, setEnding] = useState("");
   const locale = de ? "de" : "en";
@@ -356,6 +361,16 @@ export function AssignmentTable({
                 <td>
                   {editor && item.status !== "ended" && (
                     <div className="form-actions">
+                      {role === "owner" && item.retryableRunId && onRetry && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() => onRetry(item, item.retryableRunId!)}
+                        >
+                          {de ? "Lauf wiederholen" : "Retry run"}
+                        </Button>
+                      )}
                       {stoppable && (
                         <Button
                           size="sm"
@@ -479,6 +494,15 @@ export function Assignments({
           timezone={data?.timezone ?? project.timezone}
           role={role}
           pending={mutation.pending}
+          onRetry={(_item, runId) =>
+            mutation.run(async () => {
+              await post(
+                collectionPath(project.id, `assignment-runs/${runId}/retry`),
+                {},
+              );
+              refresh();
+            })
+          }
           onStatus={(item, status) =>
             mutation.run(() =>
               refreshOnConflict(

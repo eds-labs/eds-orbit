@@ -85,6 +85,32 @@ describe("AssignmentTable", () => {
     expect(viewer).not.toContain("Beenden");
   });
 
+  it("shows the retry button only to the owner and only for a retryable run, and posts to the route", () => {
+    const retry = vi.fn();
+    const html = (items: AssignmentItem[], role: "owner" | "editor") =>
+      renderToStaticMarkup(
+        <AssignmentTable
+          items={items}
+          de
+          timezone="Europe/Berlin"
+          role={role}
+          pending={false}
+          onStatus={() => {}}
+          onRetry={retry}
+        />,
+      );
+    expect(html([item({ retryableRunId: "run-1" })], "owner")).toContain(
+      "Lauf wiederholen",
+    );
+    expect(html([item({ retryableRunId: null })], "owner")).not.toContain(
+      "Lauf wiederholen",
+    );
+    expect(html([item()], "owner")).not.toContain("Lauf wiederholen");
+    expect(html([item({ retryableRunId: "run-1" })], "editor")).not.toContain(
+      "Lauf wiederholen",
+    );
+  });
+
   it("points a draft to its open confirmation instead of an editor", () => {
     const html = render([
       item({ status: "draft", nextRunAt: null, actionRequestId: "request" }),

@@ -18,6 +18,7 @@ import {
   approvalModeOf,
 } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
+import { bookedDraft, releasedPublication } from "./handoff-lookup.ts";
 import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import {
   draftDelivery,
@@ -69,7 +70,6 @@ export const releaseInput = z
 
 const RUNS = "assignment_runs";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const INACTIVE = ["canceled", "failed", "blocked_dependency"];
 // Same tolerance after the slot as the mission the copywriter creates.
 const SLOT_WINDOW_MS = 2 * 3600000;
 
@@ -83,40 +83,6 @@ export type ReleaseResult = {
   // The run slot the draft was planned for; differs when the post moved.
   requestedAt: string;
 };
-
-/** The owner-released publication of a content that is still active, if any. */
-async function releasedPublication(tx: DbTx, scope: Scope, contentId: string) {
-  const rows = await tx.entity.findMany({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "publications",
-      data: { path: ["contentId"], equals: contentId },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  return rows.find((row) => !INACTIVE.includes(data(row).status)) ?? null;
-}
-
-/** The assignment's Postiz draft handoff of a content that still delivers (R73), if any. */
-async function bookedDraft(tx: DbTx, scope: Scope, contentId: string) {
-  const rows = await tx.entity.findMany({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "postiz_drafts",
-      data: { path: ["contentId"], equals: contentId },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  return (
-    rows.find(
-      (row) =>
-        data(row).source === "assignment" &&
-        !["failed", "canceled"].includes(data(row).status),
-    ) ?? null
-  );
-}
 
 export async function releaseAssignmentDraft(
   tx: DbTx,

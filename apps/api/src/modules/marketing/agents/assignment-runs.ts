@@ -7,7 +7,21 @@ import {
 import { ownedPlanRefusal } from "../plans/execution.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { audit, create, data, entity, list, update } from "../../../shared.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  entity,
+  list,
+  update,
+} from "../../../shared.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { NOVELTY_KIND } from "./novelty.ts";
+import { bookedDraft, releasedPublication } from "./handoff-lookup.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
 import { enqueue } from "../pipeline/workflow.ts";
@@ -320,10 +334,11 @@ async function plannedDates(
   assignmentId: string,
   from: string,
 ) {
-  // A canceled run (assignment paused or ended) leaves its date open for a resumed assignment.
+  // A canceled run (assignment paused or ended) leaves its date open for a resumed
+  // assignment; so does a retired one (the owner retried it, G6).
   return new Set(
     (await runsMatching(tx, scope, { assignmentId, dateFrom: from }))
-      .filter((row) => data(row).status !== "canceled")
+      .filter((row) => data(row).status !== "canceled" && !data(row).retiredAt)
       .map((row) => String(data(row).date)),
   );
 }
@@ -1244,4 +1259,143 @@ export async function resumeReviewBacklog(
       });
     }
   }
+}
+
+/** A failed or partial run can only be retried at least this long before its first open slot. */
+export const RETRY_LEAD_MS = 60 * 60000;
+export const RUN_NOT_RETRYABLE = "RUN_NOT_RETRYABLE";
+export const RUN_RETRY_TOO_LATE = "RUN_RETRY_TOO_LATE";
+
+const runContents = (tx: DbTx, scope: Scope, runId: string) =>
+  tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "content",
+      data: { path: ["assignmentRunId"], equals: runId },
+    },
+  });
+
+/**
+ * Why a run cannot be retried, or null when it can (G6). Side-effect free.
+ * `RUN_NOT_RETRYABLE`: the run is not `failed` or `partial`, is retired
+ * already, its assignment is not active, a slot was booked or handed over, a
+ * draft was released, or no slot is open. `RUN_RETRY_TOO_LATE`: the first
+ * open slot is less than an hour away (or past).
+ */
+export async function runRetryRefusal(
+  tx: DbTx,
+  scope: Scope,
+  run: { id: string; data: unknown },
+  now: Date,
+): Promise<string | null> {
+  const d = data(run);
+  if (!["failed", "partial"].includes(d.status) || d.retiredAt)
+    return RUN_NOT_RETRYABLE;
+  const assignment = await tx.entity.findFirst({
+    where: {
+      id: String(d.assignmentId),
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "assignments",
+    },
+  });
+  if (!assignment || data(assignment).status !== "active")
+    return RUN_NOT_RETRYABLE;
+  const slots = (d.slots ?? []) as Array<Record<string, any>>;
+  if (slots.some((slot) => slot.publicationId || slot.postizDraftId))
+    return RUN_NOT_RETRYABLE;
+  const open = slots.filter((slot) => !slot.releasedAt);
+  if (!open.length) return RUN_NOT_RETRYABLE;
+  for (const content of await runContents(tx, scope, run.id))
+    if (
+      (await releasedPublication(tx, scope, content.id)) ||
+      (await bookedDraft(tx, scope, content.id))
+    )
+      return RUN_NOT_RETRYABLE;
+  const first = Math.min(...open.map((slot) => Date.parse(String(slot.at))));
+  if (first - now.valueOf() < RETRY_LEAD_MS) return RUN_RETRY_TOO_LATE;
+  return null;
+}
+
+/**
+ * The owner retries a failed or partial run before its slot (G6): the old
+ * run is retired (`retiredAt`, `retiredBy`, `retriedByRunId`; its open slots
+ * are released), its waiting drafts are superseded by the new run so the
+ * release list drops them, its held topic reservations are released, and
+ * planning creates one new run for the same date. Everything happens in the
+ * caller's transaction; when planning creates no run (budget, backlog,
+ * slots) the refusal rolls it all back. Spend of the old run stays in the
+ * assignment's month.
+ */
+export async function retryAssignmentRun(
+  tx: DbTx,
+  scope: Scope,
+  runId: string,
+  now = new Date(),
+): Promise<{ retiredRunId: string; runId: string }> {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  await lockRun(tx, scope, runId);
+  const row = await entity(tx, scope, RUNS, runId);
+  const refusal = await runRetryRefusal(tx, scope, row, now);
+  if (refusal) throw new DomainError(refusal, 409);
+  const d = data(row);
+  const stamp = now.toISOString();
+  const retired = await update(tx, scope, row, {
+    ...d,
+    retiredAt: stamp,
+    retiredBy: scope.userId,
+    slots: ((d.slots ?? []) as Array<Record<string, any>>).map((slot) =>
+      slot.releasedAt
+        ? slot
+        : { ...slot, releasedAt: stamp, releaseReason: "RUN_RETRIED" },
+    ),
+  });
+  // Superseded first (marked with the old run until the new one exists), so
+  // planning's review backlog and topic checks no longer count these drafts.
+  const drafts = (await runContents(tx, scope, row.id)).filter(
+    (content) =>
+      data(content).status === "needs_review" && !data(content).supersededBy,
+  );
+  for (const draft of drafts)
+    await update(tx, scope, draft, { ...data(draft), supersededBy: row.id });
+  const reservations = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: NOVELTY_KIND,
+      data: { path: ["runId"], equals: row.id },
+    },
+  });
+  for (const reservation of reservations)
+    if (data(reservation).state === "held")
+      await update(tx, scope, reservation, {
+        ...data(reservation),
+        state: "released",
+      });
+  await planAssignmentRuns(tx, scope, now);
+  const created = (
+    await runsMatching(tx, scope, {
+      assignmentId: String(d.assignmentId),
+      date: String(d.date),
+    })
+  ).find((candidate) => candidate.id !== row.id && !data(candidate).retiredAt);
+  if (!created) throw new DomainError(RUN_NOT_RETRYABLE, 409);
+  for (const draft of await runContents(tx, scope, row.id))
+    if (data(draft).supersededBy === row.id)
+      await update(tx, scope, await entity(tx, scope, "content", draft.id), {
+        ...data(draft),
+        supersededBy: created.id,
+      });
+  const current = await entity(tx, scope, RUNS, retired.id);
+  await update(tx, scope, current, {
+    ...data(current),
+    retriedByRunId: created.id,
+  });
+  await audit(tx, scope, "assignment.run_retried", row.id, {
+    assignmentId: d.assignmentId,
+    retiredRunId: row.id,
+    runId: created.id,
+  });
+  return { retiredRunId: row.id, runId: created.id };
 }

@@ -7,7 +7,11 @@ import { data, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { socialChannelHandles } from "../../social/contract.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
-import { nextAssignmentRunAt } from "./assignment-runs.ts";
+import {
+  nextAssignmentRunAt,
+  runRetryRefusal,
+  runsMatching,
+} from "./assignment-runs.ts";
 import {
   agentsEnabled,
   confirmedDelivery,
@@ -119,6 +123,14 @@ export async function listAssignments(
   const items = [];
   for (const row of rows) {
     const d = data(row);
+    // The latest run (not retired) when the owner can still retry it (G6).
+    const latest = (await runsMatching(tx, scope, { assignmentId: row.id }))
+      .filter((run) => !data(run).retiredAt)
+      .at(0);
+    const retryableRunId =
+      latest && !(await runRetryRefusal(tx, scope, latest, now))
+        ? latest.id
+        : null;
     const request = requests.get(String(d.actionRequestId));
     items.push({
       id: row.id,
@@ -146,6 +158,7 @@ export async function listAssignments(
         ? { pendingReviewLimit: d.pendingReviewLimit }
         : {}),
       ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
+      retryableRunId,
       latestRun: await latestAssignmentResult(tx, scope, row.id),
       backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:

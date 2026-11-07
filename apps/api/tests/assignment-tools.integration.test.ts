@@ -126,9 +126,10 @@ const proposeArgs = (changes: Record<string, unknown> = {}) => ({
 const changeArgs = (
   assignmentId: string,
   version: number | null,
-  action: "pause" | "resume" | "end" | "change",
+  action: "pause" | "resume" | "end" | "change" | "retry",
   changes: Record<string, unknown> | null = null,
-) => ({ assignmentId, version, action, changes });
+  runId: string | null = null,
+) => ({ assignmentId, version, action, changes, runId });
 // A patch leaves every field it does not change at null.
 const patch = (changes: Record<string, unknown>) => ({
   name: null,
@@ -329,9 +330,9 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
   const requests = () =>
     run(async (tx) => list(tx, project.owner, "action_requests"));
   /** An active assignment, confirmed by the owner. */
-  async function confirmed() {
+  async function confirmed(changes: Record<string, unknown> = {}) {
     const first = await turn(project.editor, [
-      [call("assignment_propose", proposeArgs())],
+      [call("assignment_propose", proposeArgs(changes))],
       [answer("Proposed.")],
     ]);
     await decide(project.owner, first.results[0].actionRequestId);
@@ -500,6 +501,75 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     ]);
   });
 
+  it("retries a failed run through assignment_change and returns both run ids (G6)", async () => {
+    const tz = (
+      await run((tx) =>
+        tx.project.findUniqueOrThrow({
+          where: { id: project.owner.projectId },
+        }),
+      )
+    ).timezone;
+    const slot = new Date(Date.now() + 2 * 3600000);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(slot);
+    const part = (type: string) => parts.find((p) => p.type === type)!.value;
+    const id = await confirmed({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: [`${part("hour")}:${part("minute")}`],
+        date: null,
+        leadMinutes: null,
+      },
+    });
+    const failedRun = await run((tx) =>
+      create(tx, project.owner, "assignment_runs", {
+        assignmentId: id,
+        assignmentVersion: 1,
+        date: `${part("year")}-${part("month")}-${part("day")}`,
+        status: "failed",
+        slots: [{ channel: X, at: slot.toISOString() }],
+        unavailable: [],
+        steps: [],
+        costMicros: 0,
+      }),
+    );
+    const denied = await turn(project.editor, [
+      [
+        call(
+          "assignment_change",
+          changeArgs(id, null, "retry", null, failedRun.id),
+        ),
+      ],
+      [answer("Only the owner can retry.")],
+    ]);
+    expect(denied.results).toEqual([{ error: "OWNER_REQUIRED" }]);
+    const { results } = await turn(project.owner, [
+      [
+        call(
+          "assignment_change",
+          changeArgs(id, null, "retry", null, failedRun.id),
+        ),
+      ],
+      [answer("Retried.")],
+    ]);
+    expect(results).toEqual([
+      {
+        assignmentId: id,
+        retiredRunId: failedRun.id,
+        runId: expect.any(String),
+      },
+    ]);
+    expect(results[0].runId).not.toBe(failedRun.id);
+  });
+
   it("lets only the owner resume, and returns OWNER_REQUIRED to an editor", async () => {
     const id = await confirmed();
     await turn(project.editor, [
@@ -617,11 +687,18 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     expect(proposed.cards[0]).toMatchObject({
       assignment: { historyDays: 30 },
     });
-    expect(data(await assignmentOf(proposed.results[0].assignmentId))).toMatchObject({
+    expect(
+      data(await assignmentOf(proposed.results[0].assignmentId)),
+    ).toMatchObject({
       historyDays: 30,
     });
     const refused = await turn(project.editor, [
-      [call("assignment_propose", proposeArgs({ name: "Too short", historyDays: 7 }))],
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({ name: "Too short", historyDays: 7 }),
+        ),
+      ],
       [answer("Refused.")],
     ]);
     expect(refused.results[0]).toMatchObject({
@@ -631,11 +708,19 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     const id = await confirmed();
     const version = (await assignmentOf(id)).version;
     const { results } = await turn(project.editor, [
-      [call("assignment_change", changeArgs(id, version, "change", patch({ historyDays: 45 })))],
+      [
+        call(
+          "assignment_change",
+          changeArgs(id, version, "change", patch({ historyDays: 45 })),
+        ),
+      ],
       [answer("Awaiting.")],
     ]);
     expect(results[0]).toMatchObject({ status: "awaiting_confirmation" });
-    expect(data(await assignmentOf(id))).toMatchObject({ status: "draft", historyDays: 45 });
+    expect(data(await assignmentOf(id))).toMatchObject({
+      status: "draft",
+      historyDays: 45,
+    });
   });
 
   it("sets one text for all channels and a format at proposal and change (R76, R77)", async () => {
