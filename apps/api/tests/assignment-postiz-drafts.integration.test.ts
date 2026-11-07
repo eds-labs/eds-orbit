@@ -430,6 +430,7 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
 
   it("an assignment draft on a social: channel becomes a Social draft without a Postiz connector", async () => {
     vi.stubEnv("ORBIT_SOCIAL", "true");
+    vi.stubEnv("ORBIT_SOCIAL_PLATFORMS", "x");
     const accountId = await h.run(async (tx) => {
       await tx.projectModule.create({
         data: { workspaceId: project.owner.workspaceId, projectId: project.owner.projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: project.owner.userId },

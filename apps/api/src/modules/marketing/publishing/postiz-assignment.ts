@@ -140,9 +140,16 @@ export async function assertAssignedSocialChannels(
     // A native reference names a Social account; it needs the Social backend.
     if ((await publishingBackend(tx, scope)) !== "social")
       throw new DomainError("SOCIAL_CHANNEL_REQUIRES_SOCIAL_BACKEND", 409);
-    for (const id of native)
-      if (!(await accountForChannel(tx, scope, id)))
-        throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
+    // Marketing compares channel references as exact strings (policy,
+    // content, slots): one spelling only, the lowercase one Social returns.
+    if (native.some((id) => id !== id.toLowerCase()))
+      throw new DomainError("SOCIAL_CHANNEL_NOT_LOWERCASE", 409);
+    for (const id of native) {
+      const account = await accountForChannel(tx, scope, id);
+      if (!account) throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
+      if (!account.platformEnabled)
+        throw new DomainError("SOCIAL_PLATFORM_NOT_AVAILABLE", 409);
+    }
   }
   const postiz = integrationIds.filter((id) => !isSocialChannel(id));
   if (!postiz.length) return;

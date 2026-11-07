@@ -8,7 +8,7 @@ import type { SocialPlatform } from "./accounts/store.ts";
 import { postMetrics } from "./analytics/collect.ts";
 import { cancelDelivery } from "./dispatch/control.ts";
 import { stopDelivery } from "./dispatch/dispatch.ts";
-import { validationContext } from "./dispatch/gates.ts";
+import { platformEnabled, validationContext } from "./dispatch/gates.ts";
 import { socialActive } from "./gate.ts";
 import { uploadMedia } from "./media/library.ts";
 import { approveOriginPost } from "./posts/approval.ts";
@@ -33,6 +33,8 @@ export type SocialAccountRef = {
   version: number;
   capability: string;
   status: string;
+  /** Whether the installation switched the account's platform on (ORBIT_SOCIAL_PLATFORMS). */
+  platformEnabled: boolean;
 };
 
 const SOCIAL_CHANNEL = /^social:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
@@ -42,13 +44,22 @@ export function isSocialChannel(channel: string): boolean {
   return SOCIAL_CHANNEL.test(channel);
 }
 
-/** The handle of each of the project's connected accounts by its `social:<accountId>` reference. */
-export async function socialChannelHandles(tx: DbTx, scope: Scope): Promise<Map<string, string>> {
+/** The project's connected (not disabled) accounts as `social:<accountId>` channels, oldest first. */
+export async function socialChannels(
+  tx: DbTx,
+  scope: Scope,
+): Promise<Array<{ id: string; platform: SocialPlatform; handle: string }>> {
   const rows = await tx.socialAccount.findMany({
     where: { projectId: scope.projectId, status: { not: "disabled" } },
-    select: { id: true, handle: true },
+    select: { id: true, platform: true, handle: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
-  return new Map(rows.map((row) => [`social:${row.id}`, row.handle]));
+  return rows.map((row) => ({ id: `social:${row.id}`, platform: row.platform as SocialPlatform, handle: row.handle }));
+}
+
+/** The handle of each of the project's connected accounts by its `social:<accountId>` reference. */
+export async function socialChannelHandles(tx: DbTx, scope: Scope): Promise<Map<string, string>> {
+  return new Map((await socialChannels(tx, scope)).map((c) => [c.id, c.handle]));
 }
 
 /** Whether the project can publish through Social now (switch and module). */
@@ -76,6 +87,7 @@ export async function accountForChannel(tx: DbTx, scope: Scope, channel: string)
         version: row.version,
         capability: row.capability,
         status: row.status,
+        platformEnabled: platformEnabled(row.platform as SocialPlatform),
       }
     : null;
 }

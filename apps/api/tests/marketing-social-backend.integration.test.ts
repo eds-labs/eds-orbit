@@ -9,6 +9,7 @@ import { submitOriginPost } from "../src/modules/social/contract.ts";
 import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
 import { assertAssignedSocialChannels } from "../src/modules/marketing/publishing/postiz-assignment.ts";
 import { resolveChannelRules } from "../src/modules/marketing/publishing/channel-rules.ts";
+import { readPolicy } from "../src/modules/marketing/policy/policy-admin.ts";
 import { channelNames } from "../src/modules/marketing/agents/assignment-overview.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
@@ -314,6 +315,7 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     const check = (channels: string[]) => run((tx) => assertAssignedSocialChannels(tx, project.owner, channels));
 
     it("accepts a social: reference on the Social backend", async () => {
+      process.env.ORBIT_SOCIAL_PLATFORMS = "x";
       await backend("social");
       try {
         await expect(check([`social:${accountId}`])).resolves.toBeUndefined();
@@ -360,6 +362,41 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         }
       } finally {
         await other.cleanup();
+      }
+    });
+
+    it("refuses a platform the installation has not switched on", async () => {
+      await backend("social");
+      try {
+        process.env.ORBIT_SOCIAL_PLATFORMS = "telegram";
+        expect(await code(check([`social:${accountId}`]))).toBe("SOCIAL_PLATFORM_NOT_AVAILABLE");
+        process.env.ORBIT_SOCIAL_PLATFORMS = "x";
+        await expect(check([`social:${accountId}`])).resolves.toBeUndefined();
+      } finally {
+        await backend("postiz");
+      }
+    });
+
+    it("accepts only the lowercase spelling of a social: reference", async () => {
+      process.env.ORBIT_SOCIAL_PLATFORMS = "x";
+      await backend("social");
+      try {
+        expect(await code(check([`social:${accountId.toUpperCase()}`]))).toBe("SOCIAL_CHANNEL_NOT_LOWERCASE");
+        await expect(check([`social:${accountId}`])).resolves.toBeUndefined();
+      } finally {
+        await backend("postiz");
+      }
+    });
+
+    it("lists the project's Social accounts as assignable policy channels on the Social backend only", async () => {
+      const ids = async () => (await run((tx) => readPolicy(tx, project.owner))).options.channels.map((c: { id: string }) => c.id);
+      expect(await ids()).not.toContain(`social:${accountId}`);
+      await backend("social");
+      try {
+        const channels = (await run((tx) => readPolicy(tx, project.owner))).options.channels;
+        expect(channels).toContainEqual({ id: `social:${accountId}`, name: "@orbit_x", platform: "x" });
+      } finally {
+        await backend("postiz");
       }
     });
 
