@@ -124,8 +124,10 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
   const at = (iso: string, minutes = 0) =>
     new Date(Date.parse(iso) + minutes * MINUTE);
   /** A confirmed assignment whose run's drafts the review approved but left for the owner. */
-  const leftForOwner = async () => {
-    const assignment = await h.makeAssignment();
+  const leftForOwner = async (
+    options: Parameters<typeof h.makeAssignment>[0] = {},
+  ) => {
+    const assignment = await h.makeAssignment(options);
     const planned = await h.planWithBriefs((slots) =>
       slots.map((slot) => h.brief(slot)),
     );
@@ -174,6 +176,7 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
   });
   afterEach(async () => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     delete process.env.ORBIT_AGENTS;
     delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
     await project.cleanup();
@@ -386,7 +389,7 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     ).toHaveLength(1);
   });
 
-  it("moves to the next free slot of the day when the run slot is taken or passed", async () => {
+  it("moves to the next free slot of the day when the run slot is taken", async () => {
     await h.setPolicy({ maxPerDay: 3 });
     const { drafts, slots } = await leftForOwner();
     // Another post sits on the first slot.
@@ -416,15 +419,50 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
       requestedAt: slots[0]!.at,
       publicationId: moved.publicationId,
     });
-    // A slot that has passed moves to the next half hour still ahead.
+  });
+
+  it("refuses a release at or after the run slot with SLOT_EXPIRED and changes nothing", async () => {
+    const { drafts, slots } = await leftForOwner();
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(at(slots[1]!.at, 10));
-    const late = await release(project.owner, drafts[1]!);
-    expect(late).toMatchObject({
+    // The exact slot instant already counts as expired, and so does a later one.
+    for (const minutes of [0, 10]) {
+      vi.setSystemTime(at(slots[1]!.at, minutes));
+      expect(await code(release(project.owner, drafts[1]!))).toBe(
+        "SLOT_EXPIRED",
+      );
+    }
+    expect(await publications()).toEqual([]);
+    const current = (await contents())[1]!;
+    expect(current.status).toBe("needs_review");
+    expect((await mission(drafts[1]!.missionId)).plannedSlotAt).toBe(
+      slots[1]!.at,
+    );
+    // Just before the slot it still releases at the slot.
+    vi.setSystemTime(at(slots[1]!.at, -1));
+    expect(await release(project.owner, drafts[1]!)).toMatchObject({
       result: "released",
-      scheduledAt: at(slots[1]!.at, 30).toISOString(),
-      requestedAt: slots[1]!.at,
+      scheduledAt: slots[1]!.at,
     });
+  });
+
+  it("refuses an expired release of a Postiz draft delivery as well", async () => {
+    vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+    const { drafts, slots } = await leftForOwner({ delivery: "postiz_draft" });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at(slots[0]!.at, 1));
+    expect(await code(release(project.owner, drafts[0]!))).toBe("SLOT_EXPIRED");
+    expect(await h.rows("postiz_drafts")).toEqual([]);
+    expect((await contents())[0]!.status).toBe("needs_review");
+  });
+
+  it("lists a passed draft of today as expired and a future one as not", async () => {
+    const { slots } = await leftForOwner();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(at(slots[0]!.at, 1));
+    const listed = await h.run((tx) => draftsAwaitingOwner(tx, project.owner));
+    const bySlot = new Map(listed.map((item) => [item.slotAt, item.expired]));
+    expect(bySlot.get(slots[0]!.at)).toBe(true);
+    expect(bySlot.get(slots[1]!.at)).toBe(false);
   });
 
   it("refuses with SLOT_UNAVAILABLE when the day has no free slot", async () => {

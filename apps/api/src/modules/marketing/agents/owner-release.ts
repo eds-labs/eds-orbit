@@ -22,6 +22,8 @@ import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import {
   draftDelivery,
   moveDraft,
+  SLOT_EXPIRED,
+  slotExpired,
   slotKey,
   vetoSlot,
   type RunSlot,
@@ -43,10 +45,12 @@ import {
  * - the post is scheduled through `publishIntent` without a veto window,
  *   because the owner approved it.
  *
- * Slot: the draft's run slot (`plannedSlotAt`). If that slot is taken or has
- * passed, the post moves to the next free half hour of the same local day by
- * the rules `scheduleApproved` uses (`vetoSlot` with no window); without one
- * the release is refused with `SLOT_UNAVAILABLE` and nothing changes. The
+ * Slot: the draft's run slot (`plannedSlotAt`). A slot that has passed is
+ * never moved: the release is refused with `SLOT_EXPIRED` (D-2). If the slot
+ * is still ahead but taken, the post moves to the next free half hour of the
+ * same local day by the rules `scheduleApproved` uses (`vetoSlot` with no
+ * window); without one the release is refused with `SLOT_UNAVAILABLE` and
+ * nothing changes. The
  * assignment is checked through its confirmation (`confirmedHash`), so a
  * one-off that completed its run still works. Every deterministic blocker
  * stays absolute: preflight runs in `publishIntent` again at handoff, and any
@@ -207,6 +211,7 @@ export async function releaseAssignmentDraft(
     ...slot,
   }));
   const now = new Date();
+  if (slotExpired(planned, now)) throw new DomainError(SLOT_EXPIRED, 409);
   const target = await vetoSlot(
     tx,
     scope,

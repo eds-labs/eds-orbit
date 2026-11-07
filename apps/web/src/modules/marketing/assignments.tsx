@@ -93,6 +93,8 @@ export type AwaitingOwnerDraft = {
   channel: string;
   channelName: string | null;
   slotAt: string;
+  // The run slot has passed: it is never moved, so the draft cannot be released.
+  expired?: boolean;
   excerpt: string;
   // The draft's image or creative rendition (thumbnail); absent or null: none.
   assetId?: string | null;
@@ -662,8 +664,8 @@ export function AwaitingOwnerDraftList({
           </h2>
           <p>
             {de
-              ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt oder vorbei ist, zum nächsten freien Termin desselben Tages."
-              : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken or past, at the next free slot of the same day."}
+              ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt ist, zum nächsten freien Termin desselben Tages. Ein vorbeigegangener Termin wird nicht verschoben."
+              : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken, at the next free slot of the same day. A slot that has passed is never moved."}
           </p>
         </div>
       </div>
@@ -673,6 +675,12 @@ export function AwaitingOwnerDraftList({
             {when(item.slotAt, locale, timezone)} ·{" "}
             {item.channelName ?? item.channel}
             {item.assignmentName && ` · ${item.assignmentName}`}
+            {item.expired && (
+              <span>
+                {" "}
+                <Badge tone="neutral">{de ? "Abgelaufen" : "Expired"}</Badge>
+              </span>
+            )}
             {item.problems.map((code) => (
               <span key={code}>
                 {" "}
@@ -707,7 +715,13 @@ export function AwaitingOwnerDraftList({
                 ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
                 : "The review agent left this draft to you."}
           </p>
-          {canRelease ? (
+          {item.expired ? (
+            <p className="panel-note">
+              {de
+                ? "Der Termin ist vorbei. Der Post wird nicht verschoben und kann nicht mehr freigegeben werden."
+                : "The slot has passed. The post is not moved and can no longer be released."}
+            </p>
+          ) : canRelease ? (
             <div className="form-actions">
               <Button
                 size="sm"

@@ -128,6 +128,14 @@ const rowsWhere = (
     orderBy: { createdAt: "asc" },
   });
 
+/** The refusal for a deliverable whose run slot has already passed (D-2). */
+export const SLOT_EXPIRED = "SLOT_EXPIRED";
+
+/** A slot is expired from its own instant on: it is never moved afterwards. */
+export function slotExpired(slot: Date, now: Date): boolean {
+  return now.valueOf() >= slot.valueOf();
+}
+
 /**
  * The time a deliverable can go out with its full veto window: its own slot,
  * or the next free half hour after it on the same local day, under the same
@@ -324,6 +332,8 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       // Switched off: the deliverable is dropped with a notice (R73).
       if (drafting && !postizDraftsEnabled())
         failure = "POSTIZ_DRAFTS_DISABLED";
+      // A passed slot is never moved (D-2).
+      else if (slotExpired(planned, now)) failure = SLOT_EXPIRED;
       else
         target = await vetoSlot(
           tx,

@@ -30,19 +30,22 @@ type Draft = Awaited<ReturnType<typeof draftsAwaitingOwner>>[number];
 
 /** The owner's drafts of assignments, one item each (the owner releases them). */
 function draftItems(drafts: Draft[]): AttentionItem[] {
-  return drafts.map((draft) => ({
-    id: `marketing:draft:${draft.id}`,
-    moduleId: "marketing",
-    kind: "marketing_draft_release",
-    severity: "warning",
-    dueAt: draft.slotAt,
-    params: {
-      assignmentName: String(draft.assignmentName ?? ""),
-      channelName: String(draft.channelName ?? ""),
-      slotAt: draft.slotAt,
-    },
-    ...APPROVALS,
-  }));
+  // An expired draft can no longer be released; the content review counts it.
+  return drafts
+    .filter((draft) => !draft.expired)
+    .map((draft) => ({
+      id: `marketing:draft:${draft.id}`,
+      moduleId: "marketing",
+      kind: "marketing_draft_release",
+      severity: "warning",
+      dueAt: draft.slotAt,
+      params: {
+        assignmentName: String(draft.assignmentName ?? ""),
+        channelName: String(draft.channelName ?? ""),
+        slotAt: draft.slotAt,
+      },
+      ...APPROVALS,
+    }));
 }
 
 /**
@@ -334,7 +337,11 @@ export const marketingAttention: AttentionContribution = async (
         link: `/marketing/analytics?report=${r.id}`,
       })),
     ...draftItems(drafts),
-    ...(await contentReviewItems(tx, scope, drafts.length)),
+    ...(await contentReviewItems(
+      tx,
+      scope,
+      drafts.filter((draft) => !draft.expired).length,
+    )),
     ...(await exceptionItems(tx, scope)),
     ...(await pausedPostItems(tx, scope, now)),
     ...(await runProblemItems(tx, scope, now)),

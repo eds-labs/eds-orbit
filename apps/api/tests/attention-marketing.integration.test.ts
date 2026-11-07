@@ -340,6 +340,18 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     expect(JSON.stringify(items)).not.toContain("SECRET-BODY");
   });
 
+  it("an expired draft has no release item and stays in the content review count", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    // Passed a minute ago: today in project time unless it is just past midnight.
+    const passed = new Date(Date.now() - 60_000).toISOString();
+    await awaitingDraft(passed);
+    const items = await marketingItems();
+    expect(items.some((i) => i.kind === "marketing_draft_release")).toBe(false);
+    expect(
+      items.find((i) => i.kind === "marketing_content_review"),
+    ).toMatchObject({ count: 1 });
+  });
+
   it("no draft items while agents are off", async () => {
     await awaitingDraft(inHours(3));
     const items = await marketingItems();

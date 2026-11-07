@@ -127,7 +127,10 @@ import {
   vetoPublication,
 } from "../src/modules/agents/veto.ts";
 import { preflight } from "../src/modules/policy.ts";
-import { dispatchPublication, reconcilePublication } from "../src/modules/publisher.ts";
+import {
+  dispatchPublication,
+  reconcilePublication,
+} from "../src/modules/publisher.ts";
 import { pauseProject } from "../src/modules/pause.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -474,6 +477,29 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     expect(
       (await publications()).filter((pub) => pub.assignmentRunId === runId),
     ).toHaveLength(1);
+  });
+
+  it("drops an approved draft whose slot has passed with SLOT_EXPIRED and publishes nothing", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const { review, slots, runId } = await drafted();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // The first slot has passed; the second is still ahead.
+    vi.setSystemTime(at(slots[0]!.at, 5));
+    await reviewed(review.id);
+
+    const drafts = await contents();
+    const pubs = (await publications()).filter(
+      (pub) => pub.assignmentRunId === runId,
+    );
+    expect(pubs.map((pub) => pub.contentId)).not.toContain(drafts[0]!.id);
+    const [run] = await h.rows("assignment_runs");
+    expect(run!.scheduling.dropped).toEqual([
+      expect.objectContaining({
+        contentId: drafts[0]!.id,
+        code: "SLOT_EXPIRED",
+      }),
+    ]);
   });
 
   it("withdraws a vetoed post before handoff", async () => {
@@ -993,7 +1019,15 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
   });
 
   it("hands a live post to Social instead of Postiz on a project that publishes through Social (S9)", async () => {
-    const keys = ["EXECUTION_MODE", "ENABLE_EXTERNAL_WRITES", "ORBIT_SOCIAL", "ORBIT_SOCIAL_PLATFORMS", "ORBIT_FILES", "FILES_BACKEND", "FILES_ENCRYPTION_KEY"];
+    const keys = [
+      "EXECUTION_MODE",
+      "ENABLE_EXTERNAL_WRITES",
+      "ORBIT_SOCIAL",
+      "ORBIT_SOCIAL_PLATFORMS",
+      "ORBIT_FILES",
+      "FILES_BACKEND",
+      "FILES_ENCRYPTION_KEY",
+    ];
     const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
     try {
       Object.assign(process.env, {
@@ -1009,7 +1043,14 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
       await h.setPolicy({ maxPerDay: 3 });
       const accountId = await h.run(async (tx) => {
         await tx.projectModule.create({
-          data: { workspaceId: project.owner.workspaceId, projectId: project.owner.projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: project.owner.userId },
+          data: {
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            moduleId: "social",
+            enabled: true,
+            moduleVersion: "0.1.0",
+            changedBy: project.owner.userId,
+          },
         });
         const account = await tx.socialAccount.create({
           data: {
@@ -1041,18 +1082,42 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
       await dispatchPublication(project.owner, pub!.id);
       expect(provider.createPost).not.toHaveBeenCalled();
       const handed = (await publications()).find((p) => p.id === pub!.id)!;
-      expect(handed).toMatchObject({ status: "scheduled_remote", publishingBackend: "social" });
-      const post = await h.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: handed.remoteId } }));
-      expect(post).toMatchObject({ origin: "marketing", originType: "publication", originId: pub!.id, status: "approved", scheduleMode: "now" });
+      expect(handed).toMatchObject({
+        status: "scheduled_remote",
+        publishingBackend: "social",
+      });
+      const post = await h.run((tx) =>
+        tx.socialPost.findUniqueOrThrow({ where: { id: handed.remoteId } }),
+      );
+      expect(post).toMatchObject({
+        origin: "marketing",
+        originType: "publication",
+        originId: pub!.id,
+        status: "approved",
+        scheduleMode: "now",
+      });
       expect(post.baseText).toContain("Beta access is open");
       // A second dispatch of the same publication makes no second Social post
       // and leaves the record as it is.
       await dispatchPublication(project.owner, pub!.id);
-      expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, originId: pub!.id } }))).toBe(1);
-      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({ status: "scheduled_remote", remoteId: handed.remoteId });
+      expect(
+        await h.run((tx) =>
+          tx.socialPost.count({
+            where: { projectId: project.owner.projectId, originId: pub!.id },
+          }),
+        ),
+      ).toBe(1);
+      expect(
+        (await publications()).find((p) => p.id === pub!.id),
+      ).toMatchObject({
+        status: "scheduled_remote",
+        remoteId: handed.remoteId,
+      });
       // Social published it: Marketing's poll records the link.
       await h.run(async (tx) => {
-        const variant = await tx.socialPostVariant.findFirstOrThrow({ where: { postId: post.id } });
+        const variant = await tx.socialPostVariant.findFirstOrThrow({
+          where: { postId: post.id },
+        });
         await tx.socialPublication.create({
           data: {
             id: randomUUID(),
@@ -1067,26 +1132,45 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
             publishedAt: new Date(),
           },
         });
-        await tx.socialPost.update({ where: { id: post.id }, data: { status: "published" } });
+        await tx.socialPost.update({
+          where: { id: post.id },
+          data: { status: "published" },
+        });
       });
       await reconcilePublication(project.owner, pub!.id);
-      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({
+      expect(
+        (await publications()).find((p) => p.id === pub!.id),
+      ).toMatchObject({
         status: "published",
         releaseUrl: "https://x.com/orbit_x/status/1700",
       });
       // Once it is out, a late redelivery of the job changes nothing either.
       await dispatchPublication(project.owner, pub!.id);
-      expect((await publications()).find((p) => p.id === pub!.id)).toMatchObject({ status: "published" });
+      expect(
+        (await publications()).find((p) => p.id === pub!.id),
+      ).toMatchObject({ status: "published" });
       // A second post handed over and not sent yet: a pause takes it back in Social.
       const [, second] = (await publications()).filter((p) => p.channel === X);
       if (second) {
         vi.setSystemTime(at(second.scheduledAt, 1));
         await dispatchPublication(project.owner, second.id);
-        const secondHanded = (await publications()).find((p) => p.id === second.id)!;
+        const secondHanded = (await publications()).find(
+          (p) => p.id === second.id,
+        )!;
         expect(secondHanded.status).toBe("scheduled_remote");
         await h.run((tx) => pauseProject(tx, project.owner, true));
-        expect((await publications()).find((p) => p.id === second.id)).toMatchObject({ status: "canceled", reason: "PROJECT_PAUSED" });
-        expect((await h.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: secondHanded.remoteId } }))).status).toBe("canceled");
+        expect(
+          (await publications()).find((p) => p.id === second.id),
+        ).toMatchObject({ status: "canceled", reason: "PROJECT_PAUSED" });
+        expect(
+          (
+            await h.run((tx) =>
+              tx.socialPost.findUniqueOrThrow({
+                where: { id: secondHanded.remoteId },
+              }),
+            )
+          ).status,
+        ).toBe("canceled");
       }
     } finally {
       for (const [key, value] of Object.entries(saved))

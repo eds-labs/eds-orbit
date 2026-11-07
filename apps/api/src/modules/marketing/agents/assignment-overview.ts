@@ -20,7 +20,12 @@ import {
 } from "./specialists/runner.ts";
 import type { ManagedAgentListing } from "../../../platform/agents/managed.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
-import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
+import {
+  assignmentPost,
+  draftDelivery,
+  slotExpired,
+  withdrawable,
+} from "./veto.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 
 /**
@@ -365,7 +370,8 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
  * drafts of a run that is not canceled, left `needs_review` by the review
  * (R47/R49), without a linked bot or while agent review authority is off,
  * whose assignment's confirmation still covers them and whose run slot is
- * today or later (project time). Each comes with its run slot, a text
+ * today or later (project time). Each comes with its run slot (`expired`
+ * once that instant has passed: such a draft can no longer be released), a text
  * excerpt, whether the review agent approved it and the problems it found.
  * Earliest slot first. Empty while Orbit Agents is off.
  */
@@ -374,7 +380,8 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });
-  const today = localDate(new Date(), project.timezone);
+  const now = new Date();
+  const today = localDate(now, project.timezone);
   const rows = (
     await tx.entity.findMany({
       where: {
@@ -442,6 +449,8 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       channel: d.channel,
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
+      // A passed slot is never moved, so the owner can no longer release it (D-2).
+      expired: slotExpired(new Date(slotAt), now),
       excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
       // The draft's image or creative rendition, shown as a thumbnail
       // (Creative Studio on; off, the list is as before, CS-D6).

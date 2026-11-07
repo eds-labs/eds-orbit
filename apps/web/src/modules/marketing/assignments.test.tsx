@@ -327,6 +327,26 @@ describe("AwaitingOwnerDraftList", () => {
     expect(html("asset-9", false)).not.toContain("<img");
   });
 
+  it("shows an expired draft as expired without a release button", () => {
+    const html = render([draft({ expired: true })]);
+    expect(html).toContain("Abgelaufen");
+    expect(html).not.toContain(">Freigeben<");
+    expect(html).not.toContain("Nur ein Owner kann freigeben");
+    expect(
+      renderToStaticMarkup(
+        <AwaitingOwnerDraftList
+          items={[draft({ expired: true })]}
+          projectId="p1"
+          de={false}
+          timezone="Europe/Berlin"
+          canRelease
+          pending={false}
+          onRelease={() => {}}
+        />,
+      ),
+    ).toContain("Expired");
+  });
+
   it("lists drafts left for the owner with their slot and a release button for the owner", () => {
     const html = render([draft()]);
     expect(html).toContain("Wartet auf deine Freigabe");
