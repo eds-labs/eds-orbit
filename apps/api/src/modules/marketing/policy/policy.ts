@@ -14,6 +14,11 @@ import {
   recentPublishedTexts,
 } from "../../social/contract.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
+import {
+  CONTENT_CLOSED,
+  contentClosed,
+  refuseClosedContent,
+} from "../pipeline/content-decisions.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "../brand/marketing-profile.ts";
 import {
@@ -472,6 +477,8 @@ export async function preflight(
   // On Social (S9) Social's checks replace the Postiz write checks.
   const onSocial = "publishingBackend" in pkg.packageData;
   const blockers: string[] = [];
+  // Rejected or archived content never goes out (owner decision or review).
+  if (contentClosed(c.status)) blockers.push(CONTENT_CLOSED);
   const humanBlocker = await assignmentHumanApprovalBlocker(
     tx,
     scope,
@@ -778,6 +785,7 @@ export async function approve(
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const p = await packageFor(tx, scope, input.contentId);
+  refuseClosedContent(data(p.content));
   if (
     p.content.version !== input.version ||
     p.packageHash !== input.packageHash

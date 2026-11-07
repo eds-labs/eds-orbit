@@ -13,7 +13,6 @@ import {
   deliveryOf,
   approvalModeOf,
 } from "./assignments.ts";
-import { localDate } from "./scheduling.ts";
 import {
   assignmentMonthSpend,
   assignmentsMonthSpend,
@@ -364,17 +363,24 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
  * Assignment drafts that wait for the owner's release (R70, I1): social
  * drafts of a run that is not canceled, left `needs_review` by the review
  * (R47/R49), without a linked bot or while agent review authority is off,
- * whose assignment's confirmation still covers them and whose run slot is
- * today or later (project time). Each comes with its run slot, a text
- * excerpt, whether the review agent approved it and the problems it found.
- * Earliest slot first. Empty while Orbit Agents is off.
+ * and whose assignment's confirmation still covers them. Each comes with its
+ * run slot, a text excerpt, whether the review agent approved it and the
+ * problems it found, and its `state`: `pending` while its slot is ahead
+ * (it can be released), `expired` once the slot has passed (a release no
+ * longer catches it up; it can be rejected or archived). Expired drafts are
+ * listed only with `includeExpired`, for up to `EXPIRED_DAYS`; attention and
+ * the agent hub count pending drafts only. Earliest slot first. Empty while
+ * Orbit Agents is off.
  */
-export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
+export const EXPIRED_DAYS = 14;
+export async function draftsAwaitingOwner(
+  tx: DbTx,
+  scope: Scope,
+  options: { includeExpired?: boolean } = {},
+) {
   if (!agentsEnabled()) return [];
-  const project = await tx.project.findUniqueOrThrow({
-    where: { id: scope.projectId },
-  });
-  const today = localDate(new Date(), project.timezone);
+  const now = Date.now();
+  const oldest = now - EXPIRED_DAYS * 86400000;
   const rows = (
     await tx.entity.findMany({
       where: {
@@ -429,9 +435,11 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       !assignment ||
       !confirmedHash(data(assignment)) ||
       !withinConfirmation(data(assignment), d) ||
-      !Number.isFinite(Date.parse(slotAt)) ||
-      localDate(new Date(slotAt), project.timezone) < today
+      !Number.isFinite(Date.parse(slotAt))
     )
+      continue;
+    const expired = Date.parse(slotAt) < now;
+    if (expired && (!options.includeExpired || Date.parse(slotAt) < oldest))
       continue;
     const text = String(d.body ?? "")
       .replace(/\s+/g, " ")
@@ -439,6 +447,7 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     items.push({
       id: row.id,
       version: row.version,
+      state: expired ? ("expired" as const) : ("pending" as const),
       channel: d.channel,
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
@@ -469,4 +478,125 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     });
   }
   return items.sort((a, b) => a.slotAt.localeCompare(b.slotAt));
+}
+
+/**
+ * What happened to the assignment drafts an owner decided in the last
+ * `HISTORY_DAYS` days, for the approvals page's history: released posts
+ * (a publication or Postiz draft the owner released), and drafts the owner
+ * rejected, discarded or archived (`ownerDecision`). An item the owner
+ * archived from the overview (`ownerDecision.hiddenAt`) is listed only with
+ * `includeHidden`, so archived requests stay traceable. Newest first.
+ */
+export const HISTORY_DAYS = 30;
+export async function draftDecisionHistory(
+  tx: DbTx,
+  scope: Scope,
+  options: { includeHidden?: boolean } = {},
+) {
+  if (!agentsEnabled()) return [];
+  const since = new Date(Date.now() - HISTORY_DAYS * 86400000);
+  const closed = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "content",
+      updatedAt: { gte: since },
+      OR: [
+        { data: { path: ["status"], equals: "rejected" } },
+        { data: { path: ["status"], equals: "archived" } },
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
+  const handoffs = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: { in: ["publications", "postiz_drafts"] },
+      updatedAt: { gte: since },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
+  const released = handoffs.filter((row) => {
+    const d = data(row);
+    return row.kind === "publications"
+      ? Boolean(d.ownerReleasedAt)
+      : d.source === "assignment" && d.approvedBy === "owner";
+  });
+  const releasedContent = await rowsById(
+    tx,
+    scope,
+    "content",
+    released.map((row) => data(row).contentId),
+  );
+  const names = await channelNames(tx, scope);
+  const assignments = await rowsById(tx, scope, "assignments", [
+    ...closed.map((row) => data(row).assignmentId),
+    ...[...releasedContent.values()].map((row) => data(row).assignmentId),
+  ]);
+  const excerpt = (body: unknown) => {
+    const text = String(body ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text;
+  };
+  const base = (row: { id: string; version: number; data: unknown }) => {
+    const d = data(row);
+    return {
+      id: row.id,
+      version: row.version,
+      channel: d.channel,
+      channelName: names.get(String(d.channel)) ?? null,
+      excerpt: excerpt(d.body),
+      assignmentId: d.assignmentId ?? null,
+      assignmentName:
+        data(assignments.get(String(d.assignmentId))).name ?? null,
+    };
+  };
+  const items = [];
+  for (const row of closed) {
+    const d = data(row);
+    const decision = d.ownerDecision;
+    if (
+      typeof d.assignmentRunId !== "string" ||
+      !decision?.action ||
+      Date.parse(decision.at) < since.valueOf() ||
+      (decision.hiddenAt && !options.includeHidden)
+    )
+      continue;
+    items.push({
+      ...base(row),
+      state:
+        d.status === "rejected" ? ("rejected" as const) : ("archived" as const),
+      decidedAt: String(decision.at),
+      reason: typeof decision.reason === "string" ? decision.reason : null,
+      archiveReason: d.archiveReason ?? null,
+      hidden: Boolean(decision.hiddenAt),
+      slotAt: d.scheduledAt ?? null,
+    });
+  }
+  const seen = new Set<string>();
+  for (const handoff of released) {
+    const h = data(handoff);
+    const content = releasedContent.get(String(h.contentId));
+    if (!content || seen.has(content.id)) continue;
+    seen.add(content.id);
+    items.push({
+      ...base(content),
+      state: "released" as const,
+      decidedAt: String(
+        h.ownerReleasedAt ?? handoff.createdAt?.toISOString?.() ?? "",
+      ),
+      reason: null,
+      archiveReason: null,
+      hidden: false,
+      slotAt: h.scheduledAt ?? h.slotAt ?? null,
+      delivery: handoff.kind === "postiz_drafts" ? "postiz_draft" : "publish",
+      handoffStatus: h.status ?? null,
+    });
+  }
+  return items.sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import {
+  bannerPalette,
+  bannerPaletteValid,
+  brandToneCheck,
+  contrastRatio,
+  CreativeError,
   bannerChromeOverflow,
   bannerTemplates,
   bannerButtonFits,
@@ -372,5 +377,92 @@ describe("brand banner (R78)", () => {
       output.bytes.readUInt32BE(20),
     ]).toEqual([1600, 900]);
     expect(output.sourceSvgHash).toHaveLength(64);
+  });
+});
+
+describe("brand banner palette from the brand kit", () => {
+  const light = {
+    primaryColor: "#F97316",
+    secondaryColor: "#0F766E",
+    accentColor: "#FACC15",
+    backgroundColor: "#FFF8F0",
+    surfaceColor: "#FFFFFF",
+    textColor: "#1F2937",
+  };
+  const dark = {
+    primaryColor: "#22D3EE",
+    secondaryColor: "#0B1D3A",
+    accentColor: "#22D3EE",
+    backgroundColor: "#040B1A",
+    surfaceColor: "#0B1D3A",
+    textColor: "#FFFFFF",
+  };
+
+  it("derives a readable palette for light and dark brands", () => {
+    const l = bannerPalette(light);
+    expect(l.base).toBe("#FFF8F0");
+    expect(l.text).toBe("#1F2937");
+    expect(contrastRatio(l.text, l.base)).toBeGreaterThanOrEqual(4.5);
+    // Neither the yellow accent nor the orange primary reads on the light
+    // base as large text (3:1): the teal secondary does.
+    expect(l.accent).toBe("#0F766E");
+    expect(contrastRatio(l.accent, l.base)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(l.accentEnd, l.base)).toBeGreaterThanOrEqual(3);
+    const d = bannerPalette(dark);
+    expect(d.base).toBe("#040B1A");
+    expect(d.text).toBe("#FFFFFF");
+    expect(d.accent).toBe("#22D3EE");
+    expect(bannerPaletteValid(l) && bannerPaletteValid(d)).toBe(true);
+  });
+
+  it("draws the banner in the given palette and refuses an invalid one", () => {
+    const input = {
+      template: "brand_landscape" as const,
+      text: {
+        headline1: "Plan the week",
+        headline2: "together",
+        subline: "One calendar for the whole family",
+        button: "Try it",
+      },
+      brandName: "Family App",
+      footer: "family.example",
+      logoApproved: true,
+    };
+    const classic = renderBrandBanner(input);
+    const branded = renderBrandBanner({
+      ...input,
+      palette: bannerPalette(light),
+    });
+    if (classic.status !== "rendered" || branded.status !== "rendered")
+      throw new Error("not rendered");
+    expect(classic.svg).toContain("#22D3EE");
+    expect(branded.svg).not.toContain("#22D3EE");
+    expect(branded.svg).not.toContain("#040B1A");
+    expect(branded.svg).toContain("#FFF8F0");
+    expect(() =>
+      renderBrandBanner({
+        ...input,
+        palette: { ...bannerPalette(light), base: 'red"/><script>' },
+      }),
+    ).toThrow(CreativeError);
+  });
+
+  it("flags a background in the other tone than the brand", async () => {
+    const sharp = (await import("sharp")).default;
+    const solid = (hex: string) =>
+      sharp({
+        create: { width: 96, height: 64, channels: 3, background: hex },
+      })
+        .png()
+        .toBuffer();
+    const navy = await solid("#061226");
+    const cream = await solid("#FFF4E6");
+    expect((await brandToneCheck(navy, light)).verdict).toBe("mismatch");
+    expect((await brandToneCheck(cream, light)).verdict).toBe("pass");
+    expect((await brandToneCheck(navy, dark)).verdict).toBe("pass");
+    expect((await brandToneCheck(cream, dark)).verdict).toBe("mismatch");
+    const check = await brandToneCheck(cream, light);
+    expect(check.brandTone).toBe("light");
+    expect(check.paletteCoverage).toBeGreaterThan(0.9);
   });
 });

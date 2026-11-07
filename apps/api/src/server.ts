@@ -267,6 +267,7 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/publications/:id/veto",
   "/api/projects/:projectId/assignment-drafts",
   "/api/projects/:projectId/assignment-drafts/:id/release",
+  "/api/projects/:projectId/assignment-drafts/:id/:decision",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =

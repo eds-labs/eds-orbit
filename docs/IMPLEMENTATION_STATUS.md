@@ -1,5 +1,34 @@
 # Implementation status
 
+## Brand-true assignment banners and draft decisions (2026-11-07, branch `claude/orbit-creatives-approval-management-64303d`, not merged)
+
+Mario's report of 2026-11-07: the FamilyPlan assignment "FamilyPlan Testwoche" produced a dark fintech banner with cyan waves and glass cards (another brand's look), and the approvals page offered only "Freigeben". The plan with causes and design is in [plans/marketing-brand-banners-and-draft-decisions.md](plans/marketing-brand-banners-and-draft-decisions.md).
+
+- **Cause 1:** the legacy assignment banner (`banner: brand_landscape`, R78) used a hard-coded background prompt (`DEFAULT_BANNER_STYLE`: navy, cyan light waves, frosted glass cards) and fixed compositor colours. The owner's style notes were only appended. No asset or cache crosses projects; every lookup is project-scoped.
+- **Cause 2:** the mobile "Freigaben" tab is marketing's approvals page. Its list of assignment drafts waiting for the owner had only "Freigeben", and no backend route existed to reject, discard or archive one draft. Also, a late release moved a passed slot to later that day, and `reviewContent` could reopen rejected content.
+- **Built:**
+  - Banner art prompt from the project's brand kit (`bannerBackgroundPrompt(banner, visualIdentity)`): base tone, palette, imagery, design rules, avoid list; the owner's notes take precedence.
+  - Banner palette from the brand kit (`bannerPalette`, contrast-checked text and accent) in `renderBrandBanner`; without a palette the renderer is unchanged.
+  - Deterministic brand-tone check of the background (`brandToneCheck`) stored on each banner (`brandCheck`); a mismatch is the review finding `BANNER_BRAND_MISMATCH`, which leaves the draft for the owner.
+  - Owner decisions `reject` (optional reason), `discard` and `archive` (`pipeline/content-decisions.ts`), with routes `POST …/assignment-drafts/:id/{reject,discard,archive}` and actions `reject-content`, `discard-content` and `archive-content`. They change only the status and add audit records; nothing is deleted. An assignment draft frees its run slot.
+  - Closed content (`rejected`, `archived`) is refused by `reviewContent`, `approve` and the release (`CONTENT_CLOSED`), and blocked by preflight.
+  - A release whose slot has passed is refused (`SLOT_PASSED`); nothing is caught up.
+  - `GET …/assignment-drafts` returns `state` (`pending` or `expired`) and a 30-day `history` (released, rejected, archived; archived ones on request).
+  - The approvals page has status badges, all actions visible and wrapping on phones, a reject dialog with an optional reason, a discard/archive confirmation, disabled actions with an explanation for non-owners, a history section and readable refusal texts. The content detail has the same reject and discard. A link points to "App-Freigaben".
+- **Deviation:** CS-D3 ("uLiquid banner frozen byte for byte") no longer holds. uLiquid's banners now follow its own brand kit, which is dark navy/cyan per profile v3. The earlier glass-card motif belongs in uLiquid's imagery or the assignment's banner style notes, if wanted.
+- **Verification (local):**
+  - Typecheck (API and web), source guard, import boundaries, `git diff --check` and `pnpm build` pass.
+  - Full suite: 5,513 passed, 7 skipped. The 3 failures were the expected pins of the new routes and actions: access matrix, the module action list, and the `assignment-drafts` response shape. All three are updated and pass.
+  - Access matrix (security review): the four new routes refuse viewers and editors (403). Owners reach the handler, which answers 400 for the empty body, or 404 for the decision route's placeholder parameter.
+  - Creative package: 170 tests passed, plus 3 new.
+  - Banner integration tests: 25 passed, among them FamilyPlan-like light and uLiquid-like dark kits, a tone mismatch left for the owner, and another project's logo refused.
+  - Owner-release and decision integration tests: 24 passed.
+  - Web marketing tests: 155 passed.
+  - Mobile layout checked at 375 px on a static render with the app CSS: no overflow, 44 px targets.
+  - OpenAPI regenerated.
+- **Not done:** a live run on a real brand kit (a paid image, needs Mario); an end-to-end browser flow against a running stack; a tone check for Creative Studio art (it has palette-driven art and the optional vision review).
+- **Production:** nothing deployed. No migration and no flag. Rollback: revert the commit.
+
 ## Google Drive page and Social Drive picker (2026-11-05, live on `main` since `b6e98e93`, follow-ups on branch `claude/dreamy-grothendieck-0cf6ec`)
 
 Decisions DB-1 to DB-4 (Mario, 2026-11-05): own Drive page in the "Project" group, images only (videos stay S3b), existing actions plus "Add to Social media", server-side ancestry with a 60 s cache. Design: [spec](superpowers/specs/2026-11-05-drive-browser-design.md), [plan](superpowers/plans/2026-11-05-drive-browser.md). Docs: [integrations/google-drive.md](integrations/google-drive.md) ("Drive page"), [SOCIAL.md](SOCIAL.md) ("From Google Drive").
