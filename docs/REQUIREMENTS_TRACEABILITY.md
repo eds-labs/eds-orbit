@@ -1,5 +1,23 @@
 # Requirements traceability
 
+## Daily social automation on assignments (spec 2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`; not merged)
+
+Spec [superpowers/specs/2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| DS-G1 | A release at or after the slot is refused (`SLOT_EXPIRED`), never moved; expired drafts shown, no release item | `agents/veto.ts`, `agents/owner-release.ts`, marketing attention, web approvals | integration and unit tests on the branch | PASS_TEST |
+| DS-G2 | A Marketing publication more than 30 minutes late is `blocked_dependency` with `SLOT_EXPIRED` | `marketing/pipeline/workflow.ts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G3 | Social never sends more than 30 minutes late (`SOCIAL_SLOT_EXPIRED`, never retried) | `social/dispatch/lateness.ts`, `claim.ts`, `deliver.ts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G4 | `historyDays` 14 to 60, `recentTopics`, native Social posts in the strategy history | assignment tools, `social/contract.ts` `recentPosts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G5 | One library asset per image hand-off (sha256 reuse) | `social/contract.ts` `importOriginMedia` | integration and unit tests on the branch | PASS_TEST |
+| DS-G6 | Owner retries a failed or partial run at least 60 minutes before the open slot | retry route, `assignment_change` `retry`, `runRetryRefusal`, web button | integration and unit tests on the branch | PASS_TEST |
+| DS-G7 | Assignment detail with runs, previews and per-platform status | `GET …/assignments/:id/detail`, web detail view | integration and unit tests on the branch | PASS_TEST |
+| DS-G8 | Owner warnings 7 days before policy and spend authority expiry | `marketing/attention.ts`, `platform/attention/platform-items.ts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G9 | `social:<accountId>` channels on the Social backend | `marketing/publishing/postiz-assignment.ts`, `postiz-draft.ts`, `social/contract.ts` | integration and unit tests on the branch | PASS_TEST |
+
+Browser end-to-end check not yet run; nothing deployed or live-accepted.
+
 ## Agent platform, Phase 4: proactive notices and voice (ADR 0023, ADR 0024; 2026-11-05, branch `claude/agent-platform-architecture-128114`; flags off)
 
 Plan [plans/agent-platform-phase-4.md](plans/agent-platform-phase-4.md), acceptance criteria §11.

@@ -1,5 +1,23 @@
 # Implementation status
 
+## Daily social automation on assignments (2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`, not merged, not deployed)
+
+Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md). Extends assignments (no parallel automation); no schema change, no migration, no new dependency.
+
+- **Built:**
+  - G1: an owner release at or after the slot fails with `SLOT_EXPIRED` (409) for all deliveries; agent-approved drafts past their slot are dropped; awaiting drafts carry `expired`, raise no release attention item and show "Abgelaufen".
+  - G2: a Marketing publication whose job runs more than 30 minutes late becomes `blocked_dependency` with `SLOT_EXPIRED` (all Marketing publications, ruling R3).
+  - G3: Social never sends more than 30 minutes late (`SOCIAL_SLOT_EXPIRED`, never retried; claim, throttle wait, after-delay retry).
+  - G4: `historyDays` (14 to 60) on assignments and the card; strategy gets `recentTopics` (bounded) and native Social posts with a coverage marker; topic holds follow it.
+  - G5: `importOriginMedia` reuses a non-archived asset with the same sha256.
+  - G6: owner retry of a failed or partial run at least 60 minutes before the open slot (route, `assignment_change` action `retry`, web button, `runRetryRefusal`); retired runs are never scheduled.
+  - G7: `GET /api/projects/:projectId/assignments/:id/detail` and the web detail view (`?assignment=<id>`).
+  - G8: owner attention items `marketing_policy_expiring` and `platform_spend_authority_expiring`, 7 days ahead.
+  - G9: `social:<accountId>` channels on the Social backend (platform-enabled check, lowercase only, refused on Postiz, listed in `marketing_policy_get` options; no web picker, ruling R5).
+- **Deviation (R2):** a failed image leaves the run `partial` (nothing delivered), not `failed` as the spec table says.
+- **Verification (local):** see the final checks below; the full suite, lint, typecheck, boundaries and build results are in the task report. Browser end-to-end check: not yet run (controller runs it after review).
+- **Production:** nothing deployed. Rollout steps 1 to 6 each need Mario's explicit approval; the first real post happens only when he releases it.
+
 ## Google Drive page and Social Drive picker (2026-11-05, live on `main` since `b6e98e93`, follow-ups on branch `claude/dreamy-grothendieck-0cf6ec`)
 
 Decisions DB-1 to DB-4 (Mario, 2026-11-05): own Drive page in the "Project" group, images only (videos stay S3b), existing actions plus "Add to Social media", server-side ancestry with a 60 s cache. Design: [spec](superpowers/specs/2026-11-05-drive-browser-design.md), [plan](superpowers/plans/2026-11-05-drive-browser.md). Docs: [integrations/google-drive.md](integrations/google-drive.md) ("Drive page"), [SOCIAL.md](SOCIAL.md) ("From Google Drive").
