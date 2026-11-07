@@ -29,6 +29,7 @@ import {
 import { channelSlots } from "../src/modules/agents/scheduling.ts";
 import { assignmentsMonthSpend } from "../src/modules/agents/specialists/runner.ts";
 import { draftsAwaitingOwner } from "../src/modules/marketing/agents/assignment-overview.ts";
+import { scheduleUnscheduledRuns } from "../src/modules/marketing/agents/veto.ts";
 import { runBudgetKey } from "../src/modules/agents/specialists/runner.ts";
 import { assignmentTools } from "../src/modules/agents/tools/assignment-tools.ts";
 import {
@@ -993,6 +994,69 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
       const [only] = await runs();
       expect(only.retiredAt).toBeUndefined();
+    });
+
+    it("never answers with a canceled run of the same date when planning creates none", async () => {
+      const { assignment, planned } = await failed();
+      await run((tx) =>
+        create(tx, project.owner, "assignment_runs", {
+          assignmentId: assignment.id,
+          assignmentVersion: 1,
+          date: planned.date,
+          status: "canceled",
+          slots: [],
+          unavailable: [],
+          steps: [],
+          costMicros: 0,
+        }),
+      );
+      await setPolicy({ maxPerDay: 0 });
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      const old = (await runs()).find((r) => r.id === planned.id)!;
+      expect(old.retiredAt).toBeUndefined();
+      expect(old.retriedByRunId).toBeUndefined();
+      expect(old.status).toBe("failed");
+    });
+
+    it("never schedules a retired partial run with a reviewed draft", async () => {
+      const { assignment, planned } = await failed({ status: "partial" });
+      await setRun(planned.id, {
+        steps: planned.steps.map((step: any) => ({ ...step, status: "done" })),
+      });
+      const draft = await draftOf(planned.id, assignment.id);
+      await run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", draft.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "reviewed",
+        });
+      });
+      const result = await retry(planned.id);
+      const content = await run((tx) =>
+        entity(tx, project.owner, "content", draft.id),
+      );
+      expect(data(content).supersededBy).toBe(result.runId);
+      // The sweep looks at runs of the last two days by the wall clock.
+      vi.useFakeTimers({ toFake: ["Date"], now: EVENING });
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const swept = await run((tx) =>
+          scheduleUnscheduledRuns(tx, project.owner),
+        );
+        expect(swept).toEqual({ scheduled: 0 });
+        expect(errors).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+        errors.mockRestore();
+      }
+      for (const kind of ["publications", "postiz_drafts", "jobs"])
+        expect(
+          (await run((tx) => list(tx, project.owner, kind))).filter(
+            (row) =>
+              JSON.stringify(data(row)).includes(planned.id) ||
+              data(row).contentId === draft.id,
+          ),
+        ).toEqual([]);
     });
 
     it("lets only an owner retry", async () => {

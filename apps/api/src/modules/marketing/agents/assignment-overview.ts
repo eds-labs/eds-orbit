@@ -120,11 +120,21 @@ export async function listAssignments(
     "action_requests",
     rows.map((row) => data(row).actionRequestId),
   );
+  // Only runs of the last days can still be retried; bounds the lookup.
+  const recentDate = localDate(
+    new Date(now.valueOf() - 86400000),
+    project.timezone,
+  );
   const items = [];
   for (const row of rows) {
     const d = data(row);
     // The latest run (not retired) when the owner can still retry it (G6).
-    const latest = (await runsMatching(tx, scope, { assignmentId: row.id }))
+    const latest = (
+      await runsMatching(tx, scope, {
+        assignmentId: row.id,
+        dateFrom: recentDate,
+      })
+    )
       .filter((run) => !data(run).retiredAt)
       .at(0);
     const retryableRunId =

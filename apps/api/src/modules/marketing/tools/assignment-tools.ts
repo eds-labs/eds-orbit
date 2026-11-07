@@ -726,16 +726,17 @@ export const assignmentTools: readonly OrbitTool[] = [
       }
       if (input.action === "retry") {
         if (!input.runId) throw new DomainError("RUN_REQUIRED", 400);
+        const retryRunId = z.uuid().parse(input.runId);
         const retried = await chatScoped(context.scope, async (tx) => {
           const run = await entity(
             tx,
             context.scope,
             "assignment_runs",
-            input.runId!,
+            retryRunId,
           );
           if (data(run).assignmentId !== input.assignmentId)
             throw new DomainError("NOT_FOUND", 404);
-          return retryAssignmentRun(tx, context.scope, input.runId!);
+          return retryAssignmentRun(tx, context.scope, retryRunId);
         });
         return {
           output: { assignmentId: input.assignmentId, ...retried },

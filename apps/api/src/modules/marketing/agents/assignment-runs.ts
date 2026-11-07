@@ -1355,7 +1355,8 @@ export async function retryAssignmentRun(
   // planning's review backlog and topic checks no longer count these drafts.
   const drafts = (await runContents(tx, scope, row.id)).filter(
     (content) =>
-      data(content).status === "needs_review" && !data(content).supersededBy,
+      !["archived", "rejected", "deleted"].includes(data(content).status) &&
+      !data(content).supersededBy,
   );
   for (const draft of drafts)
     await update(tx, scope, draft, { ...data(draft), supersededBy: row.id });
@@ -1373,13 +1374,20 @@ export async function retryAssignmentRun(
         ...data(reservation),
         state: "released",
       });
-  await planAssignmentRuns(tx, scope, now);
-  const created = (
-    await runsMatching(tx, scope, {
+  const sameDay = () =>
+    runsMatching(tx, scope, {
       assignmentId: String(d.assignmentId),
       date: String(d.date),
-    })
-  ).find((candidate) => candidate.id !== row.id && !data(candidate).retiredAt);
+    });
+  const before = new Set((await sameDay()).map((candidate) => candidate.id));
+  await planAssignmentRuns(tx, scope, now);
+  // Only a run planning just created counts (not a canceled one of the same day).
+  const created = (await sameDay()).find(
+    (candidate) =>
+      !before.has(candidate.id) &&
+      !data(candidate).retiredAt &&
+      data(candidate).status !== "canceled",
+  );
   if (!created) throw new DomainError(RUN_NOT_RETRYABLE, 409);
   for (const draft of await runContents(tx, scope, row.id))
     if (data(draft).supersededBy === row.id)

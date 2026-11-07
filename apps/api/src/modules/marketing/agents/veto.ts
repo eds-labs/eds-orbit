@@ -524,6 +524,8 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
 export function awaitsScheduling(run: Record<string, any>) {
   return (
     ["done", "partial"].includes(run.status) &&
+    // A run the owner retried (G6) is never scheduled: its drafts are superseded.
+    !run.retiredAt &&
     !run.scheduledAt &&
     ((run.steps ?? []) as Array<Record<string, any>>).some(
       (step) => step.role === "review" && step.status === "done",
