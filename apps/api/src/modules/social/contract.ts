@@ -98,7 +98,7 @@ export async function publishingBlockers(tx: DbTx, scope: Scope, channel: string
 
 /** Puts an approved image of the origin into Social's library; outside a transaction. */
 export async function importOriginMedia(scope: Scope, input: { bytes: Uint8Array; mime: string }): Promise<string> {
-  return (await uploadMedia(scope, input)).id;
+  return (await uploadMedia(scope, { ...input, reuse: true })).id;
 }
 
 const originInput = z

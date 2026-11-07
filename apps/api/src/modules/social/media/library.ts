@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { prepareSocialImage } from "../../../../../../packages/creative/src/index.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -83,10 +83,10 @@ const notFound = () => new DomainError("NOT_FOUND", 404);
 const discard = (scope: Scope, ...ids: string[]) =>
   Promise.all(ids.map((id) => deleteFile(scope, id).catch(() => undefined)));
 
-/** Accepts an image, stores its original and JPEG rendition, and lists it. */
+/** Accepts an image, stores its original and JPEG rendition, and lists it; with `reuse`, an identical image already in the library is returned instead. */
 export async function uploadMedia(
   scope: Scope,
-  input: { bytes: Uint8Array; mime: string; name?: unknown },
+  input: { bytes: Uint8Array; mime: string; name?: unknown; reuse?: boolean },
 ): Promise<MediaView> {
   const mime = input.mime.toLowerCase().split(";")[0]!.trim();
   if (mime.startsWith("video/")) throw new DomainError("SOCIAL_VIDEO_NOT_AVAILABLE", 415);
@@ -101,6 +101,17 @@ export async function uploadMedia(
       throw new DomainError("SOCIAL_MEDIA_INVALID", 422);
     }
   });
+  if (input.reuse) {
+    // Same hash the file store records for the stored original, checked before anything is stored.
+    const sha256 = createHash("sha256").update(prepared.original.bytes).digest("hex");
+    const existing = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      tx.socialMediaAsset.findFirst({
+        where: { projectId: scope.projectId, sha256, archivedAt: null },
+        orderBy: { createdAt: "asc" },
+      }),
+    );
+    if (existing) return view(existing);
+  }
   const ext = prepared.original.mime === "image/png" ? "png" : "jpg";
   // The stored type may differ from the upload's (an opaque PNG becomes a
   // JPEG), so the name takes the stored type's extension.

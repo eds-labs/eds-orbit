@@ -13,6 +13,7 @@ import {
   socialPublishingAvailable,
   submitOriginPost,
 } from "../src/modules/social/contract.ts";
+import { uploadMedia } from "../src/modules/social/media/library.ts";
 import { DISPATCH } from "../src/modules/social/dispatch/queues.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
@@ -151,6 +152,56 @@ describe.skipIf(!enabled)("social contract for Marketing", () => {
     const post = await p.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: draft.postId } }));
     expect(post).toMatchObject({ status: "draft", origin: "marketing", scheduleMode: "at", approvedAt: null, baseMedia: [mediaId] });
     expect(post.scheduledAt?.toISOString()).toBe(at.toISOString());
+  });
+
+  describe("one library asset per image", () => {
+    const fixture = (ext: string) => readFileSync(new URL(`./fixtures/social/photo-800x600.${ext}`, import.meta.url));
+    const count = (q: typeof p, sha?: string) =>
+      q.run((tx) => tx.socialMediaAsset.count({ where: { projectId: q.owner.projectId, ...(sha ? { sha256: sha } : {}) } }));
+
+    it("importOriginMedia twice with the same bytes returns the same id and stores one asset", async () => {
+      const bytes = fixture("webp");
+      const before = await count(p);
+      const first = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      const second = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      expect(second).toBe(first);
+      expect(await count(p)).toBe(before + 1);
+    });
+
+    it("an archived asset is not reused", async () => {
+      const bytes = fixture("jpg");
+      const first = await importOriginMedia(p.owner, { bytes, mime: "image/jpeg" });
+      await p.run((tx) => tx.socialMediaAsset.update({ where: { id: first }, data: { archivedAt: new Date() } }));
+      const second = await importOriginMedia(p.owner, { bytes, mime: "image/jpeg" });
+      expect(second).not.toBe(first);
+    });
+
+    it("assets of another project are never reused", async () => {
+      const bytes = fixture("webp");
+      const mine = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      const theirs = await importOriginMedia(other.owner, { bytes, mime: "image/webp" });
+      expect(theirs).not.toBe(mine);
+    });
+
+    it("two concurrent imports of the same bytes both succeed", async () => {
+      const bytes = Buffer.from(PNG);
+      const [a, b] = await Promise.all([
+        importOriginMedia(other.owner, { bytes, mime: "image/png" }),
+        importOriginMedia(other.owner, { bytes, mime: "image/png" }),
+      ]);
+      expect(a).toBeTruthy();
+      expect(b).toBeTruthy();
+      const rows = await other.run((tx) => tx.socialMediaAsset.findMany({ where: { id: { in: [a, b] } } }));
+      expect(rows.length).toBeGreaterThanOrEqual(1);
+      expect(rows.length).toBeLessThanOrEqual(2);
+    });
+
+    it("a manual upload of the same bytes still creates a new asset", async () => {
+      const bytes = fixture("webp");
+      const imported = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      const manual = await uploadMedia(p.owner, { bytes, mime: "image/webp" });
+      expect(manual.id).not.toBe(imported);
+    });
   });
 
   it("withdraws an origin post that has not gone out, and says when it has", async () => {
