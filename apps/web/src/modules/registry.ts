@@ -120,6 +120,18 @@ const platformAttention: Readonly<Record<string, AttentionRenderer>> = {
           action: { en: "Review", de: "Prüfen" },
         };
   },
+  platform_spend_authority_expiring: (item, locale) => {
+    const date = new Date(String(item.params.endAt)).toLocaleDateString(
+      locale === "de" ? "de-DE" : "en-GB",
+    );
+    return {
+      title:
+        locale === "de"
+          ? `KI-Ausgabenfreigabe läuft am ${date} ab`
+          : `AI spending authority expires on ${date}`,
+      action: { en: "Review", de: "Prüfen" },
+    };
+  },
   platform_action_request: (item, locale) => {
     const n = item.count ?? 1;
     return {
@@ -342,5 +354,13 @@ export const webRegistry: WebRegistry = {
     },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).
-  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb, workWeb, issuesWeb, socialWeb],
+  modules: [
+    knowledgeWeb,
+    marketingWeb,
+    supportWeb,
+    financeWeb,
+    workWeb,
+    issuesWeb,
+    socialWeb,
+  ],
 };

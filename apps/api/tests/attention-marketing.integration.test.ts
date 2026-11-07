@@ -312,6 +312,58 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     await closeDatabase();
   });
 
+  describe("policy expiry", () => {
+    const DAY = 24 * HOUR;
+    const withPolicy = async (endAt: string) =>
+      run((tx) =>
+        create(tx, owner, "policies", {
+          mode: "observe",
+          channels: [CHANNEL],
+          startAt: new Date(Date.now() - DAY).toISOString(),
+          endAt,
+          active: true,
+        }),
+      );
+    const expiring = async (who: keyof typeof cookies = "owner") =>
+      (await marketingItems(who)).filter(
+        (i) => i.kind === "marketing_policy_expiring",
+      );
+    afterEach(() =>
+      run((tx) => tx.entity.deleteMany({ where: { kind: "policies" } })),
+    );
+
+    it("warns the owner six days before the active policy ends", async () => {
+      const endAt = inHours(6 * 24);
+      const policy = await withPolicy(endAt);
+      expect(await expiring()).toEqual([
+        {
+          id: `marketing:policy-expiring:${policy.id}`,
+          moduleId: "marketing",
+          kind: "marketing_policy_expiring",
+          severity: "warning",
+          dueAt: endAt,
+          params: { endAt },
+          navKey: "operations",
+          link: "/settings?section=policy",
+        },
+      ]);
+    });
+
+    it("stays quiet eight days before and after the end", async () => {
+      await withPolicy(inHours(8 * 24));
+      expect(await expiring()).toEqual([]);
+      await run((tx) => tx.entity.deleteMany({ where: { kind: "policies" } }));
+      await withPolicy(inHours(-1));
+      expect(await expiring()).toEqual([]);
+    });
+
+    it("is for the owner only", async () => {
+      await withPolicy(inHours(2 * 24));
+      expect(await expiring("editor")).toEqual([]);
+      expect(await expiring("viewer")).toEqual([]);
+    });
+  });
+
   it("an awaiting draft is a warning with slotAt", async () => {
     process.env.ORBIT_AGENTS = "true";
     const slotAt = inHours(3);
@@ -636,8 +688,8 @@ describe.skipIf(!enabled)("marketing attention items", () => {
       await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
     const four = await counted((tx) => marketingAttention(tx, owner, now));
     // 22 with one assignment (and 4 more per assignment) through the whole
-    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read.
-    expect(one.queries).toBeLessThanOrEqual(13);
+    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read; 15 with the owner's policy expiry read.
+    expect(one.queries).toBeLessThanOrEqual(15);
     expect(
       four.result.find((i) => i.params.code === "BUDGET_EXHAUSTED")?.count,
     ).toBe(4);

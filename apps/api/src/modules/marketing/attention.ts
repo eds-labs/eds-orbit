@@ -12,6 +12,7 @@ import { budgetExhausted, RECENT_MS } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
+import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
 import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
 
 // The marketing module's attention items (UI restructure §4.1): what waits on
@@ -295,6 +296,40 @@ async function runProblemItems(
     }));
 }
 
+/** The owner is warned this long before the active policy ends. */
+const EXPIRY_WARNING_MS = 7 * 86_400_000;
+
+/** The active policy, when it ends within a week and has not ended yet. */
+async function policyExpiryItems(
+  tx: DbTx,
+  scope: Scope,
+  now: Date,
+): Promise<AttentionItem[]> {
+  if (!can(scope, PROJECT_OWN)) return [];
+  const policy = await activePolicyRecord(tx, scope);
+  if (!policy) return [];
+  const endAt = data(policy).endAt;
+  const end = typeof endAt === "string" ? Date.parse(endAt) : Number.NaN;
+  if (
+    Number.isNaN(end) ||
+    end <= now.getTime() ||
+    end - now.getTime() > EXPIRY_WARNING_MS
+  )
+    return [];
+  return [
+    {
+      id: `marketing:policy-expiring:${policy.id}`,
+      moduleId: "marketing",
+      kind: "marketing_policy_expiring",
+      severity: "warning",
+      dueAt: endAt as string,
+      params: { endAt: endAt as string },
+      navKey: "operations",
+      link: "/settings?section=policy",
+    },
+  ];
+}
+
 export const marketingAttention: AttentionContribution = async (
   tx,
   scope,
@@ -345,6 +380,7 @@ export const marketingAttention: AttentionContribution = async (
     ...(await exceptionItems(tx, scope)),
     ...(await pausedPostItems(tx, scope, now)),
     ...(await runProblemItems(tx, scope, now)),
+    ...(await policyExpiryItems(tx, scope, now)),
   ];
 };
 

@@ -197,6 +197,62 @@ describe.skipIf(!enabled)("project attention", () => {
     await closeDatabase();
   });
 
+  describe("spend authority expiry", () => {
+    const DAY = 24 * 3_600_000;
+    const authority = (endAt: string) =>
+      scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.entity.create({
+          data: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "ai_spend_policies",
+            data: {
+              active: true,
+              startAt: new Date(Date.now() - DAY).toISOString(),
+              endAt,
+            },
+          },
+        }),
+      );
+    const expiring = async (who: keyof typeof cookies) =>
+      (await attention(who)).items.filter(
+        (i) => i.kind === "platform_spend_authority_expiring",
+      );
+    afterEach(() =>
+      scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.entity.deleteMany({ where: { kind: "ai_spend_policies" } }),
+      ),
+    );
+
+    it("warns the owner six days ahead, not eight days or after", async () => {
+      const endAt = new Date(Date.now() + 6 * DAY).toISOString();
+      const row = await authority(endAt);
+      expect(await expiring("owner")).toEqual([
+        {
+          id: `platform:spend-authority-expiring:${row.id}`,
+          moduleId: "platform",
+          kind: "platform_spend_authority_expiring",
+          severity: "warning",
+          dueAt: endAt,
+          params: { endAt },
+          navKey: "operations",
+          link: "/settings?section=ai",
+        },
+      ]);
+      expect(await expiring("viewer")).toEqual([]);
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.entity.deleteMany({ where: { kind: "ai_spend_policies" } }),
+      );
+      await authority(new Date(Date.now() + 8 * DAY).toISOString());
+      expect(await expiring("owner")).toEqual([]);
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.entity.deleteMany({ where: { kind: "ai_spend_policies" } }),
+      );
+      await authority(new Date(Date.now() - 3_600_000).toISOString());
+      expect(await expiring("owner")).toEqual([]);
+    });
+  });
+
   it("sorts critical before warning, then by dueAt", async () => {
     handlers.fake_a = async () => [
       item("fake_a", "info", { severity: "info" }),
