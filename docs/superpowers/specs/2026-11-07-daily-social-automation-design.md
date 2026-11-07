@@ -75,6 +75,21 @@ Pause, resume and end stay as they are. Changing content stays the confirmation 
 
 Attention items for the owner 7 days before the active marketing policy's `endAt` and before the AI spend authority's `endAt` (`marketing_policy_expiring`, `ai_spend_authority_expiring`, counts and dates only, link to the place to extend). Nothing is extended automatically. Both FamilyPlan dates are 2026-11-19.
 
+### G9. Native Social account references in assignments and policies
+
+Marketing channels are Postiz integration ids; Social resolves them through `SocialAccount.legacyPostizIntegrationId`. The Social contract already accepts `social:<accountId>` (`accountForChannel`), but Marketing's own checks do not (SOCIAL.md "Not yet").
+
+New: when the project's `publishingBackend` is `social`, assignment and policy channels may be `social:<accountId>` references. They are validated through the Social contract (account of this project, not disabled, platform enabled); channel rules (platform, text limits, media required) come from the Social account's platform instead of the stored Postiz connector entity; names shown in Marketing come from the account handle. Postiz references keep working unchanged, and projects on Postiz refuse `social:` references (`SOCIAL_CHANNEL_REQUIRES_SOCIAL_BACKEND`). No account ids appear in code. FamilyPlan's assignment switches to its two account references during the cutover (step 4), which removes its dependency on the Postiz connector for this flow.
+
+## Reconciliation with Orbit task #21
+
+FamilyPlan task #21 "Marketing-Assignments an natives Social-Modul anbinden (FamilyPlan Pilot)" (created over MCP and set to in progress by Mario on 2026-11-07; checklist untouched when read) asks for the same target. Differences:
+
+- The task proposes a new delivery value `native_social`. This design uses the existing `delivery: "publish"`, which already routes natively when the project's backend is `social`; a second delivery value would duplicate the hand-off. Other projects stay on Postiz because the backend is per project.
+- Native account ids (task checklist item 2) are covered by G9.
+- "Missed slots are not made up" (item 5) is G1–G3; 30-day rotation (item 6) is G4; policy expiry (item 7) is G8; per-channel status and links plus a safe cutover (item 8) are G7 and the rollout below.
+- Meta crossposting: Orbit has no crossposting. Instagram's "share to Facebook" and Business Suite crossposting settings for the FamilyPlan Page must be checked off by Mario in Meta (manual rollout step), otherwise Facebook would get the Instagram post a second time.
+
 ## Data flow (target)
 
 1. 08:00 Berlin: the sweep creates the run for today's 18:30 slot (`createAt = slot − 630 min`).
@@ -114,6 +129,7 @@ Unit and integration tests (own worktree test DB) for:
 10. Duplicate dispatch and lease expiry: still one send per publication.
 11. Late release (`SLOT_EXPIRED`, both deliveries), late Marketing claim, Social lateness on first attempt and retry.
 12. Expired marketing policy and spend authority: no run, no paid call; warnings 7 days ahead.
+13. `social:<accountId>` channels: accepted on Social, refused on Postiz, cross-project account refused, channel rules from the account's platform.
 
 Plus the safety nets (`rls-matrix`, `access-matrix`, `queue-dispatch`), web tests for the detail view, `pnpm api:generate` for the retry and detail routes, boundary check (Marketing imports only `social/contract.ts`).
 
@@ -124,8 +140,9 @@ The end-to-end check runs locally with fake providers and `EXECUTION_MODE` test.
 1. Push to `main` (deploy). No migration, no schema hash.
 2. Profile: Creative brand kit for FamilyPlan (imagery kind, mood, subjects, avoid list; approved raster logo already exists) and `visualIdentity.creative.enabled`.
 3. Extend the marketing policy `endAt` and the AI spend authority beyond 2026-11-19.
-4. Reconfigure the assignment through the confirmation card: `times:["18:30"]`, `leadMinutes:630`, `delivery:"publish"`, `approvalMode:"human_each"`, `creative:{artPer:"run"}`, `historyDays:30`, FB+IG, topic frame with the primary and secondary themes, budget fitting one image plus text per day. Mario confirms.
-5. First day: Mario checks the preview; releasing it is the first real post.
+4. Mario checks that Meta crossposting (Instagram "share to Facebook", Business Suite) is off for the FamilyPlan Page and Instagram account.
+5. Policy channels and the assignment switch to the two `social:<accountId>` references; the assignment is reconfigured through the confirmation card: `times:["18:30"]`, `leadMinutes:630`, `delivery:"publish"`, `approvalMode:"human_each"`, `creative:{artPer:"run"}`, `historyDays:30`, topic frame with the primary and secondary themes, budget fitting one image plus text per day. Older `needs_review` drafts of the test week are withdrawn by the confirmation (`applyConfirmedDelivery`). Mario confirms.
+6. First day: Mario checks the preview; releasing it is the first real post.
 
 Rollback: pause the assignment, or set its delivery back to `postiz_draft` (Social drafts only); code rollback by reverting the commits (no schema change).
 
