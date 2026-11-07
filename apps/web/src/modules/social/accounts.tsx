@@ -307,7 +307,6 @@ export function AccountsView() {
       {hiddenApps.length > 0 && (
         <HiddenAppsNote apps={hiddenApps} locale={locale} onShow={() => changeHidden(new Set())} />
       )}
-      <Alert kind="info">{t.metaNote}</Alert>
       {isOwner && telegram && (
         <TelegramChannelForm
           onDone={(text) => {

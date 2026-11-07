@@ -71,8 +71,6 @@ const en = {
     verifyNote: "The test post is published for real once you approve it in Decisions.",
     verifyRequested: "Approve the test post in Decisions.",
     saved: "Saved.",
-    metaNote:
-      "While the Meta app is in development mode, only members of the Meta app see posts. Public posts need the Meta app to be live.",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" } satisfies Record<SocialPlatform, string>,
   status: {
@@ -450,8 +448,6 @@ const de: SocialText = {
     verifyNote: "Der Testbeitrag wird erst nach deiner Freigabe unter Entscheidungen wirklich veröffentlicht.",
     verifyRequested: "Gib den Testbeitrag unter Entscheidungen frei.",
     saved: "Gespeichert.",
-    metaNote:
-      "Solange die Meta-App im Entwicklungsmodus ist, sehen nur Mitglieder der Meta-App die Beiträge. Für öffentliche Beiträge muss die Meta-App live sein.",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" },
   status: {

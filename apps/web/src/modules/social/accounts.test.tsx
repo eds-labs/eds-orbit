@@ -131,10 +131,10 @@ describe("social accounts view (ADR 0020, S2)", () => {
     for (const [, inner] of buttons(render(<AccountsView />))) expect(inner!.replace(/<[^>]+>/g, "").trim()).not.toBe("");
   });
 
-  it("explains that Meta posts stay private until the Meta app is live", () => {
+  it("shows no standing note about the Meta app's development mode", () => {
     answers["/social/accounts"] = accounts;
-    expect(render(<AccountsView />)).toContain("only members of the Meta app see posts");
-    expect(render(<AccountsView />, { locale: "de" })).toContain("nur Mitglieder der Meta-App");
+    expect(render(<AccountsView />)).not.toContain("development mode");
+    expect(render(<AccountsView />, { locale: "de" })).not.toContain("Entwicklungsmodus");
   });
 
   it("says which developer app is missing before the owner taps connect", () => {
