@@ -49,6 +49,9 @@ export type AssignmentDetailData = {
     createdAt: string;
     errors: Array<{ step: string; code: string }>;
     retryable: boolean;
+    /** Set when the owner retried this run (G6); the new run is `retriedByRunId`. */
+    retiredAt?: string | null;
+    retriedByRunId?: string | null;
     deliverables: Array<{
       contentId: string;
       channel: string;
@@ -68,10 +71,8 @@ export type AssignmentDetailData = {
   }>;
 };
 
-const STATE: Record<
-  DeliverableState,
-  [string, string, "neutral" | "success" | "warning" | "danger" | "blue"]
-> = {
+type Tone = "neutral" | "success" | "warning" | "danger" | "blue";
+const STATE: Record<DeliverableState, [string, string, Tone]> = {
   awaiting_release: ["Waiting for release", "Wartet auf Freigabe", "warning"],
   expired: ["Expired", "Abgelaufen", "neutral"],
   released: ["Released", "Freigegeben", "blue"],
@@ -80,6 +81,68 @@ const STATE: Record<
   canceled: ["Canceled", "Abgebrochen", "neutral"],
   dropped: ["Dropped", "Nicht eingeplant", "neutral"],
 };
+/** Run statuses of assignment-runs.ts: [en, de, tone]. */
+const RUN_STATUS: Record<string, [string, string, Tone]> = {
+  planned: ["Planned", "Geplant", "neutral"],
+  running: ["Running", "Läuft", "blue"],
+  done: ["Done", "Erledigt", "success"],
+  partial: ["Partly done", "Teilweise erledigt", "warning"],
+  failed: ["Failed", "Fehlgeschlagen", "danger"],
+  canceled: ["Canceled", "Abgebrochen", "neutral"],
+};
+const DELIVERY: Record<string, [string, string]> = {
+  publish: ["Publish at the slot", "Zum Termin veröffentlichen"],
+  postiz_draft: ["Postiz draft only", "Nur als Postiz-Entwurf"],
+};
+const APPROVAL_MODE: Record<string, [string, string]> = {
+  human_each: ["Owner releases each post", "Owner gibt jeden Beitrag frei"],
+  delegated_review: [
+    "Agent review with veto window",
+    "Agenten-Prüfung mit Einspruchsfrist",
+  ],
+};
+/** What the codes this view shows mean: [en, de]. */
+const ERROR_TEXT: Record<string, [string, string]> = {
+  SLOT_EXPIRED: [
+    "The planned time had passed; the post was not published.",
+    "Der geplante Zeitpunkt war vorbei; der Beitrag wurde nicht veröffentlicht.",
+  ],
+  SOCIAL_SLOT_EXPIRED: [
+    "Not published: the planned time had passed by more than 30 minutes.",
+    "Nicht veröffentlicht: Der geplante Zeitpunkt lag mehr als 30 Minuten zurück.",
+  ],
+  SLOT_UNAVAILABLE: [
+    "No free slot was left for this post.",
+    "Für diesen Beitrag war kein freier Termin mehr übrig.",
+  ],
+  RUN_NOT_RETRYABLE: [
+    "This run cannot be retried.",
+    "Dieser Lauf kann nicht wiederholt werden.",
+  ],
+  RUN_RETRY_TOO_LATE: [
+    "Too late to retry: the slot is less than an hour away.",
+    "Zu spät für eine Wiederholung: Der Termin ist weniger als eine Stunde entfernt.",
+  ],
+  SOCIAL_PLATFORM_NOT_AVAILABLE: [
+    "Publishing to this platform is switched off.",
+    "Veröffentlichen auf dieser Plattform ist ausgeschaltet.",
+  ],
+};
+/** A human message for a code, with a generic fallback; the code is shown beside it. */
+export function errorText(code: string, de: boolean): string {
+  const known = ERROR_TEXT[code];
+  if (known) return de ? known[1] : known[0];
+  return de ? "Fehler" : "Error";
+}
+const label = (
+  map: Record<string, [string, string]>,
+  value: string,
+  de: boolean,
+) => {
+  const known = map[value];
+  return known ? known[de ? 1 : 0] : value;
+};
+
 const IMAGE: Record<
   AssignmentDetailData["assignment"]["image"],
   [string, string]
@@ -145,7 +208,8 @@ export function AssignmentDetailView({
         <div>
           <dt>{de ? "Zustellung" : "Delivery"}</dt>
           <dd>
-            {a.delivery} · {a.approvalMode}
+            {label(DELIVERY, a.delivery, de)} ·{" "}
+            {label(APPROVAL_MODE, a.approvalMode, de)}
           </dd>
         </div>
         <div>
@@ -169,95 +233,116 @@ export function AssignmentDetailView({
           {de ? "Noch keine Läufe." : "No runs yet."}
         </p>
       )}
-      {detail.runs.map((run) => (
-        <article key={run.id} className="approval-item">
-          <p className="panel-note">
-            {run.date} ·{" "}
-            <Badge
-              tone={
-                run.status === "completed"
-                  ? "success"
-                  : run.status === "failed"
-                    ? "danger"
-                    : "neutral"
-              }
-            >
-              {run.status}
-            </Badge>
-            {run.errors.map((error) => (
-              <span key={`${error.step}:${error.code}`}>
-                {" "}
-                <Badge tone="warning">
-                  {error.step}: {error.code}
-                </Badge>
-              </span>
-            ))}
-          </p>
-          {isOwner && run.retryable && onRetry && (
-            <div className="form-actions">
-              <RetryRunButton
-                de={de}
-                disabled={pending}
-                onClick={() => onRetry(run.id)}
-              />
-            </div>
-          )}
-          <h4>{de ? "Beiträge" : "Posts"}</h4>
-          {run.deliverables.length === 0 && (
+      {detail.runs.map((run) => {
+        const [statusEn, statusDe, statusTone] = RUN_STATUS[run.status] ?? [
+          run.status,
+          run.status,
+          "neutral" as const,
+        ];
+        const retried = Boolean(run.retiredAt);
+        return (
+          <article key={run.id} id={`run-${run.id}`} className="approval-item">
             <p className="panel-note">
-              {de ? "Keine Beiträge in diesem Lauf." : "No posts in this run."}
-            </p>
-          )}
-          {run.deliverables.map((d) => {
-            const [en, deText, tone] = STATE[d.state];
-            const link = d.publication?.permalink;
-            return (
-              <div key={d.contentId} className="approval-item">
-                <p className="panel-note">
-                  {when(d.slotAt, locale, zone)} · {d.channelName ?? d.channel}{" "}
-                  <Badge tone={tone}>{de ? deText : en}</Badge>
-                  {d.publication?.errorCode && (
-                    <span>
-                      {" "}
-                      <Badge tone="danger">{d.publication.errorCode}</Badge>
-                    </span>
-                  )}
-                </p>
-                {d.assetId && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    className="approval-item-thumbnail"
-                    src={`/api/projects/${projectId}/assets/${d.assetId}/content`}
-                    alt={de ? "Bild des Beitrags" : "Post image"}
-                    width={160}
-                    loading="lazy"
-                  />
-                )}
-                <pre className="approval-item-body">{d.excerpt}</pre>
-                <div className="form-actions">
-                  {d.state === "awaiting_release" && (
-                    <AppLink href="/approvals">
-                      {de ? "Freigeben" : "Release"}
-                    </AppLink>
-                  )}
-                  {link && (
-                    <a href={link} target="_blank" rel="noreferrer noopener">
-                      {de ? "Beitrag ansehen" : "View post"}
+              {run.date} ·{" "}
+              {retried ? (
+                // Replaced by its retry: not an open failure (G6).
+                <Badge tone="neutral">
+                  {run.retriedByRunId ? (
+                    <a href={`#run-${run.retriedByRunId}`}>
+                      {de
+                        ? "Erneut versucht → neuer Lauf"
+                        : "Retried → new run"}
                     </a>
+                  ) : de ? (
+                    "Erneut versucht"
+                  ) : (
+                    "Retried"
                   )}
-                  {d.publication?.socialPostId && (
-                    <AppLink
-                      href={`/social/calendar?post=${d.publication.socialPostId}`}
-                    >
-                      {de ? "Im Social-Kalender" : "In the Social calendar"}
-                    </AppLink>
-                  )}
-                </div>
+                </Badge>
+              ) : (
+                <Badge tone={statusTone}>{de ? statusDe : statusEn}</Badge>
+              )}
+              {run.errors.map((error) => (
+                <span key={`${error.step}:${error.code}`}>
+                  {" "}
+                  <Badge tone={retried ? "neutral" : "warning"}>
+                    {error.step}: {errorText(error.code, de)} ({error.code})
+                  </Badge>
+                </span>
+              ))}
+            </p>
+            {isOwner && run.retryable && onRetry && (
+              <div className="form-actions">
+                <RetryRunButton
+                  de={de}
+                  disabled={pending}
+                  onClick={() => onRetry(run.id)}
+                />
               </div>
-            );
-          })}
-        </article>
-      ))}
+            )}
+            <h4>{de ? "Beiträge" : "Posts"}</h4>
+            {run.deliverables.length === 0 && (
+              <p className="panel-note">
+                {de
+                  ? "Keine Beiträge in diesem Lauf."
+                  : "No posts in this run."}
+              </p>
+            )}
+            {run.deliverables.map((d) => {
+              const [en, deText, tone] = STATE[d.state];
+              const link = d.publication?.permalink;
+              return (
+                <div key={d.contentId} className="approval-item">
+                  <p className="panel-note">
+                    {when(d.slotAt, locale, zone)} ·{" "}
+                    {d.channelName ?? d.channel}{" "}
+                    <Badge tone={tone}>{de ? deText : en}</Badge>
+                    {d.publication?.errorCode && (
+                      <span>
+                        {" "}
+                        <Badge tone="danger">
+                          {errorText(d.publication.errorCode, de)} (
+                          {d.publication.errorCode})
+                        </Badge>
+                      </span>
+                    )}
+                  </p>
+                  {d.assetId && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      className="approval-item-thumbnail"
+                      src={`/api/projects/${projectId}/assets/${d.assetId}/content`}
+                      alt={de ? "Bild des Beitrags" : "Post image"}
+                      width={160}
+                      loading="lazy"
+                    />
+                  )}
+                  <pre className="approval-item-body">{d.excerpt}</pre>
+                  <div className="form-actions">
+                    {d.state === "awaiting_release" && (
+                      <AppLink href="/approvals">
+                        {de ? "Freigeben" : "Release"}
+                      </AppLink>
+                    )}
+                    {link && (
+                      <a href={link} target="_blank" rel="noreferrer noopener">
+                        {de ? "Beitrag ansehen" : "View post"}
+                      </a>
+                    )}
+                    {d.publication?.socialPostId && (
+                      <AppLink
+                        href={`/social/posts?post=${d.publication.socialPostId}`}
+                      >
+                        {de ? "In Social öffnen" : "Open in Social"}
+                      </AppLink>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </article>
+        );
+      })}
     </section>
   );
 }
