@@ -6,7 +6,7 @@ Step A2 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-1
 
 - **Built:** `packages/money` (decimals-based exact arithmetic, `MoneyError`, exact helpers; `apps/api/src/modules/finance/money.ts` is a thin wrapper, Finance behaviour, currency set and error codes unchanged); `apps/api/src/modules/ads/providers/` (provider types, registry, Meta client pinned to `v27.0` with `appsecret_proof` on every call, token only in the `authorization` header, cursor-only paging, ten-row error classification, usage buckets, Meta currency offsets with the `spend_cap` read-minor/write-major asymmetry, test hook `setMetaAdsFetchForTests`); in-memory fake Graph `apps/api/tests/support/fake-meta-graph.ts`.
 - **State:** nothing merged, pushed, deployed or enabled; no schema change, no flag; no Meta call from code or tests.
-- **Open:** Task 6 (contract tests on sanitized A0 recordings) waits for the A0 spike's groups G2 and G4; A1 Task 0 (ad-blocker test) is still open; v27.0 was not re-checked on 2026-11-08.
+- **Open:** Task 6 (contract tests on sanitized A0 recordings) waits for the A0 spike's groups G2 and G4; A1 Task 0 (ad-blocker test) is still open; v27.0 was re-checked on 2026-11-08 (changelog lists it as newest).
 - **Deviations:** in-memory fake instead of a server (`boundedFetch` refuses loopback); Meta currency table in the adapter; A2 stacked on A1 on one branch.
 - **Rollback:** revert the commits; nothing persists. The Finance wrapper keeps its public signatures.
 

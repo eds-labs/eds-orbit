@@ -110,7 +110,8 @@ export class AdsProviderError extends Error { constructor(readonly failure: Prov
 
 | # | Condition | kind | code | outcome | retryable, delay |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `transport` set (a `ConnectorError`) | transient | `ADS_PROVIDER_UNAVAILABLE` | `transport.outcome` | only when `not_sent` |
+| 1 | `transport` set (a `ConnectorError`) | transient | `ADS_PROVIDER_UNAVAILABLE` | `transport.outcome` | only when `not_sent` and the code is not `RESPONSE_TOO_LARGE` or `REQUEST_TOO_LARGE` |
+| 1b | `write` and HTTP ≥ 500 (before rows 2–7; a 5xx write may have committed) | transient | `ADS_PROVIDER_UNAVAILABLE` | `unknown` | no |
 | 2 | code 190 or 102, or HTTP 401 without a code | auth | `ADS_META_TOKEN_INVALID` | rejected | no |
 | 3 | code 10 or 200–299, or code or subcode 1713092, 1815694, 2708008 (re-checked 2026-11-08) | permission | `ADS_META_PERMISSION_MISSING` | rejected | no |
 | 4 | code 613 with subcode 4841018 | rate_limited | `ADS_META_CONCURRENT_EDIT` | rejected | yes, 30 s |

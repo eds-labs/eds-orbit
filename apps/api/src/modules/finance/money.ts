@@ -56,12 +56,15 @@ export function roundHalfEven(micros: bigint, decimals: number): bigint {
   return wrap(() => roundHalfEvenByDecimals(micros, decimals));
 }
 
-/** Multiplies micros by a decimal-string rate and rounds once, half-even. */
+/** Multiplies micros by a decimal-string rate (non-negative, at most 12 fraction digits) and rounds once, half-even, to `toDecimals`. */
 export function convert(micros: bigint, rate: string, toDecimals: number): bigint {
   return wrap(() => convertMicros(micros, rate, toDecimals));
 }
 
-/** Plain decimal string with exactly the currency's decimals ("-12.50"). */
+/**
+ * Plain decimal string with exactly the currency's decimals ("-12.50"). Micros finer than the
+ * currency's decimals are truncated toward zero, not rounded: round first if needed.
+ */
 export function formatMicros(micros: bigint, currency: string): string {
   const decimals = decimalsFor(currency);
   return wrap(() => formatMicrosByDecimals(micros, decimals));
