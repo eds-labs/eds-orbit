@@ -76,7 +76,8 @@ export async function providerDetail(response: Response): Promise<string | undef
     let message: unknown = text;
     try { const body = JSON.parse(text); message = body?.message ?? body?.error ?? body?.msg ?? text; } catch { /* plain text */ }
     if (Array.isArray(message)) message = message.join('; ');
-    const clean = String(message).replace(/(bearer|token|key|secret|password)\S*/gi, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    // A bearer scheme carries its credential after whitespace, so the value goes with it.
+    const clean = String(message).replace(/bearer\s+\S+|(bearer|token|key|secret|password)\S*/gi, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
     return clean || undefined;
   } catch { return undefined; }
 }

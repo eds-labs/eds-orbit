@@ -2,9 +2,29 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
-import { boundedFetch } from './http.ts';
+import { boundedFetch, providerDetail } from './http.ts';
 vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
 vi.mock('node:https', async importOriginal => ({ ...await importOriginal<typeof import('node:https')>(), request: vi.fn() }));
+
+describe('providerDetail redaction', () => {
+  it.each([
+    ['plain text', 'Invalid Bearer EAAB123abc for this app', 'Invalid [redacted] for this app'],
+    ['JSON message', JSON.stringify({ message: 'Authorization: bearer EAAB123abc rejected' }), 'Authorization: [redacted] rejected'],
+    ['upper case and repeated spaces', 'BEARER   EAAB123abc', '[redacted]'],
+    ['newline separator', 'Bearer\nEAAB123abc denied', '[redacted] denied'],
+    ['several tokens', 'Bearer EAAB123abc and Bearer EAAB456def', '[redacted] and [redacted]'],
+  ])('removes the credential after a bearer scheme: %s', async (_name, body, expected) => {
+    expect(await providerDetail(new Response(body, { status: 401 }))).toBe(expected);
+  });
+
+  it.each([
+    ['bearer with no value', 'Missing bearer', 'Missing [redacted]'],
+    ['other keywords keep the following words', 'token expired at noon', '[redacted] expired at noon'],
+    ['keyword suffix without whitespace', 'bad api_key=abc123 sent', 'bad api_[redacted] sent'],
+  ])('keeps the keyword redaction unchanged: %s', async (_name, body, expected) => {
+    expect(await providerDetail(new Response(body, { status: 400 }))).toBe(expected);
+  });
+});
 
 describe('pinned native HTTPS transport', () => {
   beforeEach(() => vi.resetAllMocks());
