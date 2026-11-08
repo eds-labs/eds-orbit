@@ -7,8 +7,8 @@ import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { adsPath, type AdsStatus } from "./api";
 import { adsText } from "./labels";
 
-// The ads module's overview (ADR 0025, A1): who decides spend, as the server
-// reports it, and the empty state until an account is connected.
+// The ads module's overview (ADR 0025, A1): the approval rule for spend, taken
+// from the server's settings, and the empty state until an account is connected.
 
 export function AdsOverview() {
   const { project, locale, t: word } = useWorkspace();
@@ -22,7 +22,7 @@ export function AdsOverview() {
         <>
           <section aria-labelledby="spend-decider">
             <h2 id="spend-decider">{t.deciderTitle}</h2>
-            <p>{t.decider}</p>
+            <p>{t.decider[status.data.settings.decider]}</p>
           </section>
           <Empty icon={Link2} title={t.noAccountTitle} description={t.noAccountBody} />
         </>

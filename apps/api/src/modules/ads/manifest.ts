@@ -2,7 +2,7 @@ import type { ServerModule } from "../../../../../packages/module-contracts/src/
 import { adsPermissions } from "./permissions.ts";
 
 /** The module id; the gate and the route base use this constant. */
-export const ADS_MODULE_ID = "ads";
+export const ADS_MODULE_ID = "ads" as const;
 
 /**
  * The ads module (ADR 0025): connected ad accounts, campaigns, budgets and

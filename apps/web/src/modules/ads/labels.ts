@@ -1,3 +1,5 @@
+import type { AdsSettings } from "./api";
+
 // The ads module's texts (English and German). Short, factual, no invented
 // figures.
 
@@ -12,8 +14,8 @@ const en = {
     performance: "Performance",
     accounts: "Accounts",
   },
-  deciderTitle: "Spend decisions",
-  decider: "Spend decisions: owner only",
+  deciderTitle: "Approvals",
+  decider: { owner: "Spend decisions: owner only" } as Record<AdsSettings["decider"], string>,
   noAccountTitle: "No ad account connected yet",
   noAccountBody: "Connect an ad account to see campaigns and performance here.",
   later: "Coming in a later phase",
@@ -32,8 +34,8 @@ const de: AdsText = {
     performance: "Performance & Analytics",
     accounts: "Konten & Verbindungen",
   },
-  deciderTitle: "Ausgaben",
-  decider: "Ausgaben entscheidet nur der Owner",
+  deciderTitle: "Freigaben",
+  decider: { owner: "Ausgaben entscheidet nur der Owner" },
   noAccountTitle: "Noch kein Werbekonto verbunden",
   noAccountBody: "Verbinde ein Werbekonto, um hier Kampagnen und Performance zu sehen.",
   later: "Folgt in einer späteren Phase",

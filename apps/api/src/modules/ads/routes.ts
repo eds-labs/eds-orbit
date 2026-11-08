@@ -1,6 +1,6 @@
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { ADS_BASE, inAds } from "./http-scope.ts";
-import { adsModule } from "./manifest.ts";
+import { ADS_MODULE_ID, adsModule } from "./manifest.ts";
 import { ADS_READ } from "./permissions.ts";
 import { readAdsSettings } from "./settings.ts";
 
@@ -11,7 +11,7 @@ export const adsRoutes: RoutesContribution = (context) => {
     inAds(auth, req, ADS_READ, async (tx, scope) => {
       const { settings, version } = await readAdsSettings(tx, scope);
       return {
-        module: "ads" as const,
+        module: ADS_MODULE_ID,
         version: adsModule.version,
         settings,
         settingsVersion: version,
