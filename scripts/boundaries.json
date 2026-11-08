@@ -120,6 +120,9 @@
     ],
     "package:module-contracts": [
       "packages/module-contracts/"
+    ],
+    "package:money": [
+      "packages/money/"
     ]
   },
   "dependencies": {
