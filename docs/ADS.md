@@ -12,7 +12,7 @@ Three layers, as for Social ([MODULE_ACTIVATION.md](MODULE_ACTIVATION.md)):
 
 1. Installation: `ORBIT_ADS=true` (default `false` in the config, both compose files and `.env.example`). While off, every ads route answers 404 `ADS_DISABLED`.
 2. Project: an owner enables the module in Settings → Modules (`enabled = true` row). The module is opt-in (`defaultEnabled: false`).
-3. Member: the permissions below; module roles may narrow them. Viewers see nothing of the module.
+3. Member: the permissions below; module roles may narrow them. By default viewers see nothing of the module; an owner can grant a viewer the editor module role, which includes spend data.
 
 Switching it off deletes nothing.
 
@@ -48,7 +48,7 @@ The Orbit budget guardrail is an internal check on Orbit-initiated changes plus 
 
 ## Data model
 
-Migration `202611080001_ads_core`: `AdAccount`, `AdOAuthState`, `AdSyncState`, `AdProviderThrottle`. Every table is project-scoped with forced row-level security (`project_scope`) and a composite same-project foreign key to the project. Ad accounts are unique per project, provider and external id and are never deleted by the business role (`scripts/db-deploy.ts` grants the business role only SELECT, INSERT and UPDATE on `AdAccount`; accounts are unlinked instead). Sync state and throttle rows belong to an account or project and are deleted with it. Tokens are never stored here; they will be sealed connection secrets (ADR 0014). Provider values are limited to `meta`, `openai`, `google`.
+Migration `202611080001_ads_core`: `AdAccount`, `AdOAuthState`, `AdSyncState`, `AdProviderThrottle`. Every table is project-scoped with forced row-level security (`project_scope`) and a composite same-project foreign key to the project. Ad accounts are unique per project, provider and external id and are never deleted by the business role (`scripts/db-deploy.ts` grants the business role only SELECT, INSERT and UPDATE on `AdAccount`; accounts are unlinked instead). The business role may DELETE sync-state, throttle and OAuth-state rows; only `AdAccount` lacks DELETE. Tokens are never stored here; they will be sealed connection secrets (ADR 0014). Provider values are limited to `meta`, `openai`, `google`.
 
 ## Boundaries
 
@@ -69,4 +69,4 @@ It returns module version, settings and settings version.
 
 ## Rollout and rollback
 
-Nothing is deployed. The migration changes the production schema hash to `6eae72159db3c3703c2adeb7874e0432cef55390d0752f48357492905b537c78` (`sh scripts/check-pve-schema.sh --print-hash`); Mario must approve this hash in Coolify before any push to `main` that contains it (`docs/deployment/COOLIFY.md`). Rollback before deployment: revert the branch. After deployment the tables are empty and inert while the flag is off; dropping them needs a separate approved migration.
+Nothing is deployed. The migration changes the production schema hash to `e3cb3759169fde49c7aaf6b859b7b9f0fb80e1b0164cb7e3e2eabd32f03f5dd0` (`sh scripts/check-pve-schema.sh --print-hash`); Mario must approve this hash in Coolify before any push to `main` that contains it (`docs/deployment/COOLIFY.md`). Rollback before deployment: revert the branch. After deployment the tables are empty and inert while the flag is off; dropping them needs a separate approved migration.

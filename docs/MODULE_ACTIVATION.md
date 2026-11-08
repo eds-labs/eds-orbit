@@ -177,7 +177,7 @@ The ads module (`docs/ADS.md`, ADR 0025) follows the same pattern: `defaultEnabl
 |---|---|
 | Installation | `ORBIT_ADS=true` (default `false`). While off, routes answer 404 `ADS_DISABLED`. A1 has no tools, jobs or attention items yet. |
 | Project | An owner enables it in Settings → Modules (`enabled = true` row). |
-| Member | `ads.read` and `ads.analytics.read` (owner, editor; sensitive; viewers see nothing), `ads.compose` and `ads.manage` (owner, editor), `ads.approve`, `ads.accounts.manage` and `ads.budget.manage` (owner; sensitive) and `ads.settings` (owner); module roles may narrow them. |
+| Member | `ads.read` and `ads.analytics.read` (owner, editor; sensitive; by default viewers see nothing, an owner can grant a viewer the editor module role, which includes spend data), `ads.compose` and `ads.manage` (owner, editor), `ads.approve`, `ads.accounts.manage` and `ads.budget.manage` (owner; sensitive) and `ads.settings` (owner); module roles may narrow them. |
 
 Switching it off deletes nothing.
 

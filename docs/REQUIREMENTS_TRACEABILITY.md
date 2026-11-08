@@ -89,7 +89,7 @@ Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans
 
 ## Ads module (ADR 0025, 2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; flag off)
 
-Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is implemented on the branch, not merged; A0 Task 0 (ad-blocker test of the id `ads`) is open.
+Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is implemented on the branch, not merged; A1 Task 0 (ad-blocker test of the id `ads`) is open.
 
 | ID | Requirement | Code | Local evidence | Result |
 | --- | --- | --- | --- | --- |
