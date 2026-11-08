@@ -10,8 +10,10 @@ const credentials = { accessToken: "test-access-token-0001", appSecret: "test-ap
 const PROOF = "a220b78fcb7c0e661a88e7a04803dff413c58eb8f7506d633c6f9d600f3083f4";
 const any = z.object({ ok: z.boolean() });
 
+let current: ReturnType<typeof createFakeMetaGraph> | null = null;
 function setup() {
   const fake = createFakeMetaGraph();
+  current = fake;
   setMetaAdsFetchForTests(fake.fetch);
   return { fake, client: createMetaGraphClient(credentials) };
 }
@@ -20,7 +22,12 @@ async function failure(promise: Promise<unknown>) {
   throw new Error("expected failure");
 }
 
-afterEach(() => setMetaAdsFetchForTests(null));
+afterEach(() => {
+  setMetaAdsFetchForTests(null);
+  const misses = current?.misses ?? [];
+  current = null;
+  expect(misses).toEqual([]);
+});
 
 describe("meta graph client", () => {
   it("sends the token only in the authorization header", async () => {
@@ -139,6 +146,14 @@ describe("meta graph client", () => {
     fake.on("GET", "/act_1", { json: { ok: true }, headers: usageHeaders({ type: "ads_management", callCount: 80 }) });
     const answer = await client.get("/act_1", {}, any);
     expect(answer.usage.buckets).toEqual([expect.objectContaining({ bucket: "meta_ads_management", usagePct: 80 })]);
+  });
+
+  it("records a miss for an unregistered route", async () => {
+    const { fake, client } = setup();
+    await failure(client.get("/act_1/unregistered", {}, any));
+    expect(fake.misses).toHaveLength(1);
+    expect(fake.misses[0]).toContain("GET https://graph.facebook.com/v27.0/act_1/unregistered");
+    fake.misses.length = 0;
   });
 
   it("refuses the test hook outside tests", () => {

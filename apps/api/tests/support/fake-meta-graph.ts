@@ -10,9 +10,14 @@ const PREFIX = "/v27.0/";
 export function createFakeMetaGraph() {
   const routes = new Map<string, FakeReply | FakeHandler>();
   const requests: FakeRequest[] = [];
+  /** "METHOD url" of every wrong-origin/version or unregistered request; tests assert this stays empty. */
+  const misses: string[] = [];
   const fetch: FetchLike = async (input, init) => {
     const url = new URL(String(input));
-    if (url.origin !== "https://graph.facebook.com" || !url.pathname.startsWith(PREFIX)) throw new Error(`Fake Meta Graph: request outside ${PREFIX}: ${url.origin}${url.pathname}`);
+    if (url.origin !== "https://graph.facebook.com" || !url.pathname.startsWith(PREFIX)) {
+      misses.push(`${(init?.method ?? "GET").toUpperCase()} ${url.origin}${url.pathname}`);
+      throw new Error(`Fake Meta Graph: request outside ${PREFIX}: ${url.origin}${url.pathname}`);
+    }
     const method = (init?.method ?? "GET").toUpperCase();
     const path = url.pathname.slice(PREFIX.length - 1);
     const headers = new Headers(init?.headers);
@@ -20,7 +25,10 @@ export function createFakeMetaGraph() {
     const request: FakeRequest = { method, path, query: url.searchParams, ...(body !== undefined ? { form: new URLSearchParams(body) } : {}), authorization: headers.get("authorization") };
     requests.push(request);
     const route = routes.get(`${method} ${path}`);
-    if (!route) throw new Error(`Fake Meta Graph: no route for ${method} ${path}`);
+    if (!route) {
+      misses.push(`${method} ${url.origin}${url.pathname}`);
+      throw new Error(`Fake Meta Graph: no route for ${method} ${path}`);
+    }
     const reply = typeof route === "function" ? route(request) : route;
     if ("throw" in reply) throw reply.throw;
     return new Response(JSON.stringify(reply.json ?? {}), { status: reply.status ?? 200, headers: { "content-type": "application/json", ...reply.headers } });
@@ -28,6 +36,7 @@ export function createFakeMetaGraph() {
   return {
     fetch,
     requests,
+    misses,
     on(method: "GET" | "POST", path: string, reply: FakeReply | FakeHandler) { routes.set(`${method} ${path}`, reply); },
   };
 }
