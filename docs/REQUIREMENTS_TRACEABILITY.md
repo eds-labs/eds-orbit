@@ -87,6 +87,27 @@ Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans
 | R6 | Developer apps in global administration; project OAuth accounts; sealed tokens | `modules/social/accounts/*`, `platform/connections/project-secrets.ts` | `social-apps`, `project-secrets`, `social-oauth-state`, `social-oauth-routes`, `social-x-connect`, `social-meta-connect`, `social-vault`, `social-accounts`, `social-meta-data-deletion` integration tests; access matrix | PASS_TEST (local, fake providers; live acceptance open) |
 | R7 | Postiz migration without loss, rollback | S9: `modules/social/contract.ts`, `marketing/publishing/{backend,publisher,postiz-draft}.ts`, `marketing/policy/policy.ts`, `scripts/boundaries.json` | `social-contract`, `marketing-publishing-backend`, `marketing-social-backend` integration tests, Social cases in `assignment-veto` and `assignment-postiz-drafts`, existing Marketing suites unchanged | S9 + S10 tools PASS_TEST (local; S10: `marketing-social-migration.integration.test.ts`, draining in `marketing-social-backend`, web `legacy.test.tsx`, `scripts/postiz-inventory.ts`); per-project cutover open |
 
+## Ads module (ADR 0025, 2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; flag off)
+
+Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is implemented on the branch, not merged; A0 Task 0 (ad-blocker test of the id `ads`) is open.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| R1 | Standalone module `ads`, activatable without Marketing or Social | `modules/ads/{manifest,permissions,gate,settings,http-scope,contributions,routes}.ts`, `modules/registry.ts`, `apps/web/src/modules/ads/`, `ORBIT_ADS` in config, compose files, `.env.example` | `ads-module.test.ts`, `ads-routes.integration.test.ts`, `module-registry.test.ts`, access matrix, web `ads.test.tsx`, `pnpm test:coolify-compose` | A1 PASS_TEST (skeleton only; features A2–A11) |
+| R1-DB | Own tables with forced RLS, composite project keys, restricted grants | migration `202611080001_ads_core`, `scripts/db-deploy.ts` | `ads-schema.integration.test.ts`, `rls-matrix.integration.test.ts` | PASS_TEST (local test database only; not applied elsewhere) |
+| R1-B | Only direct HTTP adapters: no ads SDK, no automation intermediary | `scripts/boundaries.{json,mjs}` zones `module:ads`, `web-module:ads`, `forbiddenImportPrefixes` | `scripts/boundaries.test.mjs`, `pnpm lint` | PASS_TEST |
+| R2 | Navigation and views | `apps/web/src/modules/ads/` (six placeholder views) | web `ads.test.tsx` | A1 placeholders only; content A4, A5, A8, A9 |
+| R3 | Provider adapters | none | none | OPEN (A2) |
+| R4 | Meta connection | none | none | OPEN (A3) |
+| R5 | Meta campaigns | none | none | OPEN (A4, A7, A8) |
+| R6 | Creatives and audiences | none | none | OPEN (A8, A9) |
+| R7 | Analytics | none | none | OPEN (A5) |
+| R8 | Works without AI; Marketing agents use Ads | none | none | OPEN (A11) |
+| R9 | Approvals and budget guardrail | none | none | OPEN (A7) |
+| R10 | MCP access | none | none | OPEN (A10) |
+| R11 | Background sync | none | none | OPEN (A4–A6, A11) |
+| R12 | ChatGPT Ads and Google Ads: research and plan only | plan §12.2, §12.3 | none | OPEN (planning) |
+
 ## Approval UX v2 and agent mandates (2026-10-28, local; `ORBIT_AGENT_MANDATES` off)
 
 Plan [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md), ADR [0019](adr/0019-agent-mandates.md) (proposed).

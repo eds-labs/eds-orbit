@@ -169,6 +169,18 @@ The social module (`docs/SOCIAL.md`, ADR 0020) follows the same pattern: `defaul
 
 Switching it off deletes nothing.
 
+## Ads module (opt-in, 2026-11-08, branch only; flag off)
+
+The ads module (`docs/ADS.md`, ADR 0025) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_ADS` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_ADS=true` (default `false`). While off, routes answer 404 `ADS_DISABLED`. A1 has no tools, jobs or attention items yet. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `ads.read` and `ads.analytics.read` (owner, editor; sensitive; viewers see nothing), `ads.compose` and `ads.manage` (owner, editor), `ads.approve`, `ads.accounts.manage` and `ads.budget.manage` (owner; sensitive) and `ads.settings` (owner); module roles may narrow them. |
+
+Switching it off deletes nothing.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

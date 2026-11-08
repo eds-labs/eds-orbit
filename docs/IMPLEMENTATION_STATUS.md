@@ -1,5 +1,15 @@
 # Implementation status
 
+## Ads module A1: module skeleton (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; not merged, flag off)
+
+Step A1 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)). Docs: [ADS.md](ADS.md).
+
+- **Built:** installation switch `ORBIT_ADS` (default `false`; config, both compose files, `.env.example`, compose checks); `apps/api/src/modules/ads/` (manifest, eight permissions, gate with 404 `ADS_DISABLED`, settings, `GET /api/projects/:projectId/ads/status`); migration `202611080001_ads_core` (`AdAccount`, `AdOAuthState`, `AdSyncState`, `AdProviderThrottle`, forced RLS, no DELETE grant on `AdAccount`); boundary zones `module:ads` and `web-module:ads` and a ban on ads SDK and n8n imports; opt-in web module with six placeholder views and an ad-blocker hygiene test; tests in `ads-module`, `ads-schema`, `ads-routes`, RLS and access matrices, boundaries and web `ads.test.tsx`.
+- **State:** nothing merged, pushed, deployed or enabled; no flag changed; no provider call; the migration is applied only to this worktree's test database.
+- **Schema hash for Mario's approval (production, from `sh scripts/check-pve-schema.sh --print-hash`):** `6eae72159db3c3703c2adeb7874e0432cef55390d0752f48357492905b537c78`. It must be approved in Coolify before any push to `main` that contains the migration.
+- **Open:** Task 0 (A-D1 ad-blocker test of `ads` in uBlock Origin, AdGuard and Brave in Mario's browsers) is still open: Claude's check in Mario's Chrome found no active blocker and proved nothing. The implementation uses `ads` by a recorded ruling; the plan's rename table applies if the test says `advertising`. Next: A2 (provider seam).
+- **Rollback:** revert the branch; after a deployment the tables are inert and empty while the flag is off.
+
 ## Ads module: plan and decisions (2026-11-07; documentation only, nothing implemented)
 
 Plan: [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (programme for a standalone `ads` module: Meta Ads, then ChatGPT Ads, then Google Ads; decisions A-D1–A-D19 accepted as recommended by Mario on 2026-11-07). ADR: [adr/0025-ads-module.md](adr/0025-ads-module.md) (proposed). [ADR 0008](adr/0008-action-approvals.md) gains the addendum of 2026-11-07 (F1/F2 may be proposed over MCP, chat and agents; owner decides in the web UI with recent authentication) and `plans/orbit-modularization/09-mcp-gateway.md` §6.1 follows it; both take effect with the ads steps A7 and A10. Next: step A0's spike ([guide](superpowers/plans/2026-11-07-ads-a0-spike.md): own Meta app in development mode, no spend; needs Mario), then A1. On 2026-11-08 Mario decided that the app belongs to a new Meta business portfolio "EDS Labs" with its own Page; an older Meta test app is not used. Step plans for A1 ([module skeleton](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)) and A2 ([provider seam](superpowers/plans/2026-11-08-ads-a2-provider-seam.md)) written 2026-11-08. No code, migration, flag, developer app or provider call exists.
