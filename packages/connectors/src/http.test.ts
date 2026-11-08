@@ -13,14 +13,34 @@ describe('providerDetail redaction', () => {
     ['upper case and repeated spaces', 'BEARER   EAAB123abc', '[redacted]'],
     ['newline separator', 'Bearer\nEAAB123abc denied', '[redacted] denied'],
     ['several tokens', 'Bearer EAAB123abc and Bearer EAAB456def', '[redacted] and [redacted]'],
+    ['colon after the scheme', 'Bearer: EAAB123abc denied', '[redacted] denied'],
+    ['doubled scheme', 'Bearer Bearer EAAB123abc denied', '[redacted] denied'],
   ])('removes the credential after a bearer scheme: %s', async (_name, body, expected) => {
     expect(await providerDetail(new Response(body, { status: 401 }))).toBe(expected);
+  });
+
+  it.each([
+    ['colon and space', 'access_token: abcdef rejected', 'access_[redacted] rejected'],
+    ['spaced equals sign', 'client_secret = abcdef rejected', 'client_[redacted] rejected'],
+    ['echoed JSON without a message field', '{"access_token": "abcdef", "x": 1}', 'access_[redacted] x : 1'],
+  ])('removes a value assigned to a keyword: %s', async (_name, body, expected) => {
+    expect(await providerDetail(new Response(body, { status: 400 }))).toBe(expected);
+  });
+
+  it.each([
+    ['value with digits', 'api key sk_live_abc123 rejected', 'api [redacted] rejected'],
+    ['value after "is"', 'password is hunter2 rejected', '[redacted] rejected'],
+    ['long value without digits', 'invalid token abcdefghijklmnopqrstuvwxyz rejected', 'invalid [redacted] rejected'],
+  ])('removes a credential-shaped value after a keyword: %s', async (_name, body, expected) => {
+    expect(await providerDetail(new Response(body, { status: 400 }))).toBe(expected);
   });
 
   it.each([
     ['bearer with no value', 'Missing bearer', 'Missing [redacted]'],
     ['other keywords keep the following words', 'token expired at noon', '[redacted] expired at noon'],
     ['keyword suffix without whitespace', 'bad api_key=abc123 sent', 'bad api_[redacted] sent'],
+    ['diagnostic word after "is"', 'token is invalid', '[redacted] is invalid'],
+    ['diagnostic word after the keyword', 'Invalid API key provided', 'Invalid API [redacted] provided'],
   ])('keeps the keyword redaction unchanged: %s', async (_name, body, expected) => {
     expect(await providerDetail(new Response(body, { status: 400 }))).toBe(expected);
   });

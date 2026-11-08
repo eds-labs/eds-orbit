@@ -69,6 +69,16 @@ export const boundedFetchWith = (limits: { maxResponseBytes: number }): FetchLik
   });
 };
 
+const CREDENTIAL_WORD = 'bearer|token|key|secret|password';
+/** Alternatives that also consume a value come before the bare keyword. */
+const CREDENTIAL_TEXT = new RegExp([
+  String.raw`(?:bearer[\s:=]+)+\S+`, // "Bearer x", "Bearer: x", a doubled scheme
+  String.raw`(?:${CREDENTIAL_WORD})\S*\s*[:=]\s*\S+`, // "token: x", "secret = x"
+  // Without an assignment only a credential-shaped value goes, so "token expired" stays readable.
+  String.raw`(?:${CREDENTIAL_WORD})\S*\s+(?:(?:is|was)\s+)?(?=\S*\d|\S{20})\S+`,
+  String.raw`(?:${CREDENTIAL_WORD})\S*`,
+].join('|'), 'gi');
+
 /** Short, sanitized provider error message for diagnostics. Never the raw body. */
 export async function providerDetail(response: Response): Promise<string | undefined> {
   try {
@@ -76,8 +86,7 @@ export async function providerDetail(response: Response): Promise<string | undef
     let message: unknown = text;
     try { const body = JSON.parse(text); message = body?.message ?? body?.error ?? body?.msg ?? text; } catch { /* plain text */ }
     if (Array.isArray(message)) message = message.join('; ');
-    // A bearer scheme carries its credential after whitespace, so the value goes with it.
-    const clean = String(message).replace(/bearer\s+\S+|(bearer|token|key|secret|password)\S*/gi, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const clean = String(message).replace(CREDENTIAL_TEXT, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
     return clean || undefined;
   } catch { return undefined; }
 }
