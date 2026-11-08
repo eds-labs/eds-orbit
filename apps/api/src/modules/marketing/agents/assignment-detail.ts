@@ -206,6 +206,10 @@ export async function assignmentDetail(
         })),
       ],
       retryable: !(await runRetryRefusal(tx, scope, run, now)),
+      // A run the owner retried (G6): shown as replaced, not as a failure.
+      retiredAt: typeof r.retiredAt === "string" ? r.retiredAt : null,
+      retriedByRunId:
+        typeof r.retriedByRunId === "string" ? r.retriedByRunId : null,
       deliverables: deliverables.sort((x, y) =>
         x.slotAt.localeCompare(y.slotAt),
       ),

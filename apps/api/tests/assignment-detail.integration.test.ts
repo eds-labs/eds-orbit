@@ -123,7 +123,7 @@ describe.skipIf(!enabled)("Assignment detail", () => {
       create(tx, project.owner, "assignment_runs", {
         assignmentId,
         date: new Date().toISOString().slice(0, 10),
-        status: "completed",
+        status: "done",
         slots: [],
         unavailable: [],
         steps: [],
@@ -325,6 +325,28 @@ describe.skipIf(!enabled)("Assignment detail", () => {
     expect(runs[failed.id].retryable).toBe(true);
     // Newest first.
     expect(body.runs[0].id).toBe(failed.id);
+    expect(runs[failed.id]).toMatchObject({
+      retiredAt: null,
+      retriedByRunId: null,
+    });
+  });
+
+  it("names a retried run's new run instead of showing an open failure", async () => {
+    const assignment = await confirmed();
+    const retiredAt = new Date().toISOString();
+    const retired = await makeRun(assignment.id, {
+      status: "failed",
+      retiredAt,
+      retriedByRunId: "33333333-3333-4333-8333-333333333333",
+    });
+    const body = (await get("owner", assignment.id)).json();
+    const row = body.runs.find((r: any) => r.id === retired.id);
+    expect(row).toMatchObject({
+      status: "failed",
+      retiredAt,
+      retriedByRunId: "33333333-3333-4333-8333-333333333333",
+      retryable: false,
+    });
   });
 
   it("marks dropped, canceled and released deliverables", async () => {

@@ -639,6 +639,24 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     ]);
   });
 
+  it("a failed run the owner retried is no run problem", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await run((tx) =>
+      create(tx, owner, "assignment_runs", {
+        assignmentId: randomUUID(),
+        status: "failed",
+        date: "2026-10-18",
+        slots: [],
+        steps: [],
+        retiredAt: new Date().toISOString(),
+        retriedByRunId: randomUUID(),
+      }),
+    );
+    expect(
+      (await marketingItems()).some((i) => i.kind === "marketing_run_problem"),
+    ).toBe(false);
+  });
+
   it("an assignment out of its monthly budget is a critical run problem", async () => {
     process.env.ORBIT_AGENTS = "true";
     await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });

@@ -235,6 +235,8 @@ async function runProblemItems(
     : [];
   const counts = { failed: 0, outcome_unknown: 0, degraded: 0 };
   for (const run of recent) {
+    // A run the owner retried (G6) is replaced by its new run, not open.
+    if (data(run).retiredAt) continue;
     const tasks = evidence
       .filter((r) => r.kind === "agent_tasks" && data(r).runId === run.id)
       .map((r) => ({
