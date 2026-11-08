@@ -13,6 +13,13 @@ describe("ads provider registry", () => {
     expect(adsProvider("google")).toBeNull();
   });
 
+  it("returns null for inherited Object.prototype keys, not only for unknown ids", () => {
+    expect(adsProvider("constructor" as never)).toBeNull();
+    expect(adsProvider("__proto__" as never)).toBeNull();
+    expect(adsProvider("toString" as never)).toBeNull();
+    expect(adsProvider("hasOwnProperty" as never)).toBeNull();
+  });
+
   it("lists only the Meta provider", () => {
     expect(adsProviderIds()).toEqual(["meta"]);
   });
