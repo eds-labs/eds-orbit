@@ -599,7 +599,10 @@ async function postizError(
       `Zeit: ${when(p.scheduledAt, timezone)}`,
       p.status === "outcome_unknown"
         ? `Ergebnis unklar. Bitte in ${where} prüfen, bevor etwas erneut gesendet wird.`
-        : "Der Beitrag wurde nicht veröffentlicht.",
+        : // Social's lateness limit (D-3), like SLOT_EXPIRED on Marketing's side.
+          p.reason === "SOCIAL_SLOT_EXPIRED"
+          ? "Der Beitrag wurde nicht veröffentlicht, weil der geplante Zeitpunkt mehr als 30 Minuten vorbei war."
+          : "Der Beitrag wurde nicht veröffentlicht.",
     ].join("\n"),
   );
 }
