@@ -60,6 +60,12 @@ describe("classifyMetaFailure", () => {
     expect(long.userTitle).toHaveLength(300);
   });
 
+  it.each(["Bearer EAABxxxxxxxxxxxxxxxxxxxxxxxxxxxx failed", "call failed for EAABxxxxxxxxxxxxxxxxxxxxxxxxxxxx today"])("never leaks a token shape: %s", message => {
+    const f = classifyMetaFailure({ write: true, httpStatus: 400, body: graph({ code: 100, error_user_msg: message, error_user_title: message }) });
+    expect(JSON.stringify(f)).not.toContain("EAAB");
+    expect(f.userMessage).toContain("[redacted]");
+  });
+
   it("AdsProviderError message is the failure code only", () => {
     const failure = classifyMetaFailure({ write: true, httpStatus: 400, body: graph({ code: 100, error_user_msg: "secret text" }) });
     const error = new AdsProviderError(failure);

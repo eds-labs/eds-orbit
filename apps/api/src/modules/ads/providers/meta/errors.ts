@@ -1,11 +1,17 @@
 import type { FailureInput, ProviderFailure } from "../types.ts";
 import { parseMetaUsage } from "./usage.ts";
 
-/** Same token-word pattern as `providerDetail` in packages/connectors/src/http.ts (not exported there). */
+/**
+ * Starts from the token-word pattern of `providerDetail` in packages/connectors/src/http.ts (not exported there),
+ * but is stricter: that pattern stops at whitespace, so "Bearer EAAB..." would leave the token itself behind.
+ * Tokens must never appear in a ProviderFailure, so "bearer <value>" and Meta-token-shaped runs are removed too.
+ */
+const BEARER = /bearer\s+\S+/gi;
+const META_TOKEN = /EAA[A-Za-z0-9]{20,}/g;
 const TOKEN_WORDS = /(bearer|token|key|secret|password)\S*/gi;
 const clean = (text: unknown): string | undefined => {
   if (typeof text !== "string") return undefined;
-  const out = text.replace(TOKEN_WORDS, "[redacted]").replace(/\s+/g, " ").trim().slice(0, 300);
+  const out = text.replace(BEARER, "[redacted]").replace(META_TOKEN, "[redacted]").replace(TOKEN_WORDS, "[redacted]").replace(/\s+/g, " ").trim().slice(0, 300);
   return out || undefined;
 };
 
