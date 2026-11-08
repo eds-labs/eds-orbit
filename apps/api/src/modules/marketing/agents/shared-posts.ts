@@ -214,6 +214,7 @@ export async function cloneForChannel(
     humanReviewedBodyHash: _human,
     supersededBy: _supersededBy,
     supersededAt: _supersededAt,
+    retiredWithRunId: _retiredWithRunId,
     driveDraft: _driveDraft,
     status: _status,
     ...rest

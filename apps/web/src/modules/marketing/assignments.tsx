@@ -229,7 +229,13 @@ export function useAssignments() {
   };
 }
 
-/** The owner's "retry run" button of the table and the detail view. */
+/** What a retry does to the run's drafts, shown on the button and asked before it runs. */
+export const retryRunHelp = (de: boolean) =>
+  de
+    ? "Plant einen neuen Lauf für denselben Tag. Wartende Entwürfe dieses Laufs werden ersetzt und können nicht mehr freigegeben werden."
+    : "Plans a new run for the same day. Waiting drafts of this run are replaced and can no longer be released.";
+
+/** The owner's "retry run" button of the table and the detail view; it asks first. */
 export function RetryRunButton({
   de,
   disabled,
@@ -239,8 +245,17 @@ export function RetryRunButton({
   disabled: boolean;
   onClick: () => void;
 }) {
+  const help = retryRunHelp(de);
   return (
-    <Button size="sm" variant="outline" disabled={disabled} onClick={onClick}>
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={disabled}
+      title={help}
+      onClick={() => {
+        if (window.confirm(help)) onClick();
+      }}
+    >
       {de ? "Lauf wiederholen" : "Retry run"}
     </Button>
   );

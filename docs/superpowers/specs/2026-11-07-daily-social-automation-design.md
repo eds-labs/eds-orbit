@@ -59,7 +59,7 @@ Facebook and Instagram hand-offs each call `importOriginMedia`, creating two lib
 
 ### G6. Retry a failed run
 
-New owner action "Lauf wiederholen" (`POST /api/projects/:projectId/assignment-runs/:runId/retry`, assistant tool `assignment_change` action `retry`). Allowed when the run is `failed` or `partial`, the assignment is `active`, and the first open slot is at least 60 minutes ahead. It cancels the run's unfinished steps and deliverables, then plans a new run for the same date through the normal planner (new run id, so new budget reservations under the assignment's monthly cap; the same date idempotency applies). Audited `assignment.run_retried`. No retry once a slot passed.
+New owner action "Lauf wiederholen" (`POST /api/projects/:projectId/assignment-runs/:runId/retry`, assistant tool `assignment_change` action `retry`). Allowed when the run is `failed` or `partial`, the assignment is `active`, and the first open slot is at least 60 minutes ahead. It cancels the run's unfinished steps and deliverables, then plans a new run for the same date through the normal planner (new run id, so new budget reservations under the assignment's monthly cap; the same date idempotency applies). Audited `assignment.run_retried`. No retry once a slot passed, and none while the project is paused (`PROJECT_PAUSED`, 409; the button is not offered). The retired run's waiting drafts are marked `retiredWithRunId` (the retired run's id; `supersededBy` keeps holding only content ids) and every reader treats them as gone; the button says, and asks, that they are replaced.
 
 ### G7. Assignment detail view
 

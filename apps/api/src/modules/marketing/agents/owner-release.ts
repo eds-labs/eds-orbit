@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { ownedPlanRefusal } from "../plans/execution.ts";
 import { z } from "zod";
 import {
@@ -134,7 +135,7 @@ export async function releaseAssignmentDraft(
   }
   // Blog and newsletter drafts are saved to Drive, never published.
   if (c.type !== "social") throw new DomainError("DRAFT_NOT_PUBLISHABLE", 409);
-  if (c.status !== "needs_review" || c.supersededBy)
+  if (c.status !== "needs_review" || draftReplaced(c))
     throw new DomainError("DRAFT_NOT_AWAITING_OWNER", 409);
   if (content.version !== version)
     throw new DomainError("VERSION_CONFLICT", 409);

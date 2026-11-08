@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
@@ -430,7 +431,7 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     return (
       typeof d.assignmentRunId === "string" &&
       d.type === "social" &&
-      !d.supersededBy
+      !draftReplaced(d)
     );
   });
   const missions = await rowsById(

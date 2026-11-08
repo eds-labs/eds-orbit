@@ -1,7 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, entity, DomainError, create, update } from "../../../shared.ts";
-import { expiredDraftIds } from "./draft-state.ts";
+import { draftReplaced, expiredDraftIds } from "./draft-state.ts";
 const WAITING = ["draft", "needs_review", "reviewed", "blocked_dependency"];
 export const REVIEW_BACKLOG_FULL = "ASSIGNMENT_REVIEW_BACKLOG_FULL";
 /** Slots of admitted runs reserve review capacity too. Otherwise two workers
@@ -62,7 +62,7 @@ export async function reviewBacklog(
   const waiting = contents.filter(
     (r) =>
       (!currentRunId || data(r).assignmentRunId !== currentRunId) &&
-      !data(r).supersededBy &&
+      !draftReplaced(data(r)) &&
       !handedOff.has(r.id) &&
       WAITING.includes(data(r).status),
   );

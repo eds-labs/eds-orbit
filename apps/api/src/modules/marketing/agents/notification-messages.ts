@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { publishingBackend } from "../publishing/backend.ts";
 import { runOperation } from "./run-operation.ts";
 import { runDeliverables } from "./veto.ts";
@@ -225,7 +226,7 @@ async function needsOwner(
   // The agent approved it, but only the owner's release counts (R71).
   if (c.agentReview?.taskId === taskId) {
     // Released, replaced or otherwise decided meanwhile: nothing left to ask.
-    if (c.status !== "needs_review" || c.supersededBy) return { skip: "STALE" };
+    if (c.status !== "needs_review" || draftReplaced(c)) return { skip: "STALE" };
     const mission = c.missionId
       ? data(await maybe(() => entity(tx, scope, "missions", c.missionId)))
       : {};

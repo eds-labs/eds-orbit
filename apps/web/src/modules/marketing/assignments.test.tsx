@@ -102,6 +102,10 @@ describe("AssignmentTable", () => {
     expect(html([item({ retryableRunId: "run-1" })], "owner")).toContain(
       "Lauf wiederholen",
     );
+    // The button says (and asks) that the run's waiting drafts are replaced.
+    expect(html([item({ retryableRunId: "run-1" })], "owner")).toContain(
+      "Wartende Entwürfe dieses Laufs werden ersetzt",
+    );
     expect(html([item({ retryableRunId: null })], "owner")).not.toContain(
       "Lauf wiederholen",
     );

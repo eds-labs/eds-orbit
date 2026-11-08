@@ -10,7 +10,7 @@ import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import { budgetExhausted, RECENT_MS } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
-import { expiredDraftIds } from "./agents/draft-state.ts";
+import { draftReplaced, expiredDraftIds } from "./agents/draft-state.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
 import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
@@ -57,8 +57,8 @@ const ASSIGNMENT_DRAFT_LIMIT = 1000;
 /**
  * Content in a status the approvals page lists, as one aggregated item. A
  * draft that has its own release item is not counted again, and an
- * assignment draft whose slot passed (D-2: it can never be released) is not
- * counted at all.
+ * assignment draft whose slot passed (D-2: it can never be released) or that
+ * was replaced (a retried run, a revision) is not counted at all.
  */
 async function contentReviewItems(
   tx: DbTx,
@@ -82,16 +82,19 @@ async function contentReviewItems(
       take: ASSIGNMENT_DRAFT_LIMIT,
     })
   ).filter((row) => typeof data(row).assignmentRunId === "string");
-  const expired = await expiredDraftIds(tx, scope, candidates, now);
+  const gone = await expiredDraftIds(tx, scope, candidates, now);
+  // Drafts of a retried run (or a revision's original) are gone as well.
+  for (const row of candidates)
+    if (draftReplaced(data(row))) gone.add(row.id);
   const waiting = await tx.entity.aggregate({
-    where: expired.size
-      ? { ...inReview, id: { notIn: [...expired] } }
+    where: gone.size
+      ? { ...inReview, id: { notIn: [...gone] } }
       : inReview,
     _count: { _all: true },
     _min: { createdAt: true },
   });
   const drafted = drafts.filter(
-    (draft) => !draft.expired && !expired.has(draft.id),
+    (draft) => !draft.expired && !gone.has(draft.id),
   ).length;
   const count = waiting._count._all - drafted;
   if (count <= 0) return [];

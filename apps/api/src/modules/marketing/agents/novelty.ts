@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { validateEvidence } from "../../../platform/knowledge/services.ts";
 import { errorCode } from "../../telemetry.ts";
 import { htmlToText } from "./channel-posts.ts";
@@ -195,7 +196,7 @@ export async function marketingHistory(
     const d = data(row);
     if (
       ["archived", "rejected", "deleted"].includes(d.status) ||
-      d.supersededBy
+      draftReplaced(d)
     )
       continue;
     const withheld =
@@ -548,7 +549,7 @@ export async function reserveTopic(
   if (
     existing.some(
       (r) =>
-        !data(r).supersededBy &&
+        !draftReplaced(data(r)) &&
         !["archived", "rejected", "deleted"].includes(data(r).status) &&
         r.id !== input.contentId &&
         (!input.missionId || data(r).missionId !== input.missionId),
@@ -595,7 +596,7 @@ export async function assertDistinctDraft(
     if (
       row.id === excludeContent ||
       (d.missionId === excludeMission && excludeMission !== undefined) ||
-      d.supersededBy ||
+      draftReplaced(d) ||
       ["archived", "rejected", "deleted"].includes(d.status)
     )
       continue;

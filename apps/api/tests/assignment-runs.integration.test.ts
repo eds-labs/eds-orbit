@@ -30,6 +30,8 @@ import { channelSlots } from "../src/modules/agents/scheduling.ts";
 import { assignmentsMonthSpend } from "../src/modules/agents/specialists/runner.ts";
 import { draftsAwaitingOwner } from "../src/modules/marketing/agents/assignment-overview.ts";
 import { scheduleUnscheduledRuns } from "../src/modules/marketing/agents/veto.ts";
+import { releaseAssignmentDraft } from "../src/modules/marketing/agents/owner-release.ts";
+import { marketingAttention } from "../src/modules/marketing/attention.ts";
 import { runBudgetKey } from "../src/modules/agents/specialists/runner.ts";
 import { assignmentTools } from "../src/modules/agents/tools/assignment-tools.ts";
 import {
@@ -912,10 +914,28 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       const content = await run((tx) =>
         entity(tx, project.owner, "content", draft.id),
       );
-      expect(data(content).supersededBy).toBe(result.runId);
+      // Retired with its run (the new run is the old run's retriedByRunId);
+      // supersededBy keeps holding only content ids.
+      expect(data(content).retiredWithRunId).toBe(planned.id);
+      expect(data(content).supersededBy).toBeUndefined();
       expect(await run((tx) => draftsAwaitingOwner(tx, project.owner))).toEqual(
         [],
       );
+      // The owner can no longer release it, and the review counts it nowhere.
+      expect(
+        await refusal(
+          run((tx) =>
+            releaseAssignmentDraft(tx, project.owner, draft.id, content.version),
+          ),
+        ),
+      ).toBe("DRAFT_NOT_AWAITING_OWNER");
+      expect(
+        (await run((tx) => marketingAttention(tx, project.owner, MORNING))).filter(
+          (item) =>
+            item.kind === "marketing_content_review" ||
+            item.kind === "marketing_draft_release",
+        ),
+      ).toEqual([]);
       const reservationRow = await run((tx) =>
         entity(tx, project.owner, "marketing_topic_reservations", held.id),
       );
@@ -1047,7 +1067,8 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       const content = await run((tx) =>
         entity(tx, project.owner, "content", draft.id),
       );
-      expect(data(content).supersededBy).toBe(result.runId);
+      expect(data(content).retiredWithRunId).toBe(planned.id);
+      expect(result.retiredRunId).toBe(planned.id);
       // The sweep looks at runs of the last two days by the wall clock.
       vi.useFakeTimers({ toFake: ["Date"], now: EVENING });
       const errors = vi.spyOn(console, "error").mockImplementation(() => {});

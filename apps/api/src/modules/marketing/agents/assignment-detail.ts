@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, entity, list } from "../../../shared.ts";
@@ -153,7 +154,7 @@ export async function assignmentDetail(
       else if (handoff && FAILED.includes(h.status)) state = "failed";
       else if (handoff && h.status === "canceled") state = "canceled";
       else if (
-        c.supersededBy ||
+        draftReplaced(c) ||
         ["archived", "rejected", "deleted"].includes(c.status)
       )
         state = "canceled";

@@ -21,6 +21,7 @@ import {
   PROJECT_OWN,
 } from "../../../platform/tenancy/permissions.ts";
 import { NOVELTY_KIND } from "./novelty.ts";
+import { draftReplaced } from "./draft-state.ts";
 import { bookedDraft, releasedPublication } from "./handoff-lookup.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
@@ -1330,8 +1331,8 @@ export async function runRetryRefusal(
 /**
  * The owner retries a failed or partial run before its slot (G6): the old
  * run is retired (`retiredAt`, `retiredBy`, `retriedByRunId`; its open slots
- * are released), its waiting drafts are superseded by the new run so the
- * release list drops them, its held topic reservations are released, and
+ * are released), its waiting drafts are retired with it (`retiredWithRunId`)
+ * so the release list and every other reader drop them, its held topic reservations are released, and
  * planning creates one new run for the same date. Everything happens in the
  * caller's transaction; when planning creates no run (budget, backlog,
  * slots) the refusal rolls it all back. Spend of the old run stays in the
@@ -1360,15 +1361,19 @@ export async function retryAssignmentRun(
         : { ...slot, releasedAt: stamp, releaseReason: "RUN_RETRIED" },
     ),
   });
-  // Superseded first (marked with the old run until the new one exists), so
-  // planning's review backlog and topic checks no longer count these drafts.
+  // Retired with the run first, so planning's review backlog and topic
+  // checks no longer count these drafts (`draftReplaced`); the new run is
+  // the old run's `retriedByRunId`.
   const drafts = (await runContents(tx, scope, row.id)).filter(
     (content) =>
       !["archived", "rejected", "deleted"].includes(data(content).status) &&
-      !data(content).supersededBy,
+      !draftReplaced(data(content)),
   );
   for (const draft of drafts)
-    await update(tx, scope, draft, { ...data(draft), supersededBy: row.id });
+    await update(tx, scope, draft, {
+      ...data(draft),
+      retiredWithRunId: row.id,
+    });
   const reservations = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -1398,12 +1403,6 @@ export async function retryAssignmentRun(
       data(candidate).status !== "canceled",
   );
   if (!created) throw new DomainError(RUN_NOT_RETRYABLE, 409);
-  for (const draft of await runContents(tx, scope, row.id))
-    if (data(draft).supersededBy === row.id)
-      await update(tx, scope, await entity(tx, scope, "content", draft.id), {
-        ...data(draft),
-        supersededBy: created.id,
-      });
   const current = await entity(tx, scope, RUNS, retired.id);
   await update(tx, scope, current, {
     ...data(current),

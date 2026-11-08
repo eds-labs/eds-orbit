@@ -1,3 +1,4 @@
+import { draftReplaced } from "../draft-state.ts";
 import { z } from "zod";
 import {
   scoped,
@@ -343,7 +344,7 @@ export async function deterministicProblems(
   const problems: string[] = [];
   if (v.assignmentRunId !== task.runId || v.assignmentId !== task.assignmentId)
     problems.push("DRAFT_NOT_IN_RUN");
-  if (v.status !== "draft" || v.supersededBy)
+  if (v.status !== "draft" || draftReplaced(v))
     problems.push("DRAFT_NOT_REVIEWABLE");
   const assignment = data(
     await entity(tx, scope, "assignments", task.assignmentId),
@@ -1304,7 +1305,7 @@ async function shareDraft(
   if (run.sharedAcrossChannels !== true) return [];
   const original = await entity(tx, scope, "content", contentId);
   const v = data(original);
-  if (v.sharedFrom || v.type !== "social" || v.supersededBy) return [];
+  if (v.sharedFrom || v.type !== "social" || draftReplaced(v)) return [];
   const mission = data(await entity(tx, scope, "missions", v.missionId));
   const others = groupSlots(
     run.slots ?? [],
