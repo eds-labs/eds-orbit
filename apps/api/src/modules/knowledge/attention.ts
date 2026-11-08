@@ -59,6 +59,7 @@ function capped(
       id: `knowledge:${stale ? "source-stale" : "source-expiring"}:${source.id}`,
       ...time(source.expiresAt),
       params: { name: source.name },
+      link: `${SOURCES.link}?source=${source.id}`,
     }));
   const rest = sorted.slice(SOURCE_ITEMS);
   if (rest.length)
@@ -72,7 +73,7 @@ function capped(
   return items;
 }
 
-/** Stale and expiring sources; revoked sources never sync again. */
+/** Stale and expiring sources; revoked or paused ones are out of use. */
 async function sourceItems(
   tx: DbTx,
   scope: Scope,

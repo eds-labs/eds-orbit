@@ -147,8 +147,17 @@ describe("renderAttention", () => {
         moduleId: "knowledge",
         kind: "knowledge_source_stale",
         params: { name: "Website" },
+        since: "2026-11-01T10:00:00.000Z",
       }),
     ).toBe("Quelle veraltet · Website");
+    // Without an expiry the source was never read: it cannot be out of date.
+    expect(
+      de({
+        moduleId: "knowledge",
+        kind: "knowledge_source_stale",
+        params: { name: "GitBook" },
+      }),
+    ).toBe("Quelle noch nie abgerufen · GitBook");
   });
 
   it("support counts each ticket once: further and other unassigned (R20)", () => {

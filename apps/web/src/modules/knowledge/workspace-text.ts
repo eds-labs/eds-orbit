@@ -148,6 +148,44 @@ export const knowledgeCopy = {
     omitted: "Ausgelassene Dateien",
     callbackFailed:
       "GitHub konnte nicht verbunden werden. Starte die Verbindung erneut.",
+    removed: "Entfernt",
+    paused: "Pausiert",
+    edit: "Bearbeiten",
+    remove: "Entfernen",
+    restore: "Wiederherstellen",
+    keepUsing: "Weiter verwenden",
+    saveEdit: "Änderung speichern",
+    showRemoved: "Entfernt ({n})",
+    hideRemoved: "Zurück zum aktuellen Wissen",
+    changedHint:
+      "Die Quelle hat sich geändert. Diese Aussage wird nicht verwendet, bis du entschieden hast.",
+    removeTitle: "Aussage entfernen?",
+    removeHint:
+      "Die Aussage wird nicht mehr verwendet. Du kannst sie unter „Entfernt“ wiederherstellen.",
+    removeShared:
+      "An derselben Quelle hängen {n} weitere Fakten. Sie werden ebenfalls pausiert.",
+    refreshTitle: "Quelle neu lesen?",
+    refreshHint:
+      "Orbit liest die Quelle erneut, das kostet nichts. Hat sich der Text geändert, werden die betroffenen Aussagen pausiert, bis du unter „Zu prüfen“ entschieden hast.",
+    refreshConfirm: "Jetzt lesen",
+    neverRead: "Noch nie abgerufen",
+    neverReadEmpty:
+      "Diese Quelle enthält noch keine Inhalte und wird nirgends verwendet.",
+    neverReadHint: "Für diese Quelle gibt es noch keinen erfolgreichen Abruf.",
+    staleSource: "Veraltet",
+    staleHint:
+      "Seit {date} abgelaufen. Ihre Inhalte werden nicht mehr verwendet.",
+    expiringSource: "Läuft bald ab",
+    expiringHint: "Ihre Inhalte werden ab {date} nicht mehr verwendet.",
+    freshSource: "Aktuell",
+    manualSource: "Manuell gepflegt",
+    pausedHint: "Wird nicht verwendet, bis du sie fortsetzt.",
+    readContents: "Inhalte einlesen",
+    manageSource: "Inhalte verwalten",
+    pause: "Pausieren",
+    removeSourceTitle: "Quelle entfernen?",
+    removeSourceHint:
+      "Die leere Quelle wird dauerhaft entfernt. Inhalte gehen dabei nicht verloren.",
   },
   en: {
     title: "Project knowledge",
@@ -291,6 +329,42 @@ export const knowledgeCopy = {
     result: "Result",
     omitted: "Skipped files",
     callbackFailed: "GitHub could not connect. Start the connection again.",
+    removed: "Removed",
+    paused: "Paused",
+    edit: "Edit",
+    remove: "Remove",
+    restore: "Restore",
+    keepUsing: "Keep using",
+    saveEdit: "Save change",
+    showRemoved: "Removed ({n})",
+    hideRemoved: "Back to current knowledge",
+    changedHint:
+      "The source has changed. This statement is not used until you decide.",
+    removeTitle: "Remove this statement?",
+    removeHint:
+      "The statement will no longer be used. You can restore it under “Removed”.",
+    removeShared:
+      "{n} more facts belong to the same source. They will be paused too.",
+    refreshTitle: "Read this source again?",
+    refreshHint:
+      "Orbit reads the source again at no cost. If the text has changed, the affected statements are paused until you decide under “To review”.",
+    refreshConfirm: "Read now",
+    neverRead: "Never fetched",
+    neverReadEmpty: "This source has no content yet and is not used anywhere.",
+    neverReadHint: "This source has no successful fetch yet.",
+    staleSource: "Out of date",
+    staleHint: "Expired on {date}. Its content is no longer used.",
+    expiringSource: "Expires soon",
+    expiringHint: "Its content will no longer be used from {date}.",
+    freshSource: "Current",
+    manualSource: "Maintained manually",
+    pausedHint: "Not used until you resume it.",
+    readContents: "Read in content",
+    manageSource: "Manage content",
+    pause: "Pause",
+    removeSourceTitle: "Remove this source?",
+    removeSourceHint:
+      "The empty source is removed permanently. No content is lost.",
   },
 } as const;
 export type KnowledgeCopy = { [K in keyof typeof knowledgeCopy.en]: string };

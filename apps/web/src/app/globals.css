@@ -6819,6 +6819,10 @@ a.support-row {
   border: 1px solid #dceaf4;
   border-radius: 12px;
 }
+.knowledge-source-focused {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 .knowledge-source h2 {
   font-size: 18px;
   overflow-wrap: anywhere;

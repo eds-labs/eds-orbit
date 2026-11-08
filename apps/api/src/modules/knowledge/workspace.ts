@@ -13,6 +13,7 @@ import {
   extractDocument,
   fetchApprovedDocument,
   MIME,
+  type FactData,
 } from "../../../../../packages/knowledge/src/index.ts";
 import {
   respond,
@@ -32,7 +33,9 @@ import {
 import {
   setFact,
   withdrawFact,
-  revokeSource,
+  setSourceRights,
+  resumeSource,
+  reverifyFact,
   ingest,
 } from "../../platform/knowledge/engine.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
@@ -534,6 +537,30 @@ async function analyze(
     throw new DomainError("KNOWLEDGE_OUTPUT_INVALID", 409);
   }
 }
+/**
+ * Takes a confirmed statement out of use at once without losing it: its fact
+ * is withdrawn and its source paused, so neither the fact nor the quote can
+ * be retrieved and dependent content is invalidated. Text and versions stay,
+ * which keeps `restoreProposal` possible.
+ */
+async function suspendKnowledge(
+  tx: DbTx,
+  s: Scope,
+  d: { factId?: string; sourceId?: string },
+) {
+  if (d.factId) {
+    const fact = await entity(tx, s, "facts", d.factId);
+    // Only a verified fact is in use; withdrawing any other would lose its
+    // state, and a restore would then promote it to verified.
+    if (data(fact).status === "verified")
+      await withdrawFact(tx, s, fact.id, fact.version);
+  }
+  if (d.sourceId) {
+    const source = await entity(tx, s, "sources", d.sourceId);
+    if (data(source).status === "active")
+      await setSourceRights(tx, s, d.sourceId, { paused: true });
+  }
+}
 async function invalidateChangedKnowledge(
   tx: DbTx,
   s: Scope,
@@ -548,22 +575,21 @@ async function invalidateChangedKnowledge(
       ["accepted", "pending"].includes(data(x).status),
   )) {
     const d = data(p),
-      file = snap.files.find((f) => f.path === d.evidence.path);
+      file = snap.files.find((f) => f.path === d.evidence.path),
+      currentHash = file?.hash ?? null;
+    // The owner already chose to keep this statement for exactly this text.
+    if ("keptHash" in d && d.keptHash === currentHash) continue;
     if (
       (file && file.hash !== d.evidence.fileHash) ||
       (!file &&
         (!snap.partial || snap.unreadablePaths?.includes(d.evidence.path)))
     ) {
-      if (d.factId) {
-        const fact = await entity(tx, s, "facts", d.factId);
-        if (data(fact).status !== "revoked")
-          await withdrawFact(tx, s, fact.id, fact.version);
-      }
-      if (d.sourceId) await revokeSource(tx, s, d.sourceId);
+      await suspendKnowledge(tx, s, d);
       await update(tx, s, p, {
         ...d,
         status: "needs_review",
         invalidatedAt: new Date().toISOString(),
+        changedHash: currentHash,
       });
     }
   }
@@ -589,7 +615,10 @@ export async function completeAnalysis(
       validateProposalEvidence(p, snap);
       return true;
     } catch (error) {
-      if (error instanceof DomainError && error.code === "KNOWLEDGE_EVIDENCE_INVALID")
+      if (
+        error instanceof DomainError &&
+        error.code === "KNOWLEDGE_EVIDENCE_INVALID"
+      )
         return false;
       throw error;
     }
@@ -825,6 +854,167 @@ export async function decideProposal(s: Scope, input: unknown) {
       audiences: i.audiences,
       decidedBy: s.userId,
       decidedAt: new Date().toISOString(),
+    });
+  });
+}
+
+const proposalRef = z
+  .object({
+    proposalId: z.uuid(),
+    version: z.number().int().positive(),
+  })
+  .strict();
+/** A locked proposal at the version the owner was looking at. */
+async function currentProposal(
+  tx: DbTx,
+  s: Scope,
+  i: { proposalId: string; version: number },
+) {
+  await lockKnowledge(tx, s);
+  const row = await entity(tx, s, "knowledge_proposals", i.proposalId);
+  if (row.version !== i.version) throw new DomainError("VERSION_CONFLICT", 409);
+  return row;
+}
+/** Takes confirmed or changed knowledge out of use; it can be restored. */
+export async function removeProposal(s: Scope, input: unknown) {
+  await owner(s);
+  const i = proposalRef.parse(input);
+  return scoped(s.workspaceId, s.projectId, async (tx) => {
+    const row = await currentProposal(tx, s, i);
+    const p = data(row);
+    if (!["accepted", "needs_review"].includes(p.status))
+      throw new DomainError("VERSION_CONFLICT", 409);
+    // A proposal that was never confirmed holds nothing to bring back.
+    if (!p.factId) {
+      await audit(tx, s, "knowledge.proposal.rejected", row.id);
+      return update(tx, s, row, {
+        ...p,
+        status: "rejected",
+        decidedBy: s.userId,
+      });
+    }
+    await suspendKnowledge(tx, s, p);
+    await audit(tx, s, "knowledge.proposal.removed", row.id);
+    return update(tx, s, row, {
+      ...p,
+      status: "removed",
+      removedBy: s.userId,
+      removedAt: new Date().toISOString(),
+    });
+  });
+}
+/**
+ * The source of a statement that is removed or awaiting a decision comes back
+ * only through that decision: resuming it alone would make its quote
+ * retrievable while the statement still says it is out of use.
+ */
+export async function assertSourceResumable(
+  tx: DbTx,
+  s: Scope,
+  sourceId: string,
+) {
+  const proposalId = data(await entity(tx, s, "sources", sourceId)).proposalId;
+  if (!proposalId) return;
+  const proposal = await entity(tx, s, "knowledge_proposals", proposalId);
+  if (["removed", "needs_review"].includes(data(proposal).status))
+    throw new DomainError("KNOWLEDGE_RESTORE_REQUIRED", 409);
+}
+/**
+ * Puts removed, changed or separately withdrawn knowledge back into use on
+ * the owner's word. A source revoked for good has lost its text: that
+ * knowledge can only come back through a new analysis.
+ */
+export async function restoreProposal(s: Scope, input: unknown) {
+  await owner(s);
+  const i = proposalRef.parse(input);
+  return scoped(s.workspaceId, s.projectId, async (tx) => {
+    const row = await currentProposal(tx, s, i);
+    const p = data(row);
+    const fact = p.factId ? await entity(tx, s, "facts", p.factId) : null;
+    const source = p.sourceId
+      ? await entity(tx, s, "sources", p.sourceId)
+      : null;
+    const restorable =
+      ["removed", "needs_review"].includes(p.status) ||
+      (p.status === "accepted" &&
+        (data(fact).status === "revoked" || data(source).status === "paused"));
+    if (!restorable || !fact || !source || data(source).status === "revoked")
+      throw new DomainError("KNOWLEDGE_RESTORE_UNAVAILABLE", 409);
+    if (data(source).status === "paused") await resumeSource(tx, s, source.id);
+    if (data(fact).status === "revoked")
+      await reverifyFact(tx, s, fact.id, data(fact) as FactData, p.statement);
+    await audit(tx, s, "knowledge.proposal.restored", row.id, {
+      sourceId: source.id,
+      factId: fact.id,
+    });
+    const { removedBy, removedAt, invalidatedAt, changedHash, ...rest } = p;
+    return update(tx, s, row, {
+      ...rest,
+      ...(changedHash === undefined ? {} : { keptHash: changedHash }),
+      status: "accepted",
+      restoredBy: s.userId,
+      restoredAt: new Date().toISOString(),
+    });
+  });
+}
+/** Corrects the wording of a confirmed statement; the quoted evidence stays. */
+export async function editProposal(s: Scope, input: unknown) {
+  await owner(s);
+  const i = proposalRef
+    .extend({ statement: z.string().trim().min(1).max(1000) })
+    .parse(input);
+  return scoped(s.workspaceId, s.projectId, async (tx) => {
+    const row = await currentProposal(tx, s, i);
+    const p = data(row);
+    const fact = p.factId ? await entity(tx, s, "facts", p.factId) : null;
+    if (
+      p.status !== "accepted" ||
+      !fact ||
+      data(fact).status !== "verified" ||
+      data(await entity(tx, s, "sources", p.sourceId)).status !== "active"
+    )
+      throw new DomainError("KNOWLEDGE_EDIT_UNAVAILABLE", 409);
+    if (i.statement === p.statement) return row;
+    // The statement is also the document's title and so the heading of its
+    // passage: a correction must not leave the old wording searchable.
+    const document = await tx.knowledgeDocument.findFirst({
+      where: {
+        workspaceId: s.workspaceId,
+        projectId: s.projectId,
+        sourceId: p.sourceId,
+        externalId: row.id,
+      },
+    });
+    if (document) {
+      // A new document version sends the source's verified facts back to
+      // review. Only the title changes here, so they stay confirmed.
+      const siblings = (await list(tx, s, "facts")).filter(
+        (f) =>
+          f.id !== fact.id &&
+          data(f).sourceId === p.sourceId &&
+          data(f).status === "verified",
+      );
+      await ingest(tx, s, {
+        sourceId: p.sourceId,
+        externalId: row.id,
+        title: i.statement,
+        text: p.evidence.quote,
+        language: p.language,
+        mimeType: MIME.txt,
+        canonicalUrl: p.evidence.url ?? undefined,
+      });
+      for (const sibling of siblings)
+        await reverifyFact(tx, s, sibling.id, data(sibling) as FactData);
+    }
+    await reverifyFact(tx, s, fact.id, data(fact) as FactData, i.statement);
+    await audit(tx, s, "knowledge.proposal.edited", row.id, {
+      factId: fact.id,
+    });
+    return update(tx, s, row, {
+      ...p,
+      statement: i.statement,
+      editedBy: s.userId,
+      editedAt: new Date().toISOString(),
     });
   });
 }

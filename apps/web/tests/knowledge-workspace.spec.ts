@@ -131,6 +131,76 @@ for (const [name, viewport] of [
       await page.getByRole("button", { name: "Verlauf laden" }).click();
       await page.getByLabel("Wissen durchsuchen").fill("nicht vorhanden");
       await expect(page.getByText(/Keine passenden Einträge/)).toBeVisible();
+      await page.getByLabel("Wissen durchsuchen").fill("");
+      // A confirmed statement can be corrected, removed and brought back.
+      const corrected = page.getByRole("heading", {
+        name: "FamilyPlan teilt Familienkalender.",
+      });
+      await page
+        .getByRole("button", { name: "Bearbeiten", exact: true })
+        .click();
+      await page
+        .getByRole("textbox", { name: "Aussage", exact: true })
+        .fill("FamilyPlan teilt Familienkalender.");
+      await page.getByRole("button", { name: "Änderung speichern" }).click();
+      await expect(corrected).toBeVisible();
+      await page.getByRole("button", { name: "Entfernen", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Aussage entfernen?" })
+        .getByRole("button", { name: "Entfernen", exact: true })
+        .click();
+      await expect(corrected).toHaveCount(0);
+      await page.getByRole("button", { name: "Entfernt (1)" }).click();
+      await page.getByRole("button", { name: "Wiederherstellen" }).click();
+      await expect(corrected).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Entfernt/ })).toHaveCount(
+        0,
+      );
+      // A warning's link lands on its source, which says what is wrong.
+      const empty = await context.request.post(
+        `/api/projects/${project.id}/sources`,
+        {
+          headers: { Origin: baseURL! },
+          data: {
+            name: "Leere Hilfe",
+            type: "gitbook",
+            authority: "official",
+            allowedOrigins: ["https://example.invalid"],
+            allowedPaths: ["/"],
+            maxAgeHours: 168,
+            publicUse: false,
+            modelUse: true,
+            status: "active",
+            generation: 1,
+          },
+        },
+      );
+      expect(empty.status()).toBe(201);
+      const source = await empty.json();
+      await page.goto(`/p/${project.id}/knowledge/sources?source=${source.id}`);
+      const row = page.locator(`#knowledge-source-${source.id}`);
+      await expect(row).toContainText("Noch nie abgerufen");
+      await expect(row).toBeFocused();
+      await page.screenshot({
+        path: `.runtime/knowledge-sources-${name}.png`,
+        fullPage: true,
+      });
+      await row.getByRole("button", { name: "Entfernen", exact: true }).click();
+      await page
+        .getByRole("dialog", { name: "Quelle entfernen?" })
+        .getByRole("button", { name: "Entfernen", exact: true })
+        .click();
+      await expect(row).toHaveCount(0);
+      // Reading a source again asks first and then shows the selection.
+      await page.getByRole("button", { name: "Aktualisieren" }).click();
+      const confirmRead = page.getByRole("dialog", {
+        name: "Quelle neu lesen?",
+      });
+      await expect(confirmRead).toBeVisible();
+      await confirmRead.getByRole("button", { name: "Jetzt lesen" }).click();
+      await expect(
+        page.getByRole("heading", { name: "Auswahl und Verwendung prüfen" }),
+      ).toBeVisible();
       // Old diagnostic deep links remain reachable under the runtime feature.
       await page.goto(`/p/${project.id}/knowledge/health`);
       await expect(page.locator("main")).toBeVisible();

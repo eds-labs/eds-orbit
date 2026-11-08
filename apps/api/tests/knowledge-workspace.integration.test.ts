@@ -31,8 +31,20 @@ import {
   validateProposalEvidence,
   readKnowledgeFile,
   getKnowledgePreview,
+  removeProposal,
+  restoreProposal,
+  editProposal,
 } from "../src/modules/knowledge/workspace.ts";
+import { knowledgeActions } from "../src/modules/knowledge/actions.ts";
 import { retrieve } from "../../../packages/knowledge/src/index.ts";
+import {
+  resumeSource,
+  revokeDocument,
+  revokeSource,
+  setFact,
+  setSourceRights,
+  withdrawFact,
+} from "../src/platform/knowledge/engine.ts";
 import { exportProject } from "../src/platform/governance/export.ts";
 import { planCall } from "../src/platform/ai/call-plan.ts";
 import { respond } from "../../../packages/ai/src/index.ts";
@@ -582,17 +594,27 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
             {
               type: "output_text",
               text: JSON.stringify({
-                proposals: [proposal(line, "Exact"), proposal("not in the source", "Inexact")],
+                proposals: [
+                  proposal(line, "Exact"),
+                  proposal("not in the source", "Inexact"),
+                ],
               }),
             },
           ],
         },
       ],
-      usage: { model: "gpt-5.6-terra", inputTokens: 20, outputTokens: 20, costMicros: 50 },
+      usage: {
+        model: "gpt-5.6-terra",
+        inputTokens: 20,
+        outputTokens: 20,
+        costMicros: 50,
+      },
       responseId: "synthetic-response",
     } as any);
     expect((await runAnalysis(s, job.id)).errorCode).toBeNull();
-    expect((await proposals()).map((p: any) => data(p).statement)).toEqual(["Exact"]);
+    expect((await proposals()).map((p: any) => data(p).statement)).toEqual([
+      "Exact",
+    ]);
     expect((await stored()).droppedProposals).toBe(1);
   });
   it("reads only an unexpired preview for the unchanged draft", async () => {
@@ -700,6 +722,357 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     await expect(startAnalysis(s, { previewId: preview.id })).rejects.toThrow(
       "POLICY_REQUIRED",
     );
+  });
+  describe("keeping confirmed knowledge recoverable", () => {
+    const accepted = async () => {
+      const { job, draft } = await prepare();
+      await runAnalysis(s, job.id);
+      await approve((await proposals())[0]);
+      return { draft, p: (await proposals())[0]! };
+    };
+    const changeSource = async (
+      draftId: string,
+      text = "FamilyPlan supports shared shopping lists.",
+    ) => {
+      const current = await run((tx) =>
+        entity(tx, s, "knowledge_drafts", draftId),
+      );
+      await saveDraft(s, {
+        ...manual(),
+        id: draftId,
+        version: current.version,
+        text,
+      });
+      return previewDraft(s, { draftId });
+    };
+    const ref = (p: { id: string; version: number }) => ({
+      proposalId: p.id,
+      version: p.version,
+    });
+    const documents = () =>
+      run((tx) =>
+        tx.knowledgeDocument.count({ where: { projectId: s.projectId } }),
+      );
+    const sourceOf = (p: any) =>
+      run((tx) => entity(tx, s, "sources", data(p).sourceId));
+    const factOf = (p: any) =>
+      run((tx) => entity(tx, s, "facts", data(p).factId));
+    const retrievableFacts = async (key: string) =>
+      (
+        data(
+          await run((tx) =>
+            retrieve(tx, s, {
+              query: "FamilyPlan",
+              purpose: "internal",
+              forModel: true,
+              consumer: "marketing",
+              language: "de",
+              factKeys: [key],
+            }),
+          ),
+        ).facts as Array<{ key: string }>
+      ).map((f) => f.key);
+    const curatedFact = (p: any) =>
+      run((tx) =>
+        setFact(tx, s, {
+          sourceId: data(p).sourceId,
+          key: "plans.calendars",
+          value: "Calendars are included",
+          valueType: "text",
+          language: "de",
+          validFrom: new Date().toISOString(),
+          status: "verified",
+          publicUse: false,
+          modelUse: true,
+        }),
+      );
+    const asViewer = async (check: () => Promise<void>) => {
+      await authDb.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId } },
+        data: { role: "viewer" },
+      });
+      try {
+        await check();
+      } finally {
+        await authDb.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId } },
+          data: { role: "owner" },
+        });
+      }
+    };
+
+    it("pauses changed knowledge at read time and erases nothing", async () => {
+      const { draft, p } = await accepted();
+      const curated = await curatedFact(p);
+      await changeSource(draft.id);
+      const [changed] = await proposals();
+      expect(data(changed).status).toBe("needs_review");
+      expect(data(await sourceOf(p)).status).toBe("paused");
+      expect(await documents()).toBe(1);
+      const kept = await run((tx) => entity(tx, s, "facts", curated.id));
+      expect(data(kept).value).toBe("Calendars are included");
+      expect(data(kept).status).toBe("verified");
+      const found = await search();
+      expect(found.items).toHaveLength(0);
+      expect(found.facts).toHaveLength(0);
+      expect(await retrievableFacts("plans.calendars")).toEqual([]);
+    });
+    it("restores paused knowledge and every fact of its source", async () => {
+      const { draft, p } = await accepted();
+      await curatedFact(p);
+      const own = String(data(await factOf(p)).key);
+      await changeSource(draft.id);
+      const [changed] = await proposals();
+      const restored = await restoreProposal(s, ref(changed!));
+      expect(data(restored).status).toBe("accepted");
+      expect(data(await sourceOf(p)).status).toBe("active");
+      expect((await search()).items.length).toBeGreaterThan(0);
+      expect(await retrievableFacts(own)).toEqual([own]);
+      expect(await retrievableFacts("plans.calendars")).toEqual([
+        "plans.calendars",
+      ]);
+    });
+    it("removes a confirmed statement from use and can bring it back", async () => {
+      const { p } = await accepted();
+      const own = String(data(await factOf(p)).key);
+      const removed = await removeProposal(s, ref(p));
+      expect(data(removed).status).toBe("removed");
+      expect(await documents()).toBe(1);
+      expect((await search()).items).toHaveLength(0);
+      expect(await retrievableFacts(own)).toEqual([]);
+      const restored = await restoreProposal(s, ref(removed));
+      expect(data(restored).status).toBe("accepted");
+      expect((await search()).items.length).toBeGreaterThan(0);
+      expect(await retrievableFacts(own)).toEqual([own]);
+    });
+    it("does not propose a removed statement again for unchanged text", async () => {
+      const { draft, p } = await accepted();
+      await removeProposal(s, ref(p));
+      const preview = await previewDraft(s, { draftId: draft.id });
+      const next = await startAnalysis(s, { previewId: preview.id });
+      await runAnalysis(s, next.id);
+      expect((await proposals()).map((x) => data(x).status)).toEqual([
+        "removed",
+      ]);
+    });
+    it("restores a statement whose fact was withdrawn separately", async () => {
+      const { p } = await accepted();
+      const fact = await factOf(p);
+      await run((tx) => withdrawFact(tx, s, fact.id, fact.version));
+      const restored = await restoreProposal(s, ref(p));
+      expect(data(restored).status).toBe("accepted");
+      expect(data(await factOf(p)).status).toBe("verified");
+    });
+    it("corrects a statement in the fact and the searchable document", async () => {
+      const { p } = await accepted();
+      const edited = await editProposal(s, {
+        ...ref(p),
+        statement: "FamilyPlan shares family calendars.",
+      });
+      expect(data(edited).statement).toBe(
+        "FamilyPlan shares family calendars.",
+      );
+      expect(data(await factOf(p)).value).toBe(
+        "FamilyPlan shares family calendars.",
+      );
+      expect(data(await factOf(p)).status).toBe("verified");
+      const titles = await run((tx) =>
+        tx.documentVersion.findMany({
+          where: { projectId: s.projectId, state: "active" },
+          select: { title: true },
+        }),
+      );
+      expect(titles).toEqual([
+        { title: "FamilyPlan shares family calendars." },
+      ]);
+    });
+    it("corrects a statement whose document was revoked earlier", async () => {
+      const { p } = await accepted();
+      const document = await run((tx) =>
+        tx.knowledgeDocument.findFirstOrThrow({
+          where: { projectId: s.projectId },
+        }),
+      );
+      await run((tx) => revokeDocument(tx, s, document.id));
+      const edited = await editProposal(s, {
+        ...ref(p),
+        statement: "A corrected statement.",
+      });
+      expect(data(edited).statement).toBe("A corrected statement.");
+      expect(await documents()).toBe(0);
+    });
+    it("refuses a restore once the source was revoked for good", async () => {
+      const { p } = await accepted();
+      await run((tx) => revokeSource(tx, s, data(p).sourceId));
+      await expect(restoreProposal(s, ref(p))).rejects.toThrow(
+        "KNOWLEDGE_RESTORE_UNAVAILABLE",
+      );
+    });
+    it("refuses a restore of knowledge that is still in use", async () => {
+      const { p } = await accepted();
+      await expect(restoreProposal(s, ref(p))).rejects.toThrow(
+        "KNOWLEDGE_RESTORE_UNAVAILABLE",
+      );
+    });
+    it("refuses stale versions", async () => {
+      const { p } = await accepted();
+      const old = { proposalId: p.id, version: p.version - 1 };
+      await expect(removeProposal(s, old)).rejects.toThrow("VERSION_CONFLICT");
+      await expect(
+        editProposal(s, { ...old, statement: "Other" }),
+      ).rejects.toThrow("VERSION_CONFLICT");
+    });
+    it("only lets owners remove, restore or edit", async () => {
+      const { p } = await accepted();
+      await asViewer(async () => {
+        await expect(removeProposal(s, ref(p))).rejects.toThrow(
+          "OWNER_REQUIRED",
+        );
+        await expect(restoreProposal(s, ref(p))).rejects.toThrow(
+          "OWNER_REQUIRED",
+        );
+        await expect(
+          editProposal(s, { ...ref(p), statement: "Other" }),
+        ).rejects.toThrow("OWNER_REQUIRED");
+      });
+      expect(data((await proposals())[0]).status).toBe("accepted");
+    });
+    it("keeps the actions inside their project", async () => {
+      const { p } = await accepted();
+      const other = await authDb.project.create({
+        data: { workspaceId, name: "Other" },
+      });
+      const foreign = { ...s, projectId: other.id };
+      await expect(removeProposal(foreign, ref(p))).rejects.toThrow(
+        "NOT_FOUND",
+      );
+      await expect(restoreProposal(foreign, ref(p))).rejects.toThrow(
+        "NOT_FOUND",
+      );
+      await expect(
+        editProposal(foreign, { ...ref(p), statement: "Other" }),
+      ).rejects.toThrow("NOT_FOUND");
+    });
+    it("brings the facts of a resumed source back into retrieval", async () => {
+      const { p } = await accepted();
+      await curatedFact(p);
+      await run((tx) =>
+        setSourceRights(tx, s, data(p).sourceId, { paused: true }),
+      );
+      expect(await retrievableFacts("plans.calendars")).toEqual([]);
+      await run((tx) => resumeSource(tx, s, data(p).sourceId));
+      expect(await retrievableFacts("plans.calendars")).toEqual([
+        "plans.calendars",
+      ]);
+    });
+    it("keeps kept knowledge in use when the same text is read again", async () => {
+      const { draft } = await accepted();
+      await changeSource(draft.id);
+      await restoreProposal(s, ref((await proposals())[0]!));
+      await previewDraft(s, { draftId: draft.id });
+      expect(data((await proposals())[0]).status).toBe("accepted");
+      expect((await search()).items.length).toBeGreaterThan(0);
+    });
+    it("asks again when kept knowledge changes once more", async () => {
+      const { draft } = await accepted();
+      await changeSource(draft.id);
+      await restoreProposal(s, ref((await proposals())[0]!));
+      await changeSource(draft.id, "FamilyPlan now plans meals as well.");
+      expect(data((await proposals())[0]).status).toBe("needs_review");
+      expect((await search()).items).toHaveLength(0);
+    });
+    it("leaves the other facts of a source in use after a correction", async () => {
+      const { p } = await accepted();
+      await curatedFact(p);
+      await editProposal(s, { ...ref(p), statement: "A corrected statement." });
+      expect(await retrievableFacts("plans.calendars")).toEqual([
+        "plans.calendars",
+      ]);
+    });
+    it("resumes a source that became generated without failing", async () => {
+      const { p } = await accepted();
+      const sourceId = data(p).sourceId;
+      await curatedFact(p);
+      await run((tx) =>
+        setSourceRights(tx, s, sourceId, { authority: "generated" }),
+      );
+      await run((tx) => setSourceRights(tx, s, sourceId, { paused: true }));
+      await run((tx) => resumeSource(tx, s, sourceId));
+      expect(data(await sourceOf(p)).status).toBe("active");
+    });
+    const expertResume = (sourceId: string) =>
+      run((tx) =>
+        (knowledgeActions["source-pause"] as any).run(tx, {
+          scope: s,
+          input: { sourceId, paused: false },
+        }),
+      );
+    it("does not let an expert resume bring a removed statement back", async () => {
+      const { p } = await accepted();
+      await removeProposal(s, ref(p));
+      await expect(expertResume(data(p).sourceId)).rejects.toThrow(
+        "KNOWLEDGE_RESTORE_REQUIRED",
+      );
+      expect((await search()).items).toHaveLength(0);
+    });
+    it("does not let an expert resume bypass a pending decision", async () => {
+      const { draft, p } = await accepted();
+      await changeSource(draft.id);
+      await expect(expertResume(data(p).sourceId)).rejects.toThrow(
+        "KNOWLEDGE_RESTORE_REQUIRED",
+      );
+    });
+    it("lets an expert resume a source paused there", async () => {
+      const { p } = await accepted();
+      await run((tx) =>
+        setSourceRights(tx, s, data(p).sourceId, { paused: true }),
+      );
+      await expertResume(data(p).sourceId);
+      expect(data(await sourceOf(p)).status).toBe("active");
+    });
+    it("restores a statement whose source was paused separately", async () => {
+      const { p } = await accepted();
+      const own = String(data(await factOf(p)).key);
+      await run((tx) =>
+        setSourceRights(tx, s, data(p).sourceId, { paused: true }),
+      );
+      const restored = await restoreProposal(s, ref(p));
+      expect(data(restored).status).toBe("accepted");
+      expect(data(await sourceOf(p)).status).toBe("active");
+      expect(await retrievableFacts(own)).toEqual([own]);
+    });
+    it("does not promote an unreviewed fact through remove and restore", async () => {
+      const { p } = await accepted();
+      const fact = await factOf(p);
+      const d = data(fact);
+      await run((tx) =>
+        setFact(tx, s, {
+          id: fact.id,
+          sourceId: d.sourceId,
+          key: d.key,
+          value: d.value,
+          valueType: d.valueType,
+          language: d.language,
+          validFrom: d.validFrom,
+          status: "candidate",
+          publicUse: d.publicUse,
+          modelUse: d.modelUse,
+        }),
+      );
+      const removed = await removeProposal(s, ref((await proposals())[0]!));
+      expect(data(await factOf(p)).status).toBe("candidate");
+      await restoreProposal(s, ref(removed));
+      expect(data(await factOf(p)).status).toBe("candidate");
+    });
+    it("discards a changed proposal that was never confirmed", async () => {
+      const { job, draft } = await prepare();
+      await runAnalysis(s, job.id);
+      await changeSource(draft.id);
+      const [changed] = await proposals();
+      expect(data(changed).status).toBe("needs_review");
+      const result = await removeProposal(s, ref(changed!));
+      expect(data(result).status).toBe("rejected");
+    });
   });
   it("preserves confirmed knowledge after a failed source fetch", async () => {
     const { job, draft } = await prepare();

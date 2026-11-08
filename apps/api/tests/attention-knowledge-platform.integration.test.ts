@@ -241,7 +241,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
         dueAt: new Date(Date.parse(synced) + 168 * HOUR).toISOString(),
         params: { name: "Docs" },
         navKey: "knowledge-sources",
-        link: "/knowledge/sources",
+        link: `/knowledge/sources?source=${expiring.id}`,
       },
     ]);
   });
@@ -297,6 +297,8 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
     });
     // A revoked source never syncs again: it is not a problem to act on.
     await source({ name: "Revoked", status: "revoked" });
+    // A paused source is out of use on purpose: nothing to act on either.
+    await source({ name: "Paused", status: "paused" });
     const body = await attention("viewer");
     const items = body.items.filter((i) => i.moduleId === "knowledge");
     expect(items).toHaveLength(2);
@@ -309,7 +311,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
           severity: "critical",
           params: { name: "Never" },
           navKey: "knowledge-sources",
-          link: "/knowledge/sources",
+          link: `/knowledge/sources?source=${never.id}`,
         },
         {
           id: `knowledge:source-stale:${old.id}`,
@@ -319,7 +321,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
           since: new Date(Date.parse(synced) + 168 * HOUR).toISOString(),
           params: { name: "Old" },
           navKey: "knowledge-sources",
-          link: "/knowledge/sources",
+          link: `/knowledge/sources?source=${old.id}`,
         },
       ]),
     );

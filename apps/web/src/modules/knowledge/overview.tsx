@@ -89,11 +89,11 @@ export function sourceExpiry(
 }
 
 /**
- * Whether the overview lists a source: revoked ones never get current again
+ * Whether the overview lists a source: revoked and paused ones are out of use
  * (the server's attention items skip them alike, `tracksFreshness`).
  */
 export const listedSource = (source: { data: { status?: unknown } }) =>
-  source.data.status !== "revoked";
+  source.data.status !== "revoked" && source.data.status !== "paused";
 
 /** Sources with their expiry, the earliest first; never synced ones lead. */
 export function byExpiry(sources: Entity[], now: number) {

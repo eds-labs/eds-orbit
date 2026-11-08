@@ -6,6 +6,10 @@ import {
   startAnalysis,
   cancelAnalysis,
   decideProposal,
+  removeProposal,
+  restoreProposal,
+  editProposal,
+  assertSourceResumable,
   readKnowledgeFile,
   owner,
 } from "./workspace.ts";
@@ -22,6 +26,7 @@ import {
 } from "../../../../../packages/knowledge/src/index.ts";
 import {
   ingest,
+  resumeSource,
   revokeDocument,
   revokeSource,
   setSourceAudiences,
@@ -98,6 +103,15 @@ export const knowledgeActions: Record<string, ActionHandler> = {
   ),
   "knowledge-proposal-decide": ownTransaction(({ scope, input }) =>
     decideProposal(scope, input),
+  ),
+  "knowledge-proposal-remove": ownTransaction(({ scope, input }) =>
+    removeProposal(scope, input),
+  ),
+  "knowledge-proposal-restore": ownTransaction(({ scope, input }) =>
+    restoreProposal(scope, input),
+  ),
+  "knowledge-proposal-edit": ownTransaction(({ scope, input }) =>
+    editProposal(scope, input),
   ),
   "knowledge-github-configure": ownTransaction(async ({ scope, input }) => {
     await owner(scope);
@@ -213,11 +227,13 @@ export const knowledgeActions: Record<string, ActionHandler> = {
   "revoke-source": sharedTransaction((tx, { scope, input }) =>
     revokeSource(tx, scope, schemas.id.parse(input.sourceId)),
   ),
-  "source-pause": sharedTransaction((tx, { scope, input }) =>
-    setSourceRights(tx, scope, schemas.id.parse(input.sourceId), {
-      paused: z.boolean().parse(input.paused),
-    }),
-  ),
+  "source-pause": sharedTransaction(async (tx, { scope, input }) => {
+    const sourceId = schemas.id.parse(input.sourceId);
+    if (z.boolean().parse(input.paused))
+      return setSourceRights(tx, scope, sourceId, { paused: true });
+    await assertSourceResumable(tx, scope, sourceId);
+    return resumeSource(tx, scope, sourceId);
+  }),
   // Owner settings of a source: authority (how it ranks and whether it may
   // serve as evidence at all) and freshness window. Rights flags stay where
   // they are; the change re-attaches stored documents to the new generation.

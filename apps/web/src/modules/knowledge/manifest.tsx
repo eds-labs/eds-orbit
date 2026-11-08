@@ -70,9 +70,11 @@ const tabView = (tab: Exclude<KnowledgeTab, "overview">): ViewDef => {
               }
             : null,
     },
+    // The title also names the page while the workspace hides its entry.
+    title: TAB_TITLES[tab],
     ...(nav
       ? { nav: { label: TAB_TITLES[tab], ...nav } }
-      : { title: TAB_TITLES[tab], navKey: "knowledge" }),
+      : { navKey: "knowledge" }),
   };
 };
 

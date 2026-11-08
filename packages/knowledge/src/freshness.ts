@@ -53,7 +53,7 @@ export function sourceExpiry(
   };
 }
 
-/** Whether a source's freshness matters: a revoked one never syncs again. */
+/** Whether a source's freshness matters: a revoked or paused one is out of use. */
 export function tracksFreshness(source: { status?: unknown }): boolean {
-  return source.status !== "revoked";
+  return source.status !== "revoked" && source.status !== "paused";
 }

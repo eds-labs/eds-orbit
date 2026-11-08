@@ -3271,6 +3271,30 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/knowledge-proposal-edit": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-proposal-remove": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-proposal-restore": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/memory-lifecycle": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

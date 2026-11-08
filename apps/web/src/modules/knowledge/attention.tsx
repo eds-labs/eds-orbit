@@ -11,12 +11,17 @@ const CHECK: Label = { en: "Check", de: "Prüfen" };
  * count of the further ones for the aggregated item (no name).
  */
 const source =
-  (one: Label, more: (n: number) => Label): AttentionRenderer =>
+  (
+    one: Label,
+    more: (n: number) => Label,
+    /** For a source that has no expiry because it was never read. */
+    never: Label = one,
+  ): AttentionRenderer =>
   (item, locale) => {
     const name = String(item.params.name ?? "").trim();
     return {
       title: name
-        ? `${one[locale]} · ${name}`
+        ? `${(item.since || item.dueAt ? one : never)[locale]} · ${name}`
         : item.count !== undefined
           ? more(item.count)[locale]
           : one[locale],
@@ -31,6 +36,7 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
       en: `${n} more source${n === 1 ? "" : "s"} out of date`,
       de: `${n} ${n === 1 ? "weitere Quelle" : "weitere Quellen"} veraltet`,
     }),
+    { en: "Source never fetched", de: "Quelle noch nie abgerufen" },
   ),
   knowledge_source_expiring: source(
     { en: "Source expires soon", de: "Quelle läuft bald ab" },

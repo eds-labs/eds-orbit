@@ -234,8 +234,11 @@ function Sources() {
     resource.refresh();
   });
   const de = locale === "de";
+  // A link can name the source to open, such as a warning's "Read in content".
+  const named = useSearchParams()?.get("source");
   const current =
-    resource.data?.items.find((e) => e.id === selected?.id) || selected;
+    resource.data?.items.find((e) => e.id === (selected?.id ?? named)) ||
+    selected;
   const items = (resource.data?.items || []).filter((e) =>
     value(e, "name").toLowerCase().includes(search.toLowerCase()),
   );
