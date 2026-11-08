@@ -37,6 +37,8 @@ Object.assign(process.env, {
   ORBIT_ISSUES: "true",
   // Social module (ADR 0020): routes exist; the project never enables it.
   ORBIT_SOCIAL: "true",
+  // Ads module (ADR 0025): routes exist; the project never enables it.
+  ORBIT_ADS: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
