@@ -10,6 +10,7 @@ import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import { budgetExhausted, RECENT_MS } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
+import { expiredDraftIds } from "./agents/draft-state.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
 import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
@@ -31,7 +32,8 @@ type Draft = Awaited<ReturnType<typeof draftsAwaitingOwner>>[number];
 
 /** The owner's drafts of assignments, one item each (the owner releases them). */
 function draftItems(drafts: Draft[]): AttentionItem[] {
-  // An expired draft can no longer be released; the content review counts it.
+  // An expired draft can no longer be released (D-2): no item, and the
+  // content review leaves it out too.
   return drafts
     .filter((draft) => !draft.expired)
     .map((draft) => ({
@@ -49,27 +51,48 @@ function draftItems(drafts: Draft[]): AttentionItem[] {
     }));
 }
 
+/** Assignment drafts in a review status read per request for their expiry. */
+const ASSIGNMENT_DRAFT_LIMIT = 1000;
+
 /**
  * Content in a status the approvals page lists, as one aggregated item. A
- * draft that has its own release item is not counted again.
+ * draft that has its own release item is not counted again, and an
+ * assignment draft whose slot passed (D-2: it can never be released) is not
+ * counted at all.
  */
 async function contentReviewItems(
   tx: DbTx,
   scope: Scope,
-  drafted: number,
+  drafts: Draft[],
+  now: Date,
 ): Promise<AttentionItem[]> {
+  const inReview = {
+    workspaceId: scope.workspaceId,
+    projectId: scope.projectId,
+    kind: "content",
+    OR: APPROVAL_STATUSES.map((status) => ({
+      data: { path: ["status"], equals: status },
+    })),
+  };
+  const candidates = (
+    await tx.entity.findMany({
+      where: inReview,
+      select: { id: true, data: true },
+      orderBy: { createdAt: "desc" },
+      take: ASSIGNMENT_DRAFT_LIMIT,
+    })
+  ).filter((row) => typeof data(row).assignmentRunId === "string");
+  const expired = await expiredDraftIds(tx, scope, candidates, now);
   const waiting = await tx.entity.aggregate({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "content",
-      OR: APPROVAL_STATUSES.map((status) => ({
-        data: { path: ["status"], equals: status },
-      })),
-    },
+    where: expired.size
+      ? { ...inReview, id: { notIn: [...expired] } }
+      : inReview,
     _count: { _all: true },
     _min: { createdAt: true },
   });
+  const drafted = drafts.filter(
+    (draft) => !draft.expired && !expired.has(draft.id),
+  ).length;
   const count = waiting._count._all - drafted;
   if (count <= 0) return [];
   return [
@@ -372,11 +395,7 @@ export const marketingAttention: AttentionContribution = async (
         link: `/marketing/analytics?report=${r.id}`,
       })),
     ...draftItems(drafts),
-    ...(await contentReviewItems(
-      tx,
-      scope,
-      drafts.filter((draft) => !draft.expired).length,
-    )),
+    ...(await contentReviewItems(tx, scope, drafts, now)),
     ...(await exceptionItems(tx, scope)),
     ...(await pausedPostItems(tx, scope, now)),
     ...(await runProblemItems(tx, scope, now)),

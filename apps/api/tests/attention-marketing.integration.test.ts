@@ -392,13 +392,28 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     expect(JSON.stringify(items)).not.toContain("SECRET-BODY");
   });
 
-  it("an expired draft has no release item and stays in the content review count", async () => {
+  it("an expired draft has no release item and is left out of the content review count", async () => {
     process.env.ORBIT_AGENTS = "true";
     // Passed a minute ago: today in project time unless it is just past midnight.
     const passed = new Date(Date.now() - 60_000).toISOString();
     await awaitingDraft(passed);
+    // One from an earlier day, which the release list no longer reads.
+    await awaitingDraft(new Date(Date.now() - 3 * 86_400_000).toISOString());
     const items = await marketingItems();
     expect(items.some((i) => i.kind === "marketing_draft_release")).toBe(false);
+    expect(items.some((i) => i.kind === "marketing_content_review")).toBe(
+      false,
+    );
+  });
+
+  it("content outside assignments still counts even with a passed time", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await awaitingDraft(new Date(Date.now() - 60_000).toISOString());
+    await content({
+      status: "needs_review",
+      scheduledAt: new Date(Date.now() - 3 * HOUR).toISOString(),
+    });
+    const items = await marketingItems();
     expect(
       items.find((i) => i.kind === "marketing_content_review"),
     ).toMatchObject({ count: 1 });
@@ -688,8 +703,9 @@ describe.skipIf(!enabled)("marketing attention items", () => {
       await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
     const four = await counted((tx) => marketingAttention(tx, owner, now));
     // 22 with one assignment (and 4 more per assignment) through the whole
-    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read; 15 with the owner's policy expiry read.
-    expect(one.queries).toBeLessThanOrEqual(15);
+    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read; 15 with the owner's policy expiry read;
+    // 16 with the bounded read of assignment drafts for their expiry (D-2).
+    expect(one.queries).toBeLessThanOrEqual(16);
     expect(
       four.result.find((i) => i.params.code === "BUDGET_EXHAUSTED")?.count,
     ).toBe(4);

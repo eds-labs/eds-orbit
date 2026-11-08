@@ -477,7 +477,7 @@ export async function planAssignmentRuns(
     // Nothing delivers a report yet (R71): a report confirmed before reports
     // were refused plans no paid run and sends no notice.
     if (d.contentType === "report") continue;
-    const backlog = await reviewBacklog(tx, scope, row.id);
+    const backlog = await reviewBacklog(tx, scope, row.id, undefined, now);
     if (backlog.blocked) {
       await recordBacklogBlocker(tx, scope, row.id, true);
       continue;
@@ -536,7 +536,7 @@ export async function planAssignmentRuns(
         await skipDay(tx, scope, row.id, due.date, allocation.unavailable);
         continue;
       }
-      const capacity = await reviewBacklog(tx, scope, row.id);
+      const capacity = await reviewBacklog(tx, scope, row.id, undefined, now);
       if (
         capacity.limit !== null &&
         (capacity.available ?? 0) < allocation.slots.length
@@ -594,7 +594,8 @@ export async function nextAssignmentRunAt(
   if (data(row).status !== "active" || data(row).contentType === "report")
     return null;
   const d = data(row);
-  if ((await reviewBacklog(tx, scope, row.id)).blocked) return null;
+  if ((await reviewBacklog(tx, scope, row.id, undefined, now)).blocked)
+    return null;
   const horizon = d.marketingPlan
     ? data(await entity(tx, scope, "marketing_plans", d.marketingPlan.planId))
         .spec.horizon

@@ -20,6 +20,7 @@ import { errorCode } from "../../telemetry.ts";
 import { enqueue, publishIntent } from "../pipeline/workflow.ts";
 import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import { agentReviewAccepted } from "./agent-review.ts";
+import { slotExpired } from "./draft-state.ts";
 import { SLOT_STEP_MS, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import {
   agentsEnabled,
@@ -131,10 +132,7 @@ const rowsWhere = (
 /** The refusal for a deliverable whose run slot has already passed (D-2). */
 export const SLOT_EXPIRED = "SLOT_EXPIRED";
 
-/** A slot is expired from its own instant on: it is never moved afterwards. */
-export function slotExpired(slot: Date, now: Date): boolean {
-  return now.valueOf() >= slot.valueOf();
-}
+export { slotExpired } from "./draft-state.ts";
 
 /**
  * The time a deliverable can go out with its full veto window: its own slot,

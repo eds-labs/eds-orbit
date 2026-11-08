@@ -391,6 +391,77 @@ describe.skipIf(!enabled)(
         ),
       ).toBe(0);
     });
+    it("expired assignment drafts hold no review capacity: planning proceeds (D-2)", async () => {
+      const helpers = assignmentRun(project);
+      const a = await helpers.makeAssignment({
+        pendingReviewLimit: 2,
+        approvalMode: "human_each",
+      });
+      const morning = tomorrowMorning();
+      // Two drafts of an earlier run whose slot passed yesterday: they can
+      // never be released any more.
+      const passed = new Date(morning.valueOf() - 86_400_000).toISOString();
+      const drafts = await run(async (tx) => {
+        const earlier = await create(tx, project.owner, "assignment_runs", {
+          assignmentId: a.id,
+          status: "done",
+          date: passed.slice(0, 10),
+          slots: [],
+          steps: [],
+        });
+        return Promise.all(
+          [1, 2].map(async (n) => {
+            const mission = await create(tx, project.owner, "missions", {
+              plannedSlotAt: passed,
+            });
+            return create(tx, project.owner, "content", {
+              assignmentId: a.id,
+              assignmentRunId: earlier.id,
+              missionId: mission.id,
+              channel: X,
+              body: `Expired ${n}`,
+              status: "needs_review",
+            });
+          }),
+        );
+      });
+      await helpers.connectTelegram();
+      await helpers.setPolicy({
+        startAt: "2026-01-01T00:00:00.000Z",
+        endAt: "2027-12-31T00:00:00.000Z",
+        maxPerDay: 4,
+      });
+      expect(
+        await run((tx) =>
+          reviewBacklog(tx, project.owner, a.id, undefined, morning),
+        ),
+      ).toMatchObject({ pending: 0, blocked: false });
+      expect(
+        await run((tx) => planAssignmentRuns(tx, project.owner, morning)),
+      ).toMatchObject({ created: 1 });
+      // The same drafts with a slot still ahead do fill the backlog.
+      await run(async (tx) => {
+        for (const draft of drafts) {
+          const mission = await entity(
+            tx,
+            project.owner,
+            "missions",
+            data(draft).missionId,
+          );
+          await update(tx, project.owner, mission, {
+            ...data(mission),
+            plannedSlotAt: new Date(
+              morning.valueOf() + 86_400_000,
+            ).toISOString(),
+          });
+        }
+      });
+      expect(
+        await run((tx) =>
+          reviewBacklog(tx, project.owner, a.id, undefined, morning),
+        ),
+      ).toMatchObject({ pending: 2, blocked: true });
+    });
     it("holds already queued workers at zero cost and requeues unsent work exactly once after capacity returns", async () => {
       const h = assignmentRun(project);
       const a = await h.makeAssignment({ pendingReviewLimit: 2 });
