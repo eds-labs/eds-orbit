@@ -20,6 +20,7 @@ Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07
   - Full vitest suite on this worktree's own test DB after merging `origin/main` (`c2bafb41`): 554 files passed, 1 skipped; 5618 passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`). The merge unified the owner release refusal on `SLOT_EXPIRED` (at or after the slot) and the draft list on `state: pending | expired`.
   - `tsc --noEmit` and `next build` pass; `pnpm db:generate` was not run (no schema change).
   - Browser check on a synthetic fixture (worktree test DB, mocked providers, no worker, test mode, no external call): assignment detail, approvals list and counter, approval of a future slot, retry with confirmation. Direct API calls for an expired draft returned 409 `SLOT_EXPIRED` and for a replaced draft 409 `DRAFT_NOT_AWAITING_OWNER`. Not covered: a real Creative Studio image, a real Facebook or Instagram post, and the 08:00/18:30 timers in a running worker.
+  - Browser re-check on the merged code (same synthetic fixture): approvals page shows expired drafts with reject and archive only and pending drafts with release; approval moves the post to the 18:30 list; a late release returned 409 `SLOT_EXPIRED`.
   - No flags or production configuration were changed.
 - **Production:** nothing deployed. Rollout steps 1 to 6 each need Mario's explicit approval; the first real post happens only when he releases it.
 
