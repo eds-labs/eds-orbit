@@ -47,6 +47,10 @@ describe("Meta currency units", () => {
     expect(metaDecimals("EUR")).toBe(2);
     expect(metaDecimals("USD")).toBe(2);
     expect(metaDecimals("JPY")).toBe(0);
+    expect(metaDecimals("BHD")).toBe(2);
+    expect(metaDecimals("JOD")).toBe(2);
+    expect(metaDecimals("HUF")).toBe(0);
+    expect(metaDecimals("TWD")).toBe(0);
     expect(code(() => metaDecimals("XYZ"))).toEqual({ code: "ADS_CURRENCY_UNSUPPORTED", status: 422 });
     expect(code(() => metaMinorToMicros("1", "XYZ"))?.code).toBe("ADS_CURRENCY_UNSUPPORTED");
   });

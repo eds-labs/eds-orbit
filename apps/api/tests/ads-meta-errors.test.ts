@@ -50,6 +50,12 @@ const rows: Row[] = [
   { name: "10 non-2xx no graph read", input: { write: false, httpStatus: 404, body: {} }, expect: { code: "ADS_PROVIDER_RESPONSE_INVALID", outcome: "rejected", retryable: true, retryAfterMs: 5_000 } },
   { name: "10 2xx invalid schema write", input: { write: true, httpStatus: 200, body: { nope: 1 } }, expect: { code: "ADS_PROVIDER_RESPONSE_INVALID", outcome: "unknown", retryable: false } },
   { name: "10 2xx invalid schema read", input: { write: false, httpStatus: 200 }, expect: { code: "ADS_PROVIDER_RESPONSE_INVALID", outcome: "rejected", retryable: true, retryAfterMs: 5_000 } },
+  { name: "1b write 503 + code 4 is unknown", input: { write: true, httpStatus: 503, body: graph({ code: 4 }) }, expect: { kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE", outcome: "unknown", retryable: false, providerCode: 4, httpStatus: 503 } },
+  { name: "1b write 500 + code 100 is unknown", input: { write: true, httpStatus: 500, body: graph({ code: 100, fbtrace_id: "T9" }) }, expect: { kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE", outcome: "unknown", retryable: false, providerCode: 100, traceId: "T9" } },
+  { name: "1b read 503 + code 4 stays rate_limited", input: { write: false, httpStatus: 503, body: graph({ code: 4 }) }, expect: { kind: "rate_limited", code: "ADS_META_RATE_LIMITED", outcome: "rejected", retryable: true } },
+  { name: "1 read RESPONSE_TOO_LARGE not retryable", input: { write: false, transport: new ConnectorError("RESPONSE_TOO_LARGE", "not_sent") }, expect: { outcome: "not_sent", retryable: false } },
+  { name: "1 read REQUEST_TOO_LARGE not retryable", input: { write: false, transport: new ConnectorError("REQUEST_TOO_LARGE", "not_sent") }, expect: { outcome: "not_sent", retryable: false } },
+  { name: "1 read NETWORK_ERROR not_sent retryable", input: { write: false, transport: new ConnectorError("NETWORK_ERROR", "not_sent") }, expect: { outcome: "not_sent", retryable: true } },
 ];
 
 describe("classifyMetaFailure", () => {

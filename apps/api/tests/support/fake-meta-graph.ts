@@ -1,7 +1,10 @@
+import { afterEach, expect } from "vitest";
 import { ConnectorError, type FetchLike } from "../../../../packages/connectors/src/index.ts";
+import { setMetaAdsFetchForTests } from "../../src/modules/ads/providers/meta/transport.ts";
 
 export type FakeRequest = { method: string; path: string; query: URLSearchParams; form?: URLSearchParams; authorization: string | null };
-export type FakeReply = { status?: number; json?: unknown; headers?: Record<string, string> } | { throw: ConnectorError };
+/** `text` is a raw body (e.g. HTML) and wins over `json`. */
+export type FakeReply = { status?: number; json?: unknown; text?: string; headers?: Record<string, string> } | { throw: ConnectorError };
 export type FakeHandler = (request: FakeRequest) => FakeReply;
 
 const PREFIX = "/v27.0/";
@@ -31,7 +34,11 @@ export function createFakeMetaGraph() {
     }
     const reply = typeof route === "function" ? route(request) : route;
     if ("throw" in reply) throw reply.throw;
-    return new Response(JSON.stringify(reply.json ?? {}), { status: reply.status ?? 200, headers: { "content-type": "application/json", ...reply.headers } });
+    const status = reply.status ?? 200;
+    // 204/205/304 must not carry a body: `new Response` throws otherwise.
+    const nullBody = status === 204 || status === 205 || status === 304;
+    const payload = nullBody ? null : reply.text ?? JSON.stringify(reply.json ?? {});
+    return new Response(payload, { status, headers: { "content-type": reply.text !== undefined ? "text/html" : "application/json", ...reply.headers } });
   };
   return {
     fetch,
@@ -39,6 +46,19 @@ export function createFakeMetaGraph() {
     misses,
     on(method: "GET" | "POST", path: string, reply: FakeReply | FakeHandler) { routes.set(`${method} ${path}`, reply); },
   };
+}
+
+export type FakeMetaGraph = ReturnType<typeof createFakeMetaGraph>;
+
+/** Test-only: creates the fake, routes the Meta transport to it and, after each test, restores the transport and asserts no request missed. */
+export function installFakeMetaGraph(): FakeMetaGraph {
+  const fake = createFakeMetaGraph();
+  setMetaAdsFetchForTests(fake.fetch);
+  afterEach(() => {
+    setMetaAdsFetchForTests(null);
+    expect(fake.misses).toEqual([]);
+  });
+  return fake;
 }
 
 export function graphError(status: number, code: number, extra: { subcode?: number; transient?: boolean; userTitle?: string; userMessage?: string; blame?: string[][] } = {}): FakeReply {

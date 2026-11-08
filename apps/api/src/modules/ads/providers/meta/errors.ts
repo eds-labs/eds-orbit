@@ -21,6 +21,8 @@ const inRange = (code: number | undefined, lo: number, hi: number) => code !== u
 const PERMISSION_EXTRA = new Set([1713092, 1815694, 2708008]);
 const BLOCK_EXTRA = new Set([1404078, 2859015]);
 const either = (set: Set<number>, code?: number, subcode?: number) => (code !== undefined && set.has(code)) || (subcode !== undefined && set.has(subcode));
+// A size-limit failure repeats identically on every retry.
+const NEVER_RETRY = new Set(["RESPONSE_TOO_LARGE", "REQUEST_TOO_LARGE"]);
 const RATE_CODES = new Set([4, 17, 32, 341, 613]);
 
 type GraphError = { code?: number; subcode?: number; isTransient: boolean; title?: string; message?: string; traceId?: string; blame: string[][] };
@@ -44,7 +46,7 @@ function graphError(body: unknown): GraphError | undefined {
 export function classifyMetaFailure(input: FailureInput): ProviderFailure {
   const { write, httpStatus, transport } = input;
   if (transport) {
-    return { kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE", outcome: transport.outcome, retryable: transport.outcome === "not_sent", fieldPaths: [], ...(httpStatus !== undefined ? { httpStatus } : {}) };
+    return { kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE", outcome: transport.outcome, retryable: transport.outcome === "not_sent" && !NEVER_RETRY.has(transport.code), fieldPaths: [], ...(httpStatus !== undefined ? { httpStatus } : {}) };
   }
   const g = graphError(input.body);
   const base = {
@@ -57,6 +59,9 @@ export function classifyMetaFailure(input: FailureInput): ProviderFailure {
   const code = g?.code;
   const rejected = { outcome: "rejected" as const };
   const ambiguous = write ? { outcome: "unknown" as const, retryable: false } : { outcome: "rejected" as const, retryable: true, retryAfterMs: 5_000 };
+
+  // A write answered with a 5xx may have committed: never report it as rejected, whatever the body says.
+  if (write && httpStatus !== undefined && httpStatus >= 500) return { ...base, outcome: "unknown", kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE", retryable: false };
 
   if (code === 190 || code === 102 || (httpStatus === 401 && code === undefined)) return { ...base, ...rejected, kind: "auth", code: "ADS_META_TOKEN_INVALID", retryable: false };
   if (code === 10 || inRange(code, 200, 299) || either(PERMISSION_EXTRA, code, g?.subcode)) return { ...base, ...rejected, kind: "permission", code: "ADS_META_PERMISSION_MISSING", retryable: false };

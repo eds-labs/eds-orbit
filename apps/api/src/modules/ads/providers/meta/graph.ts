@@ -18,7 +18,9 @@ export interface MetaGraphClient {
 }
 
 const PATH = /^\/[A-Za-z0-9_]+(\/[A-Za-z0-9_]+)*$/;
-const RESERVED = ["access_token", "appsecret_proof"];
+// `method` can turn a GET into a write, `batch` carries its own URLs, `suppress_http_code` and `callback` change the answer shape.
+const RESERVED = ["access_token", "appsecret_proof", "method", "batch", "suppress_http_code", "callback"];
+const CREDENTIAL = /^[^\s\p{Cc}]+$/u;
 
 export function appSecretProof(accessToken: string, appSecret: string): string {
   return createHmac("sha256", appSecret).update(accessToken).digest("hex");
@@ -34,6 +36,10 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 export function createMetaGraphClient(credentials: MetaCredentials): MetaGraphClient {
+  // An empty value or whitespace/control character would break the header or the proof; nothing has been sent at this point.
+  if (!CREDENTIAL.test(credentials.accessToken) || !CREDENTIAL.test(credentials.appSecret)) {
+    throw new AdsProviderError({ kind: "auth", code: "ADS_META_TOKEN_INVALID", outcome: "not_sent", retryable: false, fieldPaths: [] });
+  }
   const proof = appSecretProof(credentials.accessToken, credentials.appSecret);
   const authorization = `Bearer ${credentials.accessToken}`;
 
@@ -62,7 +68,7 @@ export function createMetaGraphClient(credentials: MetaCredentials): MetaGraphCl
     if (!response.ok) return fail();
     const parsed = schema.safeParse(body);
     if (!parsed.success) return fail();
-    return { data: parsed.data, usage: parseMetaUsage(response.headers), ...(traceId ? { traceId } : {}) };
+    return { data: parsed.data, usage: parseMetaUsage(response.headers), ...(traceId ? { traceId: traceId.slice(0, 100) } : {}) };
   }
 
   return {
@@ -70,7 +76,7 @@ export function createMetaGraphClient(credentials: MetaCredentials): MetaGraphCl
     post: (path, form, schema) => call("POST", path, form, schema),
     async page(path, params, item, after) {
       const envelopeSchema = envelope(item);
-      const result = await call("GET", path, after ? { ...params, after } : params, envelopeSchema);
+      const result = await call("GET", path, after !== undefined ? { ...params, after } : params, envelopeSchema);
       return { items: result.data.data, after: result.data.paging?.next ? result.data.paging.cursors?.after : undefined, usage: result.usage };
     },
   };
@@ -79,6 +85,8 @@ export function createMetaGraphClient(credentials: MetaCredentials): MetaGraphCl
 function envelope<T>(item: z.ZodType<T>) {
   return z.object({
     data: z.array(item),
-    paging: z.object({ cursors: z.object({ after: z.string().optional() }).optional(), next: z.string().optional() }).optional(),
+    paging: z.object({ cursors: z.object({ after: z.string().optional() }).optional(), next: z.string().optional() })
+      // `next` without a usable cursor would end the list silently; treat it as an invalid response.
+      .refine(p => p.next === undefined || !!p.cursors?.after, { message: "paging.next requires paging.cursors.after" }).optional(),
   });
 }

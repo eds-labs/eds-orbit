@@ -1,33 +1,23 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import { appSecretProof, createMetaGraphClient } from "../src/modules/ads/providers/meta/graph.ts";
 import { setMetaAdsFetchForTests } from "../src/modules/ads/providers/meta/transport.ts";
 import { AdsProviderError } from "../src/modules/ads/providers/types.ts";
-import { afterCommit, createFakeMetaGraph, graphError, sequence, usageHeaders } from "./support/fake-meta-graph.ts";
+import { afterCommit, graphError, installFakeMetaGraph, sequence, usageHeaders } from "./support/fake-meta-graph.ts";
 
 const credentials = { accessToken: "test-access-token-0001", appSecret: "test-app-secret-0123456789" };
 const PROOF = "a220b78fcb7c0e661a88e7a04803dff413c58eb8f7506d633c6f9d600f3083f4";
 const any = z.object({ ok: z.boolean() });
 
-let current: ReturnType<typeof createFakeMetaGraph> | null = null;
 function setup() {
-  const fake = createFakeMetaGraph();
-  current = fake;
-  setMetaAdsFetchForTests(fake.fetch);
+  const fake = installFakeMetaGraph();
   return { fake, client: createMetaGraphClient(credentials) };
 }
 async function failure(promise: Promise<unknown>) {
   try { await promise; } catch (error) { expect(error).toBeInstanceOf(AdsProviderError); return error as AdsProviderError; }
   throw new Error("expected failure");
 }
-
-afterEach(() => {
-  setMetaAdsFetchForTests(null);
-  const misses = current?.misses ?? [];
-  current = null;
-  expect(misses).toEqual([]);
-});
 
 describe("meta graph client", () => {
   it("sends the token only in the authorization header", async () => {
@@ -69,6 +59,7 @@ describe("meta graph client", () => {
     await client.post("/act_1/campaigns", { name: "x" }, any);
     const r = fake.requests[0]!;
     expect(contentType).toBe("application/x-www-form-urlencoded");
+    expect(r.authorization).toBe("Bearer test-access-token-0001");
     expect(r.form!.get("name")).toBe("x");
     expect(r.form!.get("appsecret_proof")).toBe(PROOF);
     expect(r.form!.has("access_token")).toBe(false);
@@ -83,6 +74,34 @@ describe("meta graph client", () => {
     await expect(client.post("/act_1", { appsecret_proof: "x" }, any)).rejects.toThrow(Error);
     await expect(client.get("/act_1/../me", {}, any)).rejects.toThrow(Error);
     await expect(client.get("/act_1?x=1", {}, any)).rejects.toThrow(Error);
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  it.each(["method", "batch", "suppress_http_code", "callback"])("refuses the reserved parameter %s in params and form", async key => {
+    const { fake, client } = setup();
+    fake.on("GET", "/act_1", { json: { ok: true } });
+    fake.on("POST", "/act_1", { json: { ok: true } });
+    await expect(client.get("/act_1", { [key]: "x" }, any)).rejects.toThrow(`Reserved Meta Graph parameter: ${key}`);
+    await expect(client.post("/act_1", { [key]: "x" }, any)).rejects.toThrow(`Reserved Meta Graph parameter: ${key}`);
+    expect(fake.requests).toHaveLength(0);
+  });
+
+  it.each([
+    ["empty token", { accessToken: "", appSecret: credentials.appSecret }],
+    ["token with newline", { accessToken: "abc\ndef", appSecret: credentials.appSecret }],
+    ["token with trailing newline", { accessToken: "abcdef\n", appSecret: credentials.appSecret }],
+    ["secret with a space", { accessToken: credentials.accessToken, appSecret: "sec ret" }],
+    ["empty secret", { accessToken: credentials.accessToken, appSecret: "" }],
+  ])("rejects invalid credentials at construction: %s", (_name, bad) => {
+    const fake = installFakeMetaGraph();
+    let thrown: unknown;
+    try { createMetaGraphClient(bad); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(AdsProviderError);
+    const { failure } = thrown as AdsProviderError;
+    expect(failure).toMatchObject({ kind: "auth", code: "ADS_META_TOKEN_INVALID", outcome: "not_sent", retryable: false, fieldPaths: [] });
+    for (const text of [JSON.stringify(failure), (thrown as Error).message]) {
+      for (const value of [bad.accessToken, bad.appSecret]) if (value.trim()) expect(text).not.toContain(value.trim());
+    }
     expect(fake.requests).toHaveLength(0);
   });
 
@@ -103,6 +122,16 @@ describe("meta graph client", () => {
     expect(fake.requests[1]!.method).toBe("GET");
     expect(fake.requests[1]!.path).toBe("/act_1/campaigns");
     expect(fake.requests[1]!.query.get("after")).toBe("c2");
+  });
+
+  it.each([
+    ["next without cursors", { data: [{ id: "1" }], paging: { next: "https://evil.example/x" } }],
+    ["next with an empty cursor", { data: [{ id: "1" }], paging: { cursors: { after: "" }, next: "https://evil.example/x" } }],
+  ])("rejects %s as an invalid response", async (_name, json) => {
+    const { fake, client } = setup();
+    fake.on("GET", "/act_1/campaigns", { json });
+    const error = await failure(client.page("/act_1/campaigns", {}, z.object({ id: z.string() })));
+    expect(error.failure.code).toBe("ADS_PROVIDER_RESPONSE_INVALID");
   });
 
   it("classifies a Graph error", async () => {
@@ -139,6 +168,37 @@ describe("meta graph client", () => {
     fake.on("GET", "/act_1", { json: { nope: 1 } });
     const error = await failure(client.get("/act_1", {}, any));
     expect(error.failure.code).toBe("ADS_PROVIDER_RESPONSE_INVALID");
+  });
+
+  it("rejects a non-JSON 200 body; on a write the outcome is unknown", async () => {
+    const { fake, client } = setup();
+    fake.on("GET", "/act_1", { text: "<html>" });
+    fake.on("POST", "/act_1/campaigns", { text: "<html>" });
+    const read = await failure(client.get("/act_1", {}, any));
+    expect(read.failure.code).toBe("ADS_PROVIDER_RESPONSE_INVALID");
+    const write = await failure(client.post("/act_1/campaigns", {}, any));
+    expect(write.failure).toMatchObject({ code: "ADS_PROVIDER_RESPONSE_INVALID", outcome: "unknown" });
+  });
+
+  it("answers a null-body status without throwing in the fake", async () => {
+    const { fake, client } = setup();
+    fake.on("GET", "/act_1", { status: 204 });
+    const error = await failure(client.get("/act_1", {}, any));
+    expect(error.failure.code).toBe("ADS_PROVIDER_RESPONSE_INVALID");
+  });
+
+  it("passes the usage headers of a rate-limit answer to the classifier", async () => {
+    const { fake, client } = setup();
+    fake.on("GET", "/act_1", { ...graphError(400, 17), headers: usageHeaders({ type: "ads_management", regainMinutes: 7 }) });
+    const error = await failure(client.get("/act_1", {}, any));
+    expect(error.failure).toMatchObject({ code: "ADS_META_RATE_LIMITED", retryAfterMs: 420_000 });
+  });
+
+  it("caps the trace id of a successful answer at 100 characters", async () => {
+    const { fake, client } = setup();
+    fake.on("GET", "/act_1", { json: { ok: true }, headers: { "x-fb-trace-id": "t".repeat(500) } });
+    const answer = await client.get("/act_1", {}, any);
+    expect(answer.traceId).toHaveLength(100);
   });
 
   it("returns usage with each answer", async () => {
