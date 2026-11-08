@@ -132,7 +132,7 @@ describe.skipIf(!enabled)("ads module routes", () => {
   it("hides the project from members of other projects", async () => {
     await setModule(true);
     const response = await call("editor", "GET", "/ads/status", undefined, otherProjectId);
-    expect(response.statusCode).toBe(404);
+    expect([response.statusCode, code(response)]).toEqual([404, "NOT_FOUND"]);
   });
 
   it("hides the module from a member whose module role is none", async () => {
@@ -157,7 +157,9 @@ describe.skipIf(!enabled)("ads module routes", () => {
     const disabled = await call("owner", "PUT", "/modules/ads", { enabled: false });
     expect(disabled.statusCode).toBe(200);
     const response = await call("owner", "GET", "/ads/status");
-    expect(response.statusCode).toBe(404);
+    // ORBIT_MODULES is on here, so the platform gate answers before requireAds
+    // (same code as the access matrix); ADS_DISABLED covers the opt-in path.
+    expect([response.statusCode, code(response)]).toEqual([404, "MODULE_DISABLED"]);
     const row = await scoped(workspaceId, projectId, (tx) =>
       tx.projectModule.findUnique({
         where: { workspaceId_projectId_moduleId: { workspaceId, projectId, moduleId: "ads" } },
