@@ -26,6 +26,7 @@ CREATE TABLE "AdAccount" (
   "updatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "AdAccount_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "AdAccount_project_fkey" FOREIGN KEY ("workspaceId", "projectId") REFERENCES "Project"("workspaceId", "id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "AdAccount_version_check" CHECK ("version" >= 1),
   CONSTRAINT "AdAccount_provider_check" CHECK ("provider" IN ('meta','openai','google')),
   CONSTRAINT "AdAccount_status_check" CHECK ("status" IN ('active','reconnect_required','disabled','unlinked')),
   CONSTRAINT "AdAccount_capability_check" CHECK ("capability" IN ('read_verified','write_ready','write_verified')),

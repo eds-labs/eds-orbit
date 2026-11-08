@@ -1344,6 +1344,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
       ],
+      [
+        "AdProviderThrottle",
+        `INSERT INTO "AdProviderThrottle" ("workspaceId", "projectId", scope, bucket, "windowStart") VALUES ($1::uuid, $2::uuid, 'rls', 'rls_bucket', now())`,
+        [b.workspaceId, b.projectId],
+      ],
     ];
     for (const [table, sql, params] of statements) {
       const result = await attempt(a, sql, ...params);

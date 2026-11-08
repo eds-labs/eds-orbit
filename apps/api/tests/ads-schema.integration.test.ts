@@ -70,6 +70,11 @@ describe.skipIf(!enabled)("ads schema (ADR 0025)", () => {
     }
   });
 
+  it("refuses an ad account with version 0", async () => {
+    const result = await message(p.run((tx) => account(tx, p, { version: 0 })));
+    expect(result).toMatch(/AdAccount_version_check/);
+  });
+
   it("refuses a negative spend cap", async () => {
     const result = await message(
       p.run((tx) => account(tx, p, { spendCapMicros: -1n })),

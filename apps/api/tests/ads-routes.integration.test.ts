@@ -160,6 +160,10 @@ describe.skipIf(!enabled)("ads module routes", () => {
     // ORBIT_MODULES is on here, so the platform gate answers before requireAds
     // (same code as the access matrix); ADS_DISABLED covers the opt-in path.
     expect([response.statusCode, code(response)]).toEqual([404, "MODULE_DISABLED"]);
+    // Without the platform gate the module's own disabled-row check answers.
+    delete process.env.ORBIT_MODULES;
+    const own = await call("owner", "GET", "/ads/status");
+    expect([own.statusCode, code(own)]).toEqual([404, "ADS_DISABLED"]);
     const row = await scoped(workspaceId, projectId, (tx) =>
       tx.projectModule.findUnique({
         where: { workspaceId_projectId_moduleId: { workspaceId, projectId, moduleId: "ads" } },
