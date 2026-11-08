@@ -112,12 +112,12 @@ export class AdsProviderError extends Error { constructor(readonly failure: Prov
 | --- | --- | --- | --- | --- | --- |
 | 1 | `transport` set (a `ConnectorError`) | transient | `ADS_PROVIDER_UNAVAILABLE` | `transport.outcome` | only when `not_sent` |
 | 2 | code 190 or 102, or HTTP 401 without a code | auth | `ADS_META_TOKEN_INVALID` | rejected | no |
-| 3 | code 10 or 200–299 | permission | `ADS_META_PERMISSION_MISSING` | rejected | no |
+| 3 | code 10 or 200–299, or code or subcode 1713092, 1815694, 2708008 (re-checked 2026-11-08) | permission | `ADS_META_PERMISSION_MISSING` | rejected | no |
 | 4 | code 613 with subcode 4841018 | rate_limited | `ADS_META_CONCURRENT_EDIT` | rejected | yes, 30 s |
-| 5 | code 368 | rate_limited | `ADS_META_TEMPORARILY_BLOCKED` | rejected | yes, 1 h |
+| 5 | code 368, or code or subcode 1404078, 2859015 (re-checked 2026-11-08) | rate_limited | `ADS_META_TEMPORARILY_BLOCKED` | rejected | yes, 1 h |
 | 6 | code 4, 17, 32, 341, 613 or 80000–80014, or HTTP 429 | rate_limited | `ADS_META_RATE_LIMITED` | rejected | yes; the largest `regainMs` of `parseMetaUsage(headers)`, else 60 s |
 | 7 | code 100, or `blame_field_specs` present | validation | `ADS_PROVIDER_VALIDATION` | rejected | no; `fieldPaths` = each blame spec joined with `.`; user title and message kept |
-| 8 | code 1 or 2, `is_transient: true`, or HTTP ≥ 500 | transient | `ADS_PROVIDER_UNAVAILABLE` | write: `unknown`; read: `rejected` | write: no; read: yes, 5 s |
+| 8 | code 1, 2 or 5000, any negative code, code or subcode 3910001, `is_transient: true`, or HTTP ≥ 500 (re-checked 2026-11-08) | transient | `ADS_PROVIDER_UNAVAILABLE` | write: `unknown`; read: `rejected` | write: no; read: yes, 5 s |
 | 9 | any other HTTP 4xx with a Graph error | validation | `ADS_PROVIDER_REJECTED` | rejected | no |
 | 10 | non-2xx without a Graph error, or a 2xx body that fails the expected schema | unknown | `ADS_PROVIDER_RESPONSE_INVALID` | write: `unknown`; read: `rejected` | write: no; read: yes, 5 s |
 
