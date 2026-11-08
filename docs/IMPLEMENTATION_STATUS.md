@@ -17,9 +17,9 @@ Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07
 - **Deviation (R2):** a failed image leaves the run `partial` (nothing delivered), not `failed` as the spec table says.
 - **Verification (local):**
   - Lint, API and web typecheck, `node scripts/boundaries.mjs` (0 new violations) and `git diff --check` pass.
-  - Full vitest suite on this worktree's own test DB: first run 5568 passed, 3 failed, 7 skipped; the 3 failures were the pinned prompt and tool-schema hashes in `flag-off.test.ts` (changed on purpose by this branch). After re-pinning: 553 files passed, 1 skipped; 5571 passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
-  - `pnpm build` was verified in parts (`tsc --noEmit` plus `next build`); `pnpm db:generate` was not run.
-  - Browser end-to-end check: not yet run (the controller runs it after review).
+  - Full vitest suite on this worktree's own test DB at the final code commit `91483a0f`: 553 files passed, 1 skipped; 5584 passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`). Three pinned prompt and tool-schema hashes in `flag-off.test.ts` were re-pinned on purpose earlier on this branch.
+  - `tsc --noEmit` and `next build` pass; `pnpm db:generate` was not run (no schema change).
+  - Browser check on a synthetic fixture (worktree test DB, mocked providers, no worker, test mode, no external call): assignment detail, approvals list and counter, approval of a future slot, retry with confirmation. Direct API calls for an expired draft returned 409 `SLOT_EXPIRED` and for a replaced draft 409 `DRAFT_NOT_AWAITING_OWNER`. Not covered: a real Creative Studio image, a real Facebook or Instagram post, and the 08:00/18:30 timers in a running worker.
   - No flags or production configuration were changed.
 - **Production:** nothing deployed. Rollout steps 1 to 6 each need Mario's explicit approval; the first real post happens only when he releases it.
 
