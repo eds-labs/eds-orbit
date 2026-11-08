@@ -977,6 +977,18 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
     });
 
+    it("refuses while the project is paused with PROJECT_PAUSED", async () => {
+      const { planned } = await failed();
+      await run((tx) =>
+        tx.project.update({
+          where: { id: project.owner.projectId },
+          data: { paused: true },
+        }),
+      );
+      expect(await refusal(retry(planned.id))).toBe("PROJECT_PAUSED");
+      expect(await runs()).toHaveLength(1);
+    });
+
     it("refuses 59 minutes before the slot with RUN_RETRY_TOO_LATE, allows 60", async () => {
       const { planned } = await failed();
       const slot = new Date(planned.slots[0].at).valueOf();

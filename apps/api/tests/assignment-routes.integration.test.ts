@@ -733,6 +733,33 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     expect(
       (await request("owner", "POST", path, { force: true })).statusCode,
     ).toBe(400);
+    // A paused project offers no retry and refuses one with PROJECT_PAUSED.
+    const setPaused = (paused: boolean) =>
+      run((tx) =>
+        tx.project.update({
+          where: { id: project.owner.projectId },
+          data: { paused },
+        }),
+      );
+    await setPaused(true);
+    const paused = await request("owner", "POST", path, {});
+    expect([paused.statusCode, paused.json().error.code]).toEqual([
+      409,
+      "PROJECT_PAUSED",
+    ]);
+    const whilePaused = (await request("owner", "GET", "assignments")).json()
+      .items as Array<Record<string, any>>;
+    expect(
+      whilePaused.find((i) => i.id === assignment.id)!.retryableRunId,
+    ).toBeNull();
+    await setPaused(false);
+    expect(
+      (
+        (await request("owner", "GET", "assignments")).json().items as Array<
+          Record<string, any>
+        >
+      ).find((i) => i.id === assignment.id)!.retryableRunId,
+    ).toBe(failedRun.id);
     const ok = await request("owner", "POST", path, {});
     expect([ok.statusCode, ok.json()]).toEqual([
       200,

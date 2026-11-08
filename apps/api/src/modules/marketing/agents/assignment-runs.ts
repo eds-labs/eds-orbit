@@ -1266,6 +1266,8 @@ export async function resumeReviewBacklog(
 export const RETRY_LEAD_MS = 60 * 60000;
 export const RUN_NOT_RETRYABLE = "RUN_NOT_RETRYABLE";
 export const RUN_RETRY_TOO_LATE = "RUN_RETRY_TOO_LATE";
+/** A paused project plans nothing, so a retry is neither offered nor run. */
+export const RUN_RETRY_PROJECT_PAUSED = "PROJECT_PAUSED";
 
 const runContents = (tx: DbTx, scope: Scope, runId: string) =>
   tx.entity.findMany({
@@ -1281,7 +1283,8 @@ const runContents = (tx: DbTx, scope: Scope, runId: string) =>
  * Why a run cannot be retried, or null when it can (G6). Side-effect free.
  * `RUN_NOT_RETRYABLE`: the run is not `failed` or `partial`, is retired
  * already, its assignment is not active, a slot was booked or handed over, a
- * draft was released, or no slot is open. `RUN_RETRY_TOO_LATE`: the first
+ * draft was released, or no slot is open. `PROJECT_PAUSED`: the project is
+ * paused (planning would create no run). `RUN_RETRY_TOO_LATE`: the first
  * open slot is less than an hour away (or past).
  */
 export async function runRetryRefusal(
@@ -1293,6 +1296,11 @@ export async function runRetryRefusal(
   const d = data(run);
   if (!["failed", "partial"].includes(d.status) || d.retiredAt)
     return RUN_NOT_RETRYABLE;
+  const project = await tx.project.findUnique({
+    where: { id: scope.projectId },
+    select: { paused: true },
+  });
+  if (project?.paused) return RUN_RETRY_PROJECT_PAUSED;
   const assignment = await tx.entity.findFirst({
     where: {
       id: String(d.assignmentId),
