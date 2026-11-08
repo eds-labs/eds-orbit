@@ -17,6 +17,10 @@ const clean = (text: unknown): string | undefined => {
 
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 const inRange = (code: number | undefined, lo: number, hi: number) => code !== undefined && code >= lo && code <= hi;
+// Meta does not always say whether a number is a code or a subcode, so these match either.
+const PERMISSION_EXTRA = new Set([1713092, 1815694, 2708008]);
+const BLOCK_EXTRA = new Set([1404078, 2859015]);
+const either = (set: Set<number>, code?: number, subcode?: number) => (code !== undefined && set.has(code)) || (subcode !== undefined && set.has(subcode));
 const RATE_CODES = new Set([4, 17, 32, 341, 613]);
 
 type GraphError = { code?: number; subcode?: number; isTransient: boolean; title?: string; message?: string; traceId?: string; blame: string[][] };
@@ -55,9 +59,9 @@ export function classifyMetaFailure(input: FailureInput): ProviderFailure {
   const ambiguous = write ? { outcome: "unknown" as const, retryable: false } : { outcome: "rejected" as const, retryable: true, retryAfterMs: 5_000 };
 
   if (code === 190 || code === 102 || (httpStatus === 401 && code === undefined)) return { ...base, ...rejected, kind: "auth", code: "ADS_META_TOKEN_INVALID", retryable: false };
-  if (code === 10 || inRange(code, 200, 299)) return { ...base, ...rejected, kind: "permission", code: "ADS_META_PERMISSION_MISSING", retryable: false };
+  if (code === 10 || inRange(code, 200, 299) || either(PERMISSION_EXTRA, code, g?.subcode)) return { ...base, ...rejected, kind: "permission", code: "ADS_META_PERMISSION_MISSING", retryable: false };
   if (code === 613 && g?.subcode === 4841018) return { ...base, ...rejected, kind: "rate_limited", code: "ADS_META_CONCURRENT_EDIT", retryable: true, retryAfterMs: 30_000 };
-  if (code === 368) return { ...base, ...rejected, kind: "rate_limited", code: "ADS_META_TEMPORARILY_BLOCKED", retryable: true, retryAfterMs: 3_600_000 };
+  if (code === 368 || either(BLOCK_EXTRA, code, g?.subcode)) return { ...base, ...rejected, kind: "rate_limited", code: "ADS_META_TEMPORARILY_BLOCKED", retryable: true, retryAfterMs: 3_600_000 };
   if ((code !== undefined && RATE_CODES.has(code)) || inRange(code, 80000, 80014) || httpStatus === 429) {
     const regain = Math.max(0, ...(input.headers ? parseMetaUsage(input.headers).buckets.map(b => b.regainMs ?? 0) : []));
     return { ...base, ...rejected, kind: "rate_limited", code: "ADS_META_RATE_LIMITED", retryable: true, retryAfterMs: regain > 0 ? regain : 60_000 };
@@ -69,7 +73,7 @@ export function classifyMetaFailure(input: FailureInput): ProviderFailure {
       ...(g!.title ? { userTitle: g!.title } : {}), ...(g!.message ? { userMessage: g!.message } : {}),
     };
   }
-  if (code === 1 || code === 2 || g?.isTransient || (httpStatus !== undefined && httpStatus >= 500)) return { ...base, ...ambiguous, kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE" };
+  if (code === 1 || code === 2 || code === 5000 || (code !== undefined && code < 0) || g?.subcode === 3910001 || code === 3910001 || g?.isTransient || (httpStatus !== undefined && httpStatus >= 500)) return { ...base, ...ambiguous, kind: "transient", code: "ADS_PROVIDER_UNAVAILABLE" };
   if (g && httpStatus !== undefined && httpStatus >= 400 && httpStatus < 500) {
     return { ...base, ...rejected, kind: "validation", code: "ADS_PROVIDER_REJECTED", retryable: false, ...(g.title ? { userTitle: g.title } : {}), ...(g.message ? { userMessage: g.message } : {}) };
   }
