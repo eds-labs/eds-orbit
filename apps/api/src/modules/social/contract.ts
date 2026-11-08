@@ -136,6 +136,11 @@ const originInput = z
     mode: z.enum(["now", "draft"]),
     at: z.date().optional(),
     packageHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    /**
+     * `now`: the origin's planned time (Marketing's slot). Social's lateness
+     * limit (30 minutes) counts from it when it is earlier than the hand-off.
+     */
+    slotAt: z.date().optional(),
   })
   .strict();
 export type OriginPostInput = z.input<typeof originInput>;
@@ -143,7 +148,8 @@ export type OriginPostInput = z.input<typeof originInput>;
 /**
  * A post for one account from another module's record. `now`: the origin
  * approved exactly this content (its package hash is recorded), Social
- * sends it right away. `draft`: a draft for a human, timed at `at`. The
+ * sends it right away, at most 30 minutes after `slotAt` (when given) or
+ * the hand-off, whichever is earlier. `draft`: a draft for a human, timed at `at`. The
  * same origin record and version gives the same post.
  */
 export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostInput): Promise<{ postId: string; deduplicated: boolean }> {
@@ -168,7 +174,7 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
     { origin: "marketing", originRef: input.origin },
   );
   if (input.mode === "now") {
-    await approveOriginPost(tx, scope, post.id, { ...input.origin, packageHash: input.packageHash! });
+    await approveOriginPost(tx, scope, post.id, { ...input.origin, packageHash: input.packageHash!, slotAt: input.slotAt });
   } else if (input.at) {
     await tx.socialPost.update({
       where: { id: post.id },

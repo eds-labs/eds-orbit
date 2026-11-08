@@ -40,7 +40,7 @@ New behaviour for every delivery (`publish` and `postiz_draft`): if `now >= plan
 
 Social sends whatever is due when the worker gets to it; throttle waits and after-delay retries (Facebook 368 and Instagram quota wait one hour) can push a send hours past its time.
 
-New rule in `claimPublication` (Social), on the first attempt and on every retry: a publication whose reference time is more than 30 minutes in the past is marked `failed` with `SOCIAL_SLOT_EXPIRED`, `retryDisposition: "never"`, and is never sent. Reference time: the post's `scheduledAt` for scheduled posts, `approvedAt` (else `createdAt`) for `now` posts (origin and manual). A throttle or retry delay that would end beyond the limit fails right away with the same code instead of waiting. Already-sending publications are unaffected (they keep the `outcome_unknown` path). The existing attention item `social_post_missed` lists them. No schema change: `scheduledAt` and `approvedAt` exist.
+New rule in `claimPublication` (Social), on the first attempt and on every retry: a publication whose reference time is more than 30 minutes in the past is marked `failed` with `SOCIAL_SLOT_EXPIRED`, `retryDisposition: "never"`, and is never sent. Reference time: the post's `scheduledAt` for scheduled posts, `approvedAt` (else `createdAt`) for `now` posts; for an origin post that carries the origin's slot (`slotAt`, Marketing passes the publication's `scheduledAt`), the earlier of that slot and `approvedAt`. A throttle or retry delay that would end beyond the limit fails right away with the same code instead of waiting. Already-sending publications are unaffected (they keep the `outcome_unknown` path). The existing attention item `social_post_missed` lists them. No schema change: `scheduledAt` and `approvedAt` exist; the origin slot is stored in the publication's existing `providerState` JSON.
 
 Marketing's reconciliation maps a Social `failed` with `SOCIAL_SLOT_EXPIRED` to its publication `failed` with the same code; nothing is retried.
 
@@ -97,7 +97,7 @@ FamilyPlan task #21 "Marketing-Assignments an natives Social-Modul anbinden (Fam
 3. Copywriter drafts the German caption(s); visual generates one 4:5 art and renders it per channel; review checks claims and leaves the drafts for the owner (`HUMAN_CONTENT_REVIEW_REQUIRED`).
 4. Owner releases each draft before 18:30 in Marketing → Freigaben. After 18:30 the release is refused (`SLOT_EXPIRED`).
 5. 18:30: Marketing's publication job claims, runs preflight, imports the image (one library asset), submits one Social post per account in mode `now`.
-6. Social delivers each post once, within 30 minutes or not at all; Facebook and Instagram outcomes and permalinks are stored per publication and shown in Marketing, the Social calendar and the assignment detail.
+6. Social delivers each post once, within 30 minutes of the 18:30 slot or not at all; Facebook and Instagram outcomes and permalinks are stored per publication and shown in Marketing, the Social calendar and the assignment detail.
 
 ## Error handling
 

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { registeredJobs } from "../src/platform/modules/contributions.ts";
@@ -74,6 +74,7 @@ describe.skipIf(!enabled)("social deliver", () => {
     });
   });
   afterEach(() => {
+    vi.useRealTimers();
     sends = 0;
     for (const [key, value] of Object.entries(env))
       if (value === undefined) delete process.env[key];
@@ -327,6 +328,10 @@ describe.skipIf(!enabled)("social deliver", () => {
       const account = await telegramAccount();
       const { postId, pubs } = await publications([account]);
       const minute = new Date(Math.floor(Date.now() / MIN) * MIN);
+      // Pinned mid-minute: the claim passes the first deadline check and
+      // reaches the throttle, whatever second the test starts in.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(minute.getTime() + 30_000));
       await p.run((tx: DbTx) =>
         tx.socialAccountThrottle.create({
           data: { workspaceId: p.owner.workspaceId, projectId: p.owner.projectId, accountId: account, window: "minute", windowStart: minute, count: 20 },

@@ -8,7 +8,7 @@ Behaviour rules built for this flow:
 
 - An owner release at or after the run slot is refused with `SLOT_EXPIRED` (409), for every delivery. Agent-approved drafts past their slot are dropped. The slot is never moved to a later time.
 - A Marketing publication whose job runs more than 30 minutes after its slot becomes `blocked_dependency` with `SLOT_EXPIRED` and is never handed to Social.
-- Social never sends a post more than 30 minutes late (`SOCIAL_SLOT_EXPIRED`, never retried), including after throttle waits and retries.
+- Social never sends a post more than 30 minutes after the Marketing slot (`SOCIAL_SLOT_EXPIRED`, never retried), including after throttle waits and retries. The limit counts from the slot, not from the hand-off: a post handed over at 18:50 must still go out by 19:00.
 - A failed image leaves the run `partial`: no review, nothing delivered. The owner can retry the run at least 60 minutes before the open slot.
 - Meta crossposting is not part of Orbit (see "Meta crossposting check").
 

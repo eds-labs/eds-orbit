@@ -65,7 +65,7 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
         : actual.validateActiveIndexEvaluation(...args),
   };
 });
-import { closeDatabase } from "../../../packages/db/src/index.ts";
+import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
 import { create, data, list, update } from "../src/shared.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
@@ -82,6 +82,10 @@ import {
   dispatchPublication,
   reconcilePublication,
 } from "../src/modules/marketing/publishing/publisher.ts";
+import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
+import { claimPublication } from "../src/modules/social/dispatch/claim.ts";
+import { deliverPublication } from "../src/modules/social/dispatch/deliver.ts";
+import { DISPATCH, dispatchJob } from "../src/modules/social/dispatch/jobs.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { addBrandKit } from "./support/package-creative.ts";
 import {
@@ -561,6 +565,95 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       "scheduled_remote",
     ]);
     expect(await daily.socialPosts()).toHaveLength(2);
+  });
+
+  /**
+   * Released drafts handed to Social `minutesAfterSlot` after the slot (the
+   * clock stays there) and dispatched by Social's job: the slot and the
+   * Social publications.
+   */
+  async function handedOverAt(minutesAfterSlot: number) {
+    const pubs = await releasedAt(minutesAfterSlot);
+    const { owner } = daily.project;
+    for (const pub of pubs) await dispatchPublication(owner, pub.id);
+    expect((await daily.publications()).map((p) => p.status)).toEqual([
+      "scheduled_remote",
+      "scheduled_remote",
+    ]);
+    const worker = daily.h.worker();
+    for (const job of (await daily.h.rows("jobs")).filter(
+      (j) => j.topic === DISPATCH,
+    ))
+      await (dispatchJob.handler as (ctx: unknown) => Promise<unknown>)({
+        scope: worker,
+        job,
+      });
+    const socialPubs = await daily.h.run((tx) =>
+      tx.socialPublication.findMany({
+        where: { projectId: owner.projectId },
+      }),
+    );
+    expect(socialPubs).toHaveLength(2);
+    return { slot: new Date(pubs[0]!.scheduledAt), socialPubs, worker };
+  }
+
+  it("Social measures its 30 minutes from the slot: a retry 35 minutes after a hand-off at slot+20 expires unsent", async () => {
+    let calls = 0;
+    setSocialFetchForTests(async () => {
+      calls++;
+      return new Response("{}", { status: 500 });
+    });
+    try {
+      const { slot, socialPubs, worker } = await handedOverAt(20);
+      for (const pub of socialPubs)
+        expect((pub.providerState as any).originSlotAt).toBe(
+          slot.toISOString(),
+        );
+      // A first attempt failed temporarily; its retry is due at slot+34.
+      await daily.h.run((tx) =>
+        tx.socialPublication.updateMany({
+          where: { id: { in: socialPubs.map((p) => p.id) } },
+          data: {
+            status: "failed",
+            retryDisposition: "after-delay",
+            nextAttemptAt: new Date(slot.valueOf() + 34 * MINUTE),
+            attempts: 1,
+          },
+        }),
+      );
+      vi.setSystemTime(new Date(slot.valueOf() + 35 * MINUTE));
+      for (const pub of socialPubs)
+        expect(await deliverPublication(worker, pub.id)).toEqual({
+          status: "succeeded",
+          errorCode: "SOCIAL_SLOT_EXPIRED",
+        });
+      const after = await daily.h.run((tx) =>
+        tx.socialPublication.findMany({
+          where: { id: { in: socialPubs.map((p) => p.id) } },
+        }),
+      );
+      for (const pub of after)
+        expect(pub).toMatchObject({
+          status: "failed",
+          retryDisposition: "never",
+          lastErrorCode: "SOCIAL_SLOT_EXPIRED",
+        });
+      expect(calls).toBe(0);
+    } finally {
+      setSocialFetchForTests(null);
+    }
+  });
+
+  it("Social still sends a hand-off at slot+5 claimed at slot+25", async () => {
+    const { slot, socialPubs, worker } = await handedOverAt(5);
+    const claimAt = new Date(slot.valueOf() + 25 * MINUTE);
+    vi.setSystemTime(claimAt);
+    for (const pub of socialPubs) {
+      const claim = await scoped(worker.workspaceId, worker.projectId, (tx) =>
+        claimPublication(tx, worker, pub.id, claimAt),
+      );
+      expect(claim.kind).toBe("claimed");
+    }
   });
 
   it("an assignment on social: channels is released and handed to Social at the slot", async () => {

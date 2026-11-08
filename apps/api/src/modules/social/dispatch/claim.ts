@@ -70,7 +70,7 @@ export async function claimPublication(tx: DbTx, scope: Scope, id: string, now: 
   if (!due) return { kind: "skip", reason: pub.status };
   const post = await postOfPublication(tx, scope, pub.variantId);
   if (post.status !== "publishing") return { kind: "skip", reason: `post_${post.status}` };
-  const deadline = sendDeadline(post);
+  const deadline = sendDeadline(post, pub);
   if (now > deadline) {
     await expirePublication(tx, scope, id);
     return { kind: "expired" };
@@ -227,7 +227,7 @@ export async function finishPublication(
       if (result.retry === "after-delay" && pub.attempts < MAX_ATTEMPTS) {
         const next = new Date(now.getTime() + Math.max(result.delayMs ?? 0, MIN_RETRY_MS));
         // A retry that would go out too late is not scheduled at all.
-        if (next > sendDeadline(post)) {
+        if (next > sendDeadline(post, pub)) {
           await expirePublication(tx, scope, id);
           await event(tx, scope, "social.publication.failed", id, post.id, account.platform);
           return;

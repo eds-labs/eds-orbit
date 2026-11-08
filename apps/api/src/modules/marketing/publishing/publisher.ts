@@ -311,6 +311,10 @@ async function dispatchThroughSocial(scope: Scope, pubId: string) {
         mediaIds,
         mode: "now",
         packageHash: p.packageHash,
+        // Social's 30-minute limit counts from the slot, not the hand-off.
+        ...(Number.isFinite(Date.parse(v.scheduledAt))
+          ? { slotAt: new Date(v.scheduledAt) }
+          : {}),
       });
       const row = await update(tx, scope, pub, {
         ...v,

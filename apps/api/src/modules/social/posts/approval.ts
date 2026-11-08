@@ -434,7 +434,7 @@ export async function approveOriginPost(
   tx: DbTx,
   scope: Scope,
   id: string,
-  origin: { type: string; id: string; version: number; packageHash: string },
+  origin: { type: string; id: string; version: number; packageHash: string; slotAt?: Date },
 ): Promise<void> {
   const post = await lockPost(tx, scope, id);
   await requireValid(tx, scope, post);
@@ -461,6 +461,7 @@ export async function approveOriginPost(
     originVersion: origin.version,
     originPackageHash: origin.packageHash,
     packageHash: hash,
+    ...(origin.slotAt ? { originSlotAt: origin.slotAt.toISOString() } : {}),
   });
-  await startDelivery(tx, scope, post.id);
+  await startDelivery(tx, scope, post.id, origin.slotAt ? { originSlotAt: origin.slotAt } : {});
 }
