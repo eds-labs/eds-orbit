@@ -166,7 +166,7 @@ const tomorrowMorning = () => {
  */
 async function dailyProject(
   morning = tomorrowMorning(),
-  options: { native?: boolean } = {},
+  options: { native?: boolean; shared?: boolean } = {},
 ) {
   const project = await createPackageProject();
   const h = assignmentRun(project, morning);
@@ -256,6 +256,8 @@ async function dailyProject(
     creative: { artPer: "run", imageKind: "auto" },
     delivery: "publish",
     approvalMode: "human_each",
+    // One content package (text and image) for both platforms.
+    ...(options.shared ? { sharedAcrossChannels: true } : {}),
   });
   const contents = async () =>
     (await h.rows("content")).sort((a, b) =>
@@ -269,7 +271,10 @@ async function dailyProject(
   /** Plans the run with a brief and creative brief per slot, then writes texts and art; the review is left to run. */
   const drafted = async () => {
     const planned = await h.planWithBriefs((slots) =>
-      slots.map((slot) => h.brief(slot, { creative: CREATIVE_BRIEF })),
+      slots
+        // A shared slot gets one brief, on its strictest channel (Instagram).
+        .filter((slot) => !options.shared || slot.channel === channels[1])
+        .map((slot) => h.brief(slot, { creative: CREATIVE_BRIEF })),
     );
     for (const role of ["copywriter", "visual"])
       for (const step of (await h.rows("agent_tasks")).filter(
@@ -713,6 +718,52 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
     const done = await publications();
     expect(done.map((p) => p.status)).toEqual(["published", "published"]);
     for (const p of done) expect(String(p.releaseUrl ?? "")).toContain("https://example.test/");
+  });
+
+  it("a shared Facebook and Instagram run hands one image to Social: both posts use one library asset", async () => {
+    liveSocialEnv();
+    daily = await dailyProject(tomorrowMorning(), {
+      native: true,
+      shared: true,
+    });
+    const { project, channels, contents, publications, socialPosts, reviewed, release } =
+      daily;
+    await daily.drafted();
+    // One art for the run.
+    expect(provider.generateImage).toHaveBeenCalledTimes(1);
+    await reviewed();
+    const drafts = await contents();
+    expect(drafts.map((d) => d.channel)).toEqual(channels);
+    // Same text and the same rendition on both platforms.
+    expect(new Set(drafts.map((d) => d.body)).size).toBe(1);
+    expect(new Set(drafts.map((d) => d.assetId)).size).toBe(1);
+    for (const draft of drafts) await release(draft);
+    const pubs = await publications();
+    expect(pubs).toHaveLength(2);
+    const slot = new Date(pubs[0]!.scheduledAt);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(slot.valueOf() + MINUTE));
+    for (const pub of pubs) await dispatchPublication(project.owner, pub.id);
+    expect((await publications()).map((p) => p.status)).toEqual([
+      "scheduled_remote",
+      "scheduled_remote",
+    ]);
+    expect(await socialPosts()).toHaveLength(2);
+    const { media, assets } = await daily.h.run(async (tx) => ({
+      media: await tx.socialPostMedia.findMany({
+        where: { projectId: project.owner.projectId },
+      }),
+      assets: await tx.socialMediaAsset.findMany({
+        where: { projectId: project.owner.projectId },
+      }),
+    }));
+    // One medium per post, both the same library asset (by sha256).
+    expect(media).toHaveLength(2);
+    expect(assets).toHaveLength(1);
+    expect(new Set(media.map((m) => m.sha256))).toEqual(
+      new Set([assets[0]!.sha256]),
+    );
+    expect(new Set(media.map((m) => m.fileId)).size).toBe(1);
   });
 
   it("the strategy input of a 30-day assignment carries 30 days of history, recentTopics and a Social-native post", async () => {

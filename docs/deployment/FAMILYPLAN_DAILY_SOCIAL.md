@@ -45,10 +45,13 @@ Card values:
 | delivery | `publish` |
 | approvalMode | `human_each` |
 | creative | `{ artPer: "run" }` |
+| sharedAcrossChannels | `true` (one content package: the same text and the same image on Facebook and Instagram) |
 | historyDays | `30` |
 | channels | `social:<facebook-account-id>`, `social:<instagram-account-id>` |
 | topic frame | See below; the topic list lives in `topicFrame` and the profile, never in code |
 | budget | Monthly cap fitting one image plus text per day |
+
+With `sharedAcrossChannels: true` the run writes one text for the slot on the strictest channel (Instagram), the review judges it once, and the draft is copied for Facebook with the same rendition: both platforms get the same 1080x1350 image, Social stores it as one library asset (same sha256) and both posts reference it. Each platform still has its own draft, release, publication, status and permalink. Without it, each platform gets its own caption and its own rendition, which Social stores as separate assets.
 
 Topic frame (theme names are German because they are content):
 
