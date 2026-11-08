@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { crc32, deflateSync } from "node:zlib";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 // Drive stubs keyed by file id: metadata and bytes, as the platform Drive
 // connection returns them after its root check (no Google call).
@@ -57,7 +58,11 @@ import { listActionRequests } from "../src/modules/action-requests.ts";
 import { storeFile } from "../src/platform/files/files.ts";
 import { uploadMedia } from "../src/modules/social/media/library.ts";
 import { setMediaUrlFetchForTests } from "../src/modules/social/media/from-url.ts";
-import { driveFileIdOf, inlineBytes } from "../src/modules/social/media/mcp-tools.ts";
+import { driveFileIdOf, inlineBytes, socialMediaUploadTool } from "../src/modules/social/media/mcp-tools.ts";
+import { validateCapabilityArgs } from "../src/platform/agents/capabilities.ts";
+import { projectBoundParameters } from "../src/platform/agents/project-calls.ts";
+import { sdkAcceptsArguments } from "../src/platform/mcp/adapter.ts";
+import { maxFileBytes } from "../src/platform/files/files.ts";
 import { uploadToken, verifyUploadToken } from "../src/modules/social/media/upload-sessions.ts";
 import { cleanMediaMcpRows, socialMediaMcpCleanup } from "../src/modules/social/media/mcp-cleanup.ts";
 import { buildServer } from "../src/server.ts";
@@ -121,6 +126,26 @@ describe("social media tool helpers", () => {
     expect(inlineBytes(`data:image/png;base64,${PNG.toString("base64")}`, "image/png").equals(PNG)).toBe(true);
     expect(() => inlineBytes("not base64 !!", "image/png")).toThrow("SOCIAL_MEDIA_INLINE_INVALID");
     expect(() => inlineBytes(randomBytes(170_000).toString("base64"), "image/png")).toThrow("SOCIAL_MEDIA_INLINE_TOO_LARGE");
+  });
+
+  it("publishes file as the file object ChatGPT's Apps SDK requires", () => {
+    const schema = z.toJSONSchema(projectBoundParameters(socialMediaUploadTool, { optional: false }), { io: "input" }) as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+    expect(schema.properties.file).toEqual({
+      type: "object",
+      properties: {
+        download_url: { type: "string" },
+        file_id: { type: "string" },
+        mime_type: { type: "string" },
+        file_name: { type: "string" },
+      },
+      required: ["download_url", "file_id"],
+      additionalProperties: false,
+    });
+    // A file is the only thing ChatGPT has to pass.
+    expect(schema.required).toEqual(["projectId"]);
   });
 
   it("accepts only its own unexpired, untampered upload tokens", () => {
@@ -465,6 +490,121 @@ describe.skipIf(!enabled)("social media MCP tools (library, Drive, URL, upload s
     const forged = opened.upload.url.replace(/.{4}$/, "AAAA");
     expect((await put(forged, freshPng(), "image/png")).statusCode).toBe(404);
     expect(await code("social_media_upload", { name: "x.png", mimeType: "image/png", sessionId: opened.sessionId }, await grantFor(p.editor, WRITE))).toBe("NOT_FOUND");
+  });
+
+  describe("files ChatGPT hands over", () => {
+    const fetches: string[] = [];
+    /** The download as ChatGPT's temporary URL answers it. */
+    const serve = (body: Buffer | string, headers: Record<string, string> = { "content-type": "application/octet-stream" }) => {
+      fetches.length = 0;
+      setMediaUrlFetchForTests(async (url) => {
+        fetches.push(String(url));
+        return new Response(typeof body === "string" ? body : new Uint8Array(body), { status: 200, headers });
+      });
+    };
+    const signed = (n = 1) => `https://files.oaiusercontent.com/file-abc?sig=${n}&se=2026-11-08T18%3A00%3A00Z`;
+    /** The gateway's path: the SDK's schema check, the host's parse, then the tool. */
+    async function fromChatGpt(args: Record<string, unknown>) {
+      const schema = projectBoundParameters(socialMediaUploadTool, { optional: false });
+      expect(await sdkAcceptsArguments(schema, { ...args, projectId: owner().projectId })).toBe(true);
+      return op("social_media_upload", await validateCapabilityArgs(socialMediaUploadTool, args));
+    }
+    const refusal = (args: Record<string, unknown>) =>
+      fromChatGpt(args).then(
+        () => "resolved",
+        (e: { code?: string; message: string }) => e.code ?? e.message,
+      );
+    const fileId = () => `file-${randomUUID()}`;
+
+    it("stores a generated image from the file reference alone and returns its mediaId", async () => {
+      serve(freshPng(1024, 1024));
+      const out = await fromChatGpt({
+        file: { download_url: signed(), file_id: fileId(), mime_type: "image/png", file_name: "chatgpt-image.png" },
+      });
+      expect(out).toMatchObject({
+        status: "completed",
+        duplicate: false,
+        media: { mediaId: expect.any(String), name: "chatgpt-image.png", mime: "image/png", width: 1024, height: 1024 },
+      });
+      expect(fetches).toEqual([signed()]);
+      const inProject = (project: typeof p) =>
+        project.run((tx) => tx.socialMediaAsset.count({ where: { id: out.media.mediaId, projectId: project.owner.projectId } }));
+      expect(await inProject(p)).toBe(1);
+      expect(await inProject(other)).toBe(0);
+    });
+
+    it("works when ChatGPT omits mime_type and file_name", async () => {
+      serve(freshPng());
+      expect(await fromChatGpt({ file: { download_url: signed(), file_id: fileId() } })).toMatchObject({
+        status: "completed",
+        media: { mediaId: expect.any(String), mime: "image/png" },
+      });
+    });
+
+    it("trusts the bytes over a wrong declared type", async () => {
+      serve(JPEG, { "content-type": "image/png" });
+      const out = await fromChatGpt({
+        name: "photo.png",
+        mimeType: "image/png",
+        file: { download_url: signed(), file_id: fileId(), mime_type: "image/png" },
+        idempotencyKey: "declared-png",
+      });
+      expect(out.media.mime).toBe("image/jpeg");
+    });
+
+    it("treats a retry with a fresh download URL as the same call", async () => {
+      const file_id = fileId();
+      serve(freshPng());
+      const first = await fromChatGpt({ file: { download_url: signed(1), file_id }, idempotencyKey: "rotating-url" });
+      const again = await fromChatGpt({ file: { download_url: signed(2), file_id }, idempotencyKey: "rotating-url" });
+      expect(again).toMatchObject({ deduplicated: true, media: { mediaId: first.media.mediaId } });
+      expect(fetches).toEqual([signed(1)]);
+    });
+
+    it("identifies a call without an idempotency key by its file id", async () => {
+      const file_id = fileId();
+      serve(freshPng());
+      const first = await fromChatGpt({ file: { download_url: signed(1), file_id } });
+      const again = await fromChatGpt({ file: { download_url: signed(2), file_id }, altText: "Second try" });
+      expect(again).toMatchObject({ deduplicated: true, media: { mediaId: first.media.mediaId } });
+      expect(fetches).toHaveLength(1);
+    });
+
+    it("refuses a file that is no supported image", async () => {
+      const before = await assets();
+      serve("%PDF-1.7 not an image");
+      expect(await refusal({ file: { download_url: signed(), file_id: fileId(), mime_type: "image/png" } })).toBe("SOCIAL_MEDIA_TYPE");
+      serve(Buffer.alloc(0));
+      expect(await refusal({ file: { download_url: signed(), file_id: fileId() } })).toBe("SOCIAL_MEDIA_INVALID");
+      expect(await assets()).toBe(before);
+    });
+
+    it("refuses a file above the size limit", async () => {
+      const before = await assets();
+      serve(PNG, { "content-type": "image/png", "content-length": String(maxFileBytes() + 1) });
+      expect(await refusal({ file: { download_url: signed(), file_id: fileId() } })).toBe("SOCIAL_MEDIA_TOO_LARGE");
+      expect(await assets()).toBe(before);
+    });
+
+    it("refuses a video before downloading it", async () => {
+      serve(PNG);
+      expect(await refusal({ file: { download_url: signed(), file_id: fileId(), mime_type: "video/mp4" } })).toBe("SOCIAL_VIDEO_NOT_AVAILABLE");
+      expect(fetches).toEqual([]);
+    });
+
+    it("names a sandbox path as an unusable file reference and never fetches it", async () => {
+      serve(PNG);
+      for (const download_url of ["sandbox:/mnt/data/image.png", "/mnt/data/image.png", "file-abc123", "http://files.example/a.png"])
+        expect(await refusal({ file: { download_url, file_id: fileId() } })).toBe("SOCIAL_MEDIA_FILE_REFERENCE_INVALID");
+      expect(fetches).toEqual([]);
+    });
+
+    it("still needs a name and type for inline images and upload sessions", async () => {
+      const data = PNG.toString("base64");
+      expect(await code("social_media_upload", { data, idempotencyKey: "no-meta-1" })).toBe("SOCIAL_MEDIA_SOURCE_INVALID");
+      expect(await code("social_media_upload", { name: "a.png", data, idempotencyKey: "no-meta-2" })).toBe("SOCIAL_MEDIA_SOURCE_INVALID");
+      expect(await code("social_media_upload", { idempotencyKey: "no-meta-3" })).toBe("SOCIAL_MEDIA_SOURCE_INVALID");
+    });
   });
 
   it("Test C: re-checks the member's rights when the bytes arrive", async () => {

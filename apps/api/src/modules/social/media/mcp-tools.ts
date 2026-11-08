@@ -444,11 +444,17 @@ export const socialMediaImportTool = defineTool({
 
 const uploadInput = z
   .object({
-    name: z.string().trim().min(1).max(200),
-    mimeType: z.enum(IMAGE_MIMES),
+    // Needed for data and upload sessions; a file brings its own.
+    name: z.string().trim().min(1).max(200).optional(),
+    mimeType: z.enum(IMAGE_MIMES).optional(),
     data: z.string().max(INLINE_MAX_CHARS).optional(),
     file: z
-      .object({ download_url: z.string().min(1).max(4000), file_id: z.string().min(1).max(300) })
+      .object({
+        download_url: z.string().min(1).max(4000),
+        file_id: z.string().min(1).max(300),
+        mime_type: z.string().max(200).optional(),
+        file_name: z.string().max(500).optional(),
+      })
       .strict()
       .optional(),
     sessionId: id.optional(),
@@ -457,6 +463,43 @@ const uploadInput = z
   })
   .strict();
 type UploadArgs = z.infer<typeof uploadInput>;
+
+/**
+ * `file` as ChatGPT's Apps SDK requires it for `openai/fileParams`: the file
+ * object itself, not a nullable union, declaring exactly these fields with
+ * only `download_url` and `file_id` required.
+ */
+const chatGptFile = z
+  .object({
+    download_url: z.string(),
+    file_id: z.string(),
+    mime_type: z.string().optional(),
+    file_name: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * A file the client holds, fetched from its temporary download URL. The bytes
+ * decide the image type, so a wrong declared type does not matter. The URL
+ * differs on every retry: the file id stands for it in the idempotency check,
+ * and without a key it is the key.
+ */
+function storeClientFile(ctx: ToolContext, file: NonNullable<UploadArgs["file"]>, args: UploadArgs) {
+  // Anything else is a path or id only the client can read, such as /mnt/data/….
+  if (!/^https:\/\//i.test(file.download_url)) throw new DomainError("SOCIAL_MEDIA_FILE_REFERENCE_INVALID", 422);
+  if (file.mime_type?.toLowerCase().startsWith("video/")) throw new DomainError("SOCIAL_VIDEO_NOT_AVAILABLE", 415);
+  const { idempotencyKey, ...fields } = args;
+  const key = idempotencyKey ?? `file:${hash(file.file_id)}`;
+  const identity = idempotencyKey ? { ...fields, file: file.file_id } : { file: file.file_id };
+  return once(ctx, "social_media_upload", key, identity, async () => {
+    const fetched = await fetchMediaUrl(file.download_url);
+    return ingestMedia(
+      ctx.scope,
+      { bytes: fetched.bytes, mime: fetched.mime, name: args.name ?? file.file_name },
+      { reuseIdentical: true, altText: args.altText ?? null, source: "mcp_upload" },
+    );
+  });
+}
 
 /** Base64 (optionally as a data URL of the declared type) to bytes, strictly. */
 export function inlineBytes(value: string, mime: UploadMime): Buffer {
@@ -473,8 +516,9 @@ export const socialMediaUploadTool = defineTool({
   name: "social_media_upload",
   namespace: "social",
   description:
-    "Upload a new image (PNG, JPEG, WebP) into the project's Social media library and get its mediaId. Small images (≤160 KB): data as base64. A file the client holds: file {download_url, file_id}. Larger images: call without data/file to get a one-time upload URL (PUT the raw bytes with the Content-Type shown within 15 minutes; the response holds the mediaId), then call with sessionId to read the result. Identical images return the existing mediaId. Retry with the same idempotencyKey.",
+    "Upload a new image (PNG, JPEG, WebP) into the project's Social media library and get its mediaId. An image from this chat, uploaded or generated: attach it as file (ChatGPT supplies download_url and file_id; a sandbox path such as /mnt/data/… cannot be read), name and mimeType are then optional. Small images (≤160 KB): name, mimeType and data as base64. Larger images: name and mimeType without data/file to get a one-time upload URL (PUT the raw bytes with the Content-Type shown within 15 minutes; the response holds the mediaId), then call with sessionId to read the result. Identical images return the existing mediaId. Retry with the same idempotencyKey.",
   parameters: modelParameters(uploadInput),
+  mcpParameters: modelParameters(uploadInput).extend({ file: chatGptFile.optional() }),
   risk: "W0_internal",
   permission: SOCIAL_COMPOSE,
   feature: shared.feature,
@@ -499,28 +543,18 @@ export const socialMediaUploadTool = defineTool({
       const media = await userScoped(scope, (tx) => mediaById(tx, scope, state.mediaId));
       return result({ status: "completed", sessionId: state.sessionId, media: mediaOut(media, scope), duplicate: state.duplicate, deduplicated: true });
     }
+    if (args.file) return result(await storeClientFile(ctx, args.file, args));
     if (!args.idempotencyKey) throw new DomainError("IDEMPOTENCY_KEY_REQUIRED", 422);
+    const { name, mimeType } = args;
+    if (!name || !mimeType) throw new DomainError("SOCIAL_MEDIA_SOURCE_INVALID", 422);
     const { idempotencyKey, ...rest } = args;
     const altText = args.altText ?? null;
     if (args.data !== undefined) {
-      const bytes = inlineBytes(args.data, args.mimeType);
+      const bytes = inlineBytes(args.data, mimeType);
       return result(
         await once(ctx, "social_media_upload", idempotencyKey, rest, () =>
-          ingestMedia(scope, { bytes, mime: args.mimeType, name: args.name }, { reuseIdentical: true, altText, source: "mcp_upload" }),
+          ingestMedia(scope, { bytes, mime: mimeType, name }, { reuseIdentical: true, altText, source: "mcp_upload" }),
         ),
-      );
-    }
-    if (args.file) {
-      const file = args.file;
-      return result(
-        await once(ctx, "social_media_upload", idempotencyKey, rest, async () => {
-          const fetched = await fetchMediaUrl(file.download_url);
-          return ingestMedia(
-            scope,
-            { bytes: fetched.bytes, mime: args.mimeType, name: args.name },
-            { reuseIdentical: true, altText, source: "mcp_upload" },
-          );
-        }),
       );
     }
     const opened = await userScoped(scope, (tx) =>
@@ -528,8 +562,8 @@ export const socialMediaUploadTool = defineTool({
         clientId: clientOf(ctx),
         idempotencyKey,
         argsHash: hash(rest),
-        name: args.name,
-        mime: args.mimeType,
+        name,
+        mime: mimeType,
         altText,
       }),
     );
