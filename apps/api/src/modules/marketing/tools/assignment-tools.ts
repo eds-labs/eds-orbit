@@ -119,13 +119,13 @@ const banner = z
       .string()
       .nullable()
       .describe(
-        "The owner's own notes on the background art (mood, colours, motifs); null for the default style: dark navy, cyan light waves, frosted glass cards with line icons",
+        "The owner's own notes on the background art (mood, colours, motifs), taking precedence over the brand kit; null to follow the project's brand kit alone (its colours, base tone, imagery and design rules)",
       ),
   })
   .strict()
   .nullable()
   .describe(
-    "Social with image true only; null for a free image per run (as before). brand_landscape: Orbit generates one background per run (no text, no logos) and composes each slot's banner over it with the approved logo, a two-line headline, a subline, an outlined button and the link's domain, written by the copywriter and reviewed with the post. Needs an approved logo in the marketing profile",
+    "Social with image true only; null for a free image per run (as before). brand_landscape: Orbit generates one background per run in the project's own brand kit style (no text, no logos) and composes each slot's banner in the brand colours over it with the approved logo, a two-line headline, a subline, an outlined button and the link's domain, written by the copywriter and reviewed with the post. Needs an approved logo in the marketing profile",
   );
 
 // Creative Studio: a composed creative per post instead of a free image or banner.

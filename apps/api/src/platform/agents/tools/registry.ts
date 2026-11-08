@@ -139,6 +139,11 @@ export type OrbitTool = {
   /** May execute under an explicitly enabled owner standing authorization. */
   mcpDirectEffect?: true;
   /**
+   * Extra `_meta` of the tool's MCP definition, e.g. `openai/fileParams`
+   * naming the inputs a client such as ChatGPT fills with a file it holds.
+   */
+  mcpMeta?: Record<string, unknown>;
+  /**
    * For a proposal tool: whether an outside client may propose its action
    * now (the action type's `mcpProposable`). False hides it from MCP, so a
    * listed proposal never fails as not proposable.

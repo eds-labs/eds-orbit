@@ -10,7 +10,7 @@ import { cancelDelivery } from "./dispatch/control.ts";
 import { stopDelivery } from "./dispatch/dispatch.ts";
 import { platformEnabled, validationContext } from "./dispatch/gates.ts";
 import { socialActive } from "./gate.ts";
-import { uploadMedia } from "./media/library.ts";
+import { ingestMedia } from "./media/library.ts";
 import { approveOriginPost } from "./posts/approval.ts";
 import { createPost, lockPost } from "./posts/posts.ts";
 import { validateVariant } from "./posts/validation.ts";
@@ -124,7 +124,7 @@ export async function publishingBlockers(tx: DbTx, scope: Scope, channel: string
 
 /** Puts an approved image of the origin into Social's library; outside a transaction. */
 export async function importOriginMedia(scope: Scope, input: { bytes: Uint8Array; mime: string }): Promise<string> {
-  return (await uploadMedia(scope, { ...input, reuse: true })).id;
+  return (await ingestMedia(scope, input, { reuseIdentical: true })).media.id;
 }
 
 const originInput = z

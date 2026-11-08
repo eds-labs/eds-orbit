@@ -73,6 +73,7 @@ describe.skipIf(!enabled)(
       ORBIT_MCP_TASKS: "true",
       ORBIT_MCP_PROPOSALS: "true",
       ORBIT_SUPPORT: "true",
+      ORBIT_SOCIAL: "true",
       ORBIT_MODULES: "true",
       ORBIT_MCP_CIMD_HOSTS: "client.test",
       MCP_RESOURCE: resource,
@@ -610,6 +611,85 @@ describe.skipIf(!enabled)(
           expect(tickets.statusCode, tickets.body).toBe(200);
           expect(tickets.json().result.isError, tickets.body).not.toBe(true);
         }
+      }
+    });
+    it("lists internal writes to a token without orbit:write and challenges their calls for it", async () => {
+      // A client such as ChatGPT asks only for the scopes its listed tools
+      // declare: the Social media library writes must be listed (with
+      // orbit:write and orbit:social) before the client can ask for them.
+      const at = project.owner;
+      const social = (enabled: boolean) =>
+        scoped(at.workspaceId, at.projectId, (tx) =>
+          tx.projectModule.upsert({
+            where: {
+              workspaceId_projectId_moduleId: {
+                workspaceId: at.workspaceId,
+                projectId: at.projectId,
+                moduleId: "social",
+              },
+            },
+            create: {
+              workspaceId: at.workspaceId,
+              projectId: at.projectId,
+              moduleId: "social",
+              enabled,
+              moduleVersion: "1.0.0",
+              changedBy: at.userId,
+            },
+            update: { enabled },
+          }),
+        );
+      await social(true);
+      const before = token;
+      try {
+        const flow = await driver.connect({
+          scope: supportScopes,
+          consent: { scopes: supportScopes.split(" ") },
+        });
+        const issued = await driver.exchange(flow);
+        expect(issued.statusCode, issued.body).toBe(200);
+        token = issued.json().access_token;
+        const profile = (
+          await rpc("tools/call", { name: "orbit_profile", arguments: {} })
+        ).json().result.structuredContent;
+        expect(profile.effectiveScopes).not.toContain("orbit:write");
+        const list = await rpc("tools/list");
+        expect(list.statusCode).toBe(200);
+        const definition = list
+          .json()
+          .result.tools.find((t: any) => t.name === "social_media_import");
+        expect(definition, list.body).toBeDefined();
+        expect(definition.securitySchemes[0].scopes).toEqual(
+          expect.arrayContaining(["orbit:write", "orbit:social"]),
+        );
+        const refused = await rpc("tools/call", {
+          name: "social_media_import",
+          arguments: {
+            projectId: at.projectId,
+            source: "url",
+            url: "https://example.com/a.png",
+            idempotencyKey: "write-step-up",
+          },
+        });
+        expect(refused.json().result.isError, refused.body).toBe(true);
+        expect(refused.json().result.structuredContent.code).toBe(
+          "INSUFFICIENT_SCOPE",
+        );
+        const challenge =
+          refused.json().result._meta["mcp/www_authenticate"][0];
+        expect(challenge).toContain('error="insufficient_scope"');
+        expect(challenge).toContain("orbit:write");
+        expect(challenge).toContain("orbit:social");
+        // Nothing was stored for the refused call.
+        const receipts = await scoped(at.workspaceId, at.projectId, (tx) =>
+          tx.entity.count({
+            where: { projectId: at.projectId, kind: "social_media_receipt" },
+          }),
+        );
+        expect(receipts).toBe(0);
+      } finally {
+        token = before;
+        await social(false);
       }
     });
     it("discovers Support schemas with an older token and challenges content calls without granting access", async () => {

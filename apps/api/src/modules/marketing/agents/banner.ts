@@ -10,13 +10,16 @@ import {
   bannerButtonFits,
   bannerChromeOverflow,
   bannerTextOverflow,
+  relativeLuminance,
   type BannerText,
 } from "../../../../../../packages/creative/src/index.ts";
 import { data, DomainError } from "../../../shared.ts";
 import {
   currentMarketingProfile,
   PROHIBITED_LANGUAGE,
+  type MarketingProfile,
 } from "../brand/marketing-profile.ts";
+import { colourWord, IMAGERY_STYLE } from "../creative/art-direction.ts";
 
 /**
  * Assignment banners in the brand style (R78). An assignment with `banner`
@@ -32,7 +35,7 @@ import {
 export const assignmentBanner = z
   .object({
     template: z.enum(["brand_landscape"]),
-    // The owner's own style notes for the background; absent = the default style.
+    // The owner's own style notes for the background; absent = the brand kit's style alone.
     style: z.string().trim().min(1).max(1000).optional(),
   })
   .strict();
@@ -78,22 +81,78 @@ export function withCtaButton<T extends { button: string }>(
 export { BANNER_TEXT_LIMITS };
 
 /**
- * The default background style: Mario's banners on @uLiquid_desk. Only the
- * art; the headline, logo, button and domain are composed by Orbit.
+ * The layout needs of the banner background, the same for every brand:
+ * where the composer later puts the headline and the logo card, and what
+ * the art must never contain.
  */
-export const DEFAULT_BANNER_STYLE = [
-  "Wide 16:9 background art for a fintech product banner.",
-  "Deep dark navy background (#040B1A to #0B1D3A) with subtle cyan (#22D3EE) light waves flowing across the lower half and a soft cyan glow on the right.",
-  "Right half: a cluster of three or four frosted glass cards (translucent dark navy glass, thin glowing cyan edges, rounded corners), each holding one simple cyan line icon (for example a chart monitor, a sparkle, a robot head, a paper plane), connected by thin glowing cyan lines to an empty space in the centre of the right half where a separate logo card is placed later.",
-  "Left half: calm and dark, nearly empty, so large headline text can be placed over it later.",
-  "Clean, premium, minimal, high contrast; no text, no letters, no numbers, no labels, no logos, no brand marks, no people.",
+export const BANNER_LAYOUT_NEEDS = [
+  "Wide 16:9 background art for a social media banner.",
+  "Left half: calm and nearly empty, low detail and soft contrast, so a large headline can be placed over it later.",
+  "Right half: the visual interest, with a calm empty space near its centre where a separate logo card is placed later.",
+  "No text, no letters, no numbers, no labels, no logos, no brand marks, no people, no user interfaces or screens with content.",
 ].join(" ");
 
-/** The visual step's prompt for the run's banner background. */
-export function bannerBackgroundPrompt(banner: AssignmentBanner) {
+type BannerIdentity = MarketingProfile["visualIdentity"];
+
+/** A brand colour as "dark teal (#0F766E)"; the hex alone reads poorly to an image model. */
+const colour = (hex: string) => {
+  const word = colourWord(hex);
+  return word ? `${word} (${hex})` : hex;
+};
+const line = (value: string, max: number) =>
+  value.replace(/\s+/gu, " ").trim().slice(0, max);
+
+/**
+ * The visual step's prompt for the run's banner background (R78), built
+ * from the project's brand kit, so every project's banner keeps its own
+ * look: the base tone from its background colour (a light brand gets a
+ * light, airy background, a dark brand a dark one), its palette, imagery
+ * (kind, mood, typical subjects), design rules, and the avoid list
+ * (imagery avoid and forbidden designs). The owner's style notes on the
+ * assignment come last and take precedence over the brand defaults. Nothing
+ * here names a product or a brand's look; a profile without imagery gets a
+ * neutral, polished style in its palette.
+ */
+export function bannerBackgroundPrompt(
+  banner: AssignmentBanner,
+  identity: BannerIdentity,
+) {
+  const luminance = relativeLuminance(identity.backgroundColor);
+  const tone =
+    luminance >= 0.4
+      ? `Overall tone: light and airy, built on a ${colour(identity.backgroundColor)} base; avoid dark or night-time looks.`
+      : luminance <= 0.12
+        ? `Overall tone: dark, built on a ${colour(identity.backgroundColor)} base.`
+        : `Overall tone: medium, built on a ${colour(identity.backgroundColor)} base.`;
+  const imagery = identity.imagery;
+  const avoid = [
+    ...new Set(
+      [...(imagery?.avoid ?? []), ...(identity.forbiddenDesigns ?? [])]
+        .map((entry) => line(entry, 200))
+        .filter(Boolean),
+    ),
+  ].slice(0, 20);
+  const rules = identity.designRules
+    .map((rule) => line(rule, 300))
+    .filter(Boolean);
   return [
-    DEFAULT_BANNER_STYLE,
-    ...(banner.style ? [`Owner's style notes: ${banner.style}`] : []),
+    BANNER_LAYOUT_NEEDS,
+    imagery
+      ? `Imagery: ${IMAGERY_STYLE[imagery.kind]}.`
+      : "Imagery: polished, modern and professional, matching the brand palette.",
+    ...(imagery?.mood ? [`Brand mood: ${line(imagery.mood, 300)}.`] : []),
+    ...(imagery?.subjects
+      ? [`Typical subjects of the brand: ${line(imagery.subjects, 500)}.`]
+      : []),
+    tone,
+    `Brand palette: ${colour(identity.primaryColor)}, ${colour(identity.secondaryColor)}, accent ${colour(identity.accentColor)}, surface ${colour(identity.surfaceColor)}. Use these hues for shapes, objects and light.`,
+    ...(rules.length ? [`Brand design rules: ${rules.join(" ")}`] : []),
+    ...(avoid.length ? [`Avoid: ${avoid.join("; ")}.`] : []),
+    ...(banner.style
+      ? [
+          `Owner's style notes (take precedence over the brand defaults above): ${banner.style}`,
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -112,6 +171,9 @@ export const BANNER_BRAND_OVERFLOW = "BANNER_BRAND_OVERFLOW";
 export const BANNER_TEXT_UNSAFE = "BANNER_TEXT_UNSAFE";
 // Composing this draft's banner failed (render error); recorded on the draft.
 export const BANNER_RENDER_FAILED = "BANNER_RENDER_FAILED";
+// The banner's generated background is in the other tone than the brand kit
+// (a dark image for a light brand or the reverse, `brandToneCheck`): the owner decides.
+export const BANNER_BRAND_MISMATCH = "BANNER_BRAND_MISMATCH";
 // The draft's own channel cannot carry the image (media or caption limit).
 export const BANNER_MEDIA_REFUSED = "BANNER_MEDIA_REFUSED";
 /** Banner problems one deterministic revision of the copy may fix (round 1 only). */
@@ -168,6 +230,8 @@ export async function approvedBannerLogo(tx: DbTx, scope: Scope) {
     profileVersion: profileRow!.version,
     productName: profile.data.productName,
     officialLinks: profile.data.officialLinks,
+    // The brand kit the banner's art prompt and palette come from.
+    visualIdentity: profile.data.visualIdentity,
     brand: {
       productName: profile.data.productName,
       logoId: row.id,

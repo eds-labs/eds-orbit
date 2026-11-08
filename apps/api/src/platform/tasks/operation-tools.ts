@@ -144,7 +144,8 @@ function modelField(value: z.ZodType): z.ZodType {
   if (value instanceof z.ZodObject) return modelParameters(value);
   return value;
 }
-function modelParameters(input: z.ZodObject) {
+/** The model-facing strict parameters of a service schema (nullable optionals, no string checks). */
+export function modelParameters(input: z.ZodObject) {
   return z
     .object(
       Object.fromEntries(
@@ -186,7 +187,8 @@ function normalizeServiceValue(schema: z.ZodType, raw: unknown): unknown {
   }
   return raw;
 }
-function serviceArgs(input: z.ZodObject, raw: unknown) {
+/** Model arguments read back through the service schema (nulls dropped, every check applied). */
+export function serviceArgs(input: z.ZodObject, raw: unknown) {
   return input.parse(normalizeServiceValue(input, raw));
 }
 

@@ -531,7 +531,7 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     const assignment = await confirmed();
     let r = await request("viewer", "GET", "assignment-drafts");
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ items: [] });
+    expect(r.json()).toEqual({ items: [], history: [] });
     // A draft that is not an assignment draft is not found; roles are checked first.
     const plain = await run((tx) =>
       create(tx, project.owner, "content", {
@@ -566,6 +566,29 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
       },
     );
     expect(r.statusCode).toBe(400);
+    // Reject, discard and archive: owner only, assignment drafts only.
+    for (const decision of ["reject", "discard", "archive"]) {
+      for (const who of ["viewer", "editor"] as const) {
+        r = await request(
+          who,
+          "POST",
+          `assignment-drafts/${plain.id}/${decision}`,
+          { version: plain.version },
+        );
+        expect([who, decision, r.statusCode]).toEqual([who, decision, 403]);
+      }
+      r = await request(
+        "owner",
+        "POST",
+        `assignment-drafts/${plain.id}/${decision}`,
+        { version: plain.version },
+      );
+      expect([decision, r.statusCode]).toEqual([decision, 404]);
+    }
+    r = await request("owner", "POST", `assignment-drafts/${plain.id}/delete`, {
+      version: plain.version,
+    });
+    expect(r.statusCode).toBe(404);
     const unchanged = await run((tx) =>
       entity(tx, project.owner, "content", plain.id),
     );

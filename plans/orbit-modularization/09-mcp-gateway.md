@@ -314,7 +314,8 @@ Everything returned over MCP leaves Orbit and goes to an external model. Rules:
 | W0 internal write | selected tools only (`orbit:write`) | Executes directly within permissions, for example a support internal note. |
 | P proposal | yes (`orbit:propose`) | Creates an ActionRequest or proposal and returns `{status:"pending_approval", actionRequestId, approveUrl}`. |
 | C1/C2 paid, W1/W2 external writes | **only as P** | The deterministic executor runs after an **Orbit-side decision**. |
-| D1/D2 deletion, F1/F2 budget, G governance, infrastructure | **never** | Hard floors (ADR 0008 §4). They stay `ui_only` or `forbidden`. |
+| F1 paid media, F2 budget change | **only as P** (since 2026-11-07, ADR 0008 addendum of that date, ADR 0025) | The proposal creates an ActionRequest. Only an owner decides it, only in the Orbit web UI and with a session authenticated within the last 15 minutes; never mandatable, never a direct effect. |
+| D1/D2 deletion, G governance, infrastructure | **never** | Hard floors (ADR 0008 §4). They stay `ui_only` or `forbidden`. |
 
 ### 6.2 Confirmation and step-up
 

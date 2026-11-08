@@ -26,7 +26,17 @@ import {
   statusTone,
   type AssignmentContent,
 } from "./assignment-card";
-import { Alert, Badge, Button, Loading } from "@/components/ui/primitives";
+import {
+  Alert,
+  Badge,
+  Button,
+  Field,
+  FieldGroup,
+  FieldLabel,
+  Loading,
+  Modal,
+  Textarea,
+} from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 
@@ -91,15 +101,18 @@ export type UpcomingPost = {
   // `id`, `version` and `status` are the handoff's then. Absent means "publish".
   delivery?: "publish" | "postiz_draft";
 };
+/** States of an assignment draft on the approvals page. */
+export type DraftState =
+  "pending" | "expired" | "released" | "rejected" | "archived";
 /** One row of `GET /assignment-drafts`: a draft that waits for the owner's release. */
 export type AwaitingOwnerDraft = {
   id: string;
   version: number;
+  // `pending` while the slot is ahead; `expired` once it has passed (no release).
+  state?: "pending" | "expired";
   channel: string;
   channelName: string | null;
   slotAt: string;
-  // The run slot has passed: it is never moved, so the draft cannot be released.
-  expired?: boolean;
   excerpt: string;
   // The draft's image or creative rendition (thumbnail); absent or null: none.
   assetId?: string | null;
@@ -112,6 +125,21 @@ export type AwaitingOwnerDraft = {
 };
 const UUID_PARAM =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** One row of the `history` of `GET /assignment-drafts`: an owner's decision. */
+export type DraftHistoryItem = {
+  id: string;
+  version: number;
+  state: "released" | "rejected" | "archived";
+  channel: string;
+  channelName: string | null;
+  excerpt: string;
+  assignmentName: string | null;
+  decidedAt: string;
+  reason: string | null;
+  hidden: boolean;
+  slotAt: string | null;
+};
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";
 
@@ -720,8 +748,171 @@ export function UpcomingPostList({
  * is linked, or agent review authority is off. Only an owner releases one;
  * the release schedules it at its run slot (or the next free one that day).
  */
+/** Labels of the draft states on the approvals page (pending, expired, decided). */
+export const DRAFT_STATE_LABELS: Record<
+  DraftState,
+  { de: string; en: string; tone: "warning" | "neutral" | "success" | "danger" }
+> = {
+  pending: { de: "Ausstehend", en: "Pending", tone: "warning" },
+  expired: { de: "Abgelaufen", en: "Expired", tone: "neutral" },
+  released: { de: "Freigegeben", en: "Released", tone: "success" },
+  rejected: { de: "Abgelehnt", en: "Rejected", tone: "danger" },
+  archived: { de: "Archiviert", en: "Archived", tone: "neutral" },
+};
+
+/** Readable texts of the refusals a release or decision can meet; others show their code. */
+const DECISION_ERRORS: Record<string, [string, string]> = {
+  OWNER_REQUIRED: [
+    "Dafür fehlen dir die Rechte: Nur ein Owner des Projekts kann Entwürfe freigeben, ablehnen, verwerfen oder archivieren.",
+    "You lack the permission: only a project owner can release, reject, discard or archive drafts.",
+  ],
+  FORBIDDEN: [
+    "Dafür fehlen dir die Rechte in diesem Projekt.",
+    "You lack the permission for this in this project.",
+  ],
+  SLOT_EXPIRED: [
+    "Der Termin dieses Entwurfs ist vorbei und wird nicht nachgeholt. Lehne ihn ab oder archiviere ihn.",
+    "This draft's slot has passed and is not caught up. Reject or archive it.",
+  ],
+  CONTENT_CLOSED: [
+    "Dieser Entwurf wurde bereits abgelehnt oder archiviert und kann nicht mehr veröffentlicht werden.",
+    "This draft was already rejected or archived and can no longer be published.",
+  ],
+  DRAFT_HAS_PUBLICATION: [
+    "Dieser Entwurf ist bereits eingeplant. Stoppe den geplanten Post unter „Anstehende Posts“.",
+    "This draft is already scheduled. Stop the planned post under “Upcoming posts”.",
+  ],
+  DRAFT_NOT_DECIDABLE: [
+    "Dieser Entwurf wartet nicht mehr auf eine Entscheidung.",
+    "This draft no longer waits for a decision.",
+  ],
+  VERSION_CONFLICT: [
+    "Der Entwurf wurde inzwischen geändert. Die Ansicht ist aktualisiert, bitte erneut versuchen.",
+    "The draft changed meanwhile. The view is refreshed, please try again.",
+  ],
+};
+
+/** A refusal's code as a sentence the owner understands (codes without a text stay as they are). */
+export function decisionErrorText(message: string, de: boolean) {
+  const text = DECISION_ERRORS[message];
+  return text ? text[de ? 0 : 1] : message;
+}
+
+/** Readable names for review findings an owner meets most; others show their code. */
+const PROBLEM_LABELS: Record<string, [string, string]> = {
+  BANNER_BRAND_MISMATCH: [
+    "Bildstil passt nicht zum Brandkit",
+    "Image does not match the brand kit",
+  ],
+  BANNER_IMAGE_MISSING: ["Banner fehlt", "Banner missing"],
+  CREATIVE_QA_FAILED: ["Bildprüfung fehlgeschlagen", "Image check failed"],
+};
+
+function StateBadge({ state, de }: { state: DraftState; de: boolean }) {
+  const label = DRAFT_STATE_LABELS[state];
+  return <Badge tone={label.tone}>{de ? label.de : label.en}</Badge>;
+}
+
+/** The optional reason dialog of a rejection. */
+function RejectDialog({
+  de,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  de: boolean;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <Modal
+      title={de ? "Entwurf ablehnen" : "Reject draft"}
+      description={
+        de
+          ? "Der Entwurf wird nicht veröffentlicht und kann später nicht erneut eingeplant werden. Er bleibt im Verlauf nachvollziehbar."
+          : "The draft will not be published and cannot be scheduled again later. It stays traceable in the history."
+      }
+      onClose={onCancel}
+    >
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="reject-reason">
+            {de ? "Grund (optional)" : "Reason (optional)"}
+          </FieldLabel>
+          <Textarea
+            id="reject-reason"
+            maxLength={500}
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder={
+              de
+                ? "z. B. Bild passt nicht zur Marke"
+                : "e.g. image does not match the brand"
+            }
+          />
+        </Field>
+      </FieldGroup>
+      <div className="form-actions approval-actions">
+        <Button variant="outline" onClick={onCancel} disabled={pending}>
+          {de ? "Abbrechen" : "Cancel"}
+        </Button>
+        <Button
+          variant="destructive"
+          disabled={pending}
+          onClick={() => onConfirm(reason.trim())}
+        >
+          {de ? "Ablehnen" : "Reject"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Confirmation before a draft is discarded or archived (nothing is deleted). */
+function ConfirmDialog({
+  title,
+  description,
+  confirm,
+  pending,
+  onCancel,
+  onConfirm,
+  de,
+}: {
+  title: string;
+  description: string;
+  confirm: string;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  de: boolean;
+}) {
+  return (
+    <Modal title={title} description={description} onClose={onCancel}>
+      <div className="form-actions approval-actions">
+        <Button variant="outline" onClick={onCancel} disabled={pending}>
+          {de ? "Abbrechen" : "Cancel"}
+        </Button>
+        <Button disabled={pending} onClick={onConfirm}>
+          {confirm}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+type DraftDialog =
+  | { kind: "reject"; item: AwaitingOwnerDraft }
+  | { kind: "discard" | "archive"; item: AwaitingOwnerDraft }
+  | { kind: "archive-history"; item: DraftHistoryItem };
+
 export function AwaitingOwnerDraftList({
   items,
+  history = [],
+  showArchived = false,
+  onShowArchived,
   projectId,
   thumbnails = false,
   de,
@@ -729,20 +920,37 @@ export function AwaitingOwnerDraftList({
   canRelease,
   pending,
   onRelease,
+  onReject = () => {},
+  onDiscard = () => {},
+  onArchive = () => {},
 }: {
   items: AwaitingOwnerDraft[];
+  /** The owner's recent decisions (released, rejected, archived). */
+  history?: DraftHistoryItem[];
+  /** Whether archived items are shown in the history. */
+  showArchived?: boolean;
+  onShowArchived?: (show: boolean) => void;
   /** Needed for the thumbnails of drafts with an image. */
   projectId: string;
   /** Thumbnails of drafts with an image (Creative Studio on; off, none, CS-D6). */
   thumbnails?: boolean;
   de: boolean;
   timezone: string;
+  /** Whether the viewer may decide (owner); others see the actions disabled with the reason. */
   canRelease: boolean;
   pending: boolean;
   onRelease: (draft: AwaitingOwnerDraft) => void;
+  onReject?: (draft: AwaitingOwnerDraft, reason: string) => void;
+  onDiscard?: (draft: AwaitingOwnerDraft) => void;
+  onArchive?: (draft: { id: string; version: number }) => void;
 }) {
-  if (!items.length) return null;
+  const [dialog, setDialog] = useState<DraftDialog | null>(null);
+  if (!items.length && !history.length) return null;
   const locale = de ? "de" : "en";
+  const close = () => setDialog(null);
+  const ownerNote = de
+    ? "Nur ein Owner kann freigeben, ablehnen, verwerfen oder archivieren."
+    : "Only an owner can release, reject, discard or archive.";
   return (
     <section className="panel approval-list">
       <div className="panel-head">
@@ -752,83 +960,213 @@ export function AwaitingOwnerDraftList({
           </h2>
           <p>
             {de
-              ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt ist, zum nächsten freien Termin desselben Tages. Ein vorbeigegangener Termin wird nicht verschoben."
-              : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken, at the next free slot of the same day. A slot that has passed is never moved."}
+              ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt ist, zum nächsten freien Termin desselben Tages. Ein abgelaufener Termin wird nicht nachgeholt."
+              : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken, at the next free slot of the same day. A slot that has passed is not caught up."}
           </p>
         </div>
       </div>
-      {items.map((item) => (
-        <article key={item.id} className="approval-item">
-          <p className="panel-note">
-            {when(item.slotAt, locale, timezone)} ·{" "}
-            {item.channelName ?? item.channel}
-            {item.assignmentName && ` · ${item.assignmentName}`}
-            {item.expired && (
-              <span>
-                {" "}
-                <Badge tone="neutral">{de ? "Abgelaufen" : "Expired"}</Badge>
-              </span>
+      {!canRelease && items.length > 0 && (
+        <p className="panel-note" role="note">
+          {ownerNote}
+        </p>
+      )}
+      {items.map((item) => {
+        const state: DraftState = item.state ?? "pending";
+        return (
+          <article key={item.id} className="approval-item">
+            <p className="panel-note approval-item-meta">
+              <StateBadge state={state} de={de} />{" "}
+              {when(item.slotAt, locale, timezone)} ·{" "}
+              {item.channelName ?? item.channel}
+              {item.assignmentName && ` · ${item.assignmentName}`}
+              {item.problems.map((code) => (
+                <span key={code} title={code}>
+                  {" "}
+                  <Badge tone="warning">
+                    {PROBLEM_LABELS[code]?.[de ? 0 : 1] ?? code}
+                  </Badge>
+                </span>
+              ))}
+            </p>
+            {thumbnails && item.assetId && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                className="approval-item-thumbnail"
+                src={`/api/projects/${projectId}/assets/${item.assetId}/content`}
+                alt={de ? "Bild des Entwurfs" : "Draft image"}
+                width={160}
+                loading="lazy"
+              />
             )}
-            {item.problems.map((code) => (
-              <span key={code}>
-                {" "}
-                <Badge tone="warning">{code}</Badge>
-              </span>
-            ))}
-          </p>
-          {thumbnails && item.assetId && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              className="approval-item-thumbnail"
-              src={`/api/projects/${projectId}/assets/${item.assetId}/content`}
-              alt={de ? "Bild des Entwurfs" : "Draft image"}
-              width={160}
-              loading="lazy"
-            />
-          )}
-          <pre className="approval-item-body">{item.excerpt}</pre>
-          {item.delivery === "postiz_draft" && (
+            <pre className="approval-item-body">{item.excerpt}</pre>
+            {item.delivery === "postiz_draft" && state === "pending" && (
+              <p className="panel-note">
+                {de
+                  ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
+                  : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
+              </p>
+            )}
             <p className="panel-note">
-              {de
-                ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
-                : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
+              {state === "expired"
+                ? de
+                  ? "Der Termin ist vorbei. Er wird nicht nachgeholt: Lehne den Entwurf ab oder archiviere ihn."
+                  : "The slot has passed and is not caught up: reject or archive the draft."
+                : item.agentApproved
+                  ? de
+                    ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
+                    : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
+                  : de
+                    ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
+                    : "The review agent left this draft to you."}
             </p>
-          )}
-          <p className="panel-note">
-            {item.agentApproved
-              ? de
-                ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
-                : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
-              : de
-                ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
-                : "The review agent left this draft to you."}
-          </p>
-          {item.expired ? (
-            <p className="panel-note">
-              {de
-                ? "Der Termin ist vorbei. Der Post wird nicht verschoben und kann nicht mehr freigegeben werden."
-                : "The slot has passed. The post is not moved and can no longer be released."}
-            </p>
-          ) : canRelease ? (
-            <div className="form-actions">
+            <div className="form-actions approval-actions">
+              {state === "pending" && (
+                <Button
+                  size="sm"
+                  disabled={pending || !canRelease}
+                  onClick={() => onRelease(item)}
+                >
+                  {de ? "Freigeben" : "Release"}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
-                disabled={pending}
-                onClick={() => onRelease(item)}
+                disabled={pending || !canRelease}
+                onClick={() => setDialog({ kind: "reject", item })}
               >
-                {de ? "Freigeben" : "Release"}
+                {de ? "Ablehnen" : "Reject"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending || !canRelease}
+                onClick={() =>
+                  setDialog({
+                    kind: state === "expired" ? "archive" : "discard",
+                    item,
+                  })
+                }
+              >
+                {state === "expired"
+                  ? de
+                    ? "Archivieren"
+                    : "Archive"
+                  : de
+                    ? "Verwerfen"
+                    : "Discard"}
               </Button>
             </div>
-          ) : (
-            <p className="panel-note">
-              {de
-                ? "Nur ein Owner kann freigeben."
-                : "Only an owner can release it."}
-            </p>
+          </article>
+        );
+      })}
+      {history.length > 0 || showArchived ? (
+        <details className="approval-history">
+          <summary>
+            {de ? "Verlauf" : "History"} ({history.length})
+          </summary>
+          {onShowArchived && (
+            <label className="approval-history-toggle">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(e) => onShowArchived(e.target.checked)}
+              />{" "}
+              {de ? "Archivierte anzeigen" : "Show archived"}
+            </label>
           )}
-        </article>
-      ))}
+          {history.map((entry) => (
+            <article
+              key={`${entry.state}:${entry.id}`}
+              className="approval-item"
+            >
+              <p className="panel-note approval-item-meta">
+                <StateBadge
+                  state={entry.hidden ? "archived" : entry.state}
+                  de={de}
+                />{" "}
+                {entry.slotAt
+                  ? `${when(entry.slotAt, locale, timezone)} · `
+                  : ""}
+                {entry.channelName ?? entry.channel}
+                {entry.assignmentName && ` · ${entry.assignmentName}`}
+              </p>
+              <pre className="approval-item-body">{entry.excerpt}</pre>
+              {entry.reason && (
+                <p className="panel-note">
+                  {de ? "Grund" : "Reason"}: {entry.reason}
+                </p>
+              )}
+              {entry.state !== "released" && !entry.hidden && (
+                <div className="form-actions approval-actions">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pending || !canRelease}
+                    onClick={() =>
+                      setDialog({ kind: "archive-history", item: entry })
+                    }
+                  >
+                    {de ? "Archivieren" : "Archive"}
+                  </Button>
+                </div>
+              )}
+            </article>
+          ))}
+        </details>
+      ) : null}
+      {dialog?.kind === "reject" && (
+        <RejectDialog
+          de={de}
+          pending={pending}
+          onCancel={close}
+          onConfirm={(reason) => {
+            onReject(dialog.item, reason);
+            close();
+          }}
+        />
+      )}
+      {(dialog?.kind === "discard" ||
+        dialog?.kind === "archive" ||
+        dialog?.kind === "archive-history") && (
+        <ConfirmDialog
+          de={de}
+          pending={pending}
+          title={
+            dialog.kind === "discard"
+              ? de
+                ? "Entwurf verwerfen?"
+                : "Discard draft?"
+              : de
+                ? "Aus der Übersicht archivieren?"
+                : "Archive from the overview?"
+          }
+          description={
+            dialog.kind === "discard"
+              ? de
+                ? "Der Entwurf wird aus dem aktiven Ablauf entfernt und nicht veröffentlicht. Er wird nicht gelöscht: Verlauf und Prüfprotokoll bleiben erhalten."
+                : "The draft leaves the active workflow and is not published. It is not deleted: history and audit records stay."
+              : de
+                ? "Die Anfrage verschwindet aus der aktiven Übersicht. Unter „Archivierte anzeigen“ bleibt sie nachvollziehbar; nichts wird gelöscht."
+                : "The request leaves the active overview. It stays traceable under “Show archived”; nothing is deleted."
+          }
+          confirm={
+            dialog.kind === "discard"
+              ? de
+                ? "Verwerfen"
+                : "Discard"
+              : de
+                ? "Archivieren"
+                : "Archive"
+          }
+          onCancel={close}
+          onConfirm={() => {
+            if (dialog.kind === "discard") onDiscard(dialog.item);
+            else onArchive(dialog.item);
+            close();
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -847,8 +1185,15 @@ export function UpcomingAssignmentPosts() {
   const posts = useResource<{ items: UpcomingPost[] }>(
     collectionPath(project.id, `assignment-posts?revision=${revision}`),
   );
-  const waiting = useResource<{ items: AwaitingOwnerDraft[] }>(
-    collectionPath(project.id, `assignment-drafts?revision=${revision}`),
+  const [showArchived, setShowArchived] = useState(false);
+  const waiting = useResource<{
+    items: AwaitingOwnerDraft[];
+    history?: DraftHistoryItem[];
+  }>(
+    collectionPath(
+      project.id,
+      `assignment-drafts?revision=${revision}${showArchived ? "&archived=true" : ""}`,
+    ),
   );
   const known = useKnownData(project.id, posts.data, posts.error);
   const knownDrafts = useKnownData(
@@ -860,6 +1205,27 @@ export function UpcomingAssignmentPosts() {
   const mutation = useMutation();
   const items = known?.items ?? [];
   const drafts = knownDrafts?.items ?? [];
+  const history = knownDrafts?.history ?? [];
+  // The owner's reject, discard or archive of one draft; nothing is deleted.
+  const decide = (
+    item: { id: string; version: number },
+    decision: "reject" | "discard" | "archive",
+    extra: { reason?: string } = {},
+  ) =>
+    mutation.run(async () => {
+      await refreshOnConflict(
+        () =>
+          post(
+            collectionPath(
+              project.id,
+              `assignment-drafts/${item.id}/${decision}`,
+            ),
+            { version: item.version, ...extra },
+          ),
+        refresh,
+      );
+      refresh();
+    });
   const error =
     (!agentsOff(posts.error) && posts.error) ||
     (!agentsOff(waiting.error) && waiting.error) ||
@@ -872,7 +1238,9 @@ export function UpcomingAssignmentPosts() {
   return (
     <>
       {error && <Alert kind="error">{error.message}</Alert>}
-      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {mutation.error && (
+        <Alert kind="error">{decisionErrorText(mutation.error, de)}</Alert>
+      )}
       {items.length > 0 && (
         <UpcomingPostList
           items={items}
@@ -902,12 +1270,20 @@ export function UpcomingAssignmentPosts() {
       )}
       <AwaitingOwnerDraftList
         items={drafts}
+        history={history}
+        showArchived={showArchived}
+        onShowArchived={setShowArchived}
         projectId={project.id}
         thumbnails={studio}
         de={de}
         timezone={project.timezone}
         canRelease={isOwner}
         pending={mutation.pending}
+        onReject={(item, reason) =>
+          decide(item, "reject", reason ? { reason } : {})
+        }
+        onDiscard={(item) => decide(item, "discard")}
+        onArchive={(item) => decide(item, "archive")}
         onRelease={(item) =>
           mutation.run(async () => {
             await refreshOnConflict(

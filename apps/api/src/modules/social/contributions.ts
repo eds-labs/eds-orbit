@@ -12,6 +12,7 @@ import { socialJobs } from "./dispatch/jobs.ts";
 import { socialDeliverySweep } from "./dispatch/sweep.ts";
 import { resumeBlocked } from "./dispatch/control.ts";
 import { socialRoutes } from "./routes.ts";
+import { socialMediaMcpCleanup } from "./media/mcp-cleanup.ts";
 import { socialInstructions, socialMcpActionTypes, socialTools } from "./tools.ts";
 
 /** What the social module plugs into the platform; later phases add to it. */
@@ -26,7 +27,8 @@ export const socialContributions: ModuleContributions = {
   // connections (accounts/providers.ts).
   connections: { providers: socialConnectionProviders },
   // Post figures every six hours (S8).
-  periodic: [socialOAuthStateCleanup, socialAccountHealth, socialDeliverySweep, socialMetrics],
+  // Stale MCP media upload sessions and idempotency receipts.
+  periodic: [socialOAuthStateCleanup, socialAccountHealth, socialDeliverySweep, socialMetrics, socialMediaMcpCleanup],
   // Owner approvals of a post's schedule or immediate publication (S4).
   // and the owner's approval of a write verification post (S5).
   actionTypes: { ...socialActionTypes, [VERIFY_WRITE_ACTION]: verifyWriteAction, ...socialMcpActionTypes },

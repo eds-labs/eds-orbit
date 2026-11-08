@@ -32,11 +32,9 @@ type Draft = Awaited<ReturnType<typeof draftsAwaitingOwner>>[number];
 
 /** The owner's drafts of assignments, one item each (the owner releases them). */
 function draftItems(drafts: Draft[]): AttentionItem[] {
-  // An expired draft can no longer be released (D-2): no item, and the
-  // content review leaves it out too.
-  return drafts
-    .filter((draft) => !draft.expired)
-    .map((draft) => ({
+  // `drafts` holds pending drafts only: an expired one can no longer be
+  // released (D-2), so it has no item and the content review leaves it out.
+  return drafts.map((draft) => ({
       id: `marketing:draft:${draft.id}`,
       moduleId: "marketing",
       kind: "marketing_draft_release",
@@ -93,9 +91,7 @@ async function contentReviewItems(
     _count: { _all: true },
     _min: { createdAt: true },
   });
-  const drafted = drafts.filter(
-    (draft) => !draft.expired && !gone.has(draft.id),
-  ).length;
+  const drafted = drafts.filter((draft) => !gone.has(draft.id)).length;
   const count = waiting._count._all - drafted;
   if (count <= 0) return [];
   return [

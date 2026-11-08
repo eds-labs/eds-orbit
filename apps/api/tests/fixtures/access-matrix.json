@@ -2943,6 +2943,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/archive-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/archive-mission": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3078,6 +3086,14 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/actions/discard-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/editorial-propose-brief": {
     "anonymous": "unauthenticated",
@@ -3364,6 +3380,14 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/reject-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
@@ -3702,6 +3726,14 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/assignment-drafts/{id}/{decision}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/assignment-runs/{runId}/retry": {
     "anonymous": "unauthenticated",
@@ -5334,5 +5366,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
+  },
+  "PUT /api/public/social/media-uploads/{token}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   }
 }

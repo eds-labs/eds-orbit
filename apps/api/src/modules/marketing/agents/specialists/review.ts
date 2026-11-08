@@ -46,6 +46,7 @@ import {
 } from "../draft-text.ts";
 import {
   BANNER_BRAND_OVERFLOW,
+  BANNER_BRAND_MISMATCH,
   BANNER_IMAGE_MISSING,
   BANNER_LINK_NOT_OFFICIAL,
   bannerLinkProblem,
@@ -82,7 +83,12 @@ import { resolveBrandKit } from "../../creative/brand-kit.ts";
 import { parsedCreativeCopy } from "../../creative/copy-checks.ts";
 import { creativeStudioEnabled } from "../../creative/flag.ts";
 import { visionReviewCreative } from "../../creative/vision-review.ts";
-import { attachOwnBanner, bannerState, mediaRefusal } from "./visual.ts";
+import {
+  attachOwnBanner,
+  bannerBrandMismatch,
+  bannerState,
+  mediaRefusal,
+} from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
 import {
@@ -155,6 +161,8 @@ const LEFT_FOR_OWNER = new Set([
   BANNER_IMAGE_MISSING,
   BANNER_RENDER_FAILED,
   BANNER_MEDIA_REFUSED,
+  // The banner's background does not keep the brand kit's tone: the owner decides.
+  BANNER_BRAND_MISMATCH,
   // The profile's product name or link domain does not fit the banner (R78): not the draft's fault.
   BANNER_BRAND_OVERFLOW,
   // The channel needs an image the draft does not have (no banner or creative asked for): the owner decides.
@@ -460,6 +468,8 @@ async function bannerProblems(
   // Copy with a problem gets no banner composed: the copy is the reason, not the image.
   if (!problems.length) {
     const state = await bannerState(tx, scope, v);
+    if (state === "own" && (await bannerBrandMismatch(tx, scope, v)))
+      problems.push(BANNER_BRAND_MISMATCH);
     if (state === "render_failed") problems.push(BANNER_RENDER_FAILED);
     else if (state === "media_refused") problems.push(BANNER_MEDIA_REFUSED);
     else if (state === "missing") problems.push(BANNER_IMAGE_MISSING);

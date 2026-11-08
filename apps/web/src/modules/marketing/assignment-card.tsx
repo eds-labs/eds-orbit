@@ -200,8 +200,8 @@ export function bannerText(
         ? "Kein Banner"
         : "No banner";
   const base = de
-    ? "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund"
-    : "Brand banner 16:9 per slot: logo, headline, subline, button and domain over a generated background";
+    ? "Markenbanner 16:9 je Termin in den Farben und im Bildstil des Brandkits: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund"
+    : "Brand banner 16:9 per slot in the brand kit's colours and imagery: logo, headline, subline, button and domain over a generated background";
   return banner.style
     ? `${base} · ${de ? "Stil" : "Style"}: ${banner.style}`
     : base;

@@ -191,7 +191,7 @@ describe("AssignmentCard", () => {
     });
     expect(branded).toContain("<dt>Banner</dt>");
     expect(branded).toContain(
-      "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund · Stil: Mehr Glühen",
+      "Markenbanner 16:9 je Termin in den Farben und im Bildstil des Brandkits: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund · Stil: Mehr Glühen",
     );
     // Before R78: a free image per run, or none.
     expect(card({ image: true })).toContain("Kein Banner, freies Bild je Lauf");

@@ -66,6 +66,10 @@ import {
 import { resumePausedPublications } from "./pipeline/paused-posts.ts";
 import { archiveMission } from "./pipeline/mission-archive.ts";
 import {
+  decideDraft,
+  draftDecisionInput,
+} from "./pipeline/content-decisions.ts";
+import {
   archiveOldDrafts,
   restoreDraftCleanup,
 } from "./pipeline/draft-cleanup.ts";
@@ -350,6 +354,25 @@ export const marketingActions: Record<string, ActionHandler> = {
   ),
   "archive-mission": sharedTransaction((tx, { scope, input }) =>
     archiveMission(tx, scope, input),
+  ),
+  // The owner's decisions on one draft (content-decisions.ts), also outside assignments.
+  ...Object.fromEntries(
+    (["reject", "discard", "archive"] as const).map((decision) => [
+      `${decision}-content`,
+      sharedTransaction((tx, { scope, input }) => {
+        const { contentId, ...rest } = z
+          .object({ contentId: schemas.id })
+          .passthrough()
+          .parse(input);
+        return decideDraft(
+          tx,
+          scope,
+          contentId,
+          decision,
+          draftDecisionInput.parse(rest),
+        );
+      }),
+    ]),
   ),
   "archive-old-drafts": sharedTransaction((tx, { scope, input }) =>
     archiveOldDrafts(tx, scope, input),

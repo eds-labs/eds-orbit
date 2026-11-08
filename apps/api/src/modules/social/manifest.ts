@@ -13,7 +13,20 @@ export const socialModule: ServerModule = {
   displayName: { en: "Social", de: "Social Media" },
   dependsOn: [],
   defaultEnabled: false,
-  entityKinds: [],
+  // MCP media idempotency receipts and upload sessions (media/mcp-tools.ts,
+  // media/upload-sessions.ts): ids, hashes and state only, no image bytes.
+  entityKinds: [
+    {
+      kind: "social_media_receipt",
+      description: "Idempotency receipts of MCP media imports and uploads",
+      exported: false,
+    },
+    {
+      kind: "social_media_upload",
+      description: "One-time MCP media upload sessions",
+      exported: false,
+    },
+  ],
   tables: [
     "SocialAccount",
     "SocialPost",

@@ -36,8 +36,12 @@ const MERGE_BASE = {
     "169b0d2d29451342c577fdb295a8a7a5c32f2e5445055c29662dacca410f907d",
   strategySchema:
     "5f4c6960138bec2fdf93ea547899c5220ffaeda59fe378f314814a681b73d71a",
+  // Changed on purpose 2026-11-07: the banner field's description no longer
+  // names one brand's look as the default (brand banners from the project's
+  // brand kit, docs/plans/marketing-brand-banners-and-draft-decisions.md),
+  // and the daily social automation added `retry` and `historyDays`.
   assignmentTools:
-    "8c0f9a93fc6b9a113607395a0932c56ee64621fb6f642dc1f5cad06479c00bfd",
+    "ce8cce496a6806e3b909e5dbfa8a329f21b7f44e401cdc2763ddd806c91d03c9",
   configurationUpdate:
     "0e3a3f31320594924d8a0e4e9011251493b76815f6329ee60aada20cef2b946a",
 };

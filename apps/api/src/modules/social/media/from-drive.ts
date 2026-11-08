@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { driveContent } from "../../../platform/connections/google-drive.ts";
 import { DomainError } from "../../../shared.ts";
-import { uploadMedia, type MediaView } from "./library.ts";
+import { ingestMedia, type MediaView } from "./library.ts";
 
 // Images from the project's Google Drive into the Social media library
 // (Drive page design 2026-11-05 §4.4). The platform connection checks the
@@ -20,6 +20,15 @@ const input = z
   .strict();
 
 export async function importDriveMedia(scope: Scope, raw: unknown): Promise<MediaView> {
+  return (await importDriveMediaWith(scope, raw)).media;
+}
+
+/** `importDriveMedia` with the library's options (MCP: reuse identical images, alt text). */
+export async function importDriveMediaWith(
+  scope: Scope,
+  raw: unknown,
+  options: { reuseIdentical?: boolean; altText?: string | null } = {},
+): Promise<{ media: MediaView; duplicate: boolean }> {
   const { fileId, name } = input.parse(raw);
   // One Drive read: the type is checked on the metadata, before the download.
   const content = await driveContent(scope, fileId, undefined, {
@@ -28,5 +37,9 @@ export async function importDriveMedia(scope: Scope, raw: unknown): Promise<Medi
       if (!IMAGE_TYPES.has(meta.mimeType)) throw new DomainError("SOCIAL_MEDIA_TYPE", 415);
     },
   });
-  return uploadMedia(scope, { bytes: content.bytes, mime: content.mime, name: name ?? content.name });
+  return ingestMedia(
+    scope,
+    { bytes: content.bytes, mime: content.mime, name: name ?? content.name },
+    { ...options, source: "drive" },
+  );
 }
