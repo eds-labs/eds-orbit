@@ -206,7 +206,11 @@ export function checkForbiddenImportPrefixes(files, config) {
   const found = [];
   for (const prefix of config.forbiddenImportPrefixes ?? []) {
     const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`(["'\`])(${escaped}(?:/[^"'\`]*)?)\\1`, "g");
+    // A prefix ending in "-" or "/" is a name family ("n8n-", "@n8n/"): any
+    // specifier starting with it. Otherwise it names one package or path and
+    // matches only itself and its sub-paths, not look-alikes ("...cloudy").
+    const tail = /[-/]$/.test(prefix) ? "[^\"'`]*" : "(?:/[^\"'`]*)?";
+    const pattern = new RegExp(`(["'\`])(${escaped}${tail})\\1`, "g");
     for (const [file, source] of Object.entries(files))
       for (const match of source.matchAll(pattern))
         found.push(`forbidden-import: ${file} -> "${match[2]}"`);
