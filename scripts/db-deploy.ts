@@ -252,6 +252,10 @@ try {
     "WebmailMailboxGrant",
     "WebmailSession",
     "WebmailConversion",
+    // Ads module (ADR 0025); AdAccount is restricted below.
+    "AdOAuthState",
+    "AdProviderThrottle",
+    "AdSyncState",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
@@ -311,6 +315,9 @@ try {
   await migrator.query(
     'GRANT SELECT,INSERT,DELETE ON "SocialDeliveryAttempt","SocialMetricSnapshot" TO orbit_app',
   );
+  // ADR 0025: an ad account is unlinked by status and deleted only with its
+  // project, so later spend history keeps its account.
+  await migrator.query('GRANT SELECT,INSERT,UPDATE ON "AdAccount" TO orbit_app');
   // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(

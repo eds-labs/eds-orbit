@@ -243,6 +243,8 @@ const baseConfigSchema = z.object({
           .every((p) => ["x", "facebook", "instagram", "telegram"].includes(p)),
       "ORBIT_SOCIAL_PLATFORMS lists x, facebook, instagram and telegram only",
     ),
+  // Ads module (ADR 0025): off until its rollout is approved. Even when "true", it works only in projects whose owner enabled the module.
+  ORBIT_ADS: z.enum(["false", "true"]).default("false"),
   // Universal customer context (ADR 0011): live, read-only account facts
   // from external products for Support. Off until a provider passed its
   // integration test; each inbox must still be bound by its owner.

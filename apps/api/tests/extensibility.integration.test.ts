@@ -52,9 +52,10 @@ registerModules();
  */
 describe("a third module through the contracts alone", () => {
   it("registers next to the static modules, never in production", () => {
-    // Dependency order, ties alphabetical: finance, issues, social, support,
+    // Dependency order, ties alphabetical: ads, finance, issues, social, support,
     // tasks and work need nothing, marketing needs knowledge.
     expect(registeredRegistry().order).toEqual([
+      "ads",
       "finance",
       "issues",
       "knowledge",
@@ -90,6 +91,7 @@ describe("a third module through the contracts alone", () => {
       "issues",
       "social",
       "webmail",
+      "ads",
     ]);
     expect(moduleRegistry().modules.map((m) => m.id)).toContain("tasks");
   });

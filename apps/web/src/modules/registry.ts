@@ -45,6 +45,7 @@ import { workWeb } from "./work/manifest";
 import { issuesWeb } from "./issues/manifest";
 import { socialWeb } from "./social/manifest";
 import { webmailWeb } from "./webmail/manifest";
+import { adsWeb } from "./ads/manifest";
 import { DataDeletionView } from "./social/data-deletion";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
@@ -364,5 +365,6 @@ export const webRegistry: WebRegistry = {
     issuesWeb,
     socialWeb,
     webmailWeb,
+    adsWeb,
   ],
 };

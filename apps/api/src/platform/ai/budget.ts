@@ -6,7 +6,11 @@ import {
   platformSpendLimits,
   type SpendLimits,
 } from "./spend-mandate.ts";
-import { assertProviderBudget } from "./provider-budget.ts";
+import {
+  assertProviderBudget,
+  providerBudgetStops,
+  PROVIDER_BUDGET_STOP,
+} from "./provider-budget.ts";
 import { chargedGrant, reserveOnGrant, settleOnGrant } from "./central-ai.ts";
 import { runtimeProviderBudgets } from "./openai-configuration.ts";
 import { providerOfModel } from "../../../../../packages/ai/src/index.ts";
@@ -26,6 +30,62 @@ import { proactiveEnabled } from "../proactive/preferences.ts";
 export function budgetMonthStart(at: Date) {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
 }
+/** What the project's reservations count against its month and its day. */
+async function projectSpend(tx: DbTx, scope: Scope, now: Date) {
+  const month = budgetMonthStart(now);
+  const day = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const rows = await tx.budgetReservation.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      createdAt: { gte: month },
+      state: { not: "released" },
+    },
+  });
+  const cost = (x: (typeof rows)[number]) =>
+    Number(x.state === "settled" ? x.settledMicros : x.amountMicros);
+  const monthly = rows.reduce((n, x) => n + cost(x), 0);
+  const daily = rows
+    .filter((x) => x.createdAt >= day)
+    .reduce((n, x) => n + cost(x), 0);
+  return { month, monthly, daily };
+}
+
+/**
+ * Why `reserve` would refuse `amount` under these limits now, or null. Reads
+ * only, so a page can say so before a run starts; `reserve` stays the check
+ * that counts and also applies grant and organization budgets.
+ */
+export async function reservationRefusal(
+  tx: DbTx,
+  scope: Scope,
+  amount: number,
+  limits: SpendLimits,
+  model: string,
+  now = new Date(),
+) {
+  if (now < new Date(limits.startAt) || now >= new Date(limits.endAt))
+    return "PAID_MANDATE_EXPIRED";
+  if (
+    !limits.approvedPaidTests ||
+    !limits.dailyBudgetMicros ||
+    !limits.monthlyBudgetMicros ||
+    amount > limits.perRunBudgetMicros
+  )
+    return "BUDGET_NOT_APPROVED";
+  const { monthly, daily } = await projectSpend(tx, scope, now);
+  if (
+    monthly + amount > limits.monthlyBudgetMicros ||
+    daily + amount > limits.dailyBudgetMicros
+  )
+    return "BUDGET_EXCEEDED";
+  return (await providerBudgetStops(tx, scope, model, amount, now))
+    ? PROVIDER_BUDGET_STOP
+    : null;
+}
+
 export async function reserve(
   tx: DbTx,
   scope: Scope,
@@ -69,24 +129,7 @@ export async function reserve(
     where: { key: qualified, projectId: scope.projectId },
   });
   if (existing) throw new DomainError("RESERVATION_ALREADY_USED", 409);
-  const month = budgetMonthStart(now);
-  const day = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
-  const rows = await tx.budgetReservation.findMany({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      createdAt: { gte: month },
-      state: { not: "released" },
-    },
-  });
-  const cost = (x: (typeof rows)[number]) =>
-    Number(x.state === "settled" ? x.settledMicros : x.amountMicros);
-  const monthly = rows.reduce((n, x) => n + cost(x), 0);
-  const daily = rows
-    .filter((x) => x.createdAt >= day)
-    .reduce((n, x) => n + cost(x), 0);
+  const { month, monthly, daily } = await projectSpend(tx, scope, now);
   if (
     monthly + amount > policy.monthlyBudgetMicros ||
     daily + amount > policy.dailyBudgetMicros

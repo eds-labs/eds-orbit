@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const create = vi.hoisted(() => vi.fn());
+const clients = vi.hoisted(() => [] as Array<{ timeout?: number }>);
 vi.mock("openai", () => ({
   default: class {
     responses = { create };
+    constructor(options: { timeout?: number }) {
+      clients.push(options);
+    }
   },
 }));
 import {
@@ -12,6 +16,7 @@ import {
   DRAFT_INSTRUCTIONS,
   GenerationOutputError,
   generate,
+  respond,
   streamChat,
   withoutBannerClaims,
 } from "./index.ts";
@@ -44,7 +49,21 @@ const answer = {
 
 describe("route-driven requests", () => {
   beforeEach(() => {
+    clients.length = 0;
     create.mockReset().mockResolvedValue(answer);
+  });
+  it("respond keeps the default timeout unless the caller names a longer one", async () => {
+    const params = {
+      route: { model: "m", maxOutputTokens: 12000 },
+      instructions: "i",
+      input: [],
+      tools: [],
+      reservationId: "r",
+      runtime,
+    };
+    await respond(params);
+    await respond({ ...params, timeoutMs: 240000 });
+    expect(clients.map((c) => c.timeout)).toEqual([60000, 240000]);
   });
   it("generate sends the route model, ceiling and reasoning effort", async () => {
     await generate({

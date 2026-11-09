@@ -1,5 +1,5 @@
 {
-  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added. `forbiddenLiterals` lists string literals a zone must not contain: the knowledge engine names no entity kind of another module and leaves dependent records to registered impact handlers (plans/orbit-modularization/05 §4, WP3.1). `forbiddenImportPrefixes` lists import specifiers no file may name: the social module uses only direct platform adapters, never the SDK's managed providers (ADR 0020).",
+  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added. `forbiddenLiterals` lists string literals a zone must not contain: the knowledge engine names no entity kind of another module and leaves dependent records to registered impact handlers (plans/orbit-modularization/05 §4, WP3.1). `forbiddenImportPrefixes` lists import specifiers no file may name: the social module uses only direct platform adapters, never the SDK's managed providers (ADR 0020); the ads module (zones module:ads and web-module:ads) talks to Meta and Google Ads only through direct HTTP adapters, never an ads SDK or an automation intermediary such as n8n (ADR 0025).",
   "roots": [
     "apps/api/src",
     "apps/worker/src",
@@ -63,6 +63,9 @@
     "module:webmail": [
       "apps/api/src/modules/webmail/"
     ],
+    "module:ads": [
+      "apps/api/src/modules/ads/"
+    ],
     "worker": [
       "apps/worker/src/"
     ],
@@ -95,6 +98,9 @@
     "web-module:webmail": [
       "apps/web/src/modules/webmail/"
     ],
+    "web-module:ads": [
+      "apps/web/src/modules/ads/"
+    ],
     "package:ai": [
       "packages/ai/"
     ],
@@ -121,6 +127,9 @@
     ],
     "package:module-contracts": [
       "packages/module-contracts/"
+    ],
+    "package:money": [
+      "packages/money/"
     ]
   },
   "dependencies": {
@@ -137,7 +146,12 @@
     "package:knowledge"
   ],
   "forbiddenImportPrefixes": [
-    "@opencoredev/social-sdk/cloud"
+    "@opencoredev/social-sdk/cloud",
+    "facebook-nodejs-business-sdk",
+    "google-ads-api",
+    "google-ads-node",
+    "n8n-",
+    "@n8n/"
   ],
   "forbiddenLiterals": {
     "package:knowledge": [

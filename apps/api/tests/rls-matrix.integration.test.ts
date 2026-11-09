@@ -115,6 +115,11 @@ const PROJECT_TABLES = [
   "WebmailMailbox",
   "WebmailMailboxGrant",
   "WebmailSession",
+  // Ads module (ADR 0025).
+  "AdAccount",
+  "AdOAuthState",
+  "AdProviderThrottle",
+  "AdSyncState",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -209,6 +214,9 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     SocialPublication: [true, true, true, false],
     SocialDeliveryAttempt: [true, true, false, true],
     SocialMetricSnapshot: [true, true, false, true],
+    // ADR 0025: an ad account is unlinked by status and deleted only with
+    // its project, so later spend history keeps its account.
+    AdAccount: [true, true, true, false],
     // Finance records: posted entries, their documents and payments cannot
     // be deleted (spec §4); project deletion still cascades.
     ...Object.fromEntries(
@@ -641,6 +649,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       await seedIssues(tx, s, fileId);
       await seedSocial(tx, s, fileId);
       await seedWebmail(tx, s, mailbox.id);
+      await seedAds(tx, s);
       return inbox.id;
     });
   }
@@ -810,6 +819,41 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     });
     await tx.issueDelivery.create({
       data: { ...row(), issueId: first.id, kind: "pr_merged", source: "manual", observedAt: new Date(), recordedBy: s.userId },
+    });
+  }
+
+  // One row in every ads table (ADR 0025).
+  async function seedAds(tx: DbTx, s: Scope) {
+    const scope = { workspaceId: s.workspaceId, projectId: s.projectId };
+    const account = await tx.adAccount.create({
+      data: {
+        id: randomUUID(),
+        ...scope,
+        provider: "meta",
+        externalId: randomUUID(),
+        name: "Synthetic RLS ad account",
+        currency: "EUR",
+        timezone: "UTC",
+        connectionId: randomUUID(),
+        createdBy: s.userId,
+      },
+    });
+    await tx.adSyncState.create({
+      data: { ...scope, accountId: account.id, stream: "structure", nextRunAt: new Date() },
+    });
+    await tx.adProviderThrottle.create({
+      data: { ...scope, scope: "meta", bucket: "rls_bucket", windowStart: new Date() },
+    });
+    await tx.adOAuthState.create({
+      data: {
+        id: randomUUID(),
+        ...scope,
+        stateHash: randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", ""),
+        provider: "meta",
+        appConnectionId: randomUUID(),
+        userId: s.userId,
+        expiresAt: new Date(Date.now() + 600_000),
+      },
     });
   }
 
@@ -1355,6 +1399,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
       ],
+      [
+        "AdProviderThrottle",
+        `INSERT INTO "AdProviderThrottle" ("workspaceId", "projectId", scope, bucket, "windowStart") VALUES ($1::uuid, $2::uuid, 'rls', 'rls_bucket', now())`,
+        [b.workspaceId, b.projectId],
+      ],
     ];
     for (const [table, sql, params] of statements) {
       const result = await attempt(a, sql, ...params);
@@ -1475,6 +1524,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         t.startsWith("Work") ||
         t.startsWith("Issue") ||
         t.startsWith("Social") ||
+        /^Ad[A-Z]/.test(t) ||
         t === "AgentWorkOrder",
     ))
       expect({ table, rows: await visible(doomed, table, doomed) }).toEqual({

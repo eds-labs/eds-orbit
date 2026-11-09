@@ -1,8 +1,56 @@
 # Implementation status
 
+## Knowledge: whole sites and a short add flow (2026-11-09, delivered to `main`, not live-accepted)
+
+Spec [2026-11-08-knowledge-sites-and-add-flow-design.md](superpowers/specs/2026-11-08-knowledge-sites-and-add-flow-design.md); behaviour and first-read steps [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Risk high: a background job reads outside sites and changes content automatically. No schema change, no migration, no schema hash, no new dependency. Existing flag `ORBIT_KNOWLEDGE_WORKSPACE`.
+
+- **State:** delivered to `main` on 2026-11-09 together with Knowledge package 1 (`04d5992b`, recoverable refresh, remove and edit, deep links). A push to `main` deploys; no migration, no schema hash, no flag change. Not live-accepted: the first GitBook read in production has not happened.
+- **Built:**
+  - Reading sites: same-origin `robots.txt` redirects, XML only through `fetchDiscoveryDocument`, sitemap discovery (one index level, 200 pages), Markdown with HTML fallback.
+  - Durable runs in batches of 20 (`knowledge_site_runs`, queue class `knowledge_site_sync`), weekly update (`syncEveryHours` 168, `maxAgeHours` 336), `retireDocument`, the D-6 removal guard and the attention item `knowledge_site_review`.
+  - Six owner-only actions: `knowledge-site-discover`, `knowledge-site-start`, `knowledge-site-refresh`, `knowledge-site-settings`, `knowledge-content-accept`, `knowledge-analysis-preflight`.
+  - Own task class `knowledge_analysis` (12,000 output tokens, up to 13 statements). The start button is the consent (`confirmModelUse`).
+  - New add flow (what, Content, Use, Result), GitHub App setup on `knowledge/github`, and site runs and analysis outcomes on Sources.
+- **Rulings that shape behaviour:**
+  - A run stopped by a paused source or changed generation ends `failed` with `SOURCE_INACTIVE` (R13).
+  - D-6 counts only pages missing from discovery; when it trips nothing is retired, owner exclusions included (R14).
+  - An `initial` run retires only owner exclusions (R15).
+  - Site sources use authority `official` (R16).
+  - Only AI-configuration blockers link to Settings → AI; `MODEL_USE_FORBIDDEN` links to Sources (R17).
+  - Rights stay on the Use step for all ways; for statements they are review defaults on the draft.
+- **Verification (local, this worktree's own test database):**
+  - `pnpm lint` passes (source guard; import boundaries 0 known, none new), and so does `pnpm typecheck` (API and web).
+  - Whole vitest suite on the branch before integrating `main`: 557 files passed, 1 skipped; 5,988 tests passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
+  - `pnpm build` passes.
+  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. The worker runs for real; `knowledge-site-discover` and `knowledge-site-start` are stubbed at the network.
+  - Design detector on `apps/web/src/modules/knowledge`: no findings.
+  - Read-only sweep of the real FamilyPlan GitBook through `discoverSite` and `readSitePage`: 74 of 74 pages clean (37 de, 37 en).
+  - Not covered: a run on the real worker against a real site (site runs are covered by integration tests with stubbed fetches), a paid model call, a real Support test question. Compose and MCP were not changed, so their conformance tests were not run.
+- **Production:** no flag changed. After deployment the owner starts the first GitBook read with "Read in content" on the existing source and checks page count, language split and a Support test question. Weekly updates can be switched off per source, and pausing a source stops a run at once. Rollback needs the pre-revert step in [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md): remove `knowledge_analysis` from stored task routes first. Documents already read stay searchable until `maxAgeHours` passes, then the existing freshness warning appears.
+
 ## Marketing posts in the native Social calendar (2026-11-09, branch `claude/marketing-social-handoff`, not merged, not deployed)
 
 The first FamilyPlan run (2026-11-09, run `a12f94ef`) did not fail: both released posts were Marketing publications waiting for their 18:30 Berlin job (`intent_created`, `test: false`, no blockers), and Social only received a post when that job ran, so its calendar stayed empty. A released post is now announced in Social within seconds (`docs/SOCIAL.md`, "Announcement"), the slot's hand-off releases that same post and keeps its time, and a publication nobody claimed in time is blocked with `SLOT_EXPIRED`. A temporary error or a worker restart gives the claim back instead of failing or leaving an unknown outcome. `marketing_campaigns` and `marketing_content` report `delivery.state`, because `completed` and `reviewed` say nothing about delivery. ADR 0020 S9 is amended. No migration.
+
+## Ads module A2: provider seam, Meta transport and money (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; on `main` since 2026-11-09, no flag)
+
+Step A2 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a2-provider-seam.md)), stacked on A1; commits `078ca199` to `2e6864ef` (and this documentation commit). Docs: [ADS.md](ADS.md), "Meta transport".
+
+- **Built:** `packages/money` (decimals-based exact arithmetic, `MoneyError`, exact helpers; `apps/api/src/modules/finance/money.ts` is a thin wrapper, Finance behaviour, currency set and error codes unchanged); `apps/api/src/modules/ads/providers/` (provider types, registry, Meta client pinned to `v27.0` with `appsecret_proof` on every call, token only in the `authorization` header, cursor-only paging, ten-row error classification, usage buckets, Meta currency offsets with the `spend_cap` read-minor/write-major asymmetry, test hook `setMetaAdsFetchForTests`); in-memory fake Graph `apps/api/tests/support/fake-meta-graph.ts`.
+- **State:** pushed to `main` on 2026-11-09; no schema change of its own, no flag; no Meta call from code or tests.
+- **Open:** Task 6 (contract tests on sanitized A0 recordings) waits for the A0 spike's groups G2 and G4; A1 Task 0 (ad-blocker test) is open and gates enabling `ORBIT_ADS`; v27.0 was re-checked on 2026-11-08 (changelog lists it as newest).
+- **Deviations:** in-memory fake instead of a server (`boundedFetch` refuses loopback); Meta currency table in the adapter; A2 stacked on A1 on one branch.
+- **Rollback:** revert the commits; nothing persists. The Finance wrapper keeps its public signatures.
+
+## Ads module A1: module skeleton (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; on `main` since 2026-11-09, flag off)
+
+Step A1 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)). Docs: [ADS.md](ADS.md).
+
+- **Built:** installation switch `ORBIT_ADS` (default `false`; config, both compose files, `.env.example`, compose checks); `apps/api/src/modules/ads/` (manifest, eight permissions, gate with 404 `ADS_DISABLED`, settings, `GET /api/projects/:projectId/ads/status`); migration `202611080001_ads_core` (`AdAccount`, `AdOAuthState`, `AdSyncState`, `AdProviderThrottle`, forced RLS, no DELETE grant on `AdAccount`); boundary zones `module:ads` and `web-module:ads` and a ban on ads SDK and n8n imports; opt-in web module with six placeholder views and an ad-blocker hygiene test; tests in `ads-module`, `ads-schema`, `ads-routes`, RLS and access matrices, boundaries and web `ads.test.tsx`.
+- **State:** pushed to `main` on 2026-11-09 on Mario's go, with the schema hash below set in Coolify on his instruction; the deployment applies the migration; `ORBIT_ADS` stays off, no provider call.
+- **Schema hash for Mario's approval (production, from `sh scripts/check-pve-schema.sh --print-hash`):** `e3cb3759169fde49c7aaf6b859b7b9f0fb80e1b0164cb7e3e2eabd32f03f5dd0`. It must be approved in Coolify before any push to `main` that contains the migration.
+- **Open:** Task 0 (A-D1 ad-blocker test of `ads` in uBlock Origin, AdGuard and Brave in Mario's browsers) has no valid result yet: the checks on 2026-11-08 and 2026-11-09 ran without an active blocker (the BAIT probe loaded) and proved nothing. Mario decided on 2026-11-09 that the test gates enabling `ORBIT_ADS`, not the push to `main`. The implementation uses `ads` by a recorded ruling; the plan's rename table applies if the test says `advertising`. Next: A2 (provider seam; implemented, see above).
+- **Rollback:** revert the branch; after a deployment the tables are inert and empty while the flag is off.
 
 ## Daily social automation on assignments (2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`, not merged, not deployed)
 
@@ -30,7 +78,7 @@ Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07
 
 ## Ads module: plan and decisions (2026-11-07; documentation only, nothing implemented)
 
-Plan: [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (programme for a standalone `ads` module: Meta Ads, then ChatGPT Ads, then Google Ads; decisions A-D1–A-D19 accepted as recommended by Mario on 2026-11-07). ADR: [adr/0025-ads-module.md](adr/0025-ads-module.md) (proposed). [ADR 0008](adr/0008-action-approvals.md) gains the addendum of 2026-11-07 (F1/F2 may be proposed over MCP, chat and agents; owner decides in the web UI with recent authentication) and `plans/orbit-modularization/09-mcp-gateway.md` §6.1 follows it; both take effect with the ads steps A7 and A10. Next: step A0's spike (own Meta app in development mode, no spend; needs Mario), then A1. No code, migration, flag, developer app or provider call exists.
+Plan: [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (programme for a standalone `ads` module: Meta Ads, then ChatGPT Ads, then Google Ads; decisions A-D1–A-D19 accepted as recommended by Mario on 2026-11-07). ADR: [adr/0025-ads-module.md](adr/0025-ads-module.md) (proposed). [ADR 0008](adr/0008-action-approvals.md) gains the addendum of 2026-11-07 (F1/F2 may be proposed over MCP, chat and agents; owner decides in the web UI with recent authentication) and `plans/orbit-modularization/09-mcp-gateway.md` §6.1 follows it; both take effect with the ads steps A7 and A10. Next: step A0's spike ([guide](superpowers/plans/2026-11-07-ads-a0-spike.md): own Meta app in development mode, no spend; needs Mario), then A1. On 2026-11-08 Mario decided that the app belongs to a new Meta business portfolio "EDS Labs" with its own Page; an older Meta test app is not used. Step plans for A1 ([module skeleton](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)) and A2 ([provider seam](superpowers/plans/2026-11-08-ads-a2-provider-seam.md)) written 2026-11-08. No code, migration, flag, developer app or provider call exists.
 
 ## Social media over MCP: library list, import and upload (2026-11-07, live since 19:44 UTC via `a4b25ced`)
 

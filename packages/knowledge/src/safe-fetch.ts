@@ -7,7 +7,16 @@ export type FetchPolicy = {
   allowedPaths: string[];
   maxBytes?: number;
   timeoutMs?: number;
+  /** Discovery documents (sitemaps, feeds) may additionally be XML. */
+  discovery?: true;
 };
+/** A 3xx answer; carries the raw `location` header so callers can decide on a bounded follow. */
+export class RedirectError extends KnowledgeError {
+  constructor(public readonly location: string | null) {
+    super("REDIRECT_NOT_ALLOWED");
+  }
+}
+export type FetchFn = typeof fetchPublicDocument;
 export function isPublicAddress(input: string): boolean {
   const value = input.replace(/^\[|\]$/g, "").toLowerCase();
   if (isIP(value) === 4) {
@@ -164,7 +173,8 @@ export async function fetchPublicDocument(input: string, policy: FetchPolicy) {
         headers: {
           "user-agent": "EDS-Orbit-Knowledge/1.0",
           accept:
-            "text/html,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/html,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" +
+            (policy.discovery ? ",application/xml,text/xml" : ""),
           "accept-encoding": "identity",
         },
         lookup: (_hostname, _options, callback) =>
@@ -176,16 +186,22 @@ export async function fetchPublicDocument(input: string, policy: FetchPolicy) {
           res.destroy();
           reject(new KnowledgeError(code));
         };
-        // No redirects: avoids cross-origin, path or metadata redirection bypasses.
+        // Redirects are never followed here: avoids cross-origin, path or metadata redirection bypasses.
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400) {
+          const location = res.headers.location;
+          res.destroy();
+          reject(
+            new RedirectError(typeof location === "string" ? location : null),
+          );
+          return;
+        }
         if (res.statusCode !== 200) {
           fail(
-            res.statusCode && res.statusCode >= 300 && res.statusCode < 400
-              ? "REDIRECT_NOT_ALLOWED"
-              : res.statusCode === 401 || res.statusCode === 403
-                ? "SOURCE_ACCESS_DENIED"
-                : res.statusCode === 404 || res.statusCode === 410
-                  ? "SOURCE_NOT_FOUND"
-                  : "SOURCE_FETCH_FAILED",
+            res.statusCode === 401 || res.statusCode === 403
+              ? "SOURCE_ACCESS_DENIED"
+              : res.statusCode === 404 || res.statusCode === 410
+                ? "SOURCE_NOT_FOUND"
+                : "SOURCE_FETCH_FAILED",
           );
           return;
         }
@@ -207,6 +223,7 @@ export async function fetchPublicDocument(input: string, policy: FetchPolicy) {
             "text/markdown",
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ...(policy.discovery ? ["application/xml", "text/xml"] : []),
           ].includes(mimeType)
         ) {
           fail("UNSUPPORTED_MIME");
@@ -349,24 +366,55 @@ export function robotsAllows(
     }
   return best?.allow ?? true;
 }
+const MAX_ROBOTS_REDIRECTS = 3;
+async function checkRobots(url: URL, policy: FetchPolicy, fetchFn: FetchFn) {
+  // The robots request never inherits `discovery`: it is always plain text.
+  const { discovery: _discovery, ...base } = policy;
+  let current = new URL(url.origin + "/robots.txt");
+  for (let hop = 0; ; hop++) {
+    try {
+      const robots = await fetchFn(current.toString(), {
+        ...base,
+        allowedPaths: [current.pathname],
+        maxBytes: 256000,
+      });
+      if (!robotsAllows(robots.bytes.toString("utf8"), url))
+        throw new KnowledgeError("ROBOTS_DISALLOWED");
+      return;
+    } catch (e) {
+      if (e instanceof KnowledgeError && e.code === "SOURCE_NOT_FOUND") return;
+      if (!(e instanceof RedirectError)) throw e;
+      if (hop >= MAX_ROBOTS_REDIRECTS || !e.location) throw e;
+      let next: URL;
+      try {
+        next = new URL(e.location, current);
+      } catch {
+        throw e;
+      }
+      if (next.origin !== url.origin || !next.pathname.endsWith("/robots.txt"))
+        throw e;
+      current = next;
+    }
+  }
+}
 export async function fetchApprovedDocument(
   input: string,
   policy: FetchPolicy,
+  fetchFn: FetchFn = fetchPublicDocument,
 ) {
   const url = validatePublicUrl(input, policy);
-  try {
-    const robots = await fetchPublicDocument(url.origin + "/robots.txt", {
-      ...policy,
-      allowedPaths: ["/robots.txt"],
-      maxBytes: 256000,
-    });
-    if (!robotsAllows(robots.bytes.toString("utf8"), url))
-      throw new KnowledgeError("ROBOTS_DISALLOWED");
-  } catch (e) {
-    if (!(e instanceof KnowledgeError && e.code === "SOURCE_NOT_FOUND"))
-      throw e;
-  }
-  return fetchPublicDocument(input, policy);
+  await checkRobots(url, policy, fetchFn);
+  return fetchFn(input, policy);
+}
+/** Like fetchApprovedDocument, but also accepts XML (sitemaps, feeds). */
+export async function fetchDiscoveryDocument(
+  input: string,
+  policy: FetchPolicy,
+  fetchFn: FetchFn = fetchPublicDocument,
+) {
+  const url = validatePublicUrl(input, policy);
+  await checkRobots(url, policy, fetchFn);
+  return fetchFn(input, { ...policy, discovery: true });
 }
 /** Extract bounded public page references only; no XML entities, DTDs, subrequests or recursion. */
 export function discoverPublicPages(
@@ -402,7 +450,7 @@ export function discoverPublicPages(
         policy,
       );
       urls.add(u.toString());
-      if (urls.size >= Math.min(maxPages, 100)) break;
+      if (urls.size >= Math.min(maxPages, 1000)) break;
     } catch {
       /* Outside approved scope never enters the crawl plan. */
     }

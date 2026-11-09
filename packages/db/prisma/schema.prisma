@@ -2638,3 +2638,88 @@ model SocialMediaAsset {
   @@unique([projectId, fileId])
   @@index([projectId, archivedAt, createdAt])
 }
+
+/// An ad account of an advertising provider linked to a project (ADR 0025).
+model AdAccount {
+  id                String    @id @db.Uuid
+  workspaceId       String    @db.Uuid
+  projectId         String    @db.Uuid
+  provider          String
+  externalId        String
+  name              String
+  currency          String
+  timezone          String
+  /// The platform connection holding the credentials (resolved by the
+  /// service; Connection has its own row-level security, so no foreign key).
+  connectionId      String    @db.Uuid
+  businessId        String?
+  status            String    @default("active")
+  capability        String    @default("read_verified")
+  writesEnabled     Boolean   @default(false)
+  providerStatus    String?
+  spendCapMicros    BigInt?
+  amountSpentMicros BigInt?
+  settings          Json      @default("{}")
+  lastSyncedAt      DateTime? @db.Timestamptz(3)
+  version           Int       @default(1)
+  createdBy         String
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, provider, externalId], map: "AdAccount_external_key")
+  @@index([projectId, status])
+}
+
+/// A pending provider OAuth authorization (single use, short-lived).
+model AdOAuthState {
+  id                 String    @id @db.Uuid
+  workspaceId        String    @db.Uuid
+  projectId          String    @db.Uuid
+  stateHash          String    @unique
+  provider           String
+  appConnectionId    String    @db.Uuid
+  userId             String
+  /// The PKCE verifier, sealed with the connection key ring.
+  verifierCiphertext String?
+  redirectAfter      String?
+  expiresAt          DateTime  @db.Timestamptz(3)
+  usedAt             DateTime? @db.Timestamptz(3)
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
+/// Sync progress and lease of one stream of an ad account.
+model AdSyncState {
+  workspaceId         String    @db.Uuid
+  projectId           String    @db.Uuid
+  accountId           String    @db.Uuid
+  stream              String
+  cursor              Json      @default("{}")
+  watermark           DateTime? @db.Timestamptz(3)
+  nextRunAt           DateTime  @db.Timestamptz(3)
+  lastSuccessAt       DateTime? @db.Timestamptz(3)
+  lastErrorCode       String?
+  consecutiveFailures Int       @default(0)
+  leaseToken          String?   @db.Uuid
+  leaseExpiresAt      DateTime? @db.Timestamptz(3)
+  updatedAt           DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([projectId, accountId, stream])
+  @@index([projectId, nextRunAt])
+}
+
+/// Provider rate-limit usage per scope and bucket.
+model AdProviderThrottle {
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  scope        String
+  bucket       String
+  usagePct     Decimal?  @db.Decimal(6, 2)
+  windowStart  DateTime  @db.Timestamptz(3)
+  blockedUntil DateTime? @db.Timestamptz(3)
+  updatedAt    DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([projectId, scope, bucket])
+}

@@ -27,6 +27,11 @@ import { runChatJob } from "../../modules/chat-runner.ts";
 import { stopChatRunForPause } from "../../modules/chat.ts";
 import { embedDocument, syncSource } from "../knowledge/ingestion.ts";
 import { buildIndexBatch } from "../knowledge/reindex.ts";
+import {
+  failSiteRun,
+  runSiteBatch,
+  SITE_QUEUE,
+} from "../knowledge/site-run.ts";
 import { runIndexEvaluation } from "../knowledge/index-evaluation.ts";
 import {
   EVALUATION_SET_QUEUE,
@@ -226,6 +231,21 @@ export const platformContributions: ModuleContributions = {
       queueClass: "reindex",
       handler: ({ scope, job, jobId }) =>
         buildIndexBatch(scope, job.resourceId, jobId).then(() => undefined),
+    },
+    {
+      // One batch of a site source's pages per job; it enqueues the next one.
+      queueClass: SITE_QUEUE,
+      concurrency: 1,
+      leaseMs: 300000,
+      handler: ({ scope, job, jobId }) =>
+        runSiteBatch(scope, job.resourceId, jobId),
+      // A run its job can no longer serve would block the source for good.
+      onBlockedByPause: (tx, job, scope) =>
+        failSiteRun(tx, scope, job.resourceId, "PROJECT_PAUSED"),
+      onLeaseExpired: async (tx, scope, job) => {
+        if (job.attempts >= job.maxAttempts)
+          await failSiteRun(tx, scope, job.resourceId, "JOB_OUTCOME_UNKNOWN");
+      },
     },
     {
       // Previews, notices and the daily report for the owner's Telegram bot

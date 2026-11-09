@@ -270,6 +270,7 @@ describe("module settings links in the sidebar", () => {
       ["issues", "issues"],
       ["social", undefined],
       ["webmail", "integrations"],
+      ["ads", undefined],
     ]);
   });
 

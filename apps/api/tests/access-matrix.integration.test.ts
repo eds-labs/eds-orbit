@@ -41,6 +41,8 @@ Object.assign(process.env, {
   ORBIT_WEBMAIL: "true",
   WEBMAIL_ORIGIN: "https://webmail.example.invalid",
   WEBMAIL_BRIDGE_SECRET: "synthetic-bridge-secret-with-enough-length",
+  // Ads module (ADR 0025): routes exist; the project never enables it.
+  ORBIT_ADS: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",

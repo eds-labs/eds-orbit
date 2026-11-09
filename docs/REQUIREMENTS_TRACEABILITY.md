@@ -105,6 +105,29 @@ Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans
 | R6 | Developer apps in global administration; project OAuth accounts; sealed tokens | `modules/social/accounts/*`, `platform/connections/project-secrets.ts` | `social-apps`, `project-secrets`, `social-oauth-state`, `social-oauth-routes`, `social-x-connect`, `social-meta-connect`, `social-vault`, `social-accounts`, `social-meta-data-deletion` integration tests; access matrix | PASS_TEST (local, fake providers; live acceptance open) |
 | R7 | Postiz migration without loss, rollback | S9: `modules/social/contract.ts`, `marketing/publishing/{backend,publisher,postiz-draft}.ts`, `marketing/policy/policy.ts`, `scripts/boundaries.json` | `social-contract`, `marketing-publishing-backend`, `marketing-social-backend` integration tests, Social cases in `assignment-veto` and `assignment-postiz-drafts`, existing Marketing suites unchanged | S9 + S10 tools PASS_TEST (local; S10: `marketing-social-migration.integration.test.ts`, draining in `marketing-social-backend`, web `legacy.test.tsx`, `scripts/postiz-inventory.ts`); per-project cutover open |
 
+## Ads module (ADR 0025, 2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; flag off)
+
+Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is on `main` since 2026-11-09 (flag off); A1 Task 0 (ad-blocker test of the id `ads`) is open and gates enabling `ORBIT_ADS` (Mario, 2026-11-09). Step A2 (provider seam, Meta transport, `packages/money`) is on `main` since 2026-11-09 (flag off); its Task 6 (contract tests on sanitized A0 recordings) is open.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| R1 | Standalone module `ads`, activatable without Marketing or Social | `modules/ads/{manifest,permissions,gate,settings,http-scope,contributions,routes}.ts`, `modules/registry.ts`, `apps/web/src/modules/ads/`, `ORBIT_ADS` in config, compose files, `.env.example` | `ads-module.test.ts`, `ads-routes.integration.test.ts`, `module-registry.test.ts`, access matrix, web `ads.test.tsx`, `pnpm test:coolify-compose` | A1 PASS_TEST (skeleton only; features A2–A11) |
+| R1-DB | Own tables with forced RLS, composite project keys, restricted grants | migration `202611080001_ads_core`, `scripts/db-deploy.ts` | `ads-schema.integration.test.ts`, `rls-matrix.integration.test.ts` | PASS_TEST (local test database only; not applied elsewhere) |
+| R1-B | Only direct HTTP adapters: no ads SDK, no automation intermediary | `scripts/boundaries.{json,mjs}` zones `module:ads`, `web-module:ads`, `forbiddenImportPrefixes` | `scripts/boundaries.test.mjs`, `pnpm lint` | PASS_TEST |
+| R2 | Navigation and views | `apps/web/src/modules/ads/` (six placeholder views) | web `ads.test.tsx` | A1 placeholders only; content A4, A5, A8, A9 |
+| R3 | Provider adapters | `modules/ads/providers/{types,registry}.ts`, `providers/meta/*` | `ads-meta-errors`, `ads-meta-graph`, `ads-meta-money` and registry tests (fake Graph, no network) | A2 PASS_TEST for the Meta transport; contract tests on A0 recordings OPEN (Task 6); OpenAI and Google OPEN |
+| R3-API | Official APIs only: every Meta call through one pinned (`v27.0`), `appsecret_proof`-signed client, token in the header only, cursor paging, classified failures | `providers/meta/{version,transport,graph,errors,usage}.ts`, `scripts/boundaries.json` | `ads-meta-graph.test.ts`, `ads-meta-errors.test.ts`, `pnpm lint` | PASS_TEST (no live Meta call: NOT_RUN) |
+| R3-M | Money exact in BigInt micros; Meta minor units by documented offset; `spend_cap` read minor, written major; inexact conversion refused | `packages/money`, `providers/meta/money.ts` | `packages/money` tests, `ads-meta-money.test.ts`, `finance-money.test.ts` | PASS_TEST (offsets from Meta's page of 2026-11-08; real-account confirmation in A0 OPEN) |
+| R4 | Meta connection | none | none | OPEN (A3) |
+| R5 | Meta campaigns | none | none | OPEN (A4, A7, A8) |
+| R6 | Creatives and audiences | none | none | OPEN (A8, A9) |
+| R7 | Analytics | none | none | OPEN (A5) |
+| R8 | Works without AI; Marketing agents use Ads | none | none | OPEN (A11) |
+| R9 | Approvals and budget guardrail | none | none | OPEN (A7) |
+| R10 | MCP access | none | none | OPEN (A10) |
+| R11 | Background sync | none | none | OPEN (A4–A6, A11) |
+| R12 | ChatGPT Ads and Google Ads: research and plan only | plan §12.2, §12.3 | none | OPEN (planning) |
+
 ## Approval UX v2 and agent mandates (2026-10-28, local; `ORBIT_AGENT_MANDATES` off)
 
 Plan [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md), ADR [0019](adr/0019-agent-mandates.md) (proposed).
@@ -254,7 +277,7 @@ Spec `docs/superpowers/specs/2026-10-23-finance-module-design.md`; behaviour in 
 | Manual upload (API and web control), exact duplicates, unsupported types | `finance-intake.integration.test.ts`, `finance-routes.integration.test.ts`, `apps/web/src/modules/finance/upload.test.tsx`, `upload-access.test.tsx`, `apps/web/tests/finance.spec.ts` | PASS_TEST (browser spec local) |
 | Extraction safety: consent off by default, spend mandate, daily ceiling, no tools, injection text, invalid JSON, unknown outcome never retried | `finance-extraction.test.ts`, `finance-extraction.integration.test.ts` (stubbed provider) | PASS_TEST |
 | Duplicate rules (hash, counterparty and number, total within window) | `finance-extraction.integration.test.ts`, `finance-intake.integration.test.ts` | PASS_TEST |
-| Money as bigint micros, half-even rounding, ambiguous comma rejected | `finance-money.test.ts`, `apps/web/src/modules/finance/money.test.tsx`, `booking-form.test.tsx` | PASS_TEST |
+| Money as bigint micros, half-even rounding, ambiguous comma rejected (`finance/money.ts`, a thin wrapper over `packages/money` since Ads A2) | `finance-money.test.ts`, `apps/web/src/modules/finance/money.test.tsx`, `booking-form.test.tsx` | PASS_TEST |
 | Posting rules per transaction type, balance, splits, FX difference, reversal | `finance-posting.test.ts`, `finance-ledger.integration.test.ts`, `finance-booking.integration.test.ts` | PASS_TEST |
 | Database integrity: no DELETE, immutable lines, balanced entries, one reversal | `finance-integrity.integration.test.ts` | PASS_TEST |
 | Corrections: void invoice (reopens document), void payment, credit-note settlement, closing entry | `finance-booking.integration.test.ts` | PASS_TEST (partial credit at very different rates: known limitation) |

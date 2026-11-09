@@ -11,12 +11,17 @@ const CHECK: Label = { en: "Check", de: "Prüfen" };
  * count of the further ones for the aggregated item (no name).
  */
 const source =
-  (one: Label, more: (n: number) => Label): AttentionRenderer =>
+  (
+    one: Label,
+    more: (n: number) => Label,
+    /** For a source that has no expiry because it was never read. */
+    never: Label = one,
+  ): AttentionRenderer =>
   (item, locale) => {
     const name = String(item.params.name ?? "").trim();
     return {
       title: name
-        ? `${one[locale]} · ${name}`
+        ? `${(item.since || item.dueAt ? one : never)[locale]} · ${name}`
         : item.count !== undefined
           ? more(item.count)[locale]
           : one[locale],
@@ -31,6 +36,7 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
       en: `${n} more source${n === 1 ? "" : "s"} out of date`,
       de: `${n} ${n === 1 ? "weitere Quelle" : "weitere Quellen"} veraltet`,
     }),
+    { en: "Source never fetched", de: "Quelle noch nie abgerufen" },
   ),
   knowledge_source_expiring: source(
     { en: "Source expires soon", de: "Quelle läuft bald ab" },
@@ -39,6 +45,34 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
       de: `${n} ${n === 1 ? "weitere Quelle läuft" : "weitere Quellen laufen"} bald ab`,
     }),
   ),
+  // The latest read of a site source ended with a warning or unreadable pages.
+  knowledge_site_review: (item, locale) => {
+    const name = String(item.params.name ?? "").trim();
+    if (!name) {
+      const n = item.count ?? 1;
+      return {
+        title:
+          locale === "de"
+            ? `${n} ${n === 1 ? "weitere Website" : "weitere Websites"} prüfen`
+            : `${n} more site${n === 1 ? "" : "s"} to check`,
+        action: CHECK,
+      };
+    }
+    const failed = Number(item.params.failed ?? 0);
+    const text =
+      item.params.runFailed === true
+        ? { en: "Last read failed", de: "Letztes Einlesen fehlgeschlagen" }
+        : item.params.shrank === true
+          ? {
+              en: "Site shrank, nothing removed",
+              de: "Website deutlich kleiner, nichts entfernt",
+            }
+          : {
+              en: `${failed} page${failed === 1 ? "" : "s"} could not be read`,
+              de: `${failed} ${failed === 1 ? "Seite" : "Seiten"} nicht lesbar`,
+            };
+    return { title: `${text[locale]} · ${name}`, action: CHECK };
+  },
   knowledge_review_pending: (item, locale) => ({
     title:
       locale === "de"
