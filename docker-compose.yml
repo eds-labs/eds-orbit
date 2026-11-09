@@ -340,9 +340,11 @@ services:
       SERVICE_URL_WEBMAIL_8000: /
     expose:
       - "8000"
+    # Its own way out for IMAP and SMTP: the shared egress network would put it
+    # next to the API, the MCP gateway and the worker.
     networks:
       - webmail
-      - egress
+      - webmail-egress
     depends_on:
       webmail-db:
         condition: service_healthy
@@ -495,6 +497,7 @@ networks:
   # The bridge, Roundcube and its database only.
   webmail:
     internal: true
+  webmail-egress: {}
 
 volumes:
   orbit_pg: {}
