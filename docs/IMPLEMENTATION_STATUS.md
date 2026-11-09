@@ -11,7 +11,7 @@ Spec [2026-11-09-knowledge-structure-and-language-design.md](superpowers/specs/2
   - Plain language (source, proposal, knowledge, statement) in German and English, and a technical area with its own navigation.
 - **Verification (local, this worktree's own test database):**
   - `pnpm lint` passes (source guard; import boundaries 0 known, none new); `pnpm typecheck` passes; `node scripts/boundaries.mjs` exit 0; `git diff --check` clean.
-  - Whole vitest suite: 560 files passed, 1 skipped (561); 6,113 tests passed, 7 skipped, 0 failed.
+  - Whole vitest suite after the final fix wave: 560 files passed, 1 skipped (561); 6,116 tests passed, 7 skipped, 0 failed (an earlier run under machine load had one unidentified failure; the rerun was clean).
   - `pnpm build` passes.
   - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. It covers the More menu (inside the viewport, closes after a choice), bulk confirm through the UI, a partial failure answered with a stubbed 409 `VERSION_CONFLICT`, the bar in view and above the bottom navigation, that an Adjust edit is what is sent, no horizontal overflow with a long source name and quote, the technical area link and its way back, and Update on a website draft (confirm dialog, then the Use step with the preview stubbed).
   - Impeccable detector on `apps/web/src/modules/knowledge`: 0 findings.
