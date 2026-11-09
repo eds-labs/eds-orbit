@@ -374,11 +374,14 @@ export function AdjustForm({
   statement,
   rights,
   onChange,
+  busy = false,
   t,
 }: {
   statement: string;
   rights: EffectiveRights;
   onChange: (patch: StatementEdit) => void;
+  /** A request is on its way with the values fixed at the click. */
+  busy?: boolean;
   t: KnowledgeCopy;
 }) {
   return (
@@ -388,6 +391,7 @@ export function AdjustForm({
           required
           maxLength={MAX_STATEMENT_LENGTH}
           value={statement}
+          disabled={busy}
           onChange={(e) => onChange({ statement: e.target.value })}
         />
       </Field>
@@ -397,6 +401,7 @@ export function AdjustForm({
           <input
             type="checkbox"
             checked={rights.marketing}
+            disabled={busy}
             onChange={(e) => onChange({ marketing: e.target.checked })}
           />
           {t.marketing}
@@ -405,6 +410,7 @@ export function AdjustForm({
           <input
             type="checkbox"
             checked={rights.support}
+            disabled={busy}
             onChange={(e) => onChange({ support: e.target.checked })}
           />
           {t.support}
@@ -413,6 +419,7 @@ export function AdjustForm({
           <input
             type="checkbox"
             checked={rights.publicUse}
+            disabled={busy}
             onChange={(e) => onChange({ publicUse: e.target.checked })}
           />
           {t.publicUse}
@@ -474,7 +481,7 @@ function rightsLine(rights: EffectiveRights, t: KnowledgeCopy) {
   return `${audiences} · ${rights.publicUse ? t.public : t.internal}`;
 }
 
-function ReviewCard({
+export function ReviewCard({
   proposal: p,
   drafts,
   edit,
@@ -586,6 +593,7 @@ function ReviewCard({
               statement={effectiveStatement(p, edit)}
               rights={rights}
               onChange={onEdit}
+              busy={pending}
               t={t}
             />
           )}
@@ -601,6 +609,7 @@ function ReviewCard({
             <Button
               variant="ghost"
               aria-expanded={adjusting}
+              disabled={pending}
               onClick={() => setAdjusting(!adjusting)}
             >
               <SlidersHorizontal aria-hidden="true" />

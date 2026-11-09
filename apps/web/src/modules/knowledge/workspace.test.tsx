@@ -9,6 +9,7 @@ import {
   AdjustForm,
   BulkBar,
   keptSelection,
+  ReviewCard,
   StatementList,
 } from "./statements";
 import { effectiveRights } from "./statements-model";
@@ -545,6 +546,56 @@ describe("statements by topic", () => {
           {},
         ),
       ]).toEqual([]);
+    });
+  });
+
+  describe("while a bulk confirm runs", () => {
+    const form = (busy: boolean) =>
+      renderToStaticMarkup(
+        <AdjustForm
+          statement="Shared calendars"
+          rights={{ marketing: true, support: true, publicUse: true }}
+          onChange={() => {}}
+          busy={busy}
+          t={de}
+        />,
+      );
+    const adjustButton = (busy: boolean) =>
+      renderToStaticMarkup(
+        <ShellContext.Provider
+          value={{ hrefOf: (key: string) => `/${key}` } as any}
+        >
+          <WorkspaceContext.Provider
+            value={
+              {
+                project: { id: "p", name: "FamilyPlan" },
+                locale: "de",
+                isOwner: true,
+              } as any
+            }
+          >
+            <ReviewCard
+              proposal={pending() as any}
+              drafts={[draftOf()] as any}
+              onEdit={() => {}}
+              selected
+              onSelect={() => {}}
+              busy={busy}
+              refresh={() => {}}
+              t={de}
+            />
+          </WorkspaceContext.Provider>
+        </ShellContext.Provider>,
+      )
+        .match(/<button[^>]*>(?:(?!<\/button>).)*<\/button>/g)
+        ?.find((button) => button.includes(de.adjust));
+    it("freezes the text and the three rights", () => {
+      expect(form(true).match(/disabled=""/g)).toHaveLength(4);
+      expect(form(false)).not.toContain('disabled=""');
+    });
+    it("disables Adjust", () => {
+      expect(adjustButton(true)).toContain('disabled=""');
+      expect(adjustButton(false)).not.toContain('disabled=""');
     });
   });
 
