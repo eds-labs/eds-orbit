@@ -209,7 +209,14 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
       await tx.entity.deleteMany({
         where: {
           kind: {
-            in: ["sources", "facts", "jobs", "policies", "action_requests"],
+            in: [
+              "sources",
+              "facts",
+              "jobs",
+              "policies",
+              "action_requests",
+              "knowledge_site_runs",
+            ],
           },
         },
       });
@@ -284,6 +291,126 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
         .staleSources.map((source: { id: string }) => source.id)
         .sort(),
     ).toEqual([website.id, gitbook.id].sort());
+  });
+
+  it("a run with a warning or failed pages raises knowledge_site_review linking to the source", async () => {
+    const siteRun = (fields: Record<string, unknown>) =>
+      run((tx) =>
+        create(tx, owner, "knowledge_site_runs", {
+          trigger: "manual",
+          status: "completed",
+          pages: [],
+          failed: [],
+          warning: null,
+          startedAt: ago(2),
+          completedAt: ago(1),
+          ...fields,
+        }),
+      );
+    const site = (lastRunId: string | null) => ({
+      rootUrl: "https://docs.example.com/help",
+      discovery: "sitemap",
+      excludedPages: [],
+      lastRunId,
+    });
+    const siteSource = (name: string, lastRunId: string | null, extra = {}) =>
+      source({
+        name,
+        type: "gitbook",
+        status: "active",
+        lastSuccessfulSyncAt: ago(1),
+        site: site(lastRunId),
+        ...extra,
+      });
+    const review = async () =>
+      (await itemsOf("knowledge")).filter(
+        (i) => i.kind === "knowledge_site_review",
+      );
+
+    const failed = await siteRun({
+      failed: [
+        { url: "https://docs.example.com/help/a", code: "FETCH_FAILED" },
+      ],
+    });
+    const failing = await siteSource("Failing", failed.id);
+    const shrank = await siteRun({ warning: "site_shrank" });
+    const shrinking = await siteSource("Shrinking", shrank.id);
+    const clean = await siteRun({});
+    await siteSource("Clean", clean.id);
+    await siteSource("Never read", null);
+    const paused = await siteRun({ warning: "site_shrank" });
+    await siteSource("Paused", paused.id, { status: "paused" });
+
+    const items = await review();
+    expect(items).toHaveLength(2);
+    expect(items).toEqual(
+      expect.arrayContaining([
+        {
+          id: `knowledge:site-review:${failing.id}`,
+          moduleId: "knowledge",
+          kind: "knowledge_site_review",
+          severity: "warning",
+          since: expect.any(String),
+          params: { name: "Failing", failed: 1, shrank: false },
+          navKey: "knowledge-sources",
+          link: `/knowledge/sources?source=${failing.id}`,
+        },
+        {
+          id: `knowledge:site-review:${shrinking.id}`,
+          moduleId: "knowledge",
+          kind: "knowledge_site_review",
+          severity: "warning",
+          since: expect.any(String),
+          params: { name: "Shrinking", failed: 0, shrank: true },
+          navKey: "knowledge-sources",
+          link: `/knowledge/sources?source=${shrinking.id}`,
+        },
+      ]),
+    );
+
+    // It disappears once a later run is clean.
+    const later = await siteRun({});
+    await run(async (tx) => {
+      const row = await tx.entity.findUniqueOrThrow({
+        where: { id: failing.id },
+      });
+      await tx.entity.update({
+        where: { id: failing.id },
+        data: {
+          data: {
+            ...(row.data as object),
+            site: site(later.id),
+          },
+        },
+      });
+    });
+    expect((await review()).map((i) => i.params.name)).toEqual(["Shrinking"]);
+  });
+
+  it("caps individual site review items and counts the rest", async () => {
+    for (let n = 0; n < 5; n++) {
+      const row = await run((tx) =>
+        create(tx, owner, "knowledge_site_runs", {
+          status: "completed",
+          failed: [{ url: "https://docs.example.com/x", code: "X" }],
+          warning: null,
+          startedAt: ago(2),
+          completedAt: ago(1),
+        }),
+      );
+      await source({
+        name: `Site ${n}`,
+        type: "website",
+        status: "active",
+        lastSuccessfulSyncAt: ago(1),
+        site: { rootUrl: "https://docs.example.com", lastRunId: row.id },
+      });
+    }
+    const items = (await itemsOf("knowledge")).filter(
+      (i) => i.kind === "knowledge_site_review",
+    );
+    expect(items).toHaveLength(4);
+    expect(items.filter((i) => i.count === 2)).toHaveLength(1);
   });
 
   it("a never-synced source is stale", async () => {

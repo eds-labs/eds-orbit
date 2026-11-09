@@ -109,6 +109,94 @@ async function sourceItems(
 }
 
 /**
+ * Site sources whose latest run (`site.lastRunId`) ended with a warning or
+ * failed pages; a later clean run clears the item. Paused and revoked sources
+ * are out of use. At most SOURCE_ITEMS items of their own, the rest as one.
+ */
+async function siteReviewItems(
+  tx: DbTx,
+  scope: Scope,
+): Promise<AttentionItem[]> {
+  const where = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+  const rows = await tx.entity.findMany({
+    where: {
+      ...where,
+      kind: "sources",
+      data: { path: ["status"], equals: "active" },
+    },
+    select: { id: true, data: true },
+    orderBy: { createdAt: "desc" },
+    take: SOURCE_LIMIT,
+  });
+  const lastRun = new Map<string, string>();
+  for (const row of rows) {
+    const id = (data(row).site as { lastRunId?: unknown } | undefined)
+      ?.lastRunId;
+    if (typeof id === "string") lastRun.set(row.id, id);
+  }
+  if (!lastRun.size) return [];
+  const runs = new Map(
+    (
+      await tx.entity.findMany({
+        where: {
+          ...where,
+          kind: "knowledge_site_runs",
+          id: { in: [...lastRun.values()] },
+        },
+        select: { id: true, data: true },
+      })
+    ).map((run) => [run.id, data(run)]),
+  );
+  const flagged: {
+    id: string;
+    name: string;
+    since: string;
+    failed: number;
+    shrank: boolean;
+  }[] = [];
+  for (const row of rows) {
+    const run = runs.get(lastRun.get(row.id) ?? "");
+    const failed = Array.isArray(run?.failed) ? run.failed.length : 0;
+    const shrank = run?.warning === "site_shrank";
+    if (!run || (!failed && !shrank)) continue;
+    flagged.push({
+      id: row.id,
+      name: String(data(row).name ?? ""),
+      since: String(run.completedAt ?? run.startedAt ?? ""),
+      failed,
+      shrank,
+    });
+  }
+  // The longest waiting first; the id keeps the order stable.
+  flagged.sort(
+    (a, b) => a.since.localeCompare(b.since) || (a.id < b.id ? -1 : 1),
+  );
+  const base = {
+    moduleId: "knowledge",
+    kind: "knowledge_site_review",
+    severity: "warning",
+    ...SOURCES,
+  } as const;
+  const items: AttentionItem[] = flagged.slice(0, SOURCE_ITEMS).map((f) => ({
+    ...base,
+    id: `knowledge:site-review:${f.id}`,
+    ...(f.since ? { since: f.since } : {}),
+    params: { name: f.name, failed: f.failed, shrank: f.shrank },
+    link: `${SOURCES.link}?source=${f.id}`,
+  }));
+  const rest = flagged.slice(SOURCE_ITEMS);
+  if (rest.length)
+    items.push({
+      ...base,
+      id: "knowledge:site-review:more",
+      count: rest.length,
+      ...(rest[0]!.since ? { since: rest[0]!.since } : {}),
+      params: {},
+    });
+  return items;
+}
+
+/**
  * Entities of `kind` matching every `match` field, as one aggregated item
  * waiting since the oldest one last changed.
  */
@@ -180,6 +268,7 @@ export const knowledgeAttention: AttentionContribution = async (
       ]
     : []),
   ...(await sourceItems(tx, scope, now)),
+  ...(await siteReviewItems(tx, scope)),
   ...(await aggregated(
     tx,
     scope,

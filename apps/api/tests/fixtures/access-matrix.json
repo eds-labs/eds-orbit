@@ -3295,6 +3295,38 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/knowledge-site-discover": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-refresh": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-start": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/memory-lifecycle": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

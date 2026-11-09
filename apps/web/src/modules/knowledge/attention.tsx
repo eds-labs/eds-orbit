@@ -45,6 +45,32 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
       de: `${n} ${n === 1 ? "weitere Quelle läuft" : "weitere Quellen laufen"} bald ab`,
     }),
   ),
+  // The latest read of a site source ended with a warning or unreadable pages.
+  knowledge_site_review: (item, locale) => {
+    const name = String(item.params.name ?? "").trim();
+    if (!name) {
+      const n = item.count ?? 1;
+      return {
+        title:
+          locale === "de"
+            ? `${n} ${n === 1 ? "weitere Website" : "weitere Websites"} prüfen`
+            : `${n} more site${n === 1 ? "" : "s"} to check`,
+        action: CHECK,
+      };
+    }
+    const failed = Number(item.params.failed ?? 0);
+    const text =
+      item.params.shrank === true
+        ? {
+            en: "Site shrank, nothing removed",
+            de: "Website deutlich kleiner, nichts entfernt",
+          }
+        : {
+            en: `${failed} page${failed === 1 ? "" : "s"} could not be read`,
+            de: `${failed} ${failed === 1 ? "Seite" : "Seiten"} nicht lesbar`,
+          };
+    return { title: `${text[locale]} · ${name}`, action: CHECK };
+  },
   knowledge_review_pending: (item, locale) => ({
     title:
       locale === "de"

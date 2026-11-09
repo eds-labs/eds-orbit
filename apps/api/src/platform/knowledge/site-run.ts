@@ -364,11 +364,14 @@ async function finishRun(s: Scope, runId: string) {
     const listed = new Set<string>(run.pages.map(pageId));
     const excluded = excludedPages(source);
     // A capped list is cut, not complete: a page past the cut still exists.
-    const missing = run.capped
-      ? []
-      : documents.filter(
-          (d) => !listed.has(d.externalId) && !excluded.has(d.externalId),
-        );
+    // An initial run brings the owner's list, not a discovery, so it retires
+    // only exclusions: a re-start must not bypass the guards of a discovery.
+    const missing =
+      run.capped || run.trigger === "initial"
+        ? []
+        : documents.filter(
+            (d) => !listed.has(d.externalId) && !excluded.has(d.externalId),
+          );
     if (run.warning || missing.length * 2 > documents.length) {
       await endRun(tx, s, row, { ...run, warning: "site_shrank" }, "completed");
       return null;

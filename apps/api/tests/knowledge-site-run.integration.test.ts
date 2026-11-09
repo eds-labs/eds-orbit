@@ -22,6 +22,9 @@ import {
   startSiteRun,
 } from "../src/platform/knowledge/site-run.ts";
 import { createPackageProject } from "./support/package-project.ts";
+import { knowledgeActions } from "../src/modules/knowledge/actions.ts";
+import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
+import { can } from "../src/platform/tenancy/permissions.ts";
 
 // No live site and no paid model: every fetch below is stubbed.
 const web = vi.hoisted(() => ({
@@ -936,6 +939,491 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
     expect(await state(created.id)).toMatchObject({
       status: "failed",
       errorCode: "ERR_INVALID_URL",
+    });
+  });
+
+  describe("site actions", () => {
+    const NAMES = [
+      "knowledge-site-discover",
+      "knowledge-site-start",
+      "knowledge-site-refresh",
+      "knowledge-site-settings",
+    ] as const;
+    let flag: string | undefined;
+    beforeEach(() => {
+      flag = process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+      process.env.ORBIT_KNOWLEDGE_WORKSPACE = "true";
+    });
+    afterEach(() => {
+      if (flag === undefined) delete process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+      else process.env.ORBIT_KNOWLEDGE_WORKSPACE = flag;
+    });
+    const act = (
+      name: (typeof NAMES)[number],
+      input: Record<string, unknown>,
+      as: Scope = owner,
+    ) => {
+      const handler = knowledgeActions[name]!;
+      if (handler.transaction !== "own") throw new Error("expected own");
+      return handler.run({ scope: as, input } as never) as Promise<any>;
+    };
+    const startInput = (extra: Record<string, unknown> = {}) => ({
+      url: ROOT,
+      name: "Help center",
+      excludedPages: [],
+      autoUpdate: true,
+      marketing: true,
+      support: true,
+      publicUse: false,
+      modelUse: true,
+      language: "de",
+      ...extra,
+    });
+    const sourceData = (id: string) =>
+      run(async (tx) => data(await entity(tx, owner, "sources", id)));
+    const counts = () =>
+      run(async (tx) => ({
+        entities: await tx.entity.count({
+          where: { projectId: owner.projectId },
+        }),
+        audits: await tx.auditEvent.count({
+          where: { projectId: owner.projectId },
+        }),
+        jobs: await tx.entity.count({
+          where: { projectId: owner.projectId, kind: "jobs" },
+        }),
+      }));
+    const siteAudits = () =>
+      run((tx) =>
+        tx.auditEvent.findMany({
+          where: {
+            projectId: owner.projectId,
+            action: { startsWith: "knowledge.site_" },
+            NOT: { action: { startsWith: "knowledge.site_run" } },
+          },
+        }),
+      );
+    const refusal = (work: Promise<unknown>, code: string) =>
+      expect(work).rejects.toMatchObject({ code });
+
+    it("discover writes nothing", async () => {
+      publish(1, 2, 3);
+      const before = await counts();
+      const found = await act("knowledge-site-discover", { url: ROOT });
+      expect(found).toMatchObject({
+        rootUrl: ROOT,
+        discovery: "sitemap",
+        capped: false,
+        complete: true,
+        excludedPages: [],
+      });
+      expect(found.pages.map((p: { url: string }) => p.url)).toEqual(
+        [1, 2, 3].map(page),
+      );
+      expect(await counts()).toEqual(before);
+    });
+
+    it("discover for a source uses its root and returns its exclusions", async () => {
+      publish(1, 2);
+      const source = await siteSource();
+      await exclude(source.id, page(2));
+      const found = await act("knowledge-site-discover", {
+        sourceId: source.id,
+      });
+      expect(found.pages.map((p: { url: string }) => p.url)).toEqual(
+        [1, 2].map(page),
+      );
+      expect(found.excludedPages).toEqual([page(2)]);
+    });
+
+    it("discover and start refuse an address that is not a public HTTPS page", async () => {
+      for (const url of [
+        "http://docs.example.com/help",
+        "https://user:pw@docs.example.com/help",
+        "https://127.0.0.1/help",
+        "not a url",
+      ]) {
+        await refusal(
+          act("knowledge-site-discover", { url }),
+          "KNOWLEDGE_SITE_URL_INVALID",
+        );
+        await refusal(
+          act("knowledge-site-start", startInput({ url })),
+          "KNOWLEDGE_SITE_URL_INVALID",
+        );
+      }
+      expect(web.fetched).toEqual([]);
+    });
+
+    it("start creates a site source with maxAgeHours 336 and syncEveryHours 168", async () => {
+      publish(1, 2, 3);
+      const { sourceId, run: created } = await act(
+        "knowledge-site-start",
+        startInput({ excludedPages: [page(3)] }),
+      );
+      expect(await sourceData(sourceId)).toMatchObject({
+        name: "Help center",
+        type: "website",
+        status: "active",
+        generation: 1,
+        authority: "official",
+        maxAgeHours: 336,
+        syncEveryHours: 168,
+        publicUse: false,
+        modelUse: true,
+        audiences: ["marketing", "support"],
+        allowedOrigins: ["https://docs.example.com"],
+        allowedPaths: ["/help"],
+        language: "de",
+        site: {
+          rootUrl: ROOT,
+          discovery: "sitemap",
+          excludedPages: [page(3)],
+          lastRunId: created.id,
+        },
+      });
+      expect(await state(created.id)).toMatchObject({
+        trigger: "initial",
+        status: "queued",
+        sourceId,
+        pages: [page(1), page(2)],
+      });
+      const drained = await drain(created.id);
+      expect(drained).toMatchObject({ status: "completed", added: 2 });
+    });
+
+    it("start with weekly updates off leaves syncEveryHours absent", async () => {
+      publish(1);
+      const { sourceId } = await act(
+        "knowledge-site-start",
+        startInput({ autoUpdate: false }),
+      );
+      expect(await sourceData(sourceId)).not.toHaveProperty("syncEveryHours");
+    });
+
+    it("start without any audience is refused", async () => {
+      publish(1);
+      const before = await counts();
+      await refusal(
+        act(
+          "knowledge-site-start",
+          startInput({ marketing: false, support: false }),
+        ),
+        "KNOWLEDGE_NO_AUDIENCE",
+      );
+      expect(await counts()).toEqual(before);
+    });
+
+    it("start reuses an existing empty gitbook source", async () => {
+      publish(1, 2);
+      const sourcesBefore = (await run((tx) => list(tx, owner, "sources")))
+        .length;
+      const empty = await siteSource({
+        type: "gitbook",
+        site: undefined,
+        syncEveryHours: undefined,
+        audiences: ["marketing", "support"],
+      });
+      const { sourceId, run: created } = await act(
+        "knowledge-site-start",
+        startInput({ sourceId: empty.id, name: undefined, type: undefined }),
+      );
+      expect(sourceId).toBe(empty.id);
+      expect(await sourceData(empty.id)).toMatchObject({
+        type: "gitbook",
+        generation: 1,
+        syncEveryHours: 168,
+        site: { rootUrl: ROOT, lastRunId: created.id },
+      });
+      const sources = await run((tx) => list(tx, owner, "sources"));
+      expect(sources).toHaveLength(sourcesBefore + 1);
+    });
+
+    it("start on a reused source applies changed rights and bumps its generation", async () => {
+      publish(1);
+      const legacy = await siteSource({
+        site: undefined,
+        authority: "research",
+        maxAgeHours: 168,
+        modelUse: false,
+      });
+      await act(
+        "knowledge-site-start",
+        startInput({ sourceId: legacy.id, support: false }),
+      );
+      const d = await sourceData(legacy.id);
+      expect(d).toMatchObject({
+        authority: "official",
+        maxAgeHours: 336,
+        modelUse: true,
+        audiences: ["marketing"],
+      });
+      expect(d.generation).toBeGreaterThan(1);
+      expect(d.site.lastRunId).toBeTruthy();
+    });
+
+    it("start refuses a paused or revoked source and a changed root", async () => {
+      publish(1);
+      const paused = await siteSource({ status: "paused" });
+      const revoked = await siteSource({ status: "revoked" });
+      const active = await siteSource();
+      await refusal(
+        act("knowledge-site-start", startInput({ sourceId: paused.id })),
+        "KNOWLEDGE_SOURCE_UNAVAILABLE",
+      );
+      await refusal(
+        act("knowledge-site-start", startInput({ sourceId: revoked.id })),
+        "KNOWLEDGE_SOURCE_UNAVAILABLE",
+      );
+      await refusal(
+        act(
+          "knowledge-site-start",
+          startInput({
+            sourceId: active.id,
+            url: "https://docs.example.com/other",
+          }),
+        ),
+        "KNOWLEDGE_SITE_ROOT_CHANGED",
+      );
+    });
+
+    it("start without pages is refused with KNOWLEDGE_NO_PAGES", async () => {
+      publish(1);
+      const before = await counts();
+      await refusal(
+        act("knowledge-site-start", startInput({ excludedPages: [page(1)] })),
+        "KNOWLEDGE_NO_PAGES",
+      );
+      expect(await counts()).toEqual(before);
+    });
+
+    it("start refuses exclusions outside the root and more than 200", async () => {
+      publish(1);
+      await refusal(
+        act(
+          "knowledge-site-start",
+          startInput({ excludedPages: ["https://other.example.com/help/a"] }),
+        ),
+        "KNOWLEDGE_SITE_URL_INVALID",
+      );
+      await expect(
+        act(
+          "knowledge-site-start",
+          startInput({
+            excludedPages: range(201).map((n) => `${ROOT}/x-${n}`),
+          }),
+        ),
+      ).rejects.toThrow();
+    });
+
+    it("start returns the active run instead of a second one", async () => {
+      publish(1, 2);
+      const first = await act("knowledge-site-start", startInput());
+      const second = await act(
+        "knowledge-site-start",
+        startInput({ sourceId: first.sourceId }),
+      );
+      expect(second.run.id).toBe(first.run.id);
+    });
+
+    it("refresh starts a manual run with no pages and returns the active one", async () => {
+      publish(1);
+      const source = await siteSource();
+      const created = await act("knowledge-site-refresh", {
+        sourceId: source.id,
+      });
+      expect(await state(created.id)).toMatchObject({
+        trigger: "manual",
+        pages: [],
+        status: "queued",
+      });
+      const again = await act("knowledge-site-refresh", {
+        sourceId: source.id,
+      });
+      expect(again.id).toBe(created.id);
+      const audits = (await siteAudits()).filter(
+        (a) => a.action === "knowledge.site_refreshed",
+      );
+      expect(audits).toHaveLength(1);
+      expect(await drain(created.id)).toMatchObject({ status: "completed" });
+    });
+
+    it("refresh refuses a paused source", async () => {
+      const paused = await siteSource({ status: "paused" });
+      await refusal(
+        act("knowledge-site-refresh", { sourceId: paused.id }),
+        "KNOWLEDGE_SOURCE_UNAVAILABLE",
+      );
+    });
+
+    it("settings without autoUpdate removes syncEveryHours", async () => {
+      const source = await siteSource();
+      await act("knowledge-site-settings", {
+        sourceId: source.id,
+        autoUpdate: false,
+      });
+      expect(await sourceData(source.id)).not.toHaveProperty("syncEveryHours");
+      await act("knowledge-site-settings", {
+        sourceId: source.id,
+        autoUpdate: true,
+      });
+      expect(await sourceData(source.id)).toMatchObject({
+        syncEveryHours: 168,
+      });
+    });
+
+    it("settings stores validated exclusions and leaves the running run alone", async () => {
+      publish(1, 2, 3);
+      const source = await siteSource();
+      const active = await start(source.id, "initial", sitePages([1, 2, 3]));
+      const before = await run((tx) => entity(tx, owner, KIND, active.id));
+      await act("knowledge-site-settings", {
+        sourceId: source.id,
+        excludedPages: [page(2)],
+      });
+      const d = await sourceData(source.id);
+      expect(d.site.excludedPages).toEqual([page(2)]);
+      expect(d.site.lastRunId).toBe(active.id);
+      const after = await run((tx) => entity(tx, owner, KIND, active.id));
+      expect(after.version).toBe(before.version);
+      // The run reads the exclusions at its next batch.
+      expect(await drain(active.id)).toMatchObject({ added: 2 });
+      await refusal(
+        act("knowledge-site-settings", {
+          sourceId: source.id,
+          excludedPages: ["https://docs.example.com/elsewhere"],
+        }),
+        "KNOWLEDGE_SITE_URL_INVALID",
+      );
+      await expect(
+        act("knowledge-site-settings", {
+          sourceId: source.id,
+          excludedPages: range(201).map((n) => `${ROOT}/x-${n}`),
+        }),
+      ).rejects.toThrow();
+      await expect(
+        act("knowledge-site-settings", { sourceId: source.id }),
+      ).rejects.toThrow();
+      expect((await sourceData(source.id)).site.excludedPages).toEqual([
+        page(2),
+      ]);
+    });
+
+    it("writes audit records with ids and counts only", async () => {
+      publish(1, 2);
+      const { sourceId } = await act("knowledge-site-start", startInput());
+      await act("knowledge-site-settings", {
+        sourceId,
+        autoUpdate: false,
+        excludedPages: [page(2)],
+      });
+      const records = await siteAudits();
+      expect(records.map((a) => a.action).sort()).toEqual([
+        "knowledge.site_settings_changed",
+        "knowledge.site_started",
+      ]);
+      const text = JSON.stringify(records.map((a) => a.metadata));
+      expect(text).not.toContain("docs.example.com");
+      expect(text).not.toContain("Seite");
+      expect(
+        records.find((a) => a.action === "knowledge.site_started")?.metadata,
+      ).toMatchObject({ pages: 2, excluded: 0, created: true });
+    });
+
+    it("only owners can use any site action", async () => {
+      publish(1);
+      const source = await siteSource();
+      for (const name of NAMES) {
+        const permission = knowledgeActionPermissions[name]!;
+        expect(can({ role: "owner" }, permission)).toBe(true);
+        expect(can({ role: "editor" }, permission)).toBe(false);
+        expect(can({ role: "viewer" }, permission)).toBe(false);
+      }
+      const before = await counts();
+      for (const as of [project.editor, project.viewer])
+        for (const name of NAMES)
+          await refusal(
+            act(
+              name,
+              name === "knowledge-site-start"
+                ? startInput()
+                : { sourceId: source.id, autoUpdate: false },
+              as,
+            ),
+            "OWNER_REQUIRED",
+          );
+      expect(await counts()).toEqual(before);
+      expect(web.fetched).toEqual([]);
+    });
+
+    it("site actions stay inside their project", async () => {
+      publish(1);
+      const other = await createPackageProject({ name: "Synthetic other" });
+      try {
+        const foreign = await scoped(
+          other.owner.workspaceId,
+          other.owner.projectId,
+          (tx) =>
+            create(tx, other.owner, "sources", {
+              name: "Foreign",
+              type: "gitbook",
+              status: "active",
+              generation: 1,
+              maxAgeHours: 336,
+              site: {
+                rootUrl: ROOT,
+                discovery: "sitemap",
+                excludedPages: [],
+                lastRunId: null,
+              },
+            }),
+        );
+        const notSite = await siteSource({ type: "manual", site: undefined });
+        const before = await counts();
+        for (const sourceId of [foreign.id, notSite.id]) {
+          await refusal(
+            act("knowledge-site-discover", { sourceId }),
+            "KNOWLEDGE_SOURCE_UNAVAILABLE",
+          );
+          await refusal(
+            act("knowledge-site-start", startInput({ sourceId })),
+            "KNOWLEDGE_SOURCE_UNAVAILABLE",
+          );
+          await refusal(
+            act("knowledge-site-refresh", { sourceId }),
+            "KNOWLEDGE_SOURCE_UNAVAILABLE",
+          );
+          await refusal(
+            act("knowledge-site-settings", { sourceId, autoUpdate: false }),
+            "KNOWLEDGE_SOURCE_UNAVAILABLE",
+          );
+        }
+        expect(await counts()).toEqual(before);
+        const unchanged = await scoped(
+          other.owner.workspaceId,
+          other.owner.projectId,
+          async (tx) =>
+            data(await entity(tx, other.owner, "sources", foreign.id)),
+        );
+        expect(unchanged.site.lastRunId).toBeNull();
+      } finally {
+        await other.cleanup();
+      }
+    });
+
+    it("an initial run does not retire pages missing from its list", async () => {
+      publish(1, 2, 3, 4);
+      const source = await siteSource();
+      await read(source.id, [1, 2, 3, 4]);
+      const second = await read(source.id, [1, 2]);
+      expect(second).toMatchObject({ status: "completed", removed: 0 });
+      expect(second.warning).toBeNull();
+      expect(await live(source.id)).toHaveLength(4);
+      // Exclusions are still retired by an initial run.
+      await exclude(source.id, page(4));
+      const third = await read(source.id, [1, 2]);
+      expect(third).toMatchObject({ removed: 1 });
+      expect(await live(source.id)).toHaveLength(3);
     });
   });
 });

@@ -14,6 +14,12 @@ import {
   owner,
 } from "./workspace.ts";
 import { configureGithub, beginGithub } from "./github.ts";
+import {
+  changeSiteSettings,
+  discoverSitePages,
+  refreshSite,
+  startSite,
+} from "./sites.ts";
 import { z } from "zod";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
@@ -121,6 +127,19 @@ export const knowledgeActions: Record<string, ActionHandler> = {
     await owner(scope);
     return beginGithub(scope, input);
   }),
+  // Site sources: discovery and the first batches fetch outside transactions.
+  "knowledge-site-discover": ownTransaction(({ scope, input }) =>
+    discoverSitePages(scope, input),
+  ),
+  "knowledge-site-start": ownTransaction(({ scope, input }) =>
+    startSite(scope, input),
+  ),
+  "knowledge-site-refresh": ownTransaction(({ scope, input }) =>
+    refreshSite(scope, input),
+  ),
+  "knowledge-site-settings": ownTransaction(({ scope, input }) =>
+    changeSiteSettings(scope, input),
+  ),
   // Hybrid retrieval embeds the query outside the project transaction.
   retrieve: ownTransaction(({ scope, input }) =>
     input.useEmbeddings === true

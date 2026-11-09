@@ -228,6 +228,11 @@ describe("renderAttention", () => {
     ["marketing", "marketing_run_problem", { code: "RUN_FAILED" }],
     ["knowledge", "knowledge_source_stale", { name: "Docs" }],
     ["knowledge", "knowledge_source_expiring", { name: "Docs" }],
+    [
+      "knowledge",
+      "knowledge_site_review",
+      { name: "Docs", failed: 2, shrank: false },
+    ],
     ["knowledge", "knowledge_conflicts", {}],
     ["knowledge", "knowledge_import_failed", {}],
     ["platform", "platform_worker_down", {}],
