@@ -1,5 +1,32 @@
 # Implementation status
 
+## Knowledge: whole sites and a short add flow (2026-11-09, branch `claude/wissen-modul-review-3fbb67`, not merged, not deployed)
+
+Spec [2026-11-08-knowledge-sites-and-add-flow-design.md](superpowers/specs/2026-11-08-knowledge-sites-and-add-flow-design.md); behaviour and first-read steps [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Risk high: a background job reads outside sites and changes content automatically. No schema change, no migration, no schema hash, no new dependency. Existing flag `ORBIT_KNOWLEDGE_WORKSPACE`.
+
+- **State:** implemented and tested locally only. Not pushed, not merged, not deployed, not live-accepted. The first GitBook read in production has not happened. Knowledge package 1 (`04d5992b`, recoverable refresh, remove and edit, deep links) is on this branch too and is not live either.
+- **Built:**
+  - Reading sites: same-origin `robots.txt` redirects, XML only through `fetchDiscoveryDocument`, sitemap discovery (one index level, 200 pages), Markdown with HTML fallback.
+  - Durable runs in batches of 20 (`knowledge_site_runs`, queue class `knowledge_site_sync`), weekly update (`syncEveryHours` 168, `maxAgeHours` 336), `retireDocument`, the D-6 removal guard and the attention item `knowledge_site_review`.
+  - Six owner-only actions: `knowledge-site-discover`, `knowledge-site-start`, `knowledge-site-refresh`, `knowledge-site-settings`, `knowledge-content-accept`, `knowledge-analysis-preflight`.
+  - Own task class `knowledge_analysis` (12,000 output tokens, up to 13 statements). The start button is the consent (`confirmModelUse`).
+  - New add flow (what, Content, Use, Result), GitHub App setup on `knowledge/github`, and site runs and analysis outcomes on Sources.
+- **Rulings that shape behaviour:**
+  - A run stopped by a paused source or changed generation ends `failed` with `SOURCE_INACTIVE` (R13).
+  - D-6 counts only pages missing from discovery; when it trips nothing is retired, owner exclusions included (R14).
+  - An `initial` run retires only owner exclusions (R15).
+  - Site sources use authority `official` (R16).
+  - Only AI-configuration blockers link to Settings → AI; `MODEL_USE_FORBIDDEN` links to Sources (R17).
+  - Rights stay on the Use step for all ways; for statements they are review defaults on the draft.
+- **Verification (local, this worktree's own test database):**
+  - `pnpm lint` passes (source guard; import boundaries 0 known, none new), and so does `pnpm typecheck` (API and web).
+  - Whole vitest suite: 557 files passed, 1 skipped; 5,918 tests passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
+  - `pnpm build` passes.
+  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. The worker runs for real; `knowledge-site-discover` and `knowledge-site-start` are stubbed at the network.
+  - Design detector on `apps/web/src/modules/knowledge`: no findings.
+  - Not covered: a real GitBook or any live site, a run on the real worker against a real site (site runs are covered by integration tests with stubbed fetches), a paid model call, a real Support test question. Compose and MCP were not changed, so their conformance tests were not run.
+- **Production:** nothing deployed and no flag changed. Delivery to `main` deploys, so it needs Mario's go-ahead. After that the owner starts the first GitBook read in the UI and checks page count, language split and a Support test question. Weekly updates can be switched off per source, and pausing a source stops a run at once. Rollback is a revert: documents already read stay searchable until `maxAgeHours` passes, then the existing freshness warning appears.
+
 ## Daily social automation on assignments (2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`, not merged, not deployed)
 
 Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md). Extends assignments (no parallel automation); no schema change, no migration, no new dependency.

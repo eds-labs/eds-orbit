@@ -1,6 +1,12 @@
 "use client";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { ChevronRight } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
@@ -430,6 +436,7 @@ export function AnalysisStart({
   onRetry,
   onNewPreview,
   startDisabled = false,
+  back,
   t,
 }: {
   check: Check;
@@ -438,6 +445,8 @@ export function AnalysisStart({
   onStart: () => void;
   onRetry: () => void;
   onNewPreview: () => void;
+  /** The step's way back, shown beside the start button. */
+  back?: ReactNode;
   t: KnowledgeCopy;
 }) {
   const { locale } = useWorkspace();
@@ -493,7 +502,8 @@ export function AnalysisStart({
       {result?.ready && result.model && result.proposalLimit > 0 && (
         <p>{t.proposalLimit.replace("{n}", String(result.proposalLimit))}</p>
       )}
-      <div>
+      <div className="form-actions">
+        {back}
         <Button
           className="knowledge-start"
           disabled={busy || startDisabled || !result?.ready}
@@ -916,6 +926,15 @@ function Flow({
       />
     </Field>
   );
+  const backToContent = (
+    <Button
+      variant="outline"
+      disabled={busy}
+      onClick={() => goBack("content")}
+    >
+      {t.back}
+    </Button>
+  );
   return (
     <div className="knowledge-workspace stack-gap">
       <header className="knowledge-heading">
@@ -1145,10 +1164,12 @@ function Flow({
                   setCheckAttempt((n) => n + 1);
                 }}
                 onNewPreview={() => void prepareAi()}
+                back={backToContent}
                 t={t}
               />
             ) : (
-              <div>
+              <div className="form-actions">
+                {backToContent}
                 <Button
                   disabled={busy || noAudience}
                   onClick={
@@ -1170,15 +1191,6 @@ function Flow({
                 </Button>
               </div>
             )}
-            <div className="form-actions">
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => goBack("content")}
-              >
-                {t.back}
-              </Button>
-            </div>
           </>
         )}
         {step === "result" && outcome && (

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { KnowledgeWorkspaceGate } from "./workspace";
 import { WorkspaceError, analysisRunning } from "./workspace-parts";
@@ -546,7 +547,11 @@ describe("add flow", () => {
       />,
       locale,
     );
-  const start = (check: Check, locale: "de" | "en" = "de") =>
+  const start = (
+    check: Check,
+    locale: "de" | "en" = "de",
+    back?: ReactNode,
+  ) =>
     inContext(
       <AnalysisStart
         check={check}
@@ -554,6 +559,7 @@ describe("add flow", () => {
         onStart={() => {}}
         onRetry={() => {}}
         onNewPreview={() => {}}
+        back={back}
         t={knowledgeCopy[locale]}
       />,
       locale,
@@ -579,6 +585,13 @@ describe("add flow", () => {
   });
   const startButton = (html: string) =>
     /<button[^>]*knowledge-start[^>]*>.*?<\/button>/.exec(html)?.[0] ?? "";
+
+  it("keeps the way back in the start button's row", () => {
+    const html = start({ state: "preparing" }, "de", <a href="#back">Zurück</a>);
+    expect(html).toMatch(
+      /<div class="form-actions"><a href="#back">Zurück<\/a><button[^>]*knowledge-start/,
+    );
+  });
 
   it("asks what to add first", () => {
     const html = render("import");
