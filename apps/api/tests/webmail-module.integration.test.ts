@@ -985,12 +985,15 @@ describe.skipIf(!enabled)("webmail module", () => {
       ]);
     });
 
-    it("drops them without live sending", async () => {
+    it("drops what writes to the provider without live sending", async () => {
       const { mailboxId } = await seedMailbox();
       await grant(mailboxId, ids.editor);
       const { handle } = await seedSession(mailboxId, ids.editor);
       process.env.EXECUTION_MODE = "test";
-      expect((await authorize(handle)).json().capabilities).toEqual(["read"]);
+      expect((await authorize(handle)).json().capabilities).toEqual([
+        "read",
+        "convert",
+      ]);
     });
 
     it("refuses a forged and an unknown handle", async () => {

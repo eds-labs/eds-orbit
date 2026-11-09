@@ -42,6 +42,7 @@ import { registerAgentSpecialists } from "../src/modules/agents/specialists/inde
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { socialContributions } from "../src/modules/social/contributions.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
+import { webmailRetention } from "../src/modules/webmail/maintenance.ts";
 import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
@@ -200,6 +201,7 @@ describe("module contributions", () => {
     // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
       platformContributions.retention,
+      webmailRetention,
       marketingRetention,
     ]);
   });

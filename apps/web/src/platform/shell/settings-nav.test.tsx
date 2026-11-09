@@ -269,6 +269,7 @@ describe("module settings links in the sidebar", () => {
       ["work", "work"],
       ["issues", "issues"],
       ["social", undefined],
+      ["webmail", "integrations"],
     ]);
   });
 

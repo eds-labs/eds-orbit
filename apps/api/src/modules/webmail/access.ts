@@ -48,13 +48,19 @@ export async function operatingState(
   return { live: liveSending(), paused: project?.paused !== false };
 }
 
-/** The capabilities a session has right now; reading alone survives a stop. */
+/**
+ * The capabilities a session has right now. Reading survives a stop. A pause
+ * stops everything else; sending not being live stops only what writes to the
+ * mail provider, and a takeover writes to Orbit alone.
+ */
 export function effectiveCapabilities(
   capabilities: Capabilities,
   state: OperatingState,
 ): Capabilities {
-  if (state.live && !state.paused) return capabilities;
-  return { ...capabilities, send: false, organize: false, convert: false };
+  if (state.paused)
+    return { ...capabilities, send: false, organize: false, convert: false };
+  if (!state.live) return { ...capabilities, send: false, organize: false };
+  return capabilities;
 }
 
 export const sessionCapabilities = (

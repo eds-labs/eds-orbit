@@ -37,6 +37,10 @@ Object.assign(process.env, {
   ORBIT_ISSUES: "true",
   // Social module (ADR 0020): routes exist; the project never enables it.
   ORBIT_SOCIAL: "true",
+  // Webmail (ADR 0026): routes exist; the project never enables it.
+  ORBIT_WEBMAIL: "true",
+  WEBMAIL_ORIGIN: "https://webmail.example.invalid",
+  WEBMAIL_BRIDGE_SECRET: "synthetic-bridge-secret-with-enough-length",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
