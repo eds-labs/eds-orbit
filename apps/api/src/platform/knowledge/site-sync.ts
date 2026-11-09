@@ -9,6 +9,8 @@ import {
 
 export const MAX_SITE_PAGES = 200;
 const MAX_CHILD_SITEMAPS = 10;
+/** Definite answers that a sitemap address holds no sitemap, e.g. `200 text/html`. */
+const NO_SITEMAP = ["SOURCE_NOT_FOUND", "UNSUPPORTED_MIME"];
 
 export type SitePage = { url: string; language: string };
 export type SiteDiscovery = {
@@ -131,8 +133,8 @@ export async function discoverSite(
     try {
       found = await readSitemapUrls(candidate, rootUrl, fetchDiscovery);
     } catch (error) {
-      // Only "not found" says there is no sitemap here.
-      if ((error as { code?: unknown })?.code !== "SOURCE_NOT_FOUND")
+      // Any other error means discovery could not look at this address.
+      if (!NO_SITEMAP.includes(String((error as { code?: unknown })?.code)))
         complete = false;
       continue;
     }

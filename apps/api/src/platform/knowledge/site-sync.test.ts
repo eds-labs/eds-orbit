@@ -196,6 +196,22 @@ describe("discoverSite", () => {
     });
   });
 
+  it("treats a non-XML answer at a sitemap address as no sitemap", async () => {
+    const root = "https://docs.example.com/help/";
+    const requested: string[] = [];
+    const site = await discoverSite(root, options, {
+      fetchDiscovery: async (url) => {
+        requested.push(url);
+        throw new KnowledgeError("UNSUPPORTED_MIME");
+      },
+    });
+    expect(requested).toEqual([
+      `${root}sitemap.xml`,
+      "https://docs.example.com/sitemap.xml",
+    ]);
+    expect(site).toMatchObject({ discovery: "single", complete: true });
+  });
+
   it("reads /en/ pages as English when en is a content language", async () => {
     const { fetchDiscovery } = sitemaps({
       [`${ROOT}sitemap.xml`]: urlset(`${ROOT}en/start`, `${ROOT}de/start`),
