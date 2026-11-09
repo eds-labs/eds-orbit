@@ -169,6 +169,10 @@ The social module (`docs/SOCIAL.md`, ADR 0020) follows the same pattern: `defaul
 
 Switching it off deletes nothing.
 
+## Webmail (opt-in, 2026-11-09, branch only; flag off)
+
+[ADR 0026](adr/0026-webmail-module.md). `ORBIT_WEBMAIL` switches it on for the installation, a project owner enables the module, and `WebmailMailboxGrant` alone decides who reaches a mailbox: no grant means no access, for owners included. `webmail.use` opens the module, `webmail.settings` (owner) opens mailboxes for it. A Finance-owned mailbox also needs `finance.settings`. Taking a message over needs the Support module and `support.tickets.import`, checked with the member's role in Support, not in Webmail. Switching webmail off deletes nothing and revokes nothing until a session's next request, which is then refused.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

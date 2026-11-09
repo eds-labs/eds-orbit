@@ -152,6 +152,16 @@ The channel uses the project's mailboxes from WP4.7 (`ORBIT_EMAIL`, SMTP and IMA
 - **Mailboxes in use.** A mailbox a live inbox answers from cannot be removed (`EMAIL_MAILBOX_IN_USE`); move the inbox to another mailbox or archive it first. Removing a mailbox unbinds the archived inboxes that used it.
 - **Not in the MVP.** HTML bodies are not kept; the text part is. A reply token in the address (`support+token@`) is not used, because the mailbox may not support plus-addressing.
 
+## Taking over a mailbox message (ADR 0026)
+
+A member with the `convert` right on a webmail mailbox and `support.tickets.import` (owner, editor) can turn a message into a ticket or add it to one, through the platform contribution `emailImport` (`modules/support/email-import.ts`). The server reads the message again from the mailbox; the browser supplies only a reference.
+
+- `channel` stays `"email"` and `SupportTicket.importSource` is `"mailbox_import"` on tickets created this way. The takeover sends no customer mail and starts no AI run or agent; assignment and notifications work as usual.
+- A takeover is idempotent per mailbox and message. A message Support already has links to its ticket, following merges; a Message-ID from a different sender gets its own ticket instead of attaching to a foreign one.
+- Replies leave from the target inbox's verified mailbox. Only email inboxes with one are offered. A customer answering the original address is threaded into an imported ticket while it is not closed.
+- Imported tickets do not count towards the per-sender limit on new tickets, and a person may reply to one even if the original looks automatic. The MCP route may not.
+- Limits are those of the channel: 10 MB per message, the allowed attachment types, at most 10 attachments. The dialog reports how many were skipped.
+
 ## Livechat widget (WP5.4)
 
 The widget's public API lives at `/api/public/support/<publicKey>/…`. It is mounted by the platform (WP4.2b) and needs `ORBIT_PUBLIC_INGRESS`; live updates need `ORBIT_REALTIME`. App teams: see `docs/SUPPORT_WIDGET.md`.

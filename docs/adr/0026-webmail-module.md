@@ -50,7 +50,9 @@ Cookie and iframe behaviour in real Safari with Intelligent Tracking Prevention 
 
 - Monthly Roundcube security updates become an operational duty; the image is pinned by digest.
 - Read and write restrictions are enforced in the application, not at the IMAP server.
-- One active webmail session per browser. Messages above the existing 10 MB inbound limit cannot be converted. Replies sent from Roundcube are not ticket replies.
+- One active webmail session per browser: a second tab that opens another mailbox takes the session over, and the first tab learns this at its next takeover. Messages above the existing 10 MB inbound limit cannot be converted. Replies sent from Roundcube are not ticket replies.
+- Members share one Roundcube user per mailbox. Their sending and removing of mail is attributed through content-free audit rows from `session/authorize`.
+- `sensitive` on a mailbox is a visible label; what protects a mailbox is its grants and, for Finance-owned ones, `finance.settings`.
 - Deleting or moving a brand-new message can be refused for a moment, and is refused while the project's file quota is exhausted.
 
 ## Alternatives considered
