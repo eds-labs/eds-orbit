@@ -177,6 +177,10 @@ export const knowledgeCopy = {
     readContents: "Inhalte einlesen",
     manageSource: "Inhalte verwalten",
     pause: "Pausieren",
+    moreMenu: "Mehr",
+    rowReview: "Prüfen",
+    rowUpdate: "Aktualisieren",
+    rowContinueSetup: "Weiter einrichten",
     removeSourceTitle: "Quelle entfernen?",
     removeSourceHint:
       "Die leere Quelle wird dauerhaft entfernt. Inhalte gehen dabei nicht verloren.",
@@ -456,6 +460,10 @@ export const knowledgeCopy = {
     readContents: "Read in content",
     manageSource: "Manage content",
     pause: "Pause",
+    moreMenu: "More",
+    rowReview: "Review",
+    rowUpdate: "Update",
+    rowContinueSetup: "Continue setup",
     removeSourceTitle: "Remove this source?",
     removeSourceHint:
       "The empty source is removed permanently. No content is lost.",

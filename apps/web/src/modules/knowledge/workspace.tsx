@@ -2,7 +2,6 @@
 import { useSearchParams } from "next/navigation";
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -10,19 +9,15 @@ import {
 } from "react";
 import {
   Plus,
-  RefreshCw,
   ExternalLink,
   CheckCircle2,
-  Pause,
   Pencil,
-  Play,
   RotateCcw,
   Trash2,
 } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
 import { AppLink } from "@/platform/ui/app-link";
-import { cn } from "@/lib/utils";
 import { action, useResource, useMutation, when, type Entity } from "@/lib/api";
 import {
   Alert,
@@ -42,21 +37,16 @@ import {
 } from "./workspace-text";
 import { KnowledgeAddFlow } from "./add-flow";
 import { KnowledgeGithubPage } from "./github-page";
+import { SourceList } from "./source-list";
 import {
   analysisRunning,
   Field,
-  costText,
-  listedSources,
   siteRunActive,
-  SiteRunSummary,
-  visibleDrafts,
   WorkspaceError,
   type Preview,
   type Summary,
 } from "./workspace-parts";
 import type { KnowledgeTab } from "./knowledge";
-import { sourceExpiry } from "./overview";
-import { useIndexStatus, type SourceIndexStatus } from "./index-status";
 
 const topics = [
   "description",
@@ -351,385 +341,7 @@ function LegacyExpert({ tab }: { tab: KnowledgeTab }) {
     </p>
   );
 }
-function SourceList({
-  data,
-  refresh,
-  t,
-}: {
-  data: Summary;
-  refresh: () => void;
-  t: KnowledgeCopy;
-}) {
-  const { project, locale, isOwner, revision } = useWorkspace();
-  const shell = useShell();
-  const mutation = useMutation(refresh);
-  const index = useIndexStatus(project.id, revision);
-  const focused = useSearchParams()?.get("source") ?? null;
-  const [confirmRefresh, setConfirmRefresh] = useState<Entity | null>(null);
-  const drafts = visibleDrafts(data.drafts);
-  useEffect(() => {
-    if (!focused) return;
-    const row = document.getElementById(`knowledge-source-${focused}`);
-    row?.scrollIntoView({ block: "center" });
-    row?.focus({ preventScroll: true });
-  }, [focused]);
-  const refreshSource = async (d: Entity) => {
-    setConfirmRefresh(null);
-    const p = await mutation.run(() =>
-      action<Preview>(project.id, "knowledge-draft-preview", { draftId: d.id }),
-    );
-    if (p)
-      window.location.assign(
-        `${shell.hrefOf("knowledge-import")}?draft=${d.id}&preview=${p.id}`,
-      );
-  };
-  return (
-    <section className="stack-gap">
-      {!drafts.length && !data.sources.length && (
-        <Empty title={t.noSources} description={t.emptyHint} />
-      )}
-      {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
-      {confirmRefresh && (
-        <Modal
-          title={t.refreshTitle}
-          description={t.refreshHint}
-          onClose={() => setConfirmRefresh(null)}
-        >
-          <div className="form-actions">
-            <Button variant="outline" onClick={() => setConfirmRefresh(null)}>
-              {t.cancel}
-            </Button>
-            <Button
-              disabled={mutation.pending}
-              onClick={() => refreshSource(confirmRefresh)}
-            >
-              {t.refreshConfirm}
-            </Button>
-          </div>
-        </Modal>
-      )}
-      {drafts.map((d) => {
-        const i = d.data.input as KnowledgeDraft;
-        const active = data.runs.find((r) => r.id === d.data.activeRunId);
-        // Runs arrive newest first; only the latest one's outcome still counts.
-        const latest = data.runs.find((r) => r.data.draftId === d.id);
-        const failed =
-          !active && ["failed", "unknown"].includes(String(latest?.data.status))
-            ? latest
-            : undefined;
-        // "Read successfully before": the draft has a successful read date, or
-        // one of its runs completed. Either way there is something to edit.
-        const readBefore =
-          Boolean(d.data.lastSuccessfulSyncAt) ||
-          data.runs.some(
-            (r) => r.data.draftId === d.id && r.data.status === "completed",
-          );
-        const outcome =
-          !active && latest?.data.status === "completed" ? latest : undefined;
-        const status =
-          active?.data.status ??
-          failed?.data.status ??
-          (d.data.status === "draft" && d.data.lastSuccessfulSyncAt
-            ? "ready"
-            : d.data.status);
-        return (
-          <article className="knowledge-source" key={d.id}>
-            <div>
-              <h2>{i.name}</h2>
-              <p>
-                {t[i.kind]}
-                {i.repository ? ` · ${i.repository}` : ""}
-              </p>
-              <Badge tone={failed ? "danger" : "neutral"}>
-                {workspaceStatus(String(status), t)}
-              </Badge>
-              <p>
-                {t.lastRead}: {when(d.data.lastSuccessfulSyncAt, locale)}
-              </p>
-              {active && <p role="status">{t.runningHint}</p>}
-              {outcome && typeof outcome.data.proposalCount === "number" && (
-                <p>
-                  {t.analysisProposals.replace(
-                    "{n}",
-                    String(outcome.data.proposalCount),
-                  )}
-                  {Number(outcome.data.costMicros) > 0 &&
-                    ` · ${t.analysisCost.replace("{cost}", costText(Number(outcome.data.costMicros), t))}`}
-                </p>
-              )}
-              {outcome && Number(outcome.data.droppedProposals) > 0 && (
-                <p>
-                  {t.analysisDropped.replace(
-                    "{n}",
-                    String(outcome.data.droppedProposals),
-                  )}
-                </p>
-              )}
-              {failed && (
-                <WorkspaceError code={String(failed.data.error ?? "")} t={t} />
-              )}
-              {data.proposals.some((p) => p.data.draftId === d.id) && (
-                <details>
-                  <summary>{t.history}</summary>
-                  {data.proposals
-                    .filter((p) => p.data.draftId === d.id)
-                    .map((p) => (
-                      <Proposal
-                        key={p.id}
-                        proposal={p}
-                        review={false}
-                        refresh={refresh}
-                        t={t}
-                      />
-                    ))}
-                </details>
-              )}
-            </div>
-            {isOwner && (
-              <div className="form-actions">
-                <Button
-                  variant="outline"
-                  disabled={mutation.pending || Boolean(active)}
-                  onClick={() => setConfirmRefresh(d)}
-                >
-                  <RefreshCw aria-hidden="true" />
-                  {t.update}
-                </Button>
-                <AppLink
-                  className="text-link"
-                  href={`${shell.hrefOf("knowledge-import")}?draft=${d.id}`}
-                >
-                  {readBefore ? t.edit : t.resume}
-                </AppLink>
-              </div>
-            )}
-          </article>
-        );
-      })}
-      {listedSources(data.sources).map((s) => (
-        <ManagedSource
-          key={s.id}
-          source={s}
-          index={index.byId.get(s.id)}
-          hasFacts={data.facts.some(
-            (f) => f.data.sourceId === s.id && f.data.status !== "revoked",
-          )}
-          siteRun={data.siteRuns?.find((r) => r.data.sourceId === s.id)}
-          focused={focused === s.id}
-          refresh={() => {
-            refresh();
-            index.refresh();
-          }}
-          t={t}
-        />
-      ))}
-    </section>
-  );
-}
-/**
- * A source that is maintained directly rather than through the review flow:
- * its one current state, what that means, and the owner's next step.
- */
-function ManagedSource({
-  source: s,
-  index,
-  hasFacts,
-  siteRun,
-  focused,
-  refresh,
-  t,
-}: {
-  source: Entity;
-  index: SourceIndexStatus | undefined;
-  hasFacts: boolean;
-  /** The source's latest site read, when it is a GitBook or website source. */
-  siteRun?: Entity;
-  focused: boolean;
-  refresh: () => void;
-  t: KnowledgeCopy;
-}) {
-  const { project, locale, isOwner } = useWorkspace();
-  const shell = useShell();
-  const mutation = useMutation(refresh);
-  const [removing, setRemoving] = useState(false);
-  const [alreadyRunning, setAlreadyRunning] = useState(false);
-  const now = useMemo(() => Date.now(), [s]);
-  const isSite = ["gitbook", "website"].includes(String(s.data.type));
-  // Read now and weekly updates need the page list of a first read.
-  const hasSite = Boolean(s.data.site);
-  const reading = siteRun ? siteRunActive(siteRun.data.status) : false;
-  const weekly = Number(s.data.syncEveryHours ?? 0) > 0;
-  const paused = s.data.status === "paused";
-  const expiry = sourceExpiry(s.data, now);
-  const empty = index?.documents === 0;
-  const date = expiry.expiresAt
-    ? when(expiry.expiresAt.toISOString(), locale)
-    : "";
-  const state = paused
-    ? { label: t.paused, tone: "neutral" as const, hint: t.pausedHint }
-    : expiry.state === "stale" && !expiry.expiresAt
-      ? {
-          label: t.neverRead,
-          tone: "danger" as const,
-          hint: empty ? t.neverReadEmpty : t.neverReadHint,
-        }
-      : expiry.state === "stale"
-        ? {
-            label: t.staleSource,
-            tone: "danger" as const,
-            hint: t.staleHint.replace("{date}", date),
-          }
-        : expiry.state === "expiring"
-          ? {
-              label: t.expiringSource,
-              tone: "warning" as const,
-              hint: t.expiringHint.replace("{date}", date),
-            }
-          : expiry.state === "manual"
-            ? { label: t.manualSource, tone: "neutral" as const, hint: "" }
-            : { label: t.freshSource, tone: "success" as const, hint: "" };
-  const setPaused = (next: boolean) =>
-    mutation.run(() =>
-      action(project.id, "source-pause", { sourceId: s.id, paused: next }),
-    );
-  const readNow = async () => {
-    setAlreadyRunning(false);
-    const known = (s.data.site as { lastRunId?: string } | undefined)
-      ?.lastRunId;
-    const run = await mutation.run(() =>
-      action<Entity>(project.id, "knowledge-site-refresh", { sourceId: s.id }),
-    );
-    // An active run comes back as it is; it is not a new start.
-    if (run && run.id === known) setAlreadyRunning(true);
-  };
-  const setWeekly = (autoUpdate: boolean) =>
-    mutation.run(() =>
-      action(project.id, "knowledge-site-settings", {
-        sourceId: s.id,
-        autoUpdate,
-      }),
-    );
-  const remove = async () => {
-    setRemoving(false);
-    await mutation.run(() =>
-      action(project.id, "revoke-source", { sourceId: s.id }),
-    );
-  };
-  return (
-    <article
-      id={`knowledge-source-${s.id}`}
-      tabIndex={-1}
-      className={cn("knowledge-source", focused && "knowledge-source-focused")}
-    >
-      <div>
-        <h2>{String(s.data.name)}</h2>
-        <Badge tone={state.tone}>{state.label}</Badge>
-        {state.hint && <p>{state.hint}</p>}
-        <p>
-          {t.lastRead}: {when(s.data.lastSuccessfulSyncAt, locale)}
-        </p>
-        {isSite && siteRun && <SiteRunSummary run={siteRun} t={t} />}
-        {isSite && <p>{weekly ? t.weeklyIsOn : t.weeklyIsOff}</p>}
-        {alreadyRunning && <Alert>{t.siteAlreadyRunning}</Alert>}
-        {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
-      </div>
-      <div className="form-actions">
-        {hasSite && isOwner && !paused && (
-          <Button
-            variant="outline"
-            disabled={mutation.pending || reading}
-            onClick={readNow}
-          >
-            <RefreshCw aria-hidden="true" />
-            {reading ? t.readNowRunning : t.readNow}
-          </Button>
-        )}
-        {hasSite && isOwner && (
-          <label className="knowledge-weekly">
-            <input
-              type="checkbox"
-              checked={weekly}
-              disabled={mutation.pending}
-              onChange={(e) => setWeekly(e.target.checked)}
-            />
-            {t.weeklySwitch}
-          </label>
-        )}
-        {isSite && isOwner && !paused && !reading && (
-          <AppLink
-            className="text-link"
-            href={`${shell.hrefOf("knowledge-import")}?site=${s.id}`}
-          >
-            {t.readContents}
-          </AppLink>
-        )}
-        {index && !empty && (
-          <AppLink
-            className="text-link"
-            href={`${shell.hrefOf("knowledge-library")}?source=${s.id}`}
-          >
-            {t.library}
-          </AppLink>
-        )}
-        {isOwner && index && (!isSite || !empty) && (
-          <AppLink
-            className="text-link"
-            href={`${shell.hrefOf("knowledge-sources")}?expert=1&source=${s.id}`}
-          >
-            {empty ? t.readContents : t.manageSource}
-          </AppLink>
-        )}
-        {isOwner && paused && (
-          <Button
-            variant="outline"
-            disabled={mutation.pending}
-            onClick={() => setPaused(false)}
-          >
-            <Play aria-hidden="true" />
-            {t.resume}
-          </Button>
-        )}
-        {isOwner && index && !paused && !empty && (
-          <Button
-            variant="outline"
-            disabled={mutation.pending}
-            onClick={() => setPaused(true)}
-          >
-            <Pause aria-hidden="true" />
-            {t.pause}
-          </Button>
-        )}
-        {isOwner && empty && !hasFacts && (
-          <Button
-            variant="ghost"
-            disabled={mutation.pending}
-            onClick={() => setRemoving(true)}
-          >
-            <Trash2 aria-hidden="true" />
-            {t.remove}
-          </Button>
-        )}
-      </div>
-      {removing && (
-        <Modal
-          title={t.removeSourceTitle}
-          description={t.removeSourceHint}
-          onClose={() => setRemoving(false)}
-        >
-          <div className="form-actions">
-            <Button variant="outline" onClick={() => setRemoving(false)}>
-              {t.cancel}
-            </Button>
-            <Button variant="destructive" onClick={remove}>
-              {t.remove}
-            </Button>
-          </div>
-        </Modal>
-      )}
-    </article>
-  );
-}
-function Proposal({
+export function Proposal({
   proposal: p,
   review,
   rights,

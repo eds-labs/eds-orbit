@@ -352,9 +352,12 @@ describe("source list", () => {
     response.value.drafts = [
       draft({ status: "draft", lastSuccessfulSyncAt: "2026-10-24T17:39:00Z" }),
     ];
+    response.value.runs = [
+      { id: "r", data: { draftId: "d", status: "completed" } },
+    ];
     const html = render("sources");
-    expect(html).toContain("Gelesen");
-    expect(html).not.toContain("Noch nicht gelesen");
+    expect(html).toContain("Aktuell");
+    expect(html).not.toContain("Nicht fertig");
   });
   it("keeps the reason of a failed analysis visible", () => {
     response.value.drafts = [draft({ status: "failed" })];
@@ -394,6 +397,103 @@ describe("source list", () => {
     expect(render("sources")).not.toMatch(
       /Dokumente und Versionen<\/a>(<!-- -->)?<a[^>]*>Dokumente und Versionen/,
     );
+  });
+});
+
+describe("source rows", () => {
+  const siteSource = (over: Record<string, unknown> = {}) => ({
+    id: "g",
+    data: {
+      name: "Docs",
+      type: "gitbook",
+      status: "active",
+      site: { rootUrl: "https://docs.test/" },
+      ...over,
+    },
+  });
+  const rowDraft = (kind: string, over: Record<string, unknown> = {}) => ({
+    id: "d",
+    version: 1,
+    data: { status: "draft", input: { name: "Repo", kind }, ...over },
+  });
+  const done = [{ id: "r", data: { draftId: "d", status: "completed" } }];
+  const days = (n: number) =>
+    new Date(Date.now() - n * 86_400_000).toISOString();
+  it("a row shows one primary control and its status", () => {
+    response.value.sources = [siteSource()];
+    response.value.indexStatus = [{ sourceId: "g", documents: 3 }];
+    const html = render("sources");
+    expect(html).toContain('id="knowledge-source-g"');
+    expect(html).toContain("Noch nie abgerufen");
+    expect(html).toContain("Inhalte einlesen");
+    expect(html.match(/Inhalte einlesen/g)).toHaveLength(1);
+    expect(html).toContain("Mehr");
+  });
+  it("a reader sees status without actions", () => {
+    response.value.sources = [siteSource()];
+    response.value.indexStatus = [{ sourceId: "g", documents: 3 }];
+    const html = render("sources", false);
+    expect(html).toContain("Noch nie abgerufen");
+    expect(html).not.toContain("Inhalte einlesen");
+    expect(html).not.toContain("Pausieren");
+    expect(html).toContain("Dokumente und Versionen");
+  });
+  it("a failed draft keeps its reason", () => {
+    response.value.drafts = [rowDraft("github")];
+    response.value.runs = [
+      {
+        id: "r",
+        data: {
+          draftId: "d",
+          status: "failed",
+          error: "KNOWLEDGE_ANALYSIS_FAILED",
+        },
+      },
+    ];
+    const html = render("sources");
+    expect(html).toContain("Die Analyse konnte nicht");
+    expect(html).toContain("Erneut versuchen");
+  });
+  it("a GitHub draft read 30 days ago offers Update", () => {
+    response.value.drafts = [
+      rowDraft("github", { lastSuccessfulSyncAt: days(30) }),
+    ];
+    response.value.runs = done;
+    const html = render("sources");
+    expect(html).toContain("Länger nicht gelesen");
+    expect(html).toContain("Aktualisieren");
+  });
+  it("text drafts offer no Update", () => {
+    response.value.drafts = [
+      rowDraft("manual", { lastSuccessfulSyncAt: days(90) }),
+    ];
+    response.value.runs = done;
+    expect(render("sources")).not.toContain("Aktualisieren");
+  });
+  it("?source focuses a draft row too", () => {
+    response.value.drafts = [rowDraft("github")];
+    nav.search = "source=d";
+    const html = render("sources");
+    expect(html).toContain('id="knowledge-source-d"');
+    expect(html).toContain("knowledge-source-focused");
+  });
+  it("keeps the repository next to a draft's kind", () => {
+    response.value.drafts = [
+      {
+        ...rowDraft("github"),
+        data: {
+          status: "draft",
+          input: { name: "Repo", kind: "github", repository: "eds/orbit" },
+        },
+      },
+    ];
+    expect(render("sources")).toContain("eds/orbit");
+  });
+  it("lists history for a draft with proposals in More", () => {
+    response.value.drafts = [rowDraft("github")];
+    response.value.runs = done;
+    response.value.proposals = [{ ...confirmed({ draftId: "d" }), id: "p1" }];
+    expect(render("sources")).toContain("Entscheidungsverlauf");
   });
 });
 
@@ -550,11 +650,7 @@ describe("add flow", () => {
       />,
       locale,
     );
-  const start = (
-    check: Check,
-    locale: "de" | "en" = "de",
-    back?: ReactNode,
-  ) =>
+  const start = (check: Check, locale: "de" | "en" = "de", back?: ReactNode) =>
     inContext(
       <AnalysisStart
         check={check}
@@ -590,7 +686,11 @@ describe("add flow", () => {
     /<button[^>]*knowledge-start[^>]*>.*?<\/button>/.exec(html)?.[0] ?? "";
 
   it("keeps the way back in the start button's row", () => {
-    const html = start({ state: "preparing" }, "de", <a href="#back">Zurück</a>);
+    const html = start(
+      { state: "preparing" },
+      "de",
+      <a href="#back">Zurück</a>,
+    );
     expect(html).toMatch(
       /<div class="form-actions"><a href="#back">Zurück<\/a><button[^>]*knowledge-start/,
     );
@@ -1299,10 +1399,7 @@ describe("add flow", () => {
     ];
     expect(
       excludedForStart(
-        new Set([
-          "https://x.test/old",
-          "https://x.test/b",
-        ]),
+        new Set(["https://x.test/old", "https://x.test/b"]),
         pages,
       ),
     ).toEqual(["https://x.test/b", "https://x.test/old"]);
@@ -1419,11 +1516,11 @@ describe("site runs and analysis outcomes", () => {
   it("offers read now and the weekly switch to owners only", () => {
     setup();
     const owner = render("sources");
-    expect(owner).toContain("Jetzt lesen");
+    expect(owner).toContain("Aktualisieren");
     expect(owner).toContain("Jede Woche automatisch aktualisieren");
     expect(owner).toMatch(/type="checkbox"[^>]*checked/);
     const reader = render("sources", false);
-    expect(reader).not.toContain("Jetzt lesen");
+    expect(reader).not.toContain("Aktualisieren");
     expect(reader).not.toContain("Jede Woche automatisch aktualisieren");
     expect(reader).not.toContain('type="checkbox"');
     expect(reader).toContain("Wird jede Woche automatisch aktualisiert.");
@@ -1439,9 +1536,8 @@ describe("site runs and analysis outcomes", () => {
   it("disables read now and offers no way in while a run is active", () => {
     setup({ status: "running", cursor: 5 });
     const html = render("sources");
-    expect(html).toMatch(
-      /<button[^>]*disabled[^>]*>(<svg.*?<\/svg>)?Wird gelesen/,
-    );
+    expect(html).toContain("Wird gelesen");
+    expect(html).not.toContain("Aktualisieren");
     expect(html).not.toContain("?site=g");
   });
   it("read in content opens the page selection for gitbook and website sources", () => {
@@ -1458,7 +1554,7 @@ describe("site runs and analysis outcomes", () => {
     const html = render("sources");
     expect(html).toContain("expert=1&amp;source=g");
     expect(html).not.toContain("import?site=");
-    expect(html).not.toContain("Jetzt lesen");
+    expect(html).not.toContain("Aktualisieren");
   });
   it("explains a shrunk site and failed pages in plain words", () => {
     setup({
@@ -1600,7 +1696,7 @@ describe("site runs and analysis outcomes", () => {
     response.value.runs[0].data.droppedProposals = 0;
     expect(render("sources")).not.toContain("verworfen,");
   });
-  it("calls a previously read draft's action Edit, an unread one's Resume", () => {
+  it("calls an unfinished draft's action Continue setup, a finished one's Edit", () => {
     const draft = (data: Record<string, unknown>) => ({
       id: "d",
       version: 1,
@@ -1611,18 +1707,15 @@ describe("site runs and analysis outcomes", () => {
       },
     });
     response.value.drafts = [draft({})];
-    expect(render("sources")).toContain("Fortsetzen");
-    response.value.drafts = [
-      draft({ lastSuccessfulSyncAt: "2026-11-01T10:00:00Z" }),
-    ];
     let html = render("sources");
-    expect(html).toContain("Bearbeiten");
-    expect(html).not.toContain("Fortsetzen");
+    expect(html).toContain("Weiter einrichten");
+    expect(html).not.toContain("Bearbeiten");
     response.value.drafts = [draft({})];
     response.value.runs = [
       { id: "r", data: { draftId: "d", status: "completed" } },
     ];
     html = render("sources");
     expect(html).toContain("Bearbeiten");
+    expect(html).not.toContain("Weiter einrichten");
   });
 });

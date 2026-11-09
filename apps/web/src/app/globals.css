@@ -6833,6 +6833,67 @@ a.support-row {
 .knowledge-source p {
   overflow-wrap: anywhere;
 }
+.knowledge-source {
+  flex-wrap: wrap;
+}
+.knowledge-source-body {
+  flex: 1 1 320px;
+}
+.knowledge-source-actions {
+  align-items: center;
+}
+.knowledge-source-history {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.knowledge-more {
+  position: relative;
+}
+.knowledge-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.knowledge-more > summary::-webkit-details-marker {
+  display: none;
+}
+.knowledge-more-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px #0f2a4420;
+}
+.knowledge-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #2c3e52;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.knowledge-more-item:hover {
+  background: #eef5fd;
+  color: #2c3e52;
+}
+.knowledge-more-item svg {
+  width: 16px;
+  height: 16px;
+}
 .knowledge-advanced {
   border-top: 1px solid #dceaf4;
   margin-top: 28px;
@@ -7333,9 +7394,15 @@ a.support-row {
   }
 }
 
-.marketing-plans-page .page-actions { flex-wrap: wrap; }
+.marketing-plans-page .page-actions {
+  flex-wrap: wrap;
+}
 @media (max-width: 760px) {
-  .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
+  .marketing-plans-page .page-actions > .button {
+    flex: 1 0 100%;
+    width: 100%;
+    white-space: normal;
+  }
 }
 /* System administration, organization settings and account (ADR 0013). */
 .admin-main {
