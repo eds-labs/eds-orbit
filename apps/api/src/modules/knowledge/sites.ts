@@ -21,7 +21,12 @@ import {
   list,
   update,
 } from "../../shared.ts";
-import { audiencesOf, lockKnowledge, owner } from "./workspace.ts";
+import {
+  audiencesOf,
+  lockKnowledge,
+  owner,
+  replaceDraft,
+} from "./workspace.ts";
 
 // Owner actions for site sources (spec "Add flow"). Every action rechecks the
 // owner and works inside the scope it receives. Discovery fetches outside any
@@ -47,6 +52,8 @@ export const siteStartInput = z
     publicUse: z.boolean(),
     modelUse: z.boolean(),
     language: schemas.languageCode,
+    // The draft this take-over replaces, made while the owner chose a way.
+    draftId: schemas.id.optional(),
   })
   .strict();
 export const siteRefreshInput = z.object({ sourceId: schemas.id }).strict();
@@ -232,7 +239,7 @@ export async function startSite(scope: Scope, raw: unknown) {
           data(r).sourceId === row.id &&
           ["queued", "running"].includes(data(r).status),
       );
-      if (active) return { sourceId: row.id, run: active };
+      if (active) return { sourceId: row.id, run: active, started: false };
       if (d.site && d.site.rootUrl !== rootUrl)
         throw new DomainError("KNOWLEDGE_SITE_ROOT_CHANGED", 409);
       if (!d.site) {
@@ -299,6 +306,7 @@ export async function startSite(scope: Scope, raw: unknown) {
       },
     });
     const run = await startSiteRun(tx, scope, sourceId, "initial", pages);
+    if (i.draftId) await replaceDraft(tx, scope, i.draftId);
     await audit(tx, scope, "knowledge.site_started", sourceId, {
       runId: run.id,
       created: !existing,
@@ -306,7 +314,7 @@ export async function startSite(scope: Scope, raw: unknown) {
       excluded: i.excludedPages.length,
       autoUpdate: i.autoUpdate,
     });
-    return { sourceId, run };
+    return { sourceId, run, started: true };
   });
 }
 

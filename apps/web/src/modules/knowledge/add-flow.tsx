@@ -26,6 +26,7 @@ import {
   analysisRunning,
   Field,
   knowledgeErrorText,
+  visibleDrafts,
   WorkspaceError,
   type Preview,
   type Summary,
@@ -67,7 +68,7 @@ export type Check =
 type Outcome =
   | { kind: "analysis"; runId: string }
   | { kind: "content"; sourceId: string }
-  | { kind: "site"; sourceId: string; pages: number };
+  | { kind: "site"; sourceId: string; pages: number; started: boolean };
 
 const STATEMENT_LIMIT = 1000;
 const AI_PAGE_LIMIT = 30;
@@ -100,6 +101,17 @@ function waysFor(kind: Kind, text: string, pages?: number): Way[] {
   ];
 }
 
+/** The chosen way if this content offers it, else the best one it does. */
+export function normalWay(
+  way: Way,
+  kind: Kind,
+  text: string,
+  pages?: number,
+): Way {
+  const open = waysFor(kind, text, pages);
+  return open.includes(way) ? way : open[0]!;
+}
+
 /** The rights and page choices an existing site source starts from. */
 export function siteDefaults(source: Pick<Entity, "data">) {
   const d = source.data as Record<string, any>;
@@ -129,12 +141,14 @@ const emptyDraft = (kind: Kind, language: "de" | "en"): KnowledgeDraft => ({
 });
 
 /** Where a link enters the flow. The URL is read once, when the page opens. */
-function initialFlow(
+export function initialFlow(
   params: Pick<URLSearchParams, "get"> | null,
   data: Summary,
   locale: "de" | "en",
 ) {
-  const row = data.drafts.find((d) => d.id === params?.get("draft"));
+  const row = visibleDrafts(data.drafts).find(
+    (d) => d.id === params?.get("draft"),
+  );
   const input = row?.data.input as KnowledgeDraft | undefined;
   const previewId = params?.get("preview") ?? null;
   const source = data.sources.find(
@@ -167,11 +181,13 @@ function initialFlow(
       : row || source || github
         ? "content"
         : "what";
+  // A preview or a run has already taken a way: continue on it.
+  const taken = previewId ?? runId;
   const way: Way =
     kind === "github" ||
-    (previewId && (!input || input.modelUse || kind === "website"))
+    (taken && (!input || input.modelUse || kind === "website"))
       ? "ai"
-      : previewId && canUseStatement(kind, draft.text)
+      : taken && canUseStatement(kind, draft.text)
         ? "statement"
         : "whole";
   return {
@@ -182,7 +198,7 @@ function initialFlow(
     way,
     previewId,
     sourceId: source?.id ?? null,
-    rights: prefill ?? DEFAULT_RIGHTS,
+    rights: prefill ?? { ...DEFAULT_RIGHTS, ...input?.rights },
     excluded: new Set(prefill?.excluded),
     sourceLanguage: source ? String(source.data.language ?? "") : "",
     outcome: runId ? ({ kind: "analysis", runId } as Outcome) : null,
@@ -405,10 +421,12 @@ export function AnalysisStart({
   onStart,
   onRetry,
   onNewPreview,
+  startDisabled = false,
   t,
 }: {
   check: Check;
   busy: boolean;
+  startDisabled?: boolean;
   onStart: () => void;
   onRetry: () => void;
   onNewPreview: () => void;
@@ -470,7 +488,7 @@ export function AnalysisStart({
       <div>
         <Button
           className="knowledge-start"
-          disabled={busy || !result?.ready}
+          disabled={busy || startDisabled || !result?.ready}
           onClick={onStart}
         >
           {label}
@@ -664,9 +682,15 @@ function Flow({
     dropPreview();
     setStep("content");
   };
-  const draftInput = (modelUse: boolean) => ({
+  const draftInput = (modelUse: boolean, chosen = rights) => ({
     ...draft,
     modelUse,
+    rights: {
+      marketing: chosen.marketing,
+      support: chosen.support,
+      publicUse: chosen.publicUse,
+      modelUse: chosen.modelUse,
+    },
     description: String(data.profile.description ?? ""),
     audience: String(data.profile.audience ?? ""),
     ...(draft.kind === "website" && site
@@ -694,10 +718,10 @@ function Flow({
     refresh();
     return saved.id;
   };
-  const buildPreview = async (modelUse: boolean) => {
+  const buildPreview = async (modelUse: boolean, chosen = rights) => {
     const saved = await mutation.run(() =>
       action<Entity>(project.id, "knowledge-draft-save", {
-        ...draftInput(modelUse),
+        ...draftInput(modelUse, chosen),
         ...(draftId ? { id: draftId, version: draftVersion() } : {}),
       }),
     );
@@ -712,25 +736,33 @@ function Flow({
     refresh();
     return built ?? null;
   };
-  const prepareAi = async () => {
-    if (!draftId && init.previewId && !draft.name) {
+  // A preview from a link alone: no draft to save a choice to.
+  const previewOnly = !draftId && Boolean(init.previewId) && !draft.name;
+  const prepareAi = async (chosen = rights) => {
+    if (previewOnly) {
       setStep("what");
       return;
     }
     dropPreview();
-    const next = await buildPreview(true);
+    const next = await buildPreview(true, chosen);
     if (next) setBuilt(next);
+  };
+  // A preview belongs to the saved draft, so a changed right needs a new one.
+  const changeRights = (next: Rights) => {
+    setRights(next);
+    if (!preview) return;
+    if (way === "ai") void prepareAi(next);
+    else dropPreview();
   };
   const chooseWay = (next: Way) => {
     setWay(next);
     if (next === "ai" && !preview) void prepareAi();
   };
-  const goToUse = () => {
-    const open = waysFor(draft.kind, draft.text, pageCount);
-    const next = open.includes(way) ? way : open[0]!;
+  const enterUse = (fresh = false) => {
+    const next = normalWay(way, draft.kind, draft.text, pageCount);
     setWay(next);
     setStep("use");
-    if (next === "ai" && !preview) void prepareAi();
+    if (next === "ai" && (fresh || !preview)) void prepareAi();
   };
   const discover = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -784,7 +816,12 @@ function Flow({
         ...(confirm ? { confirmModelUse: true } : {}),
       }),
     );
-    if (!run) return;
+    if (!run) {
+      // What refused the start is also what the check reports, with its control.
+      setChecked(null);
+      setCheckAttempt((n) => n + 1);
+      return;
+    }
     setOutcome({ kind: "analysis", runId: run.id });
     setStep("result");
     refresh();
@@ -802,6 +839,7 @@ function Flow({
         kind: draft.kind,
         language: project.language,
         ...use,
+        ...(draftId ? { draftId } : {}),
       }),
     );
     if (!source) return;
@@ -812,7 +850,7 @@ function Flow({
   const readSite = async () => {
     if (!site) return;
     const started = await mutation.run(() =>
-      action<{ sourceId: string; run: Entity }>(
+      action<{ sourceId: string; run: Entity; started: boolean }>(
         project.id,
         "knowledge-site-start",
         {
@@ -823,6 +861,7 @@ function Flow({
             .filter((url) => excluded.has(url)),
           ...rights,
           language: init.sourceLanguage || project.language,
+          ...(draftId ? { draftId } : {}),
         },
       ),
     );
@@ -831,6 +870,7 @@ function Flow({
       kind: "site",
       sourceId: started.sourceId,
       pages: selected.length,
+      started: started.started,
     });
     setStep("result");
     refresh();
@@ -838,6 +878,10 @@ function Flow({
 
   const busy = mutation.pending;
   const noAudience = !rights.marketing && !rights.support;
+  // A blocker below already says this, together with what to do about it.
+  const shownBelow =
+    check.state === "done" &&
+    check.result.blockers.includes(mutation.error?.replaceAll(" ", "_") ?? "");
   const titles: Record<Step, string> = {
     what: t.whatTitle,
     content:
@@ -885,7 +929,9 @@ function Flow({
           </li>
         ))}
       </ol>
-      {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
+      {mutation.error && !shownBelow && (
+        <WorkspaceError code={mutation.error} t={t} />
+      )}
       {linked.error && !built && step === "use" && (
         <WorkspaceError code={linked.error.message} t={t} />
       )}
@@ -970,7 +1016,7 @@ function Flow({
               {site && (
                 <Button
                   disabled={busy || !selected.length || !draft.name.trim()}
-                  onClick={goToUse}
+                  onClick={() => enterUse()}
                 >
                   {t.continue}
                 </Button>
@@ -983,7 +1029,7 @@ function Flow({
             className="stack-gap"
             onSubmit={(e) => {
               e.preventDefault();
-              goToUse();
+              enterUse();
             }}
           >
             {nameField}
@@ -1042,7 +1088,7 @@ function Flow({
               disabled={busy}
               t={t}
             />
-            {way === "whole" && (
+            {!previewOnly && (
               <fieldset className="knowledge-usage">
                 <legend>{t.usage}</legend>
                 {(
@@ -1051,7 +1097,7 @@ function Flow({
                     ["support", t.support],
                     ["modelUse", t.modelRead],
                     ["publicUse", t.publicUse],
-                    ...(isSite
+                    ...(isSite && way === "whole"
                       ? ([["autoUpdate", t.weeklyUpdates]] as const)
                       : []),
                   ] as const
@@ -1060,8 +1106,9 @@ function Flow({
                     <input
                       type="checkbox"
                       checked={rights[key]}
+                      disabled={busy}
                       onChange={(e) =>
-                        setRights({ ...rights, [key]: e.target.checked })
+                        changeRights({ ...rights, [key]: e.target.checked })
                       }
                     />
                     {label}
@@ -1069,10 +1116,8 @@ function Flow({
                 ))}
               </fieldset>
             )}
-            {way === "whole" && noAudience && (
-              <Alert kind="warning">{t.noAudience}</Alert>
-            )}
-            {way !== "whole" && <p>{t.reviewRights}</p>}
+            {noAudience && <Alert kind="warning">{t.noAudience}</Alert>}
+            {way !== "whole" && !previewOnly && <p>{t.reviewRights}</p>}
             {way === "ai" && preview && (
               <SelectionSummary preview={preview} t={t} />
             )}
@@ -1080,6 +1125,7 @@ function Flow({
               <AnalysisStart
                 check={check}
                 busy={busy}
+                startDisabled={noAudience}
                 onStart={() => preview && startAnalysis(preview.id, true)}
                 onRetry={() => {
                   if (!preview) {
@@ -1095,7 +1141,7 @@ function Flow({
             ) : (
               <div>
                 <Button
-                  disabled={busy || (way === "whole" && noAudience)}
+                  disabled={busy || noAudience}
                   onClick={
                     way === "statement"
                       ? submitStatement
@@ -1133,8 +1179,7 @@ function Flow({
             }
             onNewPreview={() => {
               setOutcome(null);
-              setStep("use");
-              if (way === "ai") void prepareAi();
+              enterUse(true);
             }}
             refresh={refresh}
             t={t}
@@ -1183,7 +1228,7 @@ function SelectionSummary({
   );
 }
 
-function ResultStep({
+export function ResultStep({
   outcome,
   run,
   onNewPreview,
@@ -1202,12 +1247,16 @@ function ResultStep({
   if (outcome.kind !== "analysis") {
     return (
       <>
-        <Alert kind="success">
-          {outcome.kind === "content"
-            ? t.contentDone
-            : t.siteStarted.replace("{n}", String(outcome.pages))}
-        </Alert>
-        {outcome.kind === "site" && <p>{t.runningHint}</p>}
+        {outcome.kind === "site" && !outcome.started ? (
+          <Alert>{t.siteAlreadyRunning}</Alert>
+        ) : (
+          <Alert kind="success">
+            {outcome.kind === "content"
+              ? t.contentDone
+              : t.siteStarted.replace("{n}", String(outcome.pages))}
+          </Alert>
+        )}
+        {outcome.kind === "site" && outcome.started && <p>{t.runningHint}</p>}
         <div>
           <AppLink
             className="button button-primary"

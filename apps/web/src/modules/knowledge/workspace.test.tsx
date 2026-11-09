@@ -4,13 +4,17 @@ import { KnowledgeWorkspaceGate } from "./workspace";
 import { WorkspaceError, analysisRunning } from "./workspace-parts";
 import {
   AnalysisStart,
+  ResultStep,
   SitePagePicker,
   WayPicker,
   canUseStatement,
   canUseWhole,
+  initialFlow,
+  normalWay,
   siteDefaults,
   type Check,
 } from "./add-flow";
+import { KnowledgeHomeCard } from "./home";
 import { Knowledge } from "./knowledge";
 import { knowledgeWeb } from "./manifest";
 import { WorkspaceContext } from "@/components/workspace-context";
@@ -790,8 +794,223 @@ describe("add flow", () => {
     const html = render("import");
     expect(html).toContain(de.useTitle);
     expect(html).toContain(de.checkingCost);
-    expect(html).not.toContain('type="checkbox"');
     expect(html).not.toContain("an den konfigurierten Modellanbieter senden");
+    // Consent is the button; the boxes on the step are the content's rights.
+    expect(start({ state: "done", result: ready })).not.toContain(
+      'type="checkbox"',
+    );
+  });
+
+  describe("rights on the use step", () => {
+    const useStep = (over: Record<string, unknown>) => {
+      response.value.drafts = [textDraft(over)];
+      Object.assign(response.value, previewOf);
+      nav.search = "draft=d&preview=p";
+      return render("import");
+    };
+    const boxes = (html: string) =>
+      (html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? []).length;
+    it.each([
+      ["AI", { modelUse: true }, de.checkingCost],
+      ["one statement", { modelUse: false }, de.submitStatement],
+      ["take-over", { modelUse: false, text: "x".repeat(1001) }, de.takeOver],
+    ])("shows them on the %s way", (_way, over, marker) => {
+      const html = useStep(over);
+      expect(html).toContain(marker);
+      expect(boxes(html)).toBe(4);
+      for (const label of [
+        de.marketing,
+        de.support,
+        de.modelRead,
+        de.publicUse,
+      ])
+        expect(html).toContain(label);
+    });
+    it("starts from the rights stored on the draft", () => {
+      const html = useStep({
+        modelUse: true,
+        rights: {
+          marketing: false,
+          support: true,
+          publicUse: true,
+          modelUse: false,
+        },
+      });
+      expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(2);
+    });
+    it("offers no rights where nothing could store them", () => {
+      Object.assign(response.value, previewOf);
+      nav.search = "preview=p";
+      expect(boxes(render("import"))).toBe(0);
+    });
+    it("uses the draft's rights as the review form's starting point", () => {
+      response.value.drafts = [
+        textDraft({
+          modelUse: true,
+          rights: {
+            marketing: false,
+            support: true,
+            publicUse: true,
+            modelUse: false,
+          },
+        }),
+      ];
+      response.value.proposals = [
+        {
+          id: "a",
+          version: 1,
+          data: {
+            statement: "Shared calendars",
+            status: "pending",
+            topic: "features",
+            stage: "documented",
+            draftId: "d",
+          },
+        },
+      ];
+      const html = render("review");
+      const box = (label: string) =>
+        new RegExp(
+          `<label><input type="checkbox"([^>]*)/>${label}</label>`,
+        ).exec(html)?.[1];
+      expect(box(de.marketing)).not.toContain("checked");
+      expect(box(de.support)).toContain("checked");
+      expect(box(de.publicUse)).toContain("checked");
+    });
+    it("starts the review form with the usual rights for an older draft", () => {
+      response.value.drafts = [textDraft()];
+      response.value.proposals = [
+        {
+          id: "a",
+          version: 1,
+          data: {
+            statement: "Shared calendars",
+            status: "pending",
+            topic: "features",
+            stage: "documented",
+            draftId: "d",
+          },
+        },
+      ];
+      const html = render("review");
+      expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(2);
+    });
+  });
+
+  describe("drafts replaced by a take-over", () => {
+    const replaced = () => ({
+      ...textDraft(),
+      data: { ...textDraft().data, status: "replaced" },
+    });
+    it("are hidden from Sources", () => {
+      response.value.drafts = [replaced()];
+      const html = render("sources");
+      expect(html).not.toContain("Preise");
+      expect(html).toContain(de.noSources);
+    });
+    it("cannot be reopened through a link", () => {
+      response.value.drafts = [replaced()];
+      nav.search = "draft=d";
+      expect(render("import")).toContain(de.whatTitle);
+    });
+    it("do not count on the Home card, while real sources do", () => {
+      response.value.drafts = [replaced(), textDraft()];
+      response.value.sources = [
+        { id: "g", data: { name: "Hilfe", status: "active" } },
+        { id: "o", data: { name: "Weg", status: "revoked" } },
+        { id: "v", data: { name: "Aus Aussage", proposalId: "a" } },
+      ];
+      const html = renderToStaticMarkup(
+        <ShellContext.Provider
+          value={
+            {
+              hrefOf: (k: string) => k,
+              features: { knowledgeWorkspace: true },
+            } as any
+          }
+        >
+          <WorkspaceContext.Provider
+            value={
+              {
+                project: { id: "p", name: "FamilyPlan" },
+                locale: "de",
+                revision: 0,
+                isOwner: true,
+                t: () => "",
+              } as any
+            }
+          >
+            <KnowledgeHomeCard />
+          </WorkspaceContext.Provider>
+        </ShellContext.Provider>,
+      );
+      expect(html).toContain(`<dt>${de.sources}</dt><dd>2</dd>`);
+    });
+  });
+
+  describe("dead ends", () => {
+    it("never keeps a way that the content does not offer", () => {
+      expect(normalWay("whole", "website", "", undefined)).toBe("ai");
+      expect(normalWay("whole", "website", "", 3)).toBe("whole");
+      expect(normalWay("ai", "website", "", 31)).toBe("whole");
+      expect(normalWay("statement", "manual", "x".repeat(1001))).toBe("whole");
+      expect(normalWay("whole", "github", "")).toBe("ai");
+    });
+    it("continues a website draft with a run as AI, as no page list is known", () => {
+      const row = {
+        id: "d",
+        version: 3,
+        data: {
+          status: "draft",
+          activeRunId: "r",
+          input: {
+            name: "Web",
+            kind: "website",
+            url: "https://example.com",
+            text: "",
+            description: "",
+            audience: "",
+            paths: ["README.md"],
+            modelUse: true,
+            language: "de",
+          },
+        },
+      };
+      const flow = initialFlow(
+        new URLSearchParams("draft=d"),
+        { ...response.value, drafts: [row] },
+        "de",
+      );
+      expect(flow.step).toBe("result");
+      expect(flow.way).toBe("ai");
+    });
+  });
+
+  describe("result of a site read", () => {
+    const result = (started: boolean, locale: "de" | "en" = "de") =>
+      inContext(
+        <ResultStep
+          outcome={{ kind: "site", sourceId: "g", pages: 7, started }}
+          run={undefined}
+          onNewPreview={() => {}}
+          refresh={() => {}}
+          t={knowledgeCopy[locale]}
+        />,
+        locale,
+      );
+    it("reports a started read", () => {
+      expect(result(true)).toContain("Orbit liest jetzt 7 Seiten");
+    });
+    it("says when a read was already running and nothing changed", () => {
+      const html = result(false);
+      expect(html).not.toContain("Orbit liest jetzt");
+      expect(html).toContain("läuft bereits");
+      expect(html).toContain("nichts geändert");
+      expect(html).toContain('href="/p/p/knowledge/sources?source=g"');
+      const en = result(false, "en");
+      expect(en).toContain("already running");
+      expect(en).toContain("Nothing was changed");
+    });
   });
 
   it("keeps the draft, preview and github deep links", () => {

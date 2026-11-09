@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   afterAll,
   afterEach,
@@ -1225,6 +1226,70 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
         startInput({ sourceId: first.sourceId }),
       );
       expect(second.run.id).toBe(first.run.id);
+      expect(first.started).toBe(true);
+      expect(second.started).toBe(false);
+    });
+
+    describe("replacing the draft made on the way", () => {
+      const makeDraft = (as: Scope = owner) =>
+        scoped(as.workspaceId, as.projectId, (tx) =>
+          create(tx, as, "knowledge_drafts", {
+            input: { name: "Help center", kind: "website", url: ROOT },
+            status: "draft",
+          }),
+        );
+      const draftStatus = async (id: string) =>
+        run(
+          async (tx) =>
+            data(await entity(tx, owner, "knowledge_drafts", id)).status,
+        );
+      it("marks the draft replaced when the read starts", async () => {
+        publish(1, 2);
+        const draft = await makeDraft();
+        const started = await act(
+          "knowledge-site-start",
+          startInput({ draftId: draft.id }),
+        );
+        expect(started.started).toBe(true);
+        expect(await draftStatus(draft.id)).toBe("replaced");
+      });
+      it("leaves the draft alone when a read is already running", async () => {
+        publish(1, 2);
+        const first = await act("knowledge-site-start", startInput());
+        const draft = await makeDraft();
+        const second = await act(
+          "knowledge-site-start",
+          startInput({ sourceId: first.sourceId, draftId: draft.id }),
+        );
+        expect(second.started).toBe(false);
+        expect(await draftStatus(draft.id)).toBe("draft");
+      });
+      it("refuses a draft of another project and creates nothing", async () => {
+        publish(1, 2);
+        const other = await createPackageProject({ name: "Synthetic other" });
+        const draft = await makeDraft(other.owner);
+        const before = await counts();
+        await expect(
+          act("knowledge-site-start", startInput({ draftId: draft.id })),
+        ).rejects.toThrow();
+        expect(await counts()).toEqual(before);
+      });
+      it("refuses a draft with an active analysis and creates nothing", async () => {
+        publish(1, 2);
+        const draft = await run((tx) =>
+          create(tx, owner, "knowledge_drafts", {
+            input: { name: "Help center", kind: "website", url: ROOT },
+            status: "draft",
+            activeRunId: randomUUID(),
+          }),
+        );
+        const before = await counts();
+        await refusal(
+          act("knowledge-site-start", startInput({ draftId: draft.id })),
+          "KNOWLEDGE_RUN_ACTIVE",
+        );
+        expect(await counts()).toEqual(before);
+      });
     });
 
     it("refresh starts a manual run with no pages and returns the active one", async () => {

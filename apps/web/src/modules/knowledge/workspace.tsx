@@ -45,6 +45,8 @@ import { KnowledgeGithubPage } from "./github-page";
 import {
   analysisRunning,
   Field,
+  listedSources,
+  visibleDrafts,
   WorkspaceError,
   type Preview,
   type Summary,
@@ -258,6 +260,12 @@ function WorkspaceView({
                   key={`${p.id}:${p.version}`}
                   proposal={p}
                   review={review}
+                  rights={
+                    (
+                      data.drafts.find((d) => d.id === p.data.draftId)?.data
+                        .input as KnowledgeDraft | undefined
+                    )?.rights
+                  }
                   manage={!review && !listingRemoved}
                   removed={listingRemoved}
                   facts={data.facts}
@@ -352,6 +360,7 @@ function SourceList({
   const index = useIndexStatus(project.id, revision);
   const focused = useSearchParams()?.get("source") ?? null;
   const [confirmRefresh, setConfirmRefresh] = useState<Entity | null>(null);
+  const drafts = visibleDrafts(data.drafts);
   useEffect(() => {
     if (!focused) return;
     const row = document.getElementById(`knowledge-source-${focused}`);
@@ -370,7 +379,7 @@ function SourceList({
   };
   return (
     <section className="stack-gap">
-      {!data.drafts.length && !data.sources.length && (
+      {!drafts.length && !data.sources.length && (
         <Empty title={t.noSources} description={t.emptyHint} />
       )}
       {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
@@ -393,7 +402,7 @@ function SourceList({
           </div>
         </Modal>
       )}
-      {data.drafts.map((d) => {
+      {drafts.map((d) => {
         const i = d.data.input as KnowledgeDraft;
         const active = data.runs.find((r) => r.id === d.data.activeRunId);
         // Runs arrive newest first; only the latest one's outcome still counts.
@@ -464,24 +473,22 @@ function SourceList({
           </article>
         );
       })}
-      {data.sources
-        .filter((s) => !s.data.proposalId && s.data.status !== "revoked")
-        .map((s) => (
-          <ManagedSource
-            key={s.id}
-            source={s}
-            index={index.byId.get(s.id)}
-            hasFacts={data.facts.some(
-              (f) => f.data.sourceId === s.id && f.data.status !== "revoked",
-            )}
-            focused={focused === s.id}
-            refresh={() => {
-              refresh();
-              index.refresh();
-            }}
-            t={t}
-          />
-        ))}
+      {listedSources(data.sources).map((s) => (
+        <ManagedSource
+          key={s.id}
+          source={s}
+          index={index.byId.get(s.id)}
+          hasFacts={data.facts.some(
+            (f) => f.data.sourceId === s.id && f.data.status !== "revoked",
+          )}
+          focused={focused === s.id}
+          refresh={() => {
+            refresh();
+            index.refresh();
+          }}
+          t={t}
+        />
+      ))}
     </section>
   );
 }
@@ -633,6 +640,7 @@ function ManagedSource({
 function Proposal({
   proposal: p,
   review,
+  rights,
   manage = false,
   removed = false,
   facts = [],
@@ -641,6 +649,8 @@ function Proposal({
 }: {
   proposal: Entity;
   review: boolean;
+  /** What the owner chose on the draft; the form starts from it. */
+  rights?: KnowledgeDraft["rights"];
   /** Offers correcting and removing a confirmed statement. */
   manage?: boolean;
   /** Listed among removed statements: offers bringing it back. */
@@ -654,9 +664,9 @@ function Proposal({
   const mutation = useMutation(refresh);
   const d = p.data as Record<string, any>;
   const [statement, setStatement] = useState(String(d.statement));
-  const [publicUse, setPublicUse] = useState(false);
-  const [marketing, setMarketing] = useState(true);
-  const [support, setSupport] = useState(true);
+  const [publicUse, setPublicUse] = useState(rights?.publicUse ?? false);
+  const [marketing, setMarketing] = useState(rights?.marketing ?? true);
+  const [support, setSupport] = useState(rights?.support ?? true);
   const [history, setHistory] = useState(false);
   const [editing, setEditing] = useState(false);
   const [removing, setRemoving] = useState(false);

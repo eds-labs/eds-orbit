@@ -135,6 +135,15 @@ export function audiencesOf(i: { marketing: boolean; support: boolean }) {
   return audiences;
 }
 /**
+ * Retires a draft that a take-over made unnecessary, in the take-over's own
+ * transaction. It stays stored but no longer counts as a source of its own.
+ */
+export async function replaceDraft(tx: DbTx, s: Scope, draftId: string) {
+  const row = await entity(tx, s, "knowledge_drafts", draftId);
+  if (data(row).activeRunId) throw new DomainError("KNOWLEDGE_RUN_ACTIVE", 409);
+  return update(tx, s, row, { ...data(row), status: "replaced" });
+}
+/**
  * Takes text or a document over whole: a source and its one document, at once
  * searchable under the owner's chosen audiences. Nothing is analysed, no model
  * is called and nothing is spent. The source is created in the same
@@ -170,6 +179,7 @@ export async function acceptContent(s: Scope, input: unknown) {
       language: i.language,
       mimeType: MIME.txt,
     });
+    if (i.draftId) await replaceDraft(tx, s, i.draftId);
     await audit(tx, s, "knowledge.content_accepted", source.id, {
       documentId: result.documentId,
       chunks: result.chunks,
@@ -1085,14 +1095,17 @@ export async function decideProposal(s: Scope, input: unknown) {
     );
     if (!current || current.hash !== p.evidence.fileHash)
       throw new DomainError("KNOWLEDGE_EVIDENCE_CHANGED", 409);
+    const { name, rights } = knowledgeDraft.parse(data(draft).input);
+    // A draft from before the owner could choose this stays AI-readable.
+    const modelUse = rights?.modelUse ?? true;
     const source = await create(tx, s, "sources", {
-      name: knowledgeDraft.parse(data(draft).input).name,
+      name,
       type: "verified_facts",
       status: "active",
       generation: 1,
       authority: "official",
       publicUse: i.publicUse,
-      modelUse: true,
+      modelUse,
       audiences: i.audiences,
       maxAgeHours: 8760,
       allowedOrigins: [],
@@ -1119,7 +1132,7 @@ export async function decideProposal(s: Scope, input: unknown) {
       validFrom: new Date().toISOString(),
       status: "verified",
       publicUse: i.publicUse,
-      modelUse: true,
+      modelUse,
     });
     await audit(tx, s, "knowledge.proposal.accepted", row.id, {
       sourceId: source.id,

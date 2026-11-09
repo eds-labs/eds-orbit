@@ -206,9 +206,9 @@ export const knowledgeCopy = {
     recommended: "Empfohlen",
     wayWhole: "Ganz übernehmen",
     wayWholeHint:
-      "Der ganze Inhalt ist sofort durchsuchbar. Keine KI und keine Kosten.",
+      "Der ganze Inhalt ist sofort durchsuchbar. Keine KI-Analyse und keine Kosten.",
     wayWholeSiteHint:
-      "Alle ausgewählten Seiten werden durchsuchbar und bleiben aktuell. Keine KI und keine Kosten.",
+      "Alle ausgewählten Seiten werden durchsuchbar und bleiben aktuell. Keine KI-Analyse und keine Kosten.",
     wayAi: "KI schlägt Aussagen vor",
     wayAiHint:
       "Die KI liest den Inhalt und schlägt einzelne Aussagen vor. Du prüfst jede, bevor sie verwendet wird. Das kostet Geld, den Betrag siehst du auf dem Startknopf.",
@@ -218,9 +218,9 @@ export const knowledgeCopy = {
       "Du hast {n} Seiten ausgewählt, für die KI sind höchstens 30 möglich. Gehe zurück und wähle weniger aus.",
     wayStatement: "Als eine Aussage prüfen",
     wayStatementHint:
-      "Der Text wird eine einzige Aussage, die du unter „Zu prüfen“ bestätigst. Keine KI und keine Kosten.",
+      "Der Text wird eine einzige Aussage, die du unter „Zu prüfen“ bestätigst. Keine KI-Analyse und keine Kosten.",
     reviewRights:
-      "Wofür eine Aussage verwendet werden darf, entscheidest du beim Prüfen.",
+      "Das gilt für die Aussagen, die du bestätigst. Marketing, Support und öffentliche Aussagen kannst du beim Prüfen noch ändern.",
     modelRead: "KI-Funktionen dürfen es lesen",
     weeklyUpdates:
       "Jede Woche automatisch aktualisieren: geänderte Seiten ersetzen, neue aufnehmen, gelöschte entfernen",
@@ -237,6 +237,8 @@ export const knowledgeCopy = {
     sourcesLink: "Zu den Quellen",
     contentDone: "Der Inhalt ist jetzt durchsuchbar.",
     siteStarted: "Orbit liest jetzt {n} Seiten. Das läuft im Hintergrund.",
+    siteAlreadyRunning:
+      "Für diese Quelle läuft bereits ein Lesevorgang. An der Quelle wurde nichts geändert.",
     githubNotSetUp: "GitHub ist für dieses Projekt noch nicht eingerichtet.",
     githubSetUpLink: "GitHub einrichten",
     notConfigured: "Noch nicht eingerichtet",
@@ -437,9 +439,10 @@ export const knowledgeCopy = {
     useTitle: "How should Orbit use this?",
     recommended: "Recommended",
     wayWhole: "Take over whole",
-    wayWholeHint: "All of it is searchable at once. No AI and no cost.",
+    wayWholeHint:
+      "All of it is searchable at once. No AI analysis and no cost.",
     wayWholeSiteHint:
-      "All selected pages become searchable and stay current. No AI and no cost.",
+      "All selected pages become searchable and stay current. No AI analysis and no cost.",
     wayAi: "AI proposes statements",
     wayAiHint:
       "AI reads the content and proposes individual statements. You review each one before it is used. This costs money; the start button shows the amount.",
@@ -449,9 +452,9 @@ export const knowledgeCopy = {
       "You selected {n} pages, but AI can read at most 30. Go back and select fewer.",
     wayStatement: "Review as one statement",
     wayStatementHint:
-      "The text becomes a single statement that you confirm under “To review”. No AI and no cost.",
+      "The text becomes a single statement that you confirm under “To review”. No AI analysis and no cost.",
     reviewRights:
-      "You decide what a statement may be used for when you review it.",
+      "This applies to the statements you confirm. You can still change Marketing, Support and public statements when you review them.",
     modelRead: "AI features may read it",
     weeklyUpdates:
       "Update automatically every week: replace changed pages, add new ones, remove deleted ones",
@@ -468,6 +471,8 @@ export const knowledgeCopy = {
     sourcesLink: "Go to Sources",
     contentDone: "The content is now searchable.",
     siteStarted: "Orbit is now reading {n} pages. This runs in the background.",
+    siteAlreadyRunning:
+      "A read is already running for this source. Nothing was changed on the source.",
     githubNotSetUp: "GitHub has not been set up for this project yet.",
     githubSetUpLink: "Set up GitHub",
     notConfigured: "Not set up yet",

@@ -29,6 +29,18 @@ export const knowledgeProposal = z
 export const knowledgeAnalysisOutput = z
   .object({ proposals: z.array(knowledgeProposal).max(30) })
   .strict();
+/**
+ * The use an owner allowed for the statements of a draft. Apart from the
+ * draft's `modelUse`, which says whether its analysis calls a model at all.
+ */
+export const knowledgeDraftRights = z
+  .object({
+    marketing: z.boolean(),
+    support: z.boolean(),
+    publicUse: z.boolean(),
+    modelUse: z.boolean(),
+  })
+  .strict();
 export const knowledgeDraftBase = z
   .object({
     name: z.string().min(1).max(200),
@@ -53,6 +65,7 @@ export const knowledgeDraftBase = z
       .max(20)
       .default(["README.md", "docs/"]),
     modelUse: z.boolean().default(false),
+    rights: knowledgeDraftRights.optional(),
     language: z.enum(["de", "en"]).default("de"),
   })
   .strict();
@@ -82,6 +95,8 @@ export const knowledgeContentAcceptInput = z
     support: z.boolean(),
     publicUse: z.boolean(),
     modelUse: z.boolean(),
+    // The draft this take-over replaces, made while the owner chose a way.
+    draftId: z.uuid().optional(),
   })
   .strict();
 /** A run's input: the draft, plus the owner's consent given at the start of an AI run. */

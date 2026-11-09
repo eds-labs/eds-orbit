@@ -25,6 +25,12 @@ export type Preview = {
   characters: number;
   modelRequired: boolean;
 };
+/** Drafts the owner still works on; a take-over replaces the one it came from. */
+export const visibleDrafts = (drafts: Entity[]) =>
+  drafts.filter((d) => d.data.status !== "replaced");
+/** Sources an owner manages directly, apart from those of single statements. */
+export const listedSources = (sources: Entity[]) =>
+  sources.filter((s) => !s.data.proposalId && s.data.status !== "revoked");
 /** Whether an analysis is still under way, as opposed to having ended. */
 export const analysisRunning = (status: string) =>
   ["queued", "analyzing"].includes(status);

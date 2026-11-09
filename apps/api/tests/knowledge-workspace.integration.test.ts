@@ -211,6 +211,68 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     expect(publicResult.facts).toHaveLength(0);
     expect(vi.mocked(respond)).not.toHaveBeenCalled();
   });
+  describe("the owner's rights on a draft", () => {
+    const rights = (over: Record<string, boolean> = {}) => ({
+      marketing: true,
+      support: true,
+      publicUse: false,
+      modelUse: true,
+      ...over,
+    });
+    const accepted = async (input: ReturnType<typeof manual>) => {
+      const { job } = await prepare(input);
+      await runAnalysis(s, job.id);
+      const row = await approve((await proposals())[0]);
+      const d = data(row);
+      return run(async (tx) => ({
+        source: data(await entity(tx, s, "sources", d.sourceId)),
+        fact: data(await entity(tx, s, "facts", d.factId)),
+      }));
+    };
+    it("keeps a statement out of AI features when its draft says so", async () => {
+      const { source, fact } = await accepted({
+        ...manual(),
+        rights: rights({ modelUse: false }),
+      });
+      expect(source.modelUse).toBe(false);
+      expect(fact.modelUse).toBe(false);
+      const found = await search();
+      expect(found.items).toHaveLength(0);
+      expect(found.facts).toHaveLength(0);
+    });
+    it("leaves a statement AI-readable when its draft allows it", async () => {
+      const { source, fact } = await accepted({
+        ...manual(),
+        rights: rights(),
+      });
+      expect(source.modelUse).toBe(true);
+      expect(fact.modelUse).toBe(true);
+      const found = await search();
+      expect(found.items.length + found.facts.length).toBeGreaterThan(0);
+    });
+    it("treats an older draft without rights as AI-readable", async () => {
+      const { source, fact } = await accepted(manual());
+      expect(source.modelUse).toBe(true);
+      expect(fact.modelUse).toBe(true);
+    });
+    it("does not read the draft's own modelUse as the statement's right", async () => {
+      // `modelUse` on the draft says whether the analysis calls a model.
+      const { source } = await accepted({
+        ...manual(),
+        modelUse: false,
+        rights: rights({ modelUse: true }),
+      });
+      expect(source.modelUse).toBe(true);
+    });
+    it("refuses rights with unknown or missing fields", async () => {
+      await expect(
+        saveDraft(s, { ...manual(), rights: { marketing: true } }),
+      ).rejects.toThrow();
+      await expect(
+        saveDraft(s, { ...manual(), rights: { ...rights(), extra: true } }),
+      ).rejects.toThrow();
+    });
+  });
   it("limits accepted evidence to the selected modules", async () => {
     const { job } = await prepare();
     await runAnalysis(s, job.id);
@@ -1888,6 +1950,62 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       );
       await expect(accept()).rejects.toThrow("INVALID_DOCUMENT_SIZE");
       expect(await counts()).toEqual({ sources: 0, documents: 0 });
+    });
+
+    describe("replacing the draft made on the way", () => {
+      const draftData = (id: string) =>
+        run(async (tx) => data(await entity(tx, s, "knowledge_drafts", id)));
+      it("marks the draft replaced in the same step", async () => {
+        const draft = await saveDraft(s, manual());
+        await accept({ draftId: draft.id });
+        expect((await draftData(draft.id)).status).toBe("replaced");
+        expect(await counts()).toEqual({ sources: 1, documents: 1 });
+      });
+      it("leaves drafts alone without a draftId", async () => {
+        const draft = await saveDraft(s, manual());
+        await accept();
+        expect((await draftData(draft.id)).status).toBe("draft");
+      });
+      it("keeps the draft when the take-over is refused", async () => {
+        const draft = await saveDraft(s, manual());
+        vi.mocked(ingest).mockRejectedValueOnce(
+          new KnowledgeError("INVALID_DOCUMENT_SIZE"),
+        );
+        await expect(accept({ draftId: draft.id })).rejects.toThrow(
+          "INVALID_DOCUMENT_SIZE",
+        );
+        expect((await draftData(draft.id)).status).toBe("draft");
+        expect(await counts()).toEqual({ sources: 0, documents: 0 });
+      });
+      it("refuses a draft of another project", async () => {
+        const other = await authDb.project.create({
+          data: { workspaceId, name: "Synthetic other" },
+        });
+        const foreign = await scoped(workspaceId, other.id, (tx) =>
+          create(tx, { ...s, projectId: other.id }, "knowledge_drafts", {
+            input: manual(),
+            status: "draft",
+          }),
+        );
+        await expect(accept({ draftId: foreign.id })).rejects.toThrow();
+        expect(await counts()).toEqual({ sources: 0, documents: 0 });
+        const untouched = await scoped(workspaceId, other.id, (tx) =>
+          entity(
+            tx,
+            { ...s, projectId: other.id },
+            "knowledge_drafts",
+            foreign.id,
+          ),
+        );
+        expect(data(untouched).status).toBe("draft");
+      });
+      it("refuses a draft with an active run", async () => {
+        const { draft } = await prepare();
+        await expect(accept({ draftId: draft.id })).rejects.toThrow(
+          "KNOWLEDGE_RUN_ACTIVE",
+        );
+        expect(await counts()).toEqual({ sources: 0, documents: 0 });
+      });
     });
 
     it("only owners can use it", async () => {
