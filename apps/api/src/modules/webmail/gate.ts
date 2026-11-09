@@ -2,6 +2,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { DomainError } from "../../shared.ts";
+import { webmailConfigured } from "./guard.ts";
 
 // Webmail is opt-in twice, like finance: ORBIT_WEBMAIL must be on for the
 // installation, and the project's owner must have enabled the module. The
@@ -9,14 +10,7 @@ import { DomainError } from "../../shared.ts";
 // counts every module as enabled.
 
 /** True while webmail is switched on and configured for this installation. */
-export function webmailSwitchedOn() {
-  const config = loadConfig();
-  return (
-    config.ORBIT_WEBMAIL === "true" &&
-    config.WEBMAIL_ORIGIN !== "" &&
-    config.WEBMAIL_BRIDGE_SECRET !== ""
-  );
-}
+export const webmailSwitchedOn = () => webmailConfigured(loadConfig());
 
 /** True when webmail may run in the project. */
 export async function webmailActive(tx: DbTx, scope: Scope) {

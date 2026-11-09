@@ -1027,6 +1027,18 @@ export function registeredEmailInbound() {
   return current().emailInbound;
 }
 
+/**
+ * A permission a module declares, by key, for a check by a module that may
+ * not import the declaring one (ADR 0026); undefined for an unknown key.
+ */
+export function registeredPermission(key: string): PermissionDef | undefined {
+  for (const module of current().registry.modules) {
+    const found = module.permissions.find((p) => p.key === key);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** The e-mail import targets (ADR 0026), by "<module>.<name>". */
 export function registeredEmailImports() {
   return current().emailImport;
