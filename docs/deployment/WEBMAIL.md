@@ -8,7 +8,7 @@ All three start only when `ORBIT_WEBMAIL_REPLICAS` is 1. With the default 0 they
 
 | Service | Image | Networks | Purpose |
 |---|---|---|---|
-| `webmail` | `infra/webmail/Dockerfile` | `webmail`, `egress` | Roundcube 1.7 on Apache, port 8000. Renders untrusted HTML. Never on `frontend` or `database`. |
+| `webmail` | `infra/webmail/Dockerfile` | `webmail`, `webmail-egress` | Roundcube 1.7 on Apache, port 8000. Renders untrusted HTML. Shares no network with `api`, `web`, `mcp` or `worker`; `webmail-egress` is its own way out to the mail servers. |
 | `webmail-db` | pinned `postgres:17` | `webmail` | Roundcube's own database: preferences, identities, sessions. No mail content and no mail passwords. |
 | `webmail-bridge` | Orbit runtime image | `webmail`, `database`, `egress` | Internal API on port 4313, protected by `WEBMAIL_BRIDGE_SECRET`. Health-only while `ORBIT_WEBMAIL` is off. |
 

@@ -342,7 +342,7 @@ services:
       - "8000"
     networks:
       - webmail
-      - egress
+      - webmail-egress
     depends_on:
       webmail-db:
         condition: service_healthy
@@ -495,6 +495,9 @@ networks:
   # The bridge, Roundcube and its database only.
   webmail:
     internal: true
+  # Roundcube's own way out to the mail servers. Shared with nothing, so the service
+  # that renders untrusted HTML has no route to api, mcp or the worker.
+  webmail-egress: {}
 
 volumes:
   orbit_pg: {}

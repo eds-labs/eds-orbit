@@ -426,9 +426,21 @@ for (const name of Object.keys(services))
 // Roundcube renders untrusted HTML (ADR 0026): it never shares a network with
 // the API or Orbit's database, and every webmail service starts switched off.
 assert.deepEqual([...Object.keys(services.webmail.networks)].sort(), [
-  "egress",
   "webmail",
+  "webmail-egress",
 ]);
+for (const [name, service] of Object.entries(services))
+  if (name !== "webmail")
+    assert.ok(
+      !Object.keys(service.networks ?? {}).includes("webmail-egress"),
+      `${name} must not share Roundcube's egress network`,
+    );
+for (const name of ["api", "web", "mcp", "worker", "postgres", "redis"])
+  for (const network of Object.keys(services[name].networks ?? {}))
+    assert.ok(
+      !Object.keys(services.webmail.networks).includes(network),
+      `Roundcube must not share the ${network} network with ${name}`,
+    );
 // The web app reaches the gateway internally for the protected resource
 // metadata paths (D-M5-4); the deployment environment can move it.
 assert.equal(services.web.environment.ORBIT_MCP_ORIGIN, "http://mcp:4312");

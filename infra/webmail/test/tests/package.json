@@ -1,0 +1,9 @@
+{
+  "name": "orbit-webmail-e2e-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@playwright/test": "1.63.0",
+    "pg": "8.16.3"
+  }
+}
