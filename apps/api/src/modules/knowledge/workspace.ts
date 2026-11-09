@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   knowledgeAnalysisOutput,
+  knowledgeContentAcceptInput,
   knowledgeDraft,
   knowledgeDraftBase,
   knowledgeRunInput,
@@ -61,7 +63,10 @@ import {
   markTransmitted,
 } from "../../platform/ai/budget.ts";
 import { planCall, type CallPlan } from "../../platform/ai/call-plan.ts";
-import { readSitePage, sitePolicy } from "../../platform/knowledge/site-sync.ts";
+import {
+  readSitePage,
+  sitePolicy,
+} from "../../platform/knowledge/site-sync.ts";
 import { readRepository, githubToken } from "./github.ts";
 
 export const workspaceEnabled = () =>
@@ -118,6 +123,59 @@ export async function saveProfile(s: Scope, input: unknown) {
     return row
       ? update(tx, s, row, value)
       : create(tx, s, "knowledge_profiles", value);
+  });
+}
+/** The audiences an owner ticked; none is refused, as no source may be unreachable by design. */
+export function audiencesOf(i: { marketing: boolean; support: boolean }) {
+  const audiences = [
+    ...(i.marketing ? ["marketing"] : []),
+    ...(i.support ? ["support"] : []),
+  ];
+  if (!audiences.length) throw new DomainError("KNOWLEDGE_NO_AUDIENCE", 400);
+  return audiences;
+}
+/**
+ * Takes text or a document over whole: a source and its one document, at once
+ * searchable under the owner's chosen audiences. Nothing is analysed, no model
+ * is called and nothing is spent. The source is created in the same
+ * transaction as the ingest, so a refused text leaves no source behind.
+ */
+export async function acceptContent(s: Scope, input: unknown) {
+  await owner(s);
+  const i = knowledgeContentAcceptInput.parse(input);
+  const audiences = audiencesOf(i);
+  if (containsCredentials(i.text))
+    throw new DomainError("KNOWLEDGE_SENSITIVE_TEXT_EXCLUDED", 409);
+  return scoped(s.workspaceId, s.projectId, async (tx) => {
+    await lockKnowledge(tx, s);
+    const source = await create(tx, s, "sources", {
+      name: i.name,
+      type: i.kind,
+      status: "active",
+      generation: 1,
+      authority: "official",
+      maxAgeHours: 8760,
+      publicUse: i.publicUse,
+      modelUse: i.modelUse,
+      audiences,
+      allowedOrigins: [],
+      allowedPaths: ["/"],
+      language: i.language,
+    });
+    const result = await ingest(tx, s, {
+      sourceId: source.id,
+      externalId: randomUUID(),
+      title: i.name,
+      text: i.text,
+      language: i.language,
+      mimeType: MIME.txt,
+    });
+    await audit(tx, s, "knowledge.content_accepted", source.id, {
+      documentId: result.documentId,
+      chunks: result.chunks,
+      kind: i.kind,
+    });
+    return source;
   });
 }
 export async function saveDraft(s: Scope, input: unknown) {
@@ -188,7 +246,13 @@ async function siteSnapshot(
       throw new DomainError("DOCUMENT_TOO_LARGE", 409);
     files.push({ path, text, hash: hash(text), url: url.href });
   }
-  return { commit: null, files, partial: skipped > 0, skipped, unreadablePaths };
+  return {
+    commit: null,
+    files,
+    partial: skipped > 0,
+    skipped,
+    unreadablePaths,
+  };
 }
 export async function snapshot(
   s: Scope,
@@ -378,11 +442,7 @@ const proposalLimitFor = (maxOutputTokens: number) =>
  * A source the owner closed to AI features closes its addresses to the
  * analysis too, whether a website draft names one as its root or as a page.
  */
-async function sourceForbidsModel(
-  tx: DbTx,
-  s: Scope,
-  input: KnowledgeDraft,
-) {
+async function sourceForbidsModel(tx: DbTx, s: Scope, input: KnowledgeDraft) {
   if (input.kind !== "website") return false;
   const urls = [input.url!, ...(input.pages ?? [])];
   const covers = (d: Record<string, any>, url: string) => {

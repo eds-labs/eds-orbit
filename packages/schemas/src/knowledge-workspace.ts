@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { languageCode } from "./project-settings.js";
 
 export const knowledgeTopic = z.enum([
   "description",
@@ -67,6 +68,22 @@ export const knowledgeDraft = knowledgeDraftBase.superRefine((v, ctx) => {
   } else if (v.kind === "website") require(v.url, "url");
   else require(v.text.trim(), "text");
 });
+/**
+ * Text or a document taken over whole as searchable content. The owner's
+ * review is the choice of audiences and rights (no analysis run, no model).
+ */
+export const knowledgeContentAcceptInput = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    text: z.string().trim().min(1).max(100000),
+    kind: z.enum(["manual", "file"]),
+    language: languageCode,
+    marketing: z.boolean(),
+    support: z.boolean(),
+    publicUse: z.boolean(),
+    modelUse: z.boolean(),
+  })
+  .strict();
 /** A run's input: the draft, plus the owner's consent given at the start of an AI run. */
 export const knowledgeRunInput = knowledgeDraftBase.extend({
   confirmModelUse: z.literal(true).optional(),

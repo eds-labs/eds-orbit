@@ -21,7 +21,7 @@ import {
   list,
   update,
 } from "../../shared.ts";
-import { lockKnowledge, owner } from "./workspace.ts";
+import { audiencesOf, lockKnowledge, owner } from "./workspace.ts";
 
 // Owner actions for site sources (spec "Add flow"). Every action rechecks the
 // owner and works inside the scope it receives. Discovery fetches outside any
@@ -190,11 +190,7 @@ async function applyRights(
 export async function startSite(scope: Scope, raw: unknown) {
   await owner(scope);
   const i = siteStartInput.parse(raw);
-  const audiences = [
-    ...(i.marketing ? ["marketing"] : []),
-    ...(i.support ? ["support"] : []),
-  ];
-  if (!audiences.length) throw new DomainError("KNOWLEDGE_NO_AUDIENCE", 400);
+  const audiences = audiencesOf(i);
   const existing = i.sourceId
     ? await within(scope, (tx) =>
         siteSource(tx, scope, i.sourceId!, { site: false }),

@@ -13,6 +13,7 @@ import {
   assertSourceResumable,
   readKnowledgeFile,
   owner,
+  acceptContent,
 } from "./workspace.ts";
 import { configureGithub, beginGithub } from "./github.ts";
 import {
@@ -131,6 +132,9 @@ export const knowledgeActions: Record<string, ActionHandler> = {
     await owner(scope);
     return beginGithub(scope, input);
   }),
+  "knowledge-content-accept": ownTransaction(({ scope, input }) =>
+    acceptContent(scope, input),
+  ),
   // Site sources: discovery and the first batches fetch outside transactions.
   "knowledge-site-discover": ownTransaction(({ scope, input }) =>
     discoverSitePages(scope, input),

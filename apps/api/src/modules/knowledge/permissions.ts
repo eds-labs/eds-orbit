@@ -25,6 +25,7 @@ export const knowledgeActionPermissions = actionPermissions("knowledge", {
     "embed-document",
     "evaluate-index",
     "generate-evaluation-set",
+    "knowledge-content-accept",
     "knowledge-import-commit",
     "knowledge-import-retry",
     "knowledge-site-discover",

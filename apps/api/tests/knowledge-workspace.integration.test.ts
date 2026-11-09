@@ -38,9 +38,13 @@ import {
   editProposal,
 } from "../src/modules/knowledge/workspace.ts";
 import { knowledgeActions } from "../src/modules/knowledge/actions.ts";
+import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
+import { can } from "../src/platform/tenancy/permissions.ts";
+import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { retrieve } from "../../../packages/knowledge/src/index.ts";
 import {
   resumeSource,
+  ingest,
   revokeDocument,
   revokeSource,
   setFact,
@@ -59,6 +63,12 @@ vi.mock("../src/modules/knowledge/github.ts", async (original) => ({
   readRepository: vi.fn(),
   githubToken: vi.fn(),
 }));
+// Delegates to the real engine; one test makes the ingest refuse.
+vi.mock("../src/platform/knowledge/engine.ts", async (original) => {
+  const real =
+    await original<typeof import("../src/platform/knowledge/engine.ts")>();
+  return { ...real, ingest: vi.fn(real.ingest) };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
   respond: vi.fn(),
@@ -1232,7 +1242,9 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
         (await analysisPreflight(s, { previewId })).blockers;
       const policy = await spendPolicy({ perRunBudgetMicros: 99 });
       expect(await blockers()).toEqual(["BUDGET_NOT_APPROVED"]);
-      await run((tx) => update(tx, s, policy, { ...data(policy), active: false }));
+      await run((tx) =>
+        update(tx, s, policy, { ...data(policy), active: false }),
+      );
       const expired = await spendPolicy({
         endAt: new Date(Date.now() - 1000).toISOString(),
       });
@@ -1483,7 +1495,10 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       const draft = await run((tx) =>
         entity(tx, s, "knowledge_drafts", data(job).draftId),
       );
-      expect(data(draft)).toMatchObject({ activeRunId: null, status: "failed" });
+      expect(data(draft)).toMatchObject({
+        activeRunId: null,
+        status: "failed",
+      });
     });
     it("blocks the address of a source that forbids model use", async () => {
       await spendPolicy();
@@ -1579,7 +1594,9 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     });
     it("a text without AI becomes one proposal", async () => {
       const text = "FamilyPlan organizes calendars.\n\nIt also plans meals.";
-      const { job } = await prepare(knowledgeDraft.parse({ ...manual(), text }));
+      const { job } = await prepare(
+        knowledgeDraft.parse({ ...manual(), text }),
+      );
       expect((await runAnalysis(s, job.id)).status).toBe("succeeded");
       const rows = await proposals();
       expect(rows).toHaveLength(1);
@@ -1783,5 +1800,125 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       "POLICY_REQUIRED",
     );
     expect(vi.mocked(respond)).not.toHaveBeenCalled();
+  });
+  describe("taking text over whole", () => {
+    const accept = (extra: Record<string, unknown> = {}, as: Scope = s) =>
+      (knowledgeActions["knowledge-content-accept"] as any).run({
+        scope: as,
+        input: {
+          name: "Pricing sheet",
+          text: "FamilyPlan organizes shared calendars for families.",
+          kind: "manual",
+          language: "de",
+          marketing: true,
+          support: false,
+          publicUse: false,
+          modelUse: true,
+          ...extra,
+        },
+      }) as Promise<any>;
+    const counts = () =>
+      run(async (tx) => ({
+        sources: await tx.entity.count({
+          where: { projectId: s.projectId, kind: "sources" },
+        }),
+        documents: await tx.knowledgeDocument.count({
+          where: { projectId: s.projectId },
+        }),
+      }));
+
+    it("makes the whole text searchable under the chosen audiences", async () => {
+      const source = await accept({ kind: "file" });
+      const d = data(source);
+      expect(d).toMatchObject({
+        type: "file",
+        status: "active",
+        authority: "official",
+        maxAgeHours: 8760,
+        audiences: ["marketing"],
+        modelUse: true,
+        publicUse: false,
+      });
+      expect(await counts()).toEqual({ sources: 1, documents: 1 });
+      expect((await search()).items).toHaveLength(1);
+      const asSupport = data(
+        await run((tx) =>
+          retrieve(tx, s, {
+            query: "FamilyPlan calendars",
+            purpose: "internal",
+            forModel: true,
+            consumer: "support",
+            language: "de",
+          }),
+        ),
+      );
+      expect(asSupport.items).toHaveLength(0);
+      const audits = await run((tx) =>
+        tx.auditEvent.findMany({
+          where: {
+            projectId: s.projectId,
+            action: "knowledge.content_accepted",
+          },
+        }),
+      );
+      expect(audits).toHaveLength(1);
+      expect(JSON.stringify(audits[0]!.metadata)).not.toContain("calendars");
+      expect(vi.mocked(respond)).not.toHaveBeenCalled();
+    });
+
+    it("is refused when no audience is chosen", async () => {
+      await expect(
+        accept({ marketing: false, support: false }),
+      ).rejects.toThrow("KNOWLEDGE_NO_AUDIENCE");
+      expect(await counts()).toEqual({ sources: 0, documents: 0 });
+    });
+
+    it("refuses text with credentials", async () => {
+      await expect(
+        accept({
+          text: "password = hunter2hunter2\napi_key: sk-live-abcdef0123456789abcdef",
+        }),
+      ).rejects.toThrow("KNOWLEDGE_SENSITIVE_TEXT_EXCLUDED");
+      expect(await counts()).toEqual({ sources: 0, documents: 0 });
+    });
+
+    it("leaves no source behind when the text is refused", async () => {
+      vi.mocked(ingest).mockRejectedValueOnce(
+        new KnowledgeError("INVALID_DOCUMENT_SIZE"),
+      );
+      await expect(accept()).rejects.toThrow("INVALID_DOCUMENT_SIZE");
+      expect(await counts()).toEqual({ sources: 0, documents: 0 });
+    });
+
+    it("only owners can use it", async () => {
+      const permission =
+        knowledgeActionPermissions["knowledge-content-accept"]!;
+      expect(can({ role: "owner" }, permission)).toBe(true);
+      expect(can({ role: "editor" }, permission)).toBe(false);
+      expect(can({ role: "viewer" }, permission)).toBe(false);
+      for (const as of [
+        { ...s, userId: randomUUID(), role: "editor" as const },
+        { ...s, userId: randomUUID(), role: "viewer" as const },
+      ])
+        await expect(accept({}, as)).rejects.toThrow("OWNER_REQUIRED");
+      expect(await counts()).toEqual({ sources: 0, documents: 0 });
+    });
+
+    it("stays inside its project", async () => {
+      await accept();
+      const other = await authDb.project.create({
+        data: { workspaceId, name: "Synthetic other" },
+      });
+      const [sources, documents] = await scoped(
+        workspaceId,
+        other.id,
+        async (tx) => [
+          await tx.entity.count({ where: { kind: "sources" } }),
+          await tx.knowledgeDocument.count(),
+        ],
+      );
+      expect({ sources, documents }).toEqual({ sources: 0, documents: 0 });
+      expect(await counts()).toEqual({ sources: 1, documents: 1 });
+    });
   });
 });
