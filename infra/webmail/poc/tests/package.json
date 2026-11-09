@@ -1,0 +1,8 @@
+{
+  "name": "orbit-webmail-poc-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

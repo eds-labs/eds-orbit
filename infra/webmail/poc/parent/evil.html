@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Wrong origin stand-in</title>
+<!-- Served from evil.orbit.test to prove that the parent ignores foreign messages. -->
+<script>
+    window.addEventListener('load', () => {
+        window.parent.postMessage({ type: 'orbit.webmail.convert', folder: 'INBOX', uid: 1, uidValidity: 1 }, '*');
+    });
+</script>
