@@ -17,6 +17,8 @@ import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
 import { registeredJobs } from "../src/platform/modules/contributions.ts";
 import { sourceSyncScheduler } from "../src/platform/knowledge/source-sync.ts";
+import { setFact } from "../src/platform/knowledge/engine.ts";
+import { retrieve } from "../../../packages/knowledge/src/index.ts";
 import {
   SITE_BATCH,
   runSiteBatch,
@@ -352,6 +354,58 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       pages: [0, 1, 2, 3].map(page),
       languages: ["de", "de", "de", "de"],
     });
+  });
+
+  it("reaches only what cites a changed or removed page", async () => {
+    const text = (word: string, body: string) => `# ${word}\n\n${word} ${body}`;
+    publish(0, 1, 2);
+    web.pages.set(page(0), text("Apfelkuchen", "alter Text."));
+    web.pages.set(page(1), text("Birnenmus", "alter Text."));
+    web.pages.set(page(2), text("Zitronenbrot", "alter Text."));
+    const source = await siteSource({ publicUse: true });
+    await read(source.id, [0, 1, 2]);
+    const search = (query: string) =>
+      run((tx) =>
+        retrieve(tx, owner, {
+          query,
+          language: "de",
+          purpose: "public",
+          at: new Date(),
+        }),
+      );
+    const fact = await run((tx) =>
+      setFact(tx, owner, {
+        key: "site.scope",
+        value: "kept",
+        valueType: "text",
+        language: "de",
+        sourceId: source.id,
+        validFrom: new Date(Date.now() - HOUR).toISOString(),
+        status: "verified",
+        publicUse: true,
+        modelUse: true,
+      }),
+    );
+    // Evidence comes after the fact: recording a fact invalidates its source's.
+    const onChanged = await search("Apfelkuchen");
+    const onRemoved = await search("Birnenmus");
+    const onStaying = await search("Zitronenbrot");
+    const statusOf = (id: string) =>
+      run((tx) => tx.entity.findUniqueOrThrow({ where: { id } })).then(
+        (row) => data(row).status,
+      );
+
+    web.pages.set(page(0), text("Apfelkuchen", "neuer Text."));
+    web.sitemap = [0, 2].map(page);
+    expect(await refresh(source.id)).toMatchObject({
+      changed: 1,
+      unchanged: 1,
+      removed: 1,
+    });
+    expect(await statusOf(onChanged.id)).toBe("invalidated");
+    expect(await statusOf(onRemoved.id)).toBe("invalidated");
+    expect(await statusOf(onStaying.id)).toBe("ready");
+    expect(await statusOf(fact.id)).toBe("verified");
   });
 
   it("retires a page no longer listed", async () => {

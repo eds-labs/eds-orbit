@@ -257,6 +257,8 @@ function takePage(
       mimeType: read.mimeType,
       language: page.language,
       expectedGeneration: run.generation,
+      // One changed page must not reach what is built on the site's others.
+      documentScoped: true,
     });
     const counter = result.unchanged
       ? "unchanged"

@@ -109,7 +109,8 @@ async function audit(
  * impact handler invalidate its own dependent records in the same
  * transaction. Handlers run even when no evidence was affected: records can
  * reference the source directly. `contentIds` keeps its historic name in the
- * result; it is the union of what the handlers report.
+ * result; it is the union of what the handlers report. With `documentVersion`
+ * only evidence citing that version counts (null: no version, so nothing).
  */
 async function invalidate(
   tx: DbTx,
@@ -119,6 +120,7 @@ async function invalidate(
   reason: string,
   factId?: string,
   purge = false,
+  documentVersion?: { id: string | null },
 ) {
   const evidence = await tx.entity.findMany({
     where: { ...where(s), kind: "evidence" },
@@ -126,10 +128,13 @@ async function invalidate(
   const evidenceIds = new Set<string>();
   for (const e of evidence) {
     const d = e.data as unknown as EvidenceData;
-    if (
-      d.items?.some((i) => i.sourceId === sourceId) ||
-      d.facts?.some((f) => (factId ? f.id === factId : f.sourceId === sourceId))
-    ) {
+    const affected = documentVersion
+      ? d.items?.some((i) => i.documentVersionId === documentVersion.id)
+      : d.items?.some((i) => i.sourceId === sourceId) ||
+        d.facts?.some((f) =>
+          factId ? f.id === factId : f.sourceId === sourceId,
+        );
+    if (affected) {
       evidenceIds.add(e.id);
       // Repeated runs for one source must not rewrite evidence that already
       // carries this reason; purging still rewrites.
@@ -155,6 +160,7 @@ async function invalidate(
     ...(factId ? { factId } : {}),
     purge,
     evidenceIds: [...evidenceIds],
+    ...(documentVersion ? { documentScoped: true as const } : {}),
   };
   const contentIds = new Set<string>();
   for (const handle of handlers) {
@@ -341,9 +347,11 @@ export async function ingest(
       where: { id: doc.activeVersionId },
       data: { state: "superseded" },
     });
-    const dependentFacts = await tx.entity.findMany({
-      where: { ...where(s), kind: "facts" },
-    });
+    const dependentFacts = input.documentScoped
+      ? []
+      : await tx.entity.findMany({
+          where: { ...where(s), kind: "facts" },
+        });
     for (const fact of dependentFacts) {
       const fd = fact.data as unknown as FactData;
       if (fd.sourceId === input.sourceId && fd.status === "verified")
@@ -371,6 +379,9 @@ export async function ingest(
     handlers,
     input.sourceId,
     "source_changed",
+    undefined,
+    false,
+    input.documentScoped ? { id: doc.activeVersionId } : undefined,
   );
   await tx.entity.update({
     where: { id: input.sourceId },
@@ -1535,7 +1546,8 @@ export async function revokeDocument(
 /**
  * Retires a document that its source no longer offers. Unlike
  * `revokeDocument` this writes no tombstone and purges nothing, so the same
- * externalId can be ingested again as a new version.
+ * externalId can be ingested again as a new version. Only what cites this
+ * document is affected, as for a document-scoped `ingest`.
  */
 export async function retireDocument(
   tx: DbTx,
@@ -1564,6 +1576,7 @@ export async function retireDocument(
     "document_retired",
     undefined,
     false,
+    { id: document.activeVersionId },
   );
   await audit(tx, s, "knowledge.document_retired", documentId, {
     versionId: document.activeVersionId,

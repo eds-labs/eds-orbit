@@ -9,6 +9,12 @@ export type KnowledgeImpact = {
   purge: boolean;
   /** Evidence packs the engine marked invalidated (or purged). */
   evidenceIds: readonly string[];
+  /**
+   * True when one document of the source changed, not the source. Records
+   * then relate to the change only through `evidenceIds`; a handler must not
+   * match them by `sourceId`.
+   */
+  documentScoped?: true;
 };
 /** Dependent records a handler invalidated, reported in the engine's result. */
 export type ImpactResult = { contentIds?: readonly string[] };
@@ -161,6 +167,12 @@ export type IngestInput = {
   sourceUpdatedAt?: string;
   embeddings?: number[][];
   profile?: string;
+  /**
+   * The change concerns this document only (site runs): it reaches only the
+   * evidence citing the document's previous version and leaves the source's
+   * facts and everything else built on the source alone.
+   */
+  documentScoped?: boolean;
 };
 export type RetrieveInput = {
   query: string;
