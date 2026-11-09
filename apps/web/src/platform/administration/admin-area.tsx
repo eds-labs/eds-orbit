@@ -38,6 +38,7 @@ import { McpAdmin } from "./admin-mcp";
 import { AiProfileEditor } from "./ai-knowledge-ui";
 import { ModelPricesPanel } from "./ai-catalog-ui";
 import { AiDefaultsPanel } from "./ai-defaults-ui";
+import { WebmailStatusPanel } from "./admin-webmail";
 
 // The system administration (/admin, ADR 0013): installation-wide metadata
 // about users, organizations, projects and invitations, and the actions on
@@ -327,6 +328,7 @@ function Overview({ locale }: { locale: Locale }) {
                 <dd>{o.system.version ?? "—"}</dd>
               </dl>
             </section>
+            <WebmailStatusPanel locale={locale} />
           </>
         )}
       </Loaded>

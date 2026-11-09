@@ -1,6 +1,7 @@
 import { Inbox } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { WebmailOverview } from "./overview";
+import { webmailSettings } from "./settings";
 
 /**
  * Webmail in the web shell (ADR 0026). Opt-in: shown only where the server
@@ -17,6 +18,7 @@ export const webmailWeb: WebModule = {
   },
   // Right after Support (20), before Issues (25).
   groupOrder: 22,
+  settings: webmailSettings,
   views: [
     {
       key: "webmail",
