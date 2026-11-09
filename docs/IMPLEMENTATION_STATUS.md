@@ -1,10 +1,10 @@
 # Implementation status
 
-## Knowledge: one row per source, grouped knowledge and plain language (2026-11-09, implemented, not merged, not deployed)
+## Knowledge: one row per source, grouped knowledge and plain language (2026-11-09, delivered to `main`, not live-accepted)
 
 Spec [2026-11-09-knowledge-structure-and-language-design.md](superpowers/specs/2026-11-09-knowledge-structure-and-language-design.md); behaviour in [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Package 3 of the Knowledge review. Risk medium: web only (no API change, action, migration, dependency or access-matrix change), but the main owner flow for confirming knowledge changes and bulk confirm can put many statements into use with one click.
 
-- **State:** implemented on branch `claude/wissen-modul-review-3fbb67`; this section covers package 3's commits from `594c40c0` up to the documentation commit. Integrating the current `origin/main` (which has moved on) is still to do. Not merged, not pushed, not deployed, not live-accepted. Delivery to `main` deploys and needs Mario's approval; no schema hash is needed. Rollback is a revert.
+- **State:** delivered to `main` on 2026-11-09 with Mario's approval, integrated with `origin/main` at `e62decb0`. On the integrated tree: lint, typecheck, build and boundaries pass; 569 test files passed, 1 skipped; 6,259 tests passed, 7 skipped, 0 failed; browser spec 2 of 2. Web and docs only: no migration, no schema hash, no flag change. Not live-accepted: nobody has used the new pages on production data yet.
 - **Built:**
   - One row model for every source on the Sources page (`source-rows.ts`, `source-list.tsx`): one status, one sentence, at most one primary action, the rest under "More"; a 30-day reminder for GitHub and single-page website drafts.
   - Knowledge and To review grouped by the five topics; review cards with rights line and Adjust; bulk confirm with a bar that states its effect, partial failure handling and one refresh at the end.
