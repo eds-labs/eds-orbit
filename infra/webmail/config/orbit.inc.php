@@ -1,7 +1,26 @@
 <?php
 
-// Orbit webmail configuration. The image entrypoint includes this file last,
-// so every value here overrides the generated Docker configuration.
+// Orbit webmail configuration, baked into the image as config/config.inc.php. The
+// container filesystem is read-only, so every deployment value comes from the
+// environment and nothing is generated at start.
+
+$orbitDbUrl = sprintf(
+    'pgsql://%s:%s@%s:%s/%s',
+    rawurlencode((string) getenv('ROUNDCUBEMAIL_DB_USER')),
+    rawurlencode((string) getenv('ROUNDCUBEMAIL_DB_PASSWORD')),
+    (string) getenv('ROUNDCUBEMAIL_DB_HOST'),
+    (string) getenv('ROUNDCUBEMAIL_DB_PORT'),
+    rawurlencode((string) getenv('ROUNDCUBEMAIL_DB_NAME'))
+);
+
+$config['db_dsnw'] = $orbitDbUrl;
+$config['request_path'] = '/';
+$config['temp_dir'] = '/tmp/roundcube-temp';
+
+// The secret has any length; AES-256 needs exactly 32 bytes. Only the opaque session
+// handle is encrypted with this key.
+$config['des_key'] = hash('sha256', (string) getenv('ROUNDCUBEMAIL_DES_KEY'), true);
+$config['cipher_method'] = 'AES-256-CBC';
 
 $config['plugins'] = ['orbit_bridge'];
 $config['skin'] = 'orbit';
@@ -49,6 +68,10 @@ $config['dont_override'] = [
     'delete_junk',
     'read_when_deleted',
     'mail_read_time',
+    'mdn_requests',
+    // All members of a mailbox share one Roundcube user, so the stored language would
+    // be that of whoever opened it first. Without it, the browser's language applies.
+    'language',
 ];
 
 // Nothing that could reveal mailbox content or tolerate destructive automation.
@@ -59,6 +82,10 @@ $config['logout_expunge'] = false;
 $config['skip_deleted'] = false;
 $config['flag_for_deletion'] = false;
 $config['delete_junk'] = false;
+
+// The plugin tightens these per session for capabilities the member does not have.
+$config['mail_read_time'] = 0;
+$config['mdn_requests'] = 0;
 
 // Features that are out of scope for the embedded client.
 $config['enable_spellcheck'] = false;

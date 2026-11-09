@@ -11,11 +11,15 @@ class orbit_bridge_policy
 {
     public const DENY = 'deny';
 
-    private $actions;
+    private const NEVER = 'never';
 
-    public function __construct(array $actions)
+    private $actions;
+    private $commands;
+
+    public function __construct(array $actions, array $commands)
     {
         $this->actions = $actions;
+        $this->commands = $commands;
     }
 
     public function capabilityFor(string $task, string $action): string
@@ -23,5 +27,21 @@ class orbit_bridge_policy
         $name = $action === '' ? 'index' : $action;
 
         return $this->actions['*'][$name] ?? $this->actions[$task][$name] ?? self::DENY;
+    }
+
+    /**
+     * @return string[] Client commands the interface must not offer to these capabilities
+     */
+    public function disabledCommands(array $capabilities): array
+    {
+        $disabled = [];
+
+        foreach ($this->commands as $requirement => $commands) {
+            if ($requirement === self::NEVER || !in_array($requirement, $capabilities, true)) {
+                $disabled = array_merge($disabled, $commands);
+            }
+        }
+
+        return $disabled;
     }
 }

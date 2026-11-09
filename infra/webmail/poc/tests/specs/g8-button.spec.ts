@@ -1,6 +1,6 @@
 import { test, expect, type Frame } from '@playwright/test';
 import { EVIL_ORIGIN, FULL_ACCESS, issueToken, openWebmail, ORBIT_ORIGIN, READ_ONLY, resetBridge, waitForMailList, waitForRoundcube, WEBMAIL_ORIGIN, webmailFrame } from '../lib/poc';
-import { seedAlice, uidOf, withAlice } from '../lib/seed.mjs';
+import { seedAlice, seedBob, uidOf, withAlice } from '../lib/seed.mjs';
 
 const BUTTON = 'a.orbit-convert';
 const COMMAND = 'plugin.orbit_bridge.convert';
@@ -89,6 +89,55 @@ test.describe('G8 convert button', () => {
         await waitForMailList(frame);
 
         await expect(frame.locator(BUTTON)).toHaveCount(0);
+    });
+
+    test('a rendered session tells Orbit it is ready', async ({ page }) => {
+        await openWebmail(page, { capabilities: READ_ONLY });
+
+        await expect.poll(() => page.evaluate(() => (window as any).ready[0])).toEqual({ type: 'orbit.webmail.ready' });
+    });
+
+    test('a refused login never reports ready', async ({ page }) => {
+        await page.goto(`${ORBIT_ORIGIN}/rp/strict?token=forged-token`);
+        await expect.poll(() => page.evaluate(() => (window as any).lost)).toEqual([
+            { type: 'orbit.webmail.session_lost', reason: 'handoff_failed' },
+        ]);
+
+        expect(await page.evaluate(() => (window as any).ready)).toEqual([]);
+    });
+
+    test('outside the frame the button opens the Orbit link', async ({ page, context }) => {
+        await openWebmail(page, { capabilities: FULL_ACCESS });
+        const uid = await uidOf('Plain welcome');
+        const validity = await withAlice(async (imap) => (await imap.select('INBOX')).uidValidity);
+        const tab = await context.newPage();
+        await tab.goto(`${WEBMAIL_ORIGIN}/?_task=mail&_mbox=INBOX&_uid=${uid}&_action=show`);
+        await waitForRoundcube(tab.mainFrame());
+
+        const [orbit] = await Promise.all([context.waitForEvent('page'), tab.locator(BUTTON).click()]);
+
+        await expect.poll(() => orbit.url()).toBe(
+            `${ORBIT_ORIGIN}/p/project-1/webmail?mailbox=m1&convert=1&folder=INBOX&uid=${uid}&uidValidity=${validity}`,
+        );
+        expect(await orbit.evaluate(() => window.opener)).toBeNull();
+    });
+
+    test('outside the frame the button reports failure without a project', async ({ page, context }) => {
+        await seedBob();
+        await openWebmail(page, { mailbox: 'm2', capabilities: FULL_ACCESS });
+        const tab = await context.newPage();
+        await tab.goto(`${WEBMAIL_ORIGIN}/?_task=mail&_mbox=INBOX`);
+        await waitForMailList(tab.mainFrame());
+        await tab.evaluate(() => {
+            const list = (window as any).rcmail.message_list;
+            list.select_row(Object.keys(list.rows)[0]);
+        });
+        const pagesBefore = context.pages().length;
+
+        await tab.locator(BUTTON).click();
+
+        await expect(tab.locator('#messagestack')).toContainText('could not be prepared');
+        expect(context.pages()).toHaveLength(pagesBefore);
     });
 
     test('the label follows the German locale', async ({ browser }) => {

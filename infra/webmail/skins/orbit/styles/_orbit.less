@@ -1,0 +1,148 @@
+/**
+ * Orbit shape language and the controls a session may not use.
+ * Licensed under CC BY-SA 3.0, see ../LICENSE.
+ */
+
+html {
+    letter-spacing: 0;
+}
+
+// Radii: 8 px controls, 12 px panels, 18 px modals (14 px on phones)
+.btn,
+.input-group-text,
+.form-control,
+.custom-select,
+.custom-file-label,
+.recipient-input,
+.searchbar,
+a.button:not(.task-menu-button),
+#taskmenu a {
+    border-radius: @orbit-radius-control;
+}
+
+.input-group > .form-control:not(:first-child),
+.input-group > .custom-select:not(:first-child),
+.input-group > .input-group-append > .btn,
+.input-group > .input-group-append > .input-group-text {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.input-group > .form-control:not(:last-child),
+.input-group > .custom-select:not(:last-child),
+.input-group > .input-group-prepend > .btn,
+.input-group > .input-group-prepend > .input-group-text {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.popover {
+    border-radius: @orbit-radius-panel;
+}
+
+.ui-dialog.ui-widget-content {
+    border-radius: @orbit-radius-modal;
+    overflow: hidden;
+}
+
+#messagestack > div {
+    border-radius: @orbit-radius-panel;
+}
+
+// The two lines of the mailbox name in the folder column header
+.header-title.username {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.25;
+    min-width: 0;
+
+    .orbit-mailbox-name,
+    .orbit-mailbox-address {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .orbit-mailbox-name {
+        font-weight: 600;
+    }
+
+    .orbit-mailbox-address {
+        font-size: 12px;
+        font-weight: normal;
+        color: @color-black-shade-text;
+    }
+}
+
+html.dark-mode .header-title.username .orbit-mailbox-address {
+    color: @color-dark-hint;
+}
+
+a.button.orbit-convert {
+    // Elastic limits toolbar labels to one short word.
+    max-width: none !important;
+
+    &:before {
+        &:extend(.font-icon-class);
+        content: @fa-var-ticket-alt;
+    }
+}
+
+// Phones: 16 px fields prevent the iOS focus zoom, modals use the smaller radius
+@media screen and (max-width: 760px) {
+    input.form-control,
+    select.custom-select,
+    textarea.form-control,
+    .recipient-input input {
+        font-size: 16px;
+    }
+
+    .ui-dialog.ui-widget-content {
+        border-radius: @orbit-radius-modal-sm;
+    }
+}
+
+// Reached only through features Orbit does not offer, whatever the session may do.
+#message-header > .subject a.extwin,
+#message-menu a.extwin,
+.formbuttons a.extwin,
+#mailboxoptions-menu a.folders,
+#mailto-menu a.addressbook,
+.task-mail.action-compose a.responses {
+    display: none !important;
+}
+
+// Presentation only: the server refuses these actions regardless. Elastic moves the
+// buttons of #mailtoolbar into a generated list at runtime; both carry .toolbar.
+html.orbit-no-send {
+    a.compose,
+    .toolbar a.reply,
+    .toolbar a.reply-all,
+    .toolbar a.forward,
+    .toolbar .dropbutton,
+    #message-menu a.edit.asnew,
+    #forward-menu,
+    #replyall-menu {
+        display: none !important;
+    }
+}
+
+html.orbit-no-organize {
+    a.sidebar-menu,
+    .toolbar a.delete,
+    .toolbar a.markmessage,
+    #message-menu a.import,
+    #message-menu a.move,
+    #message-menu a.copy,
+    #markmessage-menu,
+    #dragmessage-menu {
+        display: none !important;
+    }
+
+    #messagelist span.msgicon.status,
+    #messagelist span.flag,
+    #messagelist span.msgicon.flag {
+        pointer-events: none;
+    }
+}

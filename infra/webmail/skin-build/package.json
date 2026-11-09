@@ -1,0 +1,9 @@
+{
+  "name": "orbit-webmail-skin-build",
+  "private": true,
+  "description": "Build-time only: compiles the orbit Roundcube skin. Nothing from here ships in the image.",
+  "devDependencies": {
+    "less": "4.2.2",
+    "less-plugin-clean-css": "1.6.0"
+  }
+}

@@ -41,6 +41,47 @@ remote() {
   fi
 }
 
+# Dumps the database selected by the PG* variables, then checks, encrypts, uploads
+# and verifies the archive under the given object name.
+archive_database() {
+  local prefix="$1" name="$2" dump enc sha size uploaded
+  dump="$work/$prefix.dump"
+  enc="$work/$name"
+  # Explicit checks: errexit is ignored when this function runs inside "||"
+  # or "until", which is how both schedules call it.
+  pg_dump --format=custom --file="$dump" || return 1
+  [[ -s "$dump" ]] || { log "empty dump"; return 1; }
+  pg_restore --list "$dump" >/dev/null || return 1
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$enc" "$dump" || return 1
+  sha="$(sha256sum "$enc" | cut -d' ' -f1)" || return 1
+  size="$(stat -c %s "$enc")" || return 1
+  printf '%s  %s\n' "$sha" "$name" >"$enc.sha256"
+  # Upload known-size files with retries; R2 intermittently answers 501 and
+  # streamed uploads of unknown size (rclone rcat) cannot be retried.
+  rclone copyto --retries 5 --low-level-retries 10 "$enc" "$(remote)$name" || return 1
+  rclone copyto --retries 5 --low-level-retries 10 "$enc.sha256" \
+    "$(remote)$name.sha256" || return 1
+  uploaded="$(rclone lsf --format s "$(remote)$name")" || return 1
+  if [[ "$uploaded" != "$size" ]]; then
+    log "upload size mismatch for $name: local=$size remote=$uploaded"
+    return 1
+  fi
+  log "ok $name bytes=$size sha256=$sha"
+  # The temporary filesystem has to hold one database at a time only.
+  rm -f "$dump" "$enc" "$enc.sha256"
+}
+
+# The webmail database exists only while ORBIT_WEBMAIL_REPLICAS is above 0. While it is
+# off there is nothing to back up and no connection is attempted; while it is on, a
+# failure must fail the run like any other, so the scheduler alerts.
+archive_webmail_database() {
+  if [[ -z "${WEBMAIL_PGHOST:-}" || "${WEBMAIL_EXPECTED_REPLICAS:-0}" == "0" ]]; then
+    return 0
+  fi
+  PGHOST="$WEBMAIL_PGHOST" PGUSER="$WEBMAIL_PGUSER" PGPASSWORD="$WEBMAIL_PGPASSWORD" \
+    PGDATABASE="$WEBMAIL_PGDATABASE" archive_database webmail "orbit-webmail-${ts}.dump.age"
+}
+
 # Runs in a subshell so the work directory is always removed on exit.
 run_once() (
   export RCLONE_CONFIG_ORBITBACKUP_TYPE=s3
@@ -50,34 +91,14 @@ run_once() (
   export RCLONE_CONFIG_ORBITBACKUP_SECRET_ACCESS_KEY="${BACKUP_S3_SECRET_ACCESS_KEY:-}"
   export RCLONE_CONFIG_ORBITBACKUP_REGION="${BACKUP_S3_REGION:-auto}"
   export RCLONE_CONFIG_ORBITBACKUP_NO_CHECK_BUCKET=true
-  local ts name work dump enc sha size uploaded
+  local ts work name
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
   name="orbit-${ts}.dump.age"
   work="$(mktemp -d /tmp/orbit-backup.XXXXXX)"
   trap 'rm -rf "$work"' EXIT
   umask 077
-  dump="$work/orbit.dump"
-  enc="$work/$name"
-  # Explicit checks: errexit is ignored when this function runs inside "||"
-  # or "until", which is how both schedules call it.
-  pg_dump --format=custom --file="$dump" || exit 1
-  [[ -s "$dump" ]] || { log "empty dump"; exit 1; }
-  pg_restore --list "$dump" >/dev/null || exit 1
-  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$enc" "$dump" || exit 1
-  sha="$(sha256sum "$enc" | cut -d' ' -f1)" || exit 1
-  size="$(stat -c %s "$enc")" || exit 1
-  printf '%s  %s\n' "$sha" "$name" >"$enc.sha256"
-  # Upload known-size files with retries; R2 intermittently answers 501 and
-  # streamed uploads of unknown size (rclone rcat) cannot be retried.
-  rclone copyto --retries 5 --low-level-retries 10 "$enc" "$(remote)$name" || exit 1
-  rclone copyto --retries 5 --low-level-retries 10 "$enc.sha256" \
-    "$(remote)$name.sha256" || exit 1
-  uploaded="$(rclone lsf --format s "$(remote)$name")" || exit 1
-  if [[ "$uploaded" != "$size" ]]; then
-    log "upload size mismatch for $name: local=$size remote=$uploaded"
-    exit 1
-  fi
-  log "ok $name bytes=$size sha256=$sha"
+  archive_database orbit "$name" || exit 1
+  archive_webmail_database || { log "webmail database backup failed"; exit 1; }
   state ok "$name"
   heartbeat
 )
