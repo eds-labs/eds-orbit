@@ -116,6 +116,8 @@ export const setSourceAudiences = (
   audiences: readonly string[],
 ) =>
   engine.setSourceAudiences(tx, s, registeredImpactHandlers(), id, audiences);
+export const retireDocument = (tx: DbTx, s: Scope, documentId: string) =>
+  engine.retireDocument(tx, s, registeredImpactHandlers(), documentId);
 export const revokeDocument = (
   tx: DbTx,
   s: Scope,

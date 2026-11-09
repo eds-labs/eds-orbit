@@ -24,6 +24,7 @@ import {
   setSourceRights,
   setSourceAudiences,
   revokeDocument,
+  retireDocument,
 } from "../../../apps/api/src/platform/knowledge/engine.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -1059,6 +1060,91 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
     await expect(
       run(a, (tx) => ingest(tx, a, { ...data, expectedGeneration: 2 })),
     ).rejects.toThrow("DOCUMENT_REVOKED");
+  });
+  describe("retiring a document", () => {
+    const find = (src: string, text: string) =>
+      run(a, (tx) =>
+        retrieve(tx, a, { query: text, purpose: "public", at }),
+      ).then((e) => e.data as unknown as EvidenceData);
+    it("retiring hides a document from retrieval", async () => {
+      const src = await source();
+      const doc = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE801 hidden page text.")),
+      );
+      expect((await find(src.id, "RETIRE801")).items.length).toBeGreaterThan(0);
+      await expect(
+        run(a, (tx) => retireDocument(tx, a, doc.documentId)),
+      ).resolves.toEqual({ retired: true });
+      expect((await find(src.id, "RETIRE801")).items).toHaveLength(0);
+      const stored = await run(a, (tx) =>
+        tx.knowledgeDocument.findUniqueOrThrow({
+          where: { id: doc.documentId },
+        }),
+      );
+      expect(stored.activeVersionId).toBeNull();
+      const version = await run(a, (tx) =>
+        tx.documentVersion.findUniqueOrThrow({ where: { id: doc.versionId } }),
+      );
+      expect(version.state).toBe("superseded");
+    });
+    it("retiring writes no tombstone, so the same externalId can be ingested again", async () => {
+      const src = await source();
+      const data = input(src.id, "RETIRE802 returning page text.");
+      const first = await run(a, (tx) => ingest(tx, a, data));
+      await run(a, (tx) => retireDocument(tx, a, first.documentId));
+      const tombstones = await run(a, (tx) =>
+        tx.entity.findMany({ where: { kind: "revocations" } }),
+      );
+      expect(
+        tombstones.filter(
+          (t) => (t.data as { sourceId?: string }).sourceId === src.id,
+        ),
+      ).toHaveLength(0);
+      const again = await run(a, (tx) => ingest(tx, a, data));
+      expect(again.unchanged).toBe(false);
+      expect(again.documentId).toBe(first.documentId);
+      expect(again.versionId).not.toBe(first.versionId);
+      const stored = await run(a, (tx) =>
+        tx.knowledgeDocument.findUniqueOrThrow({
+          where: { id: first.documentId },
+        }),
+      );
+      expect(stored.activeVersionId).toBe(again.versionId);
+      const version = await run(a, (tx) =>
+        tx.documentVersion.findUniqueOrThrow({
+          where: { id: again.versionId },
+        }),
+      );
+      expect(version).toMatchObject({ state: "active", version: 2 });
+      expect((await find(src.id, "RETIRE802")).items.length).toBeGreaterThan(0);
+    });
+    it("retiring invalidates dependents without purging evidence items", async () => {
+      const src = await source();
+      const doc = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE803 dependent page text.")),
+      );
+      const evidence = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE803", purpose: "public", at }),
+      );
+      const items = (evidence.data as unknown as EvidenceData).items;
+      expect(items.length).toBeGreaterThan(0);
+      await run(a, (tx) => retireDocument(tx, a, doc.documentId));
+      const after = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      const data = after.data as unknown as EvidenceData;
+      expect(data.status).toBe("invalidated");
+      expect(data.gaps).toContain("document_retired");
+      expect(data.items).toHaveLength(items.length);
+    });
+    it("retiring twice reports retired false", async () => {
+      const src = await source();
+      const doc = await run(a, (tx) => ingest(tx, a, input(src.id)));
+      await run(a, (tx) => retireDocument(tx, a, doc.documentId));
+      await expect(
+        run(a, (tx) => retireDocument(tx, a, doc.documentId)),
+      ).resolves.toEqual({ retired: false });
+    });
   });
   it("external model permission is independent from public use", async () => {
     const src = await source(a, { modelUse: false });

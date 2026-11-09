@@ -725,7 +725,9 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
           d.key
             .toLowerCase()
             .split(/[._-]/)
-            .some((k) => k.length >= 3 && input.query.toLowerCase().includes(k)),
+            .some(
+              (k) => k.length >= 3 && input.query.toLowerCase().includes(k),
+            ),
     );
   for (const key of input.factKeys ?? [])
     if (!facts.some((f) => f.key === key)) gaps.push("missing_fact:" + key);
@@ -1526,6 +1528,44 @@ export async function revokeDocument(
     tombstoneId: tombstone.id,
   });
   return { revoked: true, impact, tombstoneId: tombstone.id };
+}
+/**
+ * Retires a document that its source no longer offers. Unlike
+ * `revokeDocument` this writes no tombstone and purges nothing, so the same
+ * externalId can be ingested again as a new version.
+ */
+export async function retireDocument(
+  tx: DbTx,
+  s: Scope,
+  handlers: readonly ImpactHandler[],
+  documentId: string,
+) {
+  const document = await tx.knowledgeDocument.findFirst({
+    where: { ...where(s), id: documentId },
+  });
+  if (!document) throw new KnowledgeError("DOCUMENT_UNAVAILABLE");
+  if (!document.activeVersionId) return { retired: false };
+  await tx.documentVersion.update({
+    where: { id: document.activeVersionId },
+    data: { state: "superseded" },
+  });
+  await tx.knowledgeDocument.update({
+    where: { id: documentId },
+    data: { activeVersionId: null },
+  });
+  await invalidate(
+    tx,
+    s,
+    handlers,
+    document.sourceId,
+    "document_retired",
+    undefined,
+    false,
+  );
+  await audit(tx, s, "knowledge.document_retired", documentId, {
+    versionId: document.activeVersionId,
+  });
+  return { retired: true };
 }
 export async function attachEmbeddings(
   tx: DbTx,
