@@ -197,6 +197,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
   });
   beforeEach(() => workerBeat());
   afterEach(async () => {
+    delete process.env.ORBIT_KNOWLEDGE_WORKSPACE;
     delete process.env.ORBIT_MODULES;
     delete process.env.ORBIT_MODULE_ROLES;
     await authDb.projectMemberModuleRole.deleteMany({
@@ -293,7 +294,78 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
     ).toEqual([website.id, gitbook.id].sort());
   });
 
+  it("a failed run raises knowledge_site_review unless its cause cannot be acted on", async () => {
+    process.env.ORBIT_KNOWLEDGE_WORKSPACE = "true";
+    const failedSource = async (name: string, errorCode: string) => {
+      const row = await run((tx) =>
+        create(tx, owner, "knowledge_site_runs", {
+          status: "failed",
+          errorCode,
+          failed: [],
+          warning: null,
+          startedAt: ago(2),
+          completedAt: ago(1),
+        }),
+      );
+      return source({
+        name,
+        type: "gitbook",
+        status: "active",
+        lastSuccessfulSyncAt: ago(1),
+        site: {
+          rootUrl: "https://docs.example.com/help",
+          discovery: "sitemap",
+          excludedPages: [],
+          lastRunId: row.id,
+        },
+      });
+    };
+    const stopped = await failedSource("Stopped", "JOB_OUTCOME_UNKNOWN");
+    await failedSource("Paused by owner", "SOURCE_INACTIVE");
+    await failedSource("Flag off", "KNOWLEDGE_DISABLED");
+    const items = (await itemsOf("knowledge")).filter(
+      (i) => i.kind === "knowledge_site_review",
+    );
+    expect(items.map((i) => i.id)).toEqual([
+      `knowledge:site-review:${stopped.id}`,
+    ]);
+    expect(items[0]!.params).toMatchObject({
+      name: "Stopped",
+      runFailed: true,
+    });
+  });
+
+  it("raises no site review without the workspace flag", async () => {
+    const row = await run((tx) =>
+      create(tx, owner, "knowledge_site_runs", {
+        status: "completed",
+        failed: [],
+        warning: "site_shrank",
+        startedAt: ago(2),
+        completedAt: ago(1),
+      }),
+    );
+    await source({
+      name: "No flag",
+      type: "gitbook",
+      status: "active",
+      lastSuccessfulSyncAt: ago(1),
+      site: {
+        rootUrl: "https://docs.example.com/help",
+        discovery: "sitemap",
+        excludedPages: [],
+        lastRunId: row.id,
+      },
+    });
+    expect(
+      (await itemsOf("knowledge")).filter(
+        (i) => i.kind === "knowledge_site_review",
+      ),
+    ).toEqual([]);
+  });
+
   it("a run with a warning or failed pages raises knowledge_site_review linking to the source", async () => {
+    process.env.ORBIT_KNOWLEDGE_WORKSPACE = "true";
     const siteRun = (fields: Record<string, unknown>) =>
       run((tx) =>
         create(tx, owner, "knowledge_site_runs", {
@@ -351,7 +423,12 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
           kind: "knowledge_site_review",
           severity: "warning",
           since: expect.any(String),
-          params: { name: "Failing", failed: 1, shrank: false },
+          params: {
+            name: "Failing",
+            failed: 1,
+            shrank: false,
+            runFailed: false,
+          },
           navKey: "knowledge-sources",
           link: `/knowledge/sources?source=${failing.id}`,
         },
@@ -361,7 +438,12 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
           kind: "knowledge_site_review",
           severity: "warning",
           since: expect.any(String),
-          params: { name: "Shrinking", failed: 0, shrank: true },
+          params: {
+            name: "Shrinking",
+            failed: 0,
+            shrank: true,
+            runFailed: false,
+          },
           navKey: "knowledge-sources",
           link: `/knowledge/sources?source=${shrinking.id}`,
         },
@@ -388,6 +470,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
   });
 
   it("caps individual site review items and counts the rest", async () => {
+    process.env.ORBIT_KNOWLEDGE_WORKSPACE = "true";
     for (let n = 0; n < 5; n++) {
       const row = await run((tx) =>
         create(tx, owner, "knowledge_site_runs", {

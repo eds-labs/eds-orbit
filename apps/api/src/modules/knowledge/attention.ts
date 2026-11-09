@@ -108,10 +108,14 @@ async function sourceItems(
   ];
 }
 
+/** Failed runs nobody needs to review: the owner stopped them, or Knowledge is off. */
+const NOT_FOR_REVIEW = ["SOURCE_INACTIVE", "KNOWLEDGE_DISABLED"];
+
 /**
- * Site sources whose latest run (`site.lastRunId`) ended with a warning or
- * failed pages; a later clean run clears the item. Paused and revoked sources
- * are out of use. At most SOURCE_ITEMS items of their own, the rest as one.
+ * Site sources whose latest run (`site.lastRunId`) failed, ended with a
+ * warning or had failed pages; a later clean run clears the item. Paused and
+ * revoked sources are out of use. At most SOURCE_ITEMS items of their own,
+ * the rest as one.
  */
 async function siteReviewItems(
   tx: DbTx,
@@ -153,18 +157,22 @@ async function siteReviewItems(
     since: string;
     failed: number;
     shrank: boolean;
+    runFailed: boolean;
   }[] = [];
   for (const row of rows) {
     const run = runs.get(lastRun.get(row.id) ?? "");
     const failed = Array.isArray(run?.failed) ? run.failed.length : 0;
     const shrank = run?.warning === "site_shrank";
-    if (!run || (!failed && !shrank)) continue;
+    const runFailed = run?.status === "failed";
+    if (!run || (runFailed && NOT_FOR_REVIEW.includes(run.errorCode))) continue;
+    if (!failed && !shrank && !runFailed) continue;
     flagged.push({
       id: row.id,
       name: String(data(row).name ?? ""),
       since: String(run.completedAt ?? run.startedAt ?? ""),
       failed,
       shrank,
+      runFailed,
     });
   }
   // The longest waiting first; the id keeps the order stable.
@@ -181,7 +189,12 @@ async function siteReviewItems(
     ...base,
     id: `knowledge:site-review:${f.id}`,
     ...(f.since ? { since: f.since } : {}),
-    params: { name: f.name, failed: f.failed, shrank: f.shrank },
+    params: {
+      name: f.name,
+      failed: f.failed,
+      shrank: f.shrank,
+      runFailed: f.runFailed,
+    },
     link: `${SOURCES.link}?source=${f.id}`,
   }));
   const rest = flagged.slice(SOURCE_ITEMS);
@@ -265,10 +278,10 @@ export const knowledgeAttention: AttentionContribution = async (
             link: "/knowledge/review",
           },
         )),
+        ...(await siteReviewItems(tx, scope)),
       ]
     : []),
   ...(await sourceItems(tx, scope, now)),
-  ...(await siteReviewItems(tx, scope)),
   ...(await aggregated(
     tx,
     scope,

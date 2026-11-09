@@ -60,15 +60,17 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
     }
     const failed = Number(item.params.failed ?? 0);
     const text =
-      item.params.shrank === true
-        ? {
-            en: "Site shrank, nothing removed",
-            de: "Website deutlich kleiner, nichts entfernt",
-          }
-        : {
-            en: `${failed} page${failed === 1 ? "" : "s"} could not be read`,
-            de: `${failed} ${failed === 1 ? "Seite" : "Seiten"} nicht lesbar`,
-          };
+      item.params.runFailed === true
+        ? { en: "Last read failed", de: "Letztes Einlesen fehlgeschlagen" }
+        : item.params.shrank === true
+          ? {
+              en: "Site shrank, nothing removed",
+              de: "Website deutlich kleiner, nichts entfernt",
+            }
+          : {
+              en: `${failed} page${failed === 1 ? "" : "s"} could not be read`,
+              de: `${failed} ${failed === 1 ? "Seite" : "Seiten"} nicht lesbar`,
+            };
     return { title: `${text[locale]} · ${name}`, action: CHECK };
   },
   knowledge_review_pending: (item, locale) => ({

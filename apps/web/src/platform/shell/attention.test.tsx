@@ -233,6 +233,11 @@ describe("renderAttention", () => {
       "knowledge_site_review",
       { name: "Docs", failed: 2, shrank: false },
     ],
+    [
+      "knowledge",
+      "knowledge_site_review",
+      { name: "Docs", failed: 0, shrank: false, runFailed: true },
+    ],
     ["knowledge", "knowledge_conflicts", {}],
     ["knowledge", "knowledge_import_failed", {}],
     ["platform", "platform_worker_down", {}],

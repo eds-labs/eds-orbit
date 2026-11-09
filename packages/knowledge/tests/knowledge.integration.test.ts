@@ -1154,11 +1154,8 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
       await run(a, (tx) => retireDocument(tx, a, retired.documentId));
       const status = async (id: string) =>
         (
-          (
-            await run(a, (tx) =>
-              tx.entity.findUniqueOrThrow({ where: { id } }),
-            )
-          ).data as unknown as EvidenceData
+          (await run(a, (tx) => tx.entity.findUniqueOrThrow({ where: { id } })))
+            .data as unknown as EvidenceData
         ).status;
       expect(await status(citing.id)).toBe("invalidated");
       expect(await status(other.id)).toBe("ready");
@@ -1395,8 +1392,7 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
       expect(await statusOf(onStaying.id)).toBe("ready");
     });
     it("a retired page reaches the marketing content citing it only", async () => {
-      const { src, changing, onChanging, onStaying } =
-        await site("SCOPED906");
+      const { src, changing, onChanging, onStaying } = await site("SCOPED906");
       const hit = await entityOf("content", {
         status: "approved",
         evidenceId: onChanging.id,

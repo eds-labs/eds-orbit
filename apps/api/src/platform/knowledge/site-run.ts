@@ -3,10 +3,14 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   assertActiveEmbeddingProfile,
   containsCredentials,
+  validatePublicUrl,
 } from "../../../../../packages/knowledge/src/index.ts";
 import { activeSpendMandateRef } from "../ai/spend-mandate.ts";
 import { runtimeOpenAiConfiguration } from "../ai/openai-configuration.ts";
 import { enqueue } from "../jobs/enqueue.ts";
+import { jobErrorCode, retryableJobError } from "../jobs/retry.ts";
+import { ownerEnabled } from "../modules/contributions.ts";
+import { enabledModules } from "../modules/enforcement.ts";
 import {
   audit,
   create,
@@ -21,8 +25,10 @@ import { queueDocumentEmbedding } from "./ingestion.ts";
 import { indexHasEmbeddings } from "./retrieval.ts";
 import {
   discoverSite,
+  MAX_SITE_PAGES,
   readSitePage,
   sitePolicy,
+  type SiteDiscovery,
   type SitePage,
 } from "./site-sync.ts";
 
@@ -31,6 +37,8 @@ export const SITE_QUEUE = "knowledge_site_sync";
 const RUN_KIND = "knowledge_site_runs";
 const MAX_LISTED_FAILURES = 50;
 const ACTIVE = ["queued", "running"];
+/** How long a source waits after a read that failed, not caused by its owner. */
+const RETRY_HOURS = 24;
 
 type Row = Awaited<ReturnType<typeof entity>>;
 type Fields = Record<string, any>;
@@ -50,6 +58,40 @@ const owned = (s: Scope, id: string, kind: string) => ({
 const pageId = (url: string) => url.replace(/\.md$/, "");
 const excludedPages = (source: Fields) =>
   new Set<string>((source.site.excludedPages ?? []).map(pageId));
+/** The live documents a site read may touch: only those under its root. */
+async function siteDocuments(
+  tx: DbTx,
+  s: Scope,
+  sourceId: string,
+  rootUrl: string,
+) {
+  const documents = await tx.knowledgeDocument.findMany({
+    where: {
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+      sourceId,
+      activeVersionId: { not: null },
+    },
+    select: { id: true, externalId: true, activeVersionId: true },
+    orderBy: { externalId: "asc" },
+  });
+  const policy = sitePolicy(rootUrl);
+  return documents.filter((d) => {
+    try {
+      validatePublicUrl(d.externalId, policy);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+/** Site reads stop with the flag or the module off: nobody could pause them then. */
+export async function siteReadsAllowed(tx: DbTx, s: Scope) {
+  return (
+    process.env.ORBIT_KNOWLEDGE_WORKSPACE === "true" &&
+    ownerEnabled("knowledge", await enabledModules(tx, s))
+  );
+}
 /** Codes only: a run never records a page's content or an error's text. */
 function codeOf(error: unknown, fallback: string) {
   const code = (error as { code?: unknown } | null)?.code;
@@ -141,6 +183,12 @@ export async function siteRunDueAt(tx: DbTx, s: Scope, source: Fields) {
     await tx.entity.findFirst({ where: owned(s, lastRunId, RUN_KIND) }),
   );
   if (ACTIVE.includes(last.status)) return null;
+  // One failed weekly run must not hide a change for another week (D-5).
+  if (last.status === "failed" && last.errorCode !== "SOURCE_INACTIVE")
+    return (
+      (Date.parse(last.completedAt) || Date.parse(last.startedAt) || 0) +
+      RETRY_HOURS * 3600000
+    );
   return (Date.parse(last.startedAt) || 0) + source.syncEveryHours * 3600000;
 }
 
@@ -304,6 +352,44 @@ async function readPage(
   }
 }
 
+/**
+ * What an incomplete discovery leaves out has not left the site. The union
+ * with the held documents keeps those pages fresh; a page goes unread only
+ * past the limit, and nothing is concluded from the list (D-6).
+ */
+async function withHeldPages(
+  tx: DbTx,
+  s: Scope,
+  { run, source }: Step,
+  found: SiteDiscovery,
+) {
+  const held = await siteDocuments(tx, s, run.sourceId, source.site.rootUrl);
+  const versions = await tx.documentVersion.findMany({
+    where: {
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+      id: { in: held.map((d) => d.activeVersionId!) },
+    },
+    select: { id: true, language: true },
+  });
+  const language = new Map(versions.map((v) => [v.id, v.language]));
+  const union = new Map(found.pages.map((p) => [pageId(p.url), p]));
+  for (const d of held)
+    if (!union.has(d.externalId))
+      union.set(d.externalId, {
+        url: d.externalId,
+        language: language.get(d.activeVersionId!)!,
+      });
+  const excluded = excludedPages(source);
+  const pages = [...union.entries()]
+    .filter(([id]) => !excluded.has(id))
+    .map(([, page]) => page);
+  return {
+    pages: pages.slice(0, MAX_SITE_PAGES),
+    capped: found.capped || pages.length > MAX_SITE_PAGES,
+  };
+}
+
 /** The first batch settles the page list: stored once, so a retry never rediscovers. */
 async function beginRun(
   s: Scope,
@@ -321,23 +407,24 @@ async function beginRun(
   return within(s, async (tx) => {
     const step = await currentStep(tx, s, runId);
     if (!step || step.run.status !== "queued") return step?.run ?? null;
-    const pages = found ? found.pages.map((p) => p.url) : step.run.pages;
     // A site with a sitemap that now offers none has not shrunk to its root
     // page, and an unread sitemap has not delisted its pages: discovery did
     // not finish looking, so nothing can be concluded from it (D-6).
-    const nothing =
-      !pages.length ||
+    const incomplete =
       found?.complete === false ||
       (found?.discovery === "single" && source.site.discovery === "sitemap");
+    const settled =
+      found && incomplete ? await withHeldPages(tx, s, step, found) : found;
+    const pages = settled ? settled.pages.map((p) => p.url) : step.run.pages;
     const next = {
       ...step.run,
       status: "running",
       pages,
-      languages: found
-        ? found.pages.map((p) => p.language)
+      languages: settled
+        ? settled.pages.map((p) => p.language)
         : step.run.languages,
-      capped: found?.capped ?? false,
-      warning: nothing ? "site_shrank" : null,
+      capped: settled?.capped ?? false,
+      warning: incomplete || !pages.length ? "site_shrank" : null,
     };
     await update(tx, s, step.row, next);
     return next;
@@ -354,15 +441,12 @@ async function finishRun(s: Scope, runId: string) {
     const step = await currentStep(tx, s, runId);
     if (!step) return null;
     const { row, run, source } = step;
-    const documents = await tx.knowledgeDocument.findMany({
-      where: {
-        workspaceId: s.workspaceId,
-        projectId: s.projectId,
-        sourceId: run.sourceId,
-        activeVersionId: { not: null },
-      },
-      select: { id: true, externalId: true },
-    });
+    const documents = await siteDocuments(
+      tx,
+      s,
+      run.sourceId,
+      source.site.rootUrl,
+    );
     const listed = new Set<string>(run.pages.map(pageId));
     const excluded = excludedPages(source);
     // A capped list is cut, not complete: a page past the cut still exists.
@@ -408,6 +492,10 @@ async function readBatch(s: Scope, runId: string, jobId: string) {
     const job = data(await entity(tx, s, "jobs", jobId));
     const step = await currentStep(tx, s, runId);
     if (!step) return null;
+    if (!(await siteReadsAllowed(tx, s))) {
+      await endRun(tx, s, step.row, step.run, "failed", "KNOWLEDGE_DISABLED");
+      return null;
+    }
     const project = await tx.project.findUniqueOrThrow({
       where: { id: s.projectId },
       select: { language: true, contentLanguages: true },
@@ -446,13 +534,16 @@ export async function runSiteBatch(s: Scope, runId: string, jobId: string) {
   try {
     await readBatch(s, runId, jobId);
   } catch (error) {
-    // A retry resumes where this one stopped; only the last attempt ends the
-    // run, which would otherwise stay active and block the source for good.
+    // A retry resumes where this one stopped. When none is coming the run
+    // ends here, or it would stay active and block the source for good.
     await within(s, async (tx) => {
       const job = data(
         await tx.entity.findFirst({ where: owned(s, jobId, "jobs") }),
       );
-      if (job.attempts >= job.maxAttempts)
+      if (
+        job.attempts >= job.maxAttempts ||
+        !retryableJobError(jobErrorCode(error))
+      )
         await failSiteRun(tx, s, runId, codeOf(error, "SITE_RUN_FAILED"));
     });
     throw error;

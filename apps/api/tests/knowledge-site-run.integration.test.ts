@@ -16,9 +16,12 @@ import {
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
+import { moduleRegistry } from "../src/modules/registry.ts";
+import { setModuleEnabled } from "../src/platform/modules/activation.ts";
 import { registeredJobs } from "../src/platform/modules/contributions.ts";
 import { sourceSyncScheduler } from "../src/platform/knowledge/source-sync.ts";
-import { setFact } from "../src/platform/knowledge/engine.ts";
+import { ingest, setFact } from "../src/platform/knowledge/engine.ts";
+import { MAX_SITE_PAGES } from "../src/platform/knowledge/site-sync.ts";
 import { retrieve } from "../../../packages/knowledge/src/index.ts";
 import { knowledgeSearch } from "../src/platform/knowledge/search.ts";
 import {
@@ -39,9 +42,12 @@ const web = vi.hoisted(() => ({
   // A sitemap index: child URL to its pages, or null when the child fails.
   children: null as Record<string, string[] | null> | null,
   down: new Set<string>(),
+  // Every sitemap address answers with a transport error, not a clean "none".
+  discoveryDown: false,
   fetched: [] as string[],
   dieAt: null as string | null,
   killNextTransaction: false,
+  killMessage: "WORKER_DIED",
   whileFetching: null as null | ((page: string) => Promise<void>),
   transactions: 0,
   fetchedInsideTransaction: false,
@@ -81,6 +87,8 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (original) => {
       });
       const urlset = (urls: string[]) =>
         `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+      if (web.discoveryDown)
+        throw new knowledge.KnowledgeError("SOURCE_FETCH_FAILED");
       if (web.children) {
         if (url.endsWith("/help/sitemap.xml")) {
           const items = Object.keys(web.children)
@@ -106,7 +114,7 @@ vi.mock("../../../packages/db/src/index.ts", async (original) => {
     scoped: async (...args: Parameters<typeof db.scoped>) => {
       if (web.killNextTransaction) {
         web.killNextTransaction = false;
-        throw new Error("WORKER_DIED");
+        throw new Error(web.killMessage);
       }
       web.transactions++;
       try {
@@ -237,10 +245,15 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
   const fetchCount = (url: string) =>
     web.fetched.filter((u) => u === url).length;
 
+  let workspaceFlag: string | undefined;
   beforeEach(async () => {
+    workspaceFlag = process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+    process.env.ORBIT_KNOWLEDGE_WORKSPACE = "true";
     web.pages.clear();
     web.sitemap = null;
     web.children = null;
+    web.discoveryDown = false;
+    web.killMessage = "WORKER_DIED";
     web.down.clear();
     web.fetched.length = 0;
     web.dieAt = null;
@@ -252,6 +265,10 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
     worker = { ...owner, userId: "worker" };
   });
   afterEach(async () => {
+    if (workspaceFlag === undefined)
+      delete process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+    else process.env.ORBIT_KNOWLEDGE_WORKSPACE = workspaceFlag;
+    delete process.env.ORBIT_MODULES;
     expect(web.fetchedInsideTransaction).toBe(false);
     await project?.cleanup();
   });
@@ -443,7 +460,7 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       status: "completed",
       warning: "site_shrank",
       removed: 0,
-      pages: [ROOT],
+      pages: [ROOT, page(1), page(2), page(3)],
     });
     expect((await live(source.id)).length).toBe(5);
     await exclude(source.id);
@@ -478,7 +495,7 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       status: "completed",
       warning: "site_shrank",
       removed: 0,
-      unchanged: 1,
+      unchanged: 2,
     });
     expect(await live(source.id)).toHaveLength(2);
   });
@@ -497,10 +514,175 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       status: "completed",
       warning: "site_shrank",
       removed: 0,
-      unchanged: 1,
-      pages: [0, 1].map(page),
+      unchanged: 3,
+      pages: [0, 2, 3].map(page),
     });
     expect(await live(source.id)).toHaveLength(4);
+  });
+
+  describe("when discovery could not finish", () => {
+    const fetchedAt = async (sourceId: string, n: number) => {
+      const doc = await documentFor(sourceId, n);
+      const version = await run((tx) =>
+        tx.documentVersion.findFirstOrThrow({
+          where: { id: doc.activeVersionId! },
+        }),
+      );
+      return version.fetchedAt.getTime();
+    };
+    it("still reads the pages the source holds, so they do not age out", async () => {
+      publish(0, 1, 2, 3);
+      const source = await siteSource();
+      const pages = sitePages([0, 1, 2, 3]);
+      pages[2]!.language = "en";
+      await drain((await start(source.id, "initial", pages)).id);
+      const before = await fetchedAt(source.id, 2);
+      web.children = {
+        [`${ROOT}/sitemap-de.xml`]: [0, 1].map(page),
+        [`${ROOT}/sitemap-en.xml`]: null,
+      };
+      expect(await refresh(source.id)).toMatchObject({
+        status: "completed",
+        warning: "site_shrank",
+        removed: 0,
+        unchanged: 4,
+        pages: [0, 1, 2, 3].map(page),
+      });
+      expect(await fetchedAt(source.id, 2)).toBeGreaterThan(before);
+      // The language each page was stored with, not the discovery fallback.
+      const doc = await documentFor(source.id, 2);
+      const version = await run((tx) =>
+        tx.documentVersion.findFirstOrThrow({
+          where: { id: doc.activeVersionId! },
+        }),
+      );
+      expect(version.language).toBe("en");
+      expect(version.version).toBe(1);
+    });
+    it("reads the held pages when a sitemap source falls back to a single page", async () => {
+      publish(0, 1);
+      web.pages.set(ROOT, "# Hilfe\n\nStartseite.");
+      const source = await siteSource();
+      await read(source.id, [0, 1]);
+      web.discoveryDown = true;
+      expect(await refresh(source.id)).toMatchObject({
+        status: "completed",
+        warning: "site_shrank",
+        pages: [ROOT, page(0), page(1)],
+        added: 1,
+        unchanged: 2,
+      });
+    });
+    it("leaves excluded pages out of the union", async () => {
+      publish(0, 1, 2);
+      const source = await siteSource();
+      await read(source.id, [0, 1, 2]);
+      web.children = {
+        [`${ROOT}/sitemap-de.xml`]: [0].map(page),
+        [`${ROOT}/sitemap-en.xml`]: null,
+      };
+      await exclude(source.id, page(2));
+      expect(await refresh(source.id)).toMatchObject({
+        pages: [0, 1].map(page),
+        unchanged: 2,
+      });
+    });
+    it("caps the union at the page limit", async () => {
+      const numbers = range(MAX_SITE_PAGES + 1);
+      publish(...numbers);
+      const source = await siteSource();
+      for (let i = 0; i < numbers.length; i += 40)
+        await run(async (tx) => {
+          for (const n of numbers.slice(i, i + 40))
+            await ingest(tx, owner, {
+              sourceId: source.id,
+              externalId: page(n),
+              canonicalUrl: page(n),
+              title: `Seite ${n}`,
+              text: `Inhalt von Seite ${n}.`,
+              mimeType: "text/markdown",
+              language: "de",
+              expectedGeneration: 1,
+            });
+        });
+      web.sitemap = null;
+      web.discoveryDown = true;
+      web.pages.set(ROOT, "# Hilfe\n\nStartseite.");
+      const created = await start(source.id, "manual");
+      await batch(created.id);
+      const running = await state(created.id);
+      expect(running.pages).toHaveLength(MAX_SITE_PAGES);
+      expect(running.pages[0]).toBe(ROOT);
+      expect(running).toMatchObject({ capped: true, warning: "site_shrank" });
+    });
+    it("does not reread anything on a discovery that finished", async () => {
+      publish(0, 1, 2);
+      const source = await siteSource();
+      await read(source.id, [0, 1, 2]);
+      web.sitemap = [0, 1].map(page);
+      expect(await refresh(source.id)).toMatchObject({
+        pages: [0, 1].map(page),
+        unchanged: 2,
+        removed: 1,
+        warning: null,
+      });
+    });
+  });
+
+  describe("documents the site did not bring", () => {
+    const manualDocument = (sourceId: string, externalId: string) =>
+      run((tx) =>
+        ingest(tx, owner, {
+          sourceId,
+          externalId,
+          title: "Notiz",
+          text: "Handschriftliche Notiz.",
+          mimeType: "text/plain",
+          language: "de",
+          expectedGeneration: 1,
+        }),
+      );
+    it("are never retired, read or counted", async () => {
+      publish(0, 1, 2);
+      const source = await siteSource();
+      await read(source.id, [0, 1, 2]);
+      const manual = await manualDocument(source.id, "manual-note");
+      const elsewhere = await manualDocument(
+        source.id,
+        "https://docs.example.com/other/page",
+      );
+      web.sitemap = [0, 1].map(page);
+      expect(await refresh(source.id)).toMatchObject({
+        status: "completed",
+        removed: 1,
+        warning: null,
+      });
+      const active = (await live(source.id)).map((d) => d.id);
+      expect(active).toContain(manual.documentId);
+      expect(active).toContain(elsewhere.documentId);
+
+      web.children = {
+        [`${ROOT}/sitemap-de.xml`]: [0].map(page),
+        [`${ROOT}/sitemap-en.xml`]: null,
+      };
+      web.sitemap = null;
+      const incomplete = await refresh(source.id);
+      expect(incomplete.pages).toEqual([0, 1].map(page));
+      expect(incomplete.failed).toEqual([]);
+    });
+    it("leave the half rule to the site's own pages", async () => {
+      publish(0, 1, 2);
+      const source = await siteSource();
+      await read(source.id, [0, 1, 2]);
+      for (const id of ["a", "b", "c", "d", "e"])
+        await manualDocument(source.id, `manual-${id}`);
+      web.sitemap = [0].map(page);
+      expect(await refresh(source.id)).toMatchObject({
+        status: "completed",
+        warning: "site_shrank",
+        removed: 0,
+      });
+    });
   });
 
   it("keeps pages past the 200-page cut and still retires exclusions", async () => {
@@ -896,6 +1078,144 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
     );
   });
 
+  describe("after a run that failed", () => {
+    const failedRun = async (errorCode: string, completedHoursAgo: number) => {
+      const source = await siteSource();
+      const old = await run((tx) =>
+        create(tx, owner, KIND, {
+          sourceId: source.id,
+          status: "failed",
+          errorCode,
+          startedAt: new Date(
+            Date.now() - (completedHoursAgo + 1) * HOUR,
+          ).toISOString(),
+          completedAt: new Date(
+            Date.now() - completedHoursAgo * HOUR,
+          ).toISOString(),
+        }),
+      );
+      await changeSource(source.id, (d) => ({
+        ...d,
+        site: { ...d.site, lastRunId: old.id },
+      }));
+      return old;
+    };
+    const sweep = (at = new Date()) =>
+      run((tx) => sourceSyncScheduler.sweep(tx, worker, at));
+    it("is due 24 hours after that run ended", async () => {
+      const old = await failedRun("JOB_OUTCOME_UNKNOWN", 23);
+      expect(await sweep()).toEqual({ queued: 0 });
+      const at = new Date();
+      const next = await run((tx) =>
+        sourceSyncScheduler.nextDueAt(tx, worker, at),
+      );
+      expect(next!.valueOf()).toBe(
+        Date.parse(
+          data(await run((tx) => entity(tx, owner, KIND, old.id))).completedAt,
+        ) +
+          24 * HOUR,
+      );
+      expect(await sweep(new Date(Date.now() + 2 * HOUR))).toEqual({
+        queued: 1,
+      });
+    });
+    it("is due at once when those 24 hours have passed", async () => {
+      await failedRun("SITE_RUN_FAILED", 25);
+      expect(await sweep()).toEqual({ queued: 1 });
+    });
+    it("waits the normal week after the owner stopped it", async () => {
+      await failedRun("SOURCE_INACTIVE", 25);
+      expect(await sweep()).toEqual({ queued: 0 });
+    });
+  });
+
+  describe("with Knowledge off", () => {
+    const dueSource = async () => {
+      const source = await siteSource();
+      const old = await run((tx) =>
+        create(tx, owner, KIND, {
+          sourceId: source.id,
+          status: "completed",
+          startedAt: new Date(Date.now() - 169 * HOUR).toISOString(),
+        }),
+      );
+      await changeSource(source.id, (d) => ({
+        ...d,
+        site: { ...d.site, lastRunId: old.id },
+      }));
+      return source;
+    };
+    const sweep = () =>
+      run((tx) => sourceSyncScheduler.sweep(tx, worker, new Date()));
+    const switchKnowledge = (on: boolean) =>
+      run(async (tx) => {
+        // Marketing depends on knowledge: it goes off first and on last.
+        for (const id of on
+          ? ["knowledge", "marketing"]
+          : ["marketing", "knowledge"])
+          await setModuleEnabled(tx, owner, moduleRegistry(), id, on);
+      });
+    const expectStopped = async (runId: string) => {
+      await batch(runId);
+      expect(await state(runId)).toMatchObject({
+        status: "failed",
+        errorCode: "KNOWLEDGE_DISABLED",
+        cursor: 0,
+      });
+      expect(web.fetched).toEqual([]);
+    };
+
+    it("the sweep skips site sources without the workspace flag", async () => {
+      await dueSource();
+      delete process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+      expect(await sweep()).toEqual({ queued: 0 });
+      expect(
+        await run((tx) =>
+          sourceSyncScheduler.nextDueAt(tx, worker, new Date()),
+        ),
+      ).toBeNull();
+    });
+    it("a batch ends its run without the workspace flag", async () => {
+      publish(0);
+      const source = await siteSource();
+      const created = await start(source.id, "initial", sitePages([0]));
+      delete process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+      await expectStopped(created.id);
+    });
+    it("the sweep skips site sources of a project with the module off", async () => {
+      process.env.ORBIT_MODULES = "true";
+      await dueSource();
+      await switchKnowledge(false);
+      expect(await sweep()).toEqual({ queued: 0 });
+      await switchKnowledge(true);
+      expect(await sweep()).toEqual({ queued: 1 });
+    });
+    it("a batch ends its run in a project with the module off", async () => {
+      process.env.ORBIT_MODULES = "true";
+      publish(0);
+      const source = await siteSource();
+      const created = await start(source.id, "initial", sitePages([0]));
+      await switchKnowledge(false);
+      await expectStopped(created.id);
+    });
+    it("leaves other sources on today's schedule", async () => {
+      const source = await siteSource({
+        site: undefined,
+        syncEveryHours: 1,
+        lastSuccessfulSyncAt: new Date(Date.now() - 3 * HOUR).toISOString(),
+      });
+      await run((tx) =>
+        create(tx, owner, "sync_requests", {
+          sourceId: source.id,
+          url: page(0),
+          expectedGeneration: 1,
+        }),
+      );
+      delete process.env.ORBIT_KNOWLEDGE_WORKSPACE;
+      expect(await sweep()).toEqual({ queued: 1 });
+    });
+  });
+
   it("does not schedule with weekly updates off", async () => {
     await siteSource({ syncEveryHours: undefined });
     const at = new Date();
@@ -966,6 +1286,22 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
     expect(await state(expired.id)).toMatchObject({
       status: "failed",
       errorCode: "JOB_OUTCOME_UNKNOWN",
+    });
+  });
+
+  it("fails the run at once on an error the worker will not retry", async () => {
+    publish(0);
+    const source = await siteSource();
+    const created = await start(source.id, "initial", sitePages([0]));
+    const [job] = await siteJobs(created.id);
+    web.killMessage = "BUDGET_NOT_APPROVED";
+    web.killNextTransaction = true;
+    await expect(runSiteBatch(worker, created.id, job!.id)).rejects.toThrow(
+      "BUDGET_NOT_APPROVED",
+    );
+    expect(await state(created.id)).toMatchObject({
+      status: "failed",
+      errorCode: "SITE_RUN_FAILED",
     });
   });
 
@@ -1633,6 +1969,68 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
           "Calendar",
         ]);
       });
+    });
+
+    describe("an address that already has a source", () => {
+      const legacy = (extra: Record<string, unknown> = {}) =>
+        siteSource({ site: undefined, ...extra });
+      it("start refuses the root of an active site source", async () => {
+        publish(1);
+        const first = await act("knowledge-site-start", startInput());
+        await drain(first.run.id);
+        const before = await counts();
+        await refusal(
+          act("knowledge-site-start", startInput()),
+          "KNOWLEDGE_SITE_EXISTS",
+        );
+        expect(await counts()).toEqual(before);
+      });
+      it("start refuses a root covered by a gitbook or website source without site", async () => {
+        publish(1);
+        await legacy();
+        await refusal(
+          act("knowledge-site-start", startInput()),
+          "KNOWLEDGE_SITE_EXISTS",
+        );
+      });
+      it("discover tells the owner before pages are chosen", async () => {
+        publish(1);
+        await legacy();
+        await refusal(
+          act("knowledge-site-discover", { url: ROOT }),
+          "KNOWLEDGE_SITE_EXISTS",
+        );
+        expect(web.fetched).toEqual([]);
+      });
+      it("start with the source named still works", async () => {
+        publish(1);
+        const source = await legacy();
+        await expect(
+          act("knowledge-site-start", startInput({ sourceId: source.id })),
+        ).resolves.toMatchObject({ sourceId: source.id, started: true });
+      });
+      it("allows the address when the other source is not active or not a site", async () => {
+        publish(1);
+        await legacy({ status: "paused" });
+        await legacy({ type: "file" });
+        await legacy({ allowedPaths: ["/elsewhere"] });
+        await expect(
+          act("knowledge-site-start", startInput()),
+        ).resolves.toMatchObject({ started: true });
+      });
+    });
+
+    it("a re-start whose discovery could not finish keeps the recorded discovery", async () => {
+      publish(1, 2);
+      const first = await act("knowledge-site-start", startInput());
+      await drain(first.run.id);
+      web.discoveryDown = true;
+      web.pages.set(ROOT, "# Hilfe\n\nStartseite.");
+      await act(
+        "knowledge-site-start",
+        startInput({ sourceId: first.sourceId }),
+      );
+      expect((await sourceData(first.sourceId)).site.discovery).toBe("sitemap");
     });
 
     it("start may re-point a legacy source without documents", async () => {

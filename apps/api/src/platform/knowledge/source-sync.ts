@@ -3,21 +3,24 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { SchedulerContribution } from "../jobs/types.ts";
 import { create, data, list } from "../shared.ts";
 import { enqueue } from "../jobs/enqueue.ts";
-import { siteRunDueAt, startSiteRun } from "./site-run.ts";
+import { siteReadsAllowed, siteRunDueAt, startSiteRun } from "./site-run.ts";
 
 /**
  * Periodic source synchronisation (knowledge services, AD-08): sources with
  * `syncEveryHours` get a new sync request and an ingestion job once their
  * interval passed. Moved unchanged from lifecycle.sweepProject (WP1.6). A
- * site source instead gets a new site run, which discovers its own pages.
+ * site source instead gets a new site run, which discovers its own pages,
+ * and none at all while Knowledge is off for the installation or project.
  */
 async function sweep(tx: DbTx, scope: Scope, at: Date) {
   let queued = 0;
+  const siteReads = await siteReadsAllowed(tx, scope);
   const requests = await list(tx, scope, "sync_requests");
   for (const source of await list(tx, scope, "sources")) {
     const d = data(source);
     if (d.status !== "active" || !d.syncEveryHours) continue;
     if (d.site) {
+      if (!siteReads) continue;
       const due = await siteRunDueAt(tx, scope, d);
       if (due !== null && due <= at.valueOf()) {
         await startSiteRun(tx, scope, source.id, "schedule", []);
@@ -52,11 +55,13 @@ async function nextDueAt(tx: DbTx, scope: Scope, at: Date) {
       typeof value === "number" ? value : Date.parse(String(value ?? ""));
     if (Number.isFinite(time) && time > now) next = Math.min(next, time);
   };
+  const siteReads = await siteReadsAllowed(tx, scope);
   const requests = await list(tx, scope, "sync_requests");
   for (const source of await list(tx, scope, "sources")) {
     const d = data(source);
     if (d.status !== "active" || !d.syncEveryHours) continue;
     if (d.site) {
+      if (!siteReads) continue;
       const due = await siteRunDueAt(tx, scope, d);
       if (due !== null) consider(due);
       continue;

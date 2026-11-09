@@ -7,6 +7,10 @@ import {
   workerStartHooks,
 } from "../../api/src/platform/modules/contributions.ts";
 import { enabledModules } from "../../api/src/platform/modules/enforcement.ts";
+import {
+  jobErrorCode,
+  retryableJobError,
+} from "../../api/src/platform/jobs/retry.ts";
 import { closeRealtime } from "../../api/src/platform/realtime/fanout.ts";
 import Redis from "ioredis";
 import {
@@ -192,14 +196,13 @@ const workers = classes.map(
             });
           });
         } catch (error) {
-          const code = error instanceof Error ? error.message : "JOB_FAILED";
+          const code = jobErrorCode(error);
           let retryable = false;
           await scoped(workspaceId, projectId, async (tx) => {
             const job = await entity(tx, scope, "jobs", jobId);
             retryable =
-              !/BUDGET|NOT_|REQUIRED|EXPIRED|EVIDENCE|CAPABILITY|POLICY|PAUSED|UNKNOWN|REFUSAL|UNSUPPORTED/.test(
-                code,
-              ) && data(job).attempts < data(job).maxAttempts;
+              retryableJobError(code) &&
+              data(job).attempts < data(job).maxAttempts;
             await update(tx, scope, job, {
               ...data(job),
               status: retryable ? "retry_scheduled" : "blocked_dependency",

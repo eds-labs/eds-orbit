@@ -138,6 +138,32 @@ function sourceRoot(d: Fields) {
 
 const pageKey = (page: string) => page.replace(/\.md$/, "");
 
+/** Whether a gitbook or website source without a site already covers this address. */
+function allowlistCovers(d: Fields, rootUrl: string) {
+  try {
+    validatePublicUrl(rootUrl, {
+      allowedOrigins: d.allowedOrigins ?? [],
+      allowedPaths: d.allowedPaths ?? [],
+      maxBytes: 1_000_000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A second source for one address would hold the same pages twice. */
+async function refuseKnownSite(tx: DbTx, s: Scope, rootUrl: string) {
+  for (const row of await list(tx, s, "sources")) {
+    const d = data(row);
+    if (d.status !== "active") continue;
+    const taken = d.site
+      ? d.site.rootUrl === rootUrl
+      : ["gitbook", "website"].includes(d.type) && allowlistCovers(d, rootUrl);
+    if (taken) throw new DomainError("KNOWLEDGE_SITE_EXISTS", 409);
+  }
+}
+
 async function discover(s: Scope, rootUrl: string, d?: Fields) {
   const project = await within(s, (tx) =>
     tx.project.findUniqueOrThrow({
@@ -164,7 +190,9 @@ export async function discoverSitePages(scope: Scope, raw: unknown) {
   const d = source ? data(source) : undefined;
   const target = i.url ?? (d ? sourceRoot(d) : null);
   if (!target) throw new DomainError("KNOWLEDGE_SITE_URL_REQUIRED", 400);
-  const found = await discover(scope, normalizeRoot(target), d);
+  const rootUrl = normalizeRoot(target);
+  if (!source) await within(scope, (tx) => refuseKnownSite(tx, scope, rootUrl));
+  const found = await discover(scope, rootUrl, d);
   return {
     ...found,
     excludedPages: (d?.site?.excludedPages ?? []) as string[],
@@ -212,6 +240,8 @@ export async function startSite(scope: Scope, raw: unknown) {
   if (before?.site && before.site.rootUrl !== rootUrl)
     throw new DomainError("KNOWLEDGE_SITE_ROOT_CHANGED", 409);
   for (const page of i.excludedPages) checkPage(rootUrl, page);
+  if (!existing)
+    await within(scope, (tx) => refuseKnownSite(tx, scope, rootUrl));
   const found: SiteDiscovery = await discover(scope, rootUrl, before);
   const excluded = new Set(i.excludedPages.map(pageKey));
   const pages = found.pages.filter((p) => !excluded.has(pageKey(p.url)));
@@ -269,6 +299,7 @@ export async function startSite(scope: Scope, raw: unknown) {
       await applyRights(tx, scope, row.id, d, wanted, audiences);
       sourceId = row.id;
     } else {
+      await refuseKnownSite(tx, scope, rootUrl);
       sourceId = (
         await create(tx, scope, "sources", {
           name: i.name ?? root.hostname,
@@ -300,7 +331,11 @@ export async function startSite(scope: Scope, raw: unknown) {
       ...(i.autoUpdate ? { syncEveryHours: 168 } : {}),
       site: {
         rootUrl,
-        discovery: found.discovery,
+        // An unfinished look at the site says nothing about how it is listed.
+        discovery:
+          found.complete === false && d.site?.discovery
+            ? d.site.discovery
+            : found.discovery,
         excludedPages: i.excludedPages,
         lastRunId: d.site?.lastRunId ?? null,
       },
