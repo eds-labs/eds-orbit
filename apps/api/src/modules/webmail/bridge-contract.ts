@@ -49,7 +49,10 @@ export const handoffConsumeError = z.enum([
 export const sessionAuthorizeRequest = z
   .object({
     handle: z.string().max(400),
-    /** Audit only; the plugin enforces the action against the capabilities. */
+    /**
+     * Attributes actions that send mail or remove it to the session's member,
+     * in the audit log; the plugin enforces the action against the capabilities.
+     */
     task: z.string().max(64),
     action: z.string().max(64),
   })

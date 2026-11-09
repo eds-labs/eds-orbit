@@ -6,6 +6,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
 import type { EmailImportPrepared } from "../../platform/email/import-contract.ts";
 import {
+  discardImportedRow,
   inboundRowForImport,
   readMailboxMessage,
   type MailboxMessageRef,
@@ -170,20 +171,25 @@ export async function convertRecords(
   return { records: await target.searchRecords(tx, effective, query.q) };
 }
 
-/** A converted message's record number, as far as the receiving module tells. */
-async function recordNumber(
+/**
+ * What the receiving module knows of a converted message's record. Only an
+ * answer without the exact id means it is gone; a target that cannot be asked
+ * counts as still having it, so a failed search never creates a second record.
+ */
+async function lookupRecord(
   tx: DbTx,
   scope: Scope,
   key: string,
   recordId: string,
-) {
+): Promise<{ gone: true } | { gone: false; number: number | null }> {
   try {
     const target = targetOf(key);
     const effective = await targetScope(scope, target);
     const hits = await target.searchRecords(tx, effective, recordId);
-    return hits.find((hit) => hit.id === recordId)?.number ?? null;
+    const hit = hits.find((record) => record.id === recordId);
+    return hit ? { gone: false, number: hit.number } : { gone: true };
   } catch {
-    return null;
+    return { gone: false, number: null };
   }
 }
 
@@ -206,11 +212,13 @@ export async function convertStatus(
     orderBy: { updatedAt: "desc" },
   });
   if (!row?.recordId) return { converted: false as const };
+  const record = await lookupRecord(tx, scope, row.target, row.recordId);
+  if (record.gone) return { converted: false as const };
   return {
     converted: true as const,
     target: row.target,
     recordId: row.recordId,
-    number: await recordNumber(tx, scope, row.target, row.recordId),
+    number: record.number,
   };
 }
 
@@ -234,9 +242,13 @@ export async function requireConvertable(
 type Claim =
   | { kind: "claimed" }
   | { kind: "busy" }
-  | { kind: "done"; target: string; recordId: string };
+  | { kind: "done"; target: string; recordId: string; number: number | null };
 
-/** Claims the message for this attempt, under the project's lock. */
+/**
+ * Claims the message for this attempt, under the project's lock. A finished
+ * claim whose record has since been deleted is claimed again, or the message
+ * would answer "already converted" with a dead record forever.
+ */
 function claim(
   scope: Scope,
   mailboxId: string,
@@ -280,13 +292,21 @@ function claim(
       });
       return { kind: "claimed" };
     }
-    if (row.status === "done" && row.recordId)
-      return { kind: "done", target: row.target, recordId: row.recordId };
+    if (row.status === "done" && row.recordId) {
+      const record = await lookupRecord(tx, scope, row.target, row.recordId);
+      if (!record.gone)
+        return {
+          kind: "done",
+          target: row.target,
+          recordId: row.recordId,
+          number: record.number,
+        };
+    }
     if (row.status === "pending" && row.leaseUntil.getTime() > now.getTime())
       return { kind: "busy" };
     await tx.webmailConversion.update({
       where: { id: row.id },
-      data: fields,
+      data: { ...fields, recordId: null, inboundId: null },
     });
     return { kind: "claimed" };
   });
@@ -306,21 +326,18 @@ export type ConvertResult =
     };
 
 /** The record of a finished conversion, as the answer to a repeated request. */
-async function finished(
-  scope: Scope,
-  done: { target: string; recordId: string },
-): Promise<ConvertResult> {
-  return {
-    status: "done",
-    target: done.target,
-    recordId: done.recordId,
-    number: await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      recordNumber(tx, scope, done.target, done.recordId),
-    ),
-    duplicate: true,
-    skippedAttachments: 0,
-  };
-}
+const finished = (done: {
+  target: string;
+  recordId: string;
+  number: number | null;
+}): ConvertResult => ({
+  status: "done",
+  target: done.target,
+  recordId: done.recordId,
+  number: done.number,
+  duplicate: true,
+  skippedAttachments: 0,
+});
 
 async function readMessage(
   scope: Scope,
@@ -370,7 +387,7 @@ export async function convertMessage(
   const dedupeKey = await dedupeKeyOf(source);
   const claimed = await claim(scope, mailboxId, input, dedupeKey, attemptId);
   if (claimed.kind === "busy") return { status: "pending" };
-  if (claimed.kind === "done") return finished(scope, claimed);
+  if (claimed.kind === "done") return finished(claimed);
 
   const key = {
     projectId_mailboxId_dedupeKey: {
@@ -384,8 +401,17 @@ export async function convertMessage(
     if (prepared)
       await target.discard(effective, prepared).catch(() => undefined);
   };
+  // The original of a message from another folder exists only for this
+  // takeover; an attempt that does not finish must not leave it behind.
+  let imported: { inboundId: string; created: boolean } | undefined;
+  const dropImported = async () => {
+    if (imported?.created)
+      await discardImportedRow(scope, imported.inboundId).catch(
+        () => undefined,
+      );
+  };
   try {
-    const { inboundId } = await inboundRowForImport(
+    imported = await inboundRowForImport(
       scope,
       connectionId,
       ref,
@@ -393,6 +419,7 @@ export async function convertMessage(
     ).catch((error) => {
       throw error instanceof DomainError ? error : undeliverable();
     });
+    const { inboundId, created } = imported;
     const ready = await target.prepare(effective, {
       source,
       connectionId,
@@ -414,7 +441,7 @@ export async function convertMessage(
           data: {
             status: "done",
             recordId: committed.recordId,
-            inboundId,
+            inboundId: committed.duplicate && created ? null : inboundId,
             errorCode: null,
           },
         });
@@ -427,7 +454,10 @@ export async function convertMessage(
         return committed;
       },
     );
-    if (result.duplicate) await discard();
+    if (result.duplicate) {
+      await discard();
+      await dropImported();
+    }
     return {
       status: "done",
       target: input.target,
@@ -438,23 +468,45 @@ export async function convertMessage(
     };
   } catch (error) {
     await discard();
-    if (error instanceof AttemptLost) {
-      const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-        tx.webmailConversion.findUnique({ where: key }),
+    // A lost attempt leaves the row: the one that took over may be using it.
+    if (error instanceof AttemptLost)
+      return scoped(
+        scope.workspaceId,
+        scope.projectId,
+        async (tx): Promise<ConvertResult> => {
+          const row = await tx.webmailConversion.findUnique({ where: key });
+          if (row?.status !== "done" || !row.recordId)
+            return { status: "pending" };
+          const record = await lookupRecord(
+            tx,
+            scope,
+            row.target,
+            row.recordId,
+          );
+          return record.gone
+            ? { status: "pending" }
+            : finished({
+                target: row.target,
+                recordId: row.recordId,
+                number: record.number,
+              });
+        },
       );
-      return row?.status === "done" && row.recordId
-        ? finished(scope, { target: row.target, recordId: row.recordId })
-        : { status: "pending" };
-    }
+    const ours = {
+      projectId: scope.projectId,
+      mailboxId,
+      dedupeKey,
+      attemptId,
+      status: "pending",
+    };
+    // The row goes while the claim is held, so no retry can pick it up.
+    const stillHeld = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      tx.webmailConversion.count({ where: ours }),
+    ).catch(() => 0);
+    if (stillHeld) await dropImported();
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       tx.webmailConversion.updateMany({
-        where: {
-          projectId: scope.projectId,
-          mailboxId,
-          dedupeKey,
-          attemptId,
-          status: "pending",
-        },
+        where: ours,
         data: {
           status: "failed",
           errorCode:

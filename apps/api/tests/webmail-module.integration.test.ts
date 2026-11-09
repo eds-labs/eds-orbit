@@ -36,6 +36,7 @@ import type {
   EmailImportTarget,
 } from "../src/platform/email/import-contract.ts";
 import {
+  discardImportedRow,
   ensureIngested,
   inboundRowForImport,
   mailServerTargets,
@@ -46,15 +47,22 @@ import { permission } from "../src/platform/tenancy/permissions.ts";
 import { buildServer } from "../src/server.ts";
 import { create, DomainError } from "../src/shared.ts";
 
-// The sync work implements these; here they only have to answer.
-vi.mock("../src/platform/email/shared-client.ts", () => ({
-  sharedClientActive: vi.fn(() => true),
-  setSharedClient: vi.fn(async () => undefined),
-  mailServerTargets: vi.fn(),
-  ensureIngested: vi.fn(),
-  readMailboxMessage: vi.fn(),
-  inboundRowForImport: vi.fn(),
-}));
+// The marker is real; what needs a mail server or the object store answers here.
+vi.mock("../src/platform/email/shared-client.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/platform/email/shared-client.ts")
+    >();
+  return {
+    ...actual,
+    setSharedClient: vi.fn(actual.setSharedClient),
+    mailServerTargets: vi.fn(),
+    ensureIngested: vi.fn(),
+    readMailboxMessage: vi.fn(),
+    inboundRowForImport: vi.fn(),
+    discardImportedRow: vi.fn(async () => undefined),
+  };
+});
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -71,6 +79,7 @@ const targetCalls = {
   beforeCommit: undefined as undefined | (() => void | Promise<void>),
   // Runs after prepare, to stage another attempt taking over.
   afterPrepare: undefined as undefined | (() => Promise<unknown>),
+  searchFails: false,
   duplicate: false,
   prepared: [] as EmailImportPrepared[],
   discarded: [] as EmailImportPrepared[],
@@ -89,6 +98,7 @@ const target: EmailImportTarget = {
     },
   ],
   searchRecords: async (tx, scope, query) => {
+    if (targetCalls.searchFails) throw new Error("search unavailable");
     const rows = await tx.entity.findMany({
       where: { projectId: scope.projectId, kind: FIXTURE_KIND },
     });
@@ -349,8 +359,18 @@ describe.skipIf(!enabled)("webmail module", () => {
     expect(consumed.statusCode).toBe(200);
     return consumed.json().handle as string;
   }
-  const authorize = (handle: string) =>
-    post("/session/authorize", { handle, task: "mail", action: "list" });
+  const authorize = (handle: string, action = "list", task = "mail") =>
+    post("/session/authorize", { handle, task, action });
+  const attributions = (mailboxId: string) =>
+    scoped(workspaceId, projectId, (tx) =>
+      tx.auditEvent.findMany({
+        where: {
+          projectId,
+          action: "webmail.mail.action",
+          resourceId: mailboxId,
+        },
+      }),
+    );
   const conversions = (mailboxId: string) =>
     scoped(workspaceId, projectId, (tx) =>
       tx.webmailConversion.findMany({ where: { projectId, mailboxId } }),
@@ -458,10 +478,13 @@ describe.skipIf(!enabled)("webmail module", () => {
     vi.mocked(inboundRowForImport).mockImplementation(async () => ({
       inboundId: randomUUID(),
       fileId: randomUUID(),
+      created: false,
     }));
+    vi.mocked(discardImportedRow).mockClear();
     targetCalls.active = true;
     targetCalls.beforeCommit = undefined;
     targetCalls.afterPrepare = undefined;
+    targetCalls.searchFails = false;
     targetCalls.duplicate = false;
     targetCalls.prepared = [];
     targetCalls.discarded = [];
@@ -494,6 +517,14 @@ describe.skipIf(!enabled)("webmail module", () => {
 
     it("answers 404 for every route of a switched-off installation", async () => {
       process.env.ORBIT_WEBMAIL = "false";
+      const response = await call("owner", "GET", "/mailboxes");
+      expect(response.statusCode).toBe(404);
+      expect(error(response)).toBe("WEBMAIL_DISABLED");
+    });
+
+    it("treats a webmail origin equal to the app's as switched off", async () => {
+      const appOrigin = new URL(origin);
+      process.env.WEBMAIL_ORIGIN = `${appOrigin.protocol}//${appOrigin.host.toUpperCase()}/`;
       const response = await call("owner", "GET", "/mailboxes");
       expect(response.statusCode).toBe(404);
       expect(error(response)).toBe("WEBMAIL_DISABLED");
@@ -644,6 +675,54 @@ describe.skipIf(!enabled)("webmail module", () => {
       expect(error(self)).toBe("WEBMAIL_SELF_GRANT_FORBIDDEN");
     });
 
+    it("lets only the settings permission set or clear canManage", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.editor, { canManage: true });
+      const raised = await call(
+        "editor",
+        "PUT",
+        `/mailboxes/${mailboxId}/grants/${ids.viewer}`,
+        { ...NONE, canRead: true, canManage: true },
+      );
+      expect(raised.statusCode).toBe(403);
+      expect(error(raised)).toBe("WEBMAIL_MANAGE_RIGHT_FORBIDDEN");
+      const rowOf = () =>
+        scoped(workspaceId, projectId, (tx) =>
+          tx.webmailMailboxGrant.findFirst({
+            where: { projectId, mailboxId, userId: ids.viewer },
+          }),
+        );
+      expect(await rowOf()).toBeNull();
+      expect(
+        (
+          await call(
+            "owner",
+            "PUT",
+            `/mailboxes/${mailboxId}/grants/${ids.viewer}`,
+            { ...NONE, canManage: true },
+          )
+        ).statusCode,
+      ).toBe(200);
+      for (const body of [NONE, { ...NONE, canRead: true }]) {
+        const cleared = await call(
+          "editor",
+          "PUT",
+          `/mailboxes/${mailboxId}/grants/${ids.viewer}`,
+          body,
+        );
+        expect(cleared.statusCode).toBe(403);
+        expect(error(cleared)).toBe("WEBMAIL_MANAGE_RIGHT_FORBIDDEN");
+      }
+      expect((await rowOf())?.canManage).toBe(true);
+      const kept = await call(
+        "editor",
+        "PUT",
+        `/mailboxes/${mailboxId}/grants/${ids.viewer}`,
+        { ...NONE, canSend: true, canManage: true },
+      );
+      expect(kept.statusCode).toBe(200);
+    });
+
     it("keeps settings to owners", async () => {
       expect((await call("editor", "GET", "/settings")).statusCode).toBe(403);
       expect((await call("owner", "GET", "/settings")).statusCode).toBe(200);
@@ -750,6 +829,12 @@ describe.skipIf(!enabled)("webmail module", () => {
       });
       expect(opened.statusCode).toBe(201);
       expect(opened.json().sensitive).toBe(true);
+      const marked = await scoped(workspaceId, projectId, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: connectionId } }),
+      );
+      expect((marked.data as { webmailClient?: boolean }).webmailClient).toBe(
+        true,
+      );
       expect(vi.mocked(setSharedClient)).toHaveBeenCalledWith(
         expect.anything(),
         expect.anything(),
@@ -1186,6 +1271,93 @@ describe.skipIf(!enabled)("webmail module", () => {
       expect((await sessionRow(sessionId)).lastSeenAt).toEqual(first);
     });
 
+    it.each([
+      "send",
+      "bounce",
+      "move",
+      "delete",
+      "DELETE",
+      "expunge",
+      "folder-expunge",
+      "folder_expunge",
+      "purge",
+      "folder-purge",
+      "folder_purge",
+    ])(
+      "attributes mail/%s to the session's member, content-free",
+      async (action) => {
+        const { mailboxId } = await seedMailbox();
+        await grant(mailboxId, ids.editor);
+        const { handle } = await seedSession(mailboxId, ids.editor);
+        expect((await authorize(handle, action)).statusCode).toBe(200);
+        const rows = await attributions(mailboxId);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ actorId: ids.editor });
+        expect(rows[0]!.metadata).toEqual({ task: "mail", action });
+      },
+    );
+
+    it("tells apart members who share one Roundcube user", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.editor);
+      await grant(mailboxId, ids.viewer);
+      const first = await seedSession(mailboxId, ids.editor);
+      const second = await seedSession(mailboxId, ids.viewer);
+      await authorize(first.handle, "send");
+      await authorize(second.handle, "delete");
+      expect(
+        (await attributions(mailboxId)).map((r) => r.actorId).sort(),
+      ).toEqual([ids.editor, ids.viewer].sort());
+    });
+
+    it.each([
+      "list",
+      "show",
+      "compose",
+      "mark",
+      "copy",
+      "sendmdn",
+      "constructor",
+    ])("writes nothing for mail/%s", async (action) => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.editor);
+      const { handle } = await seedSession(mailboxId, ids.editor);
+      expect((await authorize(handle, action)).statusCode).toBe(200);
+      expect(await attributions(mailboxId)).toHaveLength(0);
+    });
+
+    it("writes nothing for another task or an action the session may not run", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.editor, { canRead: true });
+      const { handle } = await seedSession(mailboxId, ids.editor);
+      await authorize(handle, "send");
+      await authorize(handle, "delete");
+      await authorize(handle, "delete", "addressbook");
+      expect(await attributions(mailboxId)).toHaveLength(0);
+    });
+
+    it("keeps read paths off the project lock, mark included", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.editor);
+      const { handle } = await seedSession(mailboxId, ids.editor);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let locked!: () => void;
+      const holding = new Promise<void>((resolve) => (locked = resolve));
+      const writer = scoped(workspaceId, projectId, async () => {
+        locked();
+        await gate;
+      });
+      await holding;
+      try {
+        for (const action of ["list", "show", "mark"])
+          expect((await authorize(handle, action)).statusCode).toBe(200);
+      } finally {
+        release();
+        await writer;
+      }
+    });
+
     it("authorizes while a writer holds the project lock", async () => {
       const { mailboxId } = await seedMailbox();
       await grant(mailboxId, ids.editor, { canRead: true });
@@ -1266,6 +1438,35 @@ describe.skipIf(!enabled)("webmail module", () => {
         );
       },
     );
+
+    it("attributes a mark-deleted that passes, and only that", async () => {
+      const { mailboxId } = await seedMailbox();
+      await grant(mailboxId, ids.editor, { canRead: true, canOrganize: true });
+      const { handle } = await seedSession(mailboxId, ids.editor);
+      const mark = () =>
+        post("/session/barrier", {
+          handle,
+          operation: "mark_deleted",
+          folder: "INBOX",
+          selection: { type: "uids", uids: ["5"] },
+        });
+      vi.mocked(ensureIngested).mockResolvedValueOnce({
+        status: "retry",
+        reason: "locked",
+      });
+      expect((await mark()).json().status).toBe("retry");
+      expect(await attributions(mailboxId)).toHaveLength(0);
+      expect((await mark()).json()).toEqual({ status: "ok" });
+      const rows = await attributions(mailboxId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ actorId: ids.editor });
+      expect(rows[0]!.metadata).toEqual({
+        task: "mail",
+        action: "mark-deleted",
+      });
+      await barrier(handle, "INBOX", { type: "all" });
+      expect(await attributions(mailboxId)).toHaveLength(1);
+    });
 
     it("answers other folders at once", async () => {
       const { handle } = await organizer();
@@ -1531,6 +1732,155 @@ describe.skipIf(!enabled)("webmail module", () => {
       expect(answer.statusCode).toBe(202);
       expect(targetCalls.discarded).toHaveLength(1);
       expect(await records()).toBe(before);
+    });
+
+    describe("the row of a message from another folder", () => {
+      const created = () => {
+        const inboundId = randomUUID();
+        vi.mocked(inboundRowForImport).mockResolvedValue({
+          inboundId,
+          fileId: randomUUID(),
+          created: true,
+        });
+        return inboundId;
+      };
+      const removed = (inboundId: string) =>
+        expect(vi.mocked(discardImportedRow)).toHaveBeenCalledWith(
+          expect.objectContaining({ projectId }),
+          inboundId,
+        );
+
+      it("is removed when prepare fails", async () => {
+        const { mailboxId } = await converter();
+        const inboundId = created();
+        targetCalls.afterPrepare = async () => {
+          throw new DomainError("SYNTHETIC_PREPARE_FAILED", 409);
+        };
+        expect((await convert("editor", mailboxId)).statusCode).toBe(409);
+        removed(inboundId);
+      });
+
+      it("is removed when the commit fails", async () => {
+        const { mailboxId } = await converter();
+        const inboundId = created();
+        targetCalls.beforeCommit = () => {
+          throw new DomainError("SYNTHETIC_COMMIT_FAILED", 409);
+        };
+        expect((await convert("editor", mailboxId)).statusCode).toBe(409);
+        removed(inboundId);
+        expect(targetCalls.discarded).toHaveLength(1);
+      });
+
+      it("is removed when the target already has the message", async () => {
+        const { mailboxId } = await converter();
+        await scoped(workspaceId, projectId, (tx) =>
+          create(tx, ownerScope(), FIXTURE_KIND, {}),
+        );
+        const inboundId = created();
+        targetCalls.duplicate = true;
+        const answer = await convert("editor", mailboxId);
+        expect(answer.json().duplicate).toBe(true);
+        removed(inboundId);
+        const [row] = await conversions(mailboxId);
+        expect(row).toMatchObject({ status: "done", inboundId: null });
+      });
+
+      it("stays when the takeover finishes", async () => {
+        const { mailboxId } = await converter();
+        const inboundId = created();
+        expect((await convert("editor", mailboxId)).statusCode).toBe(200);
+        expect(vi.mocked(discardImportedRow)).not.toHaveBeenCalled();
+        const [row] = await conversions(mailboxId);
+        expect(row).toMatchObject({ status: "done", inboundId });
+      });
+
+      it("stays when this attempt did not create it", async () => {
+        const { mailboxId } = await converter();
+        targetCalls.beforeCommit = () => {
+          throw new DomainError("SYNTHETIC_COMMIT_FAILED", 409);
+        };
+        await convert("editor", mailboxId);
+        expect(vi.mocked(discardImportedRow)).not.toHaveBeenCalled();
+      });
+
+      it("stays when a later attempt took the message over, which may use it", async () => {
+        const { mailboxId } = await converter();
+        created();
+        targetCalls.afterPrepare = () =>
+          scoped(workspaceId, projectId, (tx) =>
+            tx.webmailConversion.updateMany({
+              where: { projectId, mailboxId },
+              data: { attemptId: randomUUID() },
+            }),
+          );
+        expect((await convert("editor", mailboxId)).statusCode).toBe(202);
+        expect(vi.mocked(discardImportedRow)).not.toHaveBeenCalled();
+      });
+
+      it("does not fail the answer when removing it fails", async () => {
+        const { mailboxId } = await converter();
+        created();
+        vi.mocked(discardImportedRow).mockRejectedValueOnce(new Error("store"));
+        targetCalls.beforeCommit = () => {
+          throw new DomainError("SYNTHETIC_COMMIT_FAILED", 409);
+        };
+        const failed = await convert("editor", mailboxId);
+        expect(error(failed)).toBe("SYNTHETIC_COMMIT_FAILED");
+      });
+    });
+
+    describe("a converted message whose record is gone", () => {
+      const removeRecord = (recordId: string) =>
+        scoped(workspaceId, projectId, async (tx) => {
+          await tx.entityVersion.deleteMany({ where: { entityId: recordId } });
+          await tx.entity.delete({ where: { id: recordId } });
+        });
+      const query = `?folder=INBOX&uid=41&uidValidity=${uidValidity}`;
+
+      it("can be converted again, on the same claim", async () => {
+        const { mailboxId } = await converter();
+        const first = (await convert("editor", mailboxId)).json();
+        await removeRecord(first.recordId);
+        const again = await convert("editor", mailboxId);
+        expect(again.statusCode).toBe(200);
+        expect(again.json().duplicate).toBe(false);
+        expect(again.json().recordId).not.toBe(first.recordId);
+        const rows = await conversions(mailboxId);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+          status: "done",
+          recordId: again.json().recordId,
+        });
+      });
+
+      it("reports as not converted", async () => {
+        const { mailboxId } = await converter();
+        const first = (await convert("editor", mailboxId)).json();
+        await removeRecord(first.recordId);
+        expect(
+          (
+            await call(
+              "editor",
+              "GET",
+              `/mailboxes/${mailboxId}/convert/status${query}`,
+            )
+          ).json(),
+        ).toEqual({ converted: false });
+      });
+
+      it("stays converted while the target cannot be asked", async () => {
+        const { mailboxId } = await converter();
+        const before = await records();
+        const first = (await convert("editor", mailboxId)).json();
+        targetCalls.searchFails = true;
+        const again = await convert("editor", mailboxId);
+        expect(again.json()).toMatchObject({
+          recordId: first.recordId,
+          duplicate: true,
+          number: null,
+        });
+        expect(await records()).toBe(before + 1);
+      });
     });
 
     it("discards the files when the target already has the message", async () => {

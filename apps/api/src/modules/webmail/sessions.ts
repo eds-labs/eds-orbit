@@ -58,6 +58,23 @@ const TOUCH_EVERY_MS = 60_000;
 const BARRIER_TIMEOUT_MS = 4_000;
 const MAX_BARRIER_UIDS = 5_000;
 const MAX_UID = 4_294_967_295;
+// Members share one Roundcube user, so only these rows say who sent or removed
+// mail. Exact names, as the plugin's policy compares them, with the variants
+// Roundcube dispatches to the same handlers, and what each needs. Everything
+// else stays a read: a request here would otherwise wait for the project lock.
+const ATTRIBUTED_ACTIONS: ReadonlyMap<string, WebmailCapability> = new Map([
+  ["send", "send"],
+  ["bounce", "send"],
+  ["move", "organize"],
+  ["delete", "organize"],
+  ["DELETE", "organize"],
+  ["expunge", "organize"],
+  ["folder-expunge", "organize"],
+  ["folder_expunge", "organize"],
+  ["purge", "organize"],
+  ["folder-purge", "organize"],
+  ["folder_purge", "organize"],
+]);
 
 export type ConsumeError = z.infer<typeof handoffConsumeError>;
 export type AuthorizeError = z.infer<typeof sessionAuthorizeError>;
@@ -246,6 +263,7 @@ function touch(claims: WebmailClaims, now: Date) {
 
 type SessionAccess = {
   scope: Scope;
+  mailboxId: string;
   connectionId: string;
   connection: Record<string, unknown>;
   mailboxDisplayName: string | null;
@@ -297,6 +315,7 @@ async function sessionAccess(
       return {
         scope,
         lastSeenAt: session.lastSeenAt,
+        mailboxId: session.mailboxId,
         connectionId: found.mailbox.emailConnectionId,
         connection: found.connection,
         mailboxDisplayName: found.mailbox.displayName,
@@ -340,9 +359,20 @@ async function moduleOn(tx: DbTx, scope: Scope) {
   }
 }
 
+/** One content-free row naming the member behind a mutating Roundcube action. */
+function attribute(access: SessionAccess, action: string) {
+  const { scope, mailboxId } = access;
+  return scoped(scope.workspaceId, scope.projectId, (tx) =>
+    audit(tx, scope, "webmail.mail.action", mailboxId, {
+      task: "mail",
+      action,
+    }),
+  );
+}
+
 /** `session/authorize`: the capabilities and this request's mail servers. */
 export async function authorizeSession(
-  input: { handle: string },
+  input: { handle: string; task: string; action: string },
   now = new Date(),
 ) {
   const access = await sessionAccess(input.handle, now);
@@ -352,6 +382,14 @@ export async function authorizeSession(
   } catch {
     throw refuse("mailbox_unavailable");
   }
+  // Only for what the plugin will let run, and fail closed: no action without
+  // its row. A member without the right cannot make the bridge take the lock.
+  const required =
+    input.task === "mail" ? ATTRIBUTED_ACTIONS.get(input.action) : undefined;
+  if (required && access.capabilities.includes(required))
+    await attribute(access, input.action).catch(() => {
+      throw refuse("mailbox_unavailable");
+    });
   const email = String(access.connection.fromAddress ?? "");
   return {
     ok: true as const,
@@ -390,13 +428,33 @@ export function ingestSelection(
  * `session/barrier`, before Roundcube removes messages from the INBOX: only
  * `ok` lets the action run. The plugin has already resolved an empty folder
  * to the INBOX; other folders are not fetched by Orbit, so nothing can be lost.
+ * A mark-deleted is attributed here: authorize sees only "mark", which is
+ * mostly reading, and the flag that tells them apart reaches only this call.
  */
 export async function sessionBarrier(
-  input: { handle: string; folder: string; selection: BarrierSelection },
+  input: {
+    handle: string;
+    operation: string;
+    folder: string;
+    selection: BarrierSelection;
+  },
   now = new Date(),
 ): Promise<SessionBarrierResponse> {
   const access = await sessionAccess(input.handle, now);
   if (!access.capabilities.includes("organize")) throw refuse("not_authorized");
+  const result = await barrierResult(access, input);
+  if (result.status !== "ok" || input.operation !== "mark_deleted")
+    return result;
+  return attribute(access, "mark-deleted").then(
+    () => result,
+    () => ({ status: "retry", reason: "audit_failed" }),
+  );
+}
+
+async function barrierResult(
+  access: SessionAccess,
+  input: { folder: string; selection: BarrierSelection },
+): Promise<SessionBarrierResponse> {
   if (input.folder !== "" && input.folder.toLowerCase() !== "inbox")
     return { status: "ok" };
   const selection = ingestSelection(input.selection);
