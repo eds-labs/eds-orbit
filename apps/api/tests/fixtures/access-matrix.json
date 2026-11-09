@@ -903,6 +903,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/assignments/{id}/detail": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/projects/{projectId}/assistant-tasks": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3728,6 +3736,14 @@
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/assignment-drafts/{id}/{decision}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/assignment-runs/{runId}/retry": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",

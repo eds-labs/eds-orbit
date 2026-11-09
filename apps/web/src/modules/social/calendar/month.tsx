@@ -65,6 +65,9 @@ export function PostChip({
             <Badge tone="warning">{t.unknown}</Badge>
           )}
           {item.origin === "legacy_postiz" && <Badge>{t.legacy}</Badge>}
+          {item.origin !== "manual" && item.origin !== "legacy_postiz" && (
+            <Badge>{t.origins[item.origin] ?? item.origin}</Badge>
+          )}
           {item.publications.test && <Badge>{t.test}</Badge>}
           {showProject && item.projectName && (
             <span className="cal-project">{item.projectName}</span>

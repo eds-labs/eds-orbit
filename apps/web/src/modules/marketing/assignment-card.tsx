@@ -28,6 +28,8 @@ export type AssignmentContent = {
   vetoMinutes: number;
   monthlyBudgetMicros: number;
   pendingReviewLimit?: number;
+  // Days of earlier topics the strategy avoids; absent means 14.
+  historyDays?: number;
   // How approved posts leave Orbit (R73); absent means "publish".
   delivery?: "publish" | "postiz_draft";
   approvalMode?: "human_each" | "delegated_review";
@@ -417,6 +419,14 @@ export function AssignmentCard({
               : de
                 ? `Höchstens ${assignment.pendingReviewLimit}; neue Erstellung wartet bei vollem Limit`
                 : `At most ${assignment.pendingReviewLimit}; new generation waits when full`}
+          </dd>
+        </div>
+        <div>
+          <dt>{de ? "Themen-Sperre" : "Topic history"}</dt>
+          <dd>
+            {de
+              ? `Themen der letzten ${assignment.historyDays ?? 14} Tage bleiben gesperrt`
+              : `Topics of the last ${assignment.historyDays ?? 14} days stay closed`}
           </dd>
         </div>
         <div>

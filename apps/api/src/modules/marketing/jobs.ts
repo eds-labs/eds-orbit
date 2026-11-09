@@ -10,6 +10,7 @@ import { generateMissionLive } from "./pipeline/generation.ts";
 import {
   dispatchPublication,
   reconcilePublication,
+  releaseSocialClaim,
 } from "./publishing/publisher.ts";
 import {
   dispatchSlackDigest,
@@ -42,6 +43,8 @@ export const marketingJobs: JobDef[] = [
     async onLeaseExpired(tx, scope, job) {
       const pub = await entity(tx, scope, "publications", job.resourceId);
       if (data(pub).status === "sending") {
+        // Social's hand-off is one transaction: nothing left Orbit.
+        if (await releaseSocialClaim(tx, scope, pub)) return;
         await update(tx, scope, pub, {
           ...data(pub),
           status: "outcome_unknown",

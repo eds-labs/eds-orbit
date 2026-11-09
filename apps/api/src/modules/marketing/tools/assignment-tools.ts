@@ -15,7 +15,7 @@ import { chatScoped } from "../../chat.ts";
 import type { AssignmentCard, ChatCard } from "../assistant/chat-tools.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
-import { runsMatching } from "../agents/assignment-runs.ts";
+import { retryAssignmentRun, runsMatching } from "../agents/assignment-runs.ts";
 import { runDeliverables } from "../agents/veto.ts";
 import { assignmentMonthSpend } from "../agents/specialists/runner.ts";
 import {
@@ -197,6 +197,14 @@ const proposeShape = {
       "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
     ),
   approvalMode,
+  historyDays: z
+    .number()
+    .int()
+    .nullable()
+    .optional()
+    .describe(
+      "Days of earlier posts and topics the strategy must not repeat, 14 to 60; 14 when absent (30 for a daily assignment on several channels is typical). Part of the confirmed content. null preserves the existing value",
+    ),
   sharedAcrossChannels,
   format,
   banner,
@@ -243,7 +251,14 @@ const changeSchema = (withCreative: boolean) =>
         .describe(
           "From assignment_list or its card; required for action change",
         ),
-      action: z.enum(["pause", "resume", "end", "change"]),
+      action: z.enum(["pause", "resume", "end", "change", "retry"]),
+      runId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Only for action retry: the failed or partial run (owner only, at least an hour before its slot)",
+        ),
       changes: changeFields(withCreative),
     })
     .strict();
@@ -274,6 +289,14 @@ const changeFields = (withCreative: boolean) =>
           "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
         ),
       approvalMode,
+      historyDays: z
+        .number()
+        .int()
+        .nullable()
+        .optional()
+        .describe(
+          "Days of earlier posts and topics the strategy must not repeat, 14 to 60; 14 when absent (30 for a daily assignment on several channels is typical). Part of the confirmed content. null preserves the existing value",
+        ),
       sharedAcrossChannels,
       format,
       banner,
@@ -352,6 +375,7 @@ export function assignmentCardOf(row: {
     delivery: deliveryOf(d),
     approvalMode: approvalModeOf(d),
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
+    ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
     ...(d.format ? { format: d.format } : {}),
     ...(d.banner ? { banner: d.banner } : {}),
     ...(d.creative ? { creative: d.creative } : {}),
@@ -655,6 +679,7 @@ export const assignmentTools: readonly OrbitTool[] = [
               delivery: deliveryOf(d),
               approvalMode: approvalModeOf(d),
               sharedAcrossChannels: sharedAcrossChannelsOf(d),
+              ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
               format: d.format ?? null,
               banner: d.banner ?? null,
               // Only when set: the output of other assignments stays as it was (CS-D6).
@@ -677,7 +702,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_change",
     namespace: "assignments",
     description:
-      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+      "Pause, resume (owner) or end an assignment, retry its failed run before the slot (owner, action retry with runId), or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, historyDays, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     get parameters() {
       return offersCreative() ? changeWithCreative : changeParameters;
     },
@@ -698,6 +723,25 @@ export const assignmentTools: readonly OrbitTool[] = [
           throw new DomainError("ASSIGNMENT_VERSION_REQUIRED", 400);
         if (!Object.keys(patch).length)
           throw new DomainError("ASSIGNMENT_CHANGE_EMPTY", 400);
+      }
+      if (input.action === "retry") {
+        if (!input.runId) throw new DomainError("RUN_REQUIRED", 400);
+        const retryRunId = z.uuid().parse(input.runId);
+        const retried = await chatScoped(context.scope, async (tx) => {
+          const run = await entity(
+            tx,
+            context.scope,
+            "assignment_runs",
+            retryRunId,
+          );
+          if (data(run).assignmentId !== input.assignmentId)
+            throw new DomainError("NOT_FOUND", 404);
+          return retryAssignmentRun(tx, context.scope, retryRunId);
+        });
+        return {
+          output: { assignmentId: input.assignmentId, ...retried },
+          cards: [],
+        };
       }
       const { before, after } = await chatScoped(context.scope, async (tx) => {
         const row = await entity(

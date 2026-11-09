@@ -8,20 +8,21 @@ import type { SocialPlatform } from "./accounts/store.ts";
 import { postMetrics } from "./analytics/collect.ts";
 import { cancelDelivery } from "./dispatch/control.ts";
 import { stopDelivery } from "./dispatch/dispatch.ts";
-import { validationContext } from "./dispatch/gates.ts";
+import { platformEnabled, validationContext } from "./dispatch/gates.ts";
 import { socialActive } from "./gate.ts";
-import { uploadMedia } from "./media/library.ts";
-import { approveOriginPost } from "./posts/approval.ts";
-import { createPost, lockPost } from "./posts/posts.ts";
+import { ingestMedia } from "./media/library.ts";
+import { approveOriginPost, holdOriginPost } from "./posts/approval.ts";
+import { createPost, heldByOrigin, lockPost } from "./posts/posts.ts";
 import { validateVariant } from "./posts/validation.ts";
 
 // What other modules may use of Social (ADR 0020 §6.4, S9). This file is
 // the only one Marketing may import from the social module (boundary zone
 // module:social-contract). Marketing keeps its channels (Postiz
 // integration ids, mapped to accounts by `legacyPostizIntegrationId`, or
-// `social:<accountId>`), its approvals and its veto window; at the slot it
-// hands a post over as an origin-authorized post that Social sends at once,
-// or it leaves a timed draft for a human.
+// `social:<accountId>`), its approvals and its veto window. When a post is
+// released it can announce it (`hold`: visible and timed in Social, read-only,
+// not sendable); at the slot it hands the post over as an origin-authorized
+// post that Social sends at once, or it leaves a timed draft for a human.
 
 export { postMetrics };
 
@@ -33,9 +34,34 @@ export type SocialAccountRef = {
   version: number;
   capability: string;
   status: string;
+  /** Whether the installation switched the account's platform on (ORBIT_SOCIAL_PLATFORMS). */
+  platformEnabled: boolean;
 };
 
 const SOCIAL_CHANNEL = /^social:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/** Whether a Marketing channel reference is a native `social:<accountId>` one. */
+export function isSocialChannel(channel: string): boolean {
+  return SOCIAL_CHANNEL.test(channel);
+}
+
+/** The project's connected (not disabled) accounts as `social:<accountId>` channels, oldest first. */
+export async function socialChannels(
+  tx: DbTx,
+  scope: Scope,
+): Promise<Array<{ id: string; platform: SocialPlatform; handle: string }>> {
+  const rows = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId, status: { not: "disabled" } },
+    select: { id: true, platform: true, handle: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  return rows.map((row) => ({ id: `social:${row.id}`, platform: row.platform as SocialPlatform, handle: row.handle }));
+}
+
+/** The handle of each of the project's connected accounts by its `social:<accountId>` reference. */
+export async function socialChannelHandles(tx: DbTx, scope: Scope): Promise<Map<string, string>> {
+  return new Map((await socialChannels(tx, scope)).map((c) => [c.id, c.handle]));
+}
 
 /** Whether the project can publish through Social now (switch and module). */
 export function socialPublishingAvailable(tx: DbTx, scope: Scope): Promise<boolean> {
@@ -62,6 +88,7 @@ export async function accountForChannel(tx: DbTx, scope: Scope, channel: string)
         version: row.version,
         capability: row.capability,
         status: row.status,
+        platformEnabled: platformEnabled(row.platform as SocialPlatform),
       }
     : null;
 }
@@ -98,7 +125,7 @@ export async function publishingBlockers(tx: DbTx, scope: Scope, channel: string
 
 /** Puts an approved image of the origin into Social's library; outside a transaction. */
 export async function importOriginMedia(scope: Scope, input: { bytes: Uint8Array; mime: string }): Promise<string> {
-  return (await uploadMedia(scope, input)).id;
+  return (await ingestMedia(scope, input, { reuseIdentical: true })).media.id;
 }
 
 const originInput = z
@@ -107,9 +134,14 @@ const originInput = z
     accountId: z.uuid(),
     text: z.string().max(25_000),
     mediaIds: z.array(z.uuid()).max(10),
-    mode: z.enum(["now", "draft"]),
+    mode: z.enum(["now", "draft", "hold"]),
     at: z.date().optional(),
     packageHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+    /**
+     * `now`: the origin's planned time (Marketing's slot). Social's lateness
+     * limit (30 minutes) counts from it when it is earlier than the hand-off.
+     */
+    slotAt: z.date().optional(),
   })
   .strict();
 export type OriginPostInput = z.input<typeof originInput>;
@@ -117,8 +149,11 @@ export type OriginPostInput = z.input<typeof originInput>;
 /**
  * A post for one account from another module's record. `now`: the origin
  * approved exactly this content (its package hash is recorded), Social
- * sends it right away. `draft`: a draft for a human, timed at `at`. The
- * same origin record and version gives the same post.
+ * sends it right away, at most 30 minutes after `slotAt` (when given) or
+ * the hand-off, whichever is earlier. `draft`: a draft for a human, timed at
+ * `at`. `hold`: announced at `at`, read-only and not sendable until the
+ * origin hands it over with `now`. The same origin record and version gives
+ * the same post; `now` on a held post releases exactly that post.
  */
 export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostInput): Promise<{ postId: string; deduplicated: boolean }> {
   const input = originInput.parse(raw);
@@ -131,10 +166,15 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
       originId: input.origin.id,
       originVersion: input.origin.version,
     },
-    select: { id: true },
+    select: { id: true, status: true, origin: true, originType: true, approvedAt: true },
   });
-  if (existing) return { postId: existing.id, deduplicated: true };
   if (input.mode === "now" && !input.packageHash) throw new DomainError("SOCIAL_ORIGIN_APPROVAL_REQUIRED", 409);
+  if (input.mode === "hold" && !input.at) throw new DomainError("SOCIAL_HOLD_TIME_REQUIRED", 422);
+  if (existing) {
+    if (input.mode !== "now" || !heldByOrigin(existing)) return { postId: existing.id, deduplicated: true };
+    await approveOriginPost(tx, scope, existing.id, { ...input.origin, packageHash: input.packageHash!, slotAt: input.slotAt });
+    return { postId: existing.id, deduplicated: false };
+  }
   const post = await createPost(
     tx,
     scope,
@@ -142,7 +182,9 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
     { origin: "marketing", originRef: input.origin },
   );
   if (input.mode === "now") {
-    await approveOriginPost(tx, scope, post.id, { ...input.origin, packageHash: input.packageHash! });
+    await approveOriginPost(tx, scope, post.id, { ...input.origin, packageHash: input.packageHash!, slotAt: input.slotAt });
+  } else if (input.mode === "hold") {
+    await holdOriginPost(tx, scope, post.id, input.at!);
   } else if (input.at) {
     await tx.socialPost.update({
       where: { id: post.id },
@@ -155,6 +197,24 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
     });
   }
   return { postId: post.id, deduplicated: false };
+}
+
+/** Posts Marketing announced and has not handed over yet, with the record behind each. */
+export async function heldOriginPosts(tx: DbTx, scope: Scope): Promise<Array<{ postId: string; originId: string }>> {
+  const rows = await tx.socialPost.findMany({
+    where: { projectId: scope.projectId, status: "scheduled", origin: "marketing", originType: "publication", approvedAt: null },
+    select: { id: true, originId: true },
+  });
+  return rows.flatMap((row) => (row.originId ? [{ postId: row.id, originId: row.originId }] : []));
+}
+
+/** Whether this post is still an announced one (it already carries its text and image). */
+export async function isHeldOriginPost(tx: DbTx, scope: Scope, postId: string): Promise<boolean> {
+  const post = await tx.socialPost.findFirst({
+    where: { id: postId, projectId: scope.projectId },
+    select: { status: true, origin: true, originType: true, approvedAt: true },
+  });
+  return post !== null && heldByOrigin(post);
 }
 
 export type OriginPostStatus = {
@@ -250,6 +310,70 @@ export async function recentPublishedTexts(
     select: { body: true },
   });
   return variants.map((v) => v.body);
+}
+
+/**
+ * What was made by hand in Social on the accounts since `since`: posts that
+ * went out (published, partially published) or are lined up (scheduled,
+ * approved, publishing), newest first, at most 100. Marketing's own
+ * hand-offs (already Orbit content) and the Postiz mirror are left out. The
+ * text is the account's variant, cut to 280.
+ */
+export async function recentPosts(
+  tx: DbTx,
+  scope: Scope,
+  accountIds: string[],
+  since: Date,
+): Promise<Array<{ accountId: string; text: string; at: string; status: "published" | "scheduled" }>> {
+  if (!accountIds.length) return [];
+  // Posts first: the Postiz mirror can be large and must not crowd these out.
+  const posts = new Map(
+    (
+      await tx.socialPost.findMany({
+        where: {
+          projectId: scope.projectId,
+          status: { in: ["published", "partially_published", "scheduled", "approved", "publishing"] },
+          origin: { not: "legacy_postiz" },
+          AND: [
+            { OR: [{ originModule: null }, { originModule: { not: "marketing" } }] },
+            { OR: [{ scheduledAt: { gte: since } }, { updatedAt: { gte: since } }, { createdAt: { gte: since } }] },
+          ],
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 1000,
+      })
+    ).map((post) => [post.id, post]),
+  );
+  if (!posts.size) return [];
+  const variants = await tx.socialPostVariant.findMany({
+    where: { projectId: scope.projectId, accountId: { in: accountIds }, postId: { in: [...posts.keys()] } },
+    select: { id: true, accountId: true, body: true, postId: true },
+  });
+  if (!variants.length) return [];
+  const published = new Map<string, Date>();
+  for (const pub of await tx.socialPublication.findMany({
+    where: { projectId: scope.projectId, variantId: { in: variants.map((v) => v.id) }, status: "published", publishedAt: { not: null } },
+    select: { variantId: true, publishedAt: true },
+  }))
+    published.set(pub.variantId, pub.publishedAt!);
+  return variants
+    .flatMap((variant) => {
+      const post = posts.get(variant.postId);
+      if (!post) return [];
+      const at = published.get(variant.id) ?? post.scheduledAt ?? post.approvedAt ?? post.createdAt;
+      return [
+        {
+          accountId: variant.accountId,
+          text: variant.body.slice(0, 280),
+          at,
+          status: ["published", "partially_published"].includes(post.status) ? ("published" as const) : ("scheduled" as const),
+        },
+      ];
+    })
+    .filter((row) => row.at >= since)
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+    .slice(0, 100)
+    .map((row) => ({ ...row, at: row.at.toISOString() }));
 }
 
 /**

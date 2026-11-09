@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -123,7 +124,7 @@ async function chosenDraft(
   if (current.pending) throw new DomainError("REVISION_IN_PROGRESS", 409);
   if (!current.draft) throw new DomainError("DRAFT_REQUIRED", 409);
   const draft = current.draft;
-  if (data(draft).supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
+  if (draftReplaced(data(draft))) throw new DomainError("DRAFT_SUPERSEDED", 409);
   await assertPackageDraft(tx, scope, image.pkg.id, draft);
   if (
     image.publications.some(

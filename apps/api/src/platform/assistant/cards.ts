@@ -32,6 +32,8 @@ export type AssignmentCard = {
   vetoMinutes: number;
   monthlyBudgetMicros: number;
   pendingReviewLimit?: number;
+  // Days of earlier topics the strategy avoids (14 to 60); absent means 14.
+  historyDays?: number;
   // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
   delivery: "publish" | "postiz_draft";
   approvalMode?: "human_each" | "delegated_review";

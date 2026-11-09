@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { registeredJobs } from "../src/platform/modules/contributions.ts";
@@ -74,6 +74,7 @@ describe.skipIf(!enabled)("social deliver", () => {
     });
   });
   afterEach(() => {
+    vi.useRealTimers();
     sends = 0;
     for (const [key, value] of Object.entries(env))
       if (value === undefined) delete process.env[key];
@@ -261,6 +262,87 @@ describe.skipIf(!enabled)("social deliver", () => {
     const [job] = await deliverJobs(id);
     await scoped(p.owner.workspaceId, p.owner.projectId, (tx) => registeredJobs().get(DELIVER)!.onBlockedByPause!(tx, job!, worker));
     expect((await pub(id)).status).toBe("failed");
+  });
+
+  describe("lateness (D-3): never more than 30 minutes late", () => {
+    const MIN = 60_000;
+    const setPost = (postId: string, data: Record<string, unknown>) => p.run((tx) => tx.socialPost.update({ where: { id: postId }, data }));
+    const expectExpired = async (id: string, postId: string) => {
+      expect(await pub(id)).toMatchObject({ status: "failed", retryDisposition: "never", lastErrorCode: "SOCIAL_SLOT_EXPIRED", nextAttemptAt: null, fence: null });
+      expect((await p.run((tx) => tx.socialPost.findUniqueOrThrow({ where: { id: postId } }))).status).toBe("failed");
+      expect(sends).toBe(0);
+    };
+
+    it("a scheduled post claimed 31 minutes after its time expires and is never sent", async () => {
+      live();
+      answer = () => ok(90);
+      const { postId, pubs } = await publications([await telegramAccount()]);
+      await setPost(postId, { scheduleMode: "at", scheduledAt: new Date(Date.now() - 31 * MIN) });
+      expect(await deliverPublication(worker, pubs[0]!.id)).toEqual({ status: "succeeded", errorCode: "SOCIAL_SLOT_EXPIRED" });
+      await expectExpired(pubs[0]!.id, postId);
+    });
+
+    it("a now post claimed 31 minutes after its approval expires", async () => {
+      live();
+      const { postId, pubs } = await publications([await telegramAccount()]);
+      await setPost(postId, { approvedAt: new Date(Date.now() - 31 * MIN) });
+      await deliverPublication(worker, pubs[0]!.id);
+      await expectExpired(pubs[0]!.id, postId);
+    });
+
+    it("a now post without an approval time measures from its creation", async () => {
+      live();
+      const { postId, pubs } = await publications([await telegramAccount()]);
+      await setPost(postId, { approvedAt: null, createdAt: new Date(Date.now() - 31 * MIN) });
+      await deliverPublication(worker, pubs[0]!.id);
+      await expectExpired(pubs[0]!.id, postId);
+    });
+
+    it("a claim 29 minutes late still sends", async () => {
+      live();
+      answer = () => ok(91);
+      const { postId, pubs } = await publications([await telegramAccount()]);
+      await setPost(postId, { approvedAt: new Date(Date.now() - 29 * MIN) });
+      await deliverPublication(worker, pubs[0]!.id);
+      expect(sends).toBe(1);
+      expect((await pub(pubs[0]!.id)).status).toBe("published");
+    });
+
+    it("an after-delay retry whose next attempt lies beyond the deadline fails at once with SOCIAL_SLOT_EXPIRED", async () => {
+      live();
+      answer = () => new Response(JSON.stringify({ ok: false, error_code: 429, parameters: { retry_after: 30 } }), { status: 429 });
+      const { postId, pubs } = await publications([await telegramAccount()]);
+      const id = pubs[0]!.id;
+      await setPost(postId, { approvedAt: new Date(Date.now() - 29 * MIN - 30_000) });
+      await deliverPublication(worker, id);
+      expect(sends).toBe(1);
+      expect(await pub(id)).toMatchObject({ status: "failed", retryDisposition: "never", lastErrorCode: "SOCIAL_SLOT_EXPIRED", nextAttemptAt: null, attempts: 1 });
+      expect((await deliverJobs(id)).map((j) => j.idempotencyKey)).not.toContain(`social-deliver:${id}:2`);
+      const events = await p.run((tx) => tx.domainEvent.findMany({ where: { projectId: p.owner.projectId, type: "social.publication.failed", subjectId: id } }));
+      expect(events.length).toBe(1);
+    });
+
+    it("a throttle wait beyond the deadline expires instead of re-queuing", async () => {
+      live();
+      answer = () => ok(92);
+      const account = await telegramAccount();
+      const { postId, pubs } = await publications([account]);
+      const minute = new Date(Math.floor(Date.now() / MIN) * MIN);
+      // Pinned mid-minute: the claim passes the first deadline check and
+      // reaches the throttle, whatever second the test starts in.
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(minute.getTime() + 30_000));
+      await p.run((tx: DbTx) =>
+        tx.socialAccountThrottle.create({
+          data: { workspaceId: p.owner.workspaceId, projectId: p.owner.projectId, accountId: account, window: "minute", windowStart: minute, count: 20 },
+        }),
+      );
+      // Deadline one second before the next minute opens.
+      await setPost(postId, { approvedAt: new Date(minute.getTime() + 59_000 - 30 * MIN) });
+      expect(await deliverPublication(worker, pubs[0]!.id)).toEqual({ status: "succeeded", errorCode: "SOCIAL_SLOT_EXPIRED" });
+      await expectExpired(pubs[0]!.id, postId);
+      expect((await deliverJobs(pubs[0]!.id)).some((j) => String(j.idempotencyKey).includes(":t"))).toBe(false);
+    });
   });
 
   it("blocks a publication whose post changed after it was dispatched", async () => {

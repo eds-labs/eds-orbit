@@ -6,6 +6,7 @@ import {
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, update } from "../../../shared.ts";
+import { draftReplaced } from "../agents/draft-state.ts";
 import type { RunSlot } from "../agents/veto.ts";
 import { invalidateContent } from "./content-invalidation.ts";
 import { DRAFT_STATUSES } from "./draft-statuses.ts";
@@ -200,7 +201,7 @@ export async function decideDraft(
 
   if (
     !(DRAFT_STATUSES as readonly string[]).includes(String(c.status)) ||
-    c.supersededBy
+    draftReplaced(c)
   )
     throw new DomainError(DRAFT_NOT_DECIDABLE, 409);
   if ((await activeHandoffs(tx, scope, contentId)).length)

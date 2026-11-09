@@ -230,6 +230,17 @@ function requestState(row: { data: unknown } | null): ApprovalState {
   return "none";
 }
 
+/**
+ * A post Marketing announced for its slot and has not handed over: scheduled
+ * without an approval. It is shown here and changed or released only by
+ * Marketing, which still decides at the slot whether it goes out.
+ */
+export const heldByOrigin = (post: Pick<SocialPostRow, "status" | "origin" | "originType" | "approvedAt">) =>
+  post.status === "scheduled" && post.origin === "marketing" && post.originType === "publication" && post.approvedAt === null;
+
+/** Whether no one may change this post in Social: mirrored history, or announced by Marketing. */
+export const closedToChanges = (post: SocialPostRow) => post.readOnly || heldByOrigin(post);
+
 export async function approvalStates(tx: DbTx, scope: Scope, posts: SocialPostRow[]) {
   const ids = posts.map((p) => p.approvalRequestId).filter((id): id is string => Boolean(id));
   const rows = ids.length
@@ -286,7 +297,7 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
     },
     packageHash: post.packageHash,
     origin: post.origin,
-    readOnly: post.readOnly,
+    readOnly: closedToChanges(post),
     version: post.version,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
@@ -374,7 +385,7 @@ export async function listPosts(
       schedule: scheduleView(post),
       approvalState: state(post),
       origin: post.origin,
-      readOnly: post.readOnly,
+      readOnly: closedToChanges(post),
       accounts: variants
         .filter((v) => v.postId === post.id)
         .map((v) => {
@@ -564,7 +575,7 @@ export async function resetApproval(tx: DbTx, scope: Scope, post: SocialPostRow,
 }
 
 export function requireWritable(post: SocialPostRow, version: number, statuses = EDITABLE) {
-  if (post.readOnly) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
+  if (closedToChanges(post)) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
   if (post.version !== version) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   if (!statuses.includes(post.status)) throw new DomainError("SOCIAL_POST_NOT_EDITABLE", 409);
 }

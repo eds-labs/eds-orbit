@@ -171,6 +171,9 @@ const assignmentFields = z
     // A composed creative per post (Creative Studio); absent means the free
     // image or banner as before. Hashed only when set.
     creative: assignmentCreative.optional(),
+    // How many days of earlier posts and held topics the strategy must not
+    // repeat. Absent means 14 (as before); part of the confirmed content.
+    historyDays: z.number().int().min(14).max(60).optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
@@ -279,8 +282,15 @@ export const sharedAcrossChannels = (
   source: Record<string, any> | null | undefined,
 ) => source?.sharedAcrossChannels === true && source?.contentType === "social";
 
+/** The days of topic history an assignment's strategy works within (default 14). */
+export function historyDaysOf(assignment: Record<string, any>): number {
+  const days = assignment?.historyDays;
+  return Number.isInteger(days) && days >= 14 && days <= 60 ? days : 14;
+}
+
 // Field values that equal the behaviour before the field existed; the hash leaves them out.
 const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
+  historyDays: 14,
   delivery: "publish",
   approvalMode: "delegated_review",
   sharedAcrossChannels: false,

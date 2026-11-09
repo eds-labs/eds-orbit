@@ -1,3 +1,4 @@
+import { draftReplaced } from "../draft-state.ts";
 import { createHash } from "node:crypto";
 import {
   scoped,
@@ -260,7 +261,7 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
   for (const draft of drafts) {
     const v = data(draft);
     // An archived, rejected or replaced draft stays as it is.
-    if (["archived", "rejected"].includes(v.status) || v.supersededBy) continue;
+    if (["archived", "rejected"].includes(v.status) || draftReplaced(v)) continue;
     const asset = bannerRun
       ? await draftBanner(tx, scope, assets, image, v, brand)
       : image;
@@ -859,7 +860,7 @@ export async function composeRunBanners(scope: Scope, runId: string) {
     >();
     for (const draft of drafts) {
       const v = data(draft);
-      if (["archived", "rejected"].includes(v.status) || v.supersededBy)
+      if (["archived", "rejected"].includes(v.status) || draftReplaced(v))
         continue;
       const key = bannerKeyOf(background, v, logo.brand);
       // Copy the review will refuse or send back gets no banner (R78); its

@@ -47,8 +47,15 @@ import {
 } from "./brand/marketing-profile.ts";
 import { generateProjectImage } from "./brand/image-generation.ts";
 import { handleSlackInteraction } from "./publishing/slack.ts";
-import { readMarketingSettings, saveMarketingSettings } from "./publishing/backend.ts";
-import { mapPostizChannel, mirrorPostizHistory, socialMapping } from "./publishing/social-migration.ts";
+import {
+  readMarketingSettings,
+  saveMarketingSettings,
+} from "./publishing/backend.ts";
+import {
+  mapPostizChannel,
+  mirrorPostizHistory,
+  socialMapping,
+} from "./publishing/social-migration.ts";
 import { agentsEnabled, setAssignmentStatus } from "./agents/assignments.ts";
 import {
   assignmentStatusInput,
@@ -58,6 +65,8 @@ import {
   upcomingAssignmentPosts,
   vetoInput,
 } from "./agents/assignment-overview.ts";
+import { assignmentDetail } from "./agents/assignment-detail.ts";
+import { retryAssignmentRun } from "./agents/assignment-runs.ts";
 import { agentActivity } from "./agents/agent-activity.ts";
 import { vetoPublication } from "./agents/veto.ts";
 import {
@@ -156,7 +165,9 @@ export const marketingRoutes: RoutesContribution = (context) => {
   app.get("/api/projects/:projectId/marketing/settings", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, (tx) => readMarketingSettings(tx, scope));
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      readMarketingSettings(tx, scope),
+    );
   });
   app.put("/api/projects/:projectId/marketing/settings", async (req) => {
     const { projectId } = req.params as { projectId: string };
@@ -165,30 +176,53 @@ export const marketingRoutes: RoutesContribution = (context) => {
       .object({ settings: z.unknown(), version: z.number().int().min(1) })
       .strict()
       .parse(req.body ?? {});
-    return scoped(scope.workspaceId, projectId, (tx) => saveMarketingSettings(tx, scope, settings, version));
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      saveMarketingSettings(tx, scope, settings, version),
+    );
   });
 
   // Moving from Postiz to Social (S10): channel mapping and history mirror.
-  app.get("/api/projects/:projectId/marketing/social-migration", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, (tx) => socialMapping(tx, scope));
-  });
-  app.put("/api/projects/:projectId/marketing/social-migration/mapping", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-    const input = z
-      .object({ integrationId: z.string().min(1).max(200), accountId: z.uuid().nullable() })
-      .strict()
-      .parse(req.body ?? {});
-    return scoped(scope.workspaceId, projectId, (tx) => mapPostizChannel(tx, scope, input));
-  });
-  app.post("/api/projects/:projectId/marketing/social-migration/mirror", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-    const input = z.object({ dryRun: z.boolean() }).strict().parse(req.body ?? {});
-    return scoped(scope.workspaceId, projectId, (tx) => mirrorPostizHistory(tx, scope, input));
-  });
+  app.get(
+    "/api/projects/:projectId/marketing/social-migration",
+    async (req) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        socialMapping(tx, scope),
+      );
+    },
+  );
+  app.put(
+    "/api/projects/:projectId/marketing/social-migration/mapping",
+    async (req) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const input = z
+        .object({
+          integrationId: z.string().min(1).max(200),
+          accountId: z.uuid().nullable(),
+        })
+        .strict()
+        .parse(req.body ?? {});
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        mapPostizChannel(tx, scope, input),
+      );
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/marketing/social-migration/mirror",
+    async (req) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const input = z
+        .object({ dryRun: z.boolean() })
+        .strict()
+        .parse(req.body ?? {});
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        mirrorPostizHistory(tx, scope, input),
+      );
+    },
+  );
 
   // Orbit Agents for the web: assignments and their upcoming posts (404 while off).
   app.get("/api/projects/:projectId/assignments", async (req) => {
@@ -197,6 +231,16 @@ export const marketingRoutes: RoutesContribution = (context) => {
     const scope = await scopeFor(auth, req, projectId);
     return scoped(scope.workspaceId, projectId, (tx) =>
       listAssignments(tx, scope),
+    );
+  });
+
+  // One assignment with its runs, deliverables and platform status (G7); any project member.
+  app.get("/api/projects/:projectId/assignments/:id/detail", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      assignmentDetail(tx, scope, z.uuid().parse(id)),
     );
   });
 
@@ -217,6 +261,25 @@ export const marketingRoutes: RoutesContribution = (context) => {
     );
     return { id: saved.id, version: saved.version, status: data(saved).status };
   });
+
+  // The owner retries a failed run before its slot (G6): a new run for the same date.
+  app.post(
+    "/api/projects/:projectId/assignment-runs/:runId/retry",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, runId } = req.params as {
+        projectId: string;
+        runId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      z.object({})
+        .strict()
+        .parse(req.body ?? {});
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        retryAssignmentRun(tx, scope, z.uuid().parse(runId)),
+      );
+    },
+  );
 
   app.get("/api/projects/:projectId/assignment-posts", async (req) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);

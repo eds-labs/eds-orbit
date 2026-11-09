@@ -87,7 +87,7 @@ export function projectBoundParameters(
 ) {
   const projectId = z.uuid();
   return z.strictObject({
-    ...tool.parameters.shape,
+    ...(tool.mcpParameters ?? tool.parameters).shape,
     [PROJECT_ID_PARAM]:
       options.optional && !tool.mcpProjectRequired
         ? projectId.optional()

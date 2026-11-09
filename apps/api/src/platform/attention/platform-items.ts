@@ -2,7 +2,11 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { openDecidableRequests } from "../../modules/action-requests.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
-import { activePolicyRecord, platformSpendLimits } from "../ai/spend-mandate.ts";
+import {
+  activePolicyRecord,
+  activeSpendMandateRef,
+  platformSpendLimits,
+} from "../ai/spend-mandate.ts";
 import { providerBudgetStatus } from "../ai/provider-budget.ts";
 import { data } from "../shared.ts";
 import { can, PROJECT_OWN, PROJECT_WRITE } from "../tenancy/permissions.ts";
@@ -168,5 +172,26 @@ export async function platformAttention(
         link: "/settings?section=ai",
       });
   }
+  // The spending authority ends within a week (never for a personal
+  // project: its synthetic window is a century long).
+  const mandate = await activeSpendMandateRef(tx, scope);
+  const endAt = mandate?.data.endAt;
+  const end = typeof endAt === "string" ? Date.parse(endAt) : Number.NaN;
+  if (
+    mandate &&
+    typeof endAt === "string" &&
+    end > now.getTime() &&
+    end - now.getTime() <= 7 * 86_400_000
+  )
+    items.push({
+      id: `platform:spend-authority-expiring:${mandate.id}`,
+      moduleId: "platform",
+      kind: "platform_spend_authority_expiring",
+      severity: "warning",
+      dueAt: endAt,
+      params: { endAt },
+      navKey: "operations",
+      link: "/settings?section=ai",
+    });
   return items;
 }

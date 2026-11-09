@@ -312,6 +312,58 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     await closeDatabase();
   });
 
+  describe("policy expiry", () => {
+    const DAY = 24 * HOUR;
+    const withPolicy = async (endAt: string) =>
+      run((tx) =>
+        create(tx, owner, "policies", {
+          mode: "observe",
+          channels: [CHANNEL],
+          startAt: new Date(Date.now() - DAY).toISOString(),
+          endAt,
+          active: true,
+        }),
+      );
+    const expiring = async (who: keyof typeof cookies = "owner") =>
+      (await marketingItems(who)).filter(
+        (i) => i.kind === "marketing_policy_expiring",
+      );
+    afterEach(() =>
+      run((tx) => tx.entity.deleteMany({ where: { kind: "policies" } })),
+    );
+
+    it("warns the owner six days before the active policy ends", async () => {
+      const endAt = inHours(6 * 24);
+      const policy = await withPolicy(endAt);
+      expect(await expiring()).toEqual([
+        {
+          id: `marketing:policy-expiring:${policy.id}`,
+          moduleId: "marketing",
+          kind: "marketing_policy_expiring",
+          severity: "warning",
+          dueAt: endAt,
+          params: { endAt },
+          navKey: "operations",
+          link: "/settings?section=policy",
+        },
+      ]);
+    });
+
+    it("stays quiet eight days before and after the end", async () => {
+      await withPolicy(inHours(8 * 24));
+      expect(await expiring()).toEqual([]);
+      await run((tx) => tx.entity.deleteMany({ where: { kind: "policies" } }));
+      await withPolicy(inHours(-1));
+      expect(await expiring()).toEqual([]);
+    });
+
+    it("is for the owner only", async () => {
+      await withPolicy(inHours(2 * 24));
+      expect(await expiring("editor")).toEqual([]);
+      expect(await expiring("viewer")).toEqual([]);
+    });
+  });
+
   it("an awaiting draft is a warning with slotAt", async () => {
     process.env.ORBIT_AGENTS = "true";
     const slotAt = inHours(3);
@@ -338,6 +390,33 @@ describe.skipIf(!enabled)("marketing attention items", () => {
       false,
     );
     expect(JSON.stringify(items)).not.toContain("SECRET-BODY");
+  });
+
+  it("an expired draft has no release item and is left out of the content review count", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    // Passed a minute ago: today in project time unless it is just past midnight.
+    const passed = new Date(Date.now() - 60_000).toISOString();
+    await awaitingDraft(passed);
+    // One from an earlier day, which the release list no longer reads.
+    await awaitingDraft(new Date(Date.now() - 3 * 86_400_000).toISOString());
+    const items = await marketingItems();
+    expect(items.some((i) => i.kind === "marketing_draft_release")).toBe(false);
+    expect(items.some((i) => i.kind === "marketing_content_review")).toBe(
+      false,
+    );
+  });
+
+  it("content outside assignments still counts even with a passed time", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await awaitingDraft(new Date(Date.now() - 60_000).toISOString());
+    await content({
+      status: "needs_review",
+      scheduledAt: new Date(Date.now() - 3 * HOUR).toISOString(),
+    });
+    const items = await marketingItems();
+    expect(
+      items.find((i) => i.kind === "marketing_content_review"),
+    ).toMatchObject({ count: 1 });
   });
 
   it("no draft items while agents are off", async () => {
@@ -560,6 +639,24 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     ]);
   });
 
+  it("a failed run the owner retried is no run problem", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await run((tx) =>
+      create(tx, owner, "assignment_runs", {
+        assignmentId: randomUUID(),
+        status: "failed",
+        date: "2026-10-18",
+        slots: [],
+        steps: [],
+        retiredAt: new Date().toISOString(),
+        retriedByRunId: randomUUID(),
+      }),
+    );
+    expect(
+      (await marketingItems()).some((i) => i.kind === "marketing_run_problem"),
+    ).toBe(false);
+  });
+
   it("an assignment out of its monthly budget is a critical run problem", async () => {
     process.env.ORBIT_AGENTS = "true";
     await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
@@ -624,8 +721,9 @@ describe.skipIf(!enabled)("marketing attention items", () => {
       await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
     const four = await counted((tx) => marketingAttention(tx, owner, now));
     // 22 with one assignment (and 4 more per assignment) through the whole
-    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read.
-    expect(one.queries).toBeLessThanOrEqual(13);
+    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read; 15 with the owner's policy expiry read;
+    // 16 with the bounded read of assignment drafts for their expiry (D-2).
+    expect(one.queries).toBeLessThanOrEqual(16);
     expect(
       four.result.find((i) => i.params.code === "BUDGET_EXHAUSTED")?.count,
     ).toBe(4);

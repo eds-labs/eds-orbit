@@ -22,6 +22,8 @@ import {
   readOperation,
 } from "../../../platform/tasks/operation-tools.ts";
 import { PROJECT_OWN, PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
+import { publishingBackend } from "../publishing/backend.ts";
+import { socialChannels } from "../../social/contract.ts";
 import {
   assertAssignedSocialChannels,
   assignedSocialChannels,
@@ -132,12 +134,22 @@ export async function readPolicy(tx: DbTx, scope: Scope) {
     // limits paid calls are reserved against are ai_spend_policy_get's.
     budgetsAuthoritative: !(await activeSpendPolicyRecord(tx, scope)),
     options: {
-      // Postiz channels assigned to this project; a policy may use these only.
-      channels: (await assignedSocialChannels(tx, scope)).map((c) => ({
-        id: c.id,
-        name: c.name ?? null,
-        platform: c.identifier ?? null,
-      })),
+      // Channels a policy may use: Postiz channels assigned to this project
+      // and, on the Social backend, its Social accounts as `social:<accountId>`.
+      channels: [
+        ...(await assignedSocialChannels(tx, scope)).map((c) => ({
+          id: c.id,
+          name: c.name ?? null,
+          platform: c.identifier ?? null,
+        })),
+        ...((await publishingBackend(tx, scope)) === "social"
+          ? (await socialChannels(tx, scope)).map((c) => ({
+              id: c.id,
+              name: c.handle,
+              platform: c.platform as string | null,
+            }))
+          : []),
+      ],
       contentTypes: policySchema.shape.contentTypes.element.options,
       modes: {
         observe: "No external writes; drafts and reviews only.",
@@ -230,7 +242,7 @@ const getTool = readOperation({
   feature: "project_administration",
   mcpProjectRequired: true,
   description:
-    "Reads the project's active Marketing policy: mode and approval mode (human_each = every post approved by the owner), allowed Postiz channels and content types, budgets (micros and USD), posting limits, quiet hours and allowed link origins, with its version and the assignable channels.",
+    "Reads the project's active Marketing policy: mode and approval mode (human_each = every post approved by the owner), allowed channels (Postiz channel ids, or social:<accountId> on the Social backend) and content types, budgets (micros and USD), posting limits, quiet hours and allowed link origins, with its version and the assignable channels.",
   input: z.object({}).strict(),
   permission: PROJECT_READ,
   run: (tx, scope) => readPolicy(tx, scope),
@@ -248,7 +260,7 @@ const updateTool = approvedOperation({
   policyRequired: false,
   mcpProjectRequired: true,
   description:
-    "Proposes a change to the Marketing policy: changes = {field: value} with only the fields to change, against expectedVersion from marketing_policy_get. mode is observe or assisted (every post needs owner approval); channels must be assigned Postiz channels. A project without a policy proposes all required fields. The AI budget is set with ai_spend_policy_update once the project has one (SPEND_POLICY_ON_PLATFORM). Owners only.",
+    "Proposes a change to the Marketing policy: changes = {field: value} with only the fields to change, against expectedVersion from marketing_policy_get. mode is observe or assisted (every post needs owner approval); channels must be assignable channels from marketing_policy_get options.channels (Postiz channel ids, or lowercase social:<accountId> on the Social backend). A project without a policy proposes all required fields. The AI budget is set with ai_spend_policy_update once the project has one (SPEND_POLICY_ON_PLATFORM). Owners only.",
   input: policyChange,
   permission: PROJECT_OWN,
   validate: async (tx, scope, args) => {

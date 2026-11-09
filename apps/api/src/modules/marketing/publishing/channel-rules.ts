@@ -8,6 +8,7 @@ import {
 } from "./postiz-assignment.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
+import { accountForChannel, isSocialChannel } from "../../social/contract.ts";
 
 /** Preflight blocker: a post on a channel that rejects text-only posts has no image (Creative Studio on). */
 export const MEDIA_REQUIRED = "MEDIA_REQUIRED";
@@ -47,37 +48,64 @@ export async function resolveChannelRules(
     mediaRequired: false,
   };
   if (contentType !== "social") return unknown;
-  const matches = (await list(tx, scope, "connectors"))
-    .filter(
-      (row) =>
-        data(row).provider === "postiz" && connectionVerified(data(row).status),
-    )
-    .flatMap((row) =>
-      assignedPostizChannels(data(row))
-        .filter((channel: any) => channel.id === integrationId)
-        .map((channel: any) => ({ row, channel })),
-    );
-  if (matches.length !== 1) return unknown;
-  const { row, channel } = matches[0]!;
-  const providerIdentifier =
-    typeof channel.identifier === "string" ? channel.identifier : null;
-  const common = {
-    providerIdentifier,
-    connectorId: row.id,
-    connectorVersion: row.version,
-    postingTime: postingTimeFor(data(row), channel.id),
-  };
+  let providerIdentifier: string | null;
+  let common: Pick<
+    ChannelRules,
+    "providerIdentifier" | "connectorId" | "connectorVersion" | "postingTime"
+  >;
+  let xLong = false;
+  if (isSocialChannel(integrationId)) {
+    // A native reference: the account's platform, no Postiz connector. Social
+    // decides at send whether the channel can go live (`liveCapabilityKnown`).
+    const account = await accountForChannel(tx, scope, integrationId);
+    if (!account) return unknown;
+    providerIdentifier = account.platform;
+    common = {
+      providerIdentifier,
+      connectorId: null,
+      connectorVersion: null,
+      postingTime: null,
+    };
+  } else {
+    const matches = (await list(tx, scope, "connectors"))
+      .filter(
+        (row) =>
+          data(row).provider === "postiz" &&
+          connectionVerified(data(row).status),
+      )
+      .flatMap((row) =>
+        assignedPostizChannels(data(row))
+          .filter((channel: any) => channel.id === integrationId)
+          .map((channel: any) => ({ row, channel })),
+      );
+    if (matches.length !== 1) return unknown;
+    const { row, channel } = matches[0]!;
+    providerIdentifier =
+      typeof channel.identifier === "string" ? channel.identifier : null;
+    common = {
+      providerIdentifier,
+      connectorId: row.id,
+      connectorVersion: row.version,
+      postingTime: postingTimeFor(data(row), channel.id),
+    };
+    xLong = hasXLongPosts(data(row), channel.id);
+  }
+  const isNative = isSocialChannel(integrationId);
   if (
     STUDIO_PROVIDERS.includes(providerIdentifier ?? "") &&
     !creativeStudioEnabled()
   )
-    return { ...unknown, ...common };
+    return {
+      ...unknown,
+      ...common,
+      ...(isNative ? { liveCapabilityKnown: true } : {}),
+    };
   switch (providerIdentifier) {
     case "x":
       return {
         ...common,
         // Postiz allows 4,000 characters for X Premium (verified) accounts.
-        characterLimit: hasXLongPosts(data(row), channel.id) ? 4_000 : 280,
+        characterLimit: xLong ? 4_000 : 280,
         countingMethod: "conservative_x_weighted",
         liveCapabilityKnown: true,
         mediaRequired: false,

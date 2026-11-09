@@ -12,7 +12,8 @@ export { DELIVER, DISPATCH, RECONCILE } from "./queues.ts";
 
 export const dispatchJob: JobDef = {
   queueClass: DISPATCH,
-  handler: ({ scope, job }) => dispatchPost(scope, String(job.resourceId), Number(job.postVersion)),
+  handler: ({ scope, job }) =>
+    dispatchPost(scope, String(job.resourceId), Number(job.postVersion), typeof job.originSlotAt === "string" ? job.originSlotAt : undefined),
 };
 
 export const deliverJob: JobDef = {

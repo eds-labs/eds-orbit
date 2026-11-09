@@ -17,8 +17,12 @@ const ACTIVE_JOB = ["queued", "retry_scheduled", "blocked_dependency"];
 export const idempotencyKeyOf = (p: { postId: string; variantId: string; accountId: string; packageHash: string }) =>
   "social:" + createHash("sha256").update(`${p.postId}:${p.variantId}:${p.accountId}:${p.packageHash}`).digest("hex");
 
-/** Enqueues the dispatch of an approved (`scheduled` or `approved`) post. */
-export async function startDelivery(tx: DbTx, scope: Scope, postId: string): Promise<void> {
+/**
+ * Enqueues the dispatch of an approved (`scheduled` or `approved`) post.
+ * `originSlotAt`: the origin's planned time (Marketing's slot), carried to
+ * the publications for the lateness limit (lateness.ts).
+ */
+export async function startDelivery(tx: DbTx, scope: Scope, postId: string, options: { originSlotAt?: Date } = {}): Promise<void> {
   const post = await tx.socialPost.findFirstOrThrow({ where: { id: postId, projectId: scope.projectId } });
   await enqueue(
     tx,
@@ -27,7 +31,10 @@ export async function startDelivery(tx: DbTx, scope: Scope, postId: string): Pro
     post.id,
     `social-dispatch:${post.id}:v${post.version}`,
     post.scheduleMode === "at" && post.scheduledAt ? post.scheduledAt : new Date(),
-    { postVersion: String(post.version) },
+    {
+      postVersion: String(post.version),
+      ...(options.originSlotAt ? { originSlotAt: options.originSlotAt.toISOString() } : {}),
+    },
   );
 }
 
@@ -61,6 +68,7 @@ export async function dispatchPost(
   scope: Scope,
   postId: string,
   postVersion: number,
+  originSlotAt?: string,
 ): Promise<{ status: "succeeded" | "canceled"; errorCode: string | null }> {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const post = await lockPost(tx, scope, postId);
@@ -80,6 +88,7 @@ export async function dispatchPost(
           variantId: v.id,
           accountId: v.accountId,
           idempotencyKey,
+          ...(originSlotAt ? { providerState: { originSlotAt } } : {}),
         },
       });
       await enqueue(tx, scope, DELIVER, publication.id, `social-deliver:${publication.id}:1`);

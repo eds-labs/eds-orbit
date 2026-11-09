@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, entity, DomainError, create, update } from "../../../shared.ts";
+import { draftReplaced, expiredDraftIds } from "./draft-state.ts";
 const WAITING = ["draft", "needs_review", "reviewed", "blocked_dependency"];
 export const REVIEW_BACKLOG_FULL = "ASSIGNMENT_REVIEW_BACKLOG_FULL";
 /** Slots of admitted runs reserve review capacity too. Otherwise two workers
@@ -10,6 +11,7 @@ export async function reviewBacklog(
   scope: Scope,
   assignmentId: string,
   currentRunId?: string,
+  now = new Date(),
 ) {
   const assignment = data(await entity(tx, scope, "assignments", assignmentId));
   const limit = Number.isInteger(assignment.pendingReviewLimit)
@@ -57,13 +59,16 @@ export async function reviewBacklog(
       )
       .map((r) => data(r).contentId),
   );
-  const pending = contents.filter(
+  const waiting = contents.filter(
     (r) =>
       (!currentRunId || data(r).assignmentRunId !== currentRunId) &&
-      !data(r).supersededBy &&
+      !draftReplaced(data(r)) &&
       !handedOff.has(r.id) &&
       WAITING.includes(data(r).status),
-  ).length;
+  );
+  // A draft whose slot passed can never go out (D-2): it holds no capacity.
+  const expired = await expiredDraftIds(tx, scope, waiting, now);
+  const pending = waiting.filter((r) => !expired.has(r.id)).length;
   let held = 0;
   for (const r of runs) {
     const d = data(r);

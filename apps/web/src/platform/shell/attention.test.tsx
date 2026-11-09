@@ -224,6 +224,16 @@ describe("renderAttention", () => {
     ["platform", "platform_worker_down", {}],
     ["platform", "platform_cost_unknown", { micros: 2_200_000 }],
     ["platform", "platform_action_request", {}],
+    [
+      "marketing",
+      "marketing_policy_expiring",
+      { endAt: "2026-11-14T10:00:00.000Z" },
+    ],
+    [
+      "platform",
+      "platform_spend_authority_expiring",
+      { endAt: "2026-11-14T10:00:00.000Z" },
+    ],
   ])("%s renders %s in EN and DE", (moduleId, kind, params) => {
     expect(renderers[kind], kind).toBeTypeOf("function");
     const shown = item({ moduleId, kind, params, count: 2 });
@@ -236,6 +246,34 @@ describe("renderAttention", () => {
       expect(text.action.de).not.toBe("");
     }
     expect(de.title).not.toBe(en.title);
+  });
+});
+
+describe("expiry labels", () => {
+  it("shows the formatted date in German", () => {
+    const endAt = "2026-11-14T10:00:00.000Z";
+    const policy = renderAttention(
+      item({
+        moduleId: "marketing",
+        kind: "marketing_policy_expiring",
+        params: { endAt },
+      }),
+      renderers,
+      "de",
+      modules,
+    );
+    expect(policy.title).toBe("Marketing-Richtlinie läuft am 14.11.2026 ab");
+    const ai = renderAttention(
+      item({
+        moduleId: "platform",
+        kind: "platform_spend_authority_expiring",
+        params: { endAt },
+      }),
+      renderers,
+      "en",
+      modules,
+    );
+    expect(ai.title).toBe("AI spending authority expires on 14/11/2026");
   });
 });
 

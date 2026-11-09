@@ -67,7 +67,7 @@ No new approval system. The decisions extend the marketing content lifecycle tha
 3. Closed content stays closed:
    - `reviewContent` and `approve` refuse `rejected` and `archived` content (`CONTENT_CLOSED`);
    - preflight adds the blocker `CONTENT_CLOSED`, which also covers handoff, Postiz drafts and Social.
-4. No late catch-up: `releaseAssignmentDraft` refuses with `SLOT_PASSED` when the planned slot has passed. A taken slot that is still ahead still moves to the next free slot of the same day.
+4. No late catch-up: `releaseAssignmentDraft` refuses with `SLOT_EXPIRED` (named `SLOT_PASSED` until the daily social automation merged) when the planned slot has passed. A taken slot that is still ahead still moves to the next free slot of the same day.
 5. `GET assignment-drafts` returns:
    - `items`: pending drafts (`state: "pending"`) and drafts whose slot passed in the last 14 days (`state: "expired"`);
    - `history`: owner decisions of the last 30 days (`released`, `rejected`, `archived`), without hidden ones.

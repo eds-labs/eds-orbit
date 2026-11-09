@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
@@ -5,21 +6,32 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { socialChannelHandles } from "../../social/contract.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
-import { nextAssignmentRunAt } from "./assignment-runs.ts";
+import {
+  nextAssignmentRunAt,
+  runRetryRefusal,
+  runsMatching,
+} from "./assignment-runs.ts";
 import {
   agentsEnabled,
   confirmedDelivery,
   deliveryOf,
   approvalModeOf,
 } from "./assignments.ts";
+import { localDate } from "./scheduling.ts";
 import {
   assignmentMonthSpend,
   assignmentsMonthSpend,
 } from "./specialists/runner.ts";
 import type { ManagedAgentListing } from "../../../platform/agents/managed.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
-import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
+import {
+  assignmentPost,
+  draftDelivery,
+  slotExpired,
+  withdrawable,
+} from "./veto.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 
 /**
@@ -46,13 +58,15 @@ export const vetoInput = z
 const EXCERPT = 280;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Postiz channel names of the project by channel ID, as the owner knows them. */
+/** Channel names of the project by channel ID (Postiz channels and `social:` accounts), as the owner knows them. */
 export async function channelNames(tx: DbTx, scope: Scope) {
   const names = new Map<string, string>();
   for (const row of await list(tx, scope, "connectors"))
     if (data(row).provider === "postiz")
       for (const channel of assignedPostizChannels(data(row)))
         names.set(String(channel.id), String(channel.name ?? channel.id));
+  for (const [channel, handle] of await socialChannelHandles(tx, scope))
+    names.set(channel, handle);
   return names;
 }
 const namesOf = (channels: unknown, names: Map<string, string>) =>
@@ -63,7 +77,12 @@ const namesOf = (channels: unknown, names: Map<string, string>) =>
       .map((id) => [id, names.get(id)!]),
   );
 
-async function rowsById(tx: DbTx, scope: Scope, kind: string, ids: unknown[]) {
+export async function rowsById(
+  tx: DbTx,
+  scope: Scope,
+  kind: string,
+  ids: unknown[],
+) {
   const wanted = [
     ...new Set(ids.filter((id): id is string => typeof id === "string")),
   ].filter((id) => UUID.test(id));
@@ -107,9 +126,27 @@ export async function listAssignments(
     "action_requests",
     rows.map((row) => data(row).actionRequestId),
   );
+  // Only runs of the last days can still be retried; bounds the lookup.
+  const recentDate = localDate(
+    new Date(now.valueOf() - 86400000),
+    project.timezone,
+  );
   const items = [];
   for (const row of rows) {
     const d = data(row);
+    // The latest run (not retired) when the owner can still retry it (G6).
+    const latest = (
+      await runsMatching(tx, scope, {
+        assignmentId: row.id,
+        dateFrom: recentDate,
+      })
+    )
+      .filter((run) => !data(run).retiredAt)
+      .at(0);
+    const retryableRunId =
+      latest && !(await runRetryRefusal(tx, scope, latest, now))
+        ? latest.id
+        : null;
     const request = requests.get(String(d.actionRequestId));
     items.push({
       id: row.id,
@@ -136,6 +173,8 @@ export async function listAssignments(
       ...(d.pendingReviewLimit !== undefined
         ? { pendingReviewLimit: d.pendingReviewLimit }
         : {}),
+      ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
+      retryableRunId,
       latestRun: await latestAssignmentResult(tx, scope, row.id),
       backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:
@@ -379,8 +418,8 @@ export async function draftsAwaitingOwner(
   options: { includeExpired?: boolean } = {},
 ) {
   if (!agentsEnabled()) return [];
-  const now = Date.now();
-  const oldest = now - EXPIRED_DAYS * 86400000;
+  const now = new Date();
+  const oldest = now.valueOf() - EXPIRED_DAYS * 86400000;
   const rows = (
     await tx.entity.findMany({
       where: {
@@ -397,7 +436,7 @@ export async function draftsAwaitingOwner(
     return (
       typeof d.assignmentRunId === "string" &&
       d.type === "social" &&
-      !d.supersededBy
+      !draftReplaced(d)
     );
   });
   const missions = await rowsById(
@@ -438,7 +477,7 @@ export async function draftsAwaitingOwner(
       !Number.isFinite(Date.parse(slotAt))
     )
       continue;
-    const expired = Date.parse(slotAt) < now;
+    const expired = slotExpired(new Date(slotAt), now);
     if (expired && (!options.includeExpired || Date.parse(slotAt) < oldest))
       continue;
     const text = String(d.body ?? "")

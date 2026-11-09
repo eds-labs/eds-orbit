@@ -9,6 +9,7 @@ import type { SocialPlatform } from "../accounts/store.ts";
 import { markWriteVerified } from "../accounts/verify-write.ts";
 import { lockPublication, postOfPublication } from "./claim.ts";
 import { sendMode } from "./gates.ts";
+import { LATE_WINDOW_MS, notAfterOriginSlot } from "./lateness.ts";
 import { publicationView, type PublicationView } from "./publication-view.ts";
 import { DELIVER, DISPATCH, RECONCILE } from "./queues.ts";
 import { refreshPostStatus } from "./status.ts";
@@ -19,7 +20,6 @@ import { refreshPostStatus } from "./status.ts";
 // deliveries due within the last 30 minutes go out (no surprise late posts).
 // The owner settles an unclear send; nothing is ever resent.
 
-const LATE_WINDOW_MS = 30 * 60_000;
 const ACTIVE_JOB = ["queued", "retry_scheduled", "blocked_dependency"];
 
 async function cancelJobs(tx: DbTx, scope: Scope, publicationId: string) {
@@ -91,7 +91,7 @@ export async function resumeBlocked(tx: DbTx, scope: Scope, now: Date, generatio
   let resumed = 0;
   for (const pub of blocked) {
     const post = await postOfPublication(tx, scope, pub.variantId);
-    const planned = post.scheduleMode === "at" && post.scheduledAt ? post.scheduledAt : pub.createdAt;
+    const planned = post.scheduleMode === "at" && post.scheduledAt ? post.scheduledAt : notAfterOriginSlot(pub.createdAt, pub);
     if (planned.getTime() < now.getTime() - LATE_WINDOW_MS) continue;
     await tx.socialPublication.update({
       where: { id: pub.id },
@@ -118,10 +118,15 @@ export async function resumeBlocked(tx: DbTx, scope: Scope, now: Date, generatio
     const d = data(job);
     const post = await tx.socialPost.findFirst({ where: { id: String(d.resourceId), projectId: scope.projectId } });
     if (!post || !["scheduled", "approved"].includes(post.status) || String(post.version) !== String(d.postVersion)) continue;
-    const planned = post.scheduleMode === "at" && post.scheduledAt ? post.scheduledAt : (post.approvedAt ?? job.createdAt);
+    const originSlotAt = typeof d.originSlotAt === "string" ? d.originSlotAt : undefined;
+    const planned =
+      post.scheduleMode === "at" && post.scheduledAt
+        ? post.scheduledAt
+        : notAfterOriginSlot(post.approvedAt ?? job.createdAt, { providerState: { originSlotAt } });
     if (planned.getTime() < now.getTime() - LATE_WINDOW_MS) continue;
     await enqueue(tx, scope, DISPATCH, post.id, `social-dispatch:${post.id}:v${post.version}:g${generation}`, now, {
       postVersion: String(post.version),
+      ...(originSlotAt ? { originSlotAt } : {}),
     });
     resumed++;
   }

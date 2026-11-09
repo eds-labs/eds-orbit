@@ -87,6 +87,36 @@ describe("AssignmentTable", () => {
     expect(viewer).not.toContain("Beenden");
   });
 
+  it("shows the retry button only to the owner and only for a retryable run, and posts to the route", () => {
+    const retry = vi.fn();
+    const html = (items: AssignmentItem[], role: "owner" | "editor") =>
+      renderToStaticMarkup(
+        <AssignmentTable
+          items={items}
+          de
+          timezone="Europe/Berlin"
+          role={role}
+          pending={false}
+          onStatus={() => {}}
+          onRetry={retry}
+        />,
+      );
+    expect(html([item({ retryableRunId: "run-1" })], "owner")).toContain(
+      "Lauf wiederholen",
+    );
+    // The button says (and asks) that the run's waiting drafts are replaced.
+    expect(html([item({ retryableRunId: "run-1" })], "owner")).toContain(
+      "Wartende Entwürfe dieses Laufs werden ersetzt",
+    );
+    expect(html([item({ retryableRunId: null })], "owner")).not.toContain(
+      "Lauf wiederholen",
+    );
+    expect(html([item()], "owner")).not.toContain("Lauf wiederholen");
+    expect(html([item({ retryableRunId: "run-1" })], "editor")).not.toContain(
+      "Lauf wiederholen",
+    );
+  });
+
   it("points a draft to its open confirmation instead of an editor", () => {
     const html = render([
       item({ status: "draft", nextRunAt: null, actionRequestId: "request" }),
@@ -329,6 +359,26 @@ describe("AwaitingOwnerDraftList", () => {
     expect(html("asset-9", false)).not.toContain("<img");
   });
 
+  it("shows an expired draft as expired without a release button", () => {
+    const html = render([draft({ state: "expired" })]);
+    expect(html).toContain("Abgelaufen");
+    expect(html).not.toContain(">Freigeben<");
+    expect(html).not.toContain("Nur ein Owner kann freigeben");
+    expect(
+      renderToStaticMarkup(
+        <AwaitingOwnerDraftList
+          items={[draft({ state: "expired" })]}
+          projectId="p1"
+          de={false}
+          timezone="Europe/Berlin"
+          canRelease
+          pending={false}
+          onRelease={() => {}}
+        />,
+      ),
+    ).toContain("Expired");
+  });
+
   it("lists drafts left for the owner with their slot and a release button for the owner", () => {
     const html = render([draft()]);
     expect(html).toContain("Wartet auf deine Freigabe");
@@ -431,7 +481,7 @@ describe("AwaitingOwnerDraftList", () => {
     expect(decisionErrorText("OWNER_REQUIRED", true)).toContain(
       "Nur ein Owner",
     );
-    expect(decisionErrorText("SLOT_PASSED", false)).toContain("not caught up");
+    expect(decisionErrorText("SLOT_EXPIRED", false)).toContain("not caught up");
     expect(decisionErrorText("SOMETHING_ELSE", true)).toBe("SOMETHING_ELSE");
   });
 
