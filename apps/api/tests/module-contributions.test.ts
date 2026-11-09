@@ -105,6 +105,7 @@ describe("module contributions", () => {
         "issues_github",
         "issues_intake",
         "knowledge_analysis",
+        "knowledge_site_sync",
         "postiz_draft",
         "publishing",
         "reconciliation",
@@ -164,6 +165,7 @@ describe("module contributions", () => {
       "knowledge_profiles",
       "knowledge_proposals",
       "knowledge_runs",
+      "knowledge_site_runs",
       // Proactive layer (ADR 0023): user-private preferences and scheduler marks.
       "notification_preferences",
       "orbit_tasks",

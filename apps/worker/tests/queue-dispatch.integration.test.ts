@@ -22,6 +22,7 @@ const QUEUES = [
   "ingestion",
   "embedding",
   "reindex",
+  "knowledge_site_sync",
   "index_evaluation",
   "index_evaluation_set",
   "analytics",
@@ -144,6 +145,11 @@ describe.skipIf(!enabled)(
           status: "blocked_dependency",
           error: "INDEX_UNAVAILABLE",
           attempts: 3,
+        },
+        knowledge_site_sync: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
         },
         index_evaluation: {
           status: "blocked_dependency",

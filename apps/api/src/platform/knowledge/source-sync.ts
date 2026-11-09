@@ -3,11 +3,13 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { SchedulerContribution } from "../jobs/types.ts";
 import { create, data, list } from "../shared.ts";
 import { enqueue } from "../jobs/enqueue.ts";
+import { siteRunDueAt, startSiteRun } from "./site-run.ts";
 
 /**
  * Periodic source synchronisation (knowledge services, AD-08): sources with
  * `syncEveryHours` get a new sync request and an ingestion job once their
- * interval passed. Moved unchanged from lifecycle.sweepProject (WP1.6).
+ * interval passed. Moved unchanged from lifecycle.sweepProject (WP1.6). A
+ * site source instead gets a new site run, which discovers its own pages.
  */
 async function sweep(tx: DbTx, scope: Scope, at: Date) {
   let queued = 0;
@@ -15,6 +17,14 @@ async function sweep(tx: DbTx, scope: Scope, at: Date) {
   for (const source of await list(tx, scope, "sources")) {
     const d = data(source);
     if (d.status !== "active" || !d.syncEveryHours) continue;
+    if (d.site) {
+      const due = await siteRunDueAt(tx, scope, d);
+      if (due !== null && due <= at.valueOf()) {
+        await startSiteRun(tx, scope, source.id, "schedule", []);
+        queued++;
+      }
+      continue;
+    }
     const latest = requests.find((r) => data(r).sourceId === source.id);
     if (!latest) continue;
     const last = d.lastSuccessfulSyncAt
@@ -46,6 +56,11 @@ async function nextDueAt(tx: DbTx, scope: Scope, at: Date) {
   for (const source of await list(tx, scope, "sources")) {
     const d = data(source);
     if (d.status !== "active" || !d.syncEveryHours) continue;
+    if (d.site) {
+      const due = await siteRunDueAt(tx, scope, d);
+      if (due !== null) consider(due);
+      continue;
+    }
     if (!requests.some((r) => data(r).sourceId === source.id)) continue;
     const interval = d.syncEveryHours * 3600000;
     const last = d.lastSuccessfulSyncAt

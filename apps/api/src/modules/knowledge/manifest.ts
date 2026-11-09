@@ -28,6 +28,11 @@ export const knowledgeModule: ServerModule = {
       exported: false as const,
     })),
     {
+      kind: "knowledge_site_runs",
+      description: "Progress and outcome of reading a site source",
+      exported: false,
+    },
+    {
       kind: "sources",
       description: "Knowledge sources with rights and sync settings",
     },
