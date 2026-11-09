@@ -25,7 +25,6 @@ import { assertMailboxUnowned } from "../../platform/email/ownership.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
 import { customerContextConnections } from "../../platform/customer-context/connection.ts";
 import type { MailboxUse } from "../../platform/modules/contributions.ts";
-import { inboundIdOf } from "./common.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
 // Support inboxes (06 §2.1): one entry point each, an e-mail address and/or
@@ -274,66 +273,44 @@ export const supportMailboxUse: MailboxUse = {
   },
 };
 
-/** Whether a not yet closed taken-over ticket holds mail of this mailbox. */
+/**
+ * Whether a not yet closed taken-over ticket holds mail of this mailbox. A
+ * false answer means mail is not stored, so nothing here may be cut off by a
+ * limit: the query stops at the first hit instead, by a Message-ID or by the
+ * mailbox row a stand-in id names (common.ts).
+ */
 async function openTakeoverFrom(
   tx: DbTx,
   scope: Scope,
   connectionId: string,
 ) {
-  const tickets = await tx.supportTicket.findMany({
-    where: {
-      projectId: scope.projectId,
-      importSource: { not: null },
-      mergedIntoTicketId: null,
-      status: { not: "closed" },
-    },
-    select: { id: true },
-    orderBy: { updatedAt: "desc" },
-    take: 200,
-  });
-  if (!tickets.length) return false;
-  const messages = await tx.supportMessage.findMany({
-    where: {
-      projectId: scope.projectId,
-      ticketId: { in: tickets.map((t) => t.id) },
-      kind: "customer",
-      channel: "email",
-      externalId: { not: null },
-    },
-    select: { externalId: true },
-    take: 500,
-  });
-  if (!messages.length) return false;
-  const standIns = messages.flatMap((m) => inboundIdOf(m.externalId!) ?? []);
-  const found = await tx.entity.findFirst({
-    where: {
-      projectId: scope.projectId,
-      kind: INBOUND_KIND,
-      AND: [
-        {
-          OR: [
-            { data: { path: ["connectionId"], equals: connectionId } },
-            {
-              data: {
-                path: ["importedFromConnectionId"],
-                equals: connectionId,
-              },
-            },
-          ],
-        },
-        {
-          OR: [
-            ...messages.map((m) => ({
-              data: { path: ["messageId"], equals: m.externalId! },
-            })),
-            ...(standIns.length ? [{ id: { in: standIns } }] : []),
-          ],
-        },
-      ],
-    },
-    select: { id: true },
-  });
-  return found !== null;
+  const [row] = await tx.$queryRaw<Array<{ found: boolean }>>`
+    WITH recorded AS (
+      SELECT m."externalId" AS id
+        FROM "SupportMessage" m
+        JOIN "SupportTicket" t
+          ON t."projectId" = m."projectId" AND t.id = m."ticketId"
+       WHERE m."projectId" = ${scope.projectId}::uuid
+         AND m.kind = 'customer' AND m.channel = 'email'
+         AND m."externalId" IS NOT NULL
+         AND t."importSource" IS NOT NULL
+         AND t."mergedIntoTicketId" IS NULL
+         AND t.status <> 'closed'
+    ), mail AS (
+      SELECT e.id, e.data->>'messageId' AS "messageId"
+        FROM "Entity" e
+       WHERE e."projectId" = ${scope.projectId}::uuid
+         AND e.kind = ${INBOUND_KIND}
+         AND (e.data->>'connectionId' = ${connectionId}
+           OR e.data->>'importedFromConnectionId' = ${connectionId})
+    )
+    SELECT EXISTS (
+             SELECT 1 FROM mail JOIN recorded r ON r.id = mail."messageId")
+        OR EXISTS (
+             SELECT 1 FROM mail JOIN recorded r
+               ON r.id = '<inbound.' || mail.id::text || '@orbit.invalid>')
+        AS found`;
+  return row?.found === true;
 }
 
 const newSecret = () => randomBytes(32).toString("base64url");

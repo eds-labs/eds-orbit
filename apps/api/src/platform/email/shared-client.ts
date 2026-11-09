@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
-import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import {
+  scoped,
+  scopedRead,
+  type DbTx,
+} from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, create, data, DomainError, update } from "../shared.ts";
 import { decryptCredential } from "../connections/connections.ts";
-import { filesConfig, storeFile } from "../files/files.ts";
+import { deleteFile, filesConfig, storeFile } from "../files/files.ts";
 import { ensureBacklogSnapshot } from "./backlog-snapshot.ts";
 import {
   accountOf,
@@ -144,7 +148,7 @@ async function uidsWithRows(
   uids: number[],
 ) {
   if (!uids.length) return new Set<number>();
-  const rows = await scoped(
+  const rows = await scopedRead(
     scope.workspaceId,
     scope.projectId,
     (tx) => tx.$queryRaw<Array<{ uid: number }>>`
@@ -171,15 +175,21 @@ export async function ensureIngested(
 ): Promise<{ status: "ok" } | { status: "retry"; reason: string }> {
   const deadline = Date.now() + (options?.timeoutMs ?? INGEST_TIMEOUT_MS);
   const retry = (reason: string) => ({ status: "retry" as const, reason });
-  const setup = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const connection = await verifiedEmailConnection(tx, scope, connectionId);
-    return connection
-      ? {
-          connection,
-          receives: await mailboxHasConsumer(tx, scope, connection),
-        }
-      : null;
-  });
+  // Without the project lock: a client's delete must not wait behind writers
+  // when there is nothing to write.
+  const setup = await scopedRead(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => {
+      const connection = await verifiedEmailConnection(tx, scope, connectionId);
+      return connection
+        ? {
+            connection,
+            receives: await mailboxHasConsumer(tx, scope, connection),
+          }
+        : null;
+    },
+  );
   if (!setup || !sharedClientActive(data(setup.connection)))
     return retry("ingest_failed");
   // No module would ever read it: nothing can be lost by removing it.
@@ -230,7 +240,7 @@ async function ingestPending(
   lock: MailboxLock,
 ) {
   const d = data(connection);
-  const stateRow = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+  const stateRow = await scopedRead(scope.workspaceId, scope.projectId, (tx) =>
     stateOf(tx, scope, connection.id),
   );
   const cursor = stateRow ? data(stateRow) : {};
@@ -389,7 +399,8 @@ async function withOriginal(scope: Scope, rowId: string, source: Buffer) {
     }),
   );
   const fileId = data(row).fileId;
-  if (typeof fileId === "string") return { inboundId: rowId, fileId };
+  if (typeof fileId === "string")
+    return { inboundId: rowId, fileId, created: false };
   const file = await storeOriginal(scope, source);
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const current = await tx.entity.findFirstOrThrow({
@@ -398,7 +409,7 @@ async function withOriginal(scope: Scope, rowId: string, source: Buffer) {
     const { retainedUntil: _reduced, ...rest } = data(current);
     await update(tx, scope, current, { ...rest, fileId: file.id });
   });
-  return { inboundId: rowId, fileId: file.id };
+  return { inboundId: rowId, fileId: file.id, created: false };
 }
 
 const storeOriginal = (scope: Scope, source: Buffer) =>
@@ -416,13 +427,14 @@ const storeOriginal = (scope: Scope, source: Buffer) =>
  * The `inbound_emails` row holding this message's original, for a takeover:
  * an INBOX message goes through the normal ingest so no module misses it; one
  * of another folder gets a row retention can follow but polling cannot match.
+ * `created` says this call made the row (see `discardImportedRow`).
  */
 export async function inboundRowForImport(
   scope: Scope,
   connectionId: string,
   ref: MailboxMessageRef,
   source: Uint8Array,
-): Promise<{ inboundId: string; fileId: string }> {
+): Promise<{ inboundId: string; fileId: string; created: boolean }> {
   const raw = Buffer.from(source);
   const connection = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     verifiedEmailConnection(tx, scope, connectionId),
@@ -447,7 +459,10 @@ export async function inboundRowForImport(
       throw error;
     });
     if (!locked.acquired) throw new DomainError("EMAIL_MAILBOX_BUSY", 409);
-    return withOriginal(scope, locked.value.rowId, raw);
+    return {
+      ...(await withOriginal(scope, locked.value.rowId, raw)),
+      created: locked.value.stored,
+    };
   }
   const parsed = await parseMessage(raw);
   const fields = normalized(parsed);
@@ -491,5 +506,44 @@ export async function inboundRowForImport(
       receivedAt: new Date().toISOString(),
     }),
   );
-  return { inboundId: row.id, fileId: file.id };
+  return { inboundId: row.id, fileId: file.id, created: true };
+}
+
+/**
+ * Undoes a takeover's row from a folder other than the INBOX, with its stored
+ * original. An INBOX row is left alone whatever the takeover did: modules
+ * have it and polling relies on it. The file goes first, so a failure leaves
+ * a row to retry with, never an original nothing points at.
+ */
+export async function discardImportedRow(
+  scope: Scope,
+  inboundId: string,
+): Promise<void> {
+  const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.entity.findFirst({
+      where: {
+        id: inboundId,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: INBOUND_KIND,
+      },
+    }),
+  );
+  if (!row) return;
+  const d = data(row);
+  if (typeof d.importedFromConnectionId !== "string" || d.connectionId) return;
+  if (typeof d.fileId === "string") await deleteFile(scope, d.fileId);
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    await tx.entity.deleteMany({
+      where: {
+        id: inboundId,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: INBOUND_KIND,
+      },
+    });
+    await audit(tx, scope, "email.inbound.import_discarded", inboundId, {
+      inboundId,
+    });
+  });
 }

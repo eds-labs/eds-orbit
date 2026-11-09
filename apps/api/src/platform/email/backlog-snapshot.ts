@@ -1,4 +1,8 @@
-import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import {
+  scoped,
+  scopedRead,
+  type DbTx,
+} from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { create, data } from "../shared.ts";
 import { INBOUND_BACKLOG_KIND } from "./connection.ts";
@@ -44,7 +48,7 @@ export async function loadBacklogSnapshot(
   scope: Scope,
   connectionId: string,
 ): Promise<BacklogSnapshot | null> {
-  const [row] = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+  const [row] = await scopedRead(scope.workspaceId, scope.projectId, (tx) =>
     rowsOf(tx, scope, connectionId),
   );
   if (!row) return null;

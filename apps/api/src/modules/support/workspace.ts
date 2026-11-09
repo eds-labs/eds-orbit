@@ -500,12 +500,15 @@ const replyInput = z
 /**
  * An agent's reply to the customer. It waits as "pending" for the channel's
  * delivery job (WP5.3, WP5.4); the reply itself never sends anything.
+ * `byPerson` is for a member answering in the workspace, and only there: a
+ * standing rule on the MCP route has no person deciding on this mail.
  */
 export async function replyToTicket(
   tx: DbTx,
   scope: Scope,
   id: string,
   raw: unknown,
+  options: { byPerson?: boolean } = {},
 ) {
   const input = replyInput.parse(raw);
   const ticket = await loadTicket(tx, scope, id);
@@ -528,7 +531,7 @@ export async function replyToTicket(
     },
   });
   const attachments = await attachFiles(tx, scope, message.id, files);
-  await deliverMessage(tx, scope, ticket, message, { byPerson: true });
+  await deliverMessage(tx, scope, ticket, message, options);
   const status = ["new", "open", "resolved", "closed"].includes(ticket.status)
     ? "pending_customer"
     : ticket.status;
