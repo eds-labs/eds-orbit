@@ -450,7 +450,7 @@ export function discoverPublicPages(
         policy,
       );
       urls.add(u.toString());
-      if (urls.size >= Math.min(maxPages, 100)) break;
+      if (urls.size >= Math.min(maxPages, 1000)) break;
     } catch {
       /* Outside approved scope never enters the crawl plan. */
     }
