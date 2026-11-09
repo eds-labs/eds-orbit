@@ -6835,6 +6835,7 @@ a.support-row {
 }
 .knowledge-source {
   flex-wrap: wrap;
+  position: relative;
 }
 .knowledge-source-body {
   flex: 1 1 320px;
@@ -7110,6 +7111,17 @@ a.support-row {
   }
   .knowledge-workspace .form-actions {
     flex-wrap: wrap;
+  }
+  /* Anchor the menu to the row, not to a button that may sit anywhere in it. */
+  .knowledge-more {
+    position: static;
+  }
+  .knowledge-more-panel {
+    left: 18px;
+    right: 18px;
+    top: auto;
+    min-width: 0;
+    max-width: calc(100vw - 36px);
   }
 }
 

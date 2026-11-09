@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { KnowledgeWorkspaceGate } from "./workspace";
+import { moreEntries, shouldCloseMenu } from "./source-list";
+import { sourceRows } from "./source-rows";
 import { WorkspaceError, analysisRunning } from "./workspace-parts";
 import {
   AnalysisStart,
@@ -373,6 +375,15 @@ describe("source list", () => {
     ];
     expect(render("sources")).toContain("Die Analyse konnte nicht");
   });
+  it("calls a draft with a sync date but no completed analysis not finished", () => {
+    response.value.drafts = [
+      draft({ status: "draft", lastSuccessfulSyncAt: "2026-10-24T17:39:00Z" }),
+    ];
+    const html = render("sources");
+    expect(html).toContain("Nicht fertig");
+    expect(html).toContain("Weiter einrichten");
+    expect(html).not.toContain("Noch nicht gelesen");
+  });
   it("forgets an older failure after a newer success", () => {
     response.value.drafts = [draft()];
     response.value.runs = [
@@ -494,6 +505,60 @@ describe("source rows", () => {
     response.value.runs = done;
     response.value.proposals = [{ ...confirmed({ draftId: "d" }), id: "p1" }];
     expect(render("sources")).toContain("Entscheidungsverlauf");
+  });
+});
+
+describe("more menu entries", () => {
+  const t = knowledgeCopy.en;
+  const pausedSource = (siteRun?: Record<string, unknown>) => {
+    const sources = [
+      {
+        id: "g",
+        data: { name: "Docs", type: "gitbook", status: "paused", site: {} },
+      },
+    ] as any;
+    const rows = sourceRows(
+      {
+        enabled: true,
+        profile: {},
+        drafts: [],
+        runs: [],
+        proposals: [],
+        facts: [],
+        sources,
+        siteRuns: siteRun
+          ? ([{ id: "r", data: { sourceId: "g", ...siteRun } }] as any)
+          : [],
+      },
+      new Map(),
+      Date.now(),
+      t,
+      "en",
+    );
+    return rows[0]!;
+  };
+  const ctx = {
+    isOwner: true,
+    index: { sourceId: "g", documents: 2 } as any,
+    hasFacts: true,
+    hasHistory: false,
+  };
+  it("offers Resume under More for a paused source that is still reading", () => {
+    const row = pausedSource({ status: "running" });
+    expect(row.status).toBe("reading");
+    expect(row.primary).toBeNull();
+    expect(moreEntries(row, ctx)).toContain("resume");
+  });
+  it("does not repeat Resume when it is the primary action", () => {
+    const row = pausedSource();
+    expect(row.primary?.kind).toBe("resume");
+    expect(moreEntries(row, ctx)).not.toContain("resume");
+  });
+  it("closes the menu after a link or button, not after the weekly checkbox", () => {
+    expect(shouldCloseMenu("A")).toBe(true);
+    expect(shouldCloseMenu("BUTTON")).toBe(true);
+    expect(shouldCloseMenu("INPUT")).toBe(false);
+    expect(shouldCloseMenu("LABEL")).toBe(false);
   });
 });
 
@@ -1708,6 +1773,13 @@ describe("site runs and analysis outcomes", () => {
     });
     response.value.drafts = [draft({})];
     let html = render("sources");
+    expect(html).toContain("Weiter einrichten");
+    expect(html).not.toContain("Bearbeiten");
+    // Read once by sync date, but no analysis completed: still not finished.
+    response.value.drafts = [
+      draft({ lastSuccessfulSyncAt: "2026-11-01T10:00:00Z" }),
+    ];
+    html = render("sources");
     expect(html).toContain("Weiter einrichten");
     expect(html).not.toContain("Bearbeiten");
     response.value.drafts = [draft({})];

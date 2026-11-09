@@ -23,6 +23,7 @@ import type { KnowledgeCopy } from "./workspace-text";
 
 export type MoreEntry =
   | "edit"
+  | "resume"
   | "manage"
   | "update"
   | "read-in-content"
@@ -70,6 +71,8 @@ export function moreEntries(row: SourceRow, c: MoreContext): MoreEntry[] {
   const hasSite = Boolean(e.site);
   const paused = e.status === "paused";
   const empty = c.index?.documents === 0;
+  // A paused source whose site read is still running has no primary action.
+  if (c.isOwner && paused && primary !== "resume") entries.push("resume");
   if (c.isOwner && c.index && (!isSite || !empty) && primary !== "expert")
     entries.push("manage");
   if (c.isOwner && hasSite && !paused && !reading && primary !== "site-refresh")
@@ -354,6 +357,20 @@ function SourceRowView({
                       {t.edit}
                     </AppLink>
                   );
+                if (entry === "resume")
+                  return (
+                    <button
+                      key={entry}
+                      type="button"
+                      role="menuitem"
+                      className="knowledge-more-item"
+                      disabled={mutation.pending}
+                      onClick={() => setPaused(false)}
+                    >
+                      <Play aria-hidden="true" />
+                      {t.resume}
+                    </button>
+                  );
                 if (entry === "manage")
                   return (
                     <AppLink
@@ -511,6 +528,12 @@ function SourceRowView({
   );
 }
 
+/**
+ * Choosing a link or button closes the menu. The weekly checkbox keeps it open
+ * so its new state stays visible.
+ */
+export const shouldCloseMenu = (tag: string) => tag === "A" || tag === "BUTTON";
+
 /** A details menu that closes on a click outside or Escape (like the user menu). */
 function MoreMenu({
   label,
@@ -544,7 +567,15 @@ function MoreMenu({
         <MoreHorizontal aria-hidden="true" />
         {label}
       </summary>
-      <div className="knowledge-more-panel" role="menu">
+      <div
+        className="knowledge-more-panel"
+        role="menu"
+        onClick={(ev) => {
+          const item = (ev.target as Element).closest("a, button");
+          if (item && shouldCloseMenu(item.tagName) && ref.current)
+            ref.current.open = false;
+        }}
+      >
         {children}
       </div>
     </details>
