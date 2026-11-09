@@ -20,6 +20,7 @@ import {
 } from "../src/platform/email/mailbox-lock.ts";
 import { setMailboxOwner } from "../src/platform/email/ownership.ts";
 import {
+  discardImportedRow,
   ensureIngested,
   inboundRowForImport,
   readMailboxMessage,
@@ -801,7 +802,7 @@ describe.skipIf(!enabled)("mailboxes shared with a webmail client", () => {
       expect(await queuedJobs(project, "support_email_inbound")).toHaveLength(
         1,
       );
-      expect(await importing(uid, raw)).toEqual(first);
+      expect(await importing(uid, raw)).toEqual({ ...first, created: false });
       await pass();
       expect((await rows()).length).toBe(1);
     });
@@ -824,7 +825,10 @@ describe.skipIf(!enabled)("mailboxes shared with a webmail client", () => {
       for (const key of ["connectionId", "uid", "uidValidity"])
         expect(key in d).toBe(false);
       expect(await queuedJobs(project, "support_email_inbound")).toEqual([]);
-      expect(await importing(uid, raw, "Archive", "77")).toEqual(made);
+      expect(await importing(uid, raw, "Archive", "77")).toEqual({
+        ...made,
+        created: false,
+      });
       // Moved back into the INBOX, it is an ordinary message again.
       imap.deliver(raw);
       await pass();
@@ -868,5 +872,89 @@ describe.skipIf(!enabled)("mailboxes shared with a webmail client", () => {
         });
       });
     }, 15_000);
+
+    it("says whether this call made the row", async () => {
+      const inbox = rawMail();
+      const uid = imap.deliver(inbox);
+      expect((await importing(uid, inbox)).created).toBe(true);
+      expect((await importing(uid, inbox)).created).toBe(false);
+      const filed = rawMail();
+      const fileUid = imap.file("Archive", filed);
+      expect((await importing(fileUid, filed, "Archive", "77")).created).toBe(
+        true,
+      );
+      expect((await importing(fileUid, filed, "Archive", "77")).created).toBe(
+        false,
+      );
+    });
+
+    const fileLive = (id: string) =>
+      project.run((tx) => tx.file.count({ where: { id, deletedAt: null } }));
+
+    it("discards a folder message's row and its original", async () => {
+      const raw = rawMail();
+      const uid = imap.file("Archive", raw);
+      const made = await importing(uid, raw, "Archive", "77");
+      expect(await fileLive(made.fileId)).toBe(1);
+      await discardImportedRow(project.scope, made.inboundId);
+      expect(await rows()).toEqual([]);
+      expect(await fileLive(made.fileId)).toBe(0);
+    });
+
+    it("never discards an INBOX row", async () => {
+      const raw = rawMail();
+      const uid = imap.deliver(raw);
+      const made = await importing(uid, raw);
+      await discardImportedRow(project.scope, made.inboundId);
+      expect((await rows()).map((r) => r.id)).toEqual([made.inboundId]);
+      expect(await fileLive(made.fileId)).toBe(1);
+    });
+
+    it("ignores a row that does not exist", async () => {
+      await expect(
+        discardImportedRow(project.scope, crypto.randomUUID()),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("the barrier and the project lock", () => {
+    /** The barrier's answer while a writer holds the project lock. */
+    async function whileLocked(work: () => Promise<unknown>) {
+      let release = () => {};
+      const gate = new Promise<void>((done) => (release = done));
+      let locked = () => {};
+      const holding = new Promise<void>((done) => (locked = done));
+      const holder = project.run(async () => {
+        locked();
+        await gate;
+      });
+      await holding;
+      try {
+        return await Promise.race([
+          work(),
+          new Promise((done) => setTimeout(() => done("blocked"), 3000)),
+        ]);
+      } finally {
+        release();
+        await holder;
+      }
+    }
+
+    it("is not held up when the mailbox has no consumer", async () => {
+      project = await sharedProject(["support"], false);
+      await pass();
+      const uid = imap.deliver(rawMail());
+      expect(await whileLocked(() => barrier({ uids: [uid] }))).toEqual({
+        status: "ok",
+      });
+    });
+
+    it("is not held up when everything asked for is already stored", async () => {
+      const uid = imap.deliver(rawMail());
+      await barrier({ uids: [uid] });
+      expect(await whileLocked(() => barrier({ uids: [uid] }))).toEqual({
+        status: "ok",
+      });
+    });
   });
 });

@@ -1,8 +1,21 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
+import {
+  authDb,
+  closeDatabase,
+  type DbTx,
+} from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { data, entity, list, update } from "../src/shared.ts";
+import { makeAuth } from "../src/auth.ts";
+import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
+import { buildServer } from "../src/server.ts";
+import {
+  create as createEntity,
+  data,
+  entity,
+  list,
+  update,
+} from "../src/shared.ts";
 import { fetchInbound } from "../src/platform/email/inbound.ts";
 import { closeMailboxLocks } from "../src/platform/email/mailbox-lock.ts";
 import { setMailboxOwner } from "../src/platform/email/ownership.ts";
@@ -20,7 +33,11 @@ import { setObjectStoreForTests } from "../src/platform/files/files.ts";
 import { registeredEmailImports } from "../src/platform/modules/contributions.ts";
 import { writeModuleSettings } from "../src/platform/modules/settings.ts";
 import { myNotifications } from "../src/platform/notifications/members.ts";
-import { createInbox } from "../src/modules/support/inboxes.ts";
+import {
+  createInbox,
+  supportMailboxUse,
+} from "../src/modules/support/inboxes.ts";
+import { supportMcpActions } from "../src/modules/support/mcp-tools.ts";
 import {
   supportSettingsDefaults,
   supportSettingsSchema,
@@ -580,19 +597,108 @@ describe.skipIf(!enabled)("taking a mailbox message over as a ticket", () => {
       expect(customerMail()[0]!.subject).toContain(`[#${done.number}]`);
     });
 
-    it("may answer mail marked automatic", async () => {
+    const automaticTicket = async () => {
       const id = "<newsletter@example.org>";
       const done = await convert(
         rawMail({ "Message-ID": id, "Auto-Submitted": "auto-generated" }),
         create(),
       );
-      await run((tx) =>
-        replyToTicket(tx, { ...scope(), userId: agentId }, done.recordId, {
-          bodyText: "A person answers.",
-        }),
-      );
+      return { id, ticketId: done.recordId };
+    };
+
+    it("lets a person answer mail marked automatic, over the HTTP route", async () => {
+      const { id, ticketId } = await automaticTicket();
+      const origin = process.env.APP_ORIGIN!;
+      const account = {
+        email: `${randomUUID()}@example.invalid`,
+        password: randomBytes(24).toString("base64url"),
+      };
+      const created = await makeAuth().api.signUpEmail({
+        body: { ...account, name: "Synthetic support owner" },
+      });
+      users.push(created.user.id);
+      await authDb.workspaceMember.create({
+        data: {
+          workspaceId: project.workspaceId,
+          userId: created.user.id,
+          role: "owner",
+        },
+      });
+      const app = await buildServer();
+      try {
+        const signedIn = await app.inject({
+          method: "POST",
+          url: "/api/auth/sign-in/email",
+          headers: { origin, [CLIENT_IP_HEADER]: "198.18.7.21" },
+          payload: account,
+        });
+        expect(signedIn.statusCode).toBe(200);
+        const set = signedIn.headers["set-cookie"];
+        const cookie = (Array.isArray(set) ? set : [set])
+          .map((v) => v!.split(";")[0])
+          .join("; ");
+        const reply = await app.inject({
+          method: "POST",
+          url: `/api/projects/${scope().projectId}/support/tickets/${ticketId}/replies`,
+          headers: { origin, cookie, [CLIENT_IP_HEADER]: "198.18.7.22" },
+          payload: { bodyText: "A person answers." },
+        });
+        expect(reply.statusCode).toBeLessThan(300);
+      } finally {
+        await app.close();
+      }
       await flush();
       expect(customerMail()[0]!.inReplyTo).toBe(id);
+    });
+
+    it("keeps the automatic-mail guard for a reply no person made here", async () => {
+      const { ticketId } = await automaticTicket();
+      await expect(
+        run((tx) =>
+          replyToTicket(tx, { ...scope(), userId: agentId }, ticketId, {
+            bodyText: "Nobody decided this.",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        code: "EMAIL_REPLY_TO_AUTOMATIC",
+        status: 409,
+      });
+    });
+
+    it("keeps the automatic-mail guard on the MCP route", async () => {
+      const { ticketId } = await automaticTicket();
+      const ticket = (await tickets()).find((t) => t.id === ticketId)!;
+      const action = supportMcpActions[
+        "support.mcp.support_send_reply"
+      ] as unknown as {
+        onApproved(tx: DbTx, scope: Scope, row: unknown): Promise<unknown>;
+      };
+      await expect(
+        run(async (tx) => {
+          const row = await createEntity(tx, scope(), "action_requests", {
+            actionType: "support.mcp.support_send_reply",
+            status: "approved",
+            requestedBy: { kind: "mcp", userId: agentId },
+            payload: {
+              actorId: agentId,
+              args: { ticketId, bodyText: "Standing rule, no person." },
+              idempotencyKey: randomUUID(),
+              ceilingMicros: 0,
+              approvalContext: {
+                projectId: scope().projectId,
+                ticketId,
+                ticketNumber: ticket.number,
+                contactId: ticket.contactId,
+                recipient: "anna@example.org",
+                channel: "email",
+                inboxId,
+                emailConnectionId: supportConnection,
+              },
+            },
+          });
+          return action.onApproved(tx, scope(), row);
+        }),
+      ).rejects.toMatchObject({ code: "EMAIL_REPLY_TO_AUTOMATIC" });
     });
 
     it("does not fall back to the default mailbox", async () => {
@@ -879,6 +985,61 @@ describe.skipIf(!enabled)("taking a mailbox message over as a ticket", () => {
       info.deliver(rawMail({ Subject: "Another" }));
       await fetchInbound(scope());
       expect((await inboundRows(project)).length).toBe(count + 1);
+    });
+
+    it("still hears a takeover behind hundreds of newer ones", async () => {
+      const oldest = await convert(rawMail(), create(), "Archive");
+      const { contactId } = (await tickets()).find(
+        (t) => t.id === oldest.recordId,
+      )!;
+      const base = {
+        workspaceId: scope().workspaceId,
+        projectId: scope().projectId,
+      };
+      const newer = Array.from({ length: 210 }, (_, i) => ({
+        ...base,
+        id: randomUUID(),
+        number: 1000 + i,
+        inboxId,
+        contactId,
+        subject: `Newer ${i}`,
+        channel: "email",
+        importSource: "mailbox_import",
+      }));
+      await run(async (tx) => {
+        await tx.supportTicket.update({
+          where: { id: oldest.recordId },
+          data: { updatedAt: new Date(Date.now() - 86_400_000) },
+        });
+        await tx.supportTicket.createMany({ data: newer });
+        await tx.supportMessage.createMany({
+          data: newer.flatMap((t) =>
+            [0, 1, 2].map((n) => ({
+              ...base,
+              id: randomUUID(),
+              ticketId: t.id,
+              kind: "customer",
+              bodyText: "Filler",
+              channel: "email",
+              externalId: `<newer-${t.number}-${n}@example.org>`,
+              visibleToCustomer: true,
+            })),
+          ),
+        });
+      });
+      expect(
+        await run((tx) =>
+          supportMailboxUse.receivesMail!(tx, scope(), project.connectionId),
+        ),
+      ).toBe(true);
+    });
+
+    it("does not hear a mailbox no takeover came from", async () => {
+      await convert(rawMail(), create(), "Archive");
+      const other = await addMailbox(project, "other@desk.example");
+      expect(
+        await run((tx) => supportMailboxUse.receivesMail!(tx, scope(), other)),
+      ).toBe(false);
     });
 
     it("stops listening at that address when the ticket is closed", async () => {
