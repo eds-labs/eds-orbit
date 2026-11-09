@@ -58,6 +58,8 @@ export const sessionAuthorizeRequest = z
 export const sessionAuthorizeOk = z.object({
   ok: z.literal(true),
   capabilities: z.array(webmailCapability),
+  /** For the link back into Orbit when the client is not embedded. */
+  projectId: z.uuid(),
   /** The mailbox address: the identity and the From check. */
   email: z.string(),
   displayName: z.string(),

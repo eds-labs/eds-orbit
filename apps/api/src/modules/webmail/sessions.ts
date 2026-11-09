@@ -356,6 +356,7 @@ export async function authorizeSession(
   return {
     ok: true as const,
     capabilities: access.capabilities,
+    projectId: access.scope.projectId,
     email,
     displayName:
       access.mailboxDisplayName ?? String(access.connection.fromName ?? email),
