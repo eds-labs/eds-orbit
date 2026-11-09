@@ -225,7 +225,7 @@ export const knowledgeCopy = {
       "Das gilt für die Aussagen, die du bestätigst. Marketing, Support und öffentliche Aussagen kannst du beim Prüfen noch ändern.",
     modelRead: "KI-Funktionen dürfen es lesen",
     weeklyUpdates:
-      "Jede Woche automatisch aktualisieren: geänderte Seiten ersetzen, neue aufnehmen, gelöschte entfernen",
+      "Jede Woche automatisch aktualisieren: geänderte Seiten ersetzen, neue aufnehmen, gelöschte entfernen. Ohne wöchentliche Updates fallen die Seiten nach 14 Tagen aus der Suche.",
     noAudience: "Wähle mindestens Marketing oder Support aus.",
     takeOver: "Übernehmen",
     readPages: "{pages} einlesen",
@@ -243,7 +243,8 @@ export const knowledgeCopy = {
       "Für diese Quelle läuft bereits ein Lesevorgang. An der Quelle wurde nichts geändert.",
     readNow: "Jetzt lesen",
     readNowRunning: "Wird gelesen …",
-    weeklySwitch: "Jede Woche automatisch aktualisieren",
+    weeklySwitch:
+      "Jede Woche automatisch aktualisieren. Ohne wöchentliche Updates fallen die Seiten nach 14 Tagen aus der Suche.",
     weeklyIsOn: "Wird jede Woche automatisch aktualisiert.",
     weeklyIsOff: "Wird nicht automatisch aktualisiert.",
     siteSearching: "Orbit sucht die Seiten …",
@@ -258,7 +259,7 @@ export const knowledgeCopy = {
       "{pages} konnten nicht gelesen werden. Ihre letzte Fassung bleibt erhalten, es wurde nichts entfernt. Lies die Website später erneut oder nimm die Seiten bei der Auswahl heraus.",
     siteFailedMore: "Weitere Seiten sind nicht aufgelistet.",
     siteRunInactive:
-      "Das Lesen wurde angehalten, weil die Quelle pausiert wurde. Es wurde nichts entfernt. Setze die Quelle fort und lies sie danach erneut.",
+      "Das Lesen wurde angehalten, weil die Quelle pausiert oder ihre Einstellungen geändert wurden. Was bis dahin gelesen oder entfernt wurde, bleibt so. Prüfe die Quelle und lies sie danach erneut.",
     siteRunFailed:
       "Das Lesen der Website ist fehlgeschlagen. Es wurde nichts entfernt. Versuche es später erneut.",
     pageFailNotFound: "Die Seite gibt es nicht mehr.",
@@ -491,7 +492,7 @@ export const knowledgeCopy = {
       "This applies to the statements you confirm. You can still change Marketing, Support and public statements when you review them.",
     modelRead: "AI features may read it",
     weeklyUpdates:
-      "Update automatically every week: replace changed pages, add new ones, remove deleted ones",
+      "Update automatically every week: replace changed pages, add new ones, remove deleted ones. Without weekly updates the pages leave search after 14 days.",
     noAudience: "Select Marketing or Support at least.",
     takeOver: "Take over",
     readPages: "Read {pages}",
@@ -509,7 +510,8 @@ export const knowledgeCopy = {
       "A read is already running for this source. Nothing was changed on the source.",
     readNow: "Read now",
     readNowRunning: "Reading …",
-    weeklySwitch: "Update automatically every week",
+    weeklySwitch:
+      "Update automatically every week. Without weekly updates the pages leave search after 14 days.",
     weeklyIsOn: "Updated automatically every week.",
     weeklyIsOff: "Not updated automatically.",
     siteSearching: "Orbit is finding the pages …",
@@ -523,7 +525,7 @@ export const knowledgeCopy = {
       "{pages} could not be read. Their last version stays in place and nothing was removed. Read the website again later, or take those pages out of the selection.",
     siteFailedMore: "Further pages are not listed.",
     siteRunInactive:
-      "Reading was stopped because the source was paused. Nothing was removed. Resume the source, then read it again.",
+      "Reading was stopped because the source was paused or its settings changed. What was read or removed up to that point stays as it is. Check the source, then read it again.",
     siteRunFailed:
       "Reading the website failed. Nothing was removed. Try again later.",
     pageFailNotFound: "The page no longer exists.",

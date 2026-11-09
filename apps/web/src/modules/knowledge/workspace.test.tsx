@@ -6,6 +6,7 @@ import { WorkspaceError, analysisRunning } from "./workspace-parts";
 import {
   AnalysisStart,
   ResultStep,
+  excludedForStart,
   outcomeRun,
   SitePagePicker,
   WayPicker,
@@ -452,6 +453,7 @@ describe("Knowledge error messages", () => {
     ["KNOWLEDGE_RESTORE_UNAVAILABLE", "nicht mehr wiederherstellen"],
     ["KNOWLEDGE_EDIT_UNAVAILABLE", "nicht bearbeiten"],
     ["KNOWLEDGE_NO_PAGES", "keine Seite"],
+    ["KNOWLEDGE_SITE_EXISTS", "Inhalte einlesen"],
     ["KNOWLEDGE_SITE_ROOT_CHANGED", "Adresse"],
     ["KNOWLEDGE_NO_AUDIENCE", "Marketing oder Support"],
     ["KNOWLEDGE_TEXT_TOO_LONG", "1.000 Zeichen"],
@@ -1290,6 +1292,22 @@ describe("add flow", () => {
       ).toBe(false);
     });
   });
+  it("keeps stored exclusions the current discovery no longer lists", () => {
+    const pages = [
+      { url: "https://x.test/a", language: "de" },
+      { url: "https://x.test/b", language: "de" },
+    ];
+    expect(
+      excludedForStart(
+        new Set([
+          "https://x.test/old",
+          "https://x.test/b",
+        ]),
+        pages,
+      ),
+    ).toEqual(["https://x.test/b", "https://x.test/old"]);
+    expect(excludedForStart(new Set(), pages)).toEqual([]);
+  });
   it("links GitHub setup instead of showing credential fields", () => {
     response.value.items = [];
     nav.search = "github=connected";
@@ -1461,9 +1479,36 @@ describe("site runs and analysis outcomes", () => {
     expect(en).toContain("removed nothing");
     expect(en).toContain("The page took too long to respond.");
   });
-  it("says a paused source stopped the run", () => {
+  it("says a paused or changed source stopped the run, without claiming nothing was removed", () => {
     setup({ status: "failed", errorCode: "SOURCE_INACTIVE" });
-    expect(render("sources")).toContain("pausiert wurde");
+    const html = render("sources");
+    expect(html).toContain("pausiert oder ihre Einstellungen geändert");
+    expect(html).not.toContain("nichts entfernt");
+    const en = render("sources", true, "en");
+    expect(en).toContain("paused or its settings changed");
+    expect(en).not.toContain("Nothing was removed");
+  });
+  it("says the pages leave search after 14 days without weekly updates", () => {
+    setup();
+    expect(render("sources")).toContain("nach 14 Tagen aus der Suche");
+    expect(render("sources", true, "en")).toContain(
+      "leave search after 14 days",
+    );
+    expect(knowledgeCopy.de.weeklyUpdates).toContain(
+      "nach 14 Tagen aus der Suche",
+    );
+    expect(knowledgeCopy.en.weeklyUpdates).toContain(
+      "leave search after 14 days",
+    );
+  });
+  it("offers a gitbook source before its first read only reading in content", () => {
+    const { site: _none, ...rest } = site().data;
+    setup({}, { id: "g", data: rest } as any);
+    response.value.siteRuns = [];
+    const html = render("sources");
+    expect(html).toContain("/knowledge/import?site=g");
+    expect(html).not.toContain("Jetzt lesen");
+    expect(html).not.toContain("Jede Woche automatisch aktualisieren");
   });
   it("shows progress and outcome of the run on the result step", () => {
     const result = (run: Record<string, unknown>, pages = 7) =>

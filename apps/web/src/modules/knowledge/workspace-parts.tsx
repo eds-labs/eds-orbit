@@ -148,6 +148,9 @@ export function knowledgeErrorText(
     KNOWLEDGE_SITE_ROOT_CHANGED: de
       ? "Diese Quelle ist an eine andere Adresse gebunden. Lege für die neue Adresse eine eigene Quelle an."
       : "This source belongs to a different address. Add a separate source for the new address.",
+    KNOWLEDGE_SITE_EXISTS: de
+      ? "Für diese Adresse gibt es schon eine Quelle. Öffne sie unter Quellen und wähle dort „Inhalte einlesen“."
+      : "A source for this address already exists. Open it on Sources and choose “Read in content” there.",
     KNOWLEDGE_SITE_URL_INVALID: de
       ? "Diese Adresse lässt sich nicht lesen. Gib eine öffentliche Adresse an, die mit https:// beginnt."
       : "This address cannot be read. Enter a public address starting with https://.",

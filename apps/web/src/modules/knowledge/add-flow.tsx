@@ -130,6 +130,21 @@ export function normalWay(
   return open.includes(way) ? way : open[0]!;
 }
 
+/**
+ * What a read of the site excludes: the ticked pages in list order, then
+ * stored exclusions this discovery no longer lists, which must not lapse.
+ */
+export function excludedForStart(
+  excluded: ReadonlySet<string>,
+  pages: Site["pages"],
+) {
+  const listed = pages.map((p) => p.url);
+  return [
+    ...listed.filter((url) => excluded.has(url)),
+    ...[...excluded].filter((url) => !listed.includes(url)),
+  ];
+}
+
 /** The rights and page choices an existing site source starts from. */
 export function siteDefaults(source: Pick<Entity, "data">) {
   const d = source.data as Record<string, any>;
@@ -876,9 +891,7 @@ function Flow({
         {
           ...(sourceId ? { sourceId } : { url: site.rootUrl }),
           name: draft.name,
-          excludedPages: site.pages
-            .map((p) => p.url)
-            .filter((url) => excluded.has(url)),
+          excludedPages: excludedForStart(excluded, site.pages),
           ...rights,
           language: init.sourceLanguage || project.language,
           ...(draftId ? { draftId } : {}),

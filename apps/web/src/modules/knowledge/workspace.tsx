@@ -555,6 +555,8 @@ function ManagedSource({
   const [alreadyRunning, setAlreadyRunning] = useState(false);
   const now = useMemo(() => Date.now(), [s]);
   const isSite = ["gitbook", "website"].includes(String(s.data.type));
+  // Read now and weekly updates need the page list of a first read.
+  const hasSite = Boolean(s.data.site);
   const reading = siteRun ? siteRunActive(siteRun.data.status) : false;
   const weekly = Number(s.data.syncEveryHours ?? 0) > 0;
   const paused = s.data.status === "paused";
@@ -632,7 +634,7 @@ function ManagedSource({
         {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
       </div>
       <div className="form-actions">
-        {isSite && isOwner && !paused && (
+        {hasSite && isOwner && !paused && (
           <Button
             variant="outline"
             disabled={mutation.pending || reading}
@@ -642,7 +644,7 @@ function ManagedSource({
             {reading ? t.readNowRunning : t.readNow}
           </Button>
         )}
-        {isSite && isOwner && (
+        {hasSite && isOwner && (
           <label className="knowledge-weekly">
             <input
               type="checkbox"
