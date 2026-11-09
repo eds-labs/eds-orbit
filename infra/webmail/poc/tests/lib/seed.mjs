@@ -103,6 +103,34 @@ export async function seedBob() {
     imap.close();
 }
 
+/** Adds one message whose second part is an attachment with the given content. */
+export async function appendAttachment(subject, filename, contentType, base64) {
+    const message = [
+        'From: sender@example.test',
+        'To: alice@mail.test',
+        `Subject: ${subject}`,
+        'Date: Mon, 09 Nov 2026 10:03:00 +0000',
+        `Message-ID: <${filename}@poc.test>`,
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="poc-boundary"',
+        '',
+        '--poc-boundary',
+        'Content-Type: text/plain; charset=UTF-8',
+        '',
+        'See attachment.',
+        '--poc-boundary',
+        `Content-Type: ${contentType}; name="${filename}"`,
+        `Content-Disposition: attachment; filename="${filename}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        base64,
+        '--poc-boundary--',
+        '',
+    ].join('\r\n');
+
+    await withAlice((imap) => imap.append('INBOX', message));
+}
+
 export async function withAlice(work) {
     const imap = await Imap.open(ALICE.login, ALICE.password);
     try {

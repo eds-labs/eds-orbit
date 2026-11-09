@@ -72,7 +72,14 @@ $config['dont_override'] = [
     // All members of a mailbox share one Roundcube user, so the stored language would
     // be that of whoever opened it first. Without it, the browser's language applies.
     'language',
+    'collected_recipients',
+    'collected_senders',
 ];
+
+// Addresses kept here would outlive Orbit's retention and erasure, in this database
+// and in its backups.
+$config['collected_recipients'] = false;
+$config['collected_senders'] = false;
 
 // Nothing that could reveal mailbox content or tolerate destructive automation.
 $config['imap_cache'] = null;

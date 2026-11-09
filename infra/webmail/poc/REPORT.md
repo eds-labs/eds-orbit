@@ -2,7 +2,9 @@
 
 Roundcube 1.7.6 (`1.7.6-apache-nonroot`, pinned by digest) with a mock bridge, a GreenMail test server and a TLS reverse proxy. Run with `infra/webmail/poc/run.sh`. Local Docker only; no real mailboxes. Final run on 2026-11-09: 168 of 168 Playwright tests (56 each in Chromium, Firefox and WebKit) and `tools/checks.sh` with no failures. The table below is that run.
 
-Re-run the same day against the production image, plugin and skin, read-only filesystem included: 267 of 267 (89 per browser) and `tools/checks.sh` with no failures. That run adds G10 (STARTTLS against Dovecot and Postfix), G11 (identity, hidden controls, `\Seen`, every refusal code, session loss) and G12 (skin, dark mode, phone width).
+Re-run the same day against the production image, plugin and skin, read-only filesystem included, after the security review: 290 of 291 (97 per browser, Firefox 96) and `tools/checks.sh` with no failures. That run adds G10 (STARTTLS against Dovecot and Postfix), G11 (identity, hidden controls, `\Seen`, every refusal code, session loss) and G12 (skin, dark mode, phone width).
+
+The one failure is intermittent and is not in a security gate: in Firefox, G9 sometimes times out on `frame.goto` back to the mail list. It failed 1 of 10 repeats on the final image and 2 of 20 on the image from before the review fixes, always at the same line and with no server error. The cause is not established.
 
 | Gate | Result | Evidence |
 |---|---|---|

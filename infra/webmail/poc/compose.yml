@@ -47,7 +47,7 @@ services:
     networks:
       - webmail
       - proxy
-      - egress
+      - webmail-egress
 
   # The same container with no route out of the internal webmail network (G4).
   roundcube-isolated:
@@ -85,9 +85,11 @@ services:
       POC_CAROL_PASSWORD: ${POC_CAROL_PASSWORD:?run run.sh}
     volumes:
       - ./mock-bridge:/app:ro
+    # Only so the mock resolves an address Roundcube can reach; the real bridge
+    # returns a public address and is not on webmail-egress.
     networks:
       webmail: {}
-      egress: {}
+      webmail-egress: {}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 2s
@@ -110,7 +112,7 @@ services:
       - ./.work/certs/mail.p12:/certs/mail.p12:ro
       - ./.work/results:/logs
     networks:
-      egress:
+      webmail-egress:
         aliases:
           - mail.test
     healthcheck:
@@ -143,7 +145,7 @@ services:
       - ./.work/certs:/certs:ro
       - ./.work/mail-starttls:/tmp/docker-mailserver
     networks:
-      egress:
+      webmail-egress:
         aliases:
           - mail-starttls.test
     healthcheck:
@@ -179,6 +181,13 @@ services:
     networks:
       - frontend
 
+  # Stands in for the services on the shared "egress" network: API, MCP, worker (G7).
+  egress-canary:
+    image: node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8
+    command: ["node", "-e", "require('http').createServer((q,s)=>s.end('canary')).listen(4311)"]
+    networks:
+      - egress
+
   # Compose semantics for the rollback switch (G7).
   replica-probe:
     image: node:24-alpine@sha256:a34ab6d7f6f4813f4d0c5469d74685604b962fbdbf5793a7bc7b4998ecb867c8
@@ -206,13 +215,14 @@ services:
     networks:
       - proxy
       - webmail
-      - egress
+      - webmail-egress
 
 networks:
   webmail:
     internal: true
   proxy: {}
   egress: {}
+  webmail-egress: {}
   frontend: {}
 
 volumes:

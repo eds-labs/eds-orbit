@@ -377,6 +377,7 @@ services:
       - orbit_webmail_pg:/var/lib/postgresql/data
     networks:
       - webmail
+      - webmail-backup
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U roundcube -d roundcubemail"]
       interval: 10s
@@ -451,7 +452,7 @@ services:
     networks:
       - database
       - egress
-      - webmail
+      - webmail-backup
     depends_on:
       postgres:
         condition: service_healthy
@@ -498,6 +499,9 @@ networks:
   webmail:
     internal: true
   webmail-egress: {}
+  # The backup service and the webmail database only, so backup is not next to Roundcube.
+  webmail-backup:
+    internal: true
 
 volumes:
   orbit_pg: {}

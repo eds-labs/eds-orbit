@@ -96,6 +96,7 @@
         if (isEmbedded()) {
             postToOrbit({
                 type: 'orbit.webmail.convert',
+                mailboxId: reference.mailboxId,
                 folder: reference.folder,
                 uid: reference.uid,
                 uidValidity: reference.uidValidity,

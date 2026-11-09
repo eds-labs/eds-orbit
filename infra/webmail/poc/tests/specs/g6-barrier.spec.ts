@@ -9,6 +9,10 @@ async function lastBarrier() {
     return calls[calls.length - 1];
 }
 
+function resetBridgeLog() {
+    return control('/log/reset');
+}
+
 test.describe('G6 barrier', () => {
     let frame: Frame;
 
@@ -58,6 +62,35 @@ test.describe('G6 barrier', () => {
             await imap.select('INBOX');
             expect(await imap.flags(uid)).not.toContain('Deleted');
         });
+    });
+
+    test('every spelling that sets the deleted flag reaches the barrier', async () => {
+        await control('/barrier', { status: 'retry' });
+        const uid = String(await uidOf('Keep one'));
+
+        for (const flag of ['DELETED', 'deleted', 'Deleted', 'DELETE', 'Delete', '\\Deleted', '\\DELETED']) {
+            await resetBridgeLog();
+            const result = await ajaxPost(frame, 'mail', 'mark', { _mbox: 'INBOX', _uid: uid, _flag: flag });
+            expect(result.text, flag).toContain(RETRY_TEXT);
+            expect((await lastBarrier()).operation, flag).toBe('mark_deleted');
+        }
+
+        await withAlice(async (imap) => {
+            await imap.select('INBOX');
+            expect(await imap.flags(uid)).not.toContain('Deleted');
+        });
+    });
+
+    test('flags that cannot remove a message do not call the barrier', async () => {
+        await control('/barrier', { status: 'retry' });
+        const uid = String(await uidOf('Keep one'));
+
+        for (const flag of ['read', 'unread', 'flagged', 'unflagged', 'undelete', 'UNDELETED']) {
+            const result = await ajaxPost(frame, 'mail', 'mark', { _mbox: 'INBOX', _uid: uid, _flag: flag });
+            expect(result.text, flag).not.toContain(RETRY_TEXT);
+        }
+
+        expect(await bridgeCalls('session/barrier')).toEqual([]);
     });
 
     test('multi-UID, compound, range and star selections reach the barrier', async () => {

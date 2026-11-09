@@ -8,11 +8,11 @@ All three start only when `ORBIT_WEBMAIL_REPLICAS` is 1. With the default 0 they
 
 | Service | Image | Networks | Purpose |
 |---|---|---|---|
-| `webmail` | `infra/webmail/Dockerfile` | `webmail`, `egress` | Roundcube 1.7 on Apache, port 8000. Renders untrusted HTML. Never on `frontend` or `database`. |
-| `webmail-db` | pinned `postgres:17` | `webmail` | Roundcube's own database: preferences, identities, sessions. No mail content and no mail passwords. |
+| `webmail` | `infra/webmail/Dockerfile` | `webmail`, `webmail-egress` | Roundcube 1.7 on Apache, port 8000. Renders untrusted HTML. Never on `frontend`, `database` or the shared `egress`, which would put it next to the API, the MCP gateway and the worker. |
+| `webmail-db` | pinned `postgres:17` | `webmail`, `webmail-backup` | Roundcube's own database: preferences, identities, sessions. No mail content, no mail passwords and no collected addresses. |
 | `webmail-bridge` | Orbit runtime image | `webmail`, `database`, `egress` | Internal API on port 4313, protected by `WEBMAIL_BRIDGE_SECRET`. Health-only while `ORBIT_WEBMAIL` is off. |
 
-The `backup` service also joins the `webmail` network, to reach `webmail-db` (see [Backup and restore](#backup-and-restore)).
+The `backup` service reaches `webmail-db` over the internal `webmail-backup` network, which only those two share, so it never sits next to Roundcube (see [Backup and restore](#backup-and-restore)).
 
 The image bakes in everything: Roundcube's code and dependencies, the `orbit_bridge` plugin, the compiled `orbit` skin and the configuration. The upstream entrypoint is replaced, because its restart path runs composer and needs egress. Neither a restart nor a recreate needs anything beyond the webmail database; at runtime Roundcube talks only to the bridge and to IMAP/SMTP. The root filesystem is read-only with a 256 MB tmpfs on `/tmp`, which holds Apache's runtime files, PHP uploads and attachments being composed. The code is owned by root, and composer is removed from the image.
 
@@ -21,6 +21,7 @@ Limits to know:
 - Attachments are limited to 5 MB by the upstream PHP defaults (`upload_max_filesize`, `post_max_size`). Raising them means a change to the image.
 - All members of a mailbox share one Roundcube user, so list settings such as columns and sort order are shared. The interface language follows each member's browser.
 - A session without `organize` never sets `\Seen` and a session without `send` ignores read-receipt requests, because either would change a shared mailbox or send mail. A session with `send` but not `organize` still sets `\Answered` and `$Forwarded` when it replies or forwards; that is part of sending.
+- Attachment bodies and message source are served with a CSP `sandbox` and no `allow-scripts`, so script in an attachment such as an SVG cannot run on the webmail origin. PDF is exempt, because the browsers' viewers could not be verified under a sandbox. Roundcube's own pages around attachments also keep their scripts.
 
 ## Configuration
 
@@ -84,7 +85,7 @@ The daily `orbit-backup once` run also archives the webmail database, as `orbit-
 - With `ORBIT_WEBMAIL_REPLICAS=0` the database is not contacted at all and the main dump behaves as before: no failure and no alert.
 - With webmail on, a failed webmail dump fails the run, so the scheduler alerts and the heartbeat is not sent. The main dump is taken first and is already uploaded by then.
 
-The database holds preferences, identities and the collected-recipients list, so it is low value: Roundcube recreates a user at the next login and a lost session only needs reopening from Orbit. The original `ROUNDCUBE_DES_KEY` is not needed for a restore, because sessions are disposable.
+The database holds preferences and identities, so it is low value: Roundcube recreates a user at the next login and a lost session only needs reopening from Orbit. Address collection is switched off (`collected_recipients`, `collected_senders`), so correspondents' addresses do not outlive Orbit's retention and erasure in this database or its backups. The original `ROUNDCUBE_DES_KEY` is not needed for a restore, because sessions are disposable.
 
 Restore (the steps follow the isolation rules in [BACKUP_RESTORE.md](../BACKUP_RESTORE.md)):
 
@@ -126,7 +127,7 @@ The test stack cannot prove these. Record each result before setting `ORBIT_WEBM
 
 **Traefik reaches the service.** The same request must be answered by Roundcube (the page says to open the mailbox from Orbit), not with a Traefik 404 or 502. Check `SERVICE_URL_WEBMAIL_8000` produced a route to port 8000.
 
-**Network isolation, the blocking check.** Coolify can attach services to its own network in addition to those in the Compose file. Roundcube must not be able to reach Orbit's internal services:
+**Network isolation, the blocking check.** Roundcube leaves through its own `webmail-egress` network rather than the shared `egress`. Coolify can still attach services to its own network in addition to those in the Compose file. Roundcube must not be able to reach Orbit's internal services:
 
 ```sh
 C=$(docker ps --filter name=webmail- --format '{{.Names}}' | grep -v -e bridge -e db | head -1)

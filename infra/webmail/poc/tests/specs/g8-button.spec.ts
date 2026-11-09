@@ -46,6 +46,7 @@ test.describe('G8 convert button', () => {
 
         await expect.poll(() => page.evaluate(() => (window as any).received)).toEqual([{
             type: 'orbit.webmail.convert',
+            mailboxId: 'm1',
             folder: 'INBOX',
             uid,
             uidValidity: expectedValidity,
