@@ -24,11 +24,18 @@ const endQueue = createEndQueue();
 /** Hands a message of the embedded client to whoever acts on it. */
 export function dispatchBridgeMessage(
   message: BridgeMessage,
-  flow: Pick<ReturnType<typeof startEmbed>, "ready" | "sessionLost"> | null,
+  shownMailboxId: string,
+  flow: Pick<
+    ReturnType<typeof startEmbed>,
+    "ready" | "sessionLost" | "sessionMoved"
+  > | null,
   onConvert: ((reference: ConvertReference) => void) | null,
 ) {
   if (message.kind === "ready") flow?.ready();
   else if (message.kind === "session_lost") flow?.sessionLost(message.reason);
+  // First, and whatever the member's rights: a dialog here would take over a
+  // message of a mailbox this page does not show.
+  else if (message.mailboxId !== shownMailboxId) flow?.sessionMoved();
   else onConvert?.(message.reference);
 }
 
@@ -152,9 +159,10 @@ function EmbedAttempt({
         window,
         origin,
         () => frameRef.current?.contentWindow ?? null,
-        (message) => dispatchBridgeMessage(message, flow.current, onConvert),
+        (message) =>
+          dispatchBridgeMessage(message, mailboxId, flow.current, onConvert),
       ),
-    [origin, onConvert],
+    [origin, mailboxId, onConvert],
   );
 
   return (

@@ -11,12 +11,17 @@ import {
 const ORIGIN = "https://webmail.orbit.example.com";
 const frame = {} as Window;
 const other = {} as Window;
-const good = { type: "orbit.webmail.convert", folder: "INBOX", uid: 12, uidValidity: 99 };
+const good = { type: "orbit.webmail.convert", mailboxId: "m1", folder: "INBOX", uid: 12, uidValidity: 99 };
 const reference = { folder: "INBOX", uid: 12, uidValidity: 99 };
+const request = { mailboxId: "m1", reference };
 
 describe("convert message shape", () => {
   it("accepts exactly the contract's message", () => {
-    expect(parseConvertMessage(good)).toEqual(reference);
+    expect(parseConvertMessage(good)).toEqual(request);
+  });
+
+  it("reads it the same way as a bridge message", () => {
+    expect(parseBridgeMessage(good)).toEqual({ kind: "convert", ...request });
   });
 
   it.each([
@@ -25,7 +30,12 @@ describe("convert message shape", () => {
     ["an array", [good]],
     ["an unknown type", { ...good, type: "orbit.webmail.other" }],
     ["an extra key", { ...good, subject: "hello" }],
-    ["a missing key", { type: good.type, folder: "INBOX", uid: 12 }],
+    ["a missing key", { type: good.type, mailboxId: "m1", folder: "INBOX", uid: 12 }],
+    ["the message without a mailbox", { type: good.type, folder: "INBOX", uid: 12, uidValidity: 99 }],
+    ["an empty mailbox", { ...good, mailboxId: "" }],
+    ["a mailbox that is not text", { ...good, mailboxId: 7 }],
+    ["a null mailbox", { ...good, mailboxId: null }],
+    ["a mailbox that is too long", { ...good, mailboxId: "x".repeat(101) }],
     ["an empty folder", { ...good, folder: "" }],
     ["a folder that is too long", { ...good, folder: "x".repeat(1001) }],
     ["a folder that is not text", { ...good, folder: 7 }],
@@ -86,7 +96,7 @@ describe("bridge events", () => {
     ({ origin: ORIGIN, source: frame, data: good, ...over }) as unknown as MessageEvent;
 
   it("accepts the frame's message from the exact origin", () => {
-    expect(acceptBridgeEvent(event(), ORIGIN, frame)).toEqual({ kind: "convert", reference });
+    expect(acceptBridgeEvent(event(), ORIGIN, frame)).toEqual({ kind: "convert", ...request });
   });
 
   it.each([
@@ -133,7 +143,7 @@ describe("bridge events", () => {
 
     post(target, {});
     expect(onMessage).toHaveBeenCalledTimes(1);
-    expect(onMessage).toHaveBeenCalledWith({ kind: "convert", reference });
+    expect(onMessage).toHaveBeenCalledWith({ kind: "convert", ...request });
 
     stop();
     post(target, {});
@@ -154,17 +164,19 @@ describe("bridge events", () => {
 });
 
 describe("the fallback link", () => {
-  it("reads the reference", () => {
-    const params = new URLSearchParams("convert=1&folder=INBOX&uid=12&uidValidity=99");
-    expect(parseConvertLink(params)).toEqual(reference);
+  it("reads the mailbox and the reference", () => {
+    const params = new URLSearchParams("mailbox=m1&convert=1&folder=INBOX&uid=12&uidValidity=99");
+    expect(parseConvertLink(params)).toEqual(request);
   });
 
   it.each([
-    "folder=INBOX&uid=12&uidValidity=99",
-    "convert=1&uid=12&uidValidity=99",
-    "convert=1&folder=INBOX&uid=012&uidValidity=99",
-    "convert=1&folder=INBOX&uid=1e3&uidValidity=99",
-    "convert=1&folder=INBOX&uid=12",
+    "convert=1&folder=INBOX&uid=12&uidValidity=99",
+    "mailbox=&convert=1&folder=INBOX&uid=12&uidValidity=99",
+    "mailbox=m1&folder=INBOX&uid=12&uidValidity=99",
+    "mailbox=m1&convert=1&uid=12&uidValidity=99",
+    "mailbox=m1&convert=1&folder=INBOX&uid=012&uidValidity=99",
+    "mailbox=m1&convert=1&folder=INBOX&uid=1e3&uidValidity=99",
+    "mailbox=m1&convert=1&folder=INBOX&uid=12",
   ])("ignores %s", (query) => {
     expect(parseConvertLink(new URLSearchParams(query))).toBeNull();
   });

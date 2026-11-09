@@ -6,12 +6,13 @@ import type { ConvertReference } from "./api";
 // anything that is not exactly one of these is dropped without a trace.
 
 const CONVERT_TYPE = "orbit.webmail.convert";
-const CONVERT_KEYS = ["folder", "type", "uid", "uidValidity"];
+const CONVERT_KEYS = ["folder", "mailboxId", "type", "uid", "uidValidity"];
 const READY_TYPE = "orbit.webmail.ready";
 const READY_KEYS = ["type"];
 const SESSION_LOST_TYPE = "orbit.webmail.session_lost";
 const SESSION_LOST_KEYS = ["reason", "type"];
 const MAX_FOLDER_LENGTH = 1000;
+const MAX_MAILBOX_ID_LENGTH = 100;
 
 const SESSION_ENDED_REASONS = [
   "session_unknown",
@@ -57,12 +58,24 @@ function exactFields(
   return data as Record<string, unknown>;
 }
 
-/** The message's reference, or null unless the shape is exactly the contract's. */
-export function parseConvertMessage(data: unknown): ConvertReference | null {
+/**
+ * A takeover request. It names its mailbox because the client has one session
+ * per browser: another tab can switch it while this page still shows its own.
+ */
+export type ConvertRequest = { mailboxId: string; reference: ConvertReference };
+
+/** The request, or null unless the shape is exactly the contract's. */
+export function parseConvertMessage(data: unknown): ConvertRequest | null {
   const fields = exactFields(data, CONVERT_KEYS);
   if (!fields) return null;
-  const { type, folder, uid, uidValidity } = fields;
+  const { type, mailboxId, folder, uid, uidValidity } = fields;
   if (type !== CONVERT_TYPE) return null;
+  if (
+    typeof mailboxId !== "string" ||
+    mailboxId.length === 0 ||
+    mailboxId.length > MAX_MAILBOX_ID_LENGTH
+  )
+    return null;
   if (
     typeof folder !== "string" ||
     folder.length === 0 ||
@@ -70,11 +83,11 @@ export function parseConvertMessage(data: unknown): ConvertReference | null {
   )
     return null;
   if (!positiveInteger(uid) || !positiveInteger(uidValidity)) return null;
-  return { folder, uid, uidValidity };
+  return { mailboxId, reference: { folder, uid, uidValidity } };
 }
 
 export type BridgeMessage =
-  | { kind: "convert"; reference: ConvertReference }
+  | ({ kind: "convert" } & ConvertRequest)
   | { kind: "ready" }
   | { kind: "session_lost"; reason: SessionLostReason };
 
@@ -87,8 +100,8 @@ export function parseBridgeMessage(data: unknown): BridgeMessage | null {
     return knownReason(lost.reason)
       ? { kind: "session_lost", reason: lost.reason }
       : null;
-  const reference = parseConvertMessage(data);
-  return reference ? { kind: "convert", reference } : null;
+  const convert = parseConvertMessage(data);
+  return convert ? { kind: "convert", ...convert } : null;
 }
 
 export type BridgeEvent = Pick<MessageEvent, "origin" | "source" | "data">;
@@ -135,7 +148,7 @@ export function listenToBridge(
  */
 export function parseConvertLink(
   params: Pick<URLSearchParams, "get">,
-): ConvertReference | null {
+): ConvertRequest | null {
   if (params.get("convert") !== "1") return null;
   const number = (name: string) => {
     const value = params.get(name) ?? "";
@@ -143,6 +156,7 @@ export function parseConvertLink(
   };
   return parseConvertMessage({
     type: CONVERT_TYPE,
+    mailboxId: params.get("mailbox"),
     folder: params.get("folder"),
     uid: number("uid"),
     uidValidity: number("uidValidity"),

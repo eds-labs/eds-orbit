@@ -174,12 +174,13 @@ export function WebmailOverview() {
   // The fallback link opens the dialog once and leaves the address clean.
   useEffect(() => {
     if (!data || !params?.get("convert")) return;
-    const reference = parseConvertLink(params);
-    if (reference && canConvert) onConvert(reference);
+    const request = parseConvertLink(params);
+    if (request && canConvert && request.mailboxId === selectedId)
+      onConvert(request.reference);
     const url = new URL(window.location.href);
     for (const name of CONVERT_LINK_PARAMS) url.searchParams.delete(name);
     window.history.replaceState(null, "", url);
-  }, [data, params, canConvert, onConvert]);
+  }, [data, params, canConvert, selectedId, onConvert]);
 
   const closeConvert = useCallback(() => setConvert(null), []);
   const open =
