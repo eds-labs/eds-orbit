@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed, 2026-11-07. Mario accepted all recommendations A-D1 to A-D19 of the programme plan [`docs/superpowers/plans/2026-11-07-ads-module.md`](../superpowers/plans/2026-11-07-ads-module.md) (§3) on 2026-11-07. Nothing is implemented. Every developer app, App Review or verification submission, migration, flag, ad account connection and every live action that can spend money still needs its own approval.
+Proposed, 2026-11-07. Mario accepted all recommendations A-D1 to A-D19 of the programme plan [`docs/superpowers/plans/2026-11-07-ads-module.md`](../superpowers/plans/2026-11-07-ads-module.md) (§3) on 2026-11-07. Steps A1 (module skeleton) and A2 (provider seam, Meta transport, money) are implemented, `ORBIT_ADS` stays off and no Meta call has been made; the ad-blocker test of A-D1 gates enabling the flag (Mario, 2026-11-09). Every developer app, App Review or verification submission, migration, flag, ad account connection and every live action that can spend money still needs its own approval.
 
 This ADR extends [ADR 0008](0008-action-approvals.md) (addendum 2026-11-07), [ADR 0009](0009-modular-platform.md) and [ADR 0014](0014-central-connections-ai-knowledge.md). It leaves [ADR 0019](0019-agent-mandates.md) unchanged: no paid-media or budget class becomes mandatable. The phase 2 decisions (ChatGPT Ads, O-D1 to O-D3) and phase 3 decisions (Google Ads, G-D1 to G-D4) of the plan are still open.
 
