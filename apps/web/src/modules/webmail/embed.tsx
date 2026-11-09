@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Alert, Button, Loading } from "@/components/ui/primitives";
 import { createSession, endSession, type ConvertReference } from "./api";
-import { listenForConvert } from "./bridge";
+import { listenToBridge, type BridgeMessage } from "./bridge";
 import {
   createEndQueue,
   FRAME_NAME,
@@ -21,21 +21,32 @@ import styles from "./webmail.module.css";
 // leaves the page and comes straight back.
 const endQueue = createEndQueue();
 
+/** Hands a message of the embedded client to whoever acts on it. */
+export function dispatchBridgeMessage(
+  message: BridgeMessage,
+  flow: Pick<ReturnType<typeof startEmbed>, "ready" | "sessionLost"> | null,
+  onConvert: ((reference: ConvertReference) => void) | null,
+) {
+  if (message.kind === "ready") flow?.ready();
+  else if (message.kind === "session_lost") flow?.sessionLost(message.reason);
+  else onConvert?.(message.reference);
+}
+
 /** The frame and its states; an error replaces the frame, never a blank one. */
 export function EmbedView({
   t,
   state,
   address,
   frameRef,
-  onLoad,
   onRetry,
+  onBannerRetry,
 }: {
   t: WebmailText;
   state: EmbedState;
   address: string;
   frameRef?: RefObject<HTMLIFrameElement | null>;
-  onLoad: () => void;
   onRetry: () => void;
+  onBannerRetry: () => void;
 }) {
   if (state.phase === "error")
     return (
@@ -46,8 +57,26 @@ export function EmbedView({
         </Button>
       </div>
     );
+  if (state.phase === "ended")
+    return (
+      <div className={styles.failure}>
+        <Alert kind="info">{t.embed.ended[state.reason]}</Alert>
+        <Button size="sm" onClick={onRetry}>
+          {t.embed.reopen}
+        </Button>
+      </div>
+    );
+  const ready = state.phase === "ready";
   return (
     <div className={styles.embed}>
+      {ready && state.banner && (
+        <div className={styles.banner}>
+          <Alert kind="warning">{t.embed.banner[state.banner]}</Alert>
+          <Button variant="outline" size="sm" onClick={onBannerRetry}>
+            {t.retry}
+          </Button>
+        </div>
+      )}
       <div className={styles.frameWrap}>
         <iframe
           ref={frameRef}
@@ -55,16 +84,15 @@ export function EmbedView({
           title={t.embed.frameTitle(address)}
           sandbox={FRAME_SANDBOX}
           className={styles.frame}
-          onLoad={onLoad}
         />
-        {state.phase !== "ready" && (
+        {!ready && (
           <div className={styles.frameCover}>
             <Loading label={t.embed.opening} />
           </div>
         )}
       </div>
       <div className={styles.frameHint}>
-        <p className="field-hint">{t.embed.hint}</p>
+        {!ready && <p className="field-hint">{t.embed.hint}</p>}
         <Button variant="ghost" size="sm" onClick={onRetry}>
           {t.embed.reload}
         </Button>
@@ -80,6 +108,7 @@ function EmbedAttempt({
   address,
   origin,
   onConvert,
+  onWithdrawn,
   onRetry,
 }: {
   t: WebmailText;
@@ -88,6 +117,7 @@ function EmbedAttempt({
   address: string;
   origin: string;
   onConvert: ((reference: ConvertReference) => void) | null;
+  onWithdrawn: (mailbox: { id: string; address: string }) => void;
   onRetry: () => void;
 }) {
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -106,6 +136,7 @@ function EmbedAttempt({
         submit: (session) => submitHandoff(document, FRAME_NAME, session),
         end: () => endSession(projectId, mailboxId),
         onState: setState,
+        onWithdrawn: () => onWithdrawn({ id: mailboxId, address }),
       });
     }, 0);
     return () => {
@@ -113,17 +144,18 @@ function EmbedAttempt({
       flow.current?.cancel();
       flow.current = null;
     };
-  }, [projectId, mailboxId, origin]);
+  }, [projectId, mailboxId, address, origin, onWithdrawn]);
 
-  useEffect(() => {
-    if (!onConvert) return;
-    return listenForConvert(
-      window,
-      origin,
-      () => frameRef.current?.contentWindow ?? null,
-      onConvert,
-    );
-  }, [origin, onConvert]);
+  useEffect(
+    () =>
+      listenToBridge(
+        window,
+        origin,
+        () => frameRef.current?.contentWindow ?? null,
+        (message) => dispatchBridgeMessage(message, flow.current, onConvert),
+      ),
+    [origin, onConvert],
+  );
 
   return (
     <EmbedView
@@ -131,8 +163,12 @@ function EmbedAttempt({
       state={state}
       address={address}
       frameRef={frameRef}
-      onLoad={() => flow.current?.loaded()}
       onRetry={onRetry}
+      onBannerRetry={() => {
+        flow.current?.clearBanner();
+        // The session is still there, so no new handoff: load its start page.
+        if (frameRef.current) frameRef.current.src = `${origin}/`;
+      }}
     />
   );
 }
@@ -145,6 +181,7 @@ export function WebmailEmbed(props: {
   address: string;
   origin: string;
   onConvert: ((reference: ConvertReference) => void) | null;
+  onWithdrawn: (mailbox: { id: string; address: string }) => void;
 }) {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => holdReferrerPolicy(document), []);

@@ -11,6 +11,7 @@ import {
   mailboxStatus,
   MailboxListView,
   selectMailbox,
+  WithdrawnNotice,
 } from "./overview";
 import {
   changeRight,
@@ -259,7 +260,14 @@ describe("the mailbox page", () => {
     expect(html).not.toContain("IMAP_ERROR");
   });
 
-  it("does not listen for the client without the right to convert", () => {
+  it("says access was withdrawn and offers no way to reopen", () => {
+    const html = renderToStaticMarkup(<WithdrawnNotice t={t} address="info@example.com" />);
+    expect(html).toContain("Your access to info@example.com was withdrawn.");
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain(t.embed.reopen);
+  });
+
+  it("does not act on takeover requests without the right to convert", () => {
     const handler = () => {};
     const can = { read: true, send: false, organize: false, convert: true, manage: false };
     expect(convertHandlerFor(mailbox(), handler)).toBeNull();

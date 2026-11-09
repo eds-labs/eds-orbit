@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import type { HandoffSession } from "./api";
-import { EmbedView } from "./embed";
+import { dispatchBridgeMessage, EmbedView } from "./embed";
 import {
   createEndQueue,
   failureOf,
@@ -148,54 +148,157 @@ describe("startEmbed", () => {
       submit: vi.fn(),
       end: vi.fn(async () => undefined),
       onState: (state: EmbedState) => states.push(state),
+      onWithdrawn: vi.fn(),
       ...over,
     } as never;
     return { deps, states };
   }
 
-  it("requests a token, submits it and waits for the frame", async () => {
+  it("requests a token, submits it and waits for the client", async () => {
     const { deps, states } = setup();
     const flow = startEmbed(deps);
     await flush();
     expect(deps.submit).toHaveBeenCalledWith(session);
     expect(states.at(-1)).toEqual({ phase: "loading" });
-    flow.loaded();
+    flow.ready();
     expect(states.at(-1)).toEqual({ phase: "ready" });
   });
 
   it("never lets the token into a state", async () => {
     const { deps, states } = setup();
-    startEmbed(deps).loaded();
+    startEmbed(deps).ready();
     await flush();
     expect(JSON.stringify(states)).not.toContain(TOKEN);
   });
 
-  it("ignores the frame's blank load before the submit", async () => {
+  it("ignores messages before the submit", async () => {
     const { deps, states } = setup();
     const flow = startEmbed(deps);
-    flow.loaded();
+    flow.ready();
+    flow.sessionLost("no_session");
     expect(states).toEqual([{ phase: "requesting" }]);
     await flush();
     expect(states.at(-1)).toEqual({ phase: "loading" });
   });
 
-  it("reports a frame that does not load in time", async () => {
+  it("times out when ready never arrives", async () => {
     const { deps, states } = setup();
     const flow = startEmbed(deps);
     await flush();
     await vi.advanceTimersByTimeAsync(LOAD_TIMEOUT_MS);
     expect(states.at(-1)).toEqual({ phase: "error", reason: "timeout" });
-    flow.loaded();
+    flow.ready();
     expect(states.at(-1)).toEqual({ phase: "error", reason: "timeout" });
   });
 
-  it("does not time out after the frame loaded", async () => {
+  it("ready clears the timeout", async () => {
     const { deps, states } = setup();
     const flow = startEmbed(deps);
     await flush();
-    flow.loaded();
+    flow.ready();
     await vi.advanceTimersByTimeAsync(LOAD_TIMEOUT_MS * 2);
     expect(states.at(-1)).toEqual({ phase: "ready" });
+  });
+
+  it("takes repeated ready messages as one", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.ready();
+    flow.ready();
+    flow.ready();
+    expect(states.filter((s) => s.phase === "ready")).toHaveLength(1);
+  });
+
+  it.each(["session_unknown", "session_revoked", "session_expired", "no_session", "handoff_failed"] as const)(
+    "ends the frame on %s and stops the timeout",
+    async (reason) => {
+      const { deps, states } = setup();
+      const flow = startEmbed(deps);
+      await flush();
+      flow.sessionLost(reason);
+      expect(states.at(-1)).toEqual({ phase: "ended", reason });
+      expect(deps.onWithdrawn).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(LOAD_TIMEOUT_MS * 2);
+      expect(states.at(-1)).toEqual({ phase: "ended", reason });
+    },
+  );
+
+  it("stays ended whatever the client still sends", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.sessionLost("session_expired");
+    flow.ready();
+    flow.sessionLost("bridge_unavailable");
+    expect(states.at(-1)).toEqual({ phase: "ended", reason: "session_expired" });
+  });
+
+  it("hands not_authorized to the page instead of offering a reopen", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.ready();
+    const before = states.length;
+    flow.sessionLost("not_authorized");
+    flow.sessionLost("not_authorized");
+    expect(deps.onWithdrawn).toHaveBeenCalledTimes(1);
+    expect(states).toHaveLength(before);
+  });
+
+  it.each(["mailbox_unavailable", "bridge_unavailable"] as const)(
+    "keeps the session and shows a banner on %s",
+    async (reason) => {
+      const { deps, states } = setup();
+      const flow = startEmbed(deps);
+      await flush();
+      flow.ready();
+      flow.sessionLost(reason);
+      expect(states.at(-1)).toEqual({ phase: "ready", banner: reason });
+      expect(deps.end).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a temporary problem during opening reveals the frame and stops the timeout", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.sessionLost("bridge_unavailable");
+    await vi.advanceTimersByTimeAsync(LOAD_TIMEOUT_MS * 2);
+    expect(states.at(-1)).toEqual({ phase: "ready", banner: "bridge_unavailable" });
+  });
+
+  it("a later ready clears the banner", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.ready();
+    flow.sessionLost("mailbox_unavailable");
+    flow.ready();
+    expect(states.at(-1)).toEqual({ phase: "ready" });
+  });
+
+  it("retrying from the banner clears it without a new token", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.ready();
+    flow.sessionLost("mailbox_unavailable");
+    flow.clearBanner();
+    expect(states.at(-1)).toEqual({ phase: "ready" });
+    expect(deps.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores messages after leaving", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.cancel();
+    const before = states.length;
+    flow.ready();
+    flow.sessionLost("not_authorized");
+    expect(states).toHaveLength(before);
+    expect(deps.onWithdrawn).not.toHaveBeenCalled();
   });
 
   it("reports a failed token request and does not end what never began", async () => {
@@ -308,6 +411,29 @@ describe("startEmbed", () => {
   });
 });
 
+describe("dispatchBridgeMessage", () => {
+  const flow = () => ({ ready: vi.fn(), sessionLost: vi.fn() });
+  const reference = { folder: "INBOX", uid: 1, uidValidity: 2 };
+
+  it("routes each message", () => {
+    const f = flow();
+    const onConvert = vi.fn();
+    dispatchBridgeMessage({ kind: "ready" }, f, onConvert);
+    dispatchBridgeMessage({ kind: "session_lost", reason: "no_session" }, f, onConvert);
+    dispatchBridgeMessage({ kind: "convert", reference }, f, onConvert);
+    expect(f.ready).toHaveBeenCalledTimes(1);
+    expect(f.sessionLost).toHaveBeenCalledWith("no_session");
+    expect(onConvert).toHaveBeenCalledWith(reference);
+  });
+
+  it("still tracks the session for a member who cannot convert", () => {
+    const f = flow();
+    dispatchBridgeMessage({ kind: "convert", reference }, f, null);
+    dispatchBridgeMessage({ kind: "ready" }, f, null);
+    expect(f.ready).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("EmbedView", () => {
   const t = webmailText("en");
   const render = (state: EmbedState, locale: "en" | "de" = "en") =>
@@ -316,10 +442,45 @@ describe("EmbedView", () => {
         t={webmailText(locale)}
         state={state}
         address="info@example.com"
-        onLoad={() => {}}
         onRetry={() => {}}
+        onBannerRetry={() => {}}
       />,
     );
+
+  it("shows the browser hint only until the client is up", () => {
+    expect(render({ phase: "loading" })).toContain(t.embed.hint);
+    expect(render({ phase: "ready" })).not.toContain(t.embed.hint);
+  });
+
+  it.each(["session_unknown", "session_revoked", "session_expired", "no_session", "handoff_failed"] as const)(
+    "replaces the frame with a notice and a reopen for %s",
+    (reason) => {
+      const html = render({ phase: "ended", reason });
+      expect(html).not.toContain("<iframe");
+      expect(html).toContain(t.embed.ended[reason]);
+      expect(html).toContain(t.embed.reopen);
+      expect(html).not.toContain(reason);
+    },
+  );
+
+  it.each(["mailbox_unavailable", "bridge_unavailable"] as const)(
+    "keeps the frame under a banner with a retry for %s",
+    (reason) => {
+      const html = render({ phase: "ready", banner: reason });
+      expect(html).toContain("<iframe");
+      expect(html).toContain(t.embed.banner[reason]);
+      expect(html).toContain(t.retry);
+      expect(html).not.toContain(t.embed.opening);
+    },
+  );
+
+  it("shows no banner without a problem", () => {
+    expect(render({ phase: "ready" })).not.toContain(t.retry);
+  });
+
+  it("no longer depends on the frame's load event", () => {
+    expect(render({ phase: "loading" })).not.toContain("onload");
+  });
 
   it("sandboxes the frame without a source and without a referrer attribute", () => {
     const html = render({ phase: "loading" });
