@@ -247,6 +247,22 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "DELETE /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/session": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/webmail/settings/mailboxes/{mailboxId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "DELETE /api/projects/{projectId}/work/attachments/{id}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -477,6 +493,14 @@
     "viewer": "not_found",
     "editor": "not_found",
     "sysadmin": "not_found:USER_NOT_FOUND",
+    "owner": "not_found"
+  },
+  "GET /api/admin/webmail/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
     "owner": "not_found"
   },
   "GET /api/agents/summary": {
@@ -1999,6 +2023,54 @@
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
+  "GET /api/projects/{projectId}/webmail/mailboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/convert/options": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/convert/records": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/convert/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/grants": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/webmail/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/work/initiatives": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -2472,6 +2544,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/support/tickets/{ticketId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/webmail/settings/mailboxes/{mailboxId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -4799,6 +4879,30 @@
     "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
+  "POST /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/convert": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/session": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/webmail/settings/mailboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/work/initiatives": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -5336,6 +5440,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "PUT /api/projects/{projectId}/support/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PUT /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/grants/{userId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
