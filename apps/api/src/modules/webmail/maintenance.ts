@@ -68,8 +68,9 @@ export const webmailRetention: RetentionContribution = async (
       updatedAt: { lt: cutoff },
     },
   });
-  return {
-    audit: { webmailConversions: count },
-    result: { webmailConversions: count },
-  };
+  // Nothing to report keeps the retention answer as it is without webmail.
+  const report: Record<string, number> = count
+    ? { webmailConversions: count }
+    : {};
+  return { audit: report, result: report };
 };
