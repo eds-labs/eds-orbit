@@ -1,5 +1,27 @@
 # Implementation status
 
+## Webmail module: Roundcube and mail-to-ticket (2026-11-09, branch `claude/roundcube-webmail-ticket-integration-a2dd99`, not merged, not deployed)
+
+[ADR 0026](adr/0026-webmail-module.md), contract [plans/WEBMAIL.md](plans/WEBMAIL.md), rollout [deployment/WEBMAIL.md](deployment/WEBMAIL.md), proof of concept `infra/webmail/poc/REPORT.md`. Risk high: mail credentials, auth, a migration and a new internet-facing service. Environment: local only.
+
+- **State:** implemented, tested locally, committed on the branch. Not pushed, not merged, not deployed, not enabled. `ORBIT_WEBMAIL` defaults to false and `ORBIT_WEBMAIL_REPLICAS` to 0.
+- **Built:**
+  - Module `webmail` (`apps/api/src/modules/webmail/`), internal bridge `apps/api/src/webmail-bridge-main.ts`, web module `apps/web/src/modules/webmail/`.
+  - Roundcube 1.7.6 pinned by digest with the plugin `orbit_bridge` and the skin `orbit` (`infra/webmail/`), on its own origin, in a sandboxed iframe, with its own database and networks.
+  - Per-mailbox grants (read, send, organize, convert, manage; default none; Finance-owned mailboxes also need `finance.settings`), checked on every Roundcube request.
+  - Platform contribution `emailImport`, implemented by Support: new ticket or append, idempotent, server re-reads the message, no customer mail and no AI run.
+  - Sync safety behind the flag and a per-mailbox marker: ingest barrier before move and delete, backlog snapshot, UIDVALIDITY recovery, hash dedupe without Message-ID.
+  - One additive migration `202611090001_webmail_core`. Schema hash on the branch: `7003d212a05fb497af8935f4606e21dd6bb8910cd942e710e837837b9e12fee1`.
+- **Verification (local, this worktree's own test database, head `6838e992`):**
+  - `pnpm lint` (import boundaries 0 known, none new), `pnpm typecheck`, `pnpm test:coolify-compose` and `pnpm test:migration-profile` pass. `pnpm audit --audit-level high` exits 0.
+  - Whole vitest suite: 580 files passed, 1 skipped; 6,623 tests passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
+  - `pnpm build` passes.
+  - `pnpm test:webmail` on the real stack: 51 of 51 in Chromium, Firefox and WebKit (17 each), 2 of 2 with the flag off.
+  - `pnpm test:e2e`: 24 passed, 4 failed, 25 skipped by their own feature gates. Unmodified `origin/main` (`e62decb0`) gives the same totals: 24, 4, 25. Most failures hang on "Loading workspace…" and which tests fail varies between runs. `workspace.spec.ts:704` alone failed 6 of 6 on the branch and 6 of 6 on `main`. The cause is not established; heavy read pacing is a candidate. Not a regression of this branch, but this suite gives no clean signal locally.
+  - `scripts/check-secrets.py` reports 3 findings, none in a file this branch touches; the same 3 fail `main` in CI, where that step stops the run before the browser job.
+  - Not tested: attachment to Coolify's proxy, whether Coolify's network lets Roundcube reach `api:4311` (blocking rollout check), `deploy.replicas` under Coolify, real Safari with Intelligent Tracking Prevention, a real AI draft, UIDVALIDITY and messages above 10 MB on the real stack (UIDVALIDITY is covered by integration tests).
+- **Production:** each step needs its own approval: push to `main` (deploys), the schema hash in Coolify, DNS and TLS for the webmail host, secrets, `ORBIT_WEBMAIL` and `ORBIT_WEBMAIL_REPLICAS`, any mail to real recipients, and the data-protection review of the mail processing. Rollback: `ORBIT_WEBMAIL=false` and `ORBIT_WEBMAIL_REPLICAS=0`; the migration is additive and can stay.
+
 ## Knowledge: whole sites and a short add flow (2026-11-09, delivered to `main`, not live-accepted)
 
 Spec [2026-11-08-knowledge-sites-and-add-flow-design.md](superpowers/specs/2026-11-08-knowledge-sites-and-add-flow-design.md); behaviour and first-read steps [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Risk high: a background job reads outside sites and changes content automatically. No schema change, no migration, no schema hash, no new dependency. Existing flag `ORBIT_KNOWLEDGE_WORKSPACE`.
