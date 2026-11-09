@@ -22,6 +22,8 @@ export const taskClasses = [
   "pm_analysis",
   // Knowledge: the test questions of a live index evaluation.
   "knowledge_evaluation",
+  // Knowledge: statements an owner reviews, proposed from up to 100,000 characters.
+  "knowledge_analysis",
   // Issue center (ADR 0018): AI triage suggestions for a new issue.
   "issue_triage",
   // Creative Studio: the optional vision review of a composed creative.
@@ -61,6 +63,7 @@ export const taskRoutesSchema = z
     pm_plan: modelRouteSchema.optional(),
     pm_analysis: modelRouteSchema.optional(),
     knowledge_evaluation: modelRouteSchema.optional(),
+    knowledge_analysis: modelRouteSchema.optional(),
     issue_triage: modelRouteSchema.optional(),
     creative_review: modelRouteSchema.optional(),
     agent_custom: modelRouteSchema.optional(),
@@ -91,6 +94,8 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   pm_analysis: 3000,
   // About 15 passages per call, one to three questions each, with thinking.
   knowledge_evaluation: 6000,
+  // Up to 13 proposals with their exact quotes.
+  knowledge_analysis: 12000,
   issue_triage: 1500,
   // Seven scores and a few short issues for one image.
   creative_review: 1500,
@@ -112,6 +117,7 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   pm_plan: "quality",
   pm_analysis: "standard",
   knowledge_evaluation: "standard",
+  knowledge_analysis: "standard",
   issue_triage: "standard",
   creative_review: "standard",
   agent_custom: "standard",

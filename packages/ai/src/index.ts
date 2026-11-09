@@ -567,6 +567,8 @@ export async function respond(params: {
   reservationId: string;
   runtime: OpenAiRuntimeConfig;
   signal?: AbortSignal;
+  /** Whole-request limit of a non-streamed call; a long answer may need more than the default. */
+  timeoutMs?: number;
 }): Promise<{
   output: unknown[];
   usage: Usage;
@@ -604,6 +606,7 @@ export async function respond(params: {
           maxToolCalls: params.maxToolCalls,
           include: params.include,
           signal: params.signal,
+          timeoutMs: params.timeoutMs,
         });
   return {
     output: completed.output,

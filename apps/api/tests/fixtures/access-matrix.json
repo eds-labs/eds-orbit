@@ -3183,6 +3183,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/knowledge-analysis-preflight": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/knowledge-analysis-start": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

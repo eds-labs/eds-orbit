@@ -3,6 +3,7 @@ import {
   saveProfile,
   saveDraft,
   previewDraft,
+  analysisPreflight,
   startAnalysis,
   cancelAnalysis,
   decideProposal,
@@ -100,6 +101,9 @@ export const knowledgeActions: Record<string, ActionHandler> = {
   ),
   "knowledge-draft-preview": ownTransaction(({ scope, input }) =>
     previewDraft(scope, input),
+  ),
+  "knowledge-analysis-preflight": ownTransaction(({ scope, input }) =>
+    analysisPreflight(scope, input),
   ),
   "knowledge-analysis-start": ownTransaction(({ scope, input }) =>
     startAnalysis(scope, input),

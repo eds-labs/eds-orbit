@@ -36,6 +36,9 @@ export const knowledgeDraftBase = z
     kind: z.enum(["manual", "file", "website", "github"]),
     text: z.string().max(100000).default(""),
     url: z.url().optional(),
+    // A site draft: the selected pages of `url`, one snapshot file each. An
+    // address longer than an evidence path could not be cited.
+    pages: z.array(z.url().max(400)).max(30).optional(),
     connectionId: z.uuid().optional(),
     repositoryId: z.number().int().positive().optional(),
     repository: z
@@ -63,6 +66,10 @@ export const knowledgeDraft = knowledgeDraftBase.superRefine((v, ctx) => {
     require(v.repository, "repository");
   } else if (v.kind === "website") require(v.url, "url");
   else require(v.text.trim(), "text");
+});
+/** A run's input: the draft, plus the owner's consent given at the start of an AI run. */
+export const knowledgeRunInput = knowledgeDraftBase.extend({
+  confirmModelUse: z.literal(true).optional(),
 });
 export type KnowledgeDraft = z.infer<typeof knowledgeDraft>;
 export type KnowledgeProposal = z.infer<typeof knowledgeProposal>;

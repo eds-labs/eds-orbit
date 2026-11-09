@@ -23,6 +23,8 @@ import {
   saveDraft,
   previewDraft,
   startAnalysis,
+  analysisPreflight,
+  directTextProposals,
   runAnalysis,
   decideProposal,
   completeAnalysis,
@@ -77,6 +79,13 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
   let userId: string;
   const run = <T>(fn: Parameters<typeof scoped<T>>[2]) =>
     scoped(s.workspaceId, s.projectId, fn);
+  const routeWith = (maxOutputTokens: number, estimateMicros = 100) =>
+    vi.mocked(planCall).mockResolvedValue({
+      route: { model: "gpt-5.6-terra", maxOutputTokens },
+      provider: "openai",
+      estimateMicros,
+      fallbackFrom: null,
+    });
   beforeAll(async () => {
     userId = randomUUID();
     await authDb.user.create({
@@ -102,6 +111,7 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     });
     s = { workspaceId, projectId: p.id, userId, role: "owner" };
     vi.mocked(respond).mockReset();
+    routeWith(3000);
     vi.mocked(readRepository).mockReset();
     vi.mocked(githubToken).mockResolvedValue({
       token: "synthetic",
@@ -128,7 +138,10 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
   const prepare = async (input = manual()) => {
     const draft = await saveDraft(s, input);
     const preview = await previewDraft(s, { draftId: draft.id });
-    const job = await startAnalysis(s, { previewId: preview.id });
+    const job = await startAnalysis(s, {
+      previewId: preview.id,
+      ...(input.modelUse ? { confirmModelUse: true } : {}),
+    });
     return { draft, preview, job };
   };
   const proposals = () => run((tx) => list(tx, s, "knowledge_proposals"));
@@ -395,8 +408,8 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     await expect(previewDraft(s, { draftId: draft.id })).rejects.toThrow();
     expect(data(draft).input.kind).toBe("github");
   });
-  async function paidSource() {
-    await run((tx) =>
+  const spendPolicy = (overrides: Record<string, unknown> = {}) =>
+    run((tx) =>
       create(tx, s, "policies", {
         mode: "assisted",
         channels: ["synthetic"],
@@ -411,8 +424,11 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
         perRunBudgetMicros: 200000,
         approvedPaidTests: true,
         active: true,
+        ...overrides,
       }),
     );
+  async function paidSource() {
+    await spendPolicy();
     return prepare({ ...manual(), modelUse: true });
   }
   it("uses a tool-free budgeted model call and validates grounded output", async () => {
@@ -1074,6 +1090,550 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       expect(data(result).status).toBe("rejected");
     });
   });
+  describe("AI analysis: route, preflight and consent", () => {
+    const answer = (proposals: unknown[], costMicros = 50) => ({
+      output: [
+        {
+          type: "message",
+          content: [
+            { type: "output_text", text: JSON.stringify({ proposals }) },
+          ],
+        },
+      ],
+      usage: {
+        model: "gpt-5.6-terra",
+        inputTokens: 20,
+        outputTokens: 20,
+        costMicros,
+      },
+      responseId: "synthetic-response",
+    });
+    const paidPreview = async () => {
+      const draft = await saveDraft(s, { ...manual(), modelUse: true });
+      return previewDraft(s, { draftId: draft.id });
+    };
+    const runRow = (id: string) =>
+      run((tx) => entity(tx, s, "knowledge_runs", id));
+    const storedRuns = () => run((tx) => list(tx, s, "knowledge_runs"));
+    const reservations = () =>
+      run((tx) =>
+        tx.budgetReservation.findMany({ where: { projectId: s.projectId } }),
+      );
+    const entityVersions = () =>
+      run((tx) =>
+        tx.entityVersion.count({ where: { projectId: s.projectId } }),
+      );
+    const openReservation = (state: "unknown" | "in_flight") =>
+      run((tx) =>
+        tx.budgetReservation.create({
+          data: {
+            workspaceId: s.workspaceId,
+            projectId: s.projectId,
+            key: `${s.projectId}:synthetic:${state}`,
+            category: "knowledge_analysis",
+            amountMicros: 10n,
+            state,
+          },
+        }),
+      );
+
+    it("analysis routes through knowledge_analysis", async () => {
+      const { job } = await paidSource();
+      vi.mocked(planCall).mockClear();
+      vi.mocked(respond).mockResolvedValue(answer([]) as any);
+      expect((await runAnalysis(s, job.id)).status).toBe("succeeded");
+      expect(vi.mocked(planCall).mock.calls.map((c) => c[2])).toEqual([
+        "knowledge_analysis",
+      ]);
+      expect((await reservations())[0]).toMatchObject({
+        category: "knowledge_analysis",
+        taskClass: "knowledge_analysis",
+        model: "gpt-5.6-terra",
+      });
+    });
+    it("gives a long answer room within the job's lease", async () => {
+      const { job } = await paidSource();
+      vi.mocked(respond).mockResolvedValue(answer([]) as any);
+      await runAnalysis(s, job.id);
+      expect(vi.mocked(respond).mock.calls[0]![0].timeoutMs).toBe(240000);
+    });
+    it("allows 13 proposals at the default", async () => {
+      routeWith(12000);
+      await spendPolicy();
+      const { id: previewId } = await paidPreview();
+      expect((await analysisPreflight(s, { previewId })).proposalLimit).toBe(
+        13,
+      );
+      const job = await startAnalysis(s, {
+        previewId,
+        confirmModelUse: true,
+      });
+      vi.mocked(respond).mockResolvedValue(answer([]) as any);
+      await runAnalysis(s, job.id);
+      const request = vi.mocked(respond).mock.calls[0]![0];
+      expect(request.instructions).toContain("Maximum 13 proposals");
+      expect((request.outputSchema as any).properties.proposals.maxItems).toBe(
+        13,
+      );
+      expect(data(await runRow(job.id)).outputDiagnostics).toMatchObject({
+        maxOutputTokens: 12000,
+        proposalLimit: 13,
+      });
+    });
+    it("preflight reports a missing authority, model, price or open cost case without a reservation", async () => {
+      const { id: previewId } = await paidPreview();
+      const before = await entityVersions();
+      const expectBlocked = async (blocker: string) => {
+        const result = await analysisPreflight(s, { previewId });
+        expect(result.ready).toBe(false);
+        expect(result.blockers).toContain(blocker);
+      };
+      await expectBlocked("POLICY_REQUIRED");
+      await spendPolicy();
+      const afterPolicy = await entityVersions();
+      expect(afterPolicy).toBe(before + 1);
+      for (const code of [
+        "MODEL_CAPABILITY_NOT_VERIFIED",
+        "VERIFIED_PRICE_CONFIGURATION_REQUIRED",
+        "CURRENT_PRICE_REQUIRED",
+        "ROUTE_EFFORT_UNSUPPORTED",
+      ]) {
+        vi.mocked(planCall).mockRejectedValueOnce(new Error(code));
+        const result = await analysisPreflight(s, { previewId });
+        expect(result).toEqual({
+          ready: false,
+          blockers: [code],
+          estimateMicros: 0,
+          model: "",
+          provider: "",
+          proposalLimit: 0,
+        });
+      }
+      delete process.env.OPENAI_API_KEY;
+      await expectBlocked("KNOWLEDGE_MODEL_NOT_CONFIGURED");
+      process.env.OPENAI_API_KEY = "synthetic-knowledge-key";
+      expect(await reservations()).toHaveLength(0);
+      expect(await storedRuns()).toHaveLength(0);
+      expect(await entityVersions()).toBe(afterPolicy);
+      await openReservation("in_flight");
+      await expectBlocked("KNOWLEDGE_ANALYSIS_IN_PROGRESS");
+      await run((tx) =>
+        tx.budgetReservation.updateMany({
+          where: { projectId: s.projectId },
+          data: { state: "unknown" },
+        }),
+      );
+      await expectBlocked("KNOWLEDGE_COST_UNKNOWN");
+      expect(await reservations()).toHaveLength(1);
+    });
+    it("preflight reports what a reservation would refuse", async () => {
+      const { id: previewId } = await paidPreview();
+      const blockers = async () =>
+        (await analysisPreflight(s, { previewId })).blockers;
+      const policy = await spendPolicy({ perRunBudgetMicros: 99 });
+      expect(await blockers()).toEqual(["BUDGET_NOT_APPROVED"]);
+      await run((tx) => update(tx, s, policy, { ...data(policy), active: false }));
+      const expired = await spendPolicy({
+        endAt: new Date(Date.now() - 1000).toISOString(),
+      });
+      expect(await blockers()).toEqual(["PAID_MANDATE_EXPIRED"]);
+      await run((tx) =>
+        update(tx, s, expired, { ...data(expired), active: false }),
+      );
+      await spendPolicy({ dailyBudgetMicros: 150, perRunBudgetMicros: 150 });
+      await run((tx) =>
+        tx.budgetReservation.create({
+          data: {
+            workspaceId: s.workspaceId,
+            projectId: s.projectId,
+            key: `${s.projectId}:synthetic:spent`,
+            category: "other",
+            amountMicros: 100n,
+            settledMicros: 100n,
+            state: "settled",
+          },
+        }),
+      );
+      expect(await blockers()).toEqual(["BUDGET_EXCEEDED"]);
+    });
+    it("start and preflight refuse the same way", async () => {
+      await spendPolicy({ perRunBudgetMicros: 99 });
+      const { id: previewId } = await paidPreview();
+      expect((await analysisPreflight(s, { previewId })).blockers).toEqual([
+        "BUDGET_NOT_APPROVED",
+      ]);
+      await expect(
+        startAnalysis(s, { previewId, confirmModelUse: true }),
+      ).rejects.toThrow("BUDGET_NOT_APPROVED");
+      expect(await storedRuns()).toHaveLength(0);
+    });
+    it("preflight blocks a paused project", async () => {
+      await spendPolicy();
+      const { id: previewId } = await paidPreview();
+      await authDb.project.update({
+        where: { id: s.projectId },
+        data: { paused: true },
+      });
+      expect((await analysisPreflight(s, { previewId })).blockers).toEqual([
+        "PROJECT_PAUSED",
+      ]);
+    });
+    it("preflight is ready and estimates when all is set", async () => {
+      await spendPolicy();
+      const { id: previewId } = await paidPreview();
+      const before = await entityVersions();
+      expect(await analysisPreflight(s, { previewId })).toEqual({
+        ready: true,
+        blockers: [],
+        estimateMicros: 100,
+        model: "gpt-5.6-terra",
+        provider: "openai",
+        proposalLimit: 3,
+      });
+      expect(await reservations()).toHaveLength(0);
+      expect(await entityVersions()).toBe(before);
+      const started = await startAnalysis(s, {
+        previewId,
+        confirmModelUse: true,
+      });
+      expect(data(started).status).toBe("queued");
+    });
+    it("preflight estimates exactly what the run reserves", async () => {
+      const saved = {
+        models: process.env.OPENAI_VERIFIED_MODELS,
+        rates: process.env.OPENAI_RATE_CARD_JSON,
+      };
+      process.env.OPENAI_VERIFIED_MODELS = "gpt-5.6-terra";
+      process.env.OPENAI_RATE_CARD_JSON = JSON.stringify({
+        "gpt-5.6-terra": {
+          inputMicrosPerMillion: 2_000_000,
+          outputMicrosPerMillion: 10_000_000,
+          verifiedAt: new Date().toISOString(),
+        },
+      });
+      const route = { model: "gpt-5.6-terra", maxOutputTokens: 12000 };
+      vi.mocked(planCall).mockImplementation(
+        async (_tx, _s, _class, _runtime, estimate) => ({
+          route,
+          provider: "openai",
+          estimateMicros: estimate(route),
+          fallbackFrom: null,
+        }),
+      );
+      try {
+        await spendPolicy();
+        const { id: previewId } = await paidPreview();
+        const preflight = await analysisPreflight(s, { previewId });
+        // The whole output ceiling is reserved, so the estimate follows it.
+        expect(preflight.estimateMicros).toBeGreaterThan(120000);
+        const job = await startAnalysis(s, {
+          previewId,
+          confirmModelUse: true,
+        });
+        vi.mocked(respond).mockResolvedValue(answer([]) as any);
+        await runAnalysis(s, job.id);
+        expect(Number((await reservations())[0]!.amountMicros)).toBe(
+          preflight.estimateMicros,
+        );
+      } finally {
+        if (saved.models === undefined)
+          delete process.env.OPENAI_VERIFIED_MODELS;
+        else process.env.OPENAI_VERIFIED_MODELS = saved.models;
+        if (saved.rates === undefined) delete process.env.OPENAI_RATE_CARD_JSON;
+        else process.env.OPENAI_RATE_CARD_JSON = saved.rates;
+      }
+    });
+    it("preflight reports an expired preview and a run without AI as free", async () => {
+      const draft = await saveDraft(s, manual());
+      const preview = await previewDraft(s, { draftId: draft.id });
+      expect(await analysisPreflight(s, { previewId: preview.id })).toEqual({
+        ready: true,
+        blockers: [],
+        estimateMicros: 0,
+        model: "",
+        provider: "",
+        proposalLimit: 1,
+      });
+      await saveDraft(s, {
+        ...manual(),
+        id: draft.id,
+        version: draft.version,
+        text: "Changed",
+      });
+      expect(
+        (await analysisPreflight(s, { previewId: preview.id })).blockers,
+      ).toEqual(["KNOWLEDGE_PREVIEW_EXPIRED"]);
+    });
+    it("preflight is owner-only and stays inside its project", async () => {
+      const { id: previewId } = await paidPreview();
+      const other = await authDb.project.create({
+        data: { workspaceId, name: "Other" },
+      });
+      await expect(
+        analysisPreflight({ ...s, projectId: other.id }, { previewId }),
+      ).rejects.toThrow("NOT_FOUND");
+      await authDb.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId } },
+        data: { role: "viewer" },
+      });
+      try {
+        await expect(analysisPreflight(s, { previewId })).rejects.toThrow(
+          "OWNER_REQUIRED",
+        );
+      } finally {
+        await authDb.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId } },
+          data: { role: "owner" },
+        });
+      }
+    });
+    const websitePreview = async (modelUse: boolean) => {
+      const draft = await saveDraft(s, {
+        ...manual(),
+        kind: "website",
+        text: "",
+        url: "https://help.example.invalid/docs",
+        modelUse,
+      });
+      return run((tx) =>
+        create(tx, s, "knowledge_previews", {
+          draftId: draft.id,
+          draftVersion: draft.version,
+          snapshot: {
+            commit: null,
+            files: [{ path: "/docs", text: "Hilfe", hash: hash("Hilfe") }],
+            partial: false,
+            skipped: 0,
+          },
+          expiresAt: Date.now() + HOUR,
+        }),
+      );
+    };
+    it("blocks a draft that may not use a model", async () => {
+      await spendPolicy();
+      const preview = await websitePreview(false);
+      const result = await analysisPreflight(s, { previewId: preview.id });
+      expect(result.blockers).toEqual(["MODEL_USE_FORBIDDEN"]);
+      await expect(
+        startAnalysis(s, { previewId: preview.id, confirmModelUse: true }),
+      ).rejects.toThrow("MODEL_USE_FORBIDDEN");
+    });
+    it("blocks the address of a source that forbids model use", async () => {
+      await spendPolicy();
+      const elsewhere = (overrides: Record<string, unknown>) =>
+        run((tx) =>
+          create(tx, s, "sources", {
+            name: "Andere",
+            type: "website",
+            status: "active",
+            generation: 1,
+            authority: "official",
+            publicUse: false,
+            modelUse: false,
+            audiences: ["support"],
+            maxAgeHours: 168,
+            allowedOrigins: ["https://help.example.invalid"],
+            allowedPaths: ["/other"],
+            ...overrides,
+          }),
+        );
+      await elsewhere({});
+      await elsewhere({ allowedOrigins: [], allowedPaths: ["/"] });
+      const source = await run((tx) =>
+        create(tx, s, "sources", {
+          name: "Hilfe",
+          type: "website",
+          status: "active",
+          generation: 1,
+          authority: "official",
+          publicUse: false,
+          modelUse: false,
+          audiences: ["support"],
+          maxAgeHours: 336,
+          allowedOrigins: ["https://help.example.invalid"],
+          allowedPaths: ["/docs"],
+          site: {
+            rootUrl: "https://help.example.invalid/docs",
+            discovery: "sitemap",
+            excludedPages: [],
+            lastRunId: null,
+          },
+        }),
+      );
+      const preview = await websitePreview(true);
+      expect(
+        (await analysisPreflight(s, { previewId: preview.id })).blockers,
+      ).toEqual(["MODEL_USE_FORBIDDEN"]);
+      await run((tx) =>
+        update(tx, s, source, { ...data(source), modelUse: true }),
+      );
+      expect(
+        (await analysisPreflight(s, { previewId: preview.id })).blockers,
+      ).toEqual([]);
+    });
+    it("start refuses an AI run without confirmModelUse", async () => {
+      await spendPolicy();
+      const { id: previewId } = await paidPreview();
+      await expect(startAnalysis(s, { previewId })).rejects.toThrow(
+        "MODEL_USE_FORBIDDEN",
+      );
+      expect(await storedRuns()).toHaveLength(0);
+    });
+    it("start records consent in the run", async () => {
+      await spendPolicy();
+      const { id: previewId } = await paidPreview();
+      const started = await startAnalysis(s, {
+        previewId,
+        confirmModelUse: true,
+      });
+      expect(data(started).input.confirmModelUse).toBe(true);
+      vi.mocked(respond).mockResolvedValue(answer([]) as any);
+      expect((await runAnalysis(s, started.id)).status).toBe("succeeded");
+    });
+    it("a run without AI needs no consent", async () => {
+      const { job } = await prepare();
+      expect("confirmModelUse" in data(job).input).toBe(false);
+      expect((await runAnalysis(s, job.id)).status).toBe("succeeded");
+    });
+    it("a repeated AI run on unchanged text calls no model and needs no consent", async () => {
+      const line = manual().text;
+      const { job, draft } = await paidSource();
+      vi.mocked(respond).mockResolvedValue(
+        answer([
+          {
+            statement: "Shared calendars",
+            topic: "features",
+            stage: "documented",
+            reason: "Claim",
+            evidence: {
+              path: "FamilyPlan docs",
+              startLine: 1,
+              endLine: 1,
+              quote: line,
+            },
+          },
+        ]) as any,
+      );
+      await runAnalysis(s, job.id);
+      const preview = await previewDraft(s, { draftId: draft.id });
+      expect(
+        await analysisPreflight(s, { previewId: preview.id }),
+      ).toMatchObject({ ready: true, estimateMicros: 0 });
+      const next = await startAnalysis(s, { previewId: preview.id });
+      await runAnalysis(s, next.id);
+      expect(respond).toHaveBeenCalledTimes(1);
+      expect(data(await runRow(next.id))).toMatchObject({
+        status: "completed",
+        costMicros: 0,
+      });
+    });
+    it("a text without AI becomes one proposal", async () => {
+      const text = "FamilyPlan organizes calendars.\n\nIt also plans meals.";
+      const { job } = await prepare(knowledgeDraft.parse({ ...manual(), text }));
+      expect((await runAnalysis(s, job.id)).status).toBe("succeeded");
+      const rows = await proposals();
+      expect(rows).toHaveLength(1);
+      expect(data(rows[0])).toMatchObject({
+        statement: text,
+        evidence: { startLine: 1, endLine: 3, quote: text },
+      });
+      await approve(rows[0]);
+      expect(respond).not.toHaveBeenCalled();
+    });
+    it("text over 1000 characters is refused with KNOWLEDGE_TEXT_TOO_LONG", async () => {
+      const save = (text: string) =>
+        saveDraft(s, knowledgeDraft.parse({ ...manual(), text }));
+      const long = await save("x".repeat(1001));
+      const preview = await previewDraft(s, { draftId: long.id });
+      expect(
+        await analysisPreflight(s, { previewId: preview.id }),
+      ).toMatchObject({ ready: false, blockers: ["KNOWLEDGE_TEXT_TOO_LONG"] });
+      await expect(
+        startAnalysis(s, { previewId: preview.id }),
+      ).rejects.toMatchObject({ code: "KNOWLEDGE_TEXT_TOO_LONG" });
+      const file = { path: "text", text: "x".repeat(1001), hash: "h" };
+      expect(() =>
+        directTextProposals(manual(), {
+          commit: null,
+          files: [file],
+          partial: false,
+          skipped: 0,
+        }),
+      ).toThrow("KNOWLEDGE_TEXT_TOO_LONG");
+      const fits = await save("x".repeat(1000));
+      const allowed = await previewDraft(s, { draftId: fits.id });
+      const job = await startAnalysis(s, { previewId: allowed.id });
+      expect((await runAnalysis(s, job.id)).status).toBe("succeeded");
+    });
+    it("the run records costMicros", async () => {
+      routeWith(3000, 150);
+      const { job } = await paidSource();
+      expect(data(await runRow(job.id)).costMicros).toBe(0);
+      vi.mocked(respond).mockResolvedValue(answer([], 50) as any);
+      await runAnalysis(s, job.id);
+      expect(data(await runRow(job.id))).toMatchObject({
+        status: "completed",
+        costMicros: 50,
+      });
+    });
+    it("a run without AI records no cost", async () => {
+      const { job } = await prepare();
+      await runAnalysis(s, job.id);
+      expect(data(await runRow(job.id)).costMicros).toBe(0);
+    });
+    it("a cancelled run records what was settled", async () => {
+      const { job } = await paidSource();
+      let finish!: (v: any) => void;
+      vi.mocked(respond).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const running = runAnalysis(s, job.id);
+      await vi.waitFor(() => expect(respond).toHaveBeenCalledTimes(1));
+      await cancelAnalysis(s, { runId: job.id });
+      finish(answer([], 70));
+      expect((await running).status).toBe("canceled");
+      expect(data(await runRow(job.id))).toMatchObject({
+        status: "canceled",
+        costMicros: 70,
+      });
+    });
+    it("a failed run records what was settled, or 0 when the cost is open", async () => {
+      const first = await paidSource();
+      vi.mocked(respond).mockResolvedValue({
+        ...answer([], 60),
+        output: [
+          {
+            type: "message",
+            content: [{ type: "output_text", text: "not json" }],
+          },
+        ],
+      } as any);
+      expect((await runAnalysis(s, first.job.id)).errorCode).toBe(
+        "KNOWLEDGE_OUTPUT_INVALID",
+      );
+      expect(data(await runRow(first.job.id))).toMatchObject({
+        status: "failed",
+        costMicros: 60,
+      });
+      const second = await prepare({
+        ...manual(),
+        name: "Second",
+        text: "Another text.",
+        modelUse: true,
+      });
+      vi.mocked(respond).mockRejectedValue(new Error("Synthetic interruption"));
+      expect((await runAnalysis(s, second.job.id)).errorCode).toBe(
+        "KNOWLEDGE_COST_UNKNOWN",
+      );
+      expect(data(await runRow(second.job.id))).toMatchObject({
+        status: "unknown",
+        costMicros: 0,
+      });
+    });
+  });
   it("preserves confirmed knowledge after a failed source fetch", async () => {
     const { job, draft } = await prepare();
     await runAnalysis(s, job.id);
@@ -1126,8 +1686,8 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     );
   });
   it("reports a missing model key before reserving or transmitting a paid call", async () => {
-    delete process.env.OPENAI_API_KEY;
     const { job } = await paidSource();
+    delete process.env.OPENAI_API_KEY;
     expect((await runAnalysis(s, job.id)).errorCode).toBe(
       "KNOWLEDGE_MODEL_NOT_CONFIGURED",
     );

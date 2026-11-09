@@ -10,6 +10,7 @@ export const knowledgeActionPermissions = actionPermissions("knowledge", {
     "knowledge-profile-save",
     "knowledge-draft-save",
     "knowledge-draft-preview",
+    "knowledge-analysis-preflight",
     "knowledge-analysis-start",
     "knowledge-analysis-cancel",
     "knowledge-proposal-decide",

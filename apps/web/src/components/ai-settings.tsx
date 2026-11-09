@@ -1121,6 +1121,7 @@ const taskClasses = [
   { id: "pm_plan", label: "Project manager plans", defaultTokens: 12000 },
   { id: "pm_analysis", label: "Project manager reports", defaultTokens: 3000 },
   { id: "knowledge_evaluation", label: "Knowledge test questions", defaultTokens: 6000 },
+  { id: "knowledge_analysis", label: "Knowledge analysis", defaultTokens: 12000 },
   { id: "issue_triage", label: "Issue triage", defaultTokens: 1500 },
   { id: "creative_review", label: "Creative vision review", defaultTokens: 1500 },
   { id: "agent_custom", label: "Configured agents", defaultTokens: 3000 },
