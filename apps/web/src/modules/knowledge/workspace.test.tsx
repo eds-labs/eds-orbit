@@ -2327,12 +2327,34 @@ describe("plain language and the technical area", () => {
     expect(out).toContain("Unbekannt");
   });
   it("maps import errors and falls back for an unmapped code", () => {
-    expect(previewErrors([{ code: "DOCUMENTS_REQUIRED" }], "en")).not.toMatch(
-      /DOCUMENTS_REQUIRED/,
+    expect(previewErrors([{ code: "DUPLICATE_DOCUMENT" }], "en")).toBe(
+      "Duplicate document",
+    );
+    expect(previewErrors([{ code: "DUPLICATE_DOCUMENT" }], "de")).toBe(
+      "Doppeltes Dokument",
     );
     const text = previewErrors([{ code: "NEW_UNMAPPED_ERROR" }], "de");
     expect(text).toBe("Unbekannt");
     expect(expertCode("x_y", "en")).toBe("Unknown");
+  });
+  it("labels the real retrieval codes and keeps keys visible", () => {
+    expect(expertCode("audience_excluded", "de")).not.toBe("Unbekannt");
+    expect(expertCode("lexical", "en")).not.toBe("Unknown");
+    expect(expertCode("missing_fact:price", "en")).toBe("Fact missing: price");
+    expect(expertCode("conflicting_fact:price", "de")).toBe(
+      "Fakt widersprüchlich: price",
+    );
+    const uuid = "7b1d2c3e-aaaa-4bbb-8ccc-123456789abc";
+    for (const code of [
+      `stale_document:${uuid}`,
+      `document_outside_validity:${uuid}`,
+      `required_source_unavailable:${uuid}`,
+    ]) {
+      const label = expertCode(code, "de");
+      expect(label).not.toContain(uuid);
+      expect(label).not.toBe("Unbekannt");
+    }
+    expect(expertCode("something:else", "en")).toBe("Unknown");
   });
   it("EvidenceItems keeps English by default and takes labels", () => {
     const evidence = {

@@ -474,8 +474,12 @@ export function expertValue(value: unknown, locale: string): string {
   return label ? label[language] : expertCopy[language].unknown;
 }
 
-// Labels of the codes the API reports as reasons, gaps and import errors.
+// Labels of the codes the API reports: import preview errors, retrieval
+// reasons and gaps, excluded-source reasons and the retrieval branches.
 const CODES: Record<string, { de: string; en: string }> = {
+  duplicate_document: { de: "Doppeltes Dokument", en: "Duplicate document" },
+  lexical: { de: "Stichwortsuche", en: "Keyword match" },
+  semantic: { de: "Inhaltliche Nähe", en: "Semantic match" },
   insufficient_evidence: {
     de: "Nicht genug Belege",
     en: "Not enough evidence",
@@ -484,30 +488,105 @@ const CODES: Record<string, { de: string; en: string }> = {
     de: "Belege nicht für öffentliche Aussagen freigegeben",
     en: "Evidence not approved for public statements",
   },
-  fact_rows_required: {
-    de: "Der Import braucht mindestens einen Fakt",
-    en: "The import needs at least one fact",
+  source_unavailable: {
+    de: "Quelle nicht verfügbar",
+    en: "Source unavailable",
   },
-  documents_required: {
-    de: "Der Import braucht mindestens ein Dokument",
-    en: "The import needs at least one document",
+  audience_excluded: {
+    de: "Zielgruppe der Quelle schließt dieses Modul aus",
+    en: "The source's audience excludes this module",
   },
-  historical_must_be_generated: {
-    de: "Frühere Inhalte müssen als generiert gelten",
-    en: "Historical content must count as generated",
+  source_stale: { de: "Quelle veraltet", en: "Source out of date" },
+  source_rights_changed: {
+    de: "Rechte der Quelle haben sich geändert",
+    en: "The source's rights changed",
+  },
+  source_audience_changed: {
+    de: "Zielgruppe der Quelle hat sich geändert",
+    en: "The source's audience changed",
+  },
+  fact_changed_or_expired: {
+    de: "Fakt geändert oder abgelaufen",
+    en: "Fact changed or expired",
+  },
+  document_changed_or_expired: {
+    de: "Dokument geändert oder abgelaufen",
+    en: "Document changed or expired",
+  },
+  index_generation_changed: {
+    de: "Der Suchindex wurde erneuert",
+    en: "The search index was replaced",
+  },
+  chunk_unavailable: {
+    de: "Textabschnitt nicht mehr verfügbar",
+    en: "Text passage no longer available",
+  },
+  evidence_unavailable: {
+    de: "Beleg nicht mehr verfügbar",
+    en: "Evidence no longer available",
+  },
+  fact_context_limit: {
+    de: "Zu viele Fakten für den Kontext",
+    en: "Too many facts for the context",
+  },
+  generated_derived: {
+    de: "Generierte Inhalte sind keine Quelle",
+    en: "Generated content is not a source",
+  },
+  public_use_forbidden: {
+    de: "Quelle nicht für öffentliche Aussagen freigegeben",
+    en: "Source not approved for public statements",
+  },
+  model_use_forbidden: {
+    de: "Quelle darf nicht von KI verarbeitet werden",
+    en: "Source may not be processed by AI",
+  },
+};
+// Codes that carry a parameter after the colon. `key` ones keep it visible;
+// the others carry an id, which is left out.
+const PARAMETERISED: Record<
+  string,
+  { de: string; en: string; withKey?: boolean }
+> = {
+  missing_fact: { de: "Fakt fehlt", en: "Fact missing", withKey: true },
+  conflicting_fact: {
+    de: "Fakt widersprüchlich",
+    en: "Fact conflicting",
+    withKey: true,
+  },
+  stale_document: { de: "Dokument veraltet", en: "Document out of date" },
+  document_outside_validity: {
+    de: "Dokument außerhalb der Gültigkeit",
+    en: "Document outside its validity",
+  },
+  required_source_unavailable: {
+    de: "Pflichtquelle nicht verfügbar",
+    en: "Required source unavailable",
   },
 };
 
 /**
- * A reported reason, gap or error. Codes (SOME_CODE, some_code) get a label or
- * the generic one; a plain sentence is shown as it is.
+ * A reported reason, gap or error. Codes get a label or the generic one; a
+ * plain sentence is shown as it is.
  */
 export function expertCode(value: unknown, locale: string): string {
   const language = locale === "de" ? "de" : "en";
   const text = typeof value === "string" ? value : "";
   const label = CODES[text.toLowerCase()];
   if (label) return label[language];
-  return text && !/^[A-Za-z0-9]+(_[A-Za-z0-9]+)*$/.test(text) && /\s/.test(text)
+  const colon = text.indexOf(":");
+  if (colon > 0) {
+    const parameterised = PARAMETERISED[text.slice(0, colon).toLowerCase()];
+    if (parameterised) {
+      const key = text.slice(colon + 1);
+      return parameterised.withKey && key
+        ? `${parameterised[language]}: ${key}`
+        : parameterised[language];
+    }
+  }
+  return text &&
+    !/^[A-Za-z0-9]+([_:][A-Za-z0-9-]+)*$/.test(text) &&
+    /\s/.test(text)
     ? text
     : expertCopy[language].unknown;
 }
