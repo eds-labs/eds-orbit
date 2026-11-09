@@ -60,7 +60,10 @@ export function effectiveStatement(p: Entity, edit?: StatementEdit): string {
   return edit?.statement ?? String(record(p).statement ?? "");
 }
 
-/** Pending, with text and at least one audience. */
+/** The longest statement `knowledge-proposal-decide` accepts. */
+export const MAX_STATEMENT_LENGTH = 1000;
+
+/** Pending, with text, within the length limit and at least one audience. */
 export function selectable(
   p: Entity,
   drafts: Entity[],
@@ -70,6 +73,7 @@ export function selectable(
   return (
     record(p).status === "pending" &&
     effectiveStatement(p, edit).trim().length > 0 &&
+    effectiveStatement(p, edit).trim().length <= MAX_STATEMENT_LENGTH &&
     (r.marketing || r.support)
   );
 }

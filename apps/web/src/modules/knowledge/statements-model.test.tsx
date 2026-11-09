@@ -7,6 +7,7 @@ import {
   effectiveRights,
   effectiveStatement,
   groupByTopic,
+  MAX_STATEMENT_LENGTH,
   selectable,
   TOPICS,
 } from "./statements-model";
@@ -87,6 +88,14 @@ describe("statements model", () => {
     expect(selectable(proposal("a"), [], { statement: " ok " })).toBe(true);
     expect(effectiveStatement(proposal("a"), { statement: "x" })).toBe("x");
     expect(effectiveStatement(proposal("a"))).toBe("Statement a");
+  });
+
+  it("a statement over the API limit is not selectable", () => {
+    expect(MAX_STATEMENT_LENGTH).toBe(1000);
+    const at = { statement: ` ${"a".repeat(1000)} ` };
+    const over = { statement: "a".repeat(1001) };
+    expect(selectable(proposal("a"), [], at)).toBe(true);
+    expect(selectable(proposal("a"), [], over)).toBe(false);
   });
 
   it("no audience is not selectable", () => {
