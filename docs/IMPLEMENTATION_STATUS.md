@@ -1,5 +1,33 @@
 # Implementation status
 
+## Knowledge: whole sites and a short add flow (2026-11-09, delivered to `main`, not live-accepted)
+
+Spec [2026-11-08-knowledge-sites-and-add-flow-design.md](superpowers/specs/2026-11-08-knowledge-sites-and-add-flow-design.md); behaviour and first-read steps [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Risk high: a background job reads outside sites and changes content automatically. No schema change, no migration, no schema hash, no new dependency. Existing flag `ORBIT_KNOWLEDGE_WORKSPACE`.
+
+- **State:** delivered to `main` on 2026-11-09 together with Knowledge package 1 (`04d5992b`, recoverable refresh, remove and edit, deep links). A push to `main` deploys; no migration, no schema hash, no flag change. Not live-accepted: the first GitBook read in production has not happened.
+- **Built:**
+  - Reading sites: same-origin `robots.txt` redirects, XML only through `fetchDiscoveryDocument`, sitemap discovery (one index level, 200 pages), Markdown with HTML fallback.
+  - Durable runs in batches of 20 (`knowledge_site_runs`, queue class `knowledge_site_sync`), weekly update (`syncEveryHours` 168, `maxAgeHours` 336), `retireDocument`, the D-6 removal guard and the attention item `knowledge_site_review`.
+  - Six owner-only actions: `knowledge-site-discover`, `knowledge-site-start`, `knowledge-site-refresh`, `knowledge-site-settings`, `knowledge-content-accept`, `knowledge-analysis-preflight`.
+  - Own task class `knowledge_analysis` (12,000 output tokens, up to 13 statements). The start button is the consent (`confirmModelUse`).
+  - New add flow (what, Content, Use, Result), GitHub App setup on `knowledge/github`, and site runs and analysis outcomes on Sources.
+- **Rulings that shape behaviour:**
+  - A run stopped by a paused source or changed generation ends `failed` with `SOURCE_INACTIVE` (R13).
+  - D-6 counts only pages missing from discovery; when it trips nothing is retired, owner exclusions included (R14).
+  - An `initial` run retires only owner exclusions (R15).
+  - Site sources use authority `official` (R16).
+  - Only AI-configuration blockers link to Settings → AI; `MODEL_USE_FORBIDDEN` links to Sources (R17).
+  - Rights stay on the Use step for all ways; for statements they are review defaults on the draft.
+- **Verification (local, this worktree's own test database):**
+  - `pnpm lint` passes (source guard; import boundaries 0 known, none new), and so does `pnpm typecheck` (API and web).
+  - Whole vitest suite on the branch before integrating `main`: 557 files passed, 1 skipped; 5,988 tests passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
+  - `pnpm build` passes.
+  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. The worker runs for real; `knowledge-site-discover` and `knowledge-site-start` are stubbed at the network.
+  - Design detector on `apps/web/src/modules/knowledge`: no findings.
+  - Read-only sweep of the real FamilyPlan GitBook through `discoverSite` and `readSitePage`: 74 of 74 pages clean (37 de, 37 en).
+  - Not covered: a run on the real worker against a real site (site runs are covered by integration tests with stubbed fetches), a paid model call, a real Support test question. Compose and MCP were not changed, so their conformance tests were not run.
+- **Production:** no flag changed. After deployment the owner starts the first GitBook read with "Read in content" on the existing source and checks page count, language split and a Support test question. Weekly updates can be switched off per source, and pausing a source stops a run at once. Rollback needs the pre-revert step in [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md): remove `knowledge_analysis` from stored task routes first. Documents already read stay searchable until `maxAgeHours` passes, then the existing freshness warning appears.
+
 ## Marketing posts in the native Social calendar (2026-11-09, branch `claude/marketing-social-handoff`, not merged, not deployed)
 
 The first FamilyPlan run (2026-11-09, run `a12f94ef`) did not fail: both released posts were Marketing publications waiting for their 18:30 Berlin job (`intent_created`, `test: false`, no blockers), and Social only received a post when that job ran, so its calendar stayed empty. A released post is now announced in Social within seconds (`docs/SOCIAL.md`, "Announcement"), the slot's hand-off releases that same post and keeps its time, and a publication nobody claimed in time is blocked with `SLOT_EXPIRED`. A temporary error or a worker restart gives the claim back instead of failing or leaving an unknown outcome. `marketing_campaigns` and `marketing_content` report `delivery.state`, because `completed` and `reviewed` say nothing about delivery. ADR 0020 S9 is amended. No migration.

@@ -78,19 +78,22 @@ export async function knowledgeSearch(
   // MCP reads only the project's own knowledge (ADR 0014), and reads it for
   // a model, not for publication: `internal` needs the model right only
   // (Mario 2026-10-23). Every module writing public text keeps `public`.
-  options: { shared?: boolean; purpose?: "public" | "internal" } = {},
+  // `language` searches another language than the project's own.
+  options: {
+    shared?: boolean;
+    purpose?: "public" | "internal";
+    language?: string;
+  } = {},
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   const input = knowledgeSearchInput.parse(raw);
-  const language = await scoped(
-    scope.workspaceId,
-    scope.projectId,
-    async (tx) => {
+  const language =
+    options.language ??
+    (await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       });
       return project.language;
-    },
-  );
+    }));
   const request = {
     query: input.query,
     ...(input.factKeys?.length ? { factKeys: input.factKeys } : {}),

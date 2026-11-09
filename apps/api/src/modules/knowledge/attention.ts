@@ -59,6 +59,7 @@ function capped(
       id: `knowledge:${stale ? "source-stale" : "source-expiring"}:${source.id}`,
       ...time(source.expiresAt),
       params: { name: source.name },
+      link: `${SOURCES.link}?source=${source.id}`,
     }));
   const rest = sorted.slice(SOURCE_ITEMS);
   if (rest.length)
@@ -72,7 +73,7 @@ function capped(
   return items;
 }
 
-/** Stale and expiring sources; revoked sources never sync again. */
+/** Stale and expiring sources; revoked or paused ones are out of use. */
 async function sourceItems(
   tx: DbTx,
   scope: Scope,
@@ -105,6 +106,107 @@ async function sourceItems(
     ...capped(stale, "knowledge_source_stale"),
     ...capped(expiring, "knowledge_source_expiring"),
   ];
+}
+
+/** Failed runs nobody needs to review: the owner stopped them, or Knowledge is off. */
+const NOT_FOR_REVIEW = ["SOURCE_INACTIVE", "KNOWLEDGE_DISABLED"];
+
+/**
+ * Site sources whose latest run (`site.lastRunId`) failed, ended with a
+ * warning or had failed pages; a later clean run clears the item. Paused and
+ * revoked sources are out of use. At most SOURCE_ITEMS items of their own,
+ * the rest as one.
+ */
+async function siteReviewItems(
+  tx: DbTx,
+  scope: Scope,
+): Promise<AttentionItem[]> {
+  const where = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+  const rows = await tx.entity.findMany({
+    where: {
+      ...where,
+      kind: "sources",
+      data: { path: ["status"], equals: "active" },
+    },
+    select: { id: true, data: true },
+    orderBy: { createdAt: "desc" },
+    take: SOURCE_LIMIT,
+  });
+  const lastRun = new Map<string, string>();
+  for (const row of rows) {
+    const id = (data(row).site as { lastRunId?: unknown } | undefined)
+      ?.lastRunId;
+    if (typeof id === "string") lastRun.set(row.id, id);
+  }
+  if (!lastRun.size) return [];
+  const runs = new Map(
+    (
+      await tx.entity.findMany({
+        where: {
+          ...where,
+          kind: "knowledge_site_runs",
+          id: { in: [...lastRun.values()] },
+        },
+        select: { id: true, data: true },
+      })
+    ).map((run) => [run.id, data(run)]),
+  );
+  const flagged: {
+    id: string;
+    name: string;
+    since: string;
+    failed: number;
+    shrank: boolean;
+    runFailed: boolean;
+  }[] = [];
+  for (const row of rows) {
+    const run = runs.get(lastRun.get(row.id) ?? "");
+    const failed = Array.isArray(run?.failed) ? run.failed.length : 0;
+    const shrank = run?.warning === "site_shrank";
+    const runFailed = run?.status === "failed";
+    if (!run || (runFailed && NOT_FOR_REVIEW.includes(run.errorCode))) continue;
+    if (!failed && !shrank && !runFailed) continue;
+    flagged.push({
+      id: row.id,
+      name: String(data(row).name ?? ""),
+      since: String(run.completedAt ?? run.startedAt ?? ""),
+      failed,
+      shrank,
+      runFailed,
+    });
+  }
+  // The longest waiting first; the id keeps the order stable.
+  flagged.sort(
+    (a, b) => a.since.localeCompare(b.since) || (a.id < b.id ? -1 : 1),
+  );
+  const base = {
+    moduleId: "knowledge",
+    kind: "knowledge_site_review",
+    severity: "warning",
+    ...SOURCES,
+  } as const;
+  const items: AttentionItem[] = flagged.slice(0, SOURCE_ITEMS).map((f) => ({
+    ...base,
+    id: `knowledge:site-review:${f.id}`,
+    ...(f.since ? { since: f.since } : {}),
+    params: {
+      name: f.name,
+      failed: f.failed,
+      shrank: f.shrank,
+      runFailed: f.runFailed,
+    },
+    link: `${SOURCES.link}?source=${f.id}`,
+  }));
+  const rest = flagged.slice(SOURCE_ITEMS);
+  if (rest.length)
+    items.push({
+      ...base,
+      id: "knowledge:site-review:more",
+      count: rest.length,
+      ...(rest[0]!.since ? { since: rest[0]!.since } : {}),
+      params: {},
+    });
+  return items;
 }
 
 /**
@@ -176,6 +278,7 @@ export const knowledgeAttention: AttentionContribution = async (
             link: "/knowledge/review",
           },
         )),
+        ...(await siteReviewItems(tx, scope)),
       ]
     : []),
   ...(await sourceItems(tx, scope, now)),

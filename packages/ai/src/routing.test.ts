@@ -8,6 +8,7 @@ import {
   resolveRoute,
   taskClasses,
 } from "./routing.ts";
+import { anthropicCatalog } from "./provider.ts";
 
 const all = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"];
 
@@ -99,10 +100,35 @@ describe("resolveRoute", () => {
       "pm_plan",
       "pm_analysis",
       "knowledge_evaluation",
+      "knowledge_analysis",
       "issue_triage",
       "creative_review",
       "agent_custom",
     ]);
+  });
+  it("knowledge_analysis defaults to 12000 tokens", () => {
+    const runtime = {
+      verifiedModels: ["f", "s", "q", "e"],
+      modelRoutes: { fast: "f", standard: "s", quality: "q", escalation: "e" },
+    };
+    expect(defaultOutputTokens.knowledge_analysis).toBe(12000);
+    expect(legacyTier.knowledge_analysis).toBe("standard");
+    expect(resolveRoute("knowledge_analysis", runtime)).toEqual({
+      model: "s",
+      maxOutputTokens: 12000,
+    });
+    expect(anthropicCatalog.suggestedRoutes.knowledge_analysis).toBe(
+      "claude-sonnet-5-5",
+    );
+  });
+  it("starts knowledge_analysis on its default model despite a saved agent_research route", () => {
+    expect(
+      resolveRoute("knowledge_analysis", {
+        verifiedModels: ["s", "e"],
+        modelRoutes: { fast: "f", standard: "s", quality: "q", escalation: "e" },
+        taskRoutes: { agent_research: { model: "e", maxOutputTokens: 4000 } },
+      }),
+    ).toEqual({ model: "s", maxOutputTokens: 12000 });
   });
   it("rejects unverified models", () => {
     expect(() =>

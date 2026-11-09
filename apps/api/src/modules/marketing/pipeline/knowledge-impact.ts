@@ -69,14 +69,16 @@ async function revise(tx: DbTx, s: Scope, id: string, data: unknown) {
  * insights retracted, publications blocked or sent to reconciliation, and
  * dependent jobs fenced. Registered by the marketing module; it runs even
  * when marketing is disabled for the project, so content that was dormant
- * meanwhile can never be published on revoked evidence.
+ * meanwhile can never be published on revoked evidence. A document-scoped
+ * change reaches only records tied to its evidence, never by source.
  */
 export const invalidateMarketingForKnowledge: ImpactHandler = async (
   tx,
   s,
-  { sourceId, reason, purge, evidenceIds: evidence },
+  { sourceId, reason, purge, evidenceIds: evidence, documentScoped },
 ) => {
   const evidenceIds = new Set(evidence);
+  if (documentScoped && !evidenceIds.size) return { contentIds: [] };
   const all = await tx.entity.findMany({
     where: {
       ...where(s),
@@ -98,15 +100,18 @@ export const invalidateMarketingForKnowledge: ImpactHandler = async (
   );
   for (const e of all) {
     const d = e.data as Record<string, unknown>;
+    const bySource =
+      !documentScoped &&
+      (d.sourceId === sourceId ||
+        d.resourceId === sourceId ||
+        (Array.isArray(d.sourceIds) && d.sourceIds.includes(sourceId)));
     const related =
-      d.sourceId === sourceId ||
-      d.resourceId === sourceId ||
+      bySource ||
       contentIds.has(String(d.resourceId)) ||
       evidenceIds.has(String(d.resourceId)) ||
       evidenceIds.has(String(d.evidenceId)) ||
       contentIds.has(e.id) ||
-      contentIds.has(String(d.contentId)) ||
-      (Array.isArray(d.sourceIds) && d.sourceIds.includes(sourceId));
+      contentIds.has(String(d.contentId));
     if (!related) continue;
     const purged = purge && ["content", "insights"].includes(e.kind);
     let status =

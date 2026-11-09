@@ -147,8 +147,17 @@ describe("renderAttention", () => {
         moduleId: "knowledge",
         kind: "knowledge_source_stale",
         params: { name: "Website" },
+        since: "2026-11-01T10:00:00.000Z",
       }),
     ).toBe("Quelle veraltet · Website");
+    // Without an expiry the source was never read: it cannot be out of date.
+    expect(
+      de({
+        moduleId: "knowledge",
+        kind: "knowledge_source_stale",
+        params: { name: "GitBook" },
+      }),
+    ).toBe("Quelle noch nie abgerufen · GitBook");
   });
 
   it("support counts each ticket once: further and other unassigned (R20)", () => {
@@ -219,6 +228,16 @@ describe("renderAttention", () => {
     ["marketing", "marketing_run_problem", { code: "RUN_FAILED" }],
     ["knowledge", "knowledge_source_stale", { name: "Docs" }],
     ["knowledge", "knowledge_source_expiring", { name: "Docs" }],
+    [
+      "knowledge",
+      "knowledge_site_review",
+      { name: "Docs", failed: 2, shrank: false },
+    ],
+    [
+      "knowledge",
+      "knowledge_site_review",
+      { name: "Docs", failed: 0, shrank: false, runFailed: true },
+    ],
     ["knowledge", "knowledge_conflicts", {}],
     ["knowledge", "knowledge_import_failed", {}],
     ["platform", "platform_worker_down", {}],

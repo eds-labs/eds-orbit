@@ -24,8 +24,8 @@ import {
   githubRepositories,
   readRepository,
   allowedRepositoryPath,
-  containsCredentials,
 } from "../src/modules/knowledge/github.ts";
+import { containsCredentials } from "../../../packages/knowledge/src/index.ts";
 import { data, list } from "../src/shared.ts";
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 describe.skipIf(!enabled)("GitHub App knowledge sources", () => {
