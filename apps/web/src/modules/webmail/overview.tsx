@@ -66,7 +66,7 @@ export function selectMailbox(
   return { mailbox, missing: mailbox === null };
 }
 
-/** Without the right the page does not even listen for the embedded client. */
+/** Without the right the page does not act on the client's takeover request. */
 export const convertHandlerFor = <T,>(
   mailbox: Pick<WebmailMailbox, "capabilities"> | null,
   handler: T,
@@ -122,6 +122,11 @@ export function EmptyMailboxes({ t }: { t: WebmailText }) {
   return <Empty icon={Inbox} title={t.empty.title} description={t.empty.body} />;
 }
 
+/** Access is gone: words only, since reopening could not work. */
+export function WithdrawnNotice({ t, address }: { t: WebmailText; address: string }) {
+  return <Alert kind="warning">{t.embed.withdrawn(address)}</Alert>;
+}
+
 export function WebmailOverview() {
   const { project, locale } = useWorkspace();
   const shell = useShell();
@@ -131,10 +136,8 @@ export function WebmailOverview() {
     webmailPath(project.id, "/mailboxes"),
   );
   const data = resource.data;
-  const { mailbox, missing } = selectMailbox(
-    data?.mailboxes ?? [],
-    params?.get("mailbox") ?? null,
-  );
+  const requested = params?.get("mailbox") ?? null;
+  const { mailbox, missing } = selectMailbox(data?.mailboxes ?? [], requested);
   const selectedId = mailbox?.id ?? null;
   const canConvert = mailbox?.capabilities.convert ?? false;
 
@@ -143,6 +146,21 @@ export function WebmailOverview() {
     reference: ConvertReference;
   } | null>(null);
   const [managing, setManaging] = useState(false);
+  const [withdrawn, setWithdrawn] = useState<{
+    id: string;
+    address: string;
+  } | null>(null);
+
+  const refreshMailboxes = resource.refresh;
+  const onWithdrawn = useCallback(
+    (lost: { id: string; address: string }) => {
+      setWithdrawn(lost);
+      refreshMailboxes();
+    },
+    [refreshMailboxes],
+  );
+  // Choosing a mailbox is the member's own step, so it may open one again.
+  useEffect(() => setWithdrawn(null), [requested]);
 
   // While a dialog is open a further request is ignored, not queued.
   const onConvert = useCallback(
@@ -168,6 +186,12 @@ export function WebmailOverview() {
     convert && convert.mailboxId === selectedId ? convert : null;
   const base = shell.hrefOf("webmail");
 
+  // A mailbox the refetched list still shows does not reopen by itself: the
+  // client would refuse again and this would loop.
+  const blocked = withdrawn !== null && withdrawn.id === selectedId;
+  const withdrawnNotice = withdrawn && (
+    <WithdrawnNotice t={t} address={withdrawn.address} />
+  );
   const head = (
     <PageHead eyebrow={t.eyebrow} title={t.title} description={t.intro} />
   );
@@ -201,6 +225,7 @@ export function WebmailOverview() {
     return (
       <>
         {head}
+        {withdrawnNotice}
         <EmptyMailboxes t={t} />
       </>
     );
@@ -216,7 +241,10 @@ export function WebmailOverview() {
           hrefOf={(id) => `${base}?mailbox=${encodeURIComponent(id)}`}
         />
         <div className={styles.main}>
-          {missing && <Alert kind="warning">{t.notAvailable}</Alert>}
+          {withdrawnNotice}
+          {missing && !withdrawn && (
+            <Alert kind="warning">{t.notAvailable}</Alert>
+          )}
           {mailbox?.capabilities.manage && (
             <div className={styles.mainActions}>
               <Button
@@ -234,7 +262,7 @@ export function WebmailOverview() {
           {mailbox && mailbox.status !== "disabled" && !mailbox.capabilities.read && (
             <Alert kind="info">{t.noRead}</Alert>
           )}
-          {mailbox && mailbox.status !== "disabled" && mailbox.capabilities.read && (
+          {mailbox && !blocked && mailbox.status !== "disabled" && mailbox.capabilities.read && (
             <WebmailEmbed
               t={t}
               projectId={project.id}
@@ -242,6 +270,7 @@ export function WebmailOverview() {
               address={mailbox.address}
               origin={data.origin}
               onConvert={convertHandlerFor(mailbox, onConvert)}
+              onWithdrawn={onWithdrawn}
             />
           )}
         </div>

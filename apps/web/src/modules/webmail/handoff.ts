@@ -1,5 +1,10 @@
 import { ApiError } from "@/lib/api";
 import type { HandoffSession } from "./api";
+import {
+  sessionKept,
+  type SessionKeptReason,
+  type SessionLostReason,
+} from "./bridge";
 
 // Opens a mailbox in the embedded client (ADR 0026, E4): one POST for a
 // one-time token, one form posted into the frame. The token only ever exists
@@ -20,10 +25,17 @@ export type EmbedFailure =
   | "unavailable"
   | "timeout";
 
+export type SessionEndedReason = Exclude<
+  SessionLostReason,
+  SessionKeptReason | "not_authorized"
+>;
+
 export type EmbedState =
   | { phase: "requesting" }
   | { phase: "loading" }
-  | { phase: "ready" }
+  /** The client is up; a banner says a page could not be shown just now. */
+  | { phase: "ready"; banner?: SessionKeptReason }
+  | { phase: "ended"; reason: SessionEndedReason }
   | { phase: "error"; reason: EmbedFailure };
 
 /** What a failed session request means for the member. */
@@ -118,16 +130,21 @@ export type EmbedDeps = {
   submit: (session: HandoffSession) => void;
   end: () => Promise<unknown>;
   onState: (state: EmbedState) => void;
+  /** The member's access is gone; the page takes over from here. */
+  onWithdrawn: () => void;
   timeoutMs?: number;
 };
 
 /** One attempt to open a mailbox: a fresh token every time, none reused. */
 export function startEmbed(deps: EmbedDeps) {
   let cancelled = false;
-  let awaitingLoad = false;
+  // "waiting" lasts from the submit until the client's first message.
+  let stage: "before" | "waiting" | "open" | "closed" = "before";
+  let banner = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const fail = (reason: EmbedFailure) => {
+    stage = "closed";
     if (!cancelled) deps.onState({ phase: "error", reason });
   };
 
@@ -147,12 +164,9 @@ export function startEmbed(deps: EmbedDeps) {
           fail("token");
           return true;
         }
-        awaitingLoad = true;
+        stage = "waiting";
         deps.onState({ phase: "loading" });
-        timer = setTimeout(() => {
-          awaitingLoad = false;
-          fail("timeout");
-        }, deps.timeoutMs ?? LOAD_TIMEOUT_MS);
+        timer = setTimeout(() => fail("timeout"), deps.timeoutMs ?? LOAD_TIMEOUT_MS);
         return true;
       },
       (error) => {
@@ -163,17 +177,42 @@ export function startEmbed(deps: EmbedDeps) {
   });
 
   return {
-    /** The frame's load event; the frame's first blank load comes too early. */
-    loaded() {
-      if (!awaitingLoad || cancelled) return;
-      awaitingLoad = false;
+    /**
+     * The client rendered a page of a live session. It says so on every page,
+     * so this is the only success signal: a frame's load event also fires for
+     * error pages and blocked sign-ins.
+     */
+    ready() {
+      if (stage === "waiting") clearTimeout(timer);
+      else if (stage !== "open" || !banner) return;
+      stage = "open";
+      banner = false;
+      deps.onState({ phase: "ready" });
+    },
+    sessionLost(reason: SessionLostReason) {
+      if (stage !== "waiting" && stage !== "open") return;
       clearTimeout(timer);
+      if (sessionKept(reason)) {
+        // The frame answered, so embedding works: show it with the banner.
+        stage = "open";
+        banner = true;
+        deps.onState({ phase: "ready", banner: reason });
+        return;
+      }
+      stage = "closed";
+      if (reason === "not_authorized") deps.onWithdrawn();
+      else deps.onState({ phase: "ended", reason });
+    },
+    /** The member retries from the banner; the session itself is still there. */
+    clearBanner() {
+      if (stage !== "open" || !banner) return;
+      banner = false;
       deps.onState({ phase: "ready" });
     },
     /** Leaves this attempt and ends its session once it is known to exist. */
     cancel() {
       cancelled = true;
-      awaitingLoad = false;
+      stage = "closed";
       clearTimeout(timer);
       deps.queue.add(async () => {
         if (await created) await deps.end();

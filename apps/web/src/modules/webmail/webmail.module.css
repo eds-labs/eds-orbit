@@ -74,6 +74,15 @@
   display: grid;
   gap: 8px;
 }
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.banner > :first-child {
+  flex: 1 1 260px;
+}
 .frameWrap {
   position: relative;
   overflow: hidden;
@@ -98,7 +107,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
 }
 .frameHint p {

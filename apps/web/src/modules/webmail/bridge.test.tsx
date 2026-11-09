@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   acceptBridgeEvent,
-  listenForConvert,
+  listenToBridge,
+  parseBridgeMessage,
   parseConvertLink,
   parseConvertMessage,
+  sessionKept,
 } from "./bridge";
 
 const ORIGIN = "https://webmail.orbit.example.com";
@@ -37,12 +39,64 @@ describe("convert message shape", () => {
   });
 });
 
+describe("ready and session_lost shapes", () => {
+  const ready = { type: "orbit.webmail.ready" };
+  const lost = (reason: unknown) => ({ type: "orbit.webmail.session_lost", reason });
+
+  it("accepts ready", () => {
+    expect(parseBridgeMessage(ready)).toEqual({ kind: "ready" });
+  });
+
+  it.each([
+    "session_unknown",
+    "session_revoked",
+    "session_expired",
+    "not_authorized",
+    "no_session",
+    "handoff_failed",
+    "mailbox_unavailable",
+    "bridge_unavailable",
+  ])("accepts the reason %s", (reason) => {
+    expect(parseBridgeMessage(lost(reason))).toEqual({ kind: "session_lost", reason });
+  });
+
+  it("tells the reasons that keep the session from those that end it", () => {
+    expect(sessionKept("mailbox_unavailable")).toBe(true);
+    expect(sessionKept("bridge_unavailable")).toBe(true);
+    expect(sessionKept("session_expired")).toBe(false);
+    expect(sessionKept("not_authorized")).toBe(false);
+  });
+
+  it.each([
+    ["ready with an extra key", { ...ready, session: "x" }],
+    ["session_lost without a reason", { type: "orbit.webmail.session_lost" }],
+    ["an unknown reason", lost("server_on_fire")],
+    ["a prototype key as reason", lost("constructor")],
+    ["a reason that is not text", lost(7)],
+    ["session_lost with an extra key", { ...lost("no_session"), detail: "x" }],
+    ["a look-alike type", { type: "orbit.webmail.ready2" }],
+    ["convert's fields on ready", { type: "orbit.webmail.ready", folder: "INBOX", uid: 1, uidValidity: 2 }],
+  ])("ignores %s", (_name, data) => {
+    expect(parseBridgeMessage(data)).toBeNull();
+  });
+});
+
 describe("bridge events", () => {
   const event = (over: Record<string, unknown> = {}) =>
     ({ origin: ORIGIN, source: frame, data: good, ...over }) as unknown as MessageEvent;
 
   it("accepts the frame's message from the exact origin", () => {
-    expect(acceptBridgeEvent(event(), ORIGIN, frame)).toEqual(reference);
+    expect(acceptBridgeEvent(event(), ORIGIN, frame)).toEqual({ kind: "convert", reference });
+  });
+
+  it.each([
+    ["ready", { type: "orbit.webmail.ready" }],
+    ["session_lost", { type: "orbit.webmail.session_lost", reason: "no_session" }],
+  ])("holds %s to the same origin and source checks", (_name, data) => {
+    expect(acceptBridgeEvent(event({ data }), ORIGIN, frame)).not.toBeNull();
+    expect(acceptBridgeEvent(event({ data, origin: "https://evil.example.com" }), ORIGIN, frame)).toBeNull();
+    expect(acceptBridgeEvent(event({ data, source: other }), ORIGIN, frame)).toBeNull();
+    expect(acceptBridgeEvent(event({ data }), ORIGIN, null)).toBeNull();
   });
 
   it.each([
@@ -69,33 +123,33 @@ describe("bridge events", () => {
 
   it("calls back for a valid event only and stops after removal", () => {
     const target = new EventTarget();
-    const onConvert = vi.fn();
-    const stop = listenForConvert(target as never, ORIGIN, () => frame, onConvert);
+    const onMessage = vi.fn();
+    const stop = listenToBridge(target as never, ORIGIN, () => frame, onMessage);
 
     post(target, { origin: "https://evil.example.com" });
     post(target, { source: other });
     post(target, { data: "nonsense" });
-    expect(onConvert).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
 
     post(target, {});
-    expect(onConvert).toHaveBeenCalledTimes(1);
-    expect(onConvert).toHaveBeenCalledWith(reference);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledWith({ kind: "convert", reference });
 
     stop();
     post(target, {});
-    expect(onConvert).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledTimes(1);
   });
 
   it("checks against the frame of the moment", () => {
     const target = new EventTarget();
-    const onConvert = vi.fn();
+    const onMessage = vi.fn();
     let current: Window | null = other;
-    listenForConvert(target as never, ORIGIN, () => current, onConvert);
+    listenToBridge(target as never, ORIGIN, () => current, onMessage);
     post(target, {});
-    expect(onConvert).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
     current = frame;
     post(target, {});
-    expect(onConvert).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledTimes(1);
   });
 });
 
