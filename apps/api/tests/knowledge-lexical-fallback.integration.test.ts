@@ -62,6 +62,17 @@ describe.skipIf(!enabled)("Knowledge search without embeddings", () => {
     expect(again.id).toBe(evidence.id);
   });
 
+  it("returns a stored search that found nothing to a retried job", async () => {
+    // A retried Support draft repeats a first search that found nothing
+    // before it falls back to another language.
+    const jobKey = `lexical:${randomUUID()}`;
+    const nothing = { ...request(), query: "zzzqqqxxy nonexistent topic" };
+    const evidence = await retrieveHybrid(project.owner, nothing, jobKey);
+    expect(data(evidence).status).toBe("insufficient_evidence");
+    const again = await retrieveHybrid(project.owner, nothing, jobKey);
+    expect(again.id).toBe(evidence.id);
+  });
+
   it("tells cost estimates that this index buys no query embedding", async () => {
     // Draft proposals price a query embedding only for an embedded index:
     // FamilyPlan's drafts failed with CURRENT_PRICE_REQUIRED without one.

@@ -668,8 +668,8 @@ const GAP_NOTE_DE =
 
 /**
  * The content language to search for this ticket: what triage recorded for
- * the customer, as one of the project's content languages. Without one the
- * search keeps the project's own language.
+ * the customer, when it is another of the project's content languages.
+ * Without one the search keeps the project's own language.
  */
 async function ticketContentLanguage(scope: Scope, ticketId: string) {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
@@ -680,15 +680,61 @@ async function ticketContentLanguage(scope: Scope, ticketId: string) {
       }),
       tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
-        select: { contentLanguages: true },
+        select: { language: true, contentLanguages: true },
       }),
     ]);
     const recorded = (triaged?.after as { language?: unknown } | null)
       ?.language;
     if (typeof recorded !== "string") return undefined;
     const base = recorded.toLowerCase().split(/[-_]/)[0];
-    return project.contentLanguages.find((l) => l.toLowerCase() === base);
+    const match = project.contentLanguages.find(
+      (l) => l.toLowerCase() === base,
+    );
+    return match === project.language ? undefined : match;
   });
+}
+
+type DraftEvidence = {
+  status: string;
+  retrieval?: { evidenceId?: string };
+  facts?: Array<{ id: string; key: string; value: unknown }>;
+  passages?: Array<{ chunkId: string; title: string; text: string }>;
+};
+
+/**
+ * The knowledge a draft may use: searched in the customer's language, and in
+ * the project's own when that language holds no answer, so a configured
+ * language without content still gets a draft. Each search keeps its own job
+ * key and every evidence pack is noted at once for the scrub after the run.
+ */
+async function searchDraftKnowledge(
+  scope: Scope,
+  ticketId: string,
+  query: string,
+  run: RunOptions,
+) {
+  const retrievalJobKey = `support:${ticketId}:retrieval:${run.attemptKey}`;
+  const search = async (jobKey: string, options: { language?: string }) => {
+    const found = await knowledgeSearch(
+      scope,
+      { query },
+      { retrievalJobKey: jobKey, budgetRunKey: `support:${ticketId}` },
+      "support",
+      undefined,
+      options,
+    );
+    const evidence = found.result as DraftEvidence;
+    if (evidence.retrieval?.evidenceId)
+      run.state.evidenceIds.push(evidence.retrieval.evidenceId);
+    return { result: found.result, evidence };
+  };
+  const language = await ticketContentLanguage(scope, ticketId);
+  if (!language) return search(retrievalJobKey, {});
+  const inTicketLanguage = await search(retrievalJobKey, { language });
+  const { status, facts, passages } = inTicketLanguage.evidence;
+  return status === "ready" && (facts?.length || passages?.length)
+    ? inTicketLanguage
+    : search(`${retrievalJobKey}:project-language`, {});
 }
 
 /** What a draft run did, for the agent tool. */
@@ -783,25 +829,8 @@ async function draft(
     0,
     2000,
   );
-  const language = await ticketContentLanguage(scope, ticketId);
-  const search = await knowledgeSearch(
-    scope,
-    { query },
-    {
-      retrievalJobKey: `support:${ticketId}:retrieval:${run.attemptKey}`,
-      budgetRunKey: `support:${ticketId}`,
-    },
-    "support",
-    undefined,
-    language ? { language } : {},
-  );
-  const evidence = search.result as {
-    status: string;
-    retrieval?: { evidenceId?: string };
-    facts?: Array<{ id: string; key: string; value: unknown }>;
-    passages?: Array<{ chunkId: string; title: string; text: string }>;
-  };
-  run.state.evidenceId = evidence.retrieval?.evidenceId;
+  const search = await searchDraftKnowledge(scope, ticketId, query, run);
+  const { evidence } = search;
   const knowledgeIds = [
     ...(evidence.facts ?? []).map((f) => `fact:${f.id}`),
     ...(evidence.passages ?? []).map((p) => `chunk:${p.chunkId}`),
@@ -913,7 +942,7 @@ async function draftAccountEvidence(
 type RunOptions = {
   attemptKey: string;
   manual: boolean;
-  state: { paid: boolean; evidenceId?: string };
+  state: { paid: boolean; evidenceIds: string[] };
 };
 
 /**
@@ -933,7 +962,7 @@ export async function runSupportTask(
   const run: RunOptions = {
     attemptKey: input.attemptKey ?? randomUUID(),
     manual: input.manual === true,
-    state: { paid: false },
+    state: { paid: false, evidenceIds: [] },
   };
   try {
     return input.task === "triage"
@@ -950,8 +979,8 @@ export async function runSupportTask(
       throw new DomainError("SUPPORT_TASK_NOT_RETRIED", 409);
     throw error;
   } finally {
-    if (run.state.evidenceId)
-      await scrubEvidence(scope, run.state.evidenceId).catch(() => undefined);
+    for (const evidenceId of run.state.evidenceIds)
+      await scrubEvidence(scope, evidenceId).catch(() => undefined);
   }
 }
 
