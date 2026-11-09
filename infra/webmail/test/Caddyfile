@@ -1,0 +1,32 @@
+{
+	admin off
+	auto_https off
+}
+
+(certs) {
+	tls /certs/site.crt /certs/site.key
+}
+
+{$E2E_APEX}:443 {
+	import certs
+	reverse_proxy web:4310 {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+webmail.{$E2E_APEX}:443 {
+	import certs
+	reverse_proxy webmail:8000 {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+# Hostile mail points here; a test fails if anything ever lands in this log.
+tracker.{$E2E_APEX}:443 {
+	import certs
+	log {
+		output file /results/tracker.log
+		format json
+	}
+	respond "tracked" 200
+}
