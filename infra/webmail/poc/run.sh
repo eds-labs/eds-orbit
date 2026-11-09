@@ -31,7 +31,23 @@ generate_env() {
         echo "POC_CONTROL_SECRET=$(hex 32)"
         echo "POC_ALICE_PASSWORD=$(hex 24)"
         echo "POC_BOB_PASSWORD=$(hex 24)"
+        echo "POC_CAROL_PASSWORD=$(hex 24)"
     } > "$WORK/env"
+}
+
+# The account file docker-mailserver reads at start; only the password hash is stored.
+generate_mail_accounts() {
+    local dir="$WORK/mail-starttls" hash
+    mkdir -p "$dir"
+    [[ -f "$dir/postfix-accounts.cf" ]] && return
+    # shellcheck disable=SC1091
+    source "$WORK/env"
+    hash=$(docker run --rm --entrypoint doveadm "$(starttls_image)" pw -s SHA512-CRYPT -p "$POC_CAROL_PASSWORD")
+    printf 'carol@starttls.test|%s\n' "$hash" > "$dir/postfix-accounts.cf"
+}
+
+starttls_image() {
+    sed -n 's/^ *image: \(mailserver\/docker-mailserver.*\)$/\1/p' compose.yml
 }
 
 issue_cert() { # name cn san...
@@ -53,11 +69,12 @@ generate_certs() {
     issue_cert site orbit.test \
         "DNS:orbit.test,DNS:webmail.orbit.test,DNS:evil.orbit.test,DNS:tracker.orbit.test,DNS:orbit.example.com,DNS:webmail.orbit.example.com,DNS:evil.orbit.example.com,DNS:tracker.orbit.example.com"
     issue_cert mail mail.test "DNS:mail.test"
+    issue_cert mail-starttls mail-starttls.test "DNS:mail-starttls.test"
     openssl pkcs12 -export -name greenmail -in "$dir/mail.crt" -inkey "$dir/mail.key" \
         -out "$dir/mail.p12" -passout pass:changeit \
         -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES 2>/dev/null
     chmod 644 "$dir"/*.crt "$dir"/*.p12
-    chmod 644 "$dir/site.key"
+    chmod 644 "$dir/site.key" "$dir/mail-starttls.key"
 }
 
 compose() {
@@ -67,7 +84,8 @@ compose() {
 cmd_up() {
     generate_env
     generate_certs
-    compose up -d --build --wait --wait-timeout 180
+    generate_mail_accounts
+    compose up -d --build --wait --wait-timeout 240
 }
 
 cmd_test() {
@@ -81,7 +99,7 @@ cmd_checks() {
 
 cmd_down() {
     [[ -f "$WORK/env" ]] || generate_env
-    compose --profile tests down -v --remove-orphans
+    compose --profile tests --profile isolated down -v --remove-orphans
 }
 
 case "${1:-all}" in

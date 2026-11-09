@@ -33,13 +33,16 @@
       "200": {
         "ok": true,
         "capabilities": ["read", "send", "organize", "convert"],
+        "projectId": "optional, not yet in bridge-contract.ts; needed for the convert link of a page that is not embedded",
         "email": "mailbox address, used for the identity and the From check",
         "displayName": "mailbox display name",
         "imap": "serverTarget",
         "smtp": "serverTarget"
       },
-      "401": { "ok": false, "error": "session_unknown | session_revoked" },
-      "notes": "Called once per PHP request and memoized for the action check, IMAP and SMTP."
+      "401": { "ok": false, "error": "session_unknown | session_revoked | session_expired" },
+      "403": { "ok": false, "error": "not_authorized" },
+      "503": { "ok": false, "error": "mailbox_unavailable" },
+      "notes": "Called once per PHP request and memoized for the action check, IMAP and SMTP. The plugin reads the error code from the body whatever the non-200 status."
     },
     "/v1/session/barrier": {
       "request": {
@@ -64,6 +67,16 @@
   },
   "webmailToParent": {
     "convert": { "type": "orbit.webmail.convert", "folder": "IMAP folder name", "uid": "integer", "uidValidity": "integer" },
+    "ready": {
+      "type": "orbit.webmail.ready",
+      "notes": "Sent whenever a top-level Roundcube page of a live session finished rendering, so more than once per session."
+    },
+    "convertWhenNotEmbedded": "<orbit origin>/p/<projectId>/webmail?mailbox=<mailboxId>&convert=1&folder=<folder>&uid=<uid>&uidValidity=<uidValidity>, opened as a link instead of a message, every value URL-encoded",
+    "sessionLost": {
+      "type": "orbit.webmail.session_lost",
+      "reason": "session_unknown | session_revoked | session_expired | not_authorized | mailbox_unavailable | bridge_unavailable | no_session | handoff_failed",
+      "notes": "mailbox_unavailable and bridge_unavailable leave the Roundcube session intact and are only sent when a full page could not be shown; everything else ended the session. Roundcube's background polling never sends a temporary reason."
+    },
     "targetOrigin": "the configured Orbit origin, never *"
   }
 }

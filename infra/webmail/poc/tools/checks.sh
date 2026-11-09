@@ -18,6 +18,10 @@ expect() { # description expected actual
     if [[ "$2" == "$3" ]]; then pass "$1 ($3)"; else fail "$1: expected '$2', got '$3'"; fi
 }
 
+positive() { # description actual
+    if [[ "$2" -gt 0 ]]; then pass "$1 ($2)"; else fail "$1: expected more than 0"; fi
+}
+
 section() { printf '\n== %s\n' "$1"; }
 
 count_secret_in_stream() { # stdin; prints occurrences of either mailbox password
@@ -52,31 +56,71 @@ g4_config() {
         "$(compose logs --no-log-prefix caddy 2>&1 | grep -c '"host":"tracker\.' || true)"
 }
 
+g4_readonly() {
+    section 'G4 read-only filesystem'
+    expect 'root filesystem is mounted read-only' true \
+        "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$PROJECT-roundcube-1")"
+    expect 'the docroot is not writable' denied \
+        "$(compose exec -T roundcube php -r 'echo @file_put_contents("/var/www/html/probe","x")===false?"denied":"written";')"
+    expect 'the docroot is owned by root' 0 \
+        "$(compose exec -T roundcube php -r 'echo fileowner("/var/www/html/index.php");')"
+    expect 'composer is not in the image' false \
+        "$(compose exec -T roundcube php -r 'echo is_file("/usr/local/bin/composer")?"true":"false";')"
+}
+
+table_count() {
+    compose exec -T webmail-db psql -U roundcube -d roundcubemail -Atc \
+        "select count(*) from information_schema.tables where table_schema='public'"
+}
+
+composer_lines_since() { # since service
+    compose logs --no-log-prefix --since "$1" "$2" 2>&1 | grep -ci composer || true
+}
+
 g4_restart() {
     section 'G4 idempotent restart'
-    local before_tables after_tables
-    before_tables=$(compose exec -T webmail-db psql -U roundcube -d roundcubemail -Atc \
-        "select count(*) from information_schema.tables where table_schema='public'")
-    local since
+    local before_tables after_tables since
+    before_tables=$(table_count)
     since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     compose restart roundcube >/dev/null 2>&1
     compose up -d --wait --wait-timeout 180 roundcube >/dev/null 2>&1
-    echo '-- log after restart --'
-    docker logs --since "$since" "$PROJECT-roundcube-1" 2>&1 | grep -E 'found in|Nothing to install|Checking for database|update|error|rror' | head -20
+    expect 'log lines mentioning composer after restart' 0 "$(composer_lines_since "$since" roundcube)"
 
     since=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     compose up -d --force-recreate --wait --wait-timeout 180 roundcube >/dev/null 2>&1
-    echo '-- log after recreate --'
-    docker logs --since "$since" "$PROJECT-roundcube-1" 2>&1 | grep -E 'copying|copied|Checking for database|Creating database|rror' | head -20
+    expect 'log lines mentioning composer after recreate' 0 "$(composer_lines_since "$since" roundcube)"
 
-    after_tables=$(compose exec -T webmail-db psql -U roundcube -d roundcubemail -Atc \
-        "select count(*) from information_schema.tables where table_schema='public'")
+    after_tables=$(table_count)
     expect 'table count is unchanged by restart and recreate' "$before_tables" "$after_tables"
     expect 'container is healthy after recreate' healthy \
         "$(docker inspect -f '{{.State.Health.Status}}' "$PROJECT-roundcube-1")"
     expect 'schema version row exists' 1 "$(compose exec -T webmail-db psql -U roundcube -d roundcubemail -Atc \
         "select count(*) from system where name='roundcube-version'")"
+}
+
+g4_no_egress() {
+    section 'G4 start and restart without egress'
+    compose --profile isolated up -d --wait --wait-timeout 180 roundcube-isolated >/dev/null 2>&1
+    expect 'fresh container on the internal network only is healthy' healthy \
+        "$(docker inspect -f '{{.State.Health.Status}}' "$PROJECT-roundcube-isolated-1")"
+    expect 'it has no default route' false \
+        "$(compose --profile isolated exec -T roundcube-isolated php -r '$s=@fsockopen("1.1.1.1",443,$e,$m,3); echo $s?"true":"false";')"
+
+    compose --profile isolated restart roundcube-isolated >/dev/null 2>&1
+    compose --profile isolated up -d --wait --wait-timeout 180 roundcube-isolated >/dev/null 2>&1
+    expect 'it is healthy after a restart' healthy \
+        "$(docker inspect -f '{{.State.Health.Status}}' "$PROJECT-roundcube-isolated-1")"
+    compose --profile isolated rm -fsv roundcube-isolated >/dev/null 2>&1
+}
+
+g10_starttls() {
+    section 'G10 STARTTLS in the server logs'
+    local logs
+    logs=$(compose logs --no-log-prefix mail-starttls 2>&1)
+    positive 'Dovecot logins over TLS' "$(grep -c 'imap-login: Login: .*TLS' <<<"$logs" || true)"
+    positive 'Postfix TLS sessions on submission' "$(grep -c 'TLS connection established from' <<<"$logs" || true)"
+    expect 'plaintext IMAP logins' 0 "$(grep 'imap-login: Login:' <<<"$logs" | grep -vc 'TLS' || true)"
 }
 
 g5_inventory() {
@@ -117,9 +161,12 @@ g7() {
 
 g1
 g4_config
+g4_readonly
 g5_inventory
 g7
+g10_starttls
 g4_restart
+g4_no_egress
 
 printf '\nFAILED=%s\n' "$FAILED"
 exit "$((FAILED > 0))"

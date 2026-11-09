@@ -3,11 +3,15 @@
 /**
  * HTTP client for the internal Orbit webmail bridge.
  *
- * Every endpoint is a POST with a JSON body and bearer authentication. Any transport,
- * status or decoding failure returns null so callers can fail closed.
+ * Every endpoint is a POST with a JSON body and bearer authentication. Failures come
+ * back as ['ok' => false, 'error' => <code>] so callers can fail closed and still tell
+ * the member what happened: a code the bridge sent, or UNAVAILABLE when no usable
+ * answer arrived.
  */
 class orbit_bridge_client
 {
+    public const UNAVAILABLE = 'bridge_unavailable';
+
     private const TIMEOUT_SECONDS = 5;
 
     private $http;
@@ -21,12 +25,12 @@ class orbit_bridge_client
         $this->secret = $secret;
     }
 
-    public function consumeHandoff(string $token, string $origin): ?array
+    public function consumeHandoff(string $token, string $origin): array
     {
         return $this->post('/v1/handoff/consume', ['token' => $token, 'origin' => $origin]);
     }
 
-    public function authorize(string $handle, string $task, string $action): ?array
+    public function authorize(string $handle, string $task, string $action): array
     {
         return $this->post('/v1/session/authorize', [
             'handle' => $handle,
@@ -35,7 +39,7 @@ class orbit_bridge_client
         ]);
     }
 
-    public function barrier(string $handle, array $request): ?array
+    public function barrier(string $handle, array $request): array
     {
         return $this->post('/v1/session/barrier', ['handle' => $handle] + $request);
     }
@@ -45,7 +49,7 @@ class orbit_bridge_client
         $this->post('/v1/session/end', ['handle' => $handle, 'reason' => $reason]);
     }
 
-    private function post(string $path, array $body): ?array
+    private function post(string $path, array $body): array
     {
         try {
             $response = $this->http->post($this->baseUrl . $path, [
@@ -57,15 +61,25 @@ class orbit_bridge_client
             ]);
         } catch (\Throwable $e) {
             rcube::raise_error(['code' => 500, 'message' => 'orbit_bridge: bridge unreachable'], true, false);
-            return null;
-        }
 
-        if ($response->getStatusCode() !== 200) {
-            return null;
+            return self::refusal(self::UNAVAILABLE);
         }
 
         $data = json_decode((string) $response->getBody(), true);
 
-        return is_array($data) ? $data : null;
+        if (!is_array($data)) {
+            return self::refusal(self::UNAVAILABLE);
+        }
+
+        if ($response->getStatusCode() !== 200) {
+            return self::refusal(is_string($data['error'] ?? null) ? $data['error'] : self::UNAVAILABLE);
+        }
+
+        return $data;
+    }
+
+    private static function refusal(string $code): array
+    {
+        return ['ok' => false, 'error' => $code];
     }
 }

@@ -32,6 +32,7 @@ export async function bridgeCalls(endpoint?: string): Promise<any[]> {
 export async function resetBridge() {
     await control('/log/reset');
     await control('/barrier', { status: 'ok' });
+    await control('/authorize-failure', {});
 }
 
 /** The frame that shows Roundcube once a session exists. */
@@ -97,6 +98,10 @@ export async function ajaxGet(frame: Frame, task: string, action: string, query 
         },
         { task, action, query },
     );
+}
+
+export function lostMessages(page: Page): Promise<any[]> {
+    return page.evaluate(() => (window as any).lost);
 }
 
 export function trackPageErrors(page: Page): string[] {

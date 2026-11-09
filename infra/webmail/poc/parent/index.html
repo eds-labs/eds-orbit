@@ -17,15 +17,21 @@
     const iframe = document.getElementById('webmail');
 
     window.received = [];
+    window.lost = [];
+    window.ready = [];
     window.ignored = [];
 
     window.addEventListener('message', (event) => {
         const isFromWebmail = event.origin === WEBMAIL_ORIGIN && event.source === iframe.contentWindow;
-        if (!isFromWebmail || event.data?.type !== 'orbit.webmail.convert') {
+        if (isFromWebmail && event.data?.type === 'orbit.webmail.convert') {
+            window.received.push(event.data);
+        } else if (isFromWebmail && event.data?.type === 'orbit.webmail.session_lost') {
+            window.lost.push(event.data);
+        } else if (isFromWebmail && event.data?.type === 'orbit.webmail.ready') {
+            window.ready.push(event.data);
+        } else {
             window.ignored.push({ origin: event.origin, type: event.data?.type });
-            return;
         }
-        window.received.push(event.data);
     });
 
     form.action = params.get('target') === 'echo'

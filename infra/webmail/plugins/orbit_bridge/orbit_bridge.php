@@ -18,12 +18,35 @@ class orbit_bridge extends rcube_plugin
     private const PLACEHOLDER_HOST = 'orbit.invalid';
     private const CONVERT_COMMAND = 'plugin.orbit_bridge.convert';
     private const REFERENCE_ACTION = 'plugin.orbit_bridge.convert_reference';
+    private const REFERENCE_FAILED_ACTION = 'plugin.orbit_bridge.convert_failed';
+    private const SESSION_LOST_ACTION = 'plugin.orbit_bridge.session_lost';
     private const AUTHORIZATION_UNSET = false;
+
+    private const REASON_NO_SESSION = 'no_session';
+    private const REASON_HANDOFF_FAILED = 'handoff_failed';
+
+    // The session stays intact, so the next request can succeed without a new handoff.
+    private const TEMPORARY_REASONS = ['mailbox_unavailable', orbit_bridge_client::UNAVAILABLE];
+
+    private const REASON_MESSAGES = [
+        'session_unknown' => 'sessionended',
+        'session_revoked' => 'sessionended',
+        'session_expired' => 'sessionended',
+        'not_authorized' => 'notauthorized',
+        'mailbox_unavailable' => 'mailboxunavailable',
+        orbit_bridge_client::UNAVAILABLE => 'bridgeunavailable',
+        self::REASON_NO_SESSION => 'openfromorbit',
+        self::REASON_HANDOFF_FAILED => 'openfromorbit',
+    ];
+
+    private const SEEN_FLAG_NEVER = -1;
+    private const MDN_REQUESTS_IGNORE = 2;
 
     private $rcmail;
     private $bridge;
     private $policy;
     private $loginHandle;
+    private $refusal = self::REASON_HANDOFF_FAILED;
     private $authorization = self::AUTHORIZATION_UNSET;
 
     public function init()
@@ -34,7 +57,10 @@ class orbit_bridge extends rcube_plugin
             (string) $this->rcmail->config->get('orbit_bridge_url'),
             (string) $this->rcmail->config->get('orbit_bridge_secret')
         );
-        $this->policy = new orbit_bridge_policy(require __DIR__ . '/actions.inc.php');
+        $this->policy = new orbit_bridge_policy(
+            require __DIR__ . '/actions.inc.php',
+            require __DIR__ . '/commands.inc.php'
+        );
 
         $this->add_texts('localization/');
         $this->shieldCrossOriginParent();
@@ -44,9 +70,11 @@ class orbit_bridge extends rcube_plugin
         $this->add_hook('authenticate', [$this, 'authenticate']);
         $this->add_hook('unauthenticated', [$this, 'unauthenticated']);
         $this->add_hook('user_create', [$this, 'userCreate']);
+        $this->add_hook('login_after', [$this, 'loginAfter']);
         $this->add_hook('storage_connect', [$this, 'storageConnect']);
         $this->add_hook('smtp_connect', [$this, 'smtpConnect']);
         $this->add_hook('ready', [$this, 'ready']);
+        $this->add_hook('template_object_username', [$this, 'showMailboxName']);
         $this->add_hook('message_before_send', [$this, 'messageBeforeSend']);
         $this->add_hook('session_destroy', [$this, 'sessionDestroy']);
     }
@@ -59,14 +87,14 @@ class orbit_bridge extends rcube_plugin
     {
         if ($args['task'] === 'login' && $args['action'] === 'login') {
             if (!$this->isValidHandoffRequest()) {
-                $this->refuseUnauthenticated();
+                $this->refuse(self::REASON_HANDOFF_FAILED);
             }
 
             return $args;
         }
 
         if (empty($_SESSION['user_id'])) {
-            $this->refuseUnauthenticated();
+            $this->refuse(self::REASON_NO_SESSION);
         }
 
         return $args;
@@ -79,7 +107,7 @@ class orbit_bridge extends rcube_plugin
     {
         $token = (string) rcube_utils::get_input_string(self::HANDOFF_FIELD, rcube_utils::INPUT_POST);
         $origin = (string) ($_SERVER['HTTP_ORIGIN'] ?? '');
-        $session = $token !== '' ? $this->bridge->consumeHandoff($token, $origin) : null;
+        $session = $token !== '' ? $this->bridge->consumeHandoff($token, $origin) : [];
 
         if (empty($session['handle']) || empty($session['user'])) {
             $args['valid'] = false;
@@ -108,7 +136,7 @@ class orbit_bridge extends rcube_plugin
      */
     public function unauthenticated($args)
     {
-        $this->refuseUnauthenticated();
+        $this->refuse($this->refusal);
 
         return $args;
     }
@@ -122,7 +150,26 @@ class orbit_bridge extends rcube_plugin
 
         if ($authorization) {
             $args['user_email'] = $authorization['email'];
-            $args['user_name'] = $authorization['displayName'] ?? '';
+            $args['user_name'] = $this->mailboxName($authorization);
+        }
+
+        return $args;
+    }
+
+    /**
+     * The mailbox can be renamed in Orbit after its Roundcube user was created.
+     */
+    public function loginAfter($args)
+    {
+        $authorization = $this->authorization();
+        $identity = $authorization ? $this->rcmail->user->get_identity() : null;
+
+        if ($identity) {
+            $current = ['name' => $this->mailboxName($authorization), 'email' => $authorization['email']];
+
+            if ($identity['name'] !== $current['name'] || $identity['email'] !== $current['email']) {
+                $this->rcmail->user->update_identity($identity['identity_id'], $current);
+            }
         }
 
         return $args;
@@ -178,8 +225,7 @@ class orbit_bridge extends rcube_plugin
         $authorization = $this->authorization();
 
         if (!$authorization) {
-            $this->rcmail->kill_session();
-            $this->refuseUnauthenticated();
+            $this->refuse($this->refusal);
         }
 
         $capability = $this->policy->capabilityFor($args['task'], $args['action']);
@@ -189,7 +235,24 @@ class orbit_bridge extends rcube_plugin
         }
 
         $this->passBarrier($args);
-        $this->addConvertButton($args, $authorization);
+        $this->applyCapabilities($args, $authorization);
+
+        return $args;
+    }
+
+    /**
+     * Roundcube would show the opaque login name here.
+     */
+    public function showMailboxName($args)
+    {
+        $authorization = $this->authorization();
+
+        if ($authorization) {
+            $name = $this->mailboxName($authorization);
+            $email = $authorization['email'];
+            $args['content'] = ($name !== $email ? html::span('orbit-mailbox-name', rcube::Q($name)) . ' ' : '')
+                . html::span('orbit-mailbox-address', rcube::Q($email));
+        }
 
         return $args;
     }
@@ -232,6 +295,7 @@ class orbit_bridge extends rcube_plugin
 
         if (empty($data['UIDVALIDITY'])) {
             $this->rcmail->output->show_message('orbit_bridge.conversionfailed', 'error');
+            $this->rcmail->output->command(self::REFERENCE_FAILED_ACTION);
         } else {
             $this->rcmail->output->command(self::REFERENCE_ACTION, [
                 'folder' => $folder,
@@ -284,21 +348,92 @@ class orbit_bridge extends rcube_plugin
         $this->rcmail->output->send();
     }
 
-    private function addConvertButton(array $args, array $authorization): void
+    /**
+     * Keeps both the behaviour and the interface of this request within the session's
+     * capabilities. The action check in ready() stays the actual control.
+     */
+    private function applyCapabilities(array $args, array $authorization): void
     {
-        $isMessageView = $args['task'] === 'mail' && in_array($args['action'], ['', 'show'], true);
+        $capabilities = $authorization['capabilities'];
 
-        if (
-            !$isMessageView
-            || $this->rcmail->output->type !== 'html'
-            || !empty($_REQUEST['_framed'])
-            || !in_array('convert', $authorization['capabilities'], true)
-        ) {
+        // Reading must not change a mailbox the session may not organize: \Seen is set
+        // on open otherwise, and it is visible to every other client of the mailbox.
+        if (!in_array('organize', $capabilities, true)) {
+            $this->rcmail->config->set('mail_read_time', self::SEEN_FLAG_NEVER);
+        }
+
+        if (!in_array('send', $capabilities, true)) {
+            $this->rcmail->config->set('mdn_requests', self::MDN_REQUESTS_IGNORE);
+        }
+
+        if ($this->rcmail->output->type !== 'html') {
             return;
         }
 
+        $canConvert = in_array('convert', $capabilities, true);
+
         $this->rcmail->output->set_env('orbit_parent_origin', $this->parentOrigin());
+        $this->rcmail->output->set_env('orbit_can_convert', $canConvert);
+        $this->rcmail->output->set_env('orbit_disabled_commands', $this->policy->disabledCommands($capabilities));
         $this->include_script('orbit_bridge.js');
+        $this->markDocument($capabilities);
+
+        if ($canConvert) {
+            $this->rcmail->output->set_env('orbit_convert_link', $this->conversionLink($authorization));
+            $this->rcmail->output->add_label('orbit_bridge.conversionfailed');
+            $this->addConvertButton($args);
+        }
+    }
+
+    /**
+     * Start of the Orbit link the convert button opens when this page is not embedded.
+     * Null while the bridge does not name the project: the button then reports failure.
+     */
+    private function conversionLink(array $authorization): ?string
+    {
+        $projectId = $authorization['projectId'] ?? null;
+
+        if (
+            !is_string($projectId)
+            || $projectId === ''
+            || !preg_match('/^mb-([^@]+)@orbit\.invalid$/', (string) $this->rcmail->get_user_name(), $opaqueUser)
+        ) {
+            return null;
+        }
+
+        return sprintf(
+            '%s/p/%s/webmail?mailbox=%s',
+            $this->parentOrigin(),
+            rawurlencode($projectId),
+            rawurlencode($opaqueUser[1])
+        );
+    }
+
+    /**
+     * The skin hides forbidden controls by these classes. They are set before the first
+     * paint, so forbidden buttons never flash.
+     */
+    private function markDocument(array $capabilities): void
+    {
+        $missing = array_diff(['send', 'organize', 'convert'], $capabilities);
+
+        if ($missing) {
+            $classes = array_map(static fn ($capability) => 'orbit-no-' . $capability, array_values($missing));
+            $this->rcmail->output->add_script(
+                'document.documentElement.classList.add(' . implode(',', array_map('json_encode', $classes)) . ');',
+                'head_top'
+            );
+        }
+    }
+
+    private function addConvertButton(array $args): void
+    {
+        $isMessageView = $args['task'] === 'mail' && in_array($args['action'], ['', 'show'], true);
+
+        if (!$isMessageView || !empty($_REQUEST['_framed'])) {
+            return;
+        }
+
         $this->add_button([
             'type' => 'link',
             'command' => self::CONVERT_COMMAND,
@@ -320,16 +455,43 @@ class orbit_bridge extends rcube_plugin
             $handle = $this->sessionHandle();
             $result = $handle !== ''
                 ? $this->bridge->authorize($handle, (string) $this->rcmail->task, (string) $this->rcmail->action)
-                : null;
-            $this->authorization = empty($result['ok']) ? null : $result;
+                : ['error' => self::REASON_NO_SESSION];
+
+            if ($this->isAuthorization($result)) {
+                $this->authorization = $result;
+            } else {
+                $this->authorization = null;
+                $this->refusal = $this->knownReason($result['error'] ?? null);
+            }
         }
 
         return $this->authorization;
     }
 
+    private function isAuthorization(array $result): bool
+    {
+        return ($result['ok'] ?? false) === true
+            && is_array($result['capabilities'] ?? null)
+            && is_string($result['email'] ?? null)
+            && is_array($result['imap'] ?? null)
+            && is_array($result['smtp'] ?? null);
+    }
+
+    private function knownReason($code): string
+    {
+        return is_string($code) && isset(self::REASON_MESSAGES[$code]) ? $code : orbit_bridge_client::UNAVAILABLE;
+    }
+
     private function sessionHandle(): string
     {
         return (string) ($this->loginHandle ?? $this->rcmail->get_user_password());
+    }
+
+    private function mailboxName(array $authorization): string
+    {
+        $name = trim((string) ($authorization['displayName'] ?? ''));
+
+        return $name !== '' ? $name : $authorization['email'];
     }
 
     private function tlsOptions(array $server): ?array
@@ -367,20 +529,80 @@ class orbit_bridge extends rcube_plugin
     }
 
     /**
-     * Ends the request without rendering Roundcube's login page.
+     * Ends the request without rendering Roundcube's login page and tells the member
+     * and the Orbit page why.
      */
-    private function refuseUnauthenticated(): void
+    private function refuse(string $reason): void
     {
-        if ($this->rcmail->output->ajax_call) {
-            $this->rcmail->output->command('session_error', $this->rcmail->url(['_err' => 'session']));
-            $this->rcmail->output->send();
+        $sessionEnded = !in_array($reason, self::TEMPORARY_REASONS, true);
+
+        if ($sessionEnded && !empty($_SESSION['user_id'])) {
+            $this->rcmail->kill_session();
         }
 
-        http_response_code(403);
+        if ($this->rcmail->output->ajax_call) {
+            $this->sendRefusalResponse($reason, $sessionEnded);
+        }
+
+        $this->sendRefusalPage($reason, $sessionEnded);
+    }
+
+    private function sendRefusalResponse(string $reason, bool $sessionEnded): void
+    {
+        $output = $this->rcmail->output;
+        $output->show_message('orbit_bridge.' . self::REASON_MESSAGES[$reason], 'error');
+
+        // Without a URL the client keeps the page, so a message being written stays visible.
+        if ($sessionEnded) {
+            $output->command('session_error');
+            $output->command(self::SESSION_LOST_ACTION, ['reason' => $reason]);
+        }
+
+        $output->send();
+    }
+
+    private function sendRefusalPage(string $reason, bool $sessionEnded): void
+    {
+        http_response_code($sessionEnded ? 403 : 503);
         header('Content-Type: text/html; charset=UTF-8');
-        echo '<!doctype html><title>Orbit Webmail</title><p>'
-            . rcube::Q($this->gettext('openfromorbit'))
-            . '</p>';
+        header('Cache-Control: no-store');
+
+        $language = substr((string) $this->rcmail->get_user_language(), 0, 2);
+
+        echo '<!doctype html><html lang="' . rcube::Q($language ?: 'en') . '"><meta charset="utf-8">'
+            . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            . '<title>Orbit Webmail</title>'
+            . '<style>'
+            . 'html{color-scheme:light dark;font:14px/1.5 Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}'
+            . 'body{margin:0;min-height:100vh;display:grid;place-items:center;padding:16px;box-sizing:border-box;background:#f7fcff;color:#071522}'
+            . 'p{max-width:32em;margin:0;text-align:center}'
+            . '@media (prefers-color-scheme:dark){body{background:#0e2739;color:#e6f1fa}}'
+            . '</style>'
+            . '<p>' . rcube::Q($this->gettext(self::REASON_MESSAGES[$reason])) . '</p>'
+            . $this->sessionLostScript($reason, $sessionEnded);
+
         exit;
+    }
+
+    /**
+     * A refused document cannot use the plugin script. Roundcube's own preview frames
+     * hand the event to their parent page, which reports it to Orbit once. A temporary
+     * failure inside a preview frame is not worth interrupting the member for.
+     */
+    private function sessionLostScript(string $reason, bool $sessionEnded): string
+    {
+        $origin = $this->parentOrigin();
+
+        if ($origin === '' || (!$sessionEnded && !empty($_REQUEST['_framed']))) {
+            return '';
+        }
+
+        $flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES;
+        $details = json_encode(['reason' => $reason], $flags);
+        $message = json_encode(['type' => 'orbit.webmail.session_lost', 'reason' => $reason], $flags);
+
+        return '<script>(function(){var p=window.parent;if(p===window){return;}'
+            . 'try{if(p.rcmail){p.rcmail.triggerEvent(' . json_encode(self::SESSION_LOST_ACTION, $flags) . ',' . $details . ');return;}}catch(e){}'
+            . 'p.postMessage(' . $message . ',' . json_encode($origin, $flags) . ');})();</script>';
     }
 }

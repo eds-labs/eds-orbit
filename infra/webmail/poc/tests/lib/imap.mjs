@@ -1,26 +1,51 @@
-// Minimal IMAP client over the plain test port. Used only to seed and inspect mail.
+// Minimal IMAP client. Used only to seed and inspect mail: over GreenMail's plain test
+// port, or with STARTTLS on the Dovecot test server.
+import { readFileSync } from 'node:fs';
 import net from 'node:net';
+import tls from 'node:tls';
 
 export class Imap {
     constructor(socket) {
-        this.socket = socket;
         this.buffer = '';
         this.pending = null;
         this.tag = 0;
+        this.attach(socket);
+    }
+
+    attach(socket) {
+        this.socket = socket;
         socket.setEncoding('utf8');
         socket.on('data', (chunk) => this.onData(chunk));
     }
 
-    static async open(user, password) {
-        const socket = net.connect(3143, 'mail.test');
+    static async connect(port, host) {
+        const socket = net.connect(port, host);
         const client = new Imap(socket);
         await new Promise((resolve, reject) => {
             client.greeting = resolve;
             socket.on('error', reject);
         });
+        return client;
+    }
+
+    static async open(user, password) {
+        const client = await Imap.connect(3143, 'mail.test');
         const result = await client.run(`LOGIN "${user}" "${password}"`);
         if (!result.ok) throw new Error(`IMAP login failed for ${user}`);
         return client;
+    }
+
+    /** Upgrades the connection and verifies the server against the test CA. */
+    async startTls(host) {
+        const result = await this.run('STARTTLS');
+        if (!result.ok) throw new Error(result.status);
+        this.socket.removeAllListeners('data');
+        const secure = tls.connect({ socket: this.socket, servername: host, ca: readFileSync('/poc-ca/ca.crt') });
+        await new Promise((resolve, reject) => {
+            secure.once('secureConnect', resolve);
+            secure.once('error', reject);
+        });
+        this.attach(secure);
     }
 
     onData(chunk) {

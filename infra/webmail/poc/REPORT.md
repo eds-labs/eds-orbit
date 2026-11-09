@@ -1,6 +1,8 @@
 # Webmail proof of concept: results
 
-Roundcube 1.7.6 (`1.7.6-apache-nonroot`, pinned by digest) with a mock bridge, a GreenMail test server and a TLS reverse proxy. Run with `infra/webmail/poc/run.sh`. Local Docker only; no real mailboxes. Final run on 2026-11-09: 168 of 168 Playwright tests (56 each in Chromium, Firefox and WebKit) and `tools/checks.sh` with no failures.
+Roundcube 1.7.6 (`1.7.6-apache-nonroot`, pinned by digest) with a mock bridge, a GreenMail test server and a TLS reverse proxy. Run with `infra/webmail/poc/run.sh`. Local Docker only; no real mailboxes. Final run on 2026-11-09: 168 of 168 Playwright tests (56 each in Chromium, Firefox and WebKit) and `tools/checks.sh` with no failures. The table below is that run.
+
+Re-run the same day against the production image, plugin and skin, read-only filesystem included: 267 of 267 (89 per browser) and `tools/checks.sh` with no failures. That run adds G10 (STARTTLS against Dovecot and Postfix), G11 (identity, hidden controls, `\Seen`, every refusal code, session loss) and G12 (skin, dark mode, phone width).
 
 | Gate | Result | Evidence |
 |---|---|---|
@@ -25,13 +27,21 @@ Roundcube 1.7.6 (`1.7.6-apache-nonroot`, pinned by digest) with a mock bridge, a
 - Roundcube also dispatches `folder_purge` and `DELETE`, so the policy compares exact names only.
 - The barrier handles an empty `_mbox` (the session's folder), `inbox` in any case and `mark` with `_folders=all|sub|cur`. `_uid=*` is sent as `{type:"all"}`.
 - Enforcement runs in `ready`, after the CSRF and session checks. Login is gated in `startup` and `authenticate`.
-- Opening a message sets `\Seen`, also for read-only sessions.
 - `addressbook/photo` is allowed as read.
-- A container restart runs composer, which needs egress; a recreate does not.
-- The interface still shows `mb-…@orbit.invalid`, and read-only members see buttons the server refuses.
+
+The traps below were found by the proof of concept and are fixed in the production build:
+
+- Opening a message set `\Seen`, also for read-only sessions. A session without `organize` now reads with `mail_read_time = -1`, and one without `send` ignores read-receipt requests.
+- A container restart ran composer, which needs egress. The image now bakes in everything and has its own entrypoint; the suite starts and restarts it on the internal network alone.
+- The interface showed `mb-…@orbit.invalid`, and read-only members saw buttons the server refuses. It now shows the mailbox, and forbidden controls are hidden.
+
+Found while building it:
+
+- An inherited `layout.html` resolves its stylesheet against Elastic, so a child skin needs its own copy for its compiled CSS to load.
+- One Roundcube user per mailbox means a stored language would apply to every member; `language` is in `dont_override`.
 
 ## Not covered
 
 - WebKit dropped iframe cookies on `orbit.test`, which is not under a public suffix; it passes on `orbit.example.com`, which has the production shape. Real Safari with Intelligent Tracking Prevention is untested.
-- Browsers ran with `ignoreHTTPSErrors`. STARTTLS is untested, because GreenMail offers implicit TLS only.
-- Traefik attachment and `deploy.replicas` under Coolify are rollout checks, as is confirming that Roundcube cannot reach `api:4311` there.
+- Browsers ran with `ignoreHTTPSErrors`.
+- Traefik attachment and `deploy.replicas` under Coolify are rollout checks, as is confirming that Roundcube cannot reach `api:4311` there. See `docs/deployment/WEBMAIL.md`.

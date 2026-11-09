@@ -9,13 +9,14 @@ const BRIDGE_SECRET = requireEnv('POC_BRIDGE_SECRET');
 const CONTROL_SECRET = requireEnv('POC_CONTROL_SECRET');
 const ALLOWED_ORIGIN = requireEnv('POC_PARENT_ORIGIN');
 const MAIL_HOST = requireEnv('POC_MAIL_HOST');
-const IMAP_PORT = Number(process.env.POC_IMAP_PORT ?? 3993);
-const SMTP_PORT = Number(process.env.POC_SMTP_PORT ?? 3465);
-const TLS_MODE = process.env.POC_TLS_MODE ?? 'ssl';
 const DEFAULT_CAPABILITIES = ['read', 'send', 'organize', 'convert'];
+
+const GREENMAIL = { host: MAIL_HOST, imapPort: 3993, smtpPort: 3465, tlsMode: 'ssl' };
 
 const mailboxes = {
     m1: {
+        ...GREENMAIL,
+        projectId: 'project-1',
         user: 'mb-m1@orbit.invalid',
         email: 'alice@mail.test',
         displayName: 'Alice Mailbox',
@@ -23,11 +24,23 @@ const mailboxes = {
         password: requireEnv('POC_ALICE_PASSWORD'),
     },
     m2: {
+        ...GREENMAIL,
         user: 'mb-m2@orbit.invalid',
         email: 'bob@mail.test',
         displayName: 'Bob Mailbox',
         login: 'bob@mail.test',
         password: requireEnv('POC_BOB_PASSWORD'),
+    },
+    m3: {
+        host: 'mail-starttls.test',
+        imapPort: 143,
+        smtpPort: 587,
+        tlsMode: 'tls',
+        user: 'mb-m3@orbit.invalid',
+        email: 'carol@starttls.test',
+        displayName: 'Carol Mailbox',
+        login: 'carol@starttls.test',
+        password: requireEnv('POC_CAROL_PASSWORD'),
     },
 };
 
@@ -35,7 +48,8 @@ const tokens = new Map();
 const sessions = new Map();
 const callLog = [];
 let barrierResponse = { status: 'ok' };
-let tlsPeerName = MAIL_HOST;
+let tlsPeerOverride = {};
+let authorizeFailure = null;
 
 function requireEnv(name) {
     const value = process.env[name];
@@ -57,13 +71,13 @@ function log(endpoint, fields) {
     callLog.push({ at: Date.now(), endpoint, ...fields });
 }
 
-async function server(account, port) {
-    const { address } = await lookup(MAIL_HOST, { family: 4 });
+async function server(account, port, peerOverride) {
+    const { address } = await lookup(account.host, { family: 4 });
     return {
         host: address,
-        tlsPeerName,
+        tlsPeerName: peerOverride ?? tlsPeerOverride.tlsPeerName ?? account.host,
         port,
-        tlsMode: TLS_MODE,
+        tlsMode: account.tlsMode,
         user: account.login,
         password: account.password,
     };
@@ -106,6 +120,10 @@ const bridgeRoutes = {
         const session = sessions.get(body.handle);
         const fields = { handle: shortHash(body.handle), task: body.task, action: body.action };
 
+        if (authorizeFailure) {
+            log('session/authorize', { ...fields, result: authorizeFailure.body.error ?? 'failure' });
+            return [authorizeFailure.status, authorizeFailure.body];
+        }
         if (!session) {
             log('session/authorize', { ...fields, result: 'unknown_handle' });
             return [401, { ok: false, error: 'session_unknown' }];
@@ -120,10 +138,11 @@ const bridgeRoutes = {
         return [200, {
             ok: true,
             capabilities: session.capabilities,
+            projectId: account.projectId,
             email: account.email,
             displayName: account.displayName,
-            imap: await server(account, IMAP_PORT),
-            smtp: await server(account, SMTP_PORT),
+            imap: await server(account, account.imapPort),
+            smtp: await server(account, account.smtpPort, tlsPeerOverride.smtpTlsPeerName),
         }];
     },
 
@@ -172,7 +191,15 @@ const controlRoutes = {
         return [200, { ok: true }];
     },
     '/__control/tls-peer': (body) => {
-        tlsPeerName = body.tlsPeerName ?? MAIL_HOST;
+        tlsPeerOverride = body;
+        return [200, { ok: true }];
+    },
+    '/__control/authorize-failure': (body) => {
+        authorizeFailure = body.status ? body : null;
+        return [200, { ok: true }];
+    },
+    '/__control/display-name': (body) => {
+        mailboxes[body.mailbox].displayName = body.displayName;
         return [200, { ok: true }];
     },
     '/__control/log': () => [200, { calls: callLog }],
