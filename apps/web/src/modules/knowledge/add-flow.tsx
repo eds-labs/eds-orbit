@@ -89,13 +89,14 @@ type Outcome =
 
 const STATEMENT_LIMIT = 1000;
 const AI_PAGE_LIMIT = 30;
-const DEFAULT_RIGHTS: Rights = {
+/** What a new source of this kind starts with; a website's pages are public already. */
+export const defaultRights = (kind: Kind): Rights => ({
   marketing: true,
   support: true,
-  publicUse: false,
+  publicUse: kind === "website",
   modelUse: true,
   autoUpdate: true,
-};
+});
 
 export const canUseWhole = (kind: Kind) => kind !== "github";
 export const canUseStatement = (kind: Kind, text: string) =>
@@ -138,7 +139,8 @@ export function siteDefaults(source: Pick<Entity, "data">) {
   return {
     marketing: audiences ? audiences.includes("marketing") : true,
     support: audiences ? audiences.includes("support") : true,
-    publicUse: Boolean(d.publicUse),
+    // Never read as a site, it has made no choice for its pages yet.
+    publicUse: d.site ? Boolean(d.publicUse) : true,
     modelUse: d.modelUse !== false,
     // Only a site source records the owner's choice by leaving this out.
     autoUpdate: d.site ? Boolean(d.syncEveryHours) : true,
@@ -215,7 +217,7 @@ export function initialFlow(
     way,
     previewId,
     sourceId: source?.id ?? null,
-    rights: prefill ?? { ...DEFAULT_RIGHTS, ...input?.rights },
+    rights: prefill ?? { ...defaultRights(kind), ...input?.rights },
     excluded: new Set(prefill?.excluded),
     sourceLanguage: source ? String(source.data.language ?? "") : "",
     outcome: runId ? ({ kind: "analysis", runId } as Outcome) : null,
@@ -695,7 +697,7 @@ function Flow({
     setSourceId(null);
     setSite(null);
     setExcluded(new Set());
-    setRights(DEFAULT_RIGHTS);
+    setRights(defaultRights(kind));
     setWay(kind === "github" ? "ai" : "whole");
     dropPreview();
     setStep("content");
@@ -1145,6 +1147,9 @@ function Flow({
               </fieldset>
             )}
             {noAudience && <Alert kind="warning">{t.noAudience}</Alert>}
+            {!previewOnly && !noAudience && !rights.publicUse && (
+              <Alert>{t.publicNeeded}</Alert>
+            )}
             {way !== "whole" && !previewOnly && <p>{t.reviewRights}</p>}
             {way === "ai" && preview && (
               <SelectionSummary preview={preview} t={t} />

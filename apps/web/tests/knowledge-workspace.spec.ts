@@ -386,7 +386,7 @@ for (const [name, viewport] of [
         marketing: true,
         support: true,
         modelUse: true,
-        publicUse: false,
+        publicUse: true,
         autoUpdate: true,
         excludedPages: [
           `${SITE_ROOT}/de/einkaufsliste`,

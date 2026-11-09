@@ -53,6 +53,8 @@ export const knowledgeCopy = {
     marketing: "Marketing",
     support: "Support",
     publicUse: "Für öffentliche Aussagen verwenden",
+    publicNeeded:
+      "Support und Marketing können diesen Inhalt für alles, was Kunden sehen, nur nutzen, wenn „Für öffentliche Aussagen verwenden“ eingeschaltet ist.",
     stageHint:
       "Im Code implementiert bedeutet nicht automatisch veröffentlicht oder öffentlich verfügbar.",
     save: "Speichern",
@@ -327,6 +329,8 @@ export const knowledgeCopy = {
     marketing: "Marketing",
     support: "Support",
     publicUse: "Allow public statements",
+    publicNeeded:
+      "Support and Marketing can only use this content in what customers see when “Allow public statements” is on.",
     stageHint:
       "Implemented in code does not automatically mean released or publicly available.",
     save: "Save",

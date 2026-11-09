@@ -9,6 +9,7 @@ import {
   vi,
 } from "vitest";
 import {
+  authDb,
   closeDatabase,
   scoped,
   type DbTx,
@@ -19,6 +20,7 @@ import { registeredJobs } from "../src/platform/modules/contributions.ts";
 import { sourceSyncScheduler } from "../src/platform/knowledge/source-sync.ts";
 import { setFact } from "../src/platform/knowledge/engine.ts";
 import { retrieve } from "../../../packages/knowledge/src/index.ts";
+import { knowledgeSearch } from "../src/platform/knowledge/search.ts";
 import {
   SITE_BATCH,
   runSiteBatch,
@@ -1577,6 +1579,60 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
           "KNOWLEDGE_SITE_ROOT_CHANGED",
         );
       expect(await sourceData(legacy.id)).toEqual(before);
+    });
+
+    describe("what Support finds after a read", () => {
+      const siteDefaults = { publicUse: true, modelUse: true, support: true };
+      const passages = async (
+        query: string,
+        options: { language?: string } = {},
+      ) =>
+        (
+          (await knowledgeSearch(
+            owner,
+            { query },
+            undefined,
+            "support",
+            undefined,
+            options,
+          )) as { result: { passages: { title: string }[] } }
+        ).result.passages.map((p) => p.title);
+      const readPages = async (input: Record<string, unknown>) => {
+        const started = await act("knowledge-site-start", startInput(input));
+        return drain(started.run.id);
+      };
+      it("finds a page read with the site defaults", async () => {
+        publish(1);
+        web.pages.set(page(1), "# Kalender\n\nKalenderfreigabe erklärt.");
+        await readPages(siteDefaults);
+        expect(await passages("Kalenderfreigabe")).toEqual(["Kalender"]);
+      });
+      it("does not find a page of a source without the public right", async () => {
+        publish(1);
+        web.pages.set(page(1), "# Kalender\n\nKalenderfreigabe erklärt.");
+        await readPages({ ...siteDefaults, publicUse: false });
+        expect(await passages("Kalenderfreigabe")).toEqual([]);
+      });
+      it("does not find a page kept away from Support", async () => {
+        publish(1);
+        web.pages.set(page(1), "# Kalender\n\nKalenderfreigabe erklärt.");
+        await readPages({ ...siteDefaults, support: false });
+        expect(await passages("Kalenderfreigabe")).toEqual([]);
+      });
+      it("reaches an English page of a German project in the ticket's language", async () => {
+        await authDb.project.update({
+          where: { id: owner.projectId },
+          data: { language: "de", contentLanguages: ["de", "en"] },
+        });
+        const english = `${ROOT}/en/calendar`;
+        web.pages.set(english, "# Calendar\n\nCalendarsharing explained.");
+        web.sitemap = [english];
+        await readPages(siteDefaults);
+        expect(await passages("Calendarsharing")).toEqual([]);
+        expect(await passages("Calendarsharing", { language: "en" })).toEqual([
+          "Calendar",
+        ]);
+      });
     });
 
     it("start may re-point a legacy source without documents", async () => {

@@ -306,6 +306,8 @@ describe.skipIf(!enabled)("support AI", () => {
       expect.objectContaining({ query: expect.any(String) }),
       expect.objectContaining({ budgetRunKey: `support:${t.ticketId}` }),
       "support",
+      undefined,
+      {},
     );
     // Eval case D04: what the evidence does not name is handed off, never
     // answered from its absence.
@@ -329,6 +331,60 @@ describe.skipIf(!enabled)("support AI", () => {
       ticketDetail(tx, project.owner, t.ticketId),
     );
     expect(detail.aiCostMicros).toBeGreaterThan(0);
+  });
+
+  describe("the language of the knowledge search", () => {
+    const draftAfterTriage = async (language?: string) => {
+      const t = await ticket("How long does a deposit take?");
+      if (language)
+        await run((tx) =>
+          tx.supportTicketEvent.create({
+            data: {
+              id: randomUUID(),
+              workspaceId: project.owner.workspaceId,
+              projectId: project.owner.projectId,
+              ticketId: t.ticketId,
+              type: "ai_triage",
+              actorKind: "ai",
+              after: { language },
+            },
+          }),
+        );
+      mocked.search.mockResolvedValue(ready);
+      mocked.validate.mockResolvedValue({ valid: true, reasons: [] });
+      mocked.replies.push({
+        reply: "Deposits arrive within an hour.",
+        citations: ["fact:fact-1"],
+        confidence: "high",
+        handoff: false,
+        handoffReason: "",
+      });
+      await runSupportTask(worker(), { task: "draft", ticketId: t.ticketId });
+      return mocked.search.mock.calls.at(-1)!;
+    };
+    const setLanguages = (language: string, contentLanguages: string[]) =>
+      authDb.project.update({
+        where: { id: project.owner.projectId },
+        data: { language, contentLanguages },
+      });
+    afterEach(() => setLanguages("en", ["en"]));
+
+    it("uses the language triage recorded for the ticket", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage("en"))[5]).toEqual({ language: "en" });
+    });
+    it("leaves the project's language without a recorded one", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage())[5]).toEqual({});
+    });
+    it("leaves the project's language for one it holds no content in", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage("fr"))[5]).toEqual({});
+    });
+    it("matches a regional code to the project's language", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage("EN-us"))[5]).toEqual({ language: "en" });
+    });
   });
 
   it("hands off without a model call for sensitive questions", async () => {

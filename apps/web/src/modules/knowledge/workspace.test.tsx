@@ -11,6 +11,7 @@ import {
   WayPicker,
   canUseStatement,
   canUseWhole,
+  defaultRights,
   initialFlow,
   normalWay,
   siteDefaults,
@@ -854,6 +855,60 @@ describe("add flow", () => {
       });
       expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(2);
     });
+    it("tells the owner when customers cannot be served from this content", () => {
+      const rights = (over: Record<string, boolean>) => ({
+        modelUse: true,
+        rights: {
+          marketing: true,
+          support: true,
+          publicUse: false,
+          modelUse: true,
+          ...over,
+        },
+      });
+      expect(useStep(rights({}))).toContain(de.publicNeeded);
+      expect(useStep(rights({ marketing: false }))).toContain(de.publicNeeded);
+      expect(useStep(rights({ support: false }))).toContain(de.publicNeeded);
+      expect(useStep(rights({ publicUse: true }))).not.toContain(
+        de.publicNeeded,
+      );
+      expect(
+        useStep(rights({ marketing: false, support: false })),
+      ).not.toContain(de.publicNeeded);
+      expect(knowledgeCopy.en.publicNeeded).toContain("customers see");
+      expect(de.publicNeeded).toContain("Kunden sehen");
+    });
+    it("gives the note on the statement review form too", () => {
+      const pending = (publicUse: boolean) => {
+        response.value.drafts = [
+          textDraft({
+            modelUse: true,
+            rights: {
+              marketing: true,
+              support: true,
+              publicUse,
+              modelUse: true,
+            },
+          }),
+        ];
+        response.value.proposals = [
+          {
+            id: "a",
+            version: 1,
+            data: {
+              statement: "Shared calendars",
+              status: "pending",
+              topic: "features",
+              stage: "documented",
+              draftId: "d",
+            },
+          },
+        ];
+        return render("review");
+      };
+      expect(pending(false)).toContain(de.publicNeeded);
+      expect(pending(true)).not.toContain(de.publicNeeded);
+    });
     it("offers no rights where nothing could store them", () => {
       Object.assign(response.value, previewOf);
       nav.search = "preview=p";
@@ -1125,16 +1180,114 @@ describe("add flow", () => {
       excluded: ["https://x.gitbook.io/hilfe/de/alt"],
     });
   });
-  it("reads a source without site settings with the usual defaults", () => {
+  it("reads a source without site settings with the site defaults", () => {
     expect(
       siteDefaults({ id: "g", data: { name: "Alt", type: "gitbook" } } as any),
     ).toEqual({
       marketing: true,
       support: true,
-      publicUse: false,
+      publicUse: true,
       modelUse: true,
       autoUpdate: true,
       excluded: [],
+    });
+    expect(
+      siteDefaults({
+        id: "g",
+        data: { name: "Alt", type: "website", publicUse: false },
+      } as any).publicUse,
+    ).toBe(true);
+  });
+  describe("default rights per content kind", () => {
+    it("allows public statements for websites, whose pages are public already", () => {
+      expect(defaultRights("website")).toEqual({
+        marketing: true,
+        support: true,
+        publicUse: true,
+        modelUse: true,
+        autoUpdate: true,
+      });
+    });
+    it.each(["manual", "file", "github"] as const)(
+      "keeps public statements off for %s",
+      (kind) => {
+        expect(defaultRights(kind)).toEqual({
+          marketing: true,
+          support: true,
+          publicUse: false,
+          modelUse: true,
+          autoUpdate: true,
+        });
+      },
+    );
+    const flowOf = (sources: unknown[]) =>
+      initialFlow(
+        new URLSearchParams("site=g"),
+        { ...response.value, sources },
+        "de",
+      );
+    it("prefills public on for a source never read as a site", () => {
+      expect(
+        flowOf([
+          {
+            id: "g",
+            data: { name: "Hilfe", type: "gitbook", publicUse: false },
+          },
+        ]).rights.publicUse,
+      ).toBe(true);
+    });
+    it("keeps the stored choice of a source read as a site", () => {
+      expect(
+        flowOf([
+          {
+            id: "g",
+            data: {
+              name: "Hilfe",
+              type: "gitbook",
+              publicUse: false,
+              site: { rootUrl: "https://x.test/hilfe" },
+            },
+          },
+        ]).rights.publicUse,
+      ).toBe(false);
+    });
+    it("starts a website draft from the site default, a stored choice from itself", () => {
+      const row = (input: Record<string, unknown>) => ({
+        id: "d",
+        version: 1,
+        data: {
+          status: "draft",
+          input: {
+            name: "Web",
+            text: "",
+            description: "",
+            audience: "",
+            paths: [],
+            modelUse: false,
+            language: "de",
+            ...input,
+          },
+        },
+      });
+      const flow = (input: Record<string, unknown>) =>
+        initialFlow(
+          new URLSearchParams("draft=d"),
+          { ...response.value, drafts: [row(input)] },
+          "de",
+        ).rights.publicUse;
+      expect(flow({ kind: "website" })).toBe(true);
+      expect(flow({ kind: "manual" })).toBe(false);
+      expect(
+        flow({
+          kind: "website",
+          rights: {
+            marketing: true,
+            support: true,
+            publicUse: false,
+            modelUse: true,
+          },
+        }),
+      ).toBe(false);
     });
   });
   it("links GitHub setup instead of showing credential fields", () => {

@@ -947,6 +947,9 @@ function Proposal({
               {t.publicUse}
             </label>
           </fieldset>
+          {!publicUse && (marketing || support) && (
+            <Alert>{t.publicNeeded}</Alert>
+          )}
           {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
           <div className="form-actions">
             <Button

@@ -666,6 +666,31 @@ const GAP_NOTE =
 const GAP_NOTE_DE =
   "Zu dieser Frage gibt es noch kein freigegebenes Wissen. Bitte beantworte sie selbst und ergänze die Antwort gegebenenfalls in den Support-Quellen.";
 
+/**
+ * The content language to search for this ticket: what triage recorded for
+ * the customer, as one of the project's content languages. Without one the
+ * search keeps the project's own language.
+ */
+async function ticketContentLanguage(scope: Scope, ticketId: string) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const [triaged, project] = await Promise.all([
+      tx.supportTicketEvent.findFirst({
+        where: { ticketId, type: "ai_triage" },
+        orderBy: { createdAt: "desc" },
+      }),
+      tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+        select: { contentLanguages: true },
+      }),
+    ]);
+    const recorded = (triaged?.after as { language?: unknown } | null)
+      ?.language;
+    if (typeof recorded !== "string") return undefined;
+    const base = recorded.toLowerCase().split(/[-_]/)[0];
+    return project.contentLanguages.find((l) => l.toLowerCase() === base);
+  });
+}
+
 /** What a draft run did, for the agent tool. */
 export type DraftOutcome =
   | { status: "no_message" | "skipped_handed_off" }
@@ -758,6 +783,7 @@ async function draft(
     0,
     2000,
   );
+  const language = await ticketContentLanguage(scope, ticketId);
   const search = await knowledgeSearch(
     scope,
     { query },
@@ -766,6 +792,8 @@ async function draft(
       budgetRunKey: `support:${ticketId}`,
     },
     "support",
+    undefined,
+    language ? { language } : {},
   );
   const evidence = search.result as {
     status: string;

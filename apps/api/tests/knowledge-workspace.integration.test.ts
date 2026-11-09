@@ -54,6 +54,7 @@ import {
 import { exportProject } from "../src/platform/governance/export.ts";
 import { planCall } from "../src/platform/ai/call-plan.ts";
 import { respond } from "../../../packages/ai/src/index.ts";
+import { knowledgeSearch } from "../src/platform/knowledge/search.ts";
 import {
   readRepository,
   githubToken,
@@ -1963,6 +1964,47 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       expect(audits).toHaveLength(1);
       expect(JSON.stringify(audits[0]!.metadata)).not.toContain("calendars");
       expect(vi.mocked(respond)).not.toHaveBeenCalled();
+    });
+
+    describe("what the assistants' search finds", () => {
+      const QUERY = "FamilyPlan calendars";
+      const found = async (consumer: string) =>
+        (
+          (await knowledgeSearch(s, { query: QUERY }, undefined, consumer))
+            .result as { passages: unknown[] }
+        ).passages.length;
+      const publicText = {
+        language: "en",
+        publicUse: true,
+        modelUse: true,
+      };
+      it("finds text for both audiences from both modules", async () => {
+        await accept({ ...publicText, marketing: true, support: true });
+        expect(await found("support")).toBe(1);
+        expect(await found("marketing")).toBe(1);
+      });
+      it("finds support-only text from Support alone", async () => {
+        await accept({ ...publicText, marketing: false, support: true });
+        expect(await found("support")).toBe(1);
+        expect(await found("marketing")).toBe(0);
+      });
+      it("hides text without the model right from model retrieval", async () => {
+        await accept({ ...publicText, support: true, modelUse: false });
+        expect(await found("support")).toBe(0);
+        const notForModel = await run((tx) =>
+          retrieve(tx, s, {
+            query: QUERY,
+            purpose: "public",
+            consumer: "support",
+            language: "en",
+          }),
+        );
+        expect(data(notForModel).items).toHaveLength(1);
+      });
+      it("hides text without the public right from Support", async () => {
+        await accept({ ...publicText, support: true, publicUse: false });
+        expect(await found("support")).toBe(0);
+      });
     });
 
     it("is refused when no audience is chosen", async () => {
