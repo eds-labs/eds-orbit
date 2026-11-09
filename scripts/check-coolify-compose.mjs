@@ -60,6 +60,7 @@ for (const key of [
   "ORBIT_PUBLIC_INGRESS",
   "ORBIT_SUPPORT",
   "ORBIT_FINANCE",
+  "ORBIT_WEBMAIL",
   "ORBIT_WORK",
   "ORBIT_WORK_PM",
   "ORBIT_ISSUES",
@@ -187,6 +188,7 @@ for (const name of apiLike)
     "ORBIT_PUBLIC_INGRESS",
     "ORBIT_SUPPORT",
     "ORBIT_FINANCE",
+    "ORBIT_WEBMAIL",
     "ORBIT_WORK",
     "ORBIT_WORK_PM",
     "ORBIT_ISSUES",
@@ -239,6 +241,7 @@ const flagged = JSON.parse(
         ORBIT_PUBLIC_INGRESS: "true",
         ORBIT_SUPPORT: "true",
         ORBIT_FINANCE: "true",
+        ORBIT_WEBMAIL: "true",
         ORBIT_WORK: "true",
         ORBIT_WORK_PM: "true",
         ORBIT_ISSUES: "true",
@@ -273,6 +276,7 @@ for (const name of apiLike)
     "ORBIT_PUBLIC_INGRESS",
     "ORBIT_SUPPORT",
     "ORBIT_FINANCE",
+    "ORBIT_WEBMAIL",
     "ORBIT_WORK",
     "ORBIT_ISSUES",
     "ORBIT_SOCIAL",
@@ -409,15 +413,22 @@ for (const name of Object.keys(services))
       undefined,
       `${name} must not carry the mcp routing variable`,
     );
-// Only web gets a Coolify URL besides mcp (Traefik routes by domain/path).
+// Only web, mcp and webmail get a Coolify URL (Traefik routes by domain/path).
 for (const name of Object.keys(services))
   for (const key of Object.keys(services[name].environment ?? {}))
     if (key.startsWith("SERVICE_URL_"))
       assert.ok(
         (name === "web" && key === "SERVICE_URL_WEB_4310") ||
-          (name === "mcp" && key === "SERVICE_URL_MCP_4312"),
+          (name === "mcp" && key === "SERVICE_URL_MCP_4312") ||
+          (name === "webmail" && key === "SERVICE_URL_WEBMAIL_8000"),
         `${name} must not declare ${key}`,
       );
+// Roundcube renders untrusted HTML (ADR 0026): it never shares a network with
+// the API or Orbit's database, and every webmail service starts switched off.
+assert.deepEqual([...Object.keys(services.webmail.networks)].sort(), [
+  "egress",
+  "webmail",
+]);
 // The web app reaches the gateway internally for the protected resource
 // metadata paths (D-M5-4); the deployment environment can move it.
 assert.equal(services.web.environment.ORBIT_MCP_ORIGIN, "http://mcp:4312");

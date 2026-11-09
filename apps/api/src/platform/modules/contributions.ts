@@ -53,6 +53,7 @@ import type {
 } from "../configuration/types.ts";
 import type { LinkTypeDef } from "../links/types.ts";
 import type { HandoffTarget } from "../handoffs/types.ts";
+import type { EmailImportTarget } from "../email/import-contract.ts";
 import type {
   EventSubscription,
   EventsContribution,
@@ -138,13 +139,19 @@ export type ModuleContributions = {
    * (a removal is refused then) and lets go of the uses that do not block,
    * right before the mailbox is removed. With `ownedOnly` the module gets
    * only the mail of mailboxes it owns (platform/email/ownership.ts), never
-   * the broadcast of unowned ones.
+   * the broadcast of unowned ones. Without `queueClass` the module takes no
+   * mail and only follows a mailbox's removal (ADR 0026).
    */
   emailInbound?: {
-    queueClass: string;
+    queueClass?: string;
     mailboxUse?: MailboxUse;
     ownedOnly?: boolean;
   };
+  /**
+   * Takeovers of a single mailbox message the module offers (ADR 0026), by
+   * local name; the full key is "<module>.<name>".
+   */
+  emailImport?: Readonly<Record<string, EmailImportTarget>>;
   /**
    * Member notification kinds the module sends with `notifyMembers`
    * (WP4.7), by kind name, unique across modules.
@@ -227,6 +234,16 @@ export type MailboxUse = {
   inUse: (tx: DbTx, scope: Scope, connectionId: string) => Promise<number>;
   /** Drops the remaining (non-blocking) uses, in the removal's transaction. */
   release: (tx: DbTx, scope: Scope, connectionId: string) => Promise<void>;
+  /**
+   * Whether the module would act on mail arriving at this mailbox. Consulted
+   * only for mailboxes opened for webmail (ADR 0026), which are not stored
+   * when no module would; absent counts as true.
+   */
+  receivesMail?: (
+    tx: DbTx,
+    scope: Scope,
+    connectionId: string,
+  ) => Promise<boolean>;
 };
 
 /** What a public route's handler receives (WP4.2b). */
@@ -351,7 +368,7 @@ type Registered = {
   webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
   emailInbound: readonly {
     owner: string;
-    queueClass: string;
+    queueClass?: string;
     mailboxUse?: MailboxUse;
     ownedOnly?: boolean;
   }[];
@@ -362,6 +379,7 @@ type Registered = {
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
   handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
+  emailImport: ReadonlyMap<string, EmailImportTarget & { owner: string }>;
   automationResults: ReadonlyMap<string, AutomationResultHandler & { owner: string }>;
   eventTypes: ReadonlyMap<string, string>;
   subscriptions: readonly (EventSubscription & { owner: string })[];
@@ -544,7 +562,7 @@ export function registerContributions(
   const emailInbound: Registered["emailInbound"][number][] = [];
   for (const [owner, c] of ordered)
     if (c.emailInbound) {
-      if (!jobs.has(c.emailInbound.queueClass))
+      if (c.emailInbound.queueClass && !jobs.has(c.emailInbound.queueClass))
         problems.push(
           `${owner} takes inbound e-mail with unknown queue class ${c.emailInbound.queueClass}`,
         );
@@ -578,6 +596,14 @@ export function registerContributions(
       if (!/^[a-z][a-z0-9_]{1,40}$/.test(name))
         problems.push(`invalid handoff target ${owner}.${name}`);
       handoffs.set(`${owner}.${name}`, { ...def, owner });
+    }
+  // Takeovers of a mailbox message (ADR 0026).
+  const emailImport = new Map<string, EmailImportTarget & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [name, def] of Object.entries(c.emailImport ?? {})) {
+      if (!/^[a-z][a-z0-9_]{1,40}$/.test(name))
+        problems.push(`invalid e-mail import target ${owner}.${name}`);
+      emailImport.set(`${owner}.${name}`, { ...def, owner });
     }
   // Automation callback results (ADR 0017): one handler per event.
   const automationResults = new Map<string, AutomationResultHandler & { owner: string }>();
@@ -703,6 +729,7 @@ export function registerContributions(
     publicRoutes,
     linkTypes,
     handoffs,
+    emailImport,
     automationResults,
     eventTypes,
     subscriptions,
@@ -998,6 +1025,11 @@ export function registeredPrivateFiles(moduleId: string) {
 
 export function registeredEmailInbound() {
   return current().emailInbound;
+}
+
+/** The e-mail import targets (ADR 0026), by "<module>.<name>". */
+export function registeredEmailImports() {
+  return current().emailImport;
 }
 
 /** A webhook provider with its owner, or undefined for an unknown name. */

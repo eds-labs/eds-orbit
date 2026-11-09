@@ -247,6 +247,11 @@ try {
     "SocialOAuthState",
     "SocialProviderState",
     "SocialMediaAsset",
+    // Webmail module (ADR 0026).
+    "WebmailMailbox",
+    "WebmailMailboxGrant",
+    "WebmailSession",
+    "WebmailConversion",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,

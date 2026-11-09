@@ -78,6 +78,7 @@ describe("static module registry", () => {
       "work",
       "issues",
       "social",
+      "webmail",
     ]);
     // Modules without pending dependencies are ordered by id.
     expect(registry.order).toEqual([
@@ -86,6 +87,7 @@ describe("static module registry", () => {
       "knowledge",
       "social",
       "support",
+      "webmail",
       "work",
       "marketing",
     ]);

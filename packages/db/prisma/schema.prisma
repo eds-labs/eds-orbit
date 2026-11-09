@@ -480,6 +480,9 @@ model SupportTicket {
   aiState               String    @default("none")
   lastCustomerMessageAt DateTime? @db.Timestamptz(3)
   mergedIntoTicketId    String?   @db.Uuid
+  /// How a ticket came in other than by the channel, such as "mailbox_import"
+  /// (ADR 0026); null for every ticket the channels created themselves.
+  importSource          String?
   createdAt             DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
 
@@ -637,6 +640,100 @@ model FinanceMailbox {
 
   @@unique([projectId, id])
   @@unique([projectId, emailConnectionId])
+}
+
+/// A project mailbox opened for webmail (ADR 0026). Enabling one grants nobody
+/// access; see WebmailMailboxGrant.
+model WebmailMailbox {
+  id                String   @id @db.Uuid
+  workspaceId       String   @db.Uuid
+  projectId         String   @db.Uuid
+  /// The `connectors` entity with provider "email"; one row per connection.
+  emailConnectionId String   @db.Uuid
+  displayName       String?
+  enabled           Boolean  @default(true)
+  sensitive         Boolean  @default(false)
+  version           Int      @default(1)
+  createdBy         String
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, emailConnectionId])
+}
+
+/// What one workspace member may do in one webmail mailbox (ADR 0026). No row
+/// means no access; project roles never imply a grant.
+model WebmailMailboxGrant {
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  mailboxId   String   @db.Uuid
+  userId      String
+  canRead     Boolean  @default(false)
+  canSend     Boolean  @default(false)
+  canOrganize Boolean  @default(false)
+  canConvert  Boolean  @default(false)
+  canManage   Boolean  @default(false)
+  grantedBy   String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([projectId, mailboxId, userId])
+  @@index([workspaceId, userId])
+}
+
+/// One Orbit member's webmail session on one mailbox (ADR 0026). The one-time
+/// handoff and the long-lived handle are signed tokens over this row's id, so
+/// no secret is stored; this row is what revokes them.
+model WebmailSession {
+  id                String    @id @db.Uuid
+  workspaceId       String    @db.Uuid
+  projectId         String    @db.Uuid
+  mailboxId         String    @db.Uuid
+  userId            String
+  /// The Better Auth session that opened it; ending that one ends this one.
+  authSessionId     String
+  handoffExpiresAt  DateTime  @db.Timestamptz(3)
+  handoffConsumedAt DateTime? @db.Timestamptz(3)
+  expiresAt         DateTime  @db.Timestamptz(3)
+  lastSeenAt        DateTime? @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  revokeReason      String?
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, mailboxId, userId])
+  @@index([expiresAt])
+}
+
+/// One message of a mailbox handed to another module, at most once per
+/// (mailbox, dedupeKey): the claim that makes a repeated takeover idempotent.
+model WebmailConversion {
+  id            String   @id @db.Uuid
+  workspaceId   String   @db.Uuid
+  projectId     String   @db.Uuid
+  mailboxId     String   @db.Uuid
+  /// sha256 of Message-ID, From and Date; of the raw message without a Message-ID.
+  dedupeKey     String
+  status        String   @default("pending")
+  mode          String
+  /// The registered import target, such as "support.ticket".
+  target        String
+  attemptId     String   @db.Uuid
+  leaseUntil    DateTime @db.Timestamptz(3)
+  recordId      String?  @db.Uuid
+  folder        String
+  uid           Int
+  uidValidity   String
+  inboundId     String?  @db.Uuid
+  errorCode     String?
+  actorId       String
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, mailboxId, dedupeKey])
+  @@index([projectId, mailboxId, folder, uidValidity, uid])
 }
 
 /// One original. One live row per (projectId, sha256) by a partial unique

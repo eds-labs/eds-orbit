@@ -89,7 +89,7 @@ for (const [name, service] of Object.entries(pve.services)) {
     ]);
     service.volumes = base.services[name].volumes;
   }
-  if (["migrate", "api", "worker", "mcp", "web"].includes(name)) {
+  if (["migrate", "api", "worker", "mcp", "web", "webmail-bridge"].includes(name)) {
     const actual = Array.isArray(service.extra_hosts)
       ? Object.fromEntries(service.extra_hosts.map((entry) => entry.split("=")))
       : service.extra_hosts;

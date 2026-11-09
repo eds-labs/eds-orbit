@@ -198,6 +198,18 @@ const baseConfigSchema = z.object({
   // Finance module: off until its rollout is approved. Even when "true",
   // finance works only in projects whose owner enabled the module.
   ORBIT_FINANCE: z.enum(["false", "true"]).default("false"),
+  // Webmail module (ADR 0026): off until its rollout is approved. Even when
+  // "true", it works only in projects whose owner enabled the module, and a
+  // member sees only the mailboxes granted to them.
+  ORBIT_WEBMAIL: z.enum(["false", "true"]).default("false"),
+  // Public origin of the separately hosted webmail client, a sibling of
+  // APP_ORIGIN and never the same origin (ADR 0026, E1); required with
+  // ORBIT_WEBMAIL.
+  WEBMAIL_ORIGIN: z.string().default(""),
+  // Shared secret of the internal webmail bridge; required with ORBIT_WEBMAIL.
+  WEBMAIL_BRIDGE_SECRET: z.string().default(""),
+  // Port of the internal webmail bridge (apps/api/src/webmail-bridge-main.ts).
+  WEBMAIL_BRIDGE_PORT: z.coerce.number().int().min(1).max(65535).default(4313),
   // Project management module (ADR 0016): off until its rollout is approved.
   // Even when "true", it works only in projects whose owner enabled it.
   ORBIT_WORK: z.enum(["false", "true"]).default("false"),

@@ -416,6 +416,7 @@ async function fetchMailbox(scope: Scope, connection: Connection) {
             ownedOnly,
           } of registeredEmailInbound())
             if (
+              queueClass &&
               (mailboxOwned ? owner === mailboxOwned : !ownedOnly) &&
               ownerEnabled(owner, enabled)
             )

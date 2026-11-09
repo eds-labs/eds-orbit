@@ -110,6 +110,11 @@ const PROJECT_TABLES = [
   "SocialPostVariant",
   "SocialProviderState",
   "SocialPublication",
+  // Webmail module (ADR 0026).
+  "WebmailConversion",
+  "WebmailMailbox",
+  "WebmailMailboxGrant",
+  "WebmailSession",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -635,11 +640,61 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       await seedWork(tx, s, fileId);
       await seedIssues(tx, s, fileId);
       await seedSocial(tx, s, fileId);
+      await seedWebmail(tx, s, mailbox.id);
       return inbox.id;
     });
   }
 
   // One row in every project management table (ADR 0016).
+  async function seedWebmail(tx: DbTx, s: Scope, connectionId: string) {
+    const owner = { workspaceId: s.workspaceId, projectId: s.projectId };
+    const mailbox = await tx.webmailMailbox.create({
+      data: {
+        ...owner,
+        id: randomUUID(),
+        emailConnectionId: connectionId,
+        createdBy: s.userId,
+      },
+    });
+    await tx.webmailMailboxGrant.create({
+      data: {
+        ...owner,
+        mailboxId: mailbox.id,
+        userId: s.userId,
+        canRead: true,
+        grantedBy: s.userId,
+      },
+    });
+    const later = new Date(Date.now() + 60_000);
+    await tx.webmailSession.create({
+      data: {
+        ...owner,
+        id: randomUUID(),
+        mailboxId: mailbox.id,
+        userId: s.userId,
+        authSessionId: "rls-seed",
+        handoffExpiresAt: later,
+        expiresAt: later,
+      },
+    });
+    await tx.webmailConversion.create({
+      data: {
+        ...owner,
+        id: randomUUID(),
+        mailboxId: mailbox.id,
+        dedupeKey: "d".repeat(64),
+        mode: "create",
+        target: "support.ticket",
+        attemptId: randomUUID(),
+        leaseUntil: later,
+        folder: "INBOX",
+        uid: 1,
+        uidValidity: "1",
+        actorId: s.userId,
+      },
+    });
+  }
+
   async function seedWork(tx: DbTx, s: Scope, fileId: string) {
     const row = () => ({
       id: randomUUID(),
