@@ -4,7 +4,7 @@
 
 Spec [2026-11-09-knowledge-structure-and-language-design.md](superpowers/specs/2026-11-09-knowledge-structure-and-language-design.md); behaviour in [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Package 3 of the Knowledge review. Risk medium: web only (no API change, action, migration, dependency or access-matrix change), but the main owner flow for confirming knowledge changes and bulk confirm can put many statements into use with one click.
 
-- **State:** implemented on branch `claude/wissen-modul-review-3fbb67` (base `5619fe2a` plus the documentation commit). Not merged, not pushed, not deployed, not live-accepted. Delivery to `main` deploys and needs Mario's approval; no schema hash is needed. Rollback is a revert.
+- **State:** implemented on branch `claude/wissen-modul-review-3fbb67`; this section covers package 3's commits from `594c40c0` up to the documentation commit. Integrating the current `origin/main` (which has moved on) is still to do. Not merged, not pushed, not deployed, not live-accepted. Delivery to `main` deploys and needs Mario's approval; no schema hash is needed. Rollback is a revert.
 - **Built:**
   - One row model for every source on the Sources page (`source-rows.ts`, `source-list.tsx`): one status, one sentence, at most one primary action, the rest under "More"; a 30-day reminder for GitHub and single-page website drafts.
   - Knowledge and To review grouped by the five topics; review cards with rights line and Adjust; bulk confirm with a bar that states its effect, partial failure handling and one refresh at the end.
@@ -13,8 +13,9 @@ Spec [2026-11-09-knowledge-structure-and-language-design.md](superpowers/specs/2
   - `pnpm lint` passes (source guard; import boundaries 0 known, none new); `pnpm typecheck` passes; `node scripts/boundaries.mjs` exit 0; `git diff --check` clean.
   - Whole vitest suite: 560 files passed, 1 skipped (561); 6,113 tests passed, 7 skipped, 0 failed.
   - `pnpm build` passes.
-  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. It covers the More menu (inside the viewport, closes after a choice), bulk confirm through the UI, a partial failure answered with a stubbed 409 `VERSION_CONFLICT`, the bar in view and above the bottom navigation, that an Adjust edit is what is sent, no horizontal overflow with a long source name and quote, and the technical area link and its way back.
+  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. It covers the More menu (inside the viewport, closes after a choice), bulk confirm through the UI, a partial failure answered with a stubbed 409 `VERSION_CONFLICT`, the bar in view and above the bottom navigation, that an Adjust edit is what is sent, no horizontal overflow with a long source name and quote, the technical area link and its way back, and Update on a website draft (confirm dialog, then the Use step with the preview stubbed).
   - Impeccable detector on `apps/web/src/modules/knowledge`: 0 findings.
+- **Browser coverage gaps:** the browser spec exercises one topic only. Multi-topic grouping, the Other group, Reject, and Keep using / Remove in the Changed group are covered by unit tests, or not at all in the browser.
 - **Not verified:** production behaviour; the Knowledge flag state in production; a real GitBook or GitHub source in the new rows.
 
 ## Knowledge: whole sites and a short add flow (2026-11-09, delivered to `main`, not live-accepted)

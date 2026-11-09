@@ -509,6 +509,46 @@ for (const [name, viewport] of [
       ).toBeVisible();
       await expectNoOverflow(page);
 
+      // Updating a website draft asks first, then opens its Use step.
+      const siteDraft = await context.request.post(
+        `/api/projects/${project.id}/actions/knowledge-draft-save`,
+        {
+          headers: { Origin: baseURL! },
+          data: {
+            name: "FamilyPlan Webseite",
+            kind: "website",
+            url: SITE_ROOT,
+            pages: SITE_PAGES.map((p) => p.url),
+            language: "de",
+          },
+        },
+      );
+      expect(siteDraft.status()).toBe(200);
+      const draft = await siteDraft.json();
+      const previewId = randomUUID();
+      const previews: Record<string, unknown>[] = [];
+      const previewRoute = `**/api/projects/${project.id}/actions/knowledge-draft-preview`;
+      await page.route(previewRoute, (route) => {
+        previews.push(route.request().postDataJSON());
+        return route.fulfill({ json: { id: previewId } });
+      });
+      await page.goto(`/p/${project.id}/knowledge/sources`);
+      const siteRow = page.locator(`#knowledge-source-${draft.id}`);
+      await expect(siteRow).toBeVisible();
+      await siteRow.locator("details.knowledge-more summary").click();
+      await siteRow.getByRole("menuitem", { name: "Aktualisieren" }).click();
+      const confirmRead = page.getByRole("dialog", {
+        name: "Quelle neu lesen?",
+      });
+      await expect(confirmRead).toBeVisible();
+      expect(previews).toHaveLength(0);
+      await confirmRead.getByRole("button", { name: "Jetzt lesen" }).click();
+      await page.waitForURL(
+        `**/knowledge/import?draft=${draft.id}&preview=${previewId}`,
+      );
+      expect(previews).toEqual([{ draftId: draft.id }]);
+      await page.unroute(previewRoute);
+
       // AI analysis without a spending authority explains itself and cannot start.
       let aiStarts = 0;
       await page.route(
