@@ -1,6 +1,6 @@
 import { test, expect, request } from '@playwright/test';
 import { APEX, collectCspViolations, cspViolations, openWebmail, ORBIT_ORIGIN, resetBridge, trackPageErrors, waitForMailList, waitForRoundcube, WEBMAIL_ORIGIN } from '../lib/poc';
-import { seedAlice, uidOf } from '../lib/seed.mjs';
+import { appendAttachment, seedAlice, uidOf } from '../lib/seed.mjs';
 
 const EXPECTED_CSP = `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self' https://${APEX}`;
 
@@ -129,6 +129,71 @@ test.describe('G4 hardening', () => {
             expect(body, path).not.toContain('orbit_bridge_secret');
             expect(body, path).not.toContain('<?php');
         }
+    });
+
+    test.describe('raw mail content', () => {
+        const SANDBOX = 'sandbox allow-same-origin allow-downloads allow-popups';
+        const PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+        function partUrl(uid: number, query: string) {
+            return `${WEBMAIL_ORIGIN}/?_task=mail&_action=get&_mbox=INBOX&_uid=${uid}&_part=2&${query}`;
+        }
+
+        // Playwright cannot evaluate inside a document without script, so these tests
+        // read responses and never query the sandboxed frame itself.
+        test('a text attachment displays in its frame under the sandbox', async ({ page }) => {
+            const frame = await openWebmail(page);
+            const uid = await uidOf('With attachment');
+            const embedded = page.waitForResponse((entry) => entry.url().includes('_embed=1'));
+
+            const outer = await frame.goto(partUrl(uid, '_frame=1'));
+            await frame.waitForFunction(() => (window as any).rcmail?.env?.task === 'mail');
+
+            expect(outer?.headers()['content-security-policy']).not.toContain('sandbox');
+            const inner = await embedded;
+            expect(inner.status()).toBe(200);
+            expect(inner.headers()['content-security-policy']).toContain(SANDBOX);
+            expect(inner.headers()['content-security-policy']).toContain("default-src 'self'");
+            expect(await inner.text()).toContain('attachment payload');
+        });
+
+        test('an image attachment loads through the preload page under the sandbox', async ({ page, browserName }) => {
+            await appendAttachment('Image attachment', 'pixel.png', 'image/png', PIXEL);
+            const frame = await openWebmail(page);
+            const uid = await uidOf('Image attachment');
+            const embedded = page.waitForResponse((entry) => entry.url().includes('_embed=1') && entry.url().includes('_mimewarning=1'));
+
+            await frame.goto(partUrl(uid, '_frame=1'));
+
+            const inner = await embedded;
+            expect(inner.status()).toBe(200);
+            expect(inner.headers()['content-type']).toContain('image/png');
+            expect(inner.headers()['content-security-policy']).toContain(SANDBOX);
+            await page.waitForTimeout(500);
+            await page.screenshot({ path: `/results/screens/${browserName}-attachment-image.png` });
+        });
+
+        test('script in an SVG attachment does not run', async ({ page }) => {
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>parent.postMessage({type:"pwned"},"*")</script></svg>';
+            await appendAttachment('Scripted SVG', 'evil.svg', 'image/svg+xml', Buffer.from(svg).toString('base64'));
+            const frame = await openWebmail(page);
+
+            const response = await frame.goto(partUrl(await uidOf('Scripted SVG'), '_embed=1&_mimewarning=1'));
+
+            expect(response?.headers()['content-security-policy']).toContain(SANDBOX);
+            await page.waitForTimeout(1000);
+            expect(await page.evaluate(() => (window as any).ignored.map((entry: any) => entry.type))).not.toContain('pwned');
+        });
+
+        test('the message source is sandboxed', async ({ page }) => {
+            const frame = await openWebmail(page);
+
+            const response = await frame.goto(`${WEBMAIL_ORIGIN}/?_task=mail&_action=viewsource&_mbox=INBOX&_uid=${await uidOf('Plain welcome')}`);
+
+            expect(response?.status()).toBe(200);
+            expect(response?.headers()['content-security-policy']).toContain(SANDBOX);
+            expect(await response!.text()).toContain('Plain welcome');
+        });
     });
 
     test('settings that alter identities and folders are refused', async ({ page }) => {

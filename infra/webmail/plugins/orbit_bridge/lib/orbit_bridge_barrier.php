@@ -33,7 +33,7 @@ class orbit_bridge_barrier
         } elseif ($action === 'move' || $action === 'delete') {
             $operation = $action;
             $targets = self::selectedMessages();
-        } elseif ($action === 'mark' && rcube_utils::get_input_string('_flag', rcube_utils::INPUT_POST) === 'delete') {
+        } elseif ($action === 'mark' && self::setsDeletedFlag()) {
             $operation = 'mark_deleted';
             $targets = self::markTargets();
         } else {
@@ -43,6 +43,18 @@ class orbit_bridge_barrier
         $selection = self::inboxSelection($targets);
 
         return $selection === null ? null : ['operation' => $operation, 'folder' => 'INBOX', 'selection' => $selection];
+    }
+
+    /**
+     * The mark handler upper-cases any flag name it does not know and hands it to IMAP,
+     * where flag names are case-insensitive. So "DELETED", "deleted" and "\Deleted" all set
+     * the flag, not only Roundcube's own "delete". A name starting with "un" removes a flag.
+     */
+    private static function setsDeletedFlag(): bool
+    {
+        $flag = strtolower((string) rcube_utils::get_input_string('_flag', rcube_utils::INPUT_POST));
+
+        return str_contains($flag, 'delete') && !str_starts_with($flag, 'un');
     }
 
     private static function selectedMessages(): array

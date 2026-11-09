@@ -11,6 +11,7 @@ foreach ([
     'imap_cache', 'messages_cache', 'session_name', 'session_auth_name', 'session_samesite',
     'session_path', 'session_domain', 'use_https', 'x_frame_options', 'enable_installer',
     'enable_spellcheck', 'logout_purge', 'logout_expunge', 'imap_host', 'smtp_host',
+    'collected_recipients', 'collected_senders',
 ] as $key) {
     echo $key . ' = ' . json_encode($config->get($key)) . PHP_EOL;
 }

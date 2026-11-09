@@ -1,5 +1,5 @@
 import { test, expect, type Frame, type Page } from '@playwright/test';
-import { ajaxGet, control, FULL_ACCESS, lostMessages, openWebmail, ORBIT_ORIGIN, READ_ONLY, resetBridge, waitForMailList, waitForRoundcube, WEBMAIL_ORIGIN } from '../lib/poc';
+import { ajaxGet, bridgeCalls, control, FULL_ACCESS, lostMessages, openWebmail, ORBIT_ORIGIN, READ_ONLY, resetBridge, waitForMailList, waitForRoundcube, WEBMAIL_ORIGIN } from '../lib/poc';
 import { BOB, seedAlice, seedBob, uidOf, withAlice } from '../lib/seed.mjs';
 import { Imap } from '../lib/imap.mjs';
 
@@ -217,6 +217,43 @@ test.describe('G11 product behaviour', () => {
         const source = await response!.text();
         expect(source).toContain(JSON.stringify(ORBIT_ORIGIN));
         expect(source).not.toContain('"*"');
+    });
+
+    test('a stray link to the login action leaves the session alone', async ({ page }) => {
+        const frame = await openWebmail(page, { capabilities: FULL_ACCESS });
+        await waitForMailList(frame);
+        await resetBridge();
+
+        const direct = await frame.evaluate(async () => (
+            await fetch('./?_task=login&_action=login', { credentials: 'same-origin' })
+        ).status);
+        expect(direct).toBe(403);
+        expect((await ajaxGet(frame, 'login', 'login')).text).not.toContain('session_error');
+
+        const navigated = await frame.goto(`${WEBMAIL_ORIGIN}/?_task=login&_action=login`);
+        expect(navigated?.status()).toBe(403);
+        await expect(frame.locator('body')).toContainText('open this mailbox from Orbit');
+
+        expect(await bridgeCalls('session/end')).toEqual([]);
+        expect(await lostMessages(page)).toEqual([]);
+        await frame.goto(`${WEBMAIL_ORIGIN}/?_task=mail&_mbox=INBOX`);
+        await waitForMailList(frame);
+        await expect(frame.locator('#messagelist')).toContainText('Plain welcome');
+    });
+
+    test('a failed handoff POST ends the session it arrives in', async ({ page }) => {
+        const frame = await openWebmail(page, { capabilities: FULL_ACCESS });
+        await waitForMailList(frame);
+        await resetBridge();
+
+        await page.evaluate(() => {
+            const form = document.getElementById('handoff') as HTMLFormElement;
+            (form.elements.namedItem('_orbit_handoff') as HTMLInputElement).value = 'forged-token';
+            form.submit();
+        });
+
+        await expect.poll(() => lostMessages(page)).toEqual([{ type: 'orbit.webmail.session_lost', reason: 'handoff_failed' }]);
+        expect(await bridgeCalls('session/end')).toHaveLength(1);
     });
 
     test('a lost session inside a preview frame reaches Orbit through its parent', async ({ page }) => {

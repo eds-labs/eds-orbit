@@ -33,7 +33,7 @@
       "200": {
         "ok": true,
         "capabilities": ["read", "send", "organize", "convert"],
-        "projectId": "optional, not yet in bridge-contract.ts; needed for the convert link of a page that is not embedded",
+        "projectId": "project of the mailbox; for the convert link of a page that is not embedded",
         "email": "mailbox address, used for the identity and the From check",
         "displayName": "mailbox display name",
         "imap": "serverTarget",
@@ -66,7 +66,7 @@
     "handoff": "POST https://<webmail-host>/ with form fields _task=login, _action=login, _orbit_handoff=<token>; the Origin header must equal the Orbit origin"
   },
   "webmailToParent": {
-    "convert": { "type": "orbit.webmail.convert", "folder": "IMAP folder name", "uid": "integer", "uidValidity": "integer" },
+    "convert": { "type": "orbit.webmail.convert", "mailboxId": "the id from the opaque user mb-<id>@orbit.invalid", "folder": "IMAP folder name", "uid": "integer", "uidValidity": "integer" },
     "ready": {
       "type": "orbit.webmail.ready",
       "notes": "Sent whenever a top-level Roundcube page of a live session finished rendering, so more than once per session."

@@ -42,6 +42,10 @@ class orbit_bridge extends rcube_plugin
     private const SEEN_FLAG_NEVER = -1;
     private const MDN_REQUESTS_IGNORE = 2;
 
+    // Without allow-scripts, allow-same-origin is safe and keeps Roundcube's image tools
+    // working on the frame. Both policies apply: this one only adds to Apache's.
+    private const RAW_CONTENT_SANDBOX = 'Content-Security-Policy: sandbox allow-same-origin allow-downloads allow-popups';
+
     private $rcmail;
     private $bridge;
     private $policy;
@@ -110,6 +114,12 @@ class orbit_bridge extends rcube_plugin
         $session = $token !== '' ? $this->bridge->consumeHandoff($token, $origin) : [];
 
         if (empty($session['handle']) || empty($session['user'])) {
+            // The core keeps a live session when a login fails and goes on to serve this
+            // request in it, so Orbit would never learn that its handoff failed.
+            if (!empty($_SESSION['user_id'])) {
+                $this->refuse(self::REASON_HANDOFF_FAILED);
+            }
+
             $args['valid'] = false;
             $args['abort'] = true;
 
@@ -236,6 +246,7 @@ class orbit_bridge extends rcube_plugin
 
         $this->passBarrier($args);
         $this->applyCapabilities($args, $authorization);
+        $this->sandboxRawContent($args);
 
         return $args;
     }
@@ -292,12 +303,14 @@ class orbit_bridge extends rcube_plugin
         $uid = (string) rcube_utils::get_input_string('_uid', rcube_utils::INPUT_POST);
         $folder = (string) rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_POST, true);
         $data = ctype_digit($uid) && $folder !== '' ? $this->rcmail->get_storage()->folder_data($folder) : [];
+        $mailboxId = $this->mailboxId();
 
-        if (empty($data['UIDVALIDITY'])) {
+        if (empty($data['UIDVALIDITY']) || $mailboxId === null) {
             $this->rcmail->output->show_message('orbit_bridge.conversionfailed', 'error');
             $this->rcmail->output->command(self::REFERENCE_FAILED_ACTION);
         } else {
             $this->rcmail->output->command(self::REFERENCE_ACTION, [
+                'mailboxId' => $mailboxId,
                 'folder' => $folder,
                 'uid' => (int) $uid,
                 'uidValidity' => (int) $data['UIDVALIDITY'],
@@ -392,12 +405,9 @@ class orbit_bridge extends rcube_plugin
     private function conversionLink(array $authorization): ?string
     {
         $projectId = $authorization['projectId'] ?? null;
+        $mailboxId = $this->mailboxId();
 
-        if (
-            !is_string($projectId)
-            || $projectId === ''
-            || !preg_match('/^mb-([^@]+)@orbit\.invalid$/', (string) $this->rcmail->get_user_name(), $opaqueUser)
-        ) {
+        if (!is_string($projectId) || $projectId === '' || $mailboxId === null) {
             return null;
         }
 
@@ -405,8 +415,41 @@ class orbit_bridge extends rcube_plugin
             '%s/p/%s/webmail?mailbox=%s',
             $this->parentOrigin(),
             rawurlencode($projectId),
-            rawurlencode($opaqueUser[1])
+            rawurlencode($mailboxId)
         );
+    }
+
+    /**
+     * The session's mailbox, read from the opaque user `mb-<id>@orbit.invalid`.
+     */
+    private function mailboxId(): ?string
+    {
+        return preg_match('/^mb-([^@]+)@orbit\.invalid$/', (string) $this->rcmail->get_user_name(), $opaqueUser)
+            ? $opaqueUser[1]
+            : null;
+    }
+
+    /**
+     * Mail content served as its own document, such as an SVG attachment, would otherwise
+     * run under the page policy, which has to allow inline script. Roundcube's own pages
+     * around attachments need script, and the browsers' PDF viewers cannot be verified
+     * under a sandbox; neither runs mail content as script here.
+     */
+    private function sandboxRawContent(array $args): void
+    {
+        if ($args['task'] !== 'mail' || !in_array($args['action'], ['get', 'viewsource'], true)) {
+            return;
+        }
+
+        header_register_callback(static function (): void {
+            foreach (headers_list() as $header) {
+                if (preg_match('~^content-type:\s*(text/html|application/pdf)~i', $header)) {
+                    return;
+                }
+            }
+
+            header(self::RAW_CONTENT_SANDBOX, false);
+        });
     }
 
     /**
@@ -534,7 +577,13 @@ class orbit_bridge extends rcube_plugin
      */
     private function refuse(string $reason): void
     {
-        $sessionEnded = !in_array($reason, self::TEMPORARY_REASONS, true);
+        $isTemporary = in_array($reason, self::TEMPORARY_REASONS, true);
+        // A request to the login action that is no handoff, such as a link in a mail,
+        // must not end the session it arrives in.
+        $isStrayLogin = $reason === self::REASON_HANDOFF_FAILED
+            && !empty($_SESSION['user_id'])
+            && !$this->isValidHandoffRequest();
+        $sessionEnded = !$isTemporary && !$isStrayLogin;
 
         if ($sessionEnded && !empty($_SESSION['user_id'])) {
             $this->rcmail->kill_session();
@@ -544,7 +593,9 @@ class orbit_bridge extends rcube_plugin
             $this->sendRefusalResponse($reason, $sessionEnded);
         }
 
-        $this->sendRefusalPage($reason, $sessionEnded);
+        // A temporary failure inside a preview frame is not worth interrupting the member for.
+        $reportToOrbit = $sessionEnded || ($isTemporary && empty($_REQUEST['_framed']));
+        $this->sendRefusalPage($reason, $isTemporary ? 503 : 403, $reportToOrbit);
     }
 
     private function sendRefusalResponse(string $reason, bool $sessionEnded): void
@@ -561,9 +612,9 @@ class orbit_bridge extends rcube_plugin
         $output->send();
     }
 
-    private function sendRefusalPage(string $reason, bool $sessionEnded): void
+    private function sendRefusalPage(string $reason, int $status, bool $reportToOrbit): void
     {
-        http_response_code($sessionEnded ? 403 : 503);
+        http_response_code($status);
         header('Content-Type: text/html; charset=UTF-8');
         header('Cache-Control: no-store');
 
@@ -579,21 +630,20 @@ class orbit_bridge extends rcube_plugin
             . '@media (prefers-color-scheme:dark){body{background:#0e2739;color:#e6f1fa}}'
             . '</style>'
             . '<p>' . rcube::Q($this->gettext(self::REASON_MESSAGES[$reason])) . '</p>'
-            . $this->sessionLostScript($reason, $sessionEnded);
+            . ($reportToOrbit ? $this->sessionLostScript($reason) : '');
 
         exit;
     }
 
     /**
      * A refused document cannot use the plugin script. Roundcube's own preview frames
-     * hand the event to their parent page, which reports it to Orbit once. A temporary
-     * failure inside a preview frame is not worth interrupting the member for.
+     * hand the event to their parent page, which reports it to Orbit once.
      */
-    private function sessionLostScript(string $reason, bool $sessionEnded): string
+    private function sessionLostScript(string $reason): string
     {
         $origin = $this->parentOrigin();
 
-        if ($origin === '' || (!$sessionEnded && !empty($_REQUEST['_framed']))) {
+        if ($origin === '') {
             return '';
         }
 

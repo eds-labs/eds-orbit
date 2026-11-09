@@ -47,6 +47,8 @@ g1() {
     expect 'occurrences in Roundcube container logs' 0 "$(compose logs --no-log-prefix roundcube 2>&1 | count_secret_in_stream)"
     expect 'occurrences in proxy logs' 0 "$(compose logs --no-log-prefix caddy 2>&1 | count_secret_in_stream)"
     expect 'occurrences in bridge logs' 0 "$(compose logs --no-log-prefix bridge 2>&1 | count_secret_in_stream)"
+    expect 'addresses collected in the database after the suite sent mail' 0 \
+        "$(compose exec -T webmail-db psql -U roundcube -d roundcubemail -Atc 'select count(*) from collected_addresses')"
 }
 
 g4_config() {
@@ -151,6 +153,12 @@ g7() {
     local canary_ip
     canary_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$PROJECT-frontend-canary-1")
     expect 'frontend service IP is unreachable' closed \
+        "$(compose exec -T roundcube php -r "$php_tcp" -- "$canary_ip" 4311)"
+
+    expect 'shared egress service name does not resolve' egress-canary \
+        "$(compose exec -T roundcube php -r 'echo gethostbyname("egress-canary");')"
+    canary_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$PROJECT-egress-canary-1")
+    expect 'shared egress service IP is unreachable' closed \
         "$(compose exec -T roundcube php -r "$php_tcp" -- "$canary_ip" 4311)"
     expect 'bridge is reachable' open "$(compose exec -T roundcube php -r "$php_tcp" -- bridge 8080)"
     expect 'webmail database is reachable' open "$(compose exec -T roundcube php -r "$php_tcp" -- webmail-db 5432)"
