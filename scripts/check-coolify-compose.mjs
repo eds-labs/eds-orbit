@@ -433,7 +433,7 @@ for (const [name, service] of Object.entries(services))
   if (!["webmail", "webmail-bridge", "webmail-db"].includes(name))
     for (const network of ["webmail", "webmail-egress"])
       assert.ok(
-        !service.networks?.[network],
+        !(network in (service.networks ?? {})),
         `${name} must not join ${network}`,
       );
 // The web app reaches the gateway internally for the protected resource
