@@ -22,6 +22,8 @@ import {
   claimPublication,
   finishPublication,
   enqueue,
+  releasePublicationClaim,
+  SLOT_GRACE_MS,
 } from "../pipeline/workflow.ts";
 import { connectionAccess } from "../../../platform/connections/connections.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
@@ -29,17 +31,26 @@ import { publishingBackend } from "./backend.ts";
 import {
   accountForChannel,
   cancelOriginPost,
+  heldOriginPosts,
   importOriginMedia,
+  isHeldOriginPost,
+  isSocialChannel,
   originPostStatus,
+  socialPublishingAvailable,
   submitOriginPost,
 } from "../../social/contract.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   // A project on Social (S9) hands the post to Social instead of Postiz; a
-  // post already handed to Social stays with Social whatever the setting.
+  // post already handed to Social or addressed to a `social:` account stays
+  // with Social whatever the setting: Postiz is never a fallback for it.
   const route = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const pub = await entity(tx, scope, "publications", pubId);
-    if (data(pub).publishingBackend === "social") return "social";
+    if (
+      data(pub).publishingBackend === "social" ||
+      isSocialChannel(String(data(pub).channel))
+    )
+      return "social";
     return publishingBackend(tx, scope);
   });
   if (route === "social") return dispatchThroughSocial(scope, pubId);
@@ -256,20 +267,18 @@ async function dispatchThroughSocial(scope: Scope, pubId: string) {
       }),
     );
   try {
-    const mediaIds: string[] = [];
-    if (content.assetId) {
-      const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-        entity(tx, scope, "assets", content.assetId),
-      );
-      const file = await exportAssetContent(scope, data(asset));
-      if (!file) throw new DomainError("ASSET_NOT_SUPPORTED");
-      mediaIds.push(
-        await importOriginMedia(scope, { bytes: file.bytes, mime: "image/png" }),
-      );
-    }
+    // An announced post already carries its image; the slot only releases it.
+    const held =
+      typeof p.socialPostId === "string" &&
+      (await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        isHeldOriginPost(tx, scope, p.socialPostId),
+      ));
+    const mediaIds = held ? [] : await originMedia(scope, content);
     return await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const pub = await entity(tx, scope, "publications", pubId);
       const v = data(pub);
+      // Another run took this claim over; the publication is not this run's.
+      if (v.status !== "sending" || v.fence !== p.fence) return pub;
       const checked = await preflight(tx, scope, p.contentId, {
         test: false,
         ignoreApproval: true,
@@ -285,12 +294,7 @@ async function dispatchThroughSocial(scope: Scope, pubId: string) {
             }
           : {}),
       });
-      if (
-        v.status !== "sending" ||
-        v.fence !== p.fence ||
-        checked.packageHash !== p.packageHash ||
-        !checked.allowed
-      ) {
+      if (checked.packageHash !== p.packageHash || !checked.allowed) {
         const blockers = checked.blockers.length
           ? checked.blockers
           : ["HANDOFF_DEPENDENCY_CHANGED"];
@@ -336,7 +340,15 @@ async function dispatchThroughSocial(scope: Scope, pubId: string) {
       return row;
     });
   } catch (error) {
-    const code = error instanceof DomainError ? error.code : "SOCIAL_HANDOFF_FAILED";
+    // Nothing was handed over (one transaction) and this is no refusal: the
+    // claim goes back and the worker retries within the slot's grace.
+    if (!(error instanceof DomainError)) {
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        releasePublicationClaim(tx, scope, pubId, p.fence),
+      );
+      throw new Error("SOCIAL_HANDOFF_RETRY");
+    }
+    const code = error.code;
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const done = await finishPublication(tx, scope, pubId, p.fence, {
         status: "failed",
@@ -346,6 +358,134 @@ async function dispatchThroughSocial(scope: Scope, pubId: string) {
       return entity(tx, scope, "publications", pubId);
     });
   }
+}
+
+/** The approved image of a post in Social's library (outside a transaction). */
+async function originMedia(scope: Scope, content: Record<string, any>) {
+  if (!content.assetId) return [];
+  const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    entity(tx, scope, "assets", content.assetId),
+  );
+  const file = await exportAssetContent(scope, data(asset));
+  if (!file) throw new DomainError("ASSET_NOT_SUPPORTED");
+  return [await importOriginMedia(scope, { bytes: file.bytes, mime: "image/png" })];
+}
+
+/** Whether a crashed job may give its claim back: Social's hand-off is one transaction, Postiz's is an external call. */
+export async function releaseSocialClaim(
+  tx: DbTx,
+  scope: Scope,
+  row: Awaited<ReturnType<typeof entity>>,
+): Promise<boolean> {
+  const route =
+    data(row).publishingBackend === "social" ||
+    isSocialChannel(String(data(row).channel)) ||
+    (await publishingBackend(tx, scope)) === "social";
+  return route && releasePublicationClaim(tx, scope, row.id);
+}
+
+/** How long after the slot a publication nobody claimed is still settled here. */
+const OVERDUE_WINDOW_MS = 2 * 86_400_000;
+
+/**
+ * Announces one released post in Social (`hold`): visible and timed there,
+ * sendable only by the hand-off at the slot. Sends nothing.
+ */
+async function holdInSocial(scope: Scope, pubId: string) {
+  const loaded = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const pub = await entity(tx, scope, "publications", pubId);
+    return { v: data(pub), content: data(await entity(tx, scope, "content", data(pub).contentId)) };
+  });
+  const mediaIds = await originMedia(scope, loaded.content);
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const pub = await entity(tx, scope, "publications", pubId);
+    const v = data(pub);
+    if (v.status !== "intent_created" || v.socialPostId) return;
+    const account = await accountForChannel(tx, scope, v.channel);
+    if (!account) throw new DomainError("SOCIAL_CHANNEL_NOT_MAPPED", 409);
+    const { postId } = await submitOriginPost(tx, scope, {
+      origin: { module: "marketing", type: "publication", id: pubId, version: 1 },
+      accountId: account.accountId,
+      text: finalPostText(loaded.content.body, loaded.content.targetUrl),
+      mediaIds,
+      mode: "hold",
+      at: new Date(v.scheduledAt),
+    });
+    await update(tx, scope, pub, {
+      ...v,
+      socialPostId: postId,
+      socialHold: { state: "held", at: new Date().toISOString() },
+    });
+  });
+}
+
+/** Records a failed announcement once; an unchanged failure writes nothing, so it is retried on later passes without waking the project. */
+async function recordHoldFailure(scope: Scope, pubId: string, code: string) {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const pub = await entity(tx, scope, "publications", pubId);
+    const v = data(pub);
+    if (v.status !== "intent_created" || v.socialHold?.code === code) return;
+    await update(tx, scope, pub, { ...v, socialHold: { state: "failed", code, at: new Date().toISOString() } });
+    await exception(tx, scope, "SOCIAL_HOLD_FAILED", pubId);
+  });
+}
+
+/**
+ * Keeps Social's calendar in step with Marketing on every worker pass of a
+ * project on Social, and nothing here can publish: a released post is
+ * announced in Social, an announcement Marketing no longer stands behind is
+ * taken back, and a post whose slot passed without a claim is blocked with
+ * `SLOT_EXPIRED` instead of being caught up. Idempotent, so a restart or a
+ * redeploy simply continues (publications from before this pass included).
+ */
+export async function syncSocialHolds(scope: Scope): Promise<void> {
+  const state = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    if (!(await socialPublishingAvailable(tx, scope))) return null;
+    if ((await publishingBackend(tx, scope)) !== "social") return null;
+    const open = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        data: { path: ["status"], equals: "intent_created" },
+      },
+    });
+    return { open: open.filter((row) => data(row).test !== true), held: await heldOriginPosts(tx, scope) };
+  });
+  if (!state) return;
+  const now = Date.now();
+  for (const row of state.open) {
+    const v = data(row);
+    const slot = Date.parse(String(v.scheduledAt));
+    if (!Number.isFinite(slot)) continue;
+    if (now - slot > SLOT_GRACE_MS) {
+      if (now - slot < OVERDUE_WINDOW_MS)
+        await scoped(scope.workspaceId, scope.projectId, (tx) => claimPublication(tx, scope, row.id));
+    } else if (slot > now && !v.socialPostId) {
+      try {
+        await holdInSocial(scope, row.id);
+      } catch (error) {
+        await recordHoldFailure(scope, row.id, error instanceof DomainError ? error.code : "SOCIAL_HOLD_FAILED");
+      }
+    }
+  }
+  if (!state.held.length) return;
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const rows = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        id: { in: state.held.map((h) => h.originId) },
+      },
+    });
+    const byId = new Map(rows.map((row) => [row.id, data(row)]));
+    for (const { postId, originId } of state.held) {
+      const p = byId.get(originId);
+      if (p && ["intent_created", "sending"].includes(p.status)) continue;
+      await cancelOriginPost(tx, scope, postId, String(p?.reason ?? p?.blockers?.[0] ?? p?.status ?? "ORIGIN_GONE"));
+    }
+  });
 }
 
 /**

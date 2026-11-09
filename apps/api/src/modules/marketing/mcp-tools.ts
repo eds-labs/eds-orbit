@@ -18,6 +18,8 @@ import { reviseDeliverable } from "./agents/content-packages.ts";
 import { actionPermissions } from "../../platform/tenancy/permissions.ts";
 import { creativeReads, creativeWrites } from "./creative/mcp-tools.ts";
 import { readTaskRecord } from "../../platform/tasks/tasks.ts";
+import { publishingBackend } from "./publishing/backend.ts";
+import { deliveryOf, type Delivery } from "./publishing/delivery-state.ts";
 
 const page = z
   .object({
@@ -26,6 +28,39 @@ const page = z
   })
   .strict();
 const shared = { module: "marketing" };
+/**
+ * The delivery of the listed content or missions: a mission's status only
+ * says its drafts are done, so readers get how far the post really came.
+ */
+async function deliveries(tx: any, scope: any, kind: string, rows: any[]) {
+  const result = new Map<string, Delivery | null>();
+  if (!["content", "missions"].includes(kind) || !rows.length) return result;
+  const rowsOf = async (k: string) =>
+    (
+      await tx.entity.findMany({
+        where: { projectId: scope.projectId, kind: k },
+        orderBy: { createdAt: "asc" },
+      })
+    ).map((r: any) => ({ id: r.id, ...data(r) }));
+  const contents = kind === "content" ? rows.map((r) => ({ id: r.id, ...data(r) })) : await rowsOf("content");
+  const publications = await rowsOf("publications");
+  const onSocial = (await publishingBackend(tx, scope)) === "social";
+  const inactive = ["canceled", "failed", "blocked_dependency"];
+  const of = (c: any) => {
+    const own = publications.filter((p: any) => p.contentId === c.id);
+    return deliveryOf(c, own.find((p: any) => !inactive.includes(p.status)) ?? own.at(-1) ?? null, onSocial);
+  };
+  for (const row of rows) {
+    if (kind === "content") {
+      result.set(row.id, of(contents.find((c: any) => c.id === row.id)));
+      continue;
+    }
+    const own = contents.filter((c: any) => c.missionId === row.id);
+    const live = own.filter((c: any) => !["rejected", "archived", "deleted"].includes(c.status));
+    result.set(row.id, (live.at(-1) ?? own.at(-1)) ? of(live.at(-1) ?? own.at(-1)) : null);
+  }
+  return result;
+}
 function listKind(kind: string) {
   return async (tx: any, scope: any, args: any) => {
     const rows = await tx.entity.findMany({
@@ -37,6 +72,7 @@ function listKind(kind: string) {
       orderBy: { id: "asc" },
       take: args.limit + 1,
     });
+    const delivery = await deliveries(tx, scope, kind, rows.slice(0, args.limit));
     return {
       items: rows.slice(0, args.limit).map((r: any) => {
         const d = data(r);
@@ -45,6 +81,7 @@ function listKind(kind: string) {
           version: r.version,
           title: d.title ?? d.name ?? null,
           status: d.status ?? null,
+          ...(delivery.has(r.id) ? { delivery: delivery.get(r.id) } : {}),
           channels: d.channels ?? [],
           body: typeof d.body === "string" ? d.body.slice(0, 2000) : null,
           createdAt: r.createdAt,
@@ -63,7 +100,7 @@ const reads = [
       summary: { en: "Lists marketing campaigns and their status.", de: "Listet Marketing-Kampagnen und ihren Status." },
     },
     description:
-      "List native marketing missions/campaigns and their status. Use orbit_create_task for complete researched campaigns and existing project_status for channels/readiness.",
+      "List native marketing missions/campaigns and their status. `status` completed only means the drafts are done; `delivery.state` says how far the post came (generated, awaiting_approval, approved, handoff_pending, scheduled, published, failed, canceled). Use orbit_create_task for complete researched campaigns and existing project_status for channels/readiness.",
     permission: PROJECT_READ,
     input: page,
     run: listKind("missions"),
@@ -76,7 +113,7 @@ const reads = [
       summary: { en: "Lists saved content drafts with previews.", de: "Listet gespeicherte Inhaltsentwürfe mit Vorschau." },
     },
     description:
-      "List saved native content drafts and their status, with compact body previews.",
+      "List saved native content drafts and their status, with compact body previews. `status` reviewed only means the text passed review; `delivery.state` says how far the post came.",
     permission: PROJECT_READ,
     input: page,
     run: listKind("content"),

@@ -1,5 +1,9 @@
 # Implementation status
 
+## Marketing posts in the native Social calendar (2026-11-09, branch `claude/marketing-social-handoff`, not merged, not deployed)
+
+The first FamilyPlan run (2026-11-09, run `a12f94ef`) did not fail: both released posts were Marketing publications waiting for their 18:30 Berlin job (`intent_created`, `test: false`, no blockers), and Social only received a post when that job ran, so its calendar stayed empty. A released post is now announced in Social within seconds (`docs/SOCIAL.md`, "Announcement"), the slot's hand-off releases that same post and keeps its time, and a publication nobody claimed in time is blocked with `SLOT_EXPIRED`. A temporary error or a worker restart gives the claim back instead of failing or leaving an unknown outcome. `marketing_campaigns` and `marketing_content` report `delivery.state`, because `completed` and `reviewed` say nothing about delivery. ADR 0020 S9 is amended. No migration.
+
 ## Daily social automation on assignments (2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`, not merged, not deployed)
 
 Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md). Extends assignments (no parallel automation); no schema change, no migration, no new dependency.

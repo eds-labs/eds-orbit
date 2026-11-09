@@ -3,6 +3,7 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, entity, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { publishingBackend } from "../publishing/backend.ts";
 import { accountForChannel } from "../../social/contract.ts";
 import { channelNames, rowsById } from "./assignment-overview.ts";
 import {
@@ -34,6 +35,9 @@ export type DeliverableState =
   | "awaiting_release"
   | "expired"
   | "released"
+  // On Social: approved and waiting to appear there, then planned there.
+  | "handoff_pending"
+  | "scheduled"
   | "published"
   | "failed"
   | "canceled"
@@ -123,6 +127,7 @@ export async function assignmentDetail(
     );
   };
 
+  const onSocial = (await publishingBackend(tx, scope)) === "social";
   const outRuns = [];
   for (const run of runs) {
     const r = data(run);
@@ -158,6 +163,11 @@ export async function assignmentDetail(
         ["archived", "rejected", "deleted"].includes(c.status)
       )
         state = "canceled";
+      else if (isPublication && onSocial)
+        state =
+          typeof h.socialPostId === "string" || typeof h.remoteId === "string"
+            ? "scheduled"
+            : "handoff_pending";
       else if (handoff) state = "released";
       else if (c.status === "needs_review")
         state = passed ? "expired" : "awaiting_release";
@@ -178,16 +188,21 @@ export async function assignmentDetail(
                 isPublication && typeof h.releaseUrl === "string"
                   ? h.releaseUrl
                   : null,
-              socialPostId:
-                isPublication &&
-                h.publishingBackend === "social" &&
-                typeof h.remoteId === "string"
-                  ? h.remoteId
-                  : null,
+              socialPostId: !isPublication
+                ? null
+                : typeof h.socialPostId === "string"
+                  ? h.socialPostId
+                  : h.publishingBackend === "social" &&
+                      typeof h.remoteId === "string"
+                    ? h.remoteId
+                    : null,
               errorCode:
                 state === "failed"
                   ? String(h.reason ?? h.error ?? h.blockers?.[0] ?? h.status)
-                  : null,
+                  : state === "handoff_pending" &&
+                      h.socialHold?.state === "failed"
+                    ? String(h.socialHold.code)
+                    : null,
             }
           : null,
       });
