@@ -5,6 +5,7 @@ import { WorkspaceError, analysisRunning } from "./workspace-parts";
 import {
   AnalysisStart,
   ResultStep,
+  outcomeRun,
   SitePagePicker,
   WayPicker,
   canUseStatement,
@@ -992,7 +993,13 @@ describe("add flow", () => {
     const result = (started: boolean, locale: "de" | "en" = "de") =>
       inContext(
         <ResultStep
-          outcome={{ kind: "site", sourceId: "g", pages: 7, started }}
+          outcome={{
+            kind: "site",
+            sourceId: "g",
+            runId: "r",
+            pages: 7,
+            started,
+          }}
           run={undefined}
           onNewPreview={() => {}}
           refresh={() => {}}
@@ -1296,7 +1303,13 @@ describe("site runs and analysis outcomes", () => {
     const result = (run: Record<string, unknown>, pages = 7) =>
       inContext(
         <ResultStep
-          outcome={{ kind: "site", sourceId: "g", pages, started: true }}
+          outcome={{
+            kind: "site",
+            sourceId: "g",
+            runId: "r",
+            pages,
+            started: true,
+          }}
           run={siteRun(run) as any}
           onNewPreview={() => {}}
           refresh={() => {}}
@@ -1312,6 +1325,42 @@ describe("site runs and analysis outcomes", () => {
     expect(done).toContain("nichts entfernt");
     expect(done).not.toContain("Orbit liest jetzt");
     expect(result({}, 1)).not.toContain("1 Seiten");
+  });
+  it("passes only the started run to the result step, never an earlier one", () => {
+    const old = siteRun({ warning: "site_shrank" });
+    old.id = "old";
+    const started = siteRun({ status: "queued" });
+    const outcome = {
+      kind: "site" as const,
+      sourceId: "g",
+      runId: "r",
+      pages: 7,
+      started: true,
+    };
+    // Before the refresh brings the new run, the earlier completed one is hidden.
+    expect(
+      outcomeRun({ runs: [], siteRuns: [old] } as any, outcome),
+    ).toBeUndefined();
+    expect(
+      outcomeRun({ runs: [], siteRuns: [old] } as any, outcome),
+    ).toBeUndefined();
+    expect(
+      outcomeRun({ runs: [], siteRuns: [started] } as any, outcome)?.id,
+    ).toBe("r");
+    // Without a run, the start's own sentence shows and nothing old does.
+    const html = inContext(
+      <ResultStep
+        outcome={outcome}
+        run={outcomeRun({ runs: [], siteRuns: [old] } as any, outcome) as any}
+        onNewPreview={() => {}}
+        refresh={() => {}}
+        t={knowledgeCopy.de}
+      />,
+      "de",
+    );
+    expect(html).toContain("Orbit liest jetzt 7 Seiten");
+    expect(html).not.toContain("Zuletzt gelesen");
+    expect(html).not.toContain("nichts entfernt");
   });
   it("shows proposals, cost and dropped proposals of the last analysis", () => {
     response.value.drafts = [

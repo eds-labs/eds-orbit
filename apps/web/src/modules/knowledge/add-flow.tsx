@@ -72,7 +72,14 @@ export type Check =
 type Outcome =
   | { kind: "analysis"; runId: string }
   | { kind: "content"; sourceId: string }
-  | { kind: "site"; sourceId: string; pages: number; started: boolean };
+  | {
+      kind: "site";
+      sourceId: string;
+      /** The run this start created or returned; earlier runs do not belong here. */
+      runId: string;
+      pages: number;
+      started: boolean;
+    };
 
 const STATEMENT_LIMIT = 1000;
 const AI_PAGE_LIMIT = 30;
@@ -870,6 +877,7 @@ function Flow({
     setOutcome({
       kind: "site",
       sourceId: started.sourceId,
+      runId: started.run.id,
       pages: selected.length,
       started: started.started,
     });
@@ -1176,15 +1184,7 @@ function Flow({
         {step === "result" && outcome && (
           <ResultStep
             outcome={outcome}
-            run={
-              outcome.kind === "analysis"
-                ? data.runs.find((r) => r.id === outcome.runId)
-                : outcome.kind === "site"
-                  ? data.siteRuns?.find(
-                      (r) => r.data.sourceId === outcome.sourceId,
-                    )
-                  : undefined
-            }
+            run={outcomeRun(data, outcome)}
             onNewPreview={() => {
               setOutcome(null);
               enterUse(true);
@@ -1234,6 +1234,19 @@ function SelectionSummary({
       </details>
     </div>
   );
+}
+
+/**
+ * The run the result step reports: the analysis run, or the site run this
+ * start created. An earlier site run is never shown for a start that its own
+ * refresh has not yet delivered.
+ */
+export function outcomeRun(data: Summary, outcome: Outcome) {
+  if (outcome.kind === "analysis")
+    return data.runs.find((r) => r.id === outcome.runId);
+  if (outcome.kind === "site")
+    return data.siteRuns?.find((r) => r.id === outcome.runId);
+  return undefined;
 }
 
 export function ResultStep({
