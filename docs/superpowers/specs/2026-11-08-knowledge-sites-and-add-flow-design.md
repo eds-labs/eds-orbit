@@ -24,7 +24,7 @@ An owner adds knowledge in a few understandable steps. A multi-page help site su
 | D-2 | Changes are taken over automatically once a week: changed pages replaced, new pages added, deleted pages removed. |
 | D-3 | A site read is one durable run in batches of 20 pages, not one job per page. |
 | D-4 | Pages are read as Markdown when the site offers it, otherwise as HTML. |
-| D-5 | At most 200 pages per source; `maxAgeHours` is 336 so one failed weekly run hides nothing. |
+| D-5 | At most 200 pages per source; `maxAgeHours` is 336 so one failed weekly run hides nothing. After a failed run the next one is due 24 hours after it ended, unless the owner caused the stop (`SOURCE_INACTIVE`). |
 | D-6 | Automatic removal stops when discovery returns nothing or would remove more than half of the pages. |
 | D-7 | "Add knowledge" asks what to add and has three steps. The project description is optional and GitHub App setup moves to its own page. |
 | D-8 | Three ways to use content, see the table below. Line-by-line proposals are removed. |
@@ -89,11 +89,19 @@ embeddingsQueued, warning: "site_shrank" | null, startedAt, completedAt
 
 ### Removing pages
 
-A page whose document exists and which discovery no longer lists is retired, unless D-6 applies. A new engine operation `retireDocument` clears the active version and invalidates dependents without purging or writing a tombstone, so a page that comes back is read as a new version. An excluded page is retired the same way. D-6 sets `warning`, and the run removes nothing.
+A page whose document exists and which discovery no longer lists is retired, unless D-6 applies. Only documents whose `externalId` lies under the site root count: documents a reused source brought along are never retired. A new engine operation `retireDocument` clears the active version and invalidates dependents without purging or writing a tombstone, so a page that comes back is read as a new version. An excluded page is retired the same way. D-6 sets `warning`, and the run removes nothing.
+
+When discovery could not finish looking (`complete: false`, or `single` on a source recorded as `sitemap`), a non-initial run reads the union of the found pages and the source's live documents, minus exclusions, capped at 200, each in its stored language. The warning and "retire nothing" stay; the pages just do not age out unnoticed.
+
+### What a page change affects
+
+A site run changes one page at a time, so it invalidates per page. `ingest` with `documentScoped: true` and `retireDocument` match only evidence whose items cite the document's previous active version; they do not match facts by source, and the source-wide demotion of verified facts is skipped. `KnowledgeImpact` carries `documentScoped`, and a handler then relates records only through `evidenceIds` and their content, never by source. Every other `ingest` caller keeps source-wide invalidation.
 
 ### Weekly schedule
 
-`sourceSyncScheduler` starts a `schedule` run for an active site source whose last run is older than `syncEveryHours`. Existing sources with `syncEveryHours` but no `site` keep today's behaviour.
+`sourceSyncScheduler` starts a `schedule` run for an active site source whose last run is older than `syncEveryHours`, or 24 hours after a failed run (D-5). Existing sources with `syncEveryHours` but no `site` keep today's behaviour.
+
+With `ORBIT_KNOWLEDGE_WORKSPACE` off, or Knowledge unavailable or off for the project, nobody could pause a source, so background reads stop: the sweep skips site sources and a batch ends its run as `failed` with `KNOWLEDGE_DISABLED`.
 
 ## Add flow
 
@@ -101,7 +109,7 @@ A page whose document exists and which discovery no longer lists is retired, unl
 
 1. **What do you want to add?** Text, document, website or GitBook, GitHub.
 2. **Content.** Name plus the content, or the address. For a site, Orbit discovers the pages and lists them by language, all preselected.
-3. **Use.** The ways from the table above, with the rights: Marketing and Support (both on), AI features may read it (on), public statements (off).
+3. **Use.** The ways from the table above, with the rights: Marketing and Support (both on), AI features may read it (on), public statements (on for website and GitBook content, off for text, documents and GitHub). Support retrieves as `public`, and a site's pages are public already; with public statements off Support would find none of them. The owner can still untick it. A `?site=` link on a source never read as a site prefills on; one that has a `site` keeps its stored value. While public is off and Support or Marketing is on, the step says these modules can only use the content in what customers see when the option is on.
 4. **Result.** Progress and outcome.
 
 The step indicator shows Content, Use and Result. The project description is reachable through "Edit project description". GitHub App credentials move to a new page `knowledge/github`, linked from Advanced and from a GitHub source that is not set up yet.
@@ -129,7 +137,7 @@ The step indicator shows Content, Use and Result. The project description is rea
 - A site source shows page count, progress of an active run and the last summary, plus "Read now" and the weekly switch.
 - "Read in content" opens the page selection for `gitbook` and `website` sources.
 - "Resume" reads "Edit" on a draft that was read successfully before.
-- `knowledge_site_review` is a new attention item for a run with `warning` or with failed pages, linking to the source.
+- `knowledge_site_review` is a new attention item for a run with `warning`, with failed pages, or that failed, linking to the source. A run that ended `SOURCE_INACTIVE` or `KNOWLEDGE_DISABLED` raises none: the owner caused the first, and nobody can act on the second. The item sits behind `ORBIT_KNOWLEDGE_WORKSPACE`.
 
 ## Security and privacy
 
@@ -152,7 +160,15 @@ Risk high: background job with outside reads and automatic content changes. No m
 
 After deployment the owner starts the first GitBook read in the UI and checks the page count, the language split and a Support test question. Weekly updates can be switched off per source.
 
-Rollback is a revert. Documents already read stay searchable until `maxAgeHours` passes, then the existing freshness warning appears. Stored `site` fields and `knowledge_site_runs` entries are ignored.
+Rollback is a revert with one step before it.
+
+**Before the revert:** remove `knowledge_analysis` from the task routes of every stored AI profile (project and organization AI settings). `taskRoutesSchema` in `packages/ai/src/routing.ts` is strict, so after a revert a saved `knowledge_analysis` route makes every AI configuration read of that project throw, and that takes chat, Support and Marketing down with it.
+
+**What else a revert does:**
+
+- The older strict `knowledgeDraft` schema rejects drafts that carry `rights` or `pages`, so those drafts can no longer be saved or previewed.
+- Drafts marked `replaced` by a take-over reappear on Sources, because the older code does not know that status.
+- Documents already read stay searchable until `maxAgeHours` passes, then the existing freshness warning appears. Stored `site` fields and `knowledge_site_runs` entries are ignored.
 
 ## Not in this package
 

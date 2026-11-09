@@ -22,7 +22,7 @@ Enforcement is active only with `ORBIT_MODULES=true`. With the flag off (the def
 Not affected:
 
 - **Platform services.** Pause, export and retention keep calling every module's hooks. They protect data, and a pause must still block a disabled module's publications.
-- **Knowledge services.** Knowledge jobs and the source sync are still registered by the platform until WP3.3, so they keep running.
+- **Knowledge services.** Knowledge jobs and the source sync are still registered by the platform until WP3.3, so they keep running. Site sources are the exception: with `ORBIT_KNOWLEDGE_WORKSPACE` off, or Knowledge unavailable or off for the project, nobody could pause them, so the sweep skips them and a batch already queued ends its run as `failed` with `KNOWLEDGE_DISABLED`.
 - **Data.** Turning a module off deletes nothing, and turning it on again restores it unchanged.
 
 **Deviation from the plan.** Plan `07` names the job status `skipped_module_disabled`. Orbit uses `blocked_dependency` with the error `MODULE_DISABLED` instead. That is the established pattern of the project pause, and the existing `retry` action, the job views and the exception list already understand it. A new status would have made such a job impossible to retry.
