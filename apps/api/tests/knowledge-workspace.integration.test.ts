@@ -1387,12 +1387,17 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
         });
       }
     });
-    const websitePreview = async (modelUse: boolean) => {
+    const websitePreview = async (
+      modelUse: boolean,
+      address: { url: string; pages?: string[] } = {
+        url: "https://help.example.invalid/docs",
+      },
+    ) => {
       const draft = await saveDraft(s, {
         ...manual(),
         kind: "website",
         text: "",
-        url: "https://help.example.invalid/docs",
+        ...address,
         modelUse,
       });
       return run((tx) =>
@@ -1418,27 +1423,72 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
         startAnalysis(s, { previewId: preview.id, confirmModelUse: true }),
       ).rejects.toThrow("MODEL_USE_FORBIDDEN");
     });
+    const closedSource = (
+      allowedPaths: string[],
+      overrides: Record<string, unknown> = {},
+    ) =>
+      run((tx) =>
+        create(tx, s, "sources", {
+          name: "Andere",
+          type: "website",
+          status: "active",
+          generation: 1,
+          authority: "official",
+          publicUse: false,
+          modelUse: false,
+          audiences: ["support"],
+          maxAgeHours: 168,
+          allowedOrigins: ["https://help.example.invalid"],
+          allowedPaths,
+          ...overrides,
+        }),
+      );
+    it("blocks a page covered by a closed source under an uncovered root at preflight and start", async () => {
+      await spendPolicy();
+      await closedSource(["/private"]);
+      const preview = await websitePreview(true, {
+        url: "https://help.example.invalid/",
+        pages: ["https://help.example.invalid/private/a"],
+      });
+      expect(
+        (await analysisPreflight(s, { previewId: preview.id })).blockers,
+      ).toEqual(["MODEL_USE_FORBIDDEN"]);
+      await expect(
+        startAnalysis(s, { previewId: preview.id, confirmModelUse: true }),
+      ).rejects.toMatchObject({ code: "MODEL_USE_FORBIDDEN" });
+      expect(await storedRuns()).toHaveLength(0);
+    });
+    it("does not send a page whose source was closed after the start", async () => {
+      await spendPolicy();
+      const preview = await websitePreview(true, {
+        url: "https://help.example.invalid/",
+        pages: ["https://help.example.invalid/private/a"],
+      });
+      const job = await startAnalysis(s, {
+        previewId: preview.id,
+        confirmModelUse: true,
+      });
+      await closedSource(["/private"]);
+      vi.mocked(respond).mockResolvedValue(answer([]) as any);
+      expect((await runAnalysis(s, job.id)).errorCode).toBe(
+        "MODEL_USE_FORBIDDEN",
+      );
+      expect(respond).not.toHaveBeenCalled();
+      expect(await reservations()).toHaveLength(0);
+      expect(data(await runRow(job.id))).toMatchObject({
+        status: "failed",
+        error: "MODEL_USE_FORBIDDEN",
+        costMicros: 0,
+      });
+      const draft = await run((tx) =>
+        entity(tx, s, "knowledge_drafts", data(job).draftId),
+      );
+      expect(data(draft)).toMatchObject({ activeRunId: null, status: "failed" });
+    });
     it("blocks the address of a source that forbids model use", async () => {
       await spendPolicy();
-      const elsewhere = (overrides: Record<string, unknown>) =>
-        run((tx) =>
-          create(tx, s, "sources", {
-            name: "Andere",
-            type: "website",
-            status: "active",
-            generation: 1,
-            authority: "official",
-            publicUse: false,
-            modelUse: false,
-            audiences: ["support"],
-            maxAgeHours: 168,
-            allowedOrigins: ["https://help.example.invalid"],
-            allowedPaths: ["/other"],
-            ...overrides,
-          }),
-        );
-      await elsewhere({});
-      await elsewhere({ allowedOrigins: [], allowedPaths: ["/"] });
+      await closedSource(["/other"]);
+      await closedSource(["/"], { allowedOrigins: [] });
       const source = await run((tx) =>
         create(tx, s, "sources", {
           name: "Hilfe",

@@ -374,9 +374,18 @@ const modelKeyMissing = (plan: CallPlan, runtime: OpenAiRuntimeConfig) =>
 // thirty large proposals regardless of the route's output ceiling.
 const proposalLimitFor = (maxOutputTokens: number) =>
   Math.min(30, Math.max(1, Math.floor(maxOutputTokens / 900)));
-/** A source the owner closed to AI features closes its address to the analysis too. */
-async function sourceForbidsModel(tx: DbTx, s: Scope, url: string) {
-  const covers = (d: Record<string, any>) => {
+/**
+ * A source the owner closed to AI features closes its addresses to the
+ * analysis too, whether a website draft names one as its root or as a page.
+ */
+async function sourceForbidsModel(
+  tx: DbTx,
+  s: Scope,
+  input: KnowledgeDraft,
+) {
+  if (input.kind !== "website") return false;
+  const urls = [input.url!, ...(input.pages ?? [])];
+  const covers = (d: Record<string, any>, url: string) => {
     try {
       validatePublicUrl(url, {
         allowedOrigins: d.allowedOrigins ?? [],
@@ -389,7 +398,11 @@ async function sourceForbidsModel(tx: DbTx, s: Scope, url: string) {
   };
   return (await list(tx, s, "sources")).some((row) => {
     const d = data(row);
-    return d.modelUse === false && d.status !== "revoked" && covers(d);
+    return (
+      d.modelUse === false &&
+      d.status !== "revoked" &&
+      urls.some((url) => covers(d, url))
+    );
   });
 }
 /**
@@ -434,9 +447,7 @@ async function analysisReadiness(
   const needsModel = input.kind === "github" || input.kind === "website";
   if (
     (needsModel && !input.modelUse) ||
-    (input.modelUse &&
-      input.kind === "website" &&
-      (await sourceForbidsModel(tx, s, input.url!)))
+    (input.modelUse && (await sourceForbidsModel(tx, s, input)))
   )
     blockers.push("MODEL_USE_FORBIDDEN");
   const changedPaths = await changedAnalysisPaths(tx, s, draft, snap);
@@ -609,6 +620,9 @@ async function analyze(
       where: { id: s.projectId },
     });
     if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
+    // The owner may have closed a source since the start.
+    if (await sourceForbidsModel(tx, s, input))
+      throw new DomainError("MODEL_USE_FORBIDDEN", 409);
     const mandate = await requireSpendMandate(tx, s);
     const runtime = await runtimeOpenAiConfiguration(tx, s);
     const plan = await planAnalysis(tx, s, runtime, snap);
