@@ -45,9 +45,8 @@ export const knowledgeCopy = {
     noReview: "Alles geprüft",
     noReviewHint:
       "Neue Vorschläge und Änderungen erscheinen hier, sobald du eine Quelle analysierst.",
-    noMatch:
-      "Keine passenden Einträge. Ändere die Suche oder den Themenfilter.",
-    accept: "Übernehmen",
+    noMatch: "Keine passenden Einträge. Ändere die Suche.",
+    accept: "Bestätigen",
     reject: "Verwerfen",
     statement: "Aussage",
     reason: "Warum vorgeschlagen?",
@@ -159,7 +158,6 @@ export const knowledgeCopy = {
     staleSource: "Veraltet",
     staleHint:
       "Seit {date} abgelaufen. Ihre Inhalte werden nicht mehr verwendet.",
-    expiringSource: "Läuft bald ab",
     expiringHint: "Ihre Inhalte werden ab {date} nicht mehr verwendet.",
     freshSource: "Aktuell",
     manualSource: "Manuell gepflegt",
@@ -255,8 +253,6 @@ export const knowledgeCopy = {
     siteStarted: "Orbit liest jetzt {pages}. Das läuft im Hintergrund.",
     siteAlreadyRunning:
       "Für diese Quelle läuft bereits ein Lesevorgang. An der Quelle wurde nichts geändert.",
-    readNow: "Jetzt lesen",
-    readNowRunning: "Wird gelesen …",
     weeklySwitch:
       "Jede Woche automatisch aktualisieren. Ohne wöchentliche Updates fallen die Seiten nach 14 Tagen aus der Suche.",
     weeklyIsOn: "Wird jede Woche automatisch aktualisiert.",
@@ -292,6 +288,8 @@ export const knowledgeCopy = {
     profileHint: "Optional. Hilft Orbit, dein Projekt richtig einzuordnen.",
     bulkConfirm: "Auswahl bestätigen",
     selectAll: "Alle auswählen",
+    replacedHint:
+      "Diese Quelle wurde ersetzt. Der Vorschlag kann nur noch verworfen werden.",
     noAudienceHint: "Wähle unter „Anpassen“ mindestens Marketing oder Support.",
     adjust: "Anpassen",
     otherKnowledge: "Weitere",
@@ -349,9 +347,9 @@ export const knowledgeCopy = {
     noReview: "Everything reviewed",
     noReviewHint:
       "New proposals and changes appear here after you analyze a source.",
-    noMatch: "No matching entries. Change the search or topic filter.",
-    accept: "Accept",
-    reject: "Discard",
+    noMatch: "No matching entries. Change the search.",
+    accept: "Confirm",
+    reject: "Reject",
     statement: "Statement",
     reason: "Why suggested?",
     usage: "Usage",
@@ -450,14 +448,13 @@ export const knowledgeCopy = {
     refreshHint:
       "Orbit reads the source again at no cost. If the text has changed, the affected statements are paused until you decide under “To review”.",
     refreshConfirm: "Read now",
-    neverRead: "Never fetched",
+    neverRead: "Never read",
     neverReadEmpty: "This source has no content yet and is not used anywhere.",
     neverReadHint: "This source has no successful fetch yet.",
     staleSource: "Out of date",
     staleHint: "Expired on {date}. Its content is no longer used.",
-    expiringSource: "Expires soon",
     expiringHint: "Its content will no longer be used from {date}.",
-    freshSource: "Current",
+    freshSource: "Up to date",
     manualSource: "Maintained manually",
     rowReading: "Reading",
     rowFailed: "Failed",
@@ -547,8 +544,6 @@ export const knowledgeCopy = {
     siteStarted: "Orbit is now reading {pages}. This runs in the background.",
     siteAlreadyRunning:
       "A read is already running for this source. Nothing was changed on the source.",
-    readNow: "Read now",
-    readNowRunning: "Reading …",
     weeklySwitch:
       "Update automatically every week. Without weekly updates the pages leave search after 14 days.",
     weeklyIsOn: "Updated automatically every week.",
@@ -583,6 +578,8 @@ export const knowledgeCopy = {
     profileHint: "Optional. Helps Orbit understand your project.",
     bulkConfirm: "Confirm selection",
     selectAll: "Select all",
+    replacedHint:
+      "This source was replaced. The proposal can only be rejected.",
     noAudienceHint: "Under Adjust, choose at least Marketing or Support.",
     adjust: "Adjust",
     otherKnowledge: "Other",

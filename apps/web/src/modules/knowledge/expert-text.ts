@@ -3,7 +3,6 @@ import type { EvidenceLabels } from "@/platform/ui/evidence";
 // Copy of the technical area (the expert pages). Unlike the workspace pages it
 // keeps the terms fact, index and generation. Both languages need every key.
 const en = {
-  technicalArea: "Technical area",
   // Technical navigation
   navLabel: "Technical area",
   navSources: "Sources",
@@ -198,7 +197,6 @@ const en = {
   review: "Review",
   // Generic
   unknown: "Unknown",
-  workspaceLink: "Technical area",
   evidence: {
     fact: "Fact",
     passage: "Source passage",
@@ -212,7 +210,6 @@ export type ExpertCopy = {
 } & { evidence: EvidenceLabels };
 
 const de: ExpertCopy = {
-  technicalArea: "Technik-Bereich",
   navLabel: "Technik-Bereich",
   navSources: "Quellen",
   navFacts: "Fakten",
@@ -395,7 +392,6 @@ const de: ExpertCopy = {
   colCompletedAt: "Abgeschlossen am",
   review: "Prüfen",
   unknown: "Unbekannt",
-  workspaceLink: "Technik-Bereich",
   evidence: {
     fact: "Fakt",
     passage: "Quellenabschnitt",
@@ -457,6 +453,23 @@ const VALUES: Record<string, { de: string; en: string }> = {
   date: { de: "Datum", en: "Date" },
   status: { de: "Status", en: "Status" },
   hybrid: { de: "Hybrid", en: "Hybrid" },
+  insufficient_evidence: {
+    de: "Nicht genug Belege",
+    en: "Not enough evidence",
+  },
+  invalidated: { de: "Ungültig geworden", en: "Invalidated" },
+  partial: { de: "Teilweise", en: "Partial" },
+  prepared: { de: "Vorbereitet", en: "Prepared" },
+  succeeded: { de: "Erfolgreich", en: "Succeeded" },
+  unknown: { de: "Unklar", en: "Unclear" },
+  blocked_dependency: { de: "Blockiert", en: "Blocked" },
+  retry_scheduled: { de: "Neuer Versuch geplant", en: "Retry scheduled" },
+  indexing: { de: "Wird indexiert", en: "Indexing" },
+  review: { de: "Zur Prüfung", en: "In review" },
+  generating: { de: "Wird erstellt", en: "Generating" },
+  replaced: { de: "Ersetzt", en: "Replaced" },
+  removed: { de: "Entfernt", en: "Removed" },
+  analyzing: { de: "Wird analysiert", en: "Analyzing" },
   lexical_degraded: {
     de: "Nur Stichwortsuche",
     en: "Keyword search only",

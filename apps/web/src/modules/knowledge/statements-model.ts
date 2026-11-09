@@ -63,6 +63,12 @@ export function effectiveStatement(p: Entity, edit?: StatementEdit): string {
 /** The longest statement `knowledge-proposal-decide` accepts. */
 export const MAX_STATEMENT_LENGTH = 1000;
 
+/** The proposal's source draft was replaced: the proposal can only be rejected. */
+export function draftReplaced(p: Entity, drafts: Entity[]): boolean {
+  const own = drafts.find((d) => d.id === record(p).draftId);
+  return own ? record(own).status === "replaced" : false;
+}
+
 /** Pending, with text, within the length limit and at least one audience. */
 export function selectable(
   p: Entity,
@@ -72,6 +78,7 @@ export function selectable(
   const r = effectiveRights(p, drafts, edit);
   return (
     record(p).status === "pending" &&
+    !draftReplaced(p, drafts) &&
     effectiveStatement(p, edit).trim().length > 0 &&
     effectiveStatement(p, edit).trim().length <= MAX_STATEMENT_LENGTH &&
     (r.marketing || r.support)

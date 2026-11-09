@@ -75,9 +75,13 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
   },
   knowledge_review_pending: (item, locale) => ({
     title:
-      locale === "de"
-        ? `${item.count ?? 1} Vorschläge zu prüfen`
-        : `${item.count ?? 1} proposals to review`,
+      (item.count ?? 1) === 1
+        ? locale === "de"
+          ? "1 Vorschlag zu prüfen"
+          : "1 proposal to review"
+        : locale === "de"
+          ? `${item.count} Vorschläge zu prüfen`
+          : `${item.count} proposals to review`,
     action: { en: "Review", de: "Prüfen" },
   }),
   knowledge_conflicts: (item, locale) => {

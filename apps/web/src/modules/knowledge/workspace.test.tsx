@@ -12,7 +12,7 @@ import {
   ReviewCard,
   StatementList,
 } from "./statements";
-import { effectiveRights } from "./statements-model";
+import { effectiveRights, selectable, draftReplaced } from "./statements-model";
 import {
   AnalysisStart,
   ResultStep,
@@ -183,8 +183,8 @@ describe("understandable knowledge workspace", () => {
         },
       },
     ];
-    expect(render("review")).toContain("Übernehmen");
-    expect(render("review", false)).not.toContain("Übernehmen");
+    expect(render("review")).toContain("Bestätigen");
+    expect(render("review", false)).not.toContain("Bestätigen");
   });
   it("provides the same complete flow in English", () => {
     const html = render("import", true, "en");
@@ -413,6 +413,34 @@ describe("statements by topic", () => {
     expect(html).not.toContain(de.selectAll);
     expect(html).toContain(de.adjust);
     expect(html).toContain(de.reject);
+  });
+  it("a proposal of a replaced draft is not selectable", () => {
+    const replaced = [
+      {
+        ...draftOf(),
+        data: { status: "replaced", input: { name: "Handbook" } },
+      },
+    ] as any;
+    expect(selectable(pending() as any, replaced)).toBe(false);
+    expect(draftReplaced(pending() as any, replaced)).toBe(true);
+    expect(selectable(pending() as any, [draftOf()] as any)).toBe(true);
+    expect(selectable(pending() as any, [])).toBe(true);
+    expect(draftReplaced(pending() as any, [])).toBe(false);
+  });
+  it("a card of a replaced draft offers only Reject and says why", () => {
+    response.value.drafts = [
+      {
+        ...draftOf(),
+        data: { status: "replaced", input: { name: "Handbook" } },
+      },
+    ];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(checkboxes(html)).toBe(0);
+    expect(html).toContain(de.replacedHint);
+    expect(html).toContain(de.reject);
+    expect(html).not.toContain(`${de.accept}</button>`);
+    expect(html).not.toContain(de.adjust);
   });
   it("labels the checkbox by its statement", () => {
     response.value.drafts = [draftOf()];
@@ -2232,6 +2260,71 @@ describe("plain language and the technical area", () => {
     expect(html).not.toContain("knowledge-advanced");
     expect(html).toContain('href="/p/p/knowledge/health?expert=1"');
     expect(html).toContain("Technik-Bereich");
+  });
+  it("every value the API stores has a label in both languages", () => {
+    const stored = [
+      "insufficient_evidence",
+      "invalidated",
+      "partial",
+      "prepared",
+      "succeeded",
+      "unknown",
+      "blocked_dependency",
+      "retry_scheduled",
+      "indexing",
+      "review",
+      "generating",
+      "replaced",
+      "removed",
+      "analyzing",
+      "ready",
+      "completed",
+      "failed",
+      "running",
+      "queued",
+      "pending",
+      "accepted",
+      "rejected",
+      "canceled",
+      "draft",
+      "needs_review",
+      "stale",
+      "expired",
+      "superseded",
+      "withdrawn",
+      "revoked",
+      "active",
+      "paused",
+      "verified",
+      "candidate",
+      "conflicting",
+      "hybrid",
+      "lexical_degraded",
+      "public",
+      "internal",
+      "text",
+      "decimal",
+      "date",
+      "status",
+      "url",
+      "manual",
+      "file",
+      "website",
+      "gitbook",
+      "github",
+      "url_list",
+      "verified_facts",
+      "historical",
+      "official",
+      "research",
+      "generated",
+    ];
+    for (const value of stored)
+      for (const lang of ["de", "en"] as const) {
+        const label = expertValue(value, lang);
+        expect(label, `${value} ${lang}`).not.toBe("Unknown");
+        expect(label, `${value} ${lang}`).not.toBe("Unbekannt");
+      }
   });
   it("an unknown value prints Unknown", () => {
     expect(expertValue("some_new_state", "en")).toBe("Unknown");

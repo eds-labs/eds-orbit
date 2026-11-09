@@ -39,6 +39,7 @@ import {
   selectable,
   type EffectiveRights,
   type StatementEdit,
+  draftReplaced,
 } from "./statements-model";
 import { workspaceStatus, type KnowledgeCopy } from "./workspace-text";
 import { Field, WorkspaceError, type Summary } from "./workspace-parts";
@@ -514,6 +515,7 @@ export function ReviewCard({
   const d = p.data as Record<string, any>;
   const rights = effectiveRights(p, drafts, edit);
   const canConfirm = selectable(p, drafts, edit);
+  const replaced = draftReplaced(p, drafts);
   const sourceName = (
     drafts.find((x) => x.id === d.draftId)?.data.input as
       KnowledgeDraft | undefined
@@ -557,10 +559,12 @@ export function ReviewCard({
       {sourceName && <p className="knowledge-review-source">{sourceName}</p>}
       {d.evidence && <Evidence evidence={d.evidence} t={t} />}
       {d.reason && <p>{String(d.reason)}</p>}
-      {rights.marketing || rights.support ? (
+      {replaced ? (
+        <Alert kind="warning">{t.replacedHint}</Alert>
+      ) : rights.marketing || rights.support ? (
         <p className="knowledge-review-rights">{rightsLine(rights, t)}</p>
       ) : (
-        <Alert kind="warning">{t.noAudienceHint}</Alert>
+        isOwner && <Alert kind="warning">{t.noAudienceHint}</Alert>
       )}
       <details>
         <summary>{t.moreEvidence}</summary>
@@ -599,22 +603,26 @@ export function ReviewCard({
           )}
           {error && <WorkspaceError code={error} t={t} />}
           <div className="form-actions">
-            <Button disabled={pending || !canConfirm} onClick={confirm}>
-              <CheckCircle2 aria-hidden="true" />
-              {t.accept}
-            </Button>
+            {!replaced && (
+              <Button disabled={pending || !canConfirm} onClick={confirm}>
+                <CheckCircle2 aria-hidden="true" />
+                {t.accept}
+              </Button>
+            )}
             <Button variant="outline" disabled={pending} onClick={reject}>
               {t.reject}
             </Button>
-            <Button
-              variant="ghost"
-              aria-expanded={adjusting}
-              disabled={pending}
-              onClick={() => setAdjusting(!adjusting)}
-            >
-              <SlidersHorizontal aria-hidden="true" />
-              {t.adjust}
-            </Button>
+            {!replaced && (
+              <Button
+                variant="ghost"
+                aria-expanded={adjusting}
+                disabled={pending}
+                onClick={() => setAdjusting(!adjusting)}
+              >
+                <SlidersHorizontal aria-hidden="true" />
+                {t.adjust}
+              </Button>
+            )}
           </div>
         </>
       )}
