@@ -529,6 +529,25 @@ const CODES: Record<string, { de: string; en: string }> = {
     de: "Zu viele Fakten für den Kontext",
     en: "Too many facts for the context",
   },
+  source_changed: { de: "Quelle geändert", en: "Source changed" },
+  fact_changed: { de: "Fakt geändert", en: "Fact changed" },
+  fact_superseded: { de: "Fakt ersetzt", en: "Fact superseded" },
+  fact_conflict: { de: "Fakt im Widerspruch", en: "Fact in conflict" },
+  fact_revoked: { de: "Fakt zurückgezogen", en: "Fact withdrawn" },
+  source_revoked: { de: "Quelle widerrufen", en: "Source revoked" },
+  source_permissions_changed: {
+    de: "Berechtigungen der Quelle geändert",
+    en: "The source's permissions changed",
+  },
+  document_revoked: { de: "Dokument widerrufen", en: "Document revoked" },
+  document_retired: {
+    de: "Dokument nicht mehr aktuell",
+    en: "Document retired",
+  },
+  invalid_source_policy: {
+    de: "Die Richtlinie der Quelle ist ungültig",
+    en: "The source's policy is invalid",
+  },
   generated_derived: {
     de: "Generierte Inhalte sind keine Quelle",
     en: "Generated content is not a source",

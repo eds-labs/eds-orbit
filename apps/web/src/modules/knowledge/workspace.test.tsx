@@ -2356,6 +2356,28 @@ describe("plain language and the technical area", () => {
     }
     expect(expertCode("something:else", "en")).toBe("Unknown");
   });
+  it("labels every invalidation reason and source policy error", () => {
+    // The reasons of invalidate() in packages/knowledge/src/index.ts, which
+    // land in evidence.gaps, and the policy error of the retrieval catch.
+    const codes = [
+      "source_changed",
+      "fact_changed",
+      "fact_superseded",
+      "fact_conflict",
+      "fact_revoked",
+      "source_revoked",
+      "source_permissions_changed",
+      "source_audience_changed",
+      "document_revoked",
+      "document_retired",
+      "INVALID_SOURCE_POLICY",
+    ];
+    for (const locale of ["de", "en"])
+      for (const code of codes)
+        expect(expertCode(code, locale), `${code} ${locale}`).not.toBe(
+          expertCopy[locale as "de" | "en"].unknown,
+        );
+  });
   it("EvidenceItems keeps English by default and takes labels", () => {
     const evidence = {
       data: {
