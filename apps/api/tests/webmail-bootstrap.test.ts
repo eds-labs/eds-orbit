@@ -7,11 +7,13 @@ import {
 
 const off = {
   ORBIT_WEBMAIL: "false",
+  APP_ORIGIN: "https://orbit.example.invalid",
   WEBMAIL_ORIGIN: "",
   WEBMAIL_BRIDGE_SECRET: "",
 } as const;
 const on = {
   ORBIT_WEBMAIL: "true",
+  APP_ORIGIN: "https://orbit.example.invalid",
   WEBMAIL_ORIGIN: "https://webmail.example.invalid",
   WEBMAIL_BRIDGE_SECRET: "synthetic",
 } as const;
@@ -36,6 +38,10 @@ describe("webmail bridge process", () => {
     { ...on, ORBIT_WEBMAIL: "false" },
     { ...on, WEBMAIL_ORIGIN: "" },
     { ...on, WEBMAIL_BRIDGE_SECRET: "" },
+    // Roundcube on Orbit's own origin would put the session in reach of a mail.
+    { ...on, WEBMAIL_ORIGIN: "https://orbit.example.invalid" },
+    { ...on, WEBMAIL_ORIGIN: "https://ORBIT.example.invalid:443/webmail/" },
+    { ...on, WEBMAIL_ORIGIN: "not a url" },
   ] as const)(
     "is off unless flag, origin and secret are all set (%#)",
     async (config) => {

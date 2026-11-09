@@ -58,7 +58,7 @@ export async function buildDisabledBridgeApp(): Promise<FastifyInstance> {
 export async function createWebmailBridgeProcess(
   config: Pick<
     Config,
-    "ORBIT_WEBMAIL" | "WEBMAIL_ORIGIN" | "WEBMAIL_BRIDGE_SECRET"
+    "ORBIT_WEBMAIL" | "APP_ORIGIN" | "WEBMAIL_ORIGIN" | "WEBMAIL_BRIDGE_SECRET"
   >,
   seams: {
     register?: () => Promise<unknown>;
