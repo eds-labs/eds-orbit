@@ -2,7 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { KnowledgeWorkspaceGate } from "./workspace";
+import { moreEntries, shouldCloseMenu } from "./source-list";
+import { sourceRows } from "./source-rows";
 import { WorkspaceError, analysisRunning } from "./workspace-parts";
+import {
+  AdjustForm,
+  BulkBar,
+  keptSelection,
+  ReviewCard,
+  StatementList,
+} from "./statements";
+import { effectiveRights, selectable, draftReplaced } from "./statements-model";
 import {
   AnalysisStart,
   ResultStep,
@@ -19,12 +29,20 @@ import {
   type Check,
 } from "./add-flow";
 import { KnowledgeHomeCard } from "./home";
-import { Knowledge } from "./knowledge";
+import { Knowledge, ExcludedSources, sourceLabel } from "./knowledge";
 import { knowledgeWeb } from "./manifest";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { navigationForFeatures, routeTable } from "@/platform/shell/routes";
 import { knowledgeCopy } from "./workspace-text";
+import {
+  expertCode,
+  expertCopy,
+  expertValue,
+  previewErrors,
+} from "./expert-text";
+import { EvidenceItems } from "@/platform/ui/evidence";
+import { readFileSync } from "node:fs";
 const response = vi.hoisted(() => ({
   value: {
     enabled: true,
@@ -165,8 +183,8 @@ describe("understandable knowledge workspace", () => {
         },
       },
     ];
-    expect(render("review")).toContain("Übernehmen");
-    expect(render("review", false)).not.toContain("Übernehmen");
+    expect(render("review")).toContain("Bestätigen");
+    expect(render("review", false)).not.toContain("Bestätigen");
   });
   it("provides the same complete flow in English", () => {
     const html = render("import", true, "en");
@@ -284,6 +302,374 @@ describe("managing confirmed knowledge", () => {
   });
 });
 
+describe("statements by topic", () => {
+  const de = knowledgeCopy.de;
+  const draftOf = (rights?: Record<string, boolean>) => ({
+    id: "d",
+    version: 1,
+    data: { status: "ready", input: { name: "Handbook", rights } },
+  });
+  const pending = (over: Record<string, unknown> = {}, id = "a") => ({
+    id,
+    version: 2,
+    data: {
+      statement: "Shared calendars",
+      status: "pending",
+      topic: "features",
+      stage: "documented",
+      draftId: "d",
+      reason: "The handbook describes it",
+      evidence: {
+        path: "docs/calendar.md",
+        startLine: 3,
+        endLine: 5,
+        quote: "Calendars can be shared",
+        url: "https://docs.example.test/calendar",
+        commit: "abc123",
+      },
+      ...over,
+    },
+  });
+  const headingOf = (html: string, label: string) =>
+    new RegExp(`<h2>${label} <span[^>]*>(\\d+)</span></h2>`).exec(html)?.[1];
+  const checkboxes = (html: string) =>
+    html.match(/type="checkbox"/g)?.length ?? 0;
+  const withoutFolds = (html: string) =>
+    html.replace(/<details>[\s\S]*?<\/details>/g, "");
+
+  it("knowledge is grouped under topic headings with counts", () => {
+    response.value.proposals = [
+      confirmed({ topic: "limitations", statement: "No offline mode" }),
+      { ...confirmed({ statement: "Shared lists" }), id: "b" },
+      { ...confirmed({ statement: "Shared notes" }), id: "c" },
+      {
+        ...confirmed({ topic: "description", statement: "A family app" }),
+        id: "e",
+      },
+    ];
+    const html = render();
+    expect(headingOf(html, de.description)).toBe("1");
+    expect(headingOf(html, de.features)).toBe("2");
+    expect(headingOf(html, de.limitations)).toBe("1");
+    expect(headingOf(html, de.platforms)).toBeUndefined();
+    expect(html.indexOf(`<h2>${de.description}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.features}`),
+    );
+    expect(html.indexOf(`<h2>${de.features}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.limitations}`),
+    );
+  });
+  it("older facts appear under Other", () => {
+    response.value.proposals = [confirmed()];
+    response.value.facts = [
+      verifiedFact(),
+      verifiedFact({ id: "old", key: "plans.free", value: "Free plan" }),
+    ];
+    const html = render();
+    expect(headingOf(html, de.otherKnowledge)).toBe("1");
+    expect(html.indexOf(`<h2>${de.features}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.otherKnowledge}`),
+    );
+    expect(html.indexOf(`<h2>${de.otherKnowledge}`)).toBeLessThan(
+      html.indexOf("Free plan"),
+    );
+    response.value.proposals = [pending()];
+    expect(render("review")).not.toContain("Free plan");
+  });
+  it("the review card shows the evidence without opening anything", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const shown = withoutFolds(render("review"));
+    expect(shown).toContain("Calendars can be shared");
+    expect(shown).toContain("docs/calendar.md · 3–5");
+    expect(shown).toContain('href="https://docs.example.test/calendar"');
+    expect(shown).toContain("The handbook describes it");
+    expect(shown).not.toContain(de.stageHint);
+    expect(shown).not.toContain("abc123");
+    const html = render("review");
+    expect(html).toContain(`<summary>${de.moreEvidence}</summary>`);
+    expect(html).toContain("abc123");
+    expect(html).toContain(de.stageHint);
+    expect(html).toContain(de.loadHistory);
+  });
+  it("the review card names its source and rights", () => {
+    response.value.drafts = [
+      draftOf({ marketing: true, support: false, publicUse: false }),
+    ];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(html).toContain("Handbook");
+    expect(html).toContain(`${de.marketing} · ${de.internal}`);
+    expect(html).not.toContain(de.noAudienceHint);
+  });
+  it("says why a card without an audience cannot be selected", () => {
+    response.value.drafts = [
+      draftOf({ marketing: false, support: false, publicUse: false }),
+    ];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(html).toContain(de.noAudienceHint);
+    expect(checkboxes(html)).toBe(0);
+    expect(html).not.toContain(de.selectAll);
+    expect(html).toContain(de.adjust);
+    expect(html).toContain(de.reject);
+  });
+  it("a proposal of a replaced draft is not selectable", () => {
+    const replaced = [
+      {
+        ...draftOf(),
+        data: { status: "replaced", input: { name: "Handbook" } },
+      },
+    ] as any;
+    expect(selectable(pending() as any, replaced)).toBe(false);
+    expect(draftReplaced(pending() as any, replaced)).toBe(true);
+    expect(selectable(pending() as any, [draftOf()] as any)).toBe(true);
+    expect(selectable(pending() as any, [])).toBe(true);
+    expect(draftReplaced(pending() as any, [])).toBe(false);
+  });
+  it("a card of a replaced draft offers only Reject and says why", () => {
+    response.value.drafts = [
+      {
+        ...draftOf(),
+        data: { status: "replaced", input: { name: "Handbook" } },
+      },
+    ];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(checkboxes(html)).toBe(0);
+    expect(html).toContain(de.replacedHint);
+    expect(html).toContain(de.reject);
+    expect(html).not.toContain(`${de.accept}</button>`);
+    expect(html).not.toContain(de.adjust);
+  });
+  it("labels the checkbox by its statement", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    const id = /aria-labelledby="([^"]+)"/.exec(html)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`<h3 id="${id}">Shared calendars</h3>`);
+  });
+  it("changed statements come first and have no checkbox", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [
+      pending(),
+      {
+        ...confirmed({ status: "needs_review", statement: "Old pricing" }),
+        id: "b",
+      },
+    ];
+    const html = render("review");
+    expect(headingOf(html, de.changedGroup)).toBe("1");
+    expect(html.indexOf(`<h2>${de.changedGroup}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.features}`),
+    );
+    expect(checkboxes(html)).toBe(1);
+    expect(html.match(new RegExp(de.selectAll, "g"))).toHaveLength(1);
+    expect(html).toContain(de.keepUsing);
+  });
+  it("a reader sees no checkboxes or bar controls", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const html = render("review", false);
+    expect(html).toContain("Shared calendars");
+    expect(html).toContain("Handbook");
+    expect(checkboxes(html)).toBe(0);
+    for (const label of [
+      de.selectAll,
+      de.bulkConfirm,
+      de.accept,
+      de.reject,
+      de.adjust,
+    ])
+      expect(html).not.toContain(label);
+    expect(html).not.toContain("knowledge-bulk-bar");
+  });
+  it("the card offers Adjust instead of an open form", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(html).toContain(de.adjust);
+    expect(html).toContain(de.accept);
+    expect(html).toContain(de.reject);
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain(de.usage);
+    expect(html).not.toContain("knowledge-bulk-bar");
+  });
+  it("the topic select is gone", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    for (const html of [render("review"), render()]) {
+      expect(html).not.toContain("<select");
+      expect(html).toContain('type="search"');
+    }
+  });
+
+  const listOf = (query: string) =>
+    renderToStaticMarkup(
+      <ShellContext.Provider
+        value={{ hrefOf: (key: string) => `/${key}` } as any}
+      >
+        <WorkspaceContext.Provider
+          value={
+            {
+              project: { id: "p", name: "FamilyPlan" },
+              locale: "de",
+              isOwner: true,
+            } as any
+          }
+        >
+          <StatementList
+            data={response.value}
+            review={false}
+            query={query}
+            listingRemoved={false}
+            refresh={() => {}}
+            t={de}
+          />
+        </WorkspaceContext.Provider>
+      </ShellContext.Provider>,
+    );
+  it("search filters inside the groups", () => {
+    response.value.proposals = [
+      confirmed(),
+      { ...confirmed({ statement: "Shared lists" }), id: "b" },
+      {
+        ...confirmed({ topic: "limitations", statement: "No offline mode" }),
+        id: "c",
+      },
+    ];
+    const html = listOf("LISTS");
+    expect(headingOf(html, de.features)).toBe("1");
+    expect(html).toContain("Shared lists");
+    expect(html).not.toContain("Shared calendars");
+    expect(headingOf(html, de.limitations)).toBeUndefined();
+    expect(listOf("nothing like this")).toContain(de.noMatch);
+  });
+
+  describe("selection", () => {
+    const drafts = [draftOf()] as any;
+    it("keeps the same set while everything stays selectable", () => {
+      const selected = new Set(["a"]);
+      expect(keptSelection(selected, [pending()] as any, drafts, {})).toBe(
+        selected,
+      );
+    });
+    it("drops a statement that is no longer listed", () => {
+      expect([
+        ...keptSelection(
+          new Set(["a", "gone"]),
+          [pending()] as any,
+          drafts,
+          {},
+        ),
+      ]).toEqual(["a"]);
+    });
+    it("drops a statement whose audiences were switched off", () => {
+      expect([
+        ...keptSelection(new Set(["a"]), [pending()] as any, drafts, {
+          a: { marketing: false, support: false },
+        }),
+      ]).toEqual([]);
+    });
+    it("drops a statement that turned into a changed one", () => {
+      expect([
+        ...keptSelection(
+          new Set(["a"]),
+          [pending({ status: "needs_review" })] as any,
+          drafts,
+          {},
+        ),
+      ]).toEqual([]);
+    });
+  });
+
+  describe("while a bulk confirm runs", () => {
+    const form = (busy: boolean) =>
+      renderToStaticMarkup(
+        <AdjustForm
+          statement="Shared calendars"
+          rights={{ marketing: true, support: true, publicUse: true }}
+          onChange={() => {}}
+          busy={busy}
+          t={de}
+        />,
+      );
+    const adjustButton = (busy: boolean) =>
+      renderToStaticMarkup(
+        <ShellContext.Provider
+          value={{ hrefOf: (key: string) => `/${key}` } as any}
+        >
+          <WorkspaceContext.Provider
+            value={
+              {
+                project: { id: "p", name: "FamilyPlan" },
+                locale: "de",
+                isOwner: true,
+              } as any
+            }
+          >
+            <ReviewCard
+              proposal={pending() as any}
+              drafts={[draftOf()] as any}
+              onEdit={() => {}}
+              selected
+              onSelect={() => {}}
+              busy={busy}
+              refresh={() => {}}
+              t={de}
+            />
+          </WorkspaceContext.Provider>
+        </ShellContext.Provider>,
+      )
+        .match(/<button[^>]*>(?:(?!<\/button>).)*<\/button>/g)
+        ?.find((button) => button.includes(de.adjust));
+    it("freezes the text and the three rights", () => {
+      expect(form(true).match(/disabled=""/g)).toHaveLength(4);
+      expect(form(false)).not.toContain('disabled=""');
+    });
+    it("disables Adjust", () => {
+      expect(adjustButton(true)).toContain('disabled=""');
+      expect(adjustButton(false)).not.toContain('disabled=""');
+    });
+  });
+
+  describe("bulk bar", () => {
+    const bar = (over: Record<string, unknown> = {}) =>
+      renderToStaticMarkup(
+        <BulkBar
+          summary={{ text: "2 Aussagen", needsPublicNote: false }}
+          running={false}
+          result={null}
+          onConfirm={() => {}}
+          t={de}
+          {...over}
+        />,
+      );
+    it("shows the summary and the confirm button", () => {
+      const html = bar();
+      expect(html).toContain("knowledge-bulk-bar");
+      expect(html).toContain("2 Aussagen");
+      expect(html).toContain(de.bulkConfirm);
+      expect(html).not.toContain(de.publicNeeded);
+    });
+    it("repeats the note when something is not public", () => {
+      expect(
+        bar({ summary: { text: "2 Aussagen", needsPublicNote: true } }),
+      ).toContain(de.publicNeeded);
+    });
+    it("disables the button while a confirm runs", () => {
+      expect(bar({ running: true })).toMatch(/<button[^>]*disabled=""/);
+      expect(bar()).not.toMatch(/<button[^>]*disabled=""/);
+    });
+    it("keeps the result line after the selection is gone", () => {
+      const html = bar({ summary: null, result: "12 von 12 bestätigt" });
+      expect(html).toContain("12 von 12 bestätigt");
+      expect(html).not.toContain(de.bulkConfirm);
+    });
+  });
+});
+
 describe("source list", () => {
   const emptySource = {
     id: "g",
@@ -352,9 +738,12 @@ describe("source list", () => {
     response.value.drafts = [
       draft({ status: "draft", lastSuccessfulSyncAt: "2026-10-24T17:39:00Z" }),
     ];
+    response.value.runs = [
+      { id: "r", data: { draftId: "d", status: "completed" } },
+    ];
     const html = render("sources");
-    expect(html).toContain("Gelesen");
-    expect(html).not.toContain("Noch nicht gelesen");
+    expect(html).toContain("Aktuell");
+    expect(html).not.toContain("Nicht fertig");
   });
   it("keeps the reason of a failed analysis visible", () => {
     response.value.drafts = [draft({ status: "failed" })];
@@ -369,6 +758,15 @@ describe("source list", () => {
       },
     ];
     expect(render("sources")).toContain("Die Analyse konnte nicht");
+  });
+  it("calls a draft with a sync date but no completed analysis not finished", () => {
+    response.value.drafts = [
+      draft({ status: "draft", lastSuccessfulSyncAt: "2026-10-24T17:39:00Z" }),
+    ];
+    const html = render("sources");
+    expect(html).toContain("Nicht fertig");
+    expect(html).toContain("Weiter einrichten");
+    expect(html).not.toContain("Noch nicht gelesen");
   });
   it("forgets an older failure after a newer success", () => {
     response.value.drafts = [draft()];
@@ -394,6 +792,157 @@ describe("source list", () => {
     expect(render("sources")).not.toMatch(
       /Dokumente und Versionen<\/a>(<!-- -->)?<a[^>]*>Dokumente und Versionen/,
     );
+  });
+});
+
+describe("source rows", () => {
+  const siteSource = (over: Record<string, unknown> = {}) => ({
+    id: "g",
+    data: {
+      name: "Docs",
+      type: "gitbook",
+      status: "active",
+      site: { rootUrl: "https://docs.test/" },
+      ...over,
+    },
+  });
+  const rowDraft = (kind: string, over: Record<string, unknown> = {}) => ({
+    id: "d",
+    version: 1,
+    data: { status: "draft", input: { name: "Repo", kind }, ...over },
+  });
+  const done = [{ id: "r", data: { draftId: "d", status: "completed" } }];
+  const days = (n: number) =>
+    new Date(Date.now() - n * 86_400_000).toISOString();
+  it("a row shows one primary control and its status", () => {
+    response.value.sources = [siteSource()];
+    response.value.indexStatus = [{ sourceId: "g", documents: 3 }];
+    const html = render("sources");
+    expect(html).toContain('id="knowledge-source-g"');
+    expect(html).toContain("Noch nie abgerufen");
+    expect(html).toContain("Inhalte einlesen");
+    expect(html.match(/Inhalte einlesen/g)).toHaveLength(1);
+    expect(html).toContain("Mehr");
+  });
+  it("a reader sees status without actions", () => {
+    response.value.sources = [siteSource()];
+    response.value.indexStatus = [{ sourceId: "g", documents: 3 }];
+    const html = render("sources", false);
+    expect(html).toContain("Noch nie abgerufen");
+    expect(html).not.toContain("Inhalte einlesen");
+    expect(html).not.toContain("Pausieren");
+    expect(html).toContain("Dokumente und Versionen");
+  });
+  it("a failed draft keeps its reason", () => {
+    response.value.drafts = [rowDraft("github")];
+    response.value.runs = [
+      {
+        id: "r",
+        data: {
+          draftId: "d",
+          status: "failed",
+          error: "KNOWLEDGE_ANALYSIS_FAILED",
+        },
+      },
+    ];
+    const html = render("sources");
+    expect(html).toContain("Die Analyse konnte nicht");
+    expect(html).toContain("Erneut versuchen");
+  });
+  it("a GitHub draft read 30 days ago offers Update", () => {
+    response.value.drafts = [
+      rowDraft("github", { lastSuccessfulSyncAt: days(30) }),
+    ];
+    response.value.runs = done;
+    const html = render("sources");
+    expect(html).toContain("Länger nicht gelesen");
+    expect(html).toContain("Aktualisieren");
+  });
+  it("text drafts offer no Update", () => {
+    response.value.drafts = [
+      rowDraft("manual", { lastSuccessfulSyncAt: days(90) }),
+    ];
+    response.value.runs = done;
+    expect(render("sources")).not.toContain("Aktualisieren");
+  });
+  it("?source focuses a draft row too", () => {
+    response.value.drafts = [rowDraft("github")];
+    nav.search = "source=d";
+    const html = render("sources");
+    expect(html).toContain('id="knowledge-source-d"');
+    expect(html).toContain("knowledge-source-focused");
+  });
+  it("keeps the repository next to a draft's kind", () => {
+    response.value.drafts = [
+      {
+        ...rowDraft("github"),
+        data: {
+          status: "draft",
+          input: { name: "Repo", kind: "github", repository: "eds/orbit" },
+        },
+      },
+    ];
+    expect(render("sources")).toContain("eds/orbit");
+  });
+  it("lists history for a draft with proposals in More", () => {
+    response.value.drafts = [rowDraft("github")];
+    response.value.runs = done;
+    response.value.proposals = [{ ...confirmed({ draftId: "d" }), id: "p1" }];
+    expect(render("sources")).toContain("Entscheidungsverlauf");
+  });
+});
+
+describe("more menu entries", () => {
+  const t = knowledgeCopy.en;
+  const pausedSource = (siteRun?: Record<string, unknown>) => {
+    const sources = [
+      {
+        id: "g",
+        data: { name: "Docs", type: "gitbook", status: "paused", site: {} },
+      },
+    ] as any;
+    const rows = sourceRows(
+      {
+        enabled: true,
+        profile: {},
+        drafts: [],
+        runs: [],
+        proposals: [],
+        facts: [],
+        sources,
+        siteRuns: siteRun
+          ? ([{ id: "r", data: { sourceId: "g", ...siteRun } }] as any)
+          : [],
+      },
+      new Map(),
+      Date.now(),
+      t,
+      "en",
+    );
+    return rows[0]!;
+  };
+  const ctx = {
+    isOwner: true,
+    index: { sourceId: "g", documents: 2 } as any,
+    hasFacts: true,
+    hasHistory: false,
+  };
+  it("offers Resume under More for a paused source that is still reading", () => {
+    const row = pausedSource({ status: "running" });
+    expect(row.status).toBe("reading");
+    expect(row.primary).toBeNull();
+    expect(moreEntries(row, ctx)).toContain("resume");
+  });
+  it("does not repeat Resume when it is the primary action", () => {
+    const row = pausedSource();
+    expect(row.primary?.kind).toBe("resume");
+    expect(moreEntries(row, ctx)).not.toContain("resume");
+  });
+  it("closes the menu after a link or button, not after the weekly checkbox", () => {
+    expect(shouldCloseMenu("A")).toBe(true);
+    expect(shouldCloseMenu("BUTTON")).toBe(true);
+    expect(shouldCloseMenu("INPUT")).toBe(false);
+    expect(shouldCloseMenu("LABEL")).toBe(false);
   });
 });
 
@@ -550,11 +1099,7 @@ describe("add flow", () => {
       />,
       locale,
     );
-  const start = (
-    check: Check,
-    locale: "de" | "en" = "de",
-    back?: ReactNode,
-  ) =>
+  const start = (check: Check, locale: "de" | "en" = "de", back?: ReactNode) =>
     inContext(
       <AnalysisStart
         check={check}
@@ -590,7 +1135,11 @@ describe("add flow", () => {
     /<button[^>]*knowledge-start[^>]*>.*?<\/button>/.exec(html)?.[0] ?? "";
 
   it("keeps the way back in the start button's row", () => {
-    const html = start({ state: "preparing" }, "de", <a href="#back">Zurück</a>);
+    const html = start(
+      { state: "preparing" },
+      "de",
+      <a href="#back">Zurück</a>,
+    );
     expect(html).toMatch(
       /<div class="form-actions"><a href="#back">Zurück<\/a><button[^>]*knowledge-start/,
     );
@@ -881,43 +1430,36 @@ describe("add flow", () => {
       expect(de.publicNeeded).toContain("Kunden sehen");
     });
     it("gives the note on the statement review form too", () => {
-      const pending = (publicUse: boolean) => {
-        response.value.drafts = [
-          textDraft({
-            modelUse: true,
-            rights: {
-              marketing: true,
-              support: true,
-              publicUse,
-              modelUse: true,
-            },
-          }),
-        ];
-        response.value.proposals = [
-          {
-            id: "a",
-            version: 1,
-            data: {
-              statement: "Shared calendars",
-              status: "pending",
-              topic: "features",
-              stage: "documented",
-              draftId: "d",
-            },
-          },
-        ];
-        return render("review");
-      };
-      expect(pending(false)).toContain(de.publicNeeded);
-      expect(pending(true)).not.toContain(de.publicNeeded);
+      const form = (publicUse: boolean) =>
+        renderToStaticMarkup(
+          <AdjustForm
+            statement="Shared calendars"
+            rights={{ marketing: true, support: true, publicUse }}
+            onChange={() => {}}
+            t={de}
+          />,
+        );
+      expect(form(false)).toContain(de.publicNeeded);
+      expect(form(true)).not.toContain(de.publicNeeded);
     });
     it("offers no rights where nothing could store them", () => {
       Object.assign(response.value, previewOf);
       nav.search = "preview=p";
       expect(boxes(render("import"))).toBe(0);
     });
+    const pendingOf = () => ({
+      id: "a",
+      version: 1,
+      data: {
+        statement: "Shared calendars",
+        status: "pending",
+        topic: "features",
+        stage: "documented",
+        draftId: "d",
+      },
+    });
     it("uses the draft's rights as the review form's starting point", () => {
-      response.value.drafts = [
+      const drafts = [
         textDraft({
           modelUse: true,
           rights: {
@@ -928,20 +1470,17 @@ describe("add flow", () => {
           },
         }),
       ];
-      response.value.proposals = [
-        {
-          id: "a",
-          version: 1,
-          data: {
-            statement: "Shared calendars",
-            status: "pending",
-            topic: "features",
-            stage: "documented",
-            draftId: "d",
-          },
-        },
-      ];
-      const html = render("review");
+      response.value.drafts = drafts;
+      response.value.proposals = [pendingOf()];
+      expect(render("review")).toContain(`${de.support} · ${de.public}`);
+      const html = renderToStaticMarkup(
+        <AdjustForm
+          statement="Shared calendars"
+          rights={effectiveRights(pendingOf() as any, drafts as any)}
+          onChange={() => {}}
+          t={de}
+        />,
+      );
       const box = (label: string) =>
         new RegExp(
           `<label><input type="checkbox"([^>]*)/>${label}</label>`,
@@ -952,21 +1491,8 @@ describe("add flow", () => {
     });
     it("starts the review form with the usual rights for an older draft", () => {
       response.value.drafts = [textDraft()];
-      response.value.proposals = [
-        {
-          id: "a",
-          version: 1,
-          data: {
-            statement: "Shared calendars",
-            status: "pending",
-            topic: "features",
-            stage: "documented",
-            draftId: "d",
-          },
-        },
-      ];
-      const html = render("review");
-      expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(2);
+      response.value.proposals = [pendingOf()];
+      expect(render("review")).toContain(`${de.bulkBoth} · ${de.internal}`);
     });
   });
 
@@ -1299,10 +1825,7 @@ describe("add flow", () => {
     ];
     expect(
       excludedForStart(
-        new Set([
-          "https://x.test/old",
-          "https://x.test/b",
-        ]),
+        new Set(["https://x.test/old", "https://x.test/b"]),
         pages,
       ),
     ).toEqual(["https://x.test/b", "https://x.test/old"]);
@@ -1324,9 +1847,11 @@ describe("add flow", () => {
     expect(reader).not.toContain(de.clientSecret);
     expect(reader).toContain(de.readOnly);
   });
-  it("lists the GitHub page under Advanced for owners", () => {
-    expect(render()).toContain('href="/p/p/knowledge/github"');
-    expect(render("overview", false)).not.toContain(
+  it("lists the GitHub page in the technical bar for owners", () => {
+    nav.search = "expert=1";
+    response.value.items = [];
+    expect(renderExpert("sources")).toContain('href="/p/p/knowledge/github"');
+    expect(renderExpert("sources", false)).not.toContain(
       'href="/p/p/knowledge/github"',
     );
   });
@@ -1419,11 +1944,11 @@ describe("site runs and analysis outcomes", () => {
   it("offers read now and the weekly switch to owners only", () => {
     setup();
     const owner = render("sources");
-    expect(owner).toContain("Jetzt lesen");
+    expect(owner).toContain("Aktualisieren");
     expect(owner).toContain("Jede Woche automatisch aktualisieren");
     expect(owner).toMatch(/type="checkbox"[^>]*checked/);
     const reader = render("sources", false);
-    expect(reader).not.toContain("Jetzt lesen");
+    expect(reader).not.toContain("Aktualisieren");
     expect(reader).not.toContain("Jede Woche automatisch aktualisieren");
     expect(reader).not.toContain('type="checkbox"');
     expect(reader).toContain("Wird jede Woche automatisch aktualisiert.");
@@ -1439,9 +1964,8 @@ describe("site runs and analysis outcomes", () => {
   it("disables read now and offers no way in while a run is active", () => {
     setup({ status: "running", cursor: 5 });
     const html = render("sources");
-    expect(html).toMatch(
-      /<button[^>]*disabled[^>]*>(<svg.*?<\/svg>)?Wird gelesen/,
-    );
+    expect(html).toContain("Wird gelesen");
+    expect(html).not.toContain("Aktualisieren");
     expect(html).not.toContain("?site=g");
   });
   it("read in content opens the page selection for gitbook and website sources", () => {
@@ -1458,7 +1982,7 @@ describe("site runs and analysis outcomes", () => {
     const html = render("sources");
     expect(html).toContain("expert=1&amp;source=g");
     expect(html).not.toContain("import?site=");
-    expect(html).not.toContain("Jetzt lesen");
+    expect(html).not.toContain("Aktualisieren");
   });
   it("explains a shrunk site and failed pages in plain words", () => {
     setup({
@@ -1600,7 +2124,7 @@ describe("site runs and analysis outcomes", () => {
     response.value.runs[0].data.droppedProposals = 0;
     expect(render("sources")).not.toContain("verworfen,");
   });
-  it("calls a previously read draft's action Edit, an unread one's Resume", () => {
+  it("calls an unfinished draft's action Continue setup, a finished one's Edit", () => {
     const draft = (data: Record<string, unknown>) => ({
       id: "d",
       version: 1,
@@ -1611,18 +2135,378 @@ describe("site runs and analysis outcomes", () => {
       },
     });
     response.value.drafts = [draft({})];
-    expect(render("sources")).toContain("Fortsetzen");
+    let html = render("sources");
+    expect(html).toContain("Weiter einrichten");
+    expect(html).not.toContain("Bearbeiten");
+    // Read once by sync date, but no analysis completed: still not finished.
     response.value.drafts = [
       draft({ lastSuccessfulSyncAt: "2026-11-01T10:00:00Z" }),
     ];
-    let html = render("sources");
-    expect(html).toContain("Bearbeiten");
-    expect(html).not.toContain("Fortsetzen");
+    html = render("sources");
+    expect(html).toContain("Weiter einrichten");
+    expect(html).not.toContain("Bearbeiten");
     response.value.drafts = [draft({})];
     response.value.runs = [
       { id: "r", data: { draftId: "d", status: "completed" } },
     ];
     html = render("sources");
     expect(html).toContain("Bearbeiten");
+    expect(html).not.toContain("Weiter einrichten");
+  });
+});
+
+const renderExpert = (tab: any, owner = true, locale: "de" | "en" = "de") =>
+  renderToStaticMarkup(
+    <ShellContext.Provider
+      value={
+        {
+          hrefOf: (key: string) =>
+            `/p/p/${key.replace("knowledge-", "knowledge/")}`.replace(
+              "/p/p/knowledge/knowledge",
+              "/p/p/knowledge",
+            ),
+        } as any
+      }
+    >
+      <WorkspaceContext.Provider
+        value={
+          {
+            project: { id: "p", name: "FamilyPlan" },
+            locale,
+            revision: 0,
+            isOwner: owner,
+            canEdit: owner,
+            refresh: () => {},
+            t: (k: string) => k,
+            href: (x: string) => x,
+          } as any
+        }
+      >
+        <Knowledge tab={tab} />
+      </WorkspaceContext.Provider>
+    </ShellContext.Provider>,
+  );
+
+describe("plain language and the technical area", () => {
+  const tabs = [
+    "sources",
+    "facts",
+    "conflicts",
+    "import",
+    "library",
+    "health",
+    "inspector",
+    "impact",
+  ];
+  it("the technical bar appears on expert pages with the workspace on", () => {
+    nav.search = "expert=1";
+    const html = renderExpert("health");
+    expect(html).toContain(expertCopy.de.navSources);
+    expect(html).toContain(expertCopy.de.navInspector);
+    expect(html).toContain(expertCopy.de.navBack);
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("?expert=1");
+  });
+  it("the bar is absent with the workspace off", () => {
+    nav.search = "expert=1";
+    response.value = { enabled: false };
+    expect(renderExpert("health")).not.toContain(expertCopy.de.navBack);
+  });
+  it("every expert URL still renders", () => {
+    nav.search = "expert=1";
+    response.value.items = [];
+    for (const tab of tabs) {
+      expect(() => renderExpert(tab)).not.toThrow();
+      expect(renderExpert(tab)).toContain(expertCopy.de.navBack);
+    }
+  });
+  it("health shows named sections and no missing evidence", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [],
+      expiredFacts: [],
+      missingEvidence: [{ id: "m1", key: "x" }],
+      failedImports: [],
+      staleSources: [],
+    });
+    const html = renderExpert("health", false);
+    expect(html).toContain("Abgelaufene Fakten");
+    expect(html).toContain("Fehlgeschlagene Importe");
+    expect(html).toContain("Veraltete Quellen");
+    expect(html).not.toMatch(/missing evidence/i);
+    expect(html).not.toContain("expired Facts");
+  });
+  it("impact shows Affected content", () => {
+    nav.search = "expert=1";
+    response.value.impacts = [];
+    expect(renderExpert("impact", false, "en")).toContain("Affected content");
+  });
+  it("no raw status or source type is printed", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [{ id: "c", key: "k", status: "needs_review" }],
+      expiredFacts: [],
+      failedImports: [],
+      staleSources: [],
+    });
+    const html = renderExpert("health", false);
+    expect(html).not.toContain("needs review");
+    expect(html).not.toContain("needs_review");
+    expect(html).toContain("Prüfung nötig");
+    expect(expertValue("verified_facts", "de")).toBe("Bestätigte Fakten");
+  });
+  it("the Advanced fold is replaced by one link", () => {
+    const html = render("sources");
+    expect(html).not.toContain("knowledge-advanced");
+    expect(html).toContain('href="/p/p/knowledge/health?expert=1"');
+    expect(html).toContain("Technik-Bereich");
+  });
+  it("every value the API stores has a label in both languages", () => {
+    const stored = [
+      "insufficient_evidence",
+      "invalidated",
+      "partial",
+      "prepared",
+      "succeeded",
+      "unknown",
+      "blocked_dependency",
+      "retry_scheduled",
+      "indexing",
+      "review",
+      "generating",
+      "replaced",
+      "removed",
+      "analyzing",
+      "ready",
+      "completed",
+      "failed",
+      "running",
+      "queued",
+      "pending",
+      "accepted",
+      "rejected",
+      "canceled",
+      "draft",
+      "needs_review",
+      "stale",
+      "expired",
+      "superseded",
+      "withdrawn",
+      "revoked",
+      "active",
+      "paused",
+      "verified",
+      "candidate",
+      "conflicting",
+      "hybrid",
+      "lexical_degraded",
+      "public",
+      "internal",
+      "text",
+      "decimal",
+      "date",
+      "status",
+      "url",
+      "manual",
+      "file",
+      "website",
+      "gitbook",
+      "github",
+      "url_list",
+      "verified_facts",
+      "historical",
+      "official",
+      "research",
+      "generated",
+    ];
+    for (const value of stored)
+      for (const lang of ["de", "en"] as const) {
+        const label = expertValue(value, lang);
+        expect(label, `${value} ${lang}`).not.toBe("Unknown");
+        expect(label, `${value} ${lang}`).not.toBe("Unbekannt");
+      }
+  });
+  it("an unknown value prints Unknown", () => {
+    expect(expertValue("some_new_state", "en")).toBe("Unknown");
+    expect(expertValue(undefined, "de")).toBe("Unbekannt");
+  });
+  it("workspace pages use plain terms and a sentence about their place", () => {
+    const de = knowledgeCopy.de;
+    expect(render("sources")).toContain(de.sourcesHint);
+    expect(render("review")).toContain(de.reviewHint);
+    expect(render()).toContain(de.hint);
+    for (const lang of ["de", "en"] as const)
+      for (const text of Object.values(knowledgeCopy[lang]))
+        expect(text).not.toMatch(/Erkenntnis|Fakt|\bfindings\b|\bfacts?\b/i);
+    expect(Object.keys(expertCopy.en).sort()).toEqual(
+      Object.keys(expertCopy.de).sort(),
+    );
+    expect("all" in knowledgeCopy.de).toBe(false);
+  });
+  it("knowledge.tsx has no hard-coded headings or terms", () => {
+    const source = readFileSync(
+      new URL("./knowledge.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toMatch(/<(dt|h2|h3|summary|th)>[A-Z][a-z]/);
+  });
+  it("names affected content by its title and hides the id", () => {
+    nav.search = "expert=1";
+    response.value.impacts = [
+      {
+        id: "11111111-aaaa",
+        data: { title: "Spring post", status: "needs_review" },
+      },
+    ];
+    const html = renderExpert("impact", false);
+    expect(html).toContain("Spring post");
+    expect(html).not.toContain("11111111-aaaa");
+    expect(html).not.toContain(expertCopy.de.affectedObject);
+  });
+  it("names a failed import by its title", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [],
+      expiredFacts: [],
+      staleSources: [],
+      failedImports: [
+        {
+          id: "22222222-bbbb",
+          data: { title: "Docs import", status: "failed" },
+        },
+      ],
+    });
+    const html = renderExpert("health", false);
+    expect(html).toContain("Docs import");
+    expect(html).not.toContain("22222222-bbbb");
+  });
+  it("maps health reasons that are codes and keeps plain sentences", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [
+        { id: "c1", key: "k1", reason: "insufficient_evidence" },
+        { id: "c2", key: "k2", reason: "BRAND_NEW_CODE" },
+        { id: "c3", key: "k3", reason: "The price differs." },
+      ],
+      expiredFacts: [],
+      failedImports: [],
+      staleSources: [],
+    });
+    const html = renderExpert("health", false);
+    expect(html).not.toContain("insufficient_evidence");
+    expect(html).not.toContain("BRAND_NEW_CODE");
+    expect(html).toContain("Unbekannt");
+    expect(html).toContain("The price differs.");
+  });
+  it("resolves source names and keeps the id secondary", () => {
+    const sources = [{ id: "s1", data: { name: "Handbook" } }] as any;
+    expect(sourceLabel(sources, "s1")).toEqual({ name: "Handbook" });
+    expect(sourceLabel(sources, "s9")).toEqual({ id: "s9" });
+    const out = renderToStaticMarkup(
+      <ExcludedSources
+        excluded={[
+          { sourceId: "s1", reason: "insufficient_evidence" },
+          { sourceId: "s9", reason: "ODD_CODE" },
+        ]}
+        sources={sources}
+        locale="de"
+      />,
+    );
+    expect(out).toContain("Handbook");
+    expect(out).not.toContain(">s1<");
+    expect(out).toContain("<small>s9</small>");
+    expect(out).not.toContain("insufficient_evidence");
+    expect(out).not.toContain("ODD_CODE");
+    expect(out).toContain("Unbekannt");
+  });
+  it("maps import errors and falls back for an unmapped code", () => {
+    expect(previewErrors([{ code: "DUPLICATE_DOCUMENT" }], "en")).toBe(
+      "Duplicate document",
+    );
+    expect(previewErrors([{ code: "DUPLICATE_DOCUMENT" }], "de")).toBe(
+      "Doppeltes Dokument",
+    );
+    const text = previewErrors([{ code: "NEW_UNMAPPED_ERROR" }], "de");
+    expect(text).toBe("Unbekannt");
+    expect(expertCode("x_y", "en")).toBe("Unknown");
+  });
+  it("labels the real retrieval codes and keeps keys visible", () => {
+    expect(expertCode("audience_excluded", "de")).not.toBe("Unbekannt");
+    expect(expertCode("lexical", "en")).not.toBe("Unknown");
+    expect(expertCode("missing_fact:price", "en")).toBe("Fact missing: price");
+    expect(expertCode("conflicting_fact:price", "de")).toBe(
+      "Fakt widersprüchlich: price",
+    );
+    const uuid = "7b1d2c3e-aaaa-4bbb-8ccc-123456789abc";
+    for (const code of [
+      `stale_document:${uuid}`,
+      `document_outside_validity:${uuid}`,
+      `required_source_unavailable:${uuid}`,
+    ]) {
+      const label = expertCode(code, "de");
+      expect(label).not.toContain(uuid);
+      expect(label).not.toBe("Unbekannt");
+    }
+    expect(expertCode("something:else", "en")).toBe("Unknown");
+  });
+  it("labels every invalidation reason and source policy error", () => {
+    // The reasons of invalidate() in packages/knowledge/src/index.ts, which
+    // land in evidence.gaps, and the policy error of the retrieval catch.
+    const codes = [
+      "source_changed",
+      "fact_changed",
+      "fact_superseded",
+      "fact_conflict",
+      "fact_revoked",
+      "source_revoked",
+      "source_permissions_changed",
+      "source_audience_changed",
+      "document_revoked",
+      "document_retired",
+      "INVALID_SOURCE_POLICY",
+    ];
+    for (const locale of ["de", "en"])
+      for (const code of codes)
+        expect(expertCode(code, locale), `${code} ${locale}`).not.toBe(
+          expertCopy[locale as "de" | "en"].unknown,
+        );
+  });
+  it("EvidenceItems keeps English by default and takes labels", () => {
+    const evidence = {
+      data: {
+        facts: [{ id: "f", version: 2, key: "k", value: "v", sourceId: "s1" }],
+        items: [
+          {
+            chunkId: "c",
+            title: "T",
+            text: "x",
+            anchor: "a",
+            canonicalUrl: "https://e.com",
+            reasons: ["lexical_match"],
+            score: 0.5,
+          },
+        ],
+        gaps: ["no_fact"],
+      },
+    } as any;
+    const plain = renderToStaticMarkup(<EvidenceItems evidence={evidence} />);
+    expect(plain).toContain("Fact v2");
+    expect(plain).toContain("Source document");
+    expect(plain).toContain("relevance");
+    const german = renderToStaticMarkup(
+      <EvidenceItems
+        evidence={evidence}
+        labels={expertCopy.de.evidence}
+        mapCode={(c) => expertCode(c, "de")}
+        sourceName={(id) => (id === "s1" ? "Handbuch" : undefined)}
+      />,
+    );
+    expect(german).toContain("Fakt v2");
+    expect(german).toContain("Quellendokument");
+    expect(german).toContain("Relevanz");
+    expect(german).toContain("Handbuch");
+    expect(german).not.toContain("lexical_match");
+    expect(german).not.toContain("no_fact");
+    expect(german).not.toContain("Source document");
   });
 });
