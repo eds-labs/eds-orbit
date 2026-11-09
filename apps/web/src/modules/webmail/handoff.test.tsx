@@ -289,6 +289,38 @@ describe("startEmbed", () => {
     expect(deps.create).toHaveBeenCalledTimes(1);
   });
 
+  it("replaces the frame when the session moved to another mailbox", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.ready();
+    flow.sessionMoved();
+    expect(states.at(-1)).toEqual({ phase: "ended", reason: "session_moved" });
+    flow.ready();
+    expect(states.at(-1)).toEqual({ phase: "ended", reason: "session_moved" });
+  });
+
+  it("stops the timeout when the session moved while opening", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    await flush();
+    flow.sessionMoved();
+    await vi.advanceTimersByTimeAsync(LOAD_TIMEOUT_MS * 2);
+    expect(states.at(-1)).toEqual({ phase: "ended", reason: "session_moved" });
+  });
+
+  it("ignores a moved session before the submit and after leaving", async () => {
+    const { deps, states } = setup();
+    const flow = startEmbed(deps);
+    flow.sessionMoved();
+    expect(states).toEqual([{ phase: "requesting" }]);
+    await flush();
+    flow.cancel();
+    const before = states.length;
+    flow.sessionMoved();
+    expect(states).toHaveLength(before);
+  });
+
   it("ignores messages after leaving", async () => {
     const { deps, states } = setup();
     const flow = startEmbed(deps);
@@ -412,25 +444,42 @@ describe("startEmbed", () => {
 });
 
 describe("dispatchBridgeMessage", () => {
-  const flow = () => ({ ready: vi.fn(), sessionLost: vi.fn() });
+  const flow = () => ({ ready: vi.fn(), sessionLost: vi.fn(), sessionMoved: vi.fn() });
   const reference = { folder: "INBOX", uid: 1, uidValidity: 2 };
+  const convert = (mailboxId: string) => ({ kind: "convert" as const, mailboxId, reference });
 
   it("routes each message", () => {
     const f = flow();
     const onConvert = vi.fn();
-    dispatchBridgeMessage({ kind: "ready" }, f, onConvert);
-    dispatchBridgeMessage({ kind: "session_lost", reason: "no_session" }, f, onConvert);
-    dispatchBridgeMessage({ kind: "convert", reference }, f, onConvert);
+    dispatchBridgeMessage({ kind: "ready" }, "m1", f, onConvert);
+    dispatchBridgeMessage({ kind: "session_lost", reason: "no_session" }, "m1", f, onConvert);
+    dispatchBridgeMessage(convert("m1"), "m1", f, onConvert);
     expect(f.ready).toHaveBeenCalledTimes(1);
     expect(f.sessionLost).toHaveBeenCalledWith("no_session");
     expect(onConvert).toHaveBeenCalledWith(reference);
+    expect(f.sessionMoved).not.toHaveBeenCalled();
+  });
+
+  it("does not open the dialog for another mailbox's message", () => {
+    const f = flow();
+    const onConvert = vi.fn();
+    dispatchBridgeMessage(convert("m2"), "m1", f, onConvert);
+    expect(onConvert).not.toHaveBeenCalled();
+    expect(f.sessionMoved).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports the moved session to a member who cannot convert too", () => {
+    const f = flow();
+    dispatchBridgeMessage(convert("m2"), "m1", f, null);
+    expect(f.sessionMoved).toHaveBeenCalledTimes(1);
   });
 
   it("still tracks the session for a member who cannot convert", () => {
     const f = flow();
-    dispatchBridgeMessage({ kind: "convert", reference }, f, null);
-    dispatchBridgeMessage({ kind: "ready" }, f, null);
+    dispatchBridgeMessage(convert("m1"), "m1", f, null);
+    dispatchBridgeMessage({ kind: "ready" }, "m1", f, null);
     expect(f.ready).toHaveBeenCalledTimes(1);
+    expect(f.sessionMoved).not.toHaveBeenCalled();
   });
 });
 
@@ -452,7 +501,12 @@ describe("EmbedView", () => {
     expect(render({ phase: "ready" })).not.toContain(t.embed.hint);
   });
 
-  it.each(["session_unknown", "session_revoked", "session_expired", "no_session", "handoff_failed"] as const)(
+  it("says the session belongs to another mailbox, in both languages", () => {
+    expect(render({ phase: "ended", reason: "session_moved" })).toContain("another mailbox");
+    expect(render({ phase: "ended", reason: "session_moved" }, "de")).toContain("anderen Postfach");
+  });
+
+  it.each(["session_unknown", "session_revoked", "session_expired", "no_session", "handoff_failed", "session_moved"] as const)(
     "replaces the frame with a notice and a reopen for %s",
     (reason) => {
       const html = render({ phase: "ended", reason });

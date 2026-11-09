@@ -55,6 +55,7 @@ const en = {
       session_expired: "This mailbox session has expired.",
       no_session: "There is no open session for this mailbox.",
       handoff_failed: "Signing in to this mailbox did not work.",
+      session_moved: "The embedded session now belongs to another mailbox, because another tab switched it. Reopen this mailbox to continue here.",
     },
     banner: {
       mailbox_unavailable: "The mailbox cannot be reached right now. Your session is still open.",
@@ -217,6 +218,7 @@ const de: WebmailText = {
       session_expired: "Diese Postfach-Sitzung ist abgelaufen.",
       no_session: "Für dieses Postfach ist keine Sitzung offen.",
       handoff_failed: "Die Anmeldung an diesem Postfach hat nicht geklappt.",
+      session_moved: "Die eingebettete Sitzung gehört jetzt zu einem anderen Postfach, weil ein anderer Tab gewechselt hat. Öffne dieses Postfach wieder, um hier weiterzuarbeiten.",
     },
     banner: {
       mailbox_unavailable: "Das Postfach ist gerade nicht erreichbar. Deine Sitzung bleibt offen.",

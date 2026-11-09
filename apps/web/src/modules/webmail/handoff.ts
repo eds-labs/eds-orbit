@@ -25,10 +25,10 @@ export type EmbedFailure =
   | "unavailable"
   | "timeout";
 
-export type SessionEndedReason = Exclude<
-  SessionLostReason,
-  SessionKeptReason | "not_authorized"
->;
+/** The reasons that replace the frame with a reopen notice. */
+export type SessionEndedReason =
+  | Exclude<SessionLostReason, SessionKeptReason | "not_authorized">
+  | "session_moved";
 
 export type EmbedState =
   | { phase: "requesting" }
@@ -202,6 +202,13 @@ export function startEmbed(deps: EmbedDeps) {
       stage = "closed";
       if (reason === "not_authorized") deps.onWithdrawn();
       else deps.onState({ phase: "ended", reason });
+    },
+    /** The client's one session now serves another mailbox: another tab took it. */
+    sessionMoved() {
+      if (stage !== "waiting" && stage !== "open") return;
+      clearTimeout(timer);
+      stage = "closed";
+      deps.onState({ phase: "ended", reason: "session_moved" });
     },
     /** The member retries from the banner; the session itself is still there. */
     clearBanner() {
