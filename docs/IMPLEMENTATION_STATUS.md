@@ -32,22 +32,22 @@ Spec [2026-11-08-knowledge-sites-and-add-flow-design.md](superpowers/specs/2026-
 
 The first FamilyPlan run (2026-11-09, run `a12f94ef`) did not fail: both released posts were Marketing publications waiting for their 18:30 Berlin job (`intent_created`, `test: false`, no blockers), and Social only received a post when that job ran, so its calendar stayed empty. A released post is now announced in Social within seconds (`docs/SOCIAL.md`, "Announcement"), the slot's hand-off releases that same post and keeps its time, and a publication nobody claimed in time is blocked with `SLOT_EXPIRED`. A temporary error or a worker restart gives the claim back instead of failing or leaving an unknown outcome. `marketing_campaigns` and `marketing_content` report `delivery.state`, because `completed` and `reviewed` say nothing about delivery. ADR 0020 S9 is amended. No migration.
 
-## Ads module A2: provider seam, Meta transport and money (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; not merged, no flag)
+## Ads module A2: provider seam, Meta transport and money (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; on `main` since 2026-11-09, no flag)
 
 Step A2 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a2-provider-seam.md)), stacked on A1; commits `078ca199` to `2e6864ef` (and this documentation commit). Docs: [ADS.md](ADS.md), "Meta transport".
 
 - **Built:** `packages/money` (decimals-based exact arithmetic, `MoneyError`, exact helpers; `apps/api/src/modules/finance/money.ts` is a thin wrapper, Finance behaviour, currency set and error codes unchanged); `apps/api/src/modules/ads/providers/` (provider types, registry, Meta client pinned to `v27.0` with `appsecret_proof` on every call, token only in the `authorization` header, cursor-only paging, ten-row error classification, usage buckets, Meta currency offsets with the `spend_cap` read-minor/write-major asymmetry, test hook `setMetaAdsFetchForTests`); in-memory fake Graph `apps/api/tests/support/fake-meta-graph.ts`.
-- **State:** nothing merged, pushed, deployed or enabled; no schema change, no flag; no Meta call from code or tests.
+- **State:** pushed to `main` on 2026-11-09; no schema change of its own, no flag; no Meta call from code or tests.
 - **Open:** Task 6 (contract tests on sanitized A0 recordings) waits for the A0 spike's groups G2 and G4; A1 Task 0 (ad-blocker test) is open and gates enabling `ORBIT_ADS`; v27.0 was re-checked on 2026-11-08 (changelog lists it as newest).
 - **Deviations:** in-memory fake instead of a server (`boundedFetch` refuses loopback); Meta currency table in the adapter; A2 stacked on A1 on one branch.
 - **Rollback:** revert the commits; nothing persists. The Finance wrapper keeps its public signatures.
 
-## Ads module A1: module skeleton (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; not merged, flag off)
+## Ads module A1: module skeleton (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; on `main` since 2026-11-09, flag off)
 
 Step A1 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)). Docs: [ADS.md](ADS.md).
 
 - **Built:** installation switch `ORBIT_ADS` (default `false`; config, both compose files, `.env.example`, compose checks); `apps/api/src/modules/ads/` (manifest, eight permissions, gate with 404 `ADS_DISABLED`, settings, `GET /api/projects/:projectId/ads/status`); migration `202611080001_ads_core` (`AdAccount`, `AdOAuthState`, `AdSyncState`, `AdProviderThrottle`, forced RLS, no DELETE grant on `AdAccount`); boundary zones `module:ads` and `web-module:ads` and a ban on ads SDK and n8n imports; opt-in web module with six placeholder views and an ad-blocker hygiene test; tests in `ads-module`, `ads-schema`, `ads-routes`, RLS and access matrices, boundaries and web `ads.test.tsx`.
-- **State:** nothing merged, pushed, deployed or enabled; no flag changed; no provider call; the migration is applied only to this worktree's test database.
+- **State:** pushed to `main` on 2026-11-09 on Mario's go, with the schema hash below set in Coolify on his instruction; the deployment applies the migration; `ORBIT_ADS` stays off, no provider call.
 - **Schema hash for Mario's approval (production, from `sh scripts/check-pve-schema.sh --print-hash`):** `e3cb3759169fde49c7aaf6b859b7b9f0fb80e1b0164cb7e3e2eabd32f03f5dd0`. It must be approved in Coolify before any push to `main` that contains the migration.
 - **Open:** Task 0 (A-D1 ad-blocker test of `ads` in uBlock Origin, AdGuard and Brave in Mario's browsers) has no valid result yet: the checks on 2026-11-08 and 2026-11-09 ran without an active blocker (the BAIT probe loaded) and proved nothing. Mario decided on 2026-11-09 that the test gates enabling `ORBIT_ADS`, not the push to `main`. The implementation uses `ads` by a recorded ruling; the plan's rename table applies if the test says `advertising`. Next: A2 (provider seam; implemented, see above).
 - **Rollback:** revert the branch; after a deployment the tables are inert and empty while the flag is off.
