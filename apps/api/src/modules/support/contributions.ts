@@ -19,6 +19,7 @@ import {
 import { supportAttention, supportOverview } from "./attention.ts";
 import { widgetRoutes } from "./widget.ts";
 import { supportMailboxUse } from "./inboxes.ts";
+import { ticketImportTarget } from "./email-import.ts";
 import { supportScheduler, supportUserNotifications } from "./automations.ts";
 import {
   handleInboundEmail,
@@ -37,6 +38,8 @@ export const supportContributions: ModuleContributions = {
     queueClass: SUPPORT_EMAIL_INBOUND,
     mailboxUse: supportMailboxUse,
   },
+  // A member turns a single message of a mailbox into a ticket (ADR 0026).
+  emailImport: { ticket: ticketImportTarget },
   jobs: [
     {
       queueClass: SUPPORT_EMAIL_INBOUND,

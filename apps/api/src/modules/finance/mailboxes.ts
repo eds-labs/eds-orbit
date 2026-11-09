@@ -143,4 +143,9 @@ export const financeMailboxUse: MailboxUse = {
       where: { projectId: scope.projectId, emailConnectionId: connectionId },
     });
   },
+  // Finance reads every mailbox it owns (platform/email/ownership.ts).
+  async receivesMail(tx, scope, connectionId) {
+    const connection = await entity(tx, scope, CONNECTION_KIND, connectionId);
+    return mailboxOwner(data(connection)) === "finance";
+  },
 };

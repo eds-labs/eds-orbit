@@ -18,7 +18,7 @@ export function mailboxOwner(
   return typeof owner === "string" && owner ? owner : null;
 }
 
-async function mailboxRow(tx: DbTx, scope: Scope, connectionId: string) {
+export async function mailboxRow(tx: DbTx, scope: Scope, connectionId: string) {
   const row = await entity(tx, scope, CONNECTION_KIND, connectionId);
   if (data(row).provider !== "email")
     throw new DomainError("EMAIL_MAILBOX_NOT_FOUND", 404);

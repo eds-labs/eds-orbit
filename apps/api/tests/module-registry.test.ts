@@ -104,6 +104,7 @@ describe("static module registry", () => {
       "support.settings.manage",
       "support.stats.read",
       "support.tickets.assign",
+      "support.tickets.import",
       "support.tickets.read",
       "support.tickets.reply",
     ]);

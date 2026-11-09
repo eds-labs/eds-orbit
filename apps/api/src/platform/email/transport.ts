@@ -57,7 +57,12 @@ export interface MailTransport {
   close(): void;
 }
 
-export type FetchedMessage = { uid: number; source: Buffer };
+export type FetchedMessage = {
+  uid: number;
+  source: Buffer;
+  /** Only when asked for (`internalDate: true`). */
+  internalDate?: Date;
+};
 export interface MailboxReader {
   verify(): Promise<void>;
   /** The INBOX's UIDVALIDITY, its highest UID and its unread UIDs. */
@@ -66,6 +71,7 @@ export interface MailboxReader {
   fetchUids(
     uids: number[],
     maxBytes: number,
+    options?: { internalDate?: boolean },
   ): Promise<{ messages: FetchedMessage[]; skipped: number[] }>;
   /**
    * INBOX messages after `lastUid` (all of them when the UIDVALIDITY
@@ -74,7 +80,7 @@ export interface MailboxReader {
    */
   fetchNew(
     state: { uidValidity?: string; lastUid: number },
-    limits: { max: number; maxBytes: number },
+    limits: { max: number; maxBytes: number; internalDate?: boolean },
   ): Promise<{
     uidValidity: string;
     messages: FetchedMessage[];
@@ -89,6 +95,19 @@ export interface MailboxReader {
     state: { uidValidity: string; uid: number },
     folder: string,
   ): Promise<"moved" | "missing" | "uid_validity_changed">;
+  /**
+   * UIDs of the INBOX messages received since this date, read or not. For
+   * mailboxes a second client works on (ADR 0026); older readers lack it.
+   */
+  searchSince?(since: Date): Promise<number[]>;
+  /**
+   * One message of any folder, read-only: nothing is flagged. Null when the
+   * folder or the UID is gone; older readers lack it.
+   */
+  fetchFolderMessage?(
+    ref: { folder: string; uid: number; uidValidity: string },
+    maxBytes: number,
+  ): Promise<{ source: Buffer } | "too_large" | "uid_validity_changed" | null>;
 }
 
 export type MailFactories = {
@@ -260,6 +279,7 @@ async function fetchSources(
   c: ImapFlow,
   sizes: { uid: number; size: number }[],
   maxBytes: number,
+  options: { internalDate?: boolean } = {},
 ) {
   const skipped = sizes.filter((m) => m.size > maxBytes).map((m) => m.uid);
   const wanted = sizes.filter((m) => m.size <= maxBytes).map((m) => m.uid);
@@ -267,10 +287,21 @@ async function fetchSources(
   if (wanted.length)
     for await (const m of c.fetch(
       wanted.join(","),
-      { uid: true, source: true },
+      {
+        uid: true,
+        source: true,
+        ...(options.internalDate ? { internalDate: true } : {}),
+      },
       { uid: true },
     ))
-      if (m.source) messages.push({ uid: m.uid, source: m.source });
+      if (m.source)
+        messages.push({
+          uid: m.uid,
+          source: m.source,
+          ...(options.internalDate && m.internalDate
+            ? { internalDate: new Date(m.internalDate) }
+            : {}),
+        });
   messages.sort((a, b) => a.uid - b.uid);
   return { messages, skipped: skipped.sort((a, b) => a - b) };
 }
@@ -336,7 +367,7 @@ const realFactories: MailFactories = {
             unseen: (unseen || []).sort((a, b) => a - b),
           };
         }),
-      fetchUids: (uids, maxBytes) =>
+      fetchUids: (uids, maxBytes, options) =>
         session(async (c) => {
           await c.mailboxOpen("INBOX", { readOnly: true });
           const sizes: { uid: number; size: number }[] = [];
@@ -346,7 +377,7 @@ const realFactories: MailFactories = {
             { uid: true },
           ))
             sizes.push({ uid: m.uid, size: m.size ?? 0 });
-          return fetchSources(c, sizes, maxBytes);
+          return fetchSources(c, sizes, maxBytes, options);
         }),
       fetchNew: (state, limits) =>
         session(async (c) => {
@@ -365,8 +396,43 @@ const realFactories: MailFactories = {
           const batch = sizes.slice(0, limits.max);
           return {
             uidValidity,
-            ...(await fetchSources(c, batch, limits.maxBytes)),
+            ...(await fetchSources(c, batch, limits.maxBytes, {
+              internalDate: limits.internalDate,
+            })),
           };
+        }),
+      searchSince: (since) =>
+        session(async (c) => {
+          await c.mailboxOpen("INBOX", { readOnly: true });
+          const found = await c.search({ since }, { uid: true });
+          return (found || []).sort((a, b) => a - b);
+        }),
+      fetchFolderMessage: (ref, maxBytes) =>
+        session(async (c) => {
+          let box;
+          try {
+            box = await c.mailboxOpen(ref.folder, { readOnly: true });
+          } catch (error) {
+            // The server refused to select it: the folder is gone.
+            if ((error as { responseStatus?: string }).responseStatus === "NO")
+              return null;
+            throw error;
+          }
+          if (String(box.uidValidity) !== ref.uidValidity)
+            return "uid_validity_changed" as const;
+          const found = await c.fetchOne(
+            String(ref.uid),
+            { uid: true, size: true },
+            { uid: true },
+          );
+          if (!found) return null;
+          if ((found.size ?? 0) > maxBytes) return "too_large" as const;
+          const { messages } = await fetchSources(
+            c,
+            [{ uid: ref.uid, size: found.size ?? 0 }],
+            maxBytes,
+          );
+          return messages[0] ? { source: messages[0].source } : null;
         }),
       move: (state, folder) =>
         session(async (c) => {

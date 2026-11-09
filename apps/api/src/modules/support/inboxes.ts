@@ -20,10 +20,12 @@ import {
   emailMailboxes,
   verifiedEmailConnection,
 } from "../../platform/email/connection.ts";
+import { INBOUND_KIND } from "../../platform/email/send.ts";
 import { assertMailboxUnowned } from "../../platform/email/ownership.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
 import { customerContextConnections } from "../../platform/customer-context/connection.ts";
 import type { MailboxUse } from "../../platform/modules/contributions.ts";
+import { inboundIdOf } from "./common.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
 // Support inboxes (06 §2.1): one entry point each, an e-mail address and/or
@@ -253,7 +255,86 @@ export const supportMailboxUse: MailboxUse = {
       data: { emailConnectionId: null },
     });
   },
+  // Whom channels/email.ts would route to (bound, else the default mailbox's
+  // unbound inboxes), and the mailbox of an open takeover, which its customer
+  // may answer at that address.
+  async receivesMail(tx, scope, connectionId) {
+    const live = (
+      await tx.supportInbox.findMany({
+        where: { projectId: scope.projectId, archivedAt: null },
+        select: { channels: true, emailConnectionId: true },
+      })
+    ).filter((i) => i.channels.includes("email"));
+    if (live.some((i) => i.emailConnectionId === connectionId)) return true;
+    if (live.some((i) => !i.emailConnectionId)) {
+      const fallback = await defaultEmailConnection(tx, scope);
+      if (fallback?.id === connectionId) return true;
+    }
+    return openTakeoverFrom(tx, scope, connectionId);
+  },
 };
+
+/** Whether a not yet closed taken-over ticket holds mail of this mailbox. */
+async function openTakeoverFrom(
+  tx: DbTx,
+  scope: Scope,
+  connectionId: string,
+) {
+  const tickets = await tx.supportTicket.findMany({
+    where: {
+      projectId: scope.projectId,
+      importSource: { not: null },
+      mergedIntoTicketId: null,
+      status: { not: "closed" },
+    },
+    select: { id: true },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
+  if (!tickets.length) return false;
+  const messages = await tx.supportMessage.findMany({
+    where: {
+      projectId: scope.projectId,
+      ticketId: { in: tickets.map((t) => t.id) },
+      kind: "customer",
+      channel: "email",
+      externalId: { not: null },
+    },
+    select: { externalId: true },
+    take: 500,
+  });
+  if (!messages.length) return false;
+  const standIns = messages.flatMap((m) => inboundIdOf(m.externalId!) ?? []);
+  const found = await tx.entity.findFirst({
+    where: {
+      projectId: scope.projectId,
+      kind: INBOUND_KIND,
+      AND: [
+        {
+          OR: [
+            { data: { path: ["connectionId"], equals: connectionId } },
+            {
+              data: {
+                path: ["importedFromConnectionId"],
+                equals: connectionId,
+              },
+            },
+          ],
+        },
+        {
+          OR: [
+            ...messages.map((m) => ({
+              data: { path: ["messageId"], equals: m.externalId! },
+            })),
+            ...(standIns.length ? [{ id: { in: standIns } }] : []),
+          ],
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  return found !== null;
+}
 
 const newSecret = () => randomBytes(32).toString("base64url");
 

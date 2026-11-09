@@ -528,7 +528,7 @@ export async function replyToTicket(
     },
   });
   const attachments = await attachFiles(tx, scope, message.id, files);
-  await deliverMessage(tx, scope, ticket, message);
+  await deliverMessage(tx, scope, ticket, message, { byPerson: true });
   const status = ["new", "open", "resolved", "closed"].includes(ticket.status)
     ? "pending_customer"
     : ticket.status;

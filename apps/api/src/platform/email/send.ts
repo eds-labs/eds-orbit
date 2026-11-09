@@ -65,13 +65,22 @@ export const orbitMessageId = (id: string, fromAddress: string) =>
 export const ORBIT_MESSAGE_ID =
   /orbit\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@/gi;
 
-/** Queues one message in the caller's transaction; sent by the job. */
-export async function queueEmail(tx: DbTx, scope: Scope, raw: unknown) {
+/**
+ * Queues one message in the caller's transaction; sent by the job. With
+ * `replyingAsPerson` a member's own answer may go to automatic mail a member
+ * took over (ADR 0026): RFC 3834 restrains automatic answers, not people.
+ */
+export async function queueEmail(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  options: { replyingAsPerson?: boolean } = {},
+) {
   if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);
   const input = outgoingEmail.parse(raw);
   // RFC 3834: automatic mail (auto-replies, lists, bounces) is never
   // answered, or two auto-responders mail each other forever.
-  if (input.inReplyTo) {
+  if (input.inReplyTo && !options.replyingAsPerson) {
     const original = await tx.entity.findFirst({
       where: {
         workspaceId: scope.workspaceId,
