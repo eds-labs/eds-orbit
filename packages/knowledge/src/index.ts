@@ -131,6 +131,10 @@ async function invalidate(
       d.facts?.some((f) => (factId ? f.id === factId : f.sourceId === sourceId))
     ) {
       evidenceIds.add(e.id);
+      // Repeated runs for one source must not rewrite evidence that already
+      // carries this reason; purging still rewrites.
+      if (!purge && d.status === "invalidated" && d.gaps?.includes(reason))
+        continue;
       await revise(tx, s, e.id, {
         ...d,
         status: "invalidated",
@@ -725,9 +729,7 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
           d.key
             .toLowerCase()
             .split(/[._-]/)
-            .some(
-              (k) => k.length >= 3 && input.query.toLowerCase().includes(k),
-            ),
+            .some((k) => k.length >= 3 && input.query.toLowerCase().includes(k)),
     );
   for (const key of input.factKeys ?? [])
     if (!facts.some((f) => f.key === key)) gaps.push("missing_fact:" + key);
@@ -1529,6 +1531,7 @@ export async function revokeDocument(
   });
   return { revoked: true, impact, tombstoneId: tombstone.id };
 }
+
 /**
  * Retires a document that its source no longer offers. Unlike
  * `revokeDocument` this writes no tombstone and purges nothing, so the same

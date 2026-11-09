@@ -1137,6 +1137,76 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
       expect(data.gaps).toContain("document_retired");
       expect(data.items).toHaveLength(items.length);
     });
+    it("retiring invalidates evidence citing any page of the source", async () => {
+      const src = await source();
+      await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE804 first page text.")),
+      );
+      const other = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE804 second page text.")),
+      );
+      const evidence = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE804", purpose: "public", at }),
+      );
+      const cited = (evidence.data as unknown as EvidenceData).items.map(
+        (i) => i.documentVersionId,
+      );
+      expect(cited).toContain(other.versionId);
+      const first = await run(a, (tx) =>
+        tx.knowledgeDocument.findMany({
+          where: { sourceId: src.id, id: { not: other.documentId } },
+        }),
+      );
+      await run(a, (tx) => retireDocument(tx, a, first[0]!.id));
+      const after = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      expect((after.data as unknown as EvidenceData).status).toBe(
+        "invalidated",
+      );
+    });
+    it("retiring two pages of a source writes one evidence version", async () => {
+      const src = await source();
+      const one = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE805 first page text.")),
+      );
+      const two = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE805 second page text.")),
+      );
+      const evidence = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE805", purpose: "public", at }),
+      );
+      await run(a, (tx) => retireDocument(tx, a, one.documentId));
+      const mid = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      const versions = await run(a, (tx) =>
+        tx.entityVersion.count({ where: { entityId: evidence.id } }),
+      );
+      const seen: string[] = [];
+      await run(a, (tx) =>
+        engine.retireDocument(
+          tx,
+          a,
+          [
+            async (_tx, _s, impact) => {
+              seen.push(...impact.evidenceIds);
+            },
+          ],
+          two.documentId,
+        ),
+      );
+      const end = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      expect(end.version).toBe(mid.version);
+      expect(
+        await run(a, (tx) =>
+          tx.entityVersion.count({ where: { entityId: evidence.id } }),
+        ),
+      ).toBe(versions);
+      expect(seen).toEqual([evidence.id]);
+    });
     it("retiring twice reports retired false", async () => {
       const src = await source();
       const doc = await run(a, (tx) => ingest(tx, a, input(src.id)));
