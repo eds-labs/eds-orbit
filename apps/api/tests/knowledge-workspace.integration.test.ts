@@ -382,6 +382,43 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       });
     }
   });
+  it("delivers the latest run per site source without its page lists", async () => {
+    const urls = Array.from({ length: 200 }, (_, i) => `https://x.test/p${i}`);
+    await run(async (tx) => {
+      const make = (name: string, lastRunId?: string) =>
+        create(tx, s, "sources", {
+          name,
+          type: "website",
+          status: "active",
+          site: { rootUrl: "https://x.test/", lastRunId },
+        });
+      const newer = await create(tx, s, "knowledge_site_runs", {
+        status: "completed",
+        pages: urls,
+        languages: urls.map(() => "de"),
+        failed: [{ url: urls[0], code: "SITE_PAGE_FAILED" }],
+        warning: null,
+      });
+      const older = await create(tx, s, "knowledge_site_runs", {
+        status: "completed",
+        pages: [urls[0]],
+        languages: ["de"],
+        failed: [],
+        warning: null,
+      });
+      await make("A", newer.id);
+      // Not the source's latest run: it must not be delivered.
+      await make("B", undefined);
+      return older;
+    });
+    const summary: any = await workspaceSummary(s);
+    expect(summary.siteRuns).toHaveLength(1);
+    const [row] = summary.siteRuns;
+    expect(row.data.pageCount).toBe(200);
+    expect(row.data.failed).toHaveLength(1);
+    expect(row.data).not.toHaveProperty("pages");
+    expect(row.data).not.toHaveProperty("languages");
+  });
   it("blocks writes and jobs when the feature is disabled", async () => {
     const { job } = await prepare();
     process.env.ORBIT_KNOWLEDGE_WORKSPACE = "false";

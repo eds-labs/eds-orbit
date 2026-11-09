@@ -191,8 +191,8 @@ export const knowledgeCopy = {
     findPages: "Seiten suchen",
     findingPages: "Seiten werden gesucht …",
     pagesTitle: "Seiten",
-    pagesSelected: "{n} von {total} Seiten ausgewählt",
-    wholeLanguage: "{language}: alle {n} Seiten",
+    pagesSelected: "{n} von {pages} ausgewählt",
+    wholeLanguage: "{language}: alle {pages}",
     showPages: "Einzelne Seiten anzeigen",
     homePage: "Startseite",
     cappedPages:
@@ -226,7 +226,7 @@ export const knowledgeCopy = {
       "Jede Woche automatisch aktualisieren: geänderte Seiten ersetzen, neue aufnehmen, gelöschte entfernen",
     noAudience: "Wähle mindestens Marketing oder Support aus.",
     takeOver: "Übernehmen",
-    readPages: "{n} Seiten einlesen",
+    readPages: "{pages} einlesen",
     submitStatement: "Zur Prüfung geben",
     startAi: "Analyse starten · etwa {cost} · {model}",
     underOneCent: "unter $0.01",
@@ -236,9 +236,39 @@ export const knowledgeCopy = {
     aiSettingsLink: "Zu den KI-Einstellungen",
     sourcesLink: "Zu den Quellen",
     contentDone: "Der Inhalt ist jetzt durchsuchbar.",
-    siteStarted: "Orbit liest jetzt {n} Seiten. Das läuft im Hintergrund.",
+    siteStarted: "Orbit liest jetzt {pages}. Das läuft im Hintergrund.",
     siteAlreadyRunning:
       "Für diese Quelle läuft bereits ein Lesevorgang. An der Quelle wurde nichts geändert.",
+    readNow: "Jetzt lesen",
+    readNowRunning: "Wird gelesen …",
+    weeklySwitch: "Jede Woche automatisch aktualisieren",
+    weeklyIsOn: "Wird jede Woche automatisch aktualisiert.",
+    weeklyIsOff: "Wird nicht automatisch aktualisiert.",
+    siteSearching: "Orbit sucht die Seiten …",
+    siteProgress: "{done} von {pages} gelesen",
+    siteSummary:
+      "Zuletzt gelesen: {pages}. Neu: {added}, geändert: {changed}, entfernt: {removed}, unverändert: {unchanged}.",
+    siteSensitive:
+      "{pages} wurden übersprungen, weil sie mögliche Zugangsdaten enthalten.",
+    siteShrankWarning:
+      "Die Website hat deutlich weniger Seiten geliefert als beim letzten Lesen. Orbit hat nichts entfernt, alle bisherigen Seiten bleiben erhalten. Prüfe, ob die Website vollständig erreichbar ist, und lies sie danach erneut.",
+    siteFailedPages:
+      "{pages} konnten nicht gelesen werden. Ihre letzte Fassung bleibt erhalten, es wurde nichts entfernt. Lies die Website später erneut oder nimm die Seiten bei der Auswahl heraus.",
+    siteFailedMore: "Weitere Seiten sind nicht aufgelistet.",
+    siteRunInactive:
+      "Das Lesen wurde angehalten, weil die Quelle pausiert wurde. Es wurde nichts entfernt. Setze die Quelle fort und lies sie danach erneut.",
+    siteRunFailed:
+      "Das Lesen der Website ist fehlgeschlagen. Es wurde nichts entfernt. Versuche es später erneut.",
+    pageFailNotFound: "Die Seite gibt es nicht mehr.",
+    pageFailTimeout: "Die Seite hat zu lange nicht geantwortet.",
+    pageFailFetch: "Die Seite ließ sich nicht abrufen.",
+    pageFailBlocked: "Die Website erlaubt das Lesen dieser Seite nicht.",
+    pageFailContent: "Aus der Seite ließ sich kein Text lesen.",
+    pageFailOther: "Die Seite ließ sich nicht lesen.",
+    analysisProposals: "{n} Vorschläge",
+    analysisCost: "Kosten {cost}",
+    analysisDropped:
+      "{n} weitere Vorschläge wurden verworfen, weil ihr Beleg nicht wörtlich im Text stand.",
     githubNotSetUp: "GitHub ist für dieses Projekt noch nicht eingerichtet.",
     githubSetUpLink: "GitHub einrichten",
     notConfigured: "Noch nicht eingerichtet",
@@ -425,8 +455,8 @@ export const knowledgeCopy = {
     findPages: "Find pages",
     findingPages: "Finding pages …",
     pagesTitle: "Pages",
-    pagesSelected: "{n} of {total} pages selected",
-    wholeLanguage: "{language}: all {n} pages",
+    pagesSelected: "{n} of {pages} selected",
+    wholeLanguage: "{language}: all {pages}",
     showPages: "Show individual pages",
     homePage: "Home page",
     cappedPages:
@@ -460,7 +490,7 @@ export const knowledgeCopy = {
       "Update automatically every week: replace changed pages, add new ones, remove deleted ones",
     noAudience: "Select Marketing or Support at least.",
     takeOver: "Take over",
-    readPages: "Read {n} pages",
+    readPages: "Read {pages}",
     submitStatement: "Send for review",
     startAi: "Start analysis · about {cost} · {model}",
     underOneCent: "under $0.01",
@@ -470,9 +500,38 @@ export const knowledgeCopy = {
     aiSettingsLink: "Go to AI settings",
     sourcesLink: "Go to Sources",
     contentDone: "The content is now searchable.",
-    siteStarted: "Orbit is now reading {n} pages. This runs in the background.",
+    siteStarted: "Orbit is now reading {pages}. This runs in the background.",
     siteAlreadyRunning:
       "A read is already running for this source. Nothing was changed on the source.",
+    readNow: "Read now",
+    readNowRunning: "Reading …",
+    weeklySwitch: "Update automatically every week",
+    weeklyIsOn: "Updated automatically every week.",
+    weeklyIsOff: "Not updated automatically.",
+    siteSearching: "Orbit is finding the pages …",
+    siteProgress: "{done} of {pages} read",
+    siteSummary:
+      "Last read: {pages}. New: {added}, changed: {changed}, removed: {removed}, unchanged: {unchanged}.",
+    siteSensitive: "{pages} skipped because they may contain credentials.",
+    siteShrankWarning:
+      "The website returned far fewer pages than at the last read. Orbit removed nothing, and all pages read before stay in place. Check that the website is fully reachable, then read it again.",
+    siteFailedPages:
+      "{pages} could not be read. Their last version stays in place and nothing was removed. Read the website again later, or take those pages out of the selection.",
+    siteFailedMore: "Further pages are not listed.",
+    siteRunInactive:
+      "Reading was stopped because the source was paused. Nothing was removed. Resume the source, then read it again.",
+    siteRunFailed:
+      "Reading the website failed. Nothing was removed. Try again later.",
+    pageFailNotFound: "The page no longer exists.",
+    pageFailTimeout: "The page took too long to respond.",
+    pageFailFetch: "The page could not be fetched.",
+    pageFailBlocked: "The website does not allow reading this page.",
+    pageFailContent: "No text could be read from the page.",
+    pageFailOther: "The page could not be read.",
+    analysisProposals: "{n} proposals",
+    analysisCost: "Cost {cost}",
+    analysisDropped:
+      "{n} more proposals were dropped because their evidence was not word for word in the text.",
     githubNotSetUp: "GitHub has not been set up for this project yet.",
     githubSetUpLink: "Set up GitHub",
     notConfigured: "Not set up yet",
@@ -482,3 +541,9 @@ export const knowledgeCopy = {
 export type KnowledgeCopy = { [K in keyof typeof knowledgeCopy.en]: string };
 export const workspaceStatus = (status: string, t: KnowledgeCopy) =>
   status in t ? t[status as keyof KnowledgeCopy] : status;
+
+/** "1 Seite" / "1 page", never "1 Seiten": the one place page counts get their noun. */
+export const pageCount = (n: number, locale: string) =>
+  locale === "de"
+    ? `${n} ${n === 1 ? "Seite" : "Seiten"}`
+    : `${n} ${n === 1 ? "page" : "pages"}`;

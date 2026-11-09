@@ -296,7 +296,9 @@ describe("source list", () => {
     },
   });
   it("says that an empty source was never read and how to fill or drop it", () => {
-    response.value.sources = [emptySource];
+    response.value.sources = [
+      { ...emptySource, data: { ...emptySource.data, type: "document" } },
+    ];
     response.value.indexStatus = index(0);
     const html = render("sources");
     expect(html).toContain("Noch nie abgerufen");
@@ -1164,5 +1166,203 @@ describe("add flow", () => {
       expect(html).not.toContain("<button");
       expect(html).not.toContain("<input");
     }
+  });
+});
+
+describe("site runs and analysis outcomes", () => {
+  const site = (over: Record<string, unknown> = {}) => ({
+    id: "g",
+    data: {
+      name: "Docs",
+      type: "gitbook",
+      status: "active",
+      syncEveryHours: 168,
+      site: { rootUrl: "https://docs.test/", lastRunId: "r" },
+      ...over,
+    },
+  });
+  const siteRun = (over: Record<string, unknown> = {}) => ({
+    id: "r",
+    data: {
+      sourceId: "g",
+      status: "completed",
+      pageCount: 58,
+      cursor: 58,
+      unchanged: 50,
+      changed: 4,
+      added: 3,
+      removed: 1,
+      failed: [],
+      skippedSensitive: 0,
+      warning: null,
+      errorCode: null,
+      ...over,
+    },
+  });
+  const setup = (run: Record<string, unknown> = {}, src = site()) => {
+    response.value.sources = [src];
+    response.value.siteRuns = [siteRun(run)];
+    response.value.indexStatus = [{ sourceId: "g", documents: 58 }];
+  };
+  it("shows page count and progress of an active run", () => {
+    setup({ status: "running", cursor: 20, pageCount: 58 });
+    const html = render("sources");
+    expect(html).toContain("20 von 58 Seiten gelesen");
+    expect(html).toContain("<progress");
+  });
+  it("says it is finding pages before the first batch knows any", () => {
+    setup({ status: "queued", cursor: 0, pageCount: 0 });
+    expect(render("sources")).toContain("Orbit sucht die Seiten");
+  });
+  it("shows the last summary", () => {
+    setup();
+    const html = render("sources");
+    expect(html).toContain("Zuletzt gelesen: 58 Seiten");
+    expect(html).toContain("Neu: 3, geändert: 4, entfernt: 1, unverändert: 50");
+  });
+  it("counts one page in the singular", () => {
+    setup({ pageCount: 1 });
+    expect(render("sources")).toContain("Zuletzt gelesen: 1 Seite.");
+    expect(render("sources", true, "en")).toContain("Last read: 1 page.");
+  });
+  it("offers read now and the weekly switch to owners only", () => {
+    setup();
+    const owner = render("sources");
+    expect(owner).toContain("Jetzt lesen");
+    expect(owner).toContain("Jede Woche automatisch aktualisieren");
+    expect(owner).toMatch(/type="checkbox"[^>]*checked/);
+    const reader = render("sources", false);
+    expect(reader).not.toContain("Jetzt lesen");
+    expect(reader).not.toContain("Jede Woche automatisch aktualisieren");
+    expect(reader).not.toContain('type="checkbox"');
+    expect(reader).toContain("Wird jede Woche automatisch aktualisiert.");
+    expect(reader).not.toContain("?site=g");
+  });
+  it("shows the weekly switch off when weekly updates were switched off", () => {
+    const { syncEveryHours: _off, ...rest } = site().data;
+    setup({}, { id: "g", data: rest } as any);
+    const html = render("sources");
+    expect(html).not.toMatch(/type="checkbox"[^>]*checked/);
+    expect(html).toContain("Wird nicht automatisch aktualisiert.");
+  });
+  it("disables read now and offers no way in while a run is active", () => {
+    setup({ status: "running", cursor: 5 });
+    const html = render("sources");
+    expect(html).toMatch(
+      /<button[^>]*disabled[^>]*>(<svg.*?<\/svg>)?Wird gelesen/,
+    );
+    expect(html).not.toContain("?site=g");
+  });
+  it("read in content opens the page selection for gitbook and website sources", () => {
+    setup();
+    expect(render("sources")).toContain("/knowledge/import?site=g");
+    setup({}, site({ type: "website" }));
+    expect(render("sources")).toContain("/knowledge/import?site=g");
+  });
+  it("keeps the expert link for other source types", () => {
+    response.value.sources = [
+      { id: "g", data: { name: "Doc", type: "document", status: "active" } },
+    ];
+    response.value.indexStatus = [{ sourceId: "g", documents: 0 }];
+    const html = render("sources");
+    expect(html).toContain("expert=1&amp;source=g");
+    expect(html).not.toContain("import?site=");
+    expect(html).not.toContain("Jetzt lesen");
+  });
+  it("explains a shrunk site and failed pages in plain words", () => {
+    setup({
+      warning: "site_shrank",
+      failed: [
+        { url: "https://docs.test/a", code: "SOURCE_TIMEOUT" },
+        { url: "https://docs.test/b", code: "SOMETHING_NEW" },
+      ],
+    });
+    const html = render("sources");
+    expect(html).toContain("nichts entfernt");
+    expect(html).toContain("2 Seiten konnten nicht gelesen werden");
+    expect(html).toContain("Die Seite hat zu lange nicht geantwortet.");
+    expect(html).toContain("Die Seite ließ sich nicht lesen.");
+    expect(html).not.toContain("SOURCE_TIMEOUT");
+    expect(html).not.toContain("site_shrank");
+    const en = render("sources", true, "en");
+    expect(en).toContain("removed nothing");
+    expect(en).toContain("The page took too long to respond.");
+  });
+  it("says a paused source stopped the run", () => {
+    setup({ status: "failed", errorCode: "SOURCE_INACTIVE" });
+    expect(render("sources")).toContain("pausiert wurde");
+  });
+  it("shows progress and outcome of the run on the result step", () => {
+    const result = (run: Record<string, unknown>, pages = 7) =>
+      inContext(
+        <ResultStep
+          outcome={{ kind: "site", sourceId: "g", pages, started: true }}
+          run={siteRun(run) as any}
+          onNewPreview={() => {}}
+          refresh={() => {}}
+          t={knowledgeCopy.de}
+        />,
+        "de",
+      );
+    const active = result({ status: "running", cursor: 3, pageCount: 10 });
+    expect(active).toContain("3 von 10 Seiten gelesen");
+    expect(active).toContain("Orbit liest jetzt 7 Seiten");
+    const done = result({ warning: "site_shrank" });
+    expect(done).toContain("Zuletzt gelesen: 58 Seiten");
+    expect(done).toContain("nichts entfernt");
+    expect(done).not.toContain("Orbit liest jetzt");
+    expect(result({}, 1)).not.toContain("1 Seiten");
+  });
+  it("shows proposals, cost and dropped proposals of the last analysis", () => {
+    response.value.drafts = [
+      {
+        id: "d",
+        version: 1,
+        data: { status: "ready", input: { name: "Repo", kind: "github" } },
+      },
+    ];
+    response.value.runs = [
+      {
+        id: "r1",
+        data: {
+          draftId: "d",
+          status: "completed",
+          proposalCount: 7,
+          droppedProposals: 2,
+          costMicros: 430000,
+        },
+      },
+    ];
+    const html = render("sources");
+    expect(html).toContain("7 Vorschläge");
+    expect(html).toContain("Kosten $0.43");
+    expect(html).toContain("2 weitere Vorschläge wurden verworfen");
+    response.value.runs[0].data.droppedProposals = 0;
+    expect(render("sources")).not.toContain("verworfen,");
+  });
+  it("calls a previously read draft's action Edit, an unread one's Resume", () => {
+    const draft = (data: Record<string, unknown>) => ({
+      id: "d",
+      version: 1,
+      data: {
+        status: "draft",
+        input: { name: "Repo", kind: "github" },
+        ...data,
+      },
+    });
+    response.value.drafts = [draft({})];
+    expect(render("sources")).toContain("Fortsetzen");
+    response.value.drafts = [
+      draft({ lastSuccessfulSyncAt: "2026-11-01T10:00:00Z" }),
+    ];
+    let html = render("sources");
+    expect(html).toContain("Bearbeiten");
+    expect(html).not.toContain("Fortsetzen");
+    response.value.drafts = [draft({})];
+    response.value.runs = [
+      { id: "r", data: { draftId: "d", status: "completed" } },
+    ];
+    html = render("sources");
+    expect(html).toContain("Bearbeiten");
   });
 });

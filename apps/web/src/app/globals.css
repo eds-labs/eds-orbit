@@ -6891,6 +6891,17 @@ a.support-row {
   padding-bottom: 12px;
   font-weight: 600;
 }
+/* The weekly switch: a 44px target whose text wraps on a narrow screen. */
+.knowledge-weekly {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  line-height: 1.4;
+}
+.knowledge-weekly input {
+  flex-shrink: 0;
+}
 .knowledge-app-settings {
   padding-block: 16px;
 }

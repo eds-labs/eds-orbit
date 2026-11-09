@@ -88,24 +88,58 @@ export async function owner(s: Scope) {
   );
   return current;
 }
+/**
+ * The latest run of every site source, without its page and language lists
+ * (up to 200 URLs a run), which the page does not need on every poll. The
+ * page total stands in for them.
+ */
+async function latestSiteRuns(
+  tx: DbTx,
+  s: Scope,
+  sources: { data: unknown }[],
+) {
+  const ids = sources
+    .map((source) => data(source).site?.lastRunId)
+    .filter((id): id is string => typeof id === "string");
+  if (!ids.length) return [];
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: s.workspaceId,
+      projectId: s.projectId,
+      kind: "knowledge_site_runs",
+      id: { in: ids },
+    },
+  });
+  return rows.map((r) => {
+    const { pages, languages: _languages, ...rest } = data(r);
+    return {
+      ...r,
+      data: { ...rest, pageCount: Array.isArray(pages) ? pages.length : 0 },
+    };
+  });
+}
 export async function workspaceSummary(s: Scope) {
   if (!workspaceEnabled()) return { enabled: false };
-  return scoped(s.workspaceId, s.projectId, async (tx) => ({
-    enabled: true,
-    profile: data((await list(tx, s, "knowledge_profiles"))[0]),
-    drafts: await list(tx, s, "knowledge_drafts"),
-    runs: (await list(tx, s, "knowledge_runs")).map((r) => ({
-      ...r,
-      data: Object.fromEntries(
-        Object.entries(data(r)).filter(
-          ([k]) => !["snapshot", "output"].includes(k),
+  return scoped(s.workspaceId, s.projectId, async (tx) => {
+    const sources = await list(tx, s, "sources");
+    return {
+      enabled: true,
+      profile: data((await list(tx, s, "knowledge_profiles"))[0]),
+      drafts: await list(tx, s, "knowledge_drafts"),
+      runs: (await list(tx, s, "knowledge_runs")).map((r) => ({
+        ...r,
+        data: Object.fromEntries(
+          Object.entries(data(r)).filter(
+            ([k]) => !["snapshot", "output"].includes(k),
+          ),
         ),
-      ),
-    })),
-    proposals: await list(tx, s, "knowledge_proposals"),
-    facts: await list(tx, s, "facts"),
-    sources: await list(tx, s, "sources"),
-  }));
+      })),
+      siteRuns: await latestSiteRuns(tx, s, sources),
+      proposals: await list(tx, s, "knowledge_proposals"),
+      facts: await list(tx, s, "facts"),
+      sources,
+    };
+  });
 }
 export async function saveProfile(s: Scope, input: unknown) {
   await owner(s);

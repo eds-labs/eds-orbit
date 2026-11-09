@@ -8,7 +8,7 @@ import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { languageName } from "@/platform/project-settings/catalog";
 import { AppLink } from "@/platform/ui/app-link";
 import { cn } from "@/lib/utils";
-import { action, useMutation, useResource, usd, type Entity } from "@/lib/api";
+import { action, useMutation, useResource, type Entity } from "@/lib/api";
 import {
   Alert,
   Badge,
@@ -19,13 +19,17 @@ import {
 import type { KnowledgeDraft } from "../../../../../packages/schemas/src/knowledge-workspace";
 import {
   knowledgeCopy,
+  pageCount as pagesText,
   workspaceStatus,
   type KnowledgeCopy,
 } from "./workspace-text";
 import {
   analysisRunning,
+  costText,
   Field,
   knowledgeErrorText,
+  siteRunActive,
+  SiteRunSummary,
   visibleDrafts,
   WorkspaceError,
   type Preview,
@@ -205,9 +209,6 @@ export function initialFlow(
   };
 }
 
-/** A cost that rounds to nothing is still a cost. */
-const costText = (micros: number, t: KnowledgeCopy) =>
-  micros > 0 && micros < 10_000 ? t.underOneCent : usd(micros);
 const withScheme = (address: string) =>
   /^[a-z][a-z0-9+.-]*:\/\//i.test(address.trim())
     ? address.trim()
@@ -344,7 +345,7 @@ export function SitePagePicker({
       <p role="status">
         {t.pagesSelected
           .replace("{n}", String(selected))
-          .replace("{total}", String(site.pages.length))}
+          .replace("{pages}", pagesText(site.pages.length, locale))}
       </p>
       {groups.map((group) => {
         const chosen = group.pages.filter((p) => !excluded.has(p.url)).length;
@@ -369,7 +370,7 @@ export function SitePagePicker({
               <span>
                 {t.wholeLanguage
                   .replace("{language}", languageName(group.language, locale))
-                  .replace("{n}", String(group.pages.length))}
+                  .replace("{pages}", pagesText(group.pages.length, locale))}
               </span>
             </label>
             <details open={site.pages.length <= 20}>
@@ -1153,7 +1154,10 @@ function Flow({
                   {way === "statement"
                     ? t.submitStatement
                     : isSite
-                      ? t.readPages.replace("{n}", String(selected.length))
+                      ? t.readPages.replace(
+                          "{pages}",
+                          pagesText(selected.length, locale),
+                        )
                       : t.takeOver}
                 </Button>
               </div>
@@ -1175,7 +1179,11 @@ function Flow({
             run={
               outcome.kind === "analysis"
                 ? data.runs.find((r) => r.id === outcome.runId)
-                : undefined
+                : outcome.kind === "site"
+                  ? data.siteRuns?.find(
+                      (r) => r.data.sourceId === outcome.sourceId,
+                    )
+                  : undefined
             }
             onNewPreview={() => {
               setOutcome(null);
@@ -1236,27 +1244,40 @@ export function ResultStep({
   t,
 }: {
   outcome: Outcome;
+  /** The analysis run, or the latest read of the site source. */
   run: Entity | undefined;
   onNewPreview: () => void;
   refresh: () => void;
   t: KnowledgeCopy;
 }) {
-  const { project } = useWorkspace();
+  const { project, locale } = useWorkspace();
   const shell = useShell();
   const mutation = useMutation();
   if (outcome.kind !== "analysis") {
+    // The start's own sentence ends with the read; the run then speaks for itself.
+    const ended = run && !siteRunActive(run.data.status);
     return (
       <>
         {outcome.kind === "site" && !outcome.started ? (
           <Alert>{t.siteAlreadyRunning}</Alert>
         ) : (
-          <Alert kind="success">
-            {outcome.kind === "content"
-              ? t.contentDone
-              : t.siteStarted.replace("{n}", String(outcome.pages))}
-          </Alert>
+          !ended && (
+            <Alert kind="success">
+              {outcome.kind === "content"
+                ? t.contentDone
+                : t.siteStarted.replace(
+                    "{pages}",
+                    pagesText(outcome.pages, locale),
+                  )}
+            </Alert>
+          )
         )}
-        {outcome.kind === "site" && outcome.started && <p>{t.runningHint}</p>}
+        {outcome.kind === "site" &&
+          (run ? (
+            <SiteRunSummary run={run} t={t} />
+          ) : (
+            outcome.started && <p>{t.runningHint}</p>
+          ))}
         <div>
           <AppLink
             className="button button-primary"

@@ -2,8 +2,8 @@
 import type { ReactNode } from "react";
 import { useWorkspace } from "@/components/workspace-context";
 import { Alert } from "@/components/ui/primitives";
-import type { Entity } from "@/lib/api";
-import type { KnowledgeCopy } from "./workspace-text";
+import { usd, type Entity } from "@/lib/api";
+import { pageCount, type KnowledgeCopy } from "./workspace-text";
 
 // Shared by the Knowledge pages, so that none of them has to import another.
 
@@ -12,6 +12,8 @@ export type Summary = {
   profile: Record<string, any>;
   drafts: Entity[];
   runs: Entity[];
+  /** The latest run of each site source, without its page lists. */
+  siteRuns?: Entity[];
   proposals: Entity[];
   facts: Entity[];
   sources: Entity[];
@@ -34,6 +36,12 @@ export const listedSources = (sources: Entity[]) =>
 /** Whether an analysis is still under way, as opposed to having ended. */
 export const analysisRunning = (status: string) =>
   ["queued", "analyzing"].includes(status);
+/** A site read still under way: waiting for the worker or reading pages. */
+export const siteRunActive = (status: unknown) =>
+  ["queued", "running"].includes(String(status));
+/** A cost that rounds to nothing is still a cost. */
+export const costText = (micros: number, t: KnowledgeCopy) =>
+  micros > 0 && micros < 10_000 ? t.underOneCent : usd(micros);
 export function Field({
   label,
   children,
@@ -203,5 +211,104 @@ export function WorkspaceError({
   const { locale } = useWorkspace();
   return (
     <Alert kind="error">{knowledgeErrorText(code, t, locale === "de")}</Alert>
+  );
+}
+
+const PAGE_FAILURES: Record<string, keyof KnowledgeCopy> = {
+  SOURCE_NOT_FOUND: "pageFailNotFound",
+  SOURCE_TIMEOUT: "pageFailTimeout",
+  SOURCE_FETCH_FAILED: "pageFailFetch",
+  ROBOTS_DISALLOWED: "pageFailBlocked",
+  URL_NOT_ALLOWED: "pageFailBlocked",
+  ORIGIN_NOT_ALLOWED: "pageFailBlocked",
+  PATH_NOT_ALLOWED: "pageFailBlocked",
+  PRIVATE_ADDRESS: "pageFailBlocked",
+  NO_EXTRACTABLE_TEXT: "pageFailContent",
+  INVALID_TEXT: "pageFailContent",
+  INVALID_TEXT_ENCODING: "pageFailContent",
+  DOCUMENT_TOO_LARGE: "pageFailContent",
+  TOO_MANY_CHUNKS: "pageFailContent",
+};
+
+/**
+ * Progress and outcome of a site read, for the Sources page and the add flow's
+ * result step. The run arrives without its page lists: `pageCount` is the total.
+ */
+export function SiteRunSummary({ run, t }: { run: Entity; t: KnowledgeCopy }) {
+  const { locale } = useWorkspace();
+  const r = run.data as Record<string, any>;
+  const total = Number(r.pageCount ?? 0);
+  const n = (key: string) => String(Number(r[key] ?? 0));
+  if (siteRunActive(r.status))
+    return (
+      <div role="status">
+        {total ? (
+          <>
+            <progress
+              value={Number(r.cursor ?? 0)}
+              max={total}
+              aria-label={t.siteProgress
+                .replace("{done}", String(Number(r.cursor ?? 0)))
+                .replace("{pages}", pageCount(total, locale))}
+            />
+            <p>
+              {t.siteProgress
+                .replace("{done}", String(Number(r.cursor ?? 0)))
+                .replace("{pages}", pageCount(total, locale))}
+            </p>
+          </>
+        ) : (
+          <p>{t.siteSearching}</p>
+        )}
+        <p>{t.runningHint}</p>
+      </div>
+    );
+  if (r.status === "failed")
+    return (
+      <Alert kind="error">
+        {r.errorCode === "SOURCE_INACTIVE"
+          ? t.siteRunInactive
+          : t.siteRunFailed}
+      </Alert>
+    );
+  if (r.status !== "completed") return null;
+  const failed: { url: string; code: string }[] = Array.isArray(r.failed)
+    ? r.failed
+    : [];
+  const sensitive = Number(r.skippedSensitive ?? 0);
+  return (
+    <div className="stack-gap">
+      <p>
+        {t.siteSummary
+          .replace("{pages}", pageCount(total, locale))
+          .replace("{added}", n("added"))
+          .replace("{changed}", n("changed"))
+          .replace("{removed}", n("removed"))
+          .replace("{unchanged}", n("unchanged"))}
+      </p>
+      {sensitive > 0 && (
+        <p>
+          {t.siteSensitive.replace("{pages}", pageCount(sensitive, locale))}
+        </p>
+      )}
+      {r.warning === "site_shrank" && (
+        <Alert kind="warning">{t.siteShrankWarning}</Alert>
+      )}
+      {failed.length > 0 && (
+        <Alert kind="warning">
+          {t.siteFailedPages.replace(
+            "{pages}",
+            pageCount(failed.length, locale),
+          )}
+          <ul>
+            {failed.map((f) => (
+              <li key={f.url} className="knowledge-path">
+                {f.url} · {t[PAGE_FAILURES[f.code] ?? "pageFailOther"]}
+              </li>
+            ))}
+          </ul>
+        </Alert>
+      )}
+    </div>
   );
 }

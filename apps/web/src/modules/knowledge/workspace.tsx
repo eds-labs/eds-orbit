@@ -45,7 +45,10 @@ import { KnowledgeGithubPage } from "./github-page";
 import {
   analysisRunning,
   Field,
+  costText,
   listedSources,
+  siteRunActive,
+  SiteRunSummary,
   visibleDrafts,
   WorkspaceError,
   type Preview,
@@ -84,7 +87,10 @@ export function KnowledgeWorkspaceGate({
     resource.data ??
     (retained.current?.projectId === project.id ? retained.current.data : null);
   useEffect(() => {
-    if (!data?.runs?.some((r) => analysisRunning(String(r.data.status))))
+    if (
+      !data?.runs?.some((r) => analysisRunning(String(r.data.status))) &&
+      !data?.siteRuns?.some((r) => siteRunActive(r.data.status))
+    )
       return;
     const timer = setInterval(resource.refresh, 4000);
     return () => clearInterval(timer);
@@ -411,6 +417,15 @@ function SourceList({
           !active && ["failed", "unknown"].includes(String(latest?.data.status))
             ? latest
             : undefined;
+        // "Read successfully before": the draft has a successful read date, or
+        // one of its runs completed. Either way there is something to edit.
+        const readBefore =
+          Boolean(d.data.lastSuccessfulSyncAt) ||
+          data.runs.some(
+            (r) => r.data.draftId === d.id && r.data.status === "completed",
+          );
+        const outcome =
+          !active && latest?.data.status === "completed" ? latest : undefined;
         const status =
           active?.data.status ??
           failed?.data.status ??
@@ -432,6 +447,24 @@ function SourceList({
                 {t.lastRead}: {when(d.data.lastSuccessfulSyncAt, locale)}
               </p>
               {active && <p role="status">{t.runningHint}</p>}
+              {outcome && typeof outcome.data.proposalCount === "number" && (
+                <p>
+                  {t.analysisProposals.replace(
+                    "{n}",
+                    String(outcome.data.proposalCount),
+                  )}
+                  {Number(outcome.data.costMicros) > 0 &&
+                    ` · ${t.analysisCost.replace("{cost}", costText(Number(outcome.data.costMicros), t))}`}
+                </p>
+              )}
+              {outcome && Number(outcome.data.droppedProposals) > 0 && (
+                <p>
+                  {t.analysisDropped.replace(
+                    "{n}",
+                    String(outcome.data.droppedProposals),
+                  )}
+                </p>
+              )}
               {failed && (
                 <WorkspaceError code={String(failed.data.error ?? "")} t={t} />
               )}
@@ -466,7 +499,7 @@ function SourceList({
                   className="text-link"
                   href={`${shell.hrefOf("knowledge-import")}?draft=${d.id}`}
                 >
-                  {t.resume}
+                  {readBefore ? t.edit : t.resume}
                 </AppLink>
               </div>
             )}
@@ -481,6 +514,7 @@ function SourceList({
           hasFacts={data.facts.some(
             (f) => f.data.sourceId === s.id && f.data.status !== "revoked",
           )}
+          siteRun={data.siteRuns?.find((r) => r.data.sourceId === s.id)}
           focused={focused === s.id}
           refresh={() => {
             refresh();
@@ -500,6 +534,7 @@ function ManagedSource({
   source: s,
   index,
   hasFacts,
+  siteRun,
   focused,
   refresh,
   t,
@@ -507,6 +542,8 @@ function ManagedSource({
   source: Entity;
   index: SourceIndexStatus | undefined;
   hasFacts: boolean;
+  /** The source's latest site read, when it is a GitBook or website source. */
+  siteRun?: Entity;
   focused: boolean;
   refresh: () => void;
   t: KnowledgeCopy;
@@ -515,7 +552,11 @@ function ManagedSource({
   const shell = useShell();
   const mutation = useMutation(refresh);
   const [removing, setRemoving] = useState(false);
+  const [alreadyRunning, setAlreadyRunning] = useState(false);
   const now = useMemo(() => Date.now(), [s]);
+  const isSite = ["gitbook", "website"].includes(String(s.data.type));
+  const reading = siteRun ? siteRunActive(siteRun.data.status) : false;
+  const weekly = Number(s.data.syncEveryHours ?? 0) > 0;
   const paused = s.data.status === "paused";
   const expiry = sourceExpiry(s.data, now);
   const empty = index?.documents === 0;
@@ -549,6 +590,23 @@ function ManagedSource({
     mutation.run(() =>
       action(project.id, "source-pause", { sourceId: s.id, paused: next }),
     );
+  const readNow = async () => {
+    setAlreadyRunning(false);
+    const known = (s.data.site as { lastRunId?: string } | undefined)
+      ?.lastRunId;
+    const run = await mutation.run(() =>
+      action<Entity>(project.id, "knowledge-site-refresh", { sourceId: s.id }),
+    );
+    // An active run comes back as it is; it is not a new start.
+    if (run && run.id === known) setAlreadyRunning(true);
+  };
+  const setWeekly = (autoUpdate: boolean) =>
+    mutation.run(() =>
+      action(project.id, "knowledge-site-settings", {
+        sourceId: s.id,
+        autoUpdate,
+      }),
+    );
   const remove = async () => {
     setRemoving(false);
     await mutation.run(() =>
@@ -568,9 +626,41 @@ function ManagedSource({
         <p>
           {t.lastRead}: {when(s.data.lastSuccessfulSyncAt, locale)}
         </p>
+        {isSite && siteRun && <SiteRunSummary run={siteRun} t={t} />}
+        {isSite && <p>{weekly ? t.weeklyIsOn : t.weeklyIsOff}</p>}
+        {alreadyRunning && <Alert>{t.siteAlreadyRunning}</Alert>}
         {mutation.error && <WorkspaceError code={mutation.error} t={t} />}
       </div>
       <div className="form-actions">
+        {isSite && isOwner && !paused && (
+          <Button
+            variant="outline"
+            disabled={mutation.pending || reading}
+            onClick={readNow}
+          >
+            <RefreshCw aria-hidden="true" />
+            {reading ? t.readNowRunning : t.readNow}
+          </Button>
+        )}
+        {isSite && isOwner && (
+          <label className="knowledge-weekly">
+            <input
+              type="checkbox"
+              checked={weekly}
+              disabled={mutation.pending}
+              onChange={(e) => setWeekly(e.target.checked)}
+            />
+            {t.weeklySwitch}
+          </label>
+        )}
+        {isSite && isOwner && !paused && !reading && (
+          <AppLink
+            className="text-link"
+            href={`${shell.hrefOf("knowledge-import")}?site=${s.id}`}
+          >
+            {t.readContents}
+          </AppLink>
+        )}
         {index && !empty && (
           <AppLink
             className="text-link"
@@ -579,7 +669,7 @@ function ManagedSource({
             {t.library}
           </AppLink>
         )}
-        {isOwner && index && (
+        {isOwner && index && (!isSite || !empty) && (
           <AppLink
             className="text-link"
             href={`${shell.hrefOf("knowledge-sources")}?expert=1&source=${s.id}`}
