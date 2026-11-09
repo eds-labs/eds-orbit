@@ -243,6 +243,7 @@ describe("module contributions", () => {
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
+      "social-hold-sync",
     ]);
     // Support's task counts only while support is available (WP5.3, WP5.6).
     process.env.ORBIT_SUPPORT = "true";

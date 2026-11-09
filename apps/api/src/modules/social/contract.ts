@@ -11,17 +11,18 @@ import { stopDelivery } from "./dispatch/dispatch.ts";
 import { platformEnabled, validationContext } from "./dispatch/gates.ts";
 import { socialActive } from "./gate.ts";
 import { ingestMedia } from "./media/library.ts";
-import { approveOriginPost } from "./posts/approval.ts";
-import { createPost, lockPost } from "./posts/posts.ts";
+import { approveOriginPost, holdOriginPost } from "./posts/approval.ts";
+import { createPost, heldByOrigin, lockPost } from "./posts/posts.ts";
 import { validateVariant } from "./posts/validation.ts";
 
 // What other modules may use of Social (ADR 0020 §6.4, S9). This file is
 // the only one Marketing may import from the social module (boundary zone
 // module:social-contract). Marketing keeps its channels (Postiz
 // integration ids, mapped to accounts by `legacyPostizIntegrationId`, or
-// `social:<accountId>`), its approvals and its veto window; at the slot it
-// hands a post over as an origin-authorized post that Social sends at once,
-// or it leaves a timed draft for a human.
+// `social:<accountId>`), its approvals and its veto window. When a post is
+// released it can announce it (`hold`: visible and timed in Social, read-only,
+// not sendable); at the slot it hands the post over as an origin-authorized
+// post that Social sends at once, or it leaves a timed draft for a human.
 
 export { postMetrics };
 
@@ -133,7 +134,7 @@ const originInput = z
     accountId: z.uuid(),
     text: z.string().max(25_000),
     mediaIds: z.array(z.uuid()).max(10),
-    mode: z.enum(["now", "draft"]),
+    mode: z.enum(["now", "draft", "hold"]),
     at: z.date().optional(),
     packageHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
     /**
@@ -149,8 +150,10 @@ export type OriginPostInput = z.input<typeof originInput>;
  * A post for one account from another module's record. `now`: the origin
  * approved exactly this content (its package hash is recorded), Social
  * sends it right away, at most 30 minutes after `slotAt` (when given) or
- * the hand-off, whichever is earlier. `draft`: a draft for a human, timed at `at`. The
- * same origin record and version gives the same post.
+ * the hand-off, whichever is earlier. `draft`: a draft for a human, timed at
+ * `at`. `hold`: announced at `at`, read-only and not sendable until the
+ * origin hands it over with `now`. The same origin record and version gives
+ * the same post; `now` on a held post releases exactly that post.
  */
 export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostInput): Promise<{ postId: string; deduplicated: boolean }> {
   const input = originInput.parse(raw);
@@ -163,10 +166,15 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
       originId: input.origin.id,
       originVersion: input.origin.version,
     },
-    select: { id: true },
+    select: { id: true, status: true, origin: true, originType: true, approvedAt: true },
   });
-  if (existing) return { postId: existing.id, deduplicated: true };
   if (input.mode === "now" && !input.packageHash) throw new DomainError("SOCIAL_ORIGIN_APPROVAL_REQUIRED", 409);
+  if (input.mode === "hold" && !input.at) throw new DomainError("SOCIAL_HOLD_TIME_REQUIRED", 422);
+  if (existing) {
+    if (input.mode !== "now" || !heldByOrigin(existing)) return { postId: existing.id, deduplicated: true };
+    await approveOriginPost(tx, scope, existing.id, { ...input.origin, packageHash: input.packageHash!, slotAt: input.slotAt });
+    return { postId: existing.id, deduplicated: false };
+  }
   const post = await createPost(
     tx,
     scope,
@@ -175,6 +183,8 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
   );
   if (input.mode === "now") {
     await approveOriginPost(tx, scope, post.id, { ...input.origin, packageHash: input.packageHash!, slotAt: input.slotAt });
+  } else if (input.mode === "hold") {
+    await holdOriginPost(tx, scope, post.id, input.at!);
   } else if (input.at) {
     await tx.socialPost.update({
       where: { id: post.id },
@@ -187,6 +197,24 @@ export async function submitOriginPost(tx: DbTx, scope: Scope, raw: OriginPostIn
     });
   }
   return { postId: post.id, deduplicated: false };
+}
+
+/** Posts Marketing announced and has not handed over yet, with the record behind each. */
+export async function heldOriginPosts(tx: DbTx, scope: Scope): Promise<Array<{ postId: string; originId: string }>> {
+  const rows = await tx.socialPost.findMany({
+    where: { projectId: scope.projectId, status: "scheduled", origin: "marketing", originType: "publication", approvedAt: null },
+    select: { id: true, originId: true },
+  });
+  return rows.flatMap((row) => (row.originId ? [{ postId: row.id, originId: row.originId }] : []));
+}
+
+/** Whether this post is still an announced one (it already carries its text and image). */
+export async function isHeldOriginPost(tx: DbTx, scope: Scope, postId: string): Promise<boolean> {
+  const post = await tx.socialPost.findFirst({
+    where: { id: postId, projectId: scope.projectId },
+    select: { status: true, origin: true, originType: true, approvedAt: true },
+  });
+  return post !== null && heldByOrigin(post);
 }
 
 export type OriginPostStatus = {

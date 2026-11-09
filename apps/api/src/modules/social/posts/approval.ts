@@ -6,11 +6,13 @@ import {
   createActionRequest,
   type ActionDefinition,
 } from "../../../platform/governance/action-requests.ts";
+import { localOf } from "../../../platform/time/zoned-time.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
 import { startDelivery } from "../dispatch/dispatch.ts";
 import { SocialDetailError } from "../errors.ts";
 import {
   APPROVAL_BEARING,
+  closedToChanges,
   currentIssues,
   getPost,
   lockPost,
@@ -169,7 +171,7 @@ async function resolveFor(tx: DbTx, scope: Scope, input: z.infer<typeof schedule
 
 /** A post that may be submitted: a draft, or one whose request ended without approval. */
 async function requireSubmittable(tx: DbTx, scope: Scope, post: SocialPostRow, version: number) {
-  if (post.readOnly) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
+  if (closedToChanges(post)) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
   if (post.version !== version) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   if (post.status === "draft") return;
   if (post.status === "needs_approval" && post.approvalRequestId) {
@@ -286,7 +288,7 @@ export async function publishNow(tx: DbTx, scope: Scope, id: string, raw: unknow
 export async function reschedulePost(tx: DbTx, scope: Scope, id: string, raw: unknown): Promise<PostView> {
   const input = rescheduleInput.parse(raw);
   const post = await lockPost(tx, scope, id);
-  if (post.readOnly) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
+  if (closedToChanges(post)) throw new DomainError("SOCIAL_POST_READ_ONLY", 409);
   if (post.version !== input.version) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   const resolved = await resolveFor(tx, scope, input);
   if (post.status === "draft") {
@@ -425,10 +427,37 @@ export async function applyApprovedSchedule(
 // ------------------------------------------ origin-authorized posts (S9)
 
 /**
+ * Announces a post another module sends itself at `at` (Marketing's slot):
+ * Social shows it with its text, image, account and time, without a
+ * dispatch job and closed to changes (`heldByOrigin`), so nothing here can
+ * send it. Only the origin's hand-off at the slot (`approveOriginPost`)
+ * makes it a delivery. What Social would refuse is refused now, hours
+ * before the slot.
+ */
+export async function holdOriginPost(tx: DbTx, scope: Scope, id: string, at: Date): Promise<void> {
+  const post = await lockPost(tx, scope, id);
+  await requireValid(tx, scope, post);
+  await tx.socialPost.update({
+    where: { id: post.id },
+    data: {
+      status: "scheduled",
+      scheduleMode: "at",
+      scheduledAt: at,
+      scheduleLocal: localOf(at, post.scheduleTimezone),
+      scheduleFold: null,
+      version: { increment: 1 },
+    },
+  });
+  await audit(tx, scope, "social.post.held_for_origin", post.id, { at: at.toISOString() });
+}
+
+/**
  * Approves a post another module created for content it approved itself
  * (Marketing's package approval, its veto window and preflight): the post
- * is sent right away, without a Social approval. Validity is checked as for
- * any approval; Social's own gates still apply when it sends.
+ * is sent right away, without a Social approval. With the origin's slot the
+ * post keeps that time, so the calendar shows it where it was planned.
+ * Validity is checked as for any approval; Social's own gates still apply
+ * when it sends.
  */
 export async function approveOriginPost(
   tx: DbTx,
@@ -438,15 +467,21 @@ export async function approveOriginPost(
 ): Promise<void> {
   const post = await lockPost(tx, scope, id);
   await requireValid(tx, scope, post);
+  const slot = origin.slotAt ?? null;
   await tx.socialPost.update({
     where: { id: post.id },
-    data: { scheduleMode: "now", scheduledAt: null, scheduleLocal: null, scheduleFold: null },
+    data: {
+      ...(slot
+        ? { scheduleMode: "at", scheduledAt: slot, scheduleLocal: localOf(slot, post.scheduleTimezone) }
+        : { scheduleMode: "now", scheduledAt: null, scheduleLocal: null }),
+      scheduleFold: null,
+    },
   });
   const { hash } = await packageOf(tx, scope, post.id);
   await tx.socialPost.update({
     where: { id: post.id },
     data: {
-      status: "approved",
+      status: slot ? "scheduled" : "approved",
       packageHash: hash,
       approvalRequestId: null,
       approvedAt: new Date(),

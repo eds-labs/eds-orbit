@@ -20,7 +20,30 @@ const provider = vi.hoisted(() => ({
   // A live post needs an evaluated live index, which is outside this file's scope.
   liveIndex: false,
   replies: [] as Array<(request: any) => Reply>,
+  // The next read of an approved image fails like a storage outage.
+  exportFails: 0,
 }));
+vi.mock(
+  "../src/modules/marketing/pipeline/content-export.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/pipeline/content-export.ts")
+      >();
+    return {
+      ...actual,
+      exportAssetContent: async (
+        ...args: Parameters<typeof actual.exportAssetContent>
+      ) => {
+        if (provider.exportFails > 0) {
+          provider.exportFails--;
+          throw new Error("STORAGE_TEMPORARILY_DOWN");
+        }
+        return actual.exportAssetContent(...args);
+      },
+    };
+  },
+);
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
@@ -81,7 +104,14 @@ import {
 import {
   dispatchPublication,
   reconcilePublication,
+  syncSocialHolds,
 } from "../src/modules/marketing/publishing/publisher.ts";
+import { marketingJobs } from "../src/modules/marketing/jobs.ts";
+import { marketingHooks } from "../src/modules/marketing/hooks.ts";
+import { claimPublication as claimMarketingPublication } from "../src/modules/marketing/pipeline/workflow.ts";
+import { assignmentDetail } from "../src/modules/marketing/agents/assignment-detail.ts";
+import { calendarItems } from "../src/modules/social/calendar/calendar.ts";
+import { updatePost } from "../src/modules/social/posts/posts.ts";
 import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
 import { claimPublication } from "../src/modules/social/dispatch/claim.ts";
 import { deliverPublication } from "../src/modules/social/dispatch/deliver.ts";
@@ -330,6 +360,7 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
     process.env.ORBIT_SOCIAL = "true";
     provider.replies = [];
     provider.liveIndex = false;
+    provider.exportFails = 0;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
@@ -718,6 +749,244 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
     const done = await publications();
     expect(done.map((p) => p.status)).toEqual(["published", "published"]);
     for (const p of done) expect(String(p.releaseUrl ?? "")).toContain("https://example.test/");
+  });
+
+  describe("from the owner's release to the Social calendar", () => {
+    /** Released drafts of a native run: two publications waiting for the slot. */
+    async function released() {
+      liveSocialEnv();
+      daily = await dailyProject(tomorrowMorning(), { native: true });
+      await daily.drafted();
+      await daily.reviewed();
+      for (const draft of await daily.contents()) await daily.release(draft);
+      const pubs = await daily.publications();
+      expect(pubs).toHaveLength(2);
+      return { pubs, slot: new Date(pubs[0]!.scheduledAt) };
+    }
+    const atMinutes = (slot: Date, minutes: number) => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(slot.valueOf() + minutes * MINUTE));
+    };
+    const calendar = (slot: Date) =>
+      daily.h.run((tx) =>
+        calendarItems(tx, daily.project.owner, {
+          from: new Date(slot.valueOf() - 3600000).toISOString(),
+          to: new Date(slot.valueOf() + 3600000).toISOString(),
+        }),
+      );
+    const dispatchJobs = async () =>
+      (await daily.h.rows("jobs")).filter((j) => j.topic === DISPATCH);
+
+    it("shows a released post in the calendar at once, with account and image, and nothing can send it", async () => {
+      const { slot } = await released();
+      const { owner } = daily.project;
+      await syncSocialHolds(daily.h.worker());
+      const posts = await daily.socialPosts();
+      expect(posts).toHaveLength(2);
+      for (const post of posts) {
+        expect(post).toMatchObject({
+          origin: "marketing",
+          originType: "publication",
+          status: "scheduled",
+          scheduleMode: "at",
+          approvedAt: null,
+        });
+        expect(post.scheduledAt).toEqual(slot);
+      }
+      const { items } = await calendar(slot);
+      expect(items).toHaveLength(2);
+      for (const item of items)
+        expect(item).toMatchObject({ origin: "marketing", status: "scheduled", readOnly: true });
+      expect(items.flatMap((i) => i.accounts.map((a) => a.platform)).sort()).toEqual(["facebook", "instagram"]);
+      const media = await daily.h.run((tx) =>
+        tx.socialPostMedia.findMany({ where: { projectId: owner.projectId } }),
+      );
+      expect(media).toHaveLength(2);
+      // Announced only: no delivery exists, and Social cannot change it.
+      expect(await dispatchJobs()).toHaveLength(0);
+      await expect(
+        daily.h.run((tx) =>
+          updatePost(tx, owner, posts[0]!.id, {
+            version: posts[0]!.version,
+            baseText: "Changed in Social",
+            baseMedia: [],
+            variants: [{ accountId: daily.accounts.facebook.id }],
+          }),
+        ),
+      ).rejects.toThrow("SOCIAL_POST_READ_ONLY");
+      expect((await daily.publications()).map((p) => p.status)).toEqual([
+        "intent_created",
+        "intent_created",
+      ]);
+    });
+
+    it("sends that same post at the slot, keeps it in the calendar, and repeats change nothing", async () => {
+      const { pubs, slot } = await released();
+      const { owner } = daily.project;
+      const worker = daily.h.worker();
+      await syncSocialHolds(worker);
+      await syncSocialHolds(worker);
+      const held = (await daily.socialPosts()).map((p) => p.id).sort();
+      expect(held).toHaveLength(2);
+      atMinutes(slot, 1);
+      for (const pub of pubs) await dispatchPublication(owner, pub.id);
+      for (const pub of pubs) await dispatchPublication(owner, pub.id);
+      await syncSocialHolds(worker);
+      const posts = await daily.socialPosts();
+      expect(posts.map((p) => p.id).sort()).toEqual(held);
+      for (const post of posts) {
+        expect(post).toMatchObject({ status: "scheduled", scheduleMode: "at" });
+        expect(post.approvedAt).not.toBeNull();
+        expect(post.scheduledAt).toEqual(slot);
+        expect(post.packageHash).toMatch(/^[0-9a-f]{64}$/);
+      }
+      expect((await daily.publications()).map((p) => p.status)).toEqual([
+        "scheduled_remote",
+        "scheduled_remote",
+      ]);
+      const jobs = await dispatchJobs();
+      expect(jobs).toHaveLength(2);
+      for (const job of jobs)
+        await (dispatchJob.handler as (ctx: unknown) => Promise<unknown>)({ scope: worker, job });
+      const sent = await daily.h.run((tx) =>
+        tx.socialPublication.findMany({ where: { projectId: owner.projectId } }),
+      );
+      expect(sent).toHaveLength(2);
+      const { items } = await calendar(slot);
+      expect(items).toHaveLength(2);
+      for (const item of items) expect(item.status).toBe("publishing");
+    });
+
+    it("takes a held post back when Marketing no longer sends it, and a paused project too", async () => {
+      const { pubs } = await released();
+      const { owner } = daily.project;
+      const worker = daily.h.worker();
+      await syncSocialHolds(worker);
+      await daily.h.run(async (tx) => {
+        const row = (await list(tx, owner, "publications")).find((r) => r.id === pubs[0]!.id)!;
+        await update(tx, owner, row, { ...data(row), status: "canceled", reason: "VETOED" });
+      });
+      await syncSocialHolds(worker);
+      const status = async (pubId: string) =>
+        (await daily.socialPosts()).find((p) => p.originId === pubId)!.status;
+      expect(await status(pubs[0]!.id)).toBe("canceled");
+      expect(await status(pubs[1]!.id)).toBe("scheduled");
+      await daily.h.run((tx) => marketingHooks.onProjectPause!(tx, owner, {} as never));
+      await syncSocialHolds(worker);
+      expect(await status(pubs[1]!.id)).toBe("canceled");
+      expect(await dispatchJobs()).toHaveLength(0);
+    });
+
+    it("gives a claim back after a worker restart: the post goes out once, without a second approval", async () => {
+      const { pubs, slot } = await released();
+      const { owner } = daily.project;
+      const worker = daily.h.worker();
+      await syncSocialHolds(worker);
+      atMinutes(slot, 1);
+      const pubId = pubs[0]!.id;
+      const claim = await daily.h.run((tx) => claimMarketingPublication(tx, worker, pubId));
+      expect(claim.send).toBe(true);
+      const publishing = marketingJobs.find((j) => j.queueClass === "publishing")!;
+      await daily.h.run((tx) =>
+        publishing.onLeaseExpired!(tx, worker, { resourceId: pubId }),
+      );
+      const reset = (await daily.publications()).find((p) => p.id === pubId)!;
+      expect(reset.status).toBe("intent_created");
+      await dispatchPublication(owner, pubId);
+      expect((await daily.publications()).find((p) => p.id === pubId)!.status).toBe("scheduled_remote");
+      expect(await dispatchJobs()).toHaveLength(1);
+    });
+
+    it("retries a temporary failure at the slot and loses nothing", async () => {
+      const { pubs, slot } = await released();
+      const { owner } = daily.project;
+      atMinutes(slot, 1);
+      const pubId = pubs[0]!.id;
+      provider.exportFails = 1;
+      await expect(dispatchPublication(owner, pubId)).rejects.toThrow("SOCIAL_HANDOFF_RETRY");
+      expect((await daily.publications()).find((p) => p.id === pubId)).toMatchObject({ status: "intent_created" });
+      await dispatchPublication(owner, pubId);
+      expect((await daily.publications()).find((p) => p.id === pubId)).toMatchObject({ status: "scheduled_remote" });
+      expect(await daily.socialPosts()).toHaveLength(1);
+    });
+
+    it("never catches up a slot that passed: the post is blocked and its calendar entry taken back", async () => {
+      const { slot } = await released();
+      const worker = daily.h.worker();
+      await syncSocialHolds(worker);
+      atMinutes(slot, 31);
+      await syncSocialHolds(worker);
+      const after = await daily.publications();
+      expect(after.map((p) => p.status)).toEqual(["blocked_dependency", "blocked_dependency"]);
+      for (const p of after) expect(p.blockers).toEqual(["SLOT_EXPIRED"]);
+      for (const post of await daily.socialPosts()) expect(post.status).toBe("canceled");
+      expect(await dispatchJobs()).toHaveLength(0);
+    });
+
+    it("records a post Social would refuse before the slot, once", async () => {
+      const { pubs } = await released();
+      const { owner } = daily.project;
+      const worker = daily.h.worker();
+      // Instagram without an image: Social refuses it.
+      const instagram = pubs.find((p) => p.channel === daily.channels[1])!;
+      await daily.h.run(async (tx) => {
+        const row = (await list(tx, owner, "content")).find((r) => r.id === instagram.contentId)!;
+        const { assetId: _assetId, ...rest } = data(row);
+        await update(tx, owner, row, rest);
+      });
+      await syncSocialHolds(worker);
+      const failed = () => daily.publications().then((all) => all.find((p) => p.id === instagram.id)!);
+      expect(await failed()).toMatchObject({
+        status: "intent_created",
+        socialHold: { state: "failed", code: "SOCIAL_VALIDATION_FAILED" },
+      });
+      const version = await daily.h.run(async (tx) =>
+        (await list(tx, owner, "publications")).find((r) => r.id === instagram.id)!.version,
+      );
+      await syncSocialHolds(worker);
+      expect(
+        await daily.h.run(async (tx) =>
+          (await list(tx, owner, "publications")).find((r) => r.id === instagram.id)!.version,
+        ),
+      ).toBe(version);
+    });
+
+    it("leaves a Postiz project alone and sends a social: channel only through Social", async () => {
+      const { pubs, slot } = await released();
+      const { owner } = daily.project;
+      await daily.h.run((tx) => forcePublishingBackend(tx, owner, "postiz"));
+      await syncSocialHolds(daily.h.worker());
+      expect(await daily.socialPosts()).toHaveLength(0);
+      // A social: channel never reaches the Postiz path, whatever the setting.
+      atMinutes(slot, 1);
+      await dispatchPublication(owner, pubs[0]!.id);
+      expect((await daily.publications()).find((p) => p.id === pubs[0]!.id)!.status).toBe("blocked_dependency");
+      expect(await daily.socialPosts()).toHaveLength(0);
+    });
+
+    it("does not announce test publications, and nothing exists before the owner's release", async () => {
+      daily = await dailyProject();
+      await daily.drafted();
+      await daily.reviewed();
+      await syncSocialHolds(daily.h.worker());
+      expect(await daily.socialPosts()).toHaveLength(0);
+      for (const draft of await daily.contents()) await daily.release(draft);
+      expect((await daily.publications()).every((p) => p.test === true)).toBe(true);
+      await syncSocialHolds(daily.h.worker());
+      expect(await daily.socialPosts()).toHaveLength(0);
+    });
+
+    it("tells the assignment view apart: waiting for hand-off, then scheduled in Social", async () => {
+      await released();
+      const { owner } = daily.project;
+      const states = async () => {
+        const detail = await daily.h.run((tx) => assignmentDetail(tx, owner, daily.assignment.id));
+        return detail.runs.flatMap((r: any) => r.deliverables.map((d: any) => d.state));
+      };
+      expect(await states()).toEqual(["handoff_pending", "handoff_pending"]);
+      await syncSocialHolds(daily.h.worker());
+      expect(await states()).toEqual(["scheduled", "scheduled"]);
+    });
   });
 
   it("a shared Facebook and Instagram run hands one image to Social: both posts use one library asset", async () => {

@@ -1093,8 +1093,9 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         origin: "marketing",
         originType: "publication",
         originId: pub!.id,
-        status: "approved",
-        scheduleMode: "now",
+        // Handed over at the slot and kept there: the calendar shows it.
+        status: "scheduled",
+        scheduleMode: "at",
       });
       expect(post.baseText).toContain("Beta access is open");
       // A second dispatch of the same publication makes no second Social post

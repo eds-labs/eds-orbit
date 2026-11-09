@@ -17,6 +17,8 @@ export type DeliverableState =
   | "awaiting_release"
   | "expired"
   | "released"
+  | "handoff_pending"
+  | "scheduled"
   | "published"
   | "failed"
   | "canceled"
@@ -76,6 +78,8 @@ const STATE: Record<DeliverableState, [string, string, Tone]> = {
   awaiting_release: ["Waiting for release", "Wartet auf Freigabe", "warning"],
   expired: ["Expired", "Abgelaufen", "neutral"],
   released: ["Released", "Freigegeben", "blue"],
+  handoff_pending: ["Approved, moving to Social", "Freigegeben, geht an Social", "blue"],
+  scheduled: ["Scheduled in Social", "In Social geplant", "blue"],
   published: ["Published", "Veröffentlicht", "success"],
   failed: ["Failed", "Fehlgeschlagen", "danger"],
   canceled: ["Canceled", "Abgebrochen", "neutral"],
@@ -103,6 +107,14 @@ const APPROVAL_MODE: Record<string, [string, string]> = {
 };
 /** What the codes this view shows mean: [en, de]. */
 const ERROR_TEXT: Record<string, [string, string]> = {
+  SOCIAL_VALIDATION_FAILED: [
+    "Social would refuse this post (for example Instagram without an image).",
+    "Social würde diesen Beitrag ablehnen (zum Beispiel Instagram ohne Bild).",
+  ],
+  SOCIAL_HOLD_FAILED: [
+    "The post could not be shown in Social yet. Orbit tries again; the planned time stays.",
+    "Der Beitrag konnte noch nicht in Social angezeigt werden. Orbit versucht es erneut; der geplante Zeitpunkt bleibt.",
+  ],
   SLOT_EXPIRED: [
     "The planned time had passed; the post was not published.",
     "Der geplante Zeitpunkt war vorbei; der Beitrag wurde nicht veröffentlicht.",

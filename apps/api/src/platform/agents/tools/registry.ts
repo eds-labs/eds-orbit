@@ -144,6 +144,13 @@ export type OrbitTool = {
    */
   mcpMeta?: Record<string, unknown>;
   /**
+   * The parameters MCP clients see, when they must differ from the
+   * model-strict `parameters` (ChatGPT needs a file input to be the file
+   * object itself, not a nullable union). Whatever it accepts must also pass
+   * `parameters`, which the gateway parses the arguments with afterwards.
+   */
+  mcpParameters?: z.ZodObject;
+  /**
    * For a proposal tool: whether an outside client may propose its action
    * now (the action type's `mcpProposable`). False hides it from MCP, so a
    * listed proposal never fails as not proposable.

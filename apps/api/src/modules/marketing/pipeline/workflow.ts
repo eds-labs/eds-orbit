@@ -599,6 +599,32 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
       });
   return { send: true, pub: claimed, content: p.content };
 }
+/**
+ * Gives a claim back when nothing was handed over (Social's hand-off commits
+ * in one transaction, so a publication still `sending` without a remote id
+ * made no post): the publication waits for its job again and the approvals
+ * the claim consumed count again. Never for an external write that may have
+ * happened. False when the claim is no longer this one (`fence`).
+ */
+export async function releasePublicationClaim(
+  tx: DbTx,
+  scope: Scope,
+  pubId: string,
+  fence?: string,
+): Promise<boolean> {
+  const pub = await entity(tx, scope, "publications", pubId),
+    v = data(pub);
+  if (v.status !== "sending" || v.remoteId || (fence && v.fence !== fence))
+    return false;
+  for (const a of await list(tx, scope, "approvals"))
+    if (data(a).status === "consumed" && data(a).publicationId === pub.id) {
+      const { publicationId: _publication, ...approval } = data(a);
+      await update(tx, scope, a, { ...approval, status: "approved" });
+    }
+  const { fence: _fence, handoffAt: _handoffAt, ...rest } = v;
+  await update(tx, scope, pub, { ...rest, status: "intent_created" });
+  return true;
+}
 export async function finishPublication(
   tx: DbTx,
   scope: Scope,
