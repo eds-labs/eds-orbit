@@ -10,6 +10,7 @@ import {
   type KnowledgeSnapshot,
 } from "../../../../../packages/schemas/src/knowledge-workspace.ts";
 import {
+  containsCredentials,
   extractDocument,
   fetchApprovedDocument,
   MIME,
@@ -52,7 +53,7 @@ import {
 } from "../../platform/ai/spend-mandate.ts";
 import { reserve, settle, markTransmitted } from "../../platform/ai/budget.ts";
 import { planCall } from "../../platform/ai/call-plan.ts";
-import { readRepository, githubToken, containsCredentials } from "./github.ts";
+import { readRepository, githubToken } from "./github.ts";
 
 export const workspaceEnabled = () =>
   process.env.ORBIT_KNOWLEDGE_WORKSPACE === "true";

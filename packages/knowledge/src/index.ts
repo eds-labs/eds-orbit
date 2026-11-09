@@ -33,6 +33,7 @@ import {
 export * from "./types.js";
 export * from "./algorithms.js";
 export * from "./safe-fetch.js";
+export * from "./credentials.js";
 export * from "./extract.js";
 export * from "./indexes.js";
 export * from "./freshness.js";
