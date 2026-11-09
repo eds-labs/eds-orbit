@@ -120,6 +120,8 @@ export const sessionEndRequest = z
 export const webmailConvertMessage = z
   .object({
     type: z.literal("orbit.webmail.convert"),
+    /** Which mailbox the frame shows; the page refuses any other. */
+    mailboxId: z.uuid(),
     folder: z.string().max(1000),
     uid: z.number().int().positive(),
     uidValidity: z.number().int().positive(),
