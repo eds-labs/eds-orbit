@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Task 0 gates the rest:** A-D1 (module id `ads` or `advertising`) is settled by the ad-blocker test before Task 1 starts. If the result is `advertising`, apply "Rename if A-D1 says `advertising`" below to every task first.
+- **Task 0 gates the rest:** A-D1 (module id `ads` or `advertising`) is settled by the ad-blocker test before Task 1 starts. If the result is `advertising`, apply "Rename if A-D1 says `advertising`" below to every task first. **Changed 2026-11-09 (Mario):** the implementation went ahead under the recorded ruling `ads`; the test now gates enabling `ORBIT_ADS` instead of delivery, and any rename happens before the flag first goes on.
 - Risk **high** (migration, row-level security, grants), environment local only; while `ORBIT_ADS` is off nothing is reachable at runtime. Workflows: `.agentic/workflows/feature.md` and `migration.md`.
 - Branch from current `origin/main` in an isolated worktree. Delivery follows `AGENTS.md` ("Main delivery workflow"): integrate `origin/main`, then push to `main` **only after Mario's go**. The migration changes the production schema hash, so Mario approves the new hash in Coolify before that push (`docs/deployment/COOLIFY.md`, "Current production").
 - `ORBIT_ADS` defaults to `"false"` everywhere (config, both compose files, `.env.example`). No production flag changes in A1.
@@ -51,7 +51,7 @@ Unchanged either way: the flag `ORBIT_ADS`, the code `ADS_DISABLED`, the `Ad*` t
 - Modify: `docs/superpowers/plans/2026-11-07-ads-a0-spike.md` (§7 row Q18), `docs/superpowers/plans/2026-11-07-ads-module.md` (§3 row A-D1: add "Settled 2026-MM-DD: `ads`" or "`advertising`")
 
 - [ ] **Step 1:** Build the site of A0 §4.6: the paths `/p/test/ads/`, `/p/test/ads/units/`, `/p/test/ads/creatives/`, `/p/test/advertising/`, `/p/test/campaigns/`; fetches of `/api/projects/test/{ads,advertising,paid-media}/status.json`; elements with the classes `ads-summary`, `ad-card`, `campaign-card` and the ids `nav-group-ads`, `settings-group-ads`. Each row turns green when it loaded or is visible and red when it was blocked or hidden. Serve it with `python3 -m http.server 4399`.
-- [ ] **Step 2:** Mario opens it in Chrome with uBlock Origin, Chrome or Firefox with AdGuard (default lists) and Brave with Shields on, and reports the red rows.
+- [ ] **Step 2:** Mario opens it in Chrome with uBlock Origin, Chrome or Firefox with AdGuard (default lists) and Brave with Shields on, and reports the red rows. A browser counts only when its BAIT rows are red; green BAIT means no active blocker.
 - [ ] **Step 3: Decide.** Every `ads` path and fetch green → `ads`. Any `ads` path or fetch red while the `advertising` row is green → `advertising`. One of the shell ids red → stop and report to Mario: the shell derives `nav-group-<id>` (`apps/web/src/platform/shell/sidebar-nav.tsx:107`) and `settings-group-<id>` (`settings-nav.tsx:192`) from the module id, and changing that is a platform change outside A1.
 - [ ] **Step 4:** Record the result in both documents and commit: `git commit -m "docs(ads): settle A-D1 module id after the ad-blocker test"`.
 

@@ -4,7 +4,7 @@ The ads module is meant to connect a project's ad accounts and manage paid adver
 
 State on 2026-11-08: **step A1 (module skeleton) is implemented on branch `claude/eds-orbit-ads-module-plan-3228d2`; not merged, not deployed.** `ORBIT_ADS` is off. The module has a manifest, permissions, gate, settings, one status route, four empty tables and six placeholder views. It connects no ad account and calls no provider; accounts, campaigns and reports come in later steps (A2 onward).
 
-Open: Task 0 of the A1 plan (the A-D1 ad-blocker test of the module id `ads` in uBlock Origin, AdGuard and Brave) has not been done. A check in Chrome without an active blocker proved nothing. The implementation uses `ads` by a recorded ruling; if the test shows blocking, the plan's rename table switches id and path to `advertising`.
+Open: Task 0 of the A1 plan (the A-D1 ad-blocker test of the module id `ads` in uBlock Origin, AdGuard and Brave) has no valid result yet. The checks on 2026-11-08 and 2026-11-09 ran without an active blocker (the BAIT probe loaded), so they proved nothing. Mario decided on 2026-11-09 that the test gates enabling `ORBIT_ADS`, not the push to `main`; a browser counts only when its BAIT rows are red. The implementation uses `ads` by a recorded ruling; if the test shows blocking, the plan's rename table switches id and path to `advertising` before the flag goes on.
 
 ## Switching it on
 
