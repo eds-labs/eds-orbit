@@ -150,6 +150,7 @@ describe("module contributions", () => {
       "drive_connection",
       "drive_oauth_state",
       // E-mail (WP4.7): messages, inbound mail and the IMAP position.
+      "email_inbound_backlog",
       "email_inbound_state",
       "email_messages",
       "evidence",

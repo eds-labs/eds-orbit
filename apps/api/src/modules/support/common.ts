@@ -17,6 +17,15 @@ import {
 
 // Helpers shared by ticket creation, the workspace and the channels.
 
+/** The id recorded for a mail without a Message-ID of its own to use. */
+export const inboundExternalId = (inboundId: string) =>
+  `<inbound.${inboundId}@orbit.invalid>`;
+const STAND_IN =
+  /^<inbound\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@orbit\.invalid>$/i;
+/** The mailbox row an id from `inboundExternalId` stands for, else null. */
+export const inboundIdOf = (externalId: string) =>
+  STAND_IN.exec(externalId)?.[1] ?? null;
+
 const MINUTE = 60_000;
 /** A pending due time this close (or past) counts as at risk. */
 export const SLA_AT_RISK_MINUTES = 60;

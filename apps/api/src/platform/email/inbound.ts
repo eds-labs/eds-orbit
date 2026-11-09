@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import PostalMime from "postal-mime";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -16,13 +17,21 @@ import {
   emailEnabled,
   emailMailboxes,
   INBOUND_STATE_KIND,
+  sharedClientActive,
 } from "./connection.ts";
 import { connectionVerified } from "../connections/connections.ts";
+import {
+  dropBacklogSnapshot,
+  ensureBacklogSnapshot,
+  type BacklogState,
+} from "./backlog-snapshot.ts";
+import { withMailboxLock, type MailboxLock } from "./mailbox-lock.ts";
 import { mailboxOwner } from "./ownership.ts";
 import { EMAIL_KIND, INBOUND_KIND, ORBIT_MESSAGE_ID } from "./send.ts";
 import {
   mailFactories,
   MailSendError,
+  type FetchedMessage,
   type MailboxReader,
 } from "./transport.ts";
 
@@ -68,7 +77,7 @@ const LONE_SURROGATE =
   /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
 /** The parsed message, or null when it cannot be parsed. */
-async function parseMessage(source: Buffer): Promise<Parsed | null> {
+export async function parseMessage(source: Buffer): Promise<Parsed | null> {
   try {
     return await PostalMime.parse(source);
   } catch {
@@ -133,7 +142,7 @@ const addresses = (list?: { address?: string }[]) =>
     .slice(0, 50);
 
 /** The row fields of a parsed message; bounded, one line except the text. */
-function normalized(parsed: Parsed | null) {
+export function normalized(parsed: Parsed | null) {
   if (!parsed)
     return {
       messageId: "",
@@ -171,7 +180,7 @@ function normalized(parsed: Parsed | null) {
   };
 }
 
-async function stateOf(tx: DbTx, scope: Scope, connectionId: string) {
+export async function stateOf(tx: DbTx, scope: Scope, connectionId: string) {
   return (await list(tx, scope, INBOUND_STATE_KIND)).find(
     (row) => data(row).connectionId === connectionId,
   );
@@ -258,8 +267,185 @@ export async function fetchInbound(scope: Scope) {
   };
 }
 
+/** The state fields both fetch paths read from the state row's data. */
+export function cursorOf(d: Record<string, any>) {
+  return {
+    uidValidity: d.uidValidity as string | undefined,
+    lastUid: Number(d.lastUid ?? 0),
+    backlogUntil: d.backlogUntil == null ? undefined : Number(d.backlogUntil),
+  };
+}
+
+/** Writes state fields of a mailbox's row, creating the row when missing. */
+export async function patchState(
+  scope: Scope,
+  connectionId: string,
+  patch: Record<string, unknown>,
+) {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const current = await stateOf(tx, scope, connectionId);
+    const next = {
+      connectionId,
+      ...(current ? data(current) : {}),
+      ...patch,
+    };
+    if (current) await update(tx, scope, current, next);
+    else await create(tx, scope, INBOUND_STATE_KIND, next);
+  });
+}
+
+export type IngestTarget = Pick<Connection, "id" | "data">;
+
+/**
+ * Keeps one fetched message (raw file and row) and hands it to the modules,
+ * unless it is already known. `shared` applies the rules of a mailbox a second
+ * client works on: without a Message-ID the raw source identifies a message,
+ * so a copy under a new UID is not stored twice.
+ */
+export async function ingestMessage(
+  scope: Scope,
+  connection: IngestTarget,
+  message: FetchedMessage,
+  batch: { uidValidity: string; backlog: boolean },
+  options: { shared?: boolean } = {},
+) {
+  const parsed = await parseMessage(message.source);
+  const fields = normalized(parsed);
+  const { messageId } = fields;
+  const rawSha256 =
+    options.shared && !messageId
+      ? createHash("sha256").update(message.source).digest("hex")
+      : null;
+  const uidKeys = {
+    AND: [
+      { data: { path: ["uid"], equals: message.uid } },
+      {
+        data: {
+          path: ["uidValidity"],
+          equals: batch.uidValidity,
+        },
+      },
+    ],
+  };
+  const duplicate = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.entity.findFirst({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: INBOUND_KIND,
+        AND: [
+          { data: { path: ["connectionId"], equals: connection.id } },
+          messageId
+            ? { data: { path: ["messageId"], equals: messageId } }
+            : rawSha256
+              ? {
+                  OR: [
+                    { data: { path: ["rawSha256"], equals: rawSha256 } },
+                    uidKeys,
+                  ],
+                }
+              : uidKeys,
+        ],
+      },
+    }),
+  );
+  if (duplicate)
+    return { stored: false, bounced: 0, rowId: duplicate.id } as const;
+  let bounced = 0;
+  const file = await storeFile(
+    { ...scope, userId: "email-inbound" },
+    {
+      moduleId: "platform",
+      bytes: message.source,
+      mime: "message/rfc822",
+      name: `${message.uid}.eml`,
+    },
+  );
+  const report = parsed ? failedDeliveryReport(parsed, message.source) : null;
+  const rowId = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const own = (id: string) =>
+      tx.entity.findFirst({
+        where: {
+          id,
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind: EMAIL_KIND,
+        },
+      });
+    // A failed-delivery report marks the project's own messages it
+    // names, and only for a recipient it names as well, and only those
+    // this mailbox sent (a report comes back to the sending address).
+    const bounceOf: string[] = [];
+    for (const id of report?.ids ?? []) {
+      const sent = await own(id);
+      if (!sent) continue;
+      const sender = data(sent).connectionId;
+      if (sender && sender !== connection.id) continue;
+      const to = ((data(sent).to as string[] | undefined) ?? []).map((a) =>
+        a.toLowerCase(),
+      );
+      if (!to.some((a) => report!.named.has(a))) continue;
+      await update(tx, scope, sent, {
+        ...data(sent),
+        deliveryState: "bounced",
+        bouncedAt: new Date().toISOString(),
+      });
+      bounceOf.push(id);
+      bounced++;
+    }
+    // Orbit's own message coming back in (sent to the mailbox itself,
+    // or copied into the INBOX by the provider): never a new request.
+    const ownId = OWN_MESSAGE_ID.exec(messageId)?.[1];
+    const copy = ownId ? await own(ownId.toLowerCase()) : null;
+    const echo =
+      copy !== null &&
+      String(data(copy).messageId ?? "").toLowerCase() ===
+        messageId.toLowerCase();
+    const row = await create(tx, scope, INBOUND_KIND, {
+      connectionId: connection.id,
+      uid: message.uid,
+      uidValidity: batch.uidValidity,
+      ...fields,
+      bounceOf,
+      ...(batch.backlog ? { backlog: true } : {}),
+      ...(echo ? { ownMessage: true } : {}),
+      ...(rawSha256 ? { rawSha256 } : {}),
+      fileId: file.id,
+      receivedAt: new Date().toISOString(),
+    });
+    // Bounces and echoes are the platform's; the rest goes to modules.
+    if (!bounceOf.length && !echo) {
+      const enabled = await enabledModules(tx, scope);
+      // An owned mailbox feeds only its owner module (ownership.ts); an
+      // unowned one every module but those taking owned mail only.
+      const mailboxOwned = mailboxOwner(data(connection));
+      for (const {
+        owner,
+        queueClass,
+        ownedOnly,
+      } of registeredEmailInbound())
+        if (
+          queueClass &&
+          (mailboxOwned ? owner === mailboxOwned : !ownedOnly) &&
+          ownerEnabled(owner, enabled)
+        )
+          await enqueue(
+            tx,
+            scope,
+            queueClass,
+            row.id,
+            `email-in:${queueClass}:${row.id}`,
+          );
+    }
+    return row.id;
+  });
+  return { stored: true, bounced, rowId } as const;
+}
+
 /** One pass over one mailbox. */
 async function fetchMailbox(scope: Scope, connection: Connection) {
+  if (sharedClientActive(data(connection)))
+    return fetchSharedMailbox(scope, connection);
   const setup = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -294,12 +480,7 @@ async function fetchMailbox(scope: Scope, connection: Connection) {
         accountOf(data(connection)),
         decryptCredential(data(connection)),
       ),
-      {
-        uidValidity: d.uidValidity as string | undefined,
-        lastUid: Number(d.lastUid ?? 0),
-        backlogUntil:
-          d.backlogUntil == null ? undefined : Number(d.backlogUntil),
-      },
+      cursorOf(d),
       maxBytes,
     );
   } catch (error) {
@@ -313,124 +494,9 @@ async function fetchMailbox(scope: Scope, connection: Connection) {
   let stored = 0;
   let bounced = 0;
   for (const message of batch.messages) {
-    const parsed = await parseMessage(message.source);
-    const fields = normalized(parsed);
-    const { messageId } = fields;
-    const duplicate = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      tx.entity.findFirst({
-        where: {
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          kind: INBOUND_KIND,
-          AND: [
-            { data: { path: ["connectionId"], equals: connection.id } },
-            messageId
-              ? { data: { path: ["messageId"], equals: messageId } }
-              : {
-                  AND: [
-                    { data: { path: ["uid"], equals: message.uid } },
-                    {
-                      data: {
-                        path: ["uidValidity"],
-                        equals: batch.uidValidity,
-                      },
-                    },
-                  ],
-                },
-          ],
-        },
-      }),
-    );
-    if (!duplicate) {
-      const file = await storeFile(
-        { ...scope, userId: "email-inbound" },
-        {
-          moduleId: "platform",
-          bytes: message.source,
-          mime: "message/rfc822",
-          name: `${message.uid}.eml`,
-        },
-      );
-      const report = parsed
-        ? failedDeliveryReport(parsed, message.source)
-        : null;
-      await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-        const own = (id: string) =>
-          tx.entity.findFirst({
-            where: {
-              id,
-              workspaceId: scope.workspaceId,
-              projectId: scope.projectId,
-              kind: EMAIL_KIND,
-            },
-          });
-        // A failed-delivery report marks the project's own messages it
-        // names, and only for a recipient it names as well, and only those
-        // this mailbox sent (a report comes back to the sending address).
-        const bounceOf: string[] = [];
-        for (const id of report?.ids ?? []) {
-          const sent = await own(id);
-          if (!sent) continue;
-          const sender = data(sent).connectionId;
-          if (sender && sender !== connection.id) continue;
-          const to = ((data(sent).to as string[] | undefined) ?? []).map((a) =>
-            a.toLowerCase(),
-          );
-          if (!to.some((a) => report!.named.has(a))) continue;
-          await update(tx, scope, sent, {
-            ...data(sent),
-            deliveryState: "bounced",
-            bouncedAt: new Date().toISOString(),
-          });
-          bounceOf.push(id);
-          bounced++;
-        }
-        // Orbit's own message coming back in (sent to the mailbox itself,
-        // or copied into the INBOX by the provider): never a new request.
-        const ownId = OWN_MESSAGE_ID.exec(messageId)?.[1];
-        const copy = ownId ? await own(ownId.toLowerCase()) : null;
-        const echo =
-          copy !== null &&
-          String(data(copy).messageId ?? "").toLowerCase() ===
-            messageId.toLowerCase();
-        const row = await create(tx, scope, INBOUND_KIND, {
-          connectionId: connection.id,
-          uid: message.uid,
-          uidValidity: batch.uidValidity,
-          ...fields,
-          bounceOf,
-          ...(batch.backlog ? { backlog: true } : {}),
-          ...(echo ? { ownMessage: true } : {}),
-          fileId: file.id,
-          receivedAt: new Date().toISOString(),
-        });
-        // Bounces and echoes are the platform's; the rest goes to modules.
-        if (!bounceOf.length && !echo) {
-          const enabled = await enabledModules(tx, scope);
-          // An owned mailbox feeds only its owner module (ownership.ts); an
-          // unowned one every module but those taking owned mail only.
-          const mailboxOwned = mailboxOwner(data(connection));
-          for (const {
-            owner,
-            queueClass,
-            ownedOnly,
-          } of registeredEmailInbound())
-            if (
-              queueClass &&
-              (mailboxOwned ? owner === mailboxOwned : !ownedOnly) &&
-              ownerEnabled(owner, enabled)
-            )
-              await enqueue(
-                tx,
-                scope,
-                queueClass,
-                row.id,
-                `email-in:${queueClass}:${row.id}`,
-              );
-        }
-      });
-      stored++;
-    }
+    const result = await ingestMessage(scope, connection, message, batch);
+    if (result.stored) stored++;
+    bounced += result.bounced;
     lastUid = Math.max(lastUid, message.uid);
   }
   for (const uid of batch.skipped) lastUid = Math.max(lastUid, uid);
@@ -456,6 +522,251 @@ async function fetchMailbox(scope: Scope, connection: Connection) {
     bounced,
     skipped: batch.skipped.length,
   };
+}
+
+// A mailbox a second client works on (ADR 0026). The same cursor and state
+// row as above, with these differences: every pass holds the mailbox's lock,
+// a backlog works from a stored list of UIDs, old mail above the cursor counts
+// as backlog, a mailbox no module would act on is not stored, and a message
+// that cannot be stored ends the pass with the cursor before it.
+
+const OLD_MAIL_MS = 72 * 3600_000;
+const LOCK_WAIT_MS = 2000;
+
+/** Delivered long ago, such as old mail moved back into the INBOX. */
+export const oldMessage = (message: FetchedMessage, now = Date.now()) =>
+  message.internalDate !== undefined &&
+  now - message.internalDate.getTime() > OLD_MAIL_MS;
+
+/** An error as a code only: no server text, no content. */
+export const failureCode = (error: unknown) =>
+  error instanceof MailSendError
+    ? error.code
+    : error instanceof Error && /^[A-Z][A-Z0-9_]+$/.test(error.message)
+      ? error.message
+      : "INGEST_ERROR";
+
+/** Whether any module would act on mail arriving at this mailbox. */
+export async function mailboxHasConsumer(
+  tx: DbTx,
+  scope: Scope,
+  connection: IngestTarget,
+) {
+  const enabled = await enabledModules(tx, scope);
+  const mailboxOwned = mailboxOwner(data(connection));
+  for (const {
+    owner,
+    queueClass,
+    ownedOnly,
+    mailboxUse,
+  } of registeredEmailInbound()) {
+    if (
+      !queueClass ||
+      !(mailboxOwned ? owner === mailboxOwned : !ownedOnly) ||
+      !ownerEnabled(owner, enabled)
+    )
+      continue;
+    if (
+      !mailboxUse?.receivesMail ||
+      (await mailboxUse.receivesMail(tx, scope, connection.id))
+    )
+      return true;
+  }
+  return false;
+}
+
+/** As `nextBatch`, but a backlog works from its stored list of UIDs. */
+async function nextSharedBatch(
+  scope: Scope,
+  connectionId: string,
+  reader: MailboxReader,
+  state: BacklogState,
+  maxBytes: number,
+) {
+  if (state.uidValidity !== undefined && state.backlogUntil === undefined) {
+    const fresh = await reader.fetchNew(state, {
+      max: MAX_PER_PASS,
+      maxBytes,
+      internalDate: true,
+    });
+    if (fresh.uidValidity === state.uidValidity)
+      return {
+        ...fresh,
+        from: state.lastUid,
+        backlog: false,
+        through: undefined,
+        until: undefined,
+        backlogUntil: undefined,
+        listDone: false,
+      };
+  }
+  const scan = await reader.scan();
+  const snapshot = await ensureBacklogSnapshot(
+    scope,
+    connectionId,
+    reader,
+    scan,
+    state,
+  );
+  const from = scan.uidValidity !== state.uidValidity ? 0 : state.lastUid;
+  const pending = snapshot.uids.filter((uid) => uid > from);
+  const take = pending.slice(0, MAX_PER_PASS);
+  const listDone = pending.length <= MAX_PER_PASS;
+  // UIDs that did not fit the list are read from a new list next pass.
+  const done = listDone && snapshot.overflow === 0;
+  const got = take.length
+    ? await reader.fetchUids(take, maxBytes, { internalDate: true })
+    : { messages: [], skipped: [] };
+  return {
+    uidValidity: scan.uidValidity,
+    ...got,
+    from,
+    backlog: true,
+    through: done ? snapshot.until : (take.at(-1) ?? from),
+    until: snapshot.until,
+    backlogUntil: done ? undefined : snapshot.until,
+    listDone,
+  };
+}
+
+/** One pass over a shared mailbox, under its lock. */
+async function fetchSharedMailbox(scope: Scope, connection: Connection) {
+  try {
+    const pass = await withMailboxLock(connection.id, LOCK_WAIT_MS, (lock) =>
+      sharedPass(scope, connection, lock),
+    );
+    // A barrier or takeover is at work: the next pass reads the mailbox.
+    return pass.acquired
+      ? pass.value
+      : { status: "ok" as const, stored: 0, bounced: 0, skipped: 0 };
+  } catch (error) {
+    if (!(error instanceof MailSendError)) throw error;
+    await patchState(scope, connection.id, {
+      lastError: error.code,
+      checkedAt: new Date().toISOString(),
+    });
+    return { status: "error" as const };
+  }
+}
+
+async function sharedPass(
+  scope: Scope,
+  connection: Connection,
+  lock: MailboxLock,
+) {
+  const setup = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => ({
+      state: await stateOf(tx, scope, connection.id),
+      receives: await mailboxHasConsumer(tx, scope, connection),
+    }),
+  );
+  const recordState = (patch: Record<string, unknown>) =>
+    patchState(scope, connection.id, {
+      ...patch,
+      checkedAt: new Date().toISOString(),
+    });
+  const files = filesConfig();
+  if (!files) {
+    await recordState({ lastError: "FILES_NOT_CONFIGURED" });
+    return { status: "files_not_configured" as const };
+  }
+  const d = setup.state ? data(setup.state) : {};
+  const maxBytes = Math.min(MAX_BYTES, files.maxBytes);
+  const reader = mailFactories().mailbox(
+    accountOf(data(connection)),
+    decryptCredential(data(connection)),
+  );
+  let batch: Awaited<ReturnType<typeof nextSharedBatch>>;
+  try {
+    if (!setup.receives) {
+      // Nobody would read it: the cursor moves past it, nothing is kept.
+      const scan = await reader.scan();
+      await dropBacklogSnapshot(scope, connection.id);
+      await recordState({
+        uidValidity: scan.uidValidity,
+        lastUid: scan.top,
+        backlogUntil: null,
+        lastError: null,
+      });
+      return { status: "ok" as const, stored: 0, bounced: 0, skipped: 0 };
+    }
+    batch = await nextSharedBatch(
+      scope,
+      connection.id,
+      reader,
+      { ...cursorOf(d), checkedAt: d.checkedAt as string | undefined },
+      maxBytes,
+    );
+  } catch (error) {
+    await recordState({
+      lastError: error instanceof MailSendError ? error.code : "IMAP_ERROR",
+    });
+    return { status: "error" as const };
+  }
+  let lastUid = batch.from;
+  let stored = 0;
+  let bounced = 0;
+  let failedUid: number | null = null;
+  let failure: string | null = null;
+  const now = Date.now();
+  for (const message of batch.messages) {
+    if (!lock.held()) {
+      failedUid = message.uid;
+      failure = "LOCK_LOST";
+      break;
+    }
+    try {
+      const result = await ingestMessage(
+        scope,
+        connection,
+        message,
+        {
+          uidValidity: batch.uidValidity,
+          backlog: batch.backlog || oldMessage(message, now),
+        },
+        { shared: true },
+      );
+      if (result.stored) stored++;
+      bounced += result.bounced;
+    } catch (error) {
+      failedUid = message.uid;
+      failure = failureCode(error);
+      break;
+    }
+    lastUid = Math.max(lastUid, message.uid);
+  }
+  for (const uid of batch.skipped)
+    if (failedUid === null || uid < failedUid) lastUid = Math.max(lastUid, uid);
+  if (failure === null && batch.through !== undefined)
+    lastUid = Math.max(lastUid, batch.through);
+  await recordState({
+    uidValidity: batch.uidValidity,
+    lastUid,
+    backlogUntil:
+      failure === null ? (batch.backlogUntil ?? null) : (batch.until ?? null),
+    lastError: failure,
+    ...(batch.skipped.length ? { lastSkipped: batch.skipped.length } : {}),
+  });
+  if (failure === null && batch.listDone)
+    await dropBacklogSnapshot(scope, connection.id);
+  if (stored || batch.skipped.length)
+    await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      audit(tx, scope, "email.inbound", connection.id, {
+        stored,
+        bounced,
+        skipped: batch.skipped.length,
+      }),
+    );
+  return failure === null
+    ? {
+        status: "ok" as const,
+        stored,
+        bounced,
+        skipped: batch.skipped.length,
+      }
+    : { status: "error" as const };
 }
 
 /** Every two minutes per project; errors are recorded on the state row. */

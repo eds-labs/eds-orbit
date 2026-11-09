@@ -11,6 +11,11 @@ export const SUPPORT_TICKETS_REPLY = permission(
   "Reply to customers",
   ["owner", "editor"],
 );
+export const SUPPORT_TICKETS_IMPORT = permission(
+  "support.tickets.import",
+  "Turn a mailbox message into a ticket",
+  ["owner", "editor"],
+);
 export const SUPPORT_TICKETS_ASSIGN = permission(
   "support.tickets.assign",
   "Assign tickets and change their status",
@@ -59,6 +64,7 @@ export const SUPPORT_SETTINGS_MANAGE = {
 export const supportPermissions = [
   SUPPORT_TICKETS_READ,
   SUPPORT_TICKETS_REPLY,
+  SUPPORT_TICKETS_IMPORT,
   SUPPORT_TICKETS_ASSIGN,
   SUPPORT_NOTES_WRITE,
   SUPPORT_NOTES_READ,

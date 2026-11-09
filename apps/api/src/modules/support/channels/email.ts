@@ -2,9 +2,11 @@ import PostalMime from "postal-mime";
 import { randomUUID } from "node:crypto";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { CONNECTION_KIND } from "../../../platform/connections/connections.ts";
 import {
   defaultEmailConnection,
   emailEnabled,
+  sharedClientActive,
   verifiedEmailConnection,
 } from "../../../platform/email/connection.ts";
 import { INBOUND_KIND } from "../../../platform/email/inbound.ts";
@@ -23,7 +25,11 @@ import {
 } from "../../../platform/files/files.ts";
 import type { PeriodicTask } from "../../../platform/jobs/types.ts";
 import { audit, data } from "../../../shared.ts";
-import { supportSettings } from "../common.ts";
+import {
+  inboundExternalId,
+  inboundIdOf,
+  supportSettings,
+} from "../common.ts";
 import { effectiveRules } from "../settings.ts";
 import { supportActive } from "../gate.ts";
 import { appendCustomerMessage, createTicket } from "../tickets.ts";
@@ -65,12 +71,15 @@ type MessageRow = Awaited<
 /**
  * The mailbox a ticket's mail leaves from: its inbox's bound mailbox while
  * that is verified; an inbox without one (widget-only, from before the
- * binding, or archived after its mailbox was removed) uses the default.
+ * binding, or archived after its mailbox was removed) uses the default. A
+ * ticket taken over from a mailbox never does: the default may be another
+ * module's mailbox, and the takeover promised the inbox's own address.
  */
 async function ticketMailbox(tx: DbTx, scope: Scope, ticket: TicketRow) {
   const inbox = await tx.supportInbox.findFirst({
     where: { id: ticket.inboxId, projectId: scope.projectId },
   });
+  if (ticket.importSource && !inbox?.emailConnectionId) return null;
   return inbox?.emailConnectionId
     ? verifiedEmailConnection(tx, scope, inbox.emailConnectionId)
     : defaultEmailConnection(tx, scope);
@@ -87,7 +96,7 @@ export async function queueEmailMessage(
   scope: Scope,
   ticket: TicketRow,
   message: MessageRow,
-  options: { automatic?: boolean; to?: string } = {},
+  options: { automatic?: boolean; to?: string; byPerson?: boolean } = {},
 ): Promise<string> {
   const notSent = async () => {
     await tx.supportMessage.update({
@@ -103,7 +112,7 @@ export async function queueEmailMessage(
   });
   const to = options.to ?? contact?.email;
   if (!connection || !to) return notSent();
-  const thread = await tx.supportMessage.findMany({
+  const found = await tx.supportMessage.findMany({
     where: {
       projectId: scope.projectId,
       ticketId: ticket.id,
@@ -111,17 +120,28 @@ export async function queueEmailMessage(
     },
     orderBy: { createdAt: "asc" },
   });
+  // The customer's mail client never saw an id Orbit made up for a takeover.
+  const thread = ticket.importSource
+    ? found.filter((m) => !inboundIdOf(m.externalId!))
+    : found;
   const lastCustomer = thread.filter((m) => m.kind === "customer").at(-1);
-  const row = await queueEmail(tx, scope, {
-    to: [to],
-    subject: replySubject(ticket.subject, ticket.number),
-    text: message.bodyText,
-    moduleId: "support",
-    automatic: options.automatic ?? false,
-    ...(lastCustomer?.externalId ? { inReplyTo: lastCustomer.externalId } : {}),
-    references: thread.map((m) => m.externalId!).slice(-20),
-    connectionId: connection.id,
-  });
+  const row = await queueEmail(
+    tx,
+    scope,
+    {
+      to: [to],
+      subject: replySubject(ticket.subject, ticket.number),
+      text: message.bodyText,
+      moduleId: "support",
+      automatic: options.automatic ?? false,
+      ...(lastCustomer?.externalId
+        ? { inReplyTo: lastCustomer.externalId }
+        : {}),
+      references: thread.map((m) => m.externalId!).slice(-20),
+      connectionId: connection.id,
+    },
+    { replyingAsPerson: Boolean(ticket.importSource && options.byPerson) },
+  );
   await tx.supportMessage.update({
     where: { id: message.id },
     data: {
@@ -154,7 +174,14 @@ type Inbound = {
 async function storeAttachments(scope: Scope, fileId: string | undefined) {
   if (!fileId || !filesConfig()) return { files: [], skipped: 0 };
   const { bytes } = await readFile(scope, fileId);
-  const parsed = await PostalMime.parse(bytes);
+  return storeParsedAttachments(scope, await PostalMime.parse(bytes));
+}
+
+/** The attachment rules of the channel, for a message already parsed. */
+export async function storeParsedAttachments(
+  scope: Scope,
+  parsed: Awaited<ReturnType<typeof PostalMime.parse>>,
+) {
   const allowed = new Set(allowedFileTypes());
   const files: Array<{
     fileId: string;
@@ -249,6 +276,26 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
     ticketId = ticket.mergedIntoTicketId;
   }
   return null;
+}
+
+/**
+ * A customer answering the address a ticket was taken over from: no inbox is
+ * routed to that mailbox, so the ticket's thread decides. Only for a mailbox
+ * still under the webmail rules and a ticket that came in by takeover.
+ */
+async function takenOverThread(tx: DbTx, scope: Scope, mail: Inbound) {
+  if (!mail.connectionId) return null;
+  const connection = await tx.entity.findFirst({
+    where: {
+      id: mail.connectionId,
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: CONNECTION_KIND,
+    },
+  });
+  if (!connection || !sharedClientActive(data(connection))) return null;
+  const ticket = await threadedTicket(tx, scope, mail);
+  return ticket?.importSource ? ticket : null;
 }
 
 /**
@@ -353,8 +400,7 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
       });
       if (!row) return null;
       const mail = data(row) as Inbound;
-      const externalId =
-        mail.messageId || `<inbound.${inboundId}@orbit.invalid>`;
+      const externalId = mail.messageId || inboundExternalId(inboundId);
       const seen = await tx.supportMessage.findFirst({
         where: { projectId: scope.projectId, channel: "email", externalId },
       });
@@ -367,13 +413,14 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
   try {
     await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const inbox = await routedInbox(tx, scope, mail);
-      if (!inbox) {
+      const takenOver = inbox ? null : await takenOverThread(tx, scope, mail);
+      if (!inbox && !takenOver) {
         await audit(tx, scope, "support.email.unrouted", inboundId, {
           inboundId,
         });
         throw new UnroutedMail();
       }
-      const ticket = await threadedTicket(tx, scope, mail);
+      const ticket = takenOver ?? (await threadedTicket(tx, scope, mail));
       if (!ticket && mail.automatic) {
         await audit(tx, scope, "support.email.ignored_automatic", inboundId, {
           inboundId,
@@ -392,8 +439,9 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
         throw new UnroutedMail();
       }
       if (!ticket) {
+        // Without an inbox the thread above has found the ticket.
         const created = await createTicket(tx, scope, {
-          inboxId: inbox.id,
+          inboxId: inbox!.id,
           channel: "email",
           inbound: {
             externalId,
@@ -408,8 +456,8 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
         });
         const settings = await supportSettings(tx, scope);
         // Mail from before the first sync is old: no acknowledgement now.
-        if (!mail.backlog && effectiveRules(settings, inbox.rules).autoAck)
-          await acknowledge(tx, scope, created.ticketId, inbox);
+        if (!mail.backlog && effectiveRules(settings, inbox!.rules).autoAck)
+          await acknowledge(tx, scope, created.ticketId, inbox!);
         await audit(tx, scope, "support.email.received", created.ticketId, {
           ticketId: created.ticketId,
           inboundId,

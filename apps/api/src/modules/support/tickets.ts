@@ -3,6 +3,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../shared.ts";
 import type { NormalizedInbound, SupportChannel } from "./channels/adapter.ts";
+import type { SupportPriority } from "./settings.ts";
 import { requireSupport } from "./gate.ts";
 import { loadInbox } from "./inboxes.ts";
 import { afterTicketCreated, notifyCustomerReply } from "./automations.ts";
@@ -116,6 +117,14 @@ export async function resolveContact(
   return id;
 }
 
+/**
+ * A message a member took over from a mailbox (ADR 0026). Assignment and
+ * notifications run as usual, but no AI job and no domain event: a person
+ * decided to bring this message in, and a stranger's mail must not start paid
+ * work or an agent on the strength of that.
+ */
+export type TicketImport = { source: "mailbox_import" };
+
 /** Opens a ticket for a customer's first message on a channel. */
 export async function createTicket(
   tx: DbTx,
@@ -127,6 +136,12 @@ export async function createTicket(
     now?: Date;
     /** The contact a channel already resolved (the widget's session). */
     contactId?: string;
+    /** A member took this over from a mailbox: see `TicketImport`. */
+    import?: TicketImport & {
+      priority?: SupportPriority;
+      /** Null leaves it without a category; absent uses the inbox default. */
+      category?: string | null;
+    };
   },
 ): Promise<CreatedTicket> {
   await requireSupport(tx, scope);
@@ -184,9 +199,14 @@ export async function createTicket(
       inboxId: inbox.id,
       contactId,
       subject: inbound.subject.trim().slice(0, SUBJECT_MAX) || "(no subject)",
-      category: inbox.defaultCategory,
+      category:
+        input.import?.category !== undefined
+          ? input.import.category
+          : inbox.defaultCategory,
       channel: input.channel,
-      ...dueTimes(settings, "normal", now),
+      ...(input.import?.priority ? { priority: input.import.priority } : {}),
+      ...(input.import ? { importSource: input.import.source } : {}),
+      ...dueTimes(settings, input.import?.priority ?? "normal", now),
       lastCustomerMessageAt: now,
       createdAt: now,
     },
@@ -229,15 +249,17 @@ export async function createTicket(
   });
   conversationChanged(tx, scope, ticket.id);
   await afterTicketCreated(tx, scope, ticket);
-  await queueSupportAi(tx, scope, ticket, message.id, { triage: true });
-  // Content-free; a configured agent may react to it (ADR 0021 Phase 2).
-  await publishSupportMessageEvent(
-    tx,
-    scope,
-    SUPPORT_TICKET_CREATED,
-    ticket,
-    message,
-  );
+  if (!input.import) {
+    await queueSupportAi(tx, scope, ticket, message.id, { triage: true });
+    // Content-free; a configured agent may react to it (ADR 0021 Phase 2).
+    await publishSupportMessageEvent(
+      tx,
+      scope,
+      SUPPORT_TICKET_CREATED,
+      ticket,
+      message,
+    );
+  }
   await audit(tx, scope, "support.ticket.created", ticket.id, {
     ticketId: ticket.id,
     number: ticket.number,
@@ -269,6 +291,11 @@ export async function appendCustomerMessage(
     externalId: string | null;
     files?: Array<{ fileId: string; name: string }>;
     automatic?: boolean;
+    /** A member took this over from a mailbox: see `TicketImport`. */
+    import?: TicketImport & {
+      /** The sender when it is not the ticket's contact; null when unknown. */
+      authorContactId?: string | null;
+    };
   },
 ) {
   await requireSupport(tx, scope);
@@ -280,7 +307,10 @@ export async function appendCustomerMessage(
       projectId: scope.projectId,
       ticketId: ticket.id,
       kind: "customer",
-      authorContactId: ticket.contactId,
+      authorContactId:
+        input.import?.authorContactId !== undefined
+          ? input.import.authorContactId
+          : ticket.contactId,
       bodyText: input.bodyText,
       channel: input.channel,
       externalId: input.externalId,
@@ -330,14 +360,16 @@ export async function appendCustomerMessage(
   conversationChanged(tx, scope, ticket.id);
   if (!input.automatic) {
     await notifyCustomerReply(tx, scope, ticket);
-    await queueSupportAi(tx, scope, ticket, message.id);
-    await publishSupportMessageEvent(
-      tx,
-      scope,
-      SUPPORT_MESSAGE_RECEIVED,
-      ticket,
-      message,
-    );
+    if (!input.import) {
+      await queueSupportAi(tx, scope, ticket, message.id);
+      await publishSupportMessageEvent(
+        tx,
+        scope,
+        SUPPORT_MESSAGE_RECEIVED,
+        ticket,
+        message,
+      );
+    }
   }
   return message;
 }
