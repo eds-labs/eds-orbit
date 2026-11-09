@@ -7,7 +7,15 @@ import {
 import { activeSpendMandateRef } from "../ai/spend-mandate.ts";
 import { runtimeOpenAiConfiguration } from "../ai/openai-configuration.ts";
 import { enqueue } from "../jobs/enqueue.ts";
-import { create, data, DomainError, entity, list, update } from "../shared.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  entity,
+  list,
+  update,
+} from "../shared.ts";
 import { ingest, retireDocument } from "./engine.ts";
 import { queueDocumentEmbedding } from "./ingestion.ts";
 import { indexHasEmbeddings } from "./retrieval.ts";
@@ -47,16 +55,34 @@ function codeOf(error: unknown, fallback: string) {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === "string" ? code.slice(0, 100) : fallback;
 }
-const closed = (
+/** Ends a run and writes its one audit record: ids, trigger and counts only. */
+async function endRun(
+  tx: DbTx,
+  s: Scope,
+  row: Row,
   run: Fields,
-  status: string,
+  status: "completed" | "failed",
   errorCode: string | null = null,
-) => ({
-  ...run,
-  status,
-  errorCode,
-  completedAt: new Date().toISOString(),
-});
+) {
+  await update(tx, s, row, {
+    ...run,
+    status,
+    errorCode,
+    completedAt: new Date().toISOString(),
+  });
+  await audit(tx, s, `knowledge.site_run_${status}`, row.id, {
+    sourceId: run.sourceId,
+    trigger: run.trigger,
+    pages: run.pages.length,
+    unchanged: run.unchanged,
+    changed: run.changed,
+    added: run.added,
+    removed: run.removed,
+    failed: run.failed.length,
+    skippedSensitive: run.skippedSensitive,
+    embeddingsQueued: run.embeddingsQueued,
+  });
+}
 
 /**
  * Starts a read of a site source, or returns the run already active for it.
@@ -88,6 +114,7 @@ export async function startSiteRun(
     // `pages` is the URL list; `languages` holds each page's language at the same index.
     pages: pages.map((p) => p.url),
     languages: pages.map((p) => p.language),
+    capped: false,
     cursor: 0,
     unchanged: 0,
     changed: 0,
@@ -126,7 +153,7 @@ export async function failSiteRun(
 ) {
   const row = await tx.entity.findFirst({ where: owned(s, runId, RUN_KIND) });
   if (row && ACTIVE.includes(data(row).status))
-    await update(tx, s, row, closed(data(row), "failed", errorCode));
+    await endRun(tx, s, row, data(row), "failed", errorCode);
 }
 
 /**
@@ -149,7 +176,7 @@ async function currentStep(
     await tx.entity.findFirst({ where: owned(s, run.sourceId, "sources") }),
   );
   if (source.status !== "active" || source.generation !== run.generation) {
-    await update(tx, s, row, closed(run, "failed", "SOURCE_INACTIVE"));
+    await endRun(tx, s, row, run, "failed", "SOURCE_INACTIVE");
     return null;
   }
   return { row, run, source };
@@ -294,9 +321,11 @@ async function beginRun(
     if (!step || step.run.status !== "queued") return step?.run ?? null;
     const pages = found ? found.pages.map((p) => p.url) : step.run.pages;
     // A site with a sitemap that now offers none has not shrunk to its root
-    // page: discovery returned nothing (D-6).
+    // page, and an unread sitemap has not delisted its pages: discovery did
+    // not finish looking, so nothing can be concluded from it (D-6).
     const nothing =
       !pages.length ||
+      found?.complete === false ||
       (found?.discovery === "single" && source.site.discovery === "sitemap");
     const next = {
       ...step.run,
@@ -305,6 +334,7 @@ async function beginRun(
       languages: found
         ? found.pages.map((p) => p.language)
         : step.run.languages,
+      capped: found?.capped ?? false,
       warning: nothing ? "site_shrank" : null,
     };
     await update(tx, s, step.row, next);
@@ -333,14 +363,14 @@ async function finishRun(s: Scope, runId: string) {
     });
     const listed = new Set<string>(run.pages.map(pageId));
     const excluded = excludedPages(source);
-    const missing = documents.filter(
-      (d) => !listed.has(d.externalId) && !excluded.has(d.externalId),
-    );
+    // A capped list is cut, not complete: a page past the cut still exists.
+    const missing = run.capped
+      ? []
+      : documents.filter(
+          (d) => !listed.has(d.externalId) && !excluded.has(d.externalId),
+        );
     if (run.warning || missing.length * 2 > documents.length) {
-      await update(tx, s, row, {
-        ...closed(run, "completed"),
-        warning: "site_shrank",
-      });
+      await endRun(tx, s, row, { ...run, warning: "site_shrank" }, "completed");
       return null;
     }
     return [
@@ -364,7 +394,7 @@ async function finishRun(s: Scope, runId: string) {
   }
   await within(s, async (tx) => {
     const step = await currentStep(tx, s, runId);
-    if (step) await update(tx, s, step.row, closed(step.run, "completed"));
+    if (step) await endRun(tx, s, step.row, step.run, "completed");
   });
 }
 

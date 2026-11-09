@@ -28,10 +28,11 @@ const doc = (body: string, mimeType = "application/xml") => ({
 });
 const notFound = () => new KnowledgeError("SOURCE_NOT_FOUND");
 
-function sitemaps(files: Record<string, string>) {
+function sitemaps(files: Record<string, string>, failing: string[] = []) {
   const requested: string[] = [];
   const fetchDiscovery = async (url: string) => {
     requested.push(url);
+    if (failing.includes(url)) throw new KnowledgeError("SOURCE_FETCH_FAILED");
     const body = files[url];
     if (body === undefined) throw notFound();
     return doc(body);
@@ -48,6 +49,7 @@ describe("discoverSite", () => {
     const site = await discoverSite(ROOT, options, { fetchDiscovery });
     expect(site.discovery).toBe("sitemap");
     expect(site.pages.map((p) => p.url)).toEqual([`${ROOT}a`, `${ROOT}b`]);
+    expect(site.complete).toBe(true);
 
     const nested = sitemaps({
       [`${ROOT}sitemap.xml`]: index(`${ROOT}one.xml`),
@@ -134,6 +136,7 @@ describe("discoverSite", () => {
       discovery: "single",
       pages: [{ url: ROOT, language: "de" }],
       capped: false,
+      complete: true,
     });
     const empty = sitemaps({
       [`${ROOT}sitemap.xml`]: urlset("https://elsewhere.example.com/a"),
@@ -143,6 +146,54 @@ describe("discoverSite", () => {
     });
     expect(unusable.discovery).toBe("single");
     expect(unusable.pages.map((p) => p.url)).toEqual([ROOT]);
+  });
+
+  it("reports an incomplete discovery when a child sitemap cannot be read", async () => {
+    const files = {
+      [`${ROOT}sitemap.xml`]: index(`${ROOT}de.xml`, `${ROOT}en.xml`),
+      [`${ROOT}de.xml`]: urlset(`${ROOT}de/a`),
+    };
+    const failing = sitemaps(files, [`${ROOT}en.xml`]);
+    const site = await discoverSite(ROOT, options, {
+      fetchDiscovery: failing.fetchDiscovery,
+    });
+    expect(site.discovery).toBe("sitemap");
+    expect(site.pages.map((p) => p.url)).toEqual([`${ROOT}de/a`]);
+    expect(site.complete).toBe(false);
+
+    // An index that names a child which is gone has not been read in full either.
+    const gone = await discoverSite(ROOT, options, {
+      fetchDiscovery: sitemaps(files).fetchDiscovery,
+    });
+    expect(gone.complete).toBe(false);
+
+    const none = await discoverSite(ROOT, options, {
+      fetchDiscovery: sitemaps(
+        { [`${ROOT}sitemap.xml`]: index(`${ROOT}en.xml`) },
+        [`${ROOT}en.xml`],
+      ).fetchDiscovery,
+    });
+    expect(none).toMatchObject({ discovery: "single", complete: false });
+  });
+
+  it("reports an incomplete discovery when a sitemap errored before the fallback", async () => {
+    const root = "https://docs.example.com/help/";
+    const files = {
+      "https://docs.example.com/sitemap.xml": urlset(`${root}a`),
+    };
+    const after = (failing: string[]) =>
+      discoverSite(root, options, {
+        fetchDiscovery: sitemaps(files, failing).fetchDiscovery,
+      });
+    expect(await after([`${root}sitemap.xml`])).toMatchObject({
+      discovery: "sitemap",
+      complete: false,
+    });
+    // Not found is a clear answer: the origin's sitemap is then the whole list.
+    expect(await after([])).toMatchObject({
+      discovery: "sitemap",
+      complete: true,
+    });
   });
 
   it("reads /en/ pages as English when en is a content language", async () => {

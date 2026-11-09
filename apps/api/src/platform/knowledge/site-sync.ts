@@ -16,6 +16,8 @@ export type SiteDiscovery = {
   discovery: "sitemap" | "single";
   pages: SitePage[];
   capped: boolean;
+  /** False when a sitemap could not be read, so a page may be absent only by that. */
+  complete: boolean;
 };
 
 type Fetched = { bytes: Buffer; mimeType: string };
@@ -74,17 +76,21 @@ async function readSitemapUrls(
   sitemapUrl: string,
   rootUrl: string,
   fetchDiscovery: FetchDocument,
-): Promise<string[]> {
+): Promise<{ urls: string[]; complete: boolean }> {
   const pagePolicy = sitePolicy(rootUrl);
   const discovery = discoveryPolicy(rootUrl);
   const read = async (url: string) =>
     (await fetchDiscovery(url, discovery)).bytes.toString("utf8");
   const xml = await read(sitemapUrl);
   if (!/<sitemapindex[\s>]/i.test(xml))
-    return discoverPublicPages(xml, pagePolicy, MAX_SITE_PAGES * 5);
+    return {
+      urls: discoverPublicPages(xml, pagePolicy, MAX_SITE_PAGES * 5),
+      complete: true,
+    };
   // An index is expanded one level and never deeper.
   const children = discoverPublicPages(xml, discovery, MAX_CHILD_SITEMAPS);
   const urls: string[] = [];
+  let complete = true;
   for (const child of children) {
     try {
       const childXml = await read(child);
@@ -93,10 +99,12 @@ async function readSitemapUrls(
         ...discoverPublicPages(childXml, pagePolicy, MAX_SITE_PAGES * 5),
       );
     } catch {
-      /* One unreadable child sitemap does not stop the others. */
+      // One unreadable child sitemap does not stop the others, but its pages
+      // are unknown now: they have not been delisted.
+      complete = false;
     }
   }
-  return urls;
+  return { urls, complete };
 }
 
 export async function discoverSite(
@@ -117,15 +125,20 @@ export async function discoverSite(
 
   const language = (url: string) =>
     pageLanguage(url, root, options.languages, options.fallbackLanguage);
+  let complete = true;
   for (const candidate of candidates) {
-    let found: string[];
+    let found: Awaited<ReturnType<typeof readSitemapUrls>>;
     try {
       found = await readSitemapUrls(candidate, rootUrl, fetchDiscovery);
-    } catch {
+    } catch (error) {
+      // Only "not found" says there is no sitemap here.
+      if ((error as { code?: unknown })?.code !== "SOURCE_NOT_FOUND")
+        complete = false;
       continue;
     }
+    complete &&= found.complete;
     const unique = new Map<string, string>();
-    for (const url of found) {
+    for (const url of found.urls) {
       const key = isRoot(url, root) ? rootUrl : url;
       if (!unique.has(key)) unique.set(key, key);
     }
@@ -138,6 +151,7 @@ export async function discoverSite(
         .slice(0, MAX_SITE_PAGES)
         .map((url) => ({ url, language: language(url) })),
       capped: all.length > MAX_SITE_PAGES,
+      complete,
     };
   }
   return {
@@ -145,6 +159,7 @@ export async function discoverSite(
     discovery: "single",
     pages: [{ url: rootUrl, language: language(rootUrl) }],
     capped: false,
+    complete,
   };
 }
 

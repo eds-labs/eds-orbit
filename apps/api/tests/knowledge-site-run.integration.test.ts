@@ -27,6 +27,8 @@ import { createPackageProject } from "./support/package-project.ts";
 const web = vi.hoisted(() => ({
   pages: new Map<string, string>(),
   sitemap: null as string[] | null,
+  // A sitemap index: child URL to its pages, or null when the child fails.
+  children: null as Record<string, string[] | null> | null,
   down: new Set<string>(),
   fetched: [] as string[],
   dieAt: null as string | null,
@@ -63,15 +65,26 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (original) => {
     }),
     fetchDiscoveryDocument: vi.fn(async (url: string) => {
       noted();
-      if (!web.sitemap) throw new knowledge.KnowledgeError("SOURCE_NOT_FOUND");
-      const body = web.sitemap
-        .map((u) => `<url><loc>${u}</loc></url>`)
-        .join("");
-      return {
-        bytes: Buffer.from(`<urlset>${body}</urlset>`),
+      const reply = (body: string) => ({
+        bytes: Buffer.from(body),
         mimeType: "application/xml",
         url,
-      };
+      });
+      const urlset = (urls: string[]) =>
+        `<urlset>${urls.map((u) => `<url><loc>${u}</loc></url>`).join("")}</urlset>`;
+      if (web.children) {
+        if (url.endsWith("/help/sitemap.xml")) {
+          const items = Object.keys(web.children)
+            .map((u) => `<sitemap><loc>${u}</loc></sitemap>`)
+            .join("");
+          return reply(`<sitemapindex>${items}</sitemapindex>`);
+        }
+        const child = web.children[url];
+        if (!child) throw new knowledge.KnowledgeError("SOURCE_FETCH_FAILED");
+        return reply(urlset(child));
+      }
+      if (!web.sitemap) throw new knowledge.KnowledgeError("SOURCE_NOT_FOUND");
+      return reply(urlset(web.sitemap));
     }),
   };
 });
@@ -197,12 +210,28 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
     (await documents(sourceId)).filter((d) => d.activeVersionId);
   const documentFor = async (sourceId: string, n: number) =>
     (await documents(sourceId)).find((d) => d.externalId === page(n))!;
+  const runAudits = () =>
+    run(async (tx) =>
+      (
+        await tx.auditEvent.findMany({
+          where: {
+            projectId: owner.projectId,
+            action: { startsWith: "knowledge.site_run" },
+          },
+        })
+      ).map((a) => ({
+        action: a.action,
+        resourceId: a.resourceId,
+        metadata: a.metadata,
+      })),
+    );
   const fetchCount = (url: string) =>
     web.fetched.filter((u) => u === url).length;
 
   beforeEach(async () => {
     web.pages.clear();
     web.sitemap = null;
+    web.children = null;
     web.down.clear();
     web.fetched.length = 0;
     web.dieAt = null;
@@ -281,6 +310,26 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       }),
     );
     expect(version).toMatchObject({ title: "Seite 1", language: "en" });
+
+    // One record for the finished run: ids, trigger and counts, no content.
+    expect(await runAudits()).toEqual([
+      {
+        action: "knowledge.site_run_completed",
+        resourceId: created.id,
+        metadata: {
+          sourceId: source.id,
+          trigger: "initial",
+          pages: SITE_BATCH + 5,
+          unchanged: 0,
+          changed: 0,
+          added: SITE_BATCH + 5,
+          removed: 0,
+          failed: 0,
+          skippedSensitive: 0,
+          embeddingsQueued: done.embeddingsQueued,
+        },
+      },
+    ]);
   });
 
   it("counts unchanged, changed and added pages", async () => {
@@ -371,6 +420,44 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       unchanged: 1,
     });
     expect(await live(source.id)).toHaveLength(2);
+  });
+
+  it("retires nothing when one child sitemap fails", async () => {
+    publish(0, 1, 2, 3);
+    const source = await siteSource();
+    await read(source.id, [0, 1, 2, 3]);
+    // Two of four is not more than half: only the failed child protects them.
+    web.children = {
+      [`${ROOT}/sitemap-de.xml`]: [0, 1].map(page),
+      [`${ROOT}/sitemap-en.xml`]: null,
+    };
+    await exclude(source.id, page(1));
+    expect(await refresh(source.id)).toMatchObject({
+      status: "completed",
+      warning: "site_shrank",
+      removed: 0,
+      unchanged: 1,
+      pages: [0, 1].map(page),
+    });
+    expect(await live(source.id)).toHaveLength(4);
+  });
+
+  it("keeps pages past the 200-page cut and still retires exclusions", async () => {
+    publish(0, 1, 500);
+    const source = await siteSource();
+    await read(source.id, [0, 1, 500]);
+    // Page 500 is still listed, but behind the first 200 entries.
+    web.sitemap = [...range(201), 500].map(page);
+    await exclude(source.id, ...range(200).slice(1).map(page));
+    expect(await refresh(source.id)).toMatchObject({
+      status: "completed",
+      capped: true,
+      warning: null,
+      unchanged: 1,
+      removed: 1,
+    });
+    expect((await documentFor(source.id, 500)).activeVersionId).not.toBeNull();
+    expect((await documentFor(source.id, 1)).activeVersionId).toBeNull();
   });
 
   it("removes exactly half and leaves owner exclusions out of the half", async () => {
@@ -473,6 +560,17 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       });
       expect(await documents(source.id)).toHaveLength(SITE_BATCH);
       expect(await siteJobs(created.id)).toHaveLength(2);
+      expect(await runAudits()).toMatchObject([
+        {
+          action: "knowledge.site_run_failed",
+          resourceId: created.id,
+          metadata: {
+            sourceId: source.id,
+            trigger: "initial",
+            added: SITE_BATCH,
+          },
+        },
+      ]);
     },
   );
 
