@@ -29,13 +29,19 @@ import {
   type Check,
 } from "./add-flow";
 import { KnowledgeHomeCard } from "./home";
-import { Knowledge } from "./knowledge";
+import { Knowledge, ExcludedSources, sourceLabel } from "./knowledge";
 import { knowledgeWeb } from "./manifest";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { navigationForFeatures, routeTable } from "@/platform/shell/routes";
 import { knowledgeCopy } from "./workspace-text";
-import { expertCopy, expertValue } from "./expert-text";
+import {
+  expertCode,
+  expertCopy,
+  expertValue,
+  previewErrors,
+} from "./expert-text";
+import { EvidenceItems } from "@/platform/ui/evidence";
 import { readFileSync } from "node:fs";
 const response = vi.hoisted(() => ({
   value: {
@@ -2250,5 +2256,120 @@ describe("plain language and the technical area", () => {
       "utf8",
     );
     expect(source).not.toMatch(/<(dt|h2|h3|summary|th)>[A-Z][a-z]/);
+  });
+  it("names affected content by its title and hides the id", () => {
+    nav.search = "expert=1";
+    response.value.impacts = [
+      {
+        id: "11111111-aaaa",
+        data: { title: "Spring post", status: "needs_review" },
+      },
+    ];
+    const html = renderExpert("impact", false);
+    expect(html).toContain("Spring post");
+    expect(html).not.toContain("11111111-aaaa");
+    expect(html).not.toContain(expertCopy.de.affectedObject);
+  });
+  it("names a failed import by its title", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [],
+      expiredFacts: [],
+      staleSources: [],
+      failedImports: [
+        {
+          id: "22222222-bbbb",
+          data: { title: "Docs import", status: "failed" },
+        },
+      ],
+    });
+    const html = renderExpert("health", false);
+    expect(html).toContain("Docs import");
+    expect(html).not.toContain("22222222-bbbb");
+  });
+  it("maps health reasons that are codes and keeps plain sentences", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [
+        { id: "c1", key: "k1", reason: "insufficient_evidence" },
+        { id: "c2", key: "k2", reason: "BRAND_NEW_CODE" },
+        { id: "c3", key: "k3", reason: "The price differs." },
+      ],
+      expiredFacts: [],
+      failedImports: [],
+      staleSources: [],
+    });
+    const html = renderExpert("health", false);
+    expect(html).not.toContain("insufficient_evidence");
+    expect(html).not.toContain("BRAND_NEW_CODE");
+    expect(html).toContain("Unbekannt");
+    expect(html).toContain("The price differs.");
+  });
+  it("resolves source names and keeps the id secondary", () => {
+    const sources = [{ id: "s1", data: { name: "Handbook" } }] as any;
+    expect(sourceLabel(sources, "s1")).toEqual({ name: "Handbook" });
+    expect(sourceLabel(sources, "s9")).toEqual({ id: "s9" });
+    const out = renderToStaticMarkup(
+      <ExcludedSources
+        excluded={[
+          { sourceId: "s1", reason: "insufficient_evidence" },
+          { sourceId: "s9", reason: "ODD_CODE" },
+        ]}
+        sources={sources}
+        locale="de"
+      />,
+    );
+    expect(out).toContain("Handbook");
+    expect(out).not.toContain(">s1<");
+    expect(out).toContain("<small>s9</small>");
+    expect(out).not.toContain("insufficient_evidence");
+    expect(out).not.toContain("ODD_CODE");
+    expect(out).toContain("Unbekannt");
+  });
+  it("maps import errors and falls back for an unmapped code", () => {
+    expect(previewErrors([{ code: "DOCUMENTS_REQUIRED" }], "en")).not.toMatch(
+      /DOCUMENTS_REQUIRED/,
+    );
+    const text = previewErrors([{ code: "NEW_UNMAPPED_ERROR" }], "de");
+    expect(text).toBe("Unbekannt");
+    expect(expertCode("x_y", "en")).toBe("Unknown");
+  });
+  it("EvidenceItems keeps English by default and takes labels", () => {
+    const evidence = {
+      data: {
+        facts: [{ id: "f", version: 2, key: "k", value: "v", sourceId: "s1" }],
+        items: [
+          {
+            chunkId: "c",
+            title: "T",
+            text: "x",
+            anchor: "a",
+            canonicalUrl: "https://e.com",
+            reasons: ["lexical_match"],
+            score: 0.5,
+          },
+        ],
+        gaps: ["no_fact"],
+      },
+    } as any;
+    const plain = renderToStaticMarkup(<EvidenceItems evidence={evidence} />);
+    expect(plain).toContain("Fact v2");
+    expect(plain).toContain("Source document");
+    expect(plain).toContain("relevance");
+    const german = renderToStaticMarkup(
+      <EvidenceItems
+        evidence={evidence}
+        labels={expertCopy.de.evidence}
+        mapCode={(c) => expertCode(c, "de")}
+        sourceName={(id) => (id === "s1" ? "Handbuch" : undefined)}
+      />,
+    );
+    expect(german).toContain("Fakt v2");
+    expect(german).toContain("Quellendokument");
+    expect(german).toContain("Relevanz");
+    expect(german).toContain("Handbuch");
+    expect(german).not.toContain("lexical_match");
+    expect(german).not.toContain("no_fact");
+    expect(german).not.toContain("Source document");
   });
 });

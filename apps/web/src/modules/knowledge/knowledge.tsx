@@ -62,7 +62,6 @@ import {
 } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import {
-  EntityRows,
   PageHead,
   ResourceError,
   useCollection,
@@ -70,7 +69,13 @@ import {
 import { EvidenceItems } from "@/platform/ui/evidence";
 import { AppLink } from "@/platform/ui/app-link";
 import { KnowledgeOverview } from "./overview";
-import { expertCopy, expertFill, expertValue } from "./expert-text";
+import {
+  expertCode,
+  expertCopy,
+  expertFill,
+  expertValue,
+  previewErrors,
+} from "./expert-text";
 type Health = Record<string, unknown>;
 /** The knowledge tabs in their order; each has its own URL (WP3.3). */
 export const KNOWLEDGE_TABS = [
@@ -938,9 +943,7 @@ function ImportCenter() {
                 facts: preview.factCount ?? 0,
               })
             : expertFill(x.previewResolve, {
-                codes: (preview.errors ?? [])
-                  .map((error: any) => error.code)
-                  .join(", "),
+                codes: previewErrors(preview.errors ?? [], locale),
               })}
         </Alert>
       )}
@@ -993,6 +996,70 @@ function ImportCenter() {
     </section>
   );
 }
+/** The name of a source, or its id when no name is known. */
+export function sourceLabel(
+  sources: Entity[] | undefined,
+  id: unknown,
+): { name?: string; id?: string } {
+  const name = sources?.find((source) => source.id === id)?.data.name;
+  return typeof name === "string" && name
+    ? { name }
+    : id === undefined || id === null || id === ""
+      ? {}
+      : { id: String(id) };
+}
+/** A source named in primary text; an id only as a secondary line. */
+function SourceName({
+  sources,
+  id,
+}: {
+  sources: Entity[] | undefined;
+  id: unknown;
+}) {
+  const label = sourceLabel(sources, id);
+  return label.name ? (
+    <>{label.name}</>
+  ) : label.id ? (
+    <small>{label.id}</small>
+  ) : (
+    <>—</>
+  );
+}
+/** The sources a search left out, with the reason as a label. */
+export function ExcludedSources({
+  excluded,
+  sources,
+  locale,
+}: {
+  excluded: unknown[];
+  sources: Entity[] | undefined;
+  locale: "de" | "en";
+}) {
+  const x = expertCopy[locale];
+  return (
+    <>
+      {excluded.map((item, i) => {
+        const entry = item as Record<string, unknown>;
+        return (
+          <div className="history-row" key={i}>
+            <span>
+              {entry.sourceId ? (
+                <SourceName sources={sources} id={entry.sourceId} />
+              ) : (
+                x.excludedSource
+              )}
+            </span>
+            <span>
+              {entry.reason ? expertCode(entry.reason, locale) : x.excluded}
+            </span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+const expertReason = (value: unknown, locale: string) =>
+  value ? expertCode(value, locale) : undefined;
 /** A table of expert records with named columns and labelled values. */
 function ExpertRows({
   items,
@@ -1122,6 +1189,7 @@ function Facts() {
   const { t, locale, project, isOwner } = useWorkspace();
   const x = expertCopy[locale];
   const resource = useCollection("facts");
+  const sources = useCollection("sources");
   const [selected, setSelected] = useState<Entity | null>(null),
     [editing, setEditing] = useState(false),
     [create, setCreate] = useState(false),
@@ -1185,7 +1253,12 @@ function Facts() {
           </h2>
           <dl className="detail-grid">
             <dt>{x.detailSource}</dt>
-            <dd>{value(selected, "sourceId")}</dd>
+            <dd>
+              <SourceName
+                sources={sources.data?.items}
+                id={selected.data.sourceId}
+              />
+            </dd>
             <dt>{x.validFrom}</dt>
             <dd>{when(selected.data.validFrom, locale, project.timezone)}</dd>
             <dt>{x.validUntil}</dt>
@@ -1193,7 +1266,13 @@ function Facts() {
             <dt>{x.verifiedAt}</dt>
             <dd>{when(selected.data.verifiedAt, locale, project.timezone)}</dd>
             <dt>{x.verifiedBy}</dt>
-            <dd>{value(selected, "verifiedBy")}</dd>
+            <dd>
+              {selected.data.verifiedBy ? (
+                <small>{String(selected.data.verifiedBy)}</small>
+              ) : (
+                "—"
+              )}
+            </dd>
             <dt>{x.languageMarket}</dt>
             <dd>
               {value(selected, "language")} / {value(selected, "market")}
@@ -1574,7 +1653,9 @@ function Library() {
                       :{" "}
                       {key === "status"
                         ? expertValue(entry, locale)
-                        : String(entry)}
+                        : key === "createdAt"
+                          ? when(entry, locale, project.timezone)
+                          : String(entry)}
                     </span>
                   ))}
               </div>
@@ -1657,6 +1738,7 @@ function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
                         item.key ??
                         item.title ??
                         data?.key ??
+                        data?.title ??
                         item.name ??
                         data?.name;
                       const named =
@@ -1682,12 +1764,10 @@ function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
                               <small>{String(id)}</small>
                             )}
                             <p>
-                              {String(
-                                item.reason ||
-                                  item.message ||
-                                  data?.reason ||
-                                  x.reviewSource,
-                              )}
+                              {expertReason(
+                                item.reason || item.message || data?.reason,
+                                locale,
+                              ) ?? x.reviewSource}
                             </p>
                           </div>
                         </div>
@@ -1708,6 +1788,7 @@ function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
 function Inspector() {
   const { project, locale } = useWorkspace();
   const x = expertCopy[locale];
+  const sources = useCollection("sources");
   const [evidence, setEvidence] = useState<Entity | null>(null);
   const mutation = useMutation();
   return (
@@ -1790,7 +1871,12 @@ function Inspector() {
                 {value(evidence, "durationMs", x.notReported)}
               </dd>
             </dl>
-            <EvidenceItems evidence={evidence} />
+            <EvidenceItems
+              evidence={evidence}
+              labels={x.evidence}
+              mapCode={(code) => expertCode(code, locale)}
+              sourceName={(id) => sourceLabel(sources.data?.items, id).name}
+            />
             <details className="evidence-details">
               <summary>{x.filtersSummary}</summary>
               <dl className="detail-grid">
@@ -1811,22 +1897,11 @@ function Inspector() {
               </dl>
               {Array.isArray(evidence.data.excluded) &&
               evidence.data.excluded.length > 0 ? (
-                evidence.data.excluded.map((excluded, i) => (
-                  <div className="history-row" key={i}>
-                    <span>
-                      {String(
-                        (excluded as Record<string, unknown>).sourceId ||
-                          x.excludedSource,
-                      )}
-                    </span>
-                    <span>
-                      {String(
-                        (excluded as Record<string, unknown>).reason ||
-                          x.excluded,
-                      )}
-                    </span>
-                  </div>
-                ))
+                <ExcludedSources
+                  excluded={evidence.data.excluded}
+                  sources={sources.data?.items}
+                  locale={locale}
+                />
               ) : (
                 <p>{x.noneExcluded}</p>
               )}

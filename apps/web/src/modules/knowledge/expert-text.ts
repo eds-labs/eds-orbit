@@ -1,3 +1,5 @@
+import type { EvidenceLabels } from "@/platform/ui/evidence";
+
 // Copy of the technical area (the expert pages). Unlike the workspace pages it
 // keeps the terms fact, index and generation. Both languages need every key.
 const en = {
@@ -197,9 +199,17 @@ const en = {
   // Generic
   unknown: "Unknown",
   workspaceLink: "Technical area",
+  evidence: {
+    fact: "Fact",
+    passage: "Source passage",
+    document: "Source document",
+    relevance: "relevance",
+  },
 } as const;
 
-export type ExpertCopy = { [K in keyof typeof en]: string };
+export type ExpertCopy = {
+  [K in Exclude<keyof typeof en, "evidence">]: string;
+} & { evidence: EvidenceLabels };
 
 const de: ExpertCopy = {
   technicalArea: "Technik-Bereich",
@@ -386,6 +396,12 @@ const de: ExpertCopy = {
   review: "Prüfen",
   unknown: "Unbekannt",
   workspaceLink: "Technik-Bereich",
+  evidence: {
+    fact: "Fakt",
+    passage: "Quellenabschnitt",
+    document: "Quellendokument",
+    relevance: "Relevanz",
+  },
 };
 
 export const expertCopy: Record<"de" | "en", ExpertCopy> = { de, en };
@@ -456,4 +472,50 @@ export function expertValue(value: unknown, locale: string): string {
   const label =
     typeof value === "string" ? VALUES[value.toLowerCase()] : undefined;
   return label ? label[language] : expertCopy[language].unknown;
+}
+
+// Labels of the codes the API reports as reasons, gaps and import errors.
+const CODES: Record<string, { de: string; en: string }> = {
+  insufficient_evidence: {
+    de: "Nicht genug Belege",
+    en: "Not enough evidence",
+  },
+  evidence_not_public_ready: {
+    de: "Belege nicht für öffentliche Aussagen freigegeben",
+    en: "Evidence not approved for public statements",
+  },
+  fact_rows_required: {
+    de: "Der Import braucht mindestens einen Fakt",
+    en: "The import needs at least one fact",
+  },
+  documents_required: {
+    de: "Der Import braucht mindestens ein Dokument",
+    en: "The import needs at least one document",
+  },
+  historical_must_be_generated: {
+    de: "Frühere Inhalte müssen als generiert gelten",
+    en: "Historical content must count as generated",
+  },
+};
+
+/**
+ * A reported reason, gap or error. Codes (SOME_CODE, some_code) get a label or
+ * the generic one; a plain sentence is shown as it is.
+ */
+export function expertCode(value: unknown, locale: string): string {
+  const language = locale === "de" ? "de" : "en";
+  const text = typeof value === "string" ? value : "";
+  const label = CODES[text.toLowerCase()];
+  if (label) return label[language];
+  return text && !/^[A-Za-z0-9]+(_[A-Za-z0-9]+)*$/.test(text) && /\s/.test(text)
+    ? text
+    : expertCopy[language].unknown;
+}
+
+/** The error codes of an import preview as one line of labels. */
+export function previewErrors(
+  errors: Array<{ code?: unknown }>,
+  locale: string,
+): string {
+  return errors.map((error) => expertCode(error.code, locale)).join(", ");
 }
