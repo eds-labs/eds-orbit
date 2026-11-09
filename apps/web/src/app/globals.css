@@ -6734,7 +6734,7 @@ a.support-row {
 }
 .knowledge-filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 }
 .knowledge-field {
@@ -6768,7 +6768,7 @@ a.support-row {
 .knowledge-statement:last-child {
   border-bottom: 0;
 }
-.knowledge-statement h2 {
+.knowledge-statement h3 {
   font-size: 18px;
   line-height: 1.5;
   margin-block: 12px;
@@ -6786,6 +6786,80 @@ a.support-row {
 .knowledge-advanced summary {
   cursor: pointer;
   padding-block: 12px;
+  font-weight: 600;
+}
+.knowledge-topic-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+.knowledge-topic-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.knowledge-topic-count {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.knowledge-review-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.knowledge-review-head h3 {
+  flex: 1;
+  min-width: 0;
+  margin-block: 10px 8px;
+}
+/* A 44 px target around the box, with the statement as its name. */
+.knowledge-review-check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -12px;
+  cursor: pointer;
+}
+.knowledge-review-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.knowledge-review-source,
+.knowledge-review-rights {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+/* The right padding keeps the button clear of the assistant bubble. */
+.knowledge-bulk-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 88px 12px 16px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.knowledge-bulk-text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.knowledge-bulk-text p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.knowledge-bulk-summary {
   font-weight: 600;
 }
 .knowledge-badges {
@@ -7098,9 +7172,6 @@ a.support-row {
     flex-direction: column;
     gap: 16px;
   }
-  .knowledge-filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .knowledge-choice small,
   .knowledge-way small {
     font-size: 14px;
@@ -7108,6 +7179,10 @@ a.support-row {
   .knowledge-statement,
   .knowledge-source {
     padding: 18px;
+  }
+  .knowledge-bulk-bar {
+    bottom: calc(var(--mobile-nav-height) + 8px);
+    padding-right: 76px;
   }
   .knowledge-workspace .form-actions {
     flex-wrap: wrap;

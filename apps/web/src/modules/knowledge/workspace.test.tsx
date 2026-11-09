@@ -6,6 +6,13 @@ import { moreEntries, shouldCloseMenu } from "./source-list";
 import { sourceRows } from "./source-rows";
 import { WorkspaceError, analysisRunning } from "./workspace-parts";
 import {
+  AdjustForm,
+  BulkBar,
+  keptSelection,
+  StatementList,
+} from "./statements";
+import { effectiveRights } from "./statements-model";
+import {
   AnalysisStart,
   ResultStep,
   excludedForStart,
@@ -283,6 +290,297 @@ describe("managing confirmed knowledge", () => {
       confirmed({ status: "needs_review", factId: undefined }),
     ];
     expect(render("review")).not.toContain("Weiter verwenden");
+  });
+});
+
+describe("statements by topic", () => {
+  const de = knowledgeCopy.de;
+  const draftOf = (rights?: Record<string, boolean>) => ({
+    id: "d",
+    version: 1,
+    data: { status: "ready", input: { name: "Handbook", rights } },
+  });
+  const pending = (over: Record<string, unknown> = {}, id = "a") => ({
+    id,
+    version: 2,
+    data: {
+      statement: "Shared calendars",
+      status: "pending",
+      topic: "features",
+      stage: "documented",
+      draftId: "d",
+      reason: "The handbook describes it",
+      evidence: {
+        path: "docs/calendar.md",
+        startLine: 3,
+        endLine: 5,
+        quote: "Calendars can be shared",
+        url: "https://docs.example.test/calendar",
+        commit: "abc123",
+      },
+      ...over,
+    },
+  });
+  const headingOf = (html: string, label: string) =>
+    new RegExp(`<h2>${label} <span[^>]*>(\\d+)</span></h2>`).exec(html)?.[1];
+  const checkboxes = (html: string) =>
+    html.match(/type="checkbox"/g)?.length ?? 0;
+  const withoutFolds = (html: string) =>
+    html.replace(/<details>[\s\S]*?<\/details>/g, "");
+
+  it("knowledge is grouped under topic headings with counts", () => {
+    response.value.proposals = [
+      confirmed({ topic: "limitations", statement: "No offline mode" }),
+      { ...confirmed({ statement: "Shared lists" }), id: "b" },
+      { ...confirmed({ statement: "Shared notes" }), id: "c" },
+      {
+        ...confirmed({ topic: "description", statement: "A family app" }),
+        id: "e",
+      },
+    ];
+    const html = render();
+    expect(headingOf(html, de.description)).toBe("1");
+    expect(headingOf(html, de.features)).toBe("2");
+    expect(headingOf(html, de.limitations)).toBe("1");
+    expect(headingOf(html, de.platforms)).toBeUndefined();
+    expect(html.indexOf(`<h2>${de.description}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.features}`),
+    );
+    expect(html.indexOf(`<h2>${de.features}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.limitations}`),
+    );
+  });
+  it("older facts appear under Other", () => {
+    response.value.proposals = [confirmed()];
+    response.value.facts = [
+      verifiedFact(),
+      verifiedFact({ id: "old", key: "plans.free", value: "Free plan" }),
+    ];
+    const html = render();
+    expect(headingOf(html, de.otherKnowledge)).toBe("1");
+    expect(html.indexOf(`<h2>${de.features}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.otherKnowledge}`),
+    );
+    expect(html.indexOf(`<h2>${de.otherKnowledge}`)).toBeLessThan(
+      html.indexOf("Free plan"),
+    );
+    response.value.proposals = [pending()];
+    expect(render("review")).not.toContain("Free plan");
+  });
+  it("the review card shows the evidence without opening anything", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const shown = withoutFolds(render("review"));
+    expect(shown).toContain("Calendars can be shared");
+    expect(shown).toContain("docs/calendar.md · 3–5");
+    expect(shown).toContain('href="https://docs.example.test/calendar"');
+    expect(shown).toContain("The handbook describes it");
+    expect(shown).not.toContain(de.stageHint);
+    expect(shown).not.toContain("abc123");
+    const html = render("review");
+    expect(html).toContain(`<summary>${de.moreEvidence}</summary>`);
+    expect(html).toContain("abc123");
+    expect(html).toContain(de.stageHint);
+    expect(html).toContain(de.loadHistory);
+  });
+  it("the review card names its source and rights", () => {
+    response.value.drafts = [
+      draftOf({ marketing: true, support: false, publicUse: false }),
+    ];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(html).toContain("Handbook");
+    expect(html).toContain(`${de.marketing} · ${de.internal}`);
+    expect(html).not.toContain(de.noAudienceHint);
+  });
+  it("says why a card without an audience cannot be selected", () => {
+    response.value.drafts = [
+      draftOf({ marketing: false, support: false, publicUse: false }),
+    ];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(html).toContain(de.noAudienceHint);
+    expect(checkboxes(html)).toBe(0);
+    expect(html).not.toContain(de.selectAll);
+    expect(html).toContain(de.adjust);
+    expect(html).toContain(de.reject);
+  });
+  it("labels the checkbox by its statement", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    const id = /aria-labelledby="([^"]+)"/.exec(html)?.[1];
+    expect(id).toBeTruthy();
+    expect(html).toContain(`<h3 id="${id}">Shared calendars</h3>`);
+  });
+  it("changed statements come first and have no checkbox", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [
+      pending(),
+      {
+        ...confirmed({ status: "needs_review", statement: "Old pricing" }),
+        id: "b",
+      },
+    ];
+    const html = render("review");
+    expect(headingOf(html, de.changedGroup)).toBe("1");
+    expect(html.indexOf(`<h2>${de.changedGroup}`)).toBeLessThan(
+      html.indexOf(`<h2>${de.features}`),
+    );
+    expect(checkboxes(html)).toBe(1);
+    expect(html.match(new RegExp(de.selectAll, "g"))).toHaveLength(1);
+    expect(html).toContain(de.keepUsing);
+  });
+  it("a reader sees no checkboxes or bar controls", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const html = render("review", false);
+    expect(html).toContain("Shared calendars");
+    expect(html).toContain("Handbook");
+    expect(checkboxes(html)).toBe(0);
+    for (const label of [
+      de.selectAll,
+      de.bulkConfirm,
+      de.accept,
+      de.reject,
+      de.adjust,
+    ])
+      expect(html).not.toContain(label);
+    expect(html).not.toContain("knowledge-bulk-bar");
+  });
+  it("the card offers Adjust instead of an open form", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    const html = render("review");
+    expect(html).toContain(de.adjust);
+    expect(html).toContain(de.accept);
+    expect(html).toContain(de.reject);
+    expect(html).not.toContain("<textarea");
+    expect(html).not.toContain(de.usage);
+    expect(html).not.toContain("knowledge-bulk-bar");
+  });
+  it("the topic select is gone", () => {
+    response.value.drafts = [draftOf()];
+    response.value.proposals = [pending()];
+    for (const html of [render("review"), render()]) {
+      expect(html).not.toContain("<select");
+      expect(html).not.toContain(de.all);
+      expect(html).toContain('type="search"');
+    }
+  });
+
+  const listOf = (query: string) =>
+    renderToStaticMarkup(
+      <ShellContext.Provider
+        value={{ hrefOf: (key: string) => `/${key}` } as any}
+      >
+        <WorkspaceContext.Provider
+          value={
+            {
+              project: { id: "p", name: "FamilyPlan" },
+              locale: "de",
+              isOwner: true,
+            } as any
+          }
+        >
+          <StatementList
+            data={response.value}
+            review={false}
+            query={query}
+            listingRemoved={false}
+            refresh={() => {}}
+            t={de}
+          />
+        </WorkspaceContext.Provider>
+      </ShellContext.Provider>,
+    );
+  it("search filters inside the groups", () => {
+    response.value.proposals = [
+      confirmed(),
+      { ...confirmed({ statement: "Shared lists" }), id: "b" },
+      {
+        ...confirmed({ topic: "limitations", statement: "No offline mode" }),
+        id: "c",
+      },
+    ];
+    const html = listOf("LISTS");
+    expect(headingOf(html, de.features)).toBe("1");
+    expect(html).toContain("Shared lists");
+    expect(html).not.toContain("Shared calendars");
+    expect(headingOf(html, de.limitations)).toBeUndefined();
+    expect(listOf("nothing like this")).toContain(de.noMatch);
+  });
+
+  describe("selection", () => {
+    const drafts = [draftOf()] as any;
+    it("keeps the same set while everything stays selectable", () => {
+      const selected = new Set(["a"]);
+      expect(keptSelection(selected, [pending()] as any, drafts, {})).toBe(
+        selected,
+      );
+    });
+    it("drops a statement that is no longer listed", () => {
+      expect([
+        ...keptSelection(
+          new Set(["a", "gone"]),
+          [pending()] as any,
+          drafts,
+          {},
+        ),
+      ]).toEqual(["a"]);
+    });
+    it("drops a statement whose audiences were switched off", () => {
+      expect([
+        ...keptSelection(new Set(["a"]), [pending()] as any, drafts, {
+          a: { marketing: false, support: false },
+        }),
+      ]).toEqual([]);
+    });
+    it("drops a statement that turned into a changed one", () => {
+      expect([
+        ...keptSelection(
+          new Set(["a"]),
+          [pending({ status: "needs_review" })] as any,
+          drafts,
+          {},
+        ),
+      ]).toEqual([]);
+    });
+  });
+
+  describe("bulk bar", () => {
+    const bar = (over: Record<string, unknown> = {}) =>
+      renderToStaticMarkup(
+        <BulkBar
+          summary={{ text: "2 Aussagen", needsPublicNote: false }}
+          running={false}
+          result={null}
+          onConfirm={() => {}}
+          t={de}
+          {...over}
+        />,
+      );
+    it("shows the summary and the confirm button", () => {
+      const html = bar();
+      expect(html).toContain("knowledge-bulk-bar");
+      expect(html).toContain("2 Aussagen");
+      expect(html).toContain(de.bulkConfirm);
+      expect(html).not.toContain(de.publicNeeded);
+    });
+    it("repeats the note when something is not public", () => {
+      expect(
+        bar({ summary: { text: "2 Aussagen", needsPublicNote: true } }),
+      ).toContain(de.publicNeeded);
+    });
+    it("disables the button while a confirm runs", () => {
+      expect(bar({ running: true })).toMatch(/<button[^>]*disabled=""/);
+      expect(bar()).not.toMatch(/<button[^>]*disabled=""/);
+    });
+    it("keeps the result line after the selection is gone", () => {
+      const html = bar({ summary: null, result: "12 von 12 bestätigt" });
+      expect(html).toContain("12 von 12 bestätigt");
+      expect(html).not.toContain(de.bulkConfirm);
+    });
   });
 });
 
@@ -1046,43 +1344,36 @@ describe("add flow", () => {
       expect(de.publicNeeded).toContain("Kunden sehen");
     });
     it("gives the note on the statement review form too", () => {
-      const pending = (publicUse: boolean) => {
-        response.value.drafts = [
-          textDraft({
-            modelUse: true,
-            rights: {
-              marketing: true,
-              support: true,
-              publicUse,
-              modelUse: true,
-            },
-          }),
-        ];
-        response.value.proposals = [
-          {
-            id: "a",
-            version: 1,
-            data: {
-              statement: "Shared calendars",
-              status: "pending",
-              topic: "features",
-              stage: "documented",
-              draftId: "d",
-            },
-          },
-        ];
-        return render("review");
-      };
-      expect(pending(false)).toContain(de.publicNeeded);
-      expect(pending(true)).not.toContain(de.publicNeeded);
+      const form = (publicUse: boolean) =>
+        renderToStaticMarkup(
+          <AdjustForm
+            statement="Shared calendars"
+            rights={{ marketing: true, support: true, publicUse }}
+            onChange={() => {}}
+            t={de}
+          />,
+        );
+      expect(form(false)).toContain(de.publicNeeded);
+      expect(form(true)).not.toContain(de.publicNeeded);
     });
     it("offers no rights where nothing could store them", () => {
       Object.assign(response.value, previewOf);
       nav.search = "preview=p";
       expect(boxes(render("import"))).toBe(0);
     });
+    const pendingOf = () => ({
+      id: "a",
+      version: 1,
+      data: {
+        statement: "Shared calendars",
+        status: "pending",
+        topic: "features",
+        stage: "documented",
+        draftId: "d",
+      },
+    });
     it("uses the draft's rights as the review form's starting point", () => {
-      response.value.drafts = [
+      const drafts = [
         textDraft({
           modelUse: true,
           rights: {
@@ -1093,20 +1384,17 @@ describe("add flow", () => {
           },
         }),
       ];
-      response.value.proposals = [
-        {
-          id: "a",
-          version: 1,
-          data: {
-            statement: "Shared calendars",
-            status: "pending",
-            topic: "features",
-            stage: "documented",
-            draftId: "d",
-          },
-        },
-      ];
-      const html = render("review");
+      response.value.drafts = drafts;
+      response.value.proposals = [pendingOf()];
+      expect(render("review")).toContain(`${de.support} · ${de.public}`);
+      const html = renderToStaticMarkup(
+        <AdjustForm
+          statement="Shared calendars"
+          rights={effectiveRights(pendingOf() as any, drafts as any)}
+          onChange={() => {}}
+          t={de}
+        />,
+      );
       const box = (label: string) =>
         new RegExp(
           `<label><input type="checkbox"([^>]*)/>${label}</label>`,
@@ -1117,21 +1405,8 @@ describe("add flow", () => {
     });
     it("starts the review form with the usual rights for an older draft", () => {
       response.value.drafts = [textDraft()];
-      response.value.proposals = [
-        {
-          id: "a",
-          version: 1,
-          data: {
-            statement: "Shared calendars",
-            status: "pending",
-            topic: "features",
-            stage: "documented",
-            draftId: "d",
-          },
-        },
-      ];
-      const html = render("review");
-      expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(2);
+      response.value.proposals = [pendingOf()];
+      expect(render("review")).toContain(`${de.bulkBoth} · ${de.internal}`);
     });
   });
 

@@ -18,7 +18,7 @@ import {
   type Preview,
   type Summary,
 } from "./workspace-parts";
-import { Proposal } from "./workspace";
+import { Proposal } from "./statements";
 import type { KnowledgeCopy } from "./workspace-text";
 
 export type MoreEntry =
