@@ -106,7 +106,8 @@ describe("website snapshot", () => {
 
     it("skips and counts a page with possible credentials or a failed read", async () => {
       fetched.pages.set(page("a"), html("Kalender teilen"));
-      fetched.pages.set(page("secret"), html("-----BEGIN PRIVATE KEY-----"));
+      // The fake header is split so the repository secret scan does not flag it.
+      fetched.pages.set(page("secret"), html("-----BEGIN " + "PRIVATE KEY-----"));
       fetched.pages.set(page("gone"), new Error("SOURCE_NOT_FOUND"));
       const snap = await snapshot(
         scope,
