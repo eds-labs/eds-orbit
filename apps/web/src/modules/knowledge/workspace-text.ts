@@ -55,18 +55,11 @@ export const knowledgeCopy = {
     publicUse: "Für öffentliche Aussagen verwenden",
     stageHint:
       "Im Code implementiert bedeutet nicht automatisch veröffentlicht oder öffentlich verfügbar.",
-    save: "Speichern und weiter",
+    save: "Speichern",
     back: "Zurück",
-    skip: "Später fortsetzen",
-    setup: "Projektwissen aufbauen",
-    step1: "Projekt beschreiben",
-    step2: "Quelle hinzufügen",
-    step3: "Auswahl prüfen",
-    step4: "Erkenntnisse prüfen",
     projectDescription: "Was ist das Projekt?",
     projectAudience: "Für wen ist es gedacht?",
     sourceName: "Name der Quelle",
-    kind: "Art der Quelle",
     manual: "Eigener Text",
     file: "Dokument",
     website: "Website",
@@ -75,14 +68,7 @@ export const knowledgeCopy = {
     url: "Adresse der Webseite",
     fileHint:
       "TXT, Markdown, HTML oder PDF; maximal 1 MB. Inhalte werden vor der Analyse geprüft.",
-    modelUse:
-      "Ausgewählte Inhalte zur KI-Analyse an den konfigurierten Modellanbieter senden",
-    modelHint:
-      "GitHub und Webseiten benötigen die KI-Analyse sowie eine bestehende Budgetfreigabe. Eigener Text kann ohne KI als Vorschlag eingereicht werden.",
-    preview: "Auswahl anzeigen",
     start: "Analyse starten",
-    previewHint:
-      "Diese Inhalte werden gelesen. Erst deine Bestätigung macht Vorschläge für Support und Marketing nutzbar.",
     partial:
       "Teilweise Auswahl: Einige Dateien konnten nicht gelesen werden. Die Analyse ist nicht vollständig.",
     files: "Ausgewählte Dateien",
@@ -126,19 +112,15 @@ export const knowledgeCopy = {
     unavailable:
       "Der Wissensbereich konnte nicht geladen werden. Versuche es erneut.",
     errorPrefix: "Der Schritt konnte nicht abgeschlossen werden.",
-    manualReview: "Text zur Prüfung einreichen",
     saved: "Gespeichert",
     noProposal:
       "Keine belegbaren neuen Erkenntnisse gefunden. Ergänze weitere Quellen oder wähle zusätzliche Dateien aus.",
-    consent: "Auswahl und Verwendung prüfen",
     legacyReview: "Bestehende Widersprüche prüfen",
     version: "Version",
     loadHistory: "Verlauf laden",
     selectRepo: "Repository auswählen",
     noRepos:
       "Keine Repositorys gefunden. Prüfe die Installation und ihre Freigaben auf GitHub.",
-    setupLater:
-      "Du kannst die Einrichtung später über „Wissen hinzufügen“ fortsetzen.",
     editProfile: "Projektbeschreibung bearbeiten",
     selectFiles: "Dateiauswahl bearbeiten",
     previewExpired:
@@ -186,6 +168,79 @@ export const knowledgeCopy = {
     removeSourceTitle: "Quelle entfernen?",
     removeSourceHint:
       "Die leere Quelle wird dauerhaft entfernt. Inhalte gehen dabei nicht verloren.",
+    addHint:
+      "Füge Inhalte hinzu, die Orbit für Support und Marketing verwenden darf.",
+    stepContent: "Inhalt",
+    stepUse: "Verwendung",
+    whatTitle: "Was möchtest du hinzufügen?",
+    whatManual: "Text",
+    whatManualHint: "Schreibe etwas oder füge vorhandenen Text ein.",
+    whatFile: "Dokument",
+    whatFileHint: "Lade eine TXT-, Markdown-, HTML- oder PDF-Datei hoch.",
+    whatSite: "Website oder GitBook",
+    whatSiteHint:
+      "Orbit sucht die Seiten, du wählst aus, welche gelesen werden.",
+    whatGithub: "GitHub-Repository",
+    whatGithubHint:
+      "Die KI liest ausgewählte Dateien und schlägt Aussagen vor.",
+    contentManual: "Text eingeben",
+    contentFile: "Dokument hochladen",
+    contentWebsite: "Adresse eingeben und Seiten auswählen",
+    contentGithub: "Repository auswählen",
+    continue: "Weiter",
+    findPages: "Seiten suchen",
+    findingPages: "Seiten werden gesucht …",
+    pagesTitle: "Seiten",
+    pagesSelected: "{n} von {total} Seiten ausgewählt",
+    wholeLanguage: "{language}: alle {n} Seiten",
+    showPages: "Einzelne Seiten anzeigen",
+    homePage: "Startseite",
+    cappedPages:
+      "Diese Website hat mehr als 200 Seiten. Angezeigt werden nur die ersten 200 Seiten, und nur diese lassen sich einlesen.",
+    singlePage:
+      "Orbit hat unter dieser Adresse nur diese eine Seite gefunden. Weitere Seiten werden nicht gelesen.",
+    incompletePages:
+      "Die Seitenübersicht ließ sich nicht vollständig lesen. In der Liste können Seiten fehlen.",
+    noPageSelected: "Wähle mindestens eine Seite aus.",
+    useTitle: "Wie soll Orbit das verwenden?",
+    recommended: "Empfohlen",
+    wayWhole: "Ganz übernehmen",
+    wayWholeHint:
+      "Der ganze Inhalt ist sofort durchsuchbar. Keine KI und keine Kosten.",
+    wayWholeSiteHint:
+      "Alle ausgewählten Seiten werden durchsuchbar und bleiben aktuell. Keine KI und keine Kosten.",
+    wayAi: "KI schlägt Aussagen vor",
+    wayAiHint:
+      "Die KI liest den Inhalt und schlägt einzelne Aussagen vor. Du prüfst jede, bevor sie verwendet wird. Das kostet Geld, den Betrag siehst du auf dem Startknopf.",
+    waySiteAiHint:
+      "Die KI liest die Seiten und schlägt einzelne Aussagen vor. Du prüfst jede, bevor sie verwendet wird. Möglich sind höchstens 30 Seiten und 100.000 Zeichen. Das kostet Geld, den Betrag siehst du auf dem Startknopf.",
+    aiTooManyPages:
+      "Du hast {n} Seiten ausgewählt, für die KI sind höchstens 30 möglich. Gehe zurück und wähle weniger aus.",
+    wayStatement: "Als eine Aussage prüfen",
+    wayStatementHint:
+      "Der Text wird eine einzige Aussage, die du unter „Zu prüfen“ bestätigst. Keine KI und keine Kosten.",
+    reviewRights:
+      "Wofür eine Aussage verwendet werden darf, entscheidest du beim Prüfen.",
+    modelRead: "KI-Funktionen dürfen es lesen",
+    weeklyUpdates:
+      "Jede Woche automatisch aktualisieren: geänderte Seiten ersetzen, neue aufnehmen, gelöschte entfernen",
+    noAudience: "Wähle mindestens Marketing oder Support aus.",
+    takeOver: "Übernehmen",
+    readPages: "{n} Seiten einlesen",
+    submitStatement: "Zur Prüfung geben",
+    startAi: "Analyse starten · etwa {cost} · {model}",
+    underOneCent: "unter $0.01",
+    preparing: "Auswahl wird vorbereitet …",
+    checkingCost: "Kosten werden geprüft …",
+    proposalLimit: "Die KI schlägt höchstens {n} Aussagen vor.",
+    aiSettingsLink: "Zu den KI-Einstellungen",
+    sourcesLink: "Zu den Quellen",
+    contentDone: "Der Inhalt ist jetzt durchsuchbar.",
+    siteStarted: "Orbit liest jetzt {n} Seiten. Das läuft im Hintergrund.",
+    githubNotSetUp: "GitHub ist für dieses Projekt noch nicht eingerichtet.",
+    githubSetUpLink: "GitHub einrichten",
+    notConfigured: "Noch nicht eingerichtet",
+    profileHint: "Optional. Hilft Orbit, dein Projekt richtig einzuordnen.",
   },
   en: {
     title: "Project knowledge",
@@ -242,18 +297,11 @@ export const knowledgeCopy = {
     publicUse: "Allow public statements",
     stageHint:
       "Implemented in code does not automatically mean released or publicly available.",
-    save: "Save and continue",
+    save: "Save",
     back: "Back",
-    skip: "Continue later",
-    setup: "Build project knowledge",
-    step1: "Describe the project",
-    step2: "Add a source",
-    step3: "Review selection",
-    step4: "Review findings",
     projectDescription: "What is this project?",
     projectAudience: "Who is it for?",
     sourceName: "Source name",
-    kind: "Source type",
     manual: "Your own text",
     file: "Document",
     website: "Website",
@@ -262,14 +310,7 @@ export const knowledgeCopy = {
     url: "Web page address",
     fileHint:
       "TXT, Markdown, HTML or PDF; maximum 1 MB. Content is checked before analysis.",
-    modelUse:
-      "Send selected content to the configured model provider for AI analysis",
-    modelHint:
-      "GitHub and web pages require AI analysis and an existing budget mandate. Your own text can be submitted as a proposal without AI.",
-    preview: "Show selection",
     start: "Start analysis",
-    previewHint:
-      "These contents will be read. Only your confirmation makes proposals available to Support and Marketing.",
     partial:
       "Partial selection: some files could not be read. The analysis is incomplete.",
     files: "Selected files",
@@ -310,18 +351,15 @@ export const knowledgeCopy = {
     projectHome: "Project overview",
     unavailable: "Knowledge could not be loaded. Try again.",
     errorPrefix: "This step could not be completed.",
-    manualReview: "Submit text for review",
     saved: "Saved",
     noProposal:
       "No supported new findings found. Add more sources or select additional files.",
-    consent: "Review selection and usage",
     legacyReview: "Review existing conflicts",
     version: "Version",
     loadHistory: "Load history",
     selectRepo: "Select a repository",
     noRepos:
       "No repositories found. Check the installation and its permissions on GitHub.",
-    setupLater: "You can resume setup later using “Add knowledge”.",
     editProfile: "Edit project description",
     selectFiles: "Edit file selection",
     previewExpired: "The selection expired or changed. Create a new preview.",
@@ -365,6 +403,75 @@ export const knowledgeCopy = {
     removeSourceTitle: "Remove this source?",
     removeSourceHint:
       "The empty source is removed permanently. No content is lost.",
+    addHint: "Add content that Orbit may use for Support and Marketing.",
+    stepContent: "Content",
+    stepUse: "Use",
+    whatTitle: "What do you want to add?",
+    whatManual: "Text",
+    whatManualHint: "Write something or paste existing text.",
+    whatFile: "Document",
+    whatFileHint: "Upload a TXT, Markdown, HTML or PDF file.",
+    whatSite: "Website or GitBook",
+    whatSiteHint: "Orbit finds the pages, you choose which ones are read.",
+    whatGithub: "GitHub repository",
+    whatGithubHint: "AI reads selected files and proposes statements.",
+    contentManual: "Enter text",
+    contentFile: "Upload a document",
+    contentWebsite: "Enter the address and choose pages",
+    contentGithub: "Choose a repository",
+    continue: "Continue",
+    findPages: "Find pages",
+    findingPages: "Finding pages …",
+    pagesTitle: "Pages",
+    pagesSelected: "{n} of {total} pages selected",
+    wholeLanguage: "{language}: all {n} pages",
+    showPages: "Show individual pages",
+    homePage: "Home page",
+    cappedPages:
+      "This website has more than 200 pages. Only the first 200 pages are shown, and only those can be read.",
+    singlePage:
+      "Orbit found only this one page at this address. No other pages will be read.",
+    incompletePages:
+      "The page overview could not be read completely. Pages may be missing from this list.",
+    noPageSelected: "Select at least one page.",
+    useTitle: "How should Orbit use this?",
+    recommended: "Recommended",
+    wayWhole: "Take over whole",
+    wayWholeHint: "All of it is searchable at once. No AI and no cost.",
+    wayWholeSiteHint:
+      "All selected pages become searchable and stay current. No AI and no cost.",
+    wayAi: "AI proposes statements",
+    wayAiHint:
+      "AI reads the content and proposes individual statements. You review each one before it is used. This costs money; the start button shows the amount.",
+    waySiteAiHint:
+      "AI reads the pages and proposes individual statements. You review each one before it is used. At most 30 pages and 100,000 characters are possible. This costs money; the start button shows the amount.",
+    aiTooManyPages:
+      "You selected {n} pages, but AI can read at most 30. Go back and select fewer.",
+    wayStatement: "Review as one statement",
+    wayStatementHint:
+      "The text becomes a single statement that you confirm under “To review”. No AI and no cost.",
+    reviewRights:
+      "You decide what a statement may be used for when you review it.",
+    modelRead: "AI features may read it",
+    weeklyUpdates:
+      "Update automatically every week: replace changed pages, add new ones, remove deleted ones",
+    noAudience: "Select Marketing or Support at least.",
+    takeOver: "Take over",
+    readPages: "Read {n} pages",
+    submitStatement: "Send for review",
+    startAi: "Start analysis · about {cost} · {model}",
+    underOneCent: "under $0.01",
+    preparing: "Preparing your selection …",
+    checkingCost: "Checking the cost …",
+    proposalLimit: "AI proposes at most {n} statements.",
+    aiSettingsLink: "Go to AI settings",
+    sourcesLink: "Go to Sources",
+    contentDone: "The content is now searchable.",
+    siteStarted: "Orbit is now reading {n} pages. This runs in the background.",
+    githubNotSetUp: "GitHub has not been set up for this project yet.",
+    githubSetUpLink: "Set up GitHub",
+    notConfigured: "Not set up yet",
+    profileHint: "Optional. Helps Orbit understand your project.",
   },
 } as const;
 export type KnowledgeCopy = { [K in keyof typeof knowledgeCopy.en]: string };

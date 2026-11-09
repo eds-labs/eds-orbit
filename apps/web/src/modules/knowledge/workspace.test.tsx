@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import { KnowledgeWorkspaceGate } from "./workspace";
+import { WorkspaceError, analysisRunning } from "./workspace-parts";
 import {
-  KnowledgeWorkspaceGate,
-  WorkspaceError,
-  analysisRunning,
-} from "./workspace";
+  AnalysisStart,
+  SitePagePicker,
+  WayPicker,
+  canUseStatement,
+  canUseWhole,
+  siteDefaults,
+  type Check,
+} from "./add-flow";
 import { Knowledge } from "./knowledge";
 import { knowledgeWeb } from "./manifest";
 import { WorkspaceContext } from "@/components/workspace-context";
@@ -156,9 +162,10 @@ describe("understandable knowledge workspace", () => {
   });
   it("provides the same complete flow in English", () => {
     const html = render("import", true, "en");
-    expect(html).toContain("Describe the project");
-    expect(html).toContain("Review findings");
-    expect(html).toContain("Save and continue");
+    expect(html).toContain("What do you want to add?");
+    expect(html).toContain("Content");
+    expect(html).toContain("Use");
+    expect(html).toContain("Result");
     expect(Object.keys(knowledgeCopy.en).sort()).toEqual(
       Object.keys(knowledgeCopy.de).sort(),
     );
@@ -423,7 +430,7 @@ describe("expert source view", () => {
 
 describe("Knowledge error messages", () => {
   it.each([
-    ["MODEL USE FORBIDDEN", "Bestätige die Weitergabe"],
+    ["MODEL USE FORBIDDEN", "KI-Funktionen dürfen"],
     ["GITHUB_INVALID_PRIVATE_KEY", "SHA256-Fingerabdruck"],
     ["MODEL_CAPABILITY_NOT_VERIFIED", "Standardprovider"],
     ["KNOWLEDGE_OUTPUT_LIMIT", "Antwortlimit"],
@@ -435,6 +442,11 @@ describe("Knowledge error messages", () => {
     ["PROJECT_PAUSED", "Projekt ist pausiert"],
     ["KNOWLEDGE_RESTORE_UNAVAILABLE", "nicht mehr wiederherstellen"],
     ["KNOWLEDGE_EDIT_UNAVAILABLE", "nicht bearbeiten"],
+    ["KNOWLEDGE_NO_PAGES", "keine Seite"],
+    ["KNOWLEDGE_SITE_ROOT_CHANGED", "Adresse"],
+    ["KNOWLEDGE_NO_AUDIENCE", "Marketing oder Support"],
+    ["KNOWLEDGE_TEXT_TOO_LONG", "1.000 Zeichen"],
+    ["KNOWLEDGE_SENSITIVE_TEXT_EXCLUDED", "Zugangsdaten"],
   ])("explains %s without exposing request contents", (code, expected) => {
     const markup = renderToStaticMarkup(
       <WorkspaceContext.Provider value={{ locale: "de" } as any}>
@@ -442,5 +454,496 @@ describe("Knowledge error messages", () => {
       </WorkspaceContext.Provider>,
     );
     expect(markup).toContain(expected);
+  });
+});
+
+const inContext = (node: React.ReactNode, locale: "de" | "en" = "de") =>
+  renderToStaticMarkup(
+    <ShellContext.Provider
+      value={
+        {
+          hrefOf: (key: string) =>
+            `/p/p/knowledge/${key.replace("knowledge-", "")}`,
+        } as any
+      }
+    >
+      <WorkspaceContext.Provider
+        value={{ project: { id: "p", name: "FamilyPlan" }, locale } as any}
+      >
+        {node}
+      </WorkspaceContext.Provider>
+    </ShellContext.Provider>,
+  );
+
+describe("add flow", () => {
+  const de = knowledgeCopy.de;
+  const textDraft = (over: Record<string, unknown> = {}) => ({
+    id: "d",
+    version: 2,
+    data: {
+      status: "draft",
+      input: {
+        name: "Preise",
+        kind: "manual",
+        text: "Der Basisplan kostet 5 Euro.",
+        description: "",
+        audience: "",
+        paths: ["README.md"],
+        modelUse: false,
+        language: "de",
+        ...over,
+      },
+    },
+  });
+  const previewOf = {
+    id: "p",
+    commit: null,
+    partial: false,
+    skipped: 0,
+    files: [{ path: "README.md", characters: 120 }],
+    characters: 120,
+    modelRequired: true,
+  };
+  const way = (kind: any, text = "", pages?: number) =>
+    inContext(
+      <WayPicker
+        kind={kind}
+        text={text}
+        pages={pages}
+        value="ai"
+        onChange={() => {}}
+        disabled={false}
+        t={de}
+      />,
+    );
+  const site = (over: Record<string, unknown> = {}) => ({
+    rootUrl: "https://x.gitbook.io/hilfe",
+    discovery: "sitemap" as const,
+    pages: [
+      { url: "https://x.gitbook.io/hilfe/de/start", language: "de" },
+      { url: "https://x.gitbook.io/hilfe/de/kalender", language: "de" },
+      { url: "https://x.gitbook.io/hilfe/en/start", language: "en" },
+    ],
+    capped: false,
+    complete: true,
+    ...over,
+  });
+  const picker = (found = site(), excluded = new Set<string>(), locale?: any) =>
+    inContext(
+      <SitePagePicker
+        site={found}
+        excluded={excluded}
+        onChange={() => {}}
+        disabled={false}
+        t={knowledgeCopy[(locale ?? "de") as "de"]}
+      />,
+      locale,
+    );
+  const start = (check: Check, locale: "de" | "en" = "de") =>
+    inContext(
+      <AnalysisStart
+        check={check}
+        busy={false}
+        onStart={() => {}}
+        onRetry={() => {}}
+        onNewPreview={() => {}}
+        t={knowledgeCopy[locale]}
+      />,
+      locale,
+    );
+  const ready = {
+    ready: true,
+    blockers: [],
+    estimateMicros: 430_000,
+    model: "gpt-5.5-mini",
+    provider: "openai",
+    proposalLimit: 13,
+  };
+  const blocked = (...blockers: string[]): Check => ({
+    state: "done",
+    result: {
+      ...ready,
+      ready: false,
+      blockers,
+      estimateMicros: 0,
+      model: "",
+      proposalLimit: 0,
+    },
+  });
+  const startButton = (html: string) =>
+    /<button[^>]*knowledge-start[^>]*>.*?<\/button>/.exec(html)?.[0] ?? "";
+
+  it("asks what to add first", () => {
+    const html = render("import");
+    expect(html).toContain("Was möchtest du hinzufügen?");
+    for (const label of [
+      de.whatManual,
+      de.whatFile,
+      de.whatSite,
+      de.whatGithub,
+    ])
+      expect(html).toContain(label);
+    for (const step of ["Inhalt", "Verwendung", "Ergebnis"])
+      expect(html).toContain(step);
+  });
+  it("no longer requires a project description", () => {
+    const html = render("import");
+    expect(html).not.toContain("Was ist das Projekt?");
+    expect(html).not.toContain("Projekt beschreiben");
+    expect(html).toContain("Projektbeschreibung bearbeiten");
+    expect(html).toContain("import?profile=1");
+  });
+  it("edit project description opens its own form at ?profile=1", () => {
+    response.value.profile = { description: "Familienkalender" };
+    nav.search = "profile=1";
+    const html = render("import");
+    expect(html).toContain("Was ist das Projekt?");
+    expect(html).toContain("Familienkalender");
+    expect(html).not.toContain("Was möchtest du hinzufügen?");
+  });
+  it("links project description editing to its form from the overview", () => {
+    response.value.profile = { description: "Familienkalender" };
+    expect(render()).toContain("import?profile=1");
+  });
+
+  it("offers take-over, AI and one statement for a short text", () => {
+    const html = way("manual", "Kurzer Text");
+    expect(html).toContain(de.wayWhole);
+    expect(html).toContain(de.wayAi);
+    expect(html).toContain(de.wayStatement);
+  });
+  it("hides one statement above 1000 characters", () => {
+    expect(way("manual", "x".repeat(1000))).toContain(de.wayStatement);
+    const html = way("file", "x".repeat(1001));
+    expect(html).not.toContain(de.wayStatement);
+    expect(html).toContain(de.wayWhole);
+  });
+  it("offers no take-over for GitHub", () => {
+    const html = way("github");
+    expect(html).not.toContain(de.wayWhole);
+    expect(html).not.toContain(de.wayStatement);
+    expect(html).not.toContain('type="radio"');
+    expect(html).toContain(de.wayAiHint);
+  });
+  it("recommends take-over for a site and offers no single statement", () => {
+    const html = way("website", "", 12);
+    expect(html).toContain(de.recommended);
+    expect(html).not.toContain(de.wayStatement);
+    expect(html).toContain("30 Seiten");
+  });
+  it("does not offer AI with more than 30 selected pages and says why", () => {
+    expect(way("website", "", 30)).not.toMatch(/disabled=""[^>]*value="ai"/);
+    const html = way("website", "", 31);
+    expect(html).toMatch(
+      /value="ai"[^>]*disabled=""|disabled=""[^>]*value="ai"/,
+    );
+    expect(html).toContain("31");
+    expect(html).toContain("höchstens 30");
+  });
+  it("defines which content can be used how", () => {
+    expect(
+      ["manual", "file", "website"].every((k: any) => canUseWhole(k)),
+    ).toBe(true);
+    expect(canUseWhole("github")).toBe(false);
+    expect(canUseStatement("manual", "x".repeat(1000))).toBe(true);
+    expect(canUseStatement("manual", "x".repeat(1001))).toBe(false);
+    expect(canUseStatement("manual", "   ")).toBe(false);
+    expect(canUseStatement("website", "short")).toBe(false);
+    expect(canUseStatement("github", "short")).toBe(false);
+  });
+
+  it("lists discovered pages by language, all preselected", () => {
+    const html = picker();
+    expect(html).toContain("Deutsch");
+    expect(html).toContain("Englisch");
+    expect(html.indexOf("Deutsch")).toBeLessThan(html.indexOf("Englisch"));
+    expect(html).toContain("kalender");
+    // Three pages and the two "whole language" boxes.
+    expect(html.match(/checked=""/g)).toHaveLength(5);
+    expect(html).toContain("3 von 3 Seiten ausgewählt");
+  });
+  it("keeps an excluded page unticked and counts it", () => {
+    const html = picker(
+      site(),
+      new Set(["https://x.gitbook.io/hilfe/de/kalender"]),
+    );
+    // Two pages and the English group; German is only partly selected.
+    expect(html.match(/checked=""/g)).toHaveLength(3);
+    expect(html).toContain("2 von 3 Seiten ausgewählt");
+  });
+  it("says that only the first 200 pages are shown when capped", () => {
+    expect(picker(site({ capped: true }))).toContain("ersten 200 Seiten");
+    expect(picker(site({ capped: true }), new Set(), "en")).toContain(
+      "first 200 pages",
+    );
+    expect(picker()).not.toContain("ersten 200 Seiten");
+  });
+  it("says so plainly when only the root page was found", () => {
+    const single = site({
+      discovery: "single",
+      pages: [{ url: "https://x.gitbook.io/hilfe", language: "de" }],
+    });
+    expect(picker(single)).toContain("nur diese eine Seite");
+    expect(picker(single, new Set(), "en")).toContain("only this one page");
+    expect(picker()).not.toContain("nur diese eine Seite");
+  });
+  it("warns when the page list may be incomplete", () => {
+    expect(picker(site({ complete: false }))).toContain("nicht vollständig");
+  });
+
+  it("shows cost and model on the start button when ready", () => {
+    const button = startButton(start({ state: "done", result: ready }));
+    expect(button).toContain("$0.43");
+    expect(button).toContain("gpt-5.5-mini");
+    expect(button).not.toContain("disabled");
+  });
+  it("names a cost below one cent instead of rounding it to nothing", () => {
+    const button = startButton(
+      start({ state: "done", result: { ...ready, estimateMicros: 1800 } }),
+    );
+    expect(button).toContain("unter $0.01");
+    expect(button).not.toContain("$0.00");
+  });
+  it("disables the start button and links to AI settings on a blocker", () => {
+    const html = start(blocked("POLICY_REQUIRED"));
+    expect(startButton(html)).toContain("disabled");
+    expect(html).toContain("KI-Ausgabenfreigabe");
+    expect(html).toContain('href="/p/p/knowledge/settings?section=ai"');
+  });
+  it.each([
+    "POLICY_REQUIRED",
+    "POLICY_INTERVAL_INVALID",
+    "MODEL_CAPABILITY_NOT_VERIFIED",
+    "VERIFIED_PRICE_CONFIGURATION_REQUIRED",
+    "CURRENT_PRICE_REQUIRED",
+    "ROUTE_EFFORT_UNSUPPORTED",
+    "KNOWLEDGE_MODEL_NOT_CONFIGURED",
+    "PAID_MANDATE_EXPIRED",
+    "BUDGET_NOT_APPROVED",
+    "BUDGET_EXCEEDED",
+    "PROVIDER_BUDGET_STOP",
+  ])("links %s to Settings → AI with its own sentence", (code) => {
+    for (const locale of ["de", "en"] as const) {
+      const html = start(blocked(code), locale);
+      expect(html).toContain('href="/p/p/knowledge/settings?section=ai"');
+      expect(html).not.toContain(knowledgeCopy[locale].errorPrefix);
+    }
+  });
+  it("links a source that forbids AI to the Sources page", () => {
+    for (const locale of ["de", "en"] as const) {
+      const html = start(blocked("MODEL_USE_FORBIDDEN"), locale);
+      expect(html).toContain('href="/p/p/knowledge/sources"');
+      expect(html).not.toContain("section=ai");
+      expect(html).not.toContain(knowledgeCopy[locale].errorPrefix);
+    }
+  });
+  it.each([
+    "KNOWLEDGE_PREVIEW_EXPIRED",
+    "KNOWLEDGE_ANALYSIS_IN_PROGRESS",
+    "KNOWLEDGE_COST_UNKNOWN",
+    "KNOWLEDGE_NO_READABLE_FILES",
+    "KNOWLEDGE_TEXT_TOO_LONG",
+    "PROJECT_PAUSED",
+  ])("explains %s without a settings link", (code) => {
+    for (const locale of ["de", "en"] as const) {
+      const html = start(blocked(code), locale);
+      expect(html).not.toContain("<a ");
+      expect(html).not.toContain(knowledgeCopy[locale].errorPrefix);
+      expect(startButton(html)).toContain("disabled");
+    }
+  });
+  it("offers a new preview when the preview expired", () => {
+    expect(start(blocked("KNOWLEDGE_PREVIEW_EXPIRED"))).toContain(
+      de.newPreview,
+    );
+  });
+  it("disables the start button and says so while checking", () => {
+    for (const [state, label] of [
+      ["checking", de.checkingCost],
+      ["preparing", de.preparing],
+    ] as const) {
+      const button = startButton(start({ state }));
+      expect(button).toContain("disabled");
+      expect(button).toContain(label);
+    }
+  });
+  it("shows an error and a retry when the check failed", () => {
+    const html = start({ state: "failed", code: "REQUEST_FAILED" });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(de.retry);
+    expect(startButton(html)).toContain("disabled");
+  });
+  it("names no cost or model for a run that calls no model", () => {
+    const button = startButton(
+      start({
+        state: "done",
+        result: { ...ready, estimateMicros: 0, model: "", proposalLimit: 1 },
+      }),
+    );
+    expect(button).toContain(de.start);
+    expect(button).not.toContain("$");
+  });
+  it("shows no model-use checkbox", () => {
+    response.value.drafts = [textDraft({ modelUse: true })];
+    Object.assign(response.value, previewOf);
+    nav.search = "draft=d&preview=p";
+    const html = render("import");
+    expect(html).toContain(de.useTitle);
+    expect(html).toContain(de.checkingCost);
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain("an den konfigurierten Modellanbieter senden");
+  });
+
+  it("keeps the draft, preview and github deep links", () => {
+    response.value.drafts = [textDraft()];
+    response.value.items = [];
+    nav.search = "draft=d";
+    let html = render("import");
+    expect(html).toContain('value="Preise"');
+    expect(html).toContain("Der Basisplan kostet 5 Euro.");
+    expect(html).not.toContain(de.whatTitle);
+
+    Object.assign(response.value, previewOf);
+    nav.search = "draft=d&preview=p";
+    html = render("import");
+    expect(html).toContain(de.useTitle);
+    expect(html).toContain('aria-current="step"');
+
+    nav.search = "preview=p";
+    html = render("import");
+    expect(html).toContain(de.useTitle);
+    expect(html).not.toContain(de.wayWhole);
+
+    nav.search = "github=connected";
+    html = render("import");
+    expect(html).toContain(de.connection);
+    expect(html).not.toContain(de.whatTitle);
+  });
+  it("continues a short document as one statement from its preview link", () => {
+    response.value.drafts = [textDraft({ kind: "file" })];
+    Object.assign(response.value, previewOf);
+    nav.search = "draft=d&preview=p";
+    const html = render("import");
+    expect(html).toContain(de.submitStatement);
+    expect(html).not.toContain(de.checkingCost);
+  });
+  it("shows the result of a draft whose analysis is running", () => {
+    response.value.drafts = [
+      {
+        id: "d",
+        version: 3,
+        data: { ...textDraft().data, activeRunId: "r" },
+      },
+    ];
+    response.value.runs = [
+      { id: "r", data: { draftId: "d", status: "analyzing" } },
+    ];
+    nav.search = "draft=d";
+    const html = render("import");
+    expect(html).toContain(de.result);
+    expect(html).toContain(de.analyzing);
+  });
+  it("starts over when a deep link names nothing that exists", () => {
+    nav.search = "draft=gone";
+    expect(render("import")).toContain(de.whatTitle);
+    nav.search = "site=gone";
+    expect(render("import")).toContain(de.whatTitle);
+  });
+  it("opens the page selection for an existing site source", () => {
+    const source = {
+      id: "g",
+      version: 4,
+      data: {
+        name: "FamilyPlan Hilfe",
+        type: "gitbook",
+        status: "active",
+        audiences: ["support"],
+        publicUse: true,
+        modelUse: false,
+        language: "de",
+        site: {
+          rootUrl: "https://x.gitbook.io/hilfe",
+          excludedPages: ["https://x.gitbook.io/hilfe/de/alt"],
+        },
+      },
+    };
+    response.value.sources = [source];
+    nav.search = "site=g";
+    const html = render("import");
+    expect(html).not.toContain(de.whatTitle);
+    expect(html).toContain('value="FamilyPlan Hilfe"');
+    expect(html).toMatch(
+      /readOnly=""[^>]*value="https:\/\/x\.gitbook\.io\/hilfe"|value="https:\/\/x\.gitbook\.io\/hilfe"[^>]*readOnly=""/,
+    );
+    expect(siteDefaults(source)).toEqual({
+      marketing: false,
+      support: true,
+      publicUse: true,
+      modelUse: false,
+      autoUpdate: false,
+      excluded: ["https://x.gitbook.io/hilfe/de/alt"],
+    });
+  });
+  it("reads a source without site settings with the usual defaults", () => {
+    expect(
+      siteDefaults({ id: "g", data: { name: "Alt", type: "gitbook" } } as any),
+    ).toEqual({
+      marketing: true,
+      support: true,
+      publicUse: false,
+      modelUse: true,
+      autoUpdate: true,
+      excluded: [],
+    });
+  });
+  it("links GitHub setup instead of showing credential fields", () => {
+    response.value.items = [];
+    nav.search = "github=connected";
+    const html = render("import");
+    expect(html).toContain('href="/p/p/knowledge/github"');
+    expect(html).not.toContain(de.clientSecret);
+    expect(html).not.toContain(de.privateKey);
+  });
+  it("keeps the credential fields on the GitHub page, for owners only", () => {
+    const html = render("github");
+    expect(html).toContain(de.clientSecret);
+    expect(html).toContain(de.privateKey);
+    const reader = render("github", false);
+    expect(reader).not.toContain(de.clientSecret);
+    expect(reader).toContain(de.readOnly);
+  });
+  it("lists the GitHub page under Advanced for owners", () => {
+    expect(render()).toContain('href="/p/p/knowledge/github"');
+    expect(render("overview", false)).not.toContain(
+      'href="/p/p/knowledge/github"',
+    );
+  });
+  it("registers the GitHub page as its own route", () => {
+    const table = routeTable({
+      platform: [{ key: "home", path: "", component: () => null }],
+      modules: [knowledgeWeb],
+    } as any);
+    const route = table.routes.find((r) => r.key === "knowledge-github");
+    expect(route?.path).toBe("github");
+    expect(route?.title?.de).toBeTruthy();
+  });
+  it("gives readers no controls of the flow, whatever the link says", () => {
+    response.value.drafts = [textDraft()];
+    response.value.sources = [
+      { id: "g", data: { name: "Hilfe", type: "gitbook", status: "active" } },
+    ];
+    for (const search of [
+      "",
+      "profile=1",
+      "draft=d",
+      "site=g",
+      "github=connected",
+    ]) {
+      nav.search = search;
+      const html = render("import", false);
+      expect(html).toContain(de.readOnly);
+      expect(html).not.toContain("<button");
+      expect(html).not.toContain("<input");
+    }
   });
 });

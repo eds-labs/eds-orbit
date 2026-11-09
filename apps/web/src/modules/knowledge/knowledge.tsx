@@ -83,6 +83,7 @@ export const KNOWLEDGE_TABS = [
   "health",
   "inspector",
   "impact",
+  "github",
 ] as const;
 export type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number];
 /**
@@ -93,7 +94,17 @@ export function Knowledge({ tab }: { tab: KnowledgeTab }) {
   return (
     <KnowledgeWorkspaceGate
       tab={tab}
-      fallback={<LegacyKnowledge tab={tab === "review" ? "conflicts" : tab} />}
+      fallback={
+        <LegacyKnowledge
+          tab={
+            tab === "review"
+              ? "conflicts"
+              : tab === "github"
+                ? "overview" // GitHub setup exists only in the workspace.
+                : tab
+          }
+        />
+      }
     />
   );
 }

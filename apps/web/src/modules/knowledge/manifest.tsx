@@ -31,6 +31,7 @@ const TAB_TITLES: Record<Exclude<KnowledgeTab, "overview">, Label> = {
   health: { en: labels.en.health, de: labels.de.health },
   inspector: { en: labels.en.inspector, de: labels.de.inspector },
   impact: { en: labels.en.impact, de: labels.de.impact },
+  github: { en: "GitHub App settings", de: "GitHub-App-Einstellungen" },
 };
 
 // The content tabs have their own sidebar entry (UI restructure); the
