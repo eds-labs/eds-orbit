@@ -714,13 +714,17 @@ describe.skipIf(!enabled)("webmail module", () => {
         expect(error(cleared)).toBe("WEBMAIL_MANAGE_RIGHT_FORBIDDEN");
       }
       expect((await rowOf())?.canManage).toBe(true);
-      const kept = await call(
+      // Not even with the manage right left as it was: two managers could
+      // otherwise grant each other read.
+      const peer = await call(
         "editor",
         "PUT",
         `/mailboxes/${mailboxId}/grants/${ids.viewer}`,
-        { ...NONE, canSend: true, canManage: true },
+        { ...NONE, canRead: true, canManage: true },
       );
-      expect(kept.statusCode).toBe(200);
+      expect(peer.statusCode).toBe(403);
+      expect(error(peer)).toBe("WEBMAIL_MANAGE_RIGHT_FORBIDDEN");
+      expect((await rowOf())?.canRead).toBe(false);
     });
 
     it("keeps settings to owners", async () => {
@@ -1274,6 +1278,7 @@ describe.skipIf(!enabled)("webmail module", () => {
     it.each([
       "send",
       "bounce",
+      "sendmdn",
       "move",
       "delete",
       "DELETE",
@@ -1316,7 +1321,6 @@ describe.skipIf(!enabled)("webmail module", () => {
       "compose",
       "mark",
       "copy",
-      "sendmdn",
       "constructor",
     ])("writes nothing for mail/%s", async (action) => {
       const { mailboxId } = await seedMailbox();

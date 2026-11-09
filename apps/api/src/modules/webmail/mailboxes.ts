@@ -315,8 +315,8 @@ export async function listGrants(tx: DbTx, scope: Scope, mailboxId: string) {
  * Sets a member's grant, or removes it when every right is false. Their open
  * sessions on the mailbox end at once. `canManage` is meant to administer a
  * mailbox without reading it, so a manager without the settings permission
- * can neither change their own grant nor hand out or take away `canManage`:
- * two managers made that way could grant each other read.
+ * can neither change their own grant, nor hand out `canManage`, nor touch the
+ * grant of another manager: two managers could grant each other read.
  */
 export async function setGrant(
   tx: DbTx,
@@ -331,7 +331,7 @@ export async function setGrant(
     if (userId === scope.userId)
       throw new DomainError("WEBMAIL_SELF_GRANT_FORBIDDEN", 403);
     const current = await grantOf(tx, scope, mailboxId, userId);
-    if (input.canManage !== Boolean(current?.canManage))
+    if (input.canManage || current?.canManage)
       throw new DomainError("WEBMAIL_MANAGE_RIGHT_FORBIDDEN", 403);
   }
   const member = await actorScope(scope.workspaceId, scope.projectId, userId);

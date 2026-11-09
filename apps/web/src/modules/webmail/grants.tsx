@@ -31,6 +31,7 @@ export function GrantEditorView({
   busy,
   error,
   defaultNote = true,
+  restricted = false,
   onChange,
 }: {
   t: WebmailText;
@@ -40,6 +41,11 @@ export function GrantEditorView({
   error: string | null;
   /** False where the surrounding page already says nobody has access. */
   defaultNote?: boolean;
+  /**
+   * For a member holding only the mailbox's manage right: the server lets them
+   * neither hand out that right nor change the grant of anyone who holds it.
+   */
+  restricted?: boolean;
   onChange: (userId: string, right: Right, on: boolean) => void;
 }) {
   const g = t.grants;
@@ -65,12 +71,18 @@ export function GrantEditorView({
                 role="group"
                 aria-label={member.name}
               >
-                {RIGHTS.map((right) => (
+                {RIGHTS.filter(
+                  (right) => !restricted || right !== "canManage",
+                ).map((right) => (
                   <label key={right} className={styles.option}>
                     <input
                       type="checkbox"
                       checked={rights[right]}
-                      disabled={busy !== null || rightLocked(rights, right)}
+                      disabled={
+                        busy !== null ||
+                        rightLocked(rights, right) ||
+                        (restricted && rights.canManage)
+                      }
                       onChange={(e) =>
                         onChange(member.userId, right, e.target.checked)
                       }
@@ -92,11 +104,13 @@ export function GrantEditor({
   projectId,
   mailboxId,
   defaultNote,
+  restricted,
 }: {
   t: WebmailText;
   projectId: string;
   mailboxId: string;
   defaultNote?: boolean;
+  restricted?: boolean;
 }) {
   const members = useResource<{ members: GrantMember[] }>(
     mailboxPath(projectId, mailboxId, "/grants"),
@@ -141,6 +155,7 @@ export function GrantEditor({
       busy={busy}
       error={error}
       defaultNote={defaultNote}
+      restricted={restricted}
       onChange={change}
     />
   );

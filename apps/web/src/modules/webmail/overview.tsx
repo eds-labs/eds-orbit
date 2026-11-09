@@ -291,7 +291,12 @@ export function WebmailOverview() {
           title={t.accessOf(mailbox.address)}
           onClose={() => setManaging(false)}
         >
-          <GrantEditor t={t} projectId={project.id} mailboxId={mailbox.id} />
+          <GrantEditor
+            t={t}
+            projectId={project.id}
+            mailboxId={mailbox.id}
+            restricted
+          />
         </Modal>
       )}
     </>

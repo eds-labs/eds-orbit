@@ -65,6 +65,7 @@ const MAX_UID = 4_294_967_295;
 const ATTRIBUTED_ACTIONS: ReadonlyMap<string, WebmailCapability> = new Map([
   ["send", "send"],
   ["bounce", "send"],
+  ["sendmdn", "send"],
   ["move", "organize"],
   ["delete", "organize"],
   ["DELETE", "organize"],

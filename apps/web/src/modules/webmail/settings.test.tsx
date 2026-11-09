@@ -85,6 +85,21 @@ describe("the grant editor", () => {
       <GrantEditorView t={webmailText(locale)} rows={rows} busy={busy} error={null} onChange={() => {}} />,
     );
 
+  it("offers a manager no manage right and no change to another manager", () => {
+    const html = renderToStaticMarkup(
+      <GrantEditorView
+        t={webmailText("en")}
+        rows={[row({ ...NO_RIGHTS, canManage: true })]}
+        busy={null}
+        error={null}
+        restricted
+        onChange={() => {}}
+      />,
+    );
+    expect(html).not.toContain(webmailText("en").grants.rights.canManage);
+    expect(html.match(/<input/g)?.length).toBe(html.match(/disabled=""/g)?.length);
+  });
+
   it("says that nobody has access by default and that read is required", () => {
     const html = render([row()]);
     expect(html).toContain(t.settings.noAccessDefault);
