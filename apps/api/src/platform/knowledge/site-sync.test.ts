@@ -288,6 +288,32 @@ describe("readSitePage", () => {
     expect(page.text).toContain("Hello world");
   });
 
+  it.each([
+    "# Page Not Found\n\nThe page you are looking for doesn't exist.",
+    "> Fetch [llms.txt](https://docs.example.com/llms.txt).\n\n# page not found\n\nGone.",
+    "# Seite nicht gefunden\n\nDiese Seite gibt es nicht.",
+    "# 404\n\nNope.",
+  ])("treats a not-found Markdown page as unusable: %j", async (body) => {
+    const { fetchPage, requested } = pages({
+      [`${url}.md`]: { body, mimeType: "text/markdown" },
+      [url]: html("<html><body><h1>English</h1><p>Welcome</p></body></html>"),
+    });
+    const page = await readSitePage(url, policy, { fetchPage });
+    expect(requested).toEqual([`${url}.md`, url]);
+    expect(page).toMatchObject({ title: "English", mimeType: "text/html" });
+  });
+
+  it("keeps a Markdown page that only mentions being not found", async () => {
+    const { fetchPage } = pages({
+      [`${url}.md`]: {
+        body: "# Fixing 404 errors\n\nPage Not Found is a common message.",
+        mimeType: "text/markdown",
+      },
+    });
+    const page = await readSitePage(url, policy, { fetchPage });
+    expect(page.mimeType).toBe("text/markdown");
+  });
+
   it("falls back to HTML when the Markdown body is empty or not Markdown", async () => {
     for (const md of [
       {

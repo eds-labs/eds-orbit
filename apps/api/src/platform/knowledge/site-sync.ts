@@ -177,6 +177,9 @@ function dropLlmsNotice(markdown: string) {
   return lines.slice(end).join("\n");
 }
 
+/** A soft 404: `200 text/markdown` whose body only says the page does not exist. */
+const NOT_FOUND_HEADING = /^(?:page not found|seite nicht gefunden|404)$/i;
+
 function firstHeading(text: string) {
   const match = /^#{1,6}[ \t]+(.+?)[ \t#]*$/m.exec(text);
   return match?.[1]?.trim() || null;
@@ -217,7 +220,8 @@ async function readMarkdown(
     const page = await fetchPage(md.href, policy);
     if (page.mimeType !== MIME.md) return null;
     const body = dropLlmsNotice(page.bytes.toString("utf8"));
-    if (!body.trim()) return null;
+    if (!body.trim() || NOT_FOUND_HEADING.test(firstHeading(body) ?? ""))
+      return null;
     const { text } = await extractDocument(Buffer.from(body), MIME.md);
     return text;
   } catch {
