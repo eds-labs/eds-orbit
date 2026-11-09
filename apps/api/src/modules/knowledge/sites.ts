@@ -13,7 +13,14 @@ import {
   sitePolicy,
   type SiteDiscovery,
 } from "../../platform/knowledge/site-sync.ts";
-import { audit, create, data, DomainError, update } from "../../shared.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  list,
+  update,
+} from "../../shared.ts";
 import { lockKnowledge, owner } from "./workspace.ts";
 
 // Owner actions for site sources (spec "Add flow"). Every action rechecks the
@@ -33,13 +40,13 @@ export const siteStartInput = z
     url: url.optional(),
     name: z.string().trim().min(1).max(200).optional(),
     type: z.enum(["gitbook", "website"]).optional(),
-    excludedPages: excludedPages.default([]),
-    autoUpdate: z.boolean().default(true),
-    marketing: z.boolean().default(true),
-    support: z.boolean().default(true),
-    publicUse: z.boolean().default(false),
-    modelUse: z.boolean().default(true),
-    language: schemas.languageCode.optional(),
+    excludedPages: excludedPages,
+    autoUpdate: z.boolean(),
+    marketing: z.boolean(),
+    support: z.boolean(),
+    publicUse: z.boolean(),
+    modelUse: z.boolean(),
+    language: schemas.languageCode,
   })
   .strict();
 export const siteRefreshInput = z.object({ sourceId: schemas.id }).strict();
@@ -216,11 +223,46 @@ export async function startSite(scope: Scope, raw: unknown) {
       maxAgeHours: 336,
     };
     let sourceId: string;
+    let repoint = true;
     if (existing) {
       // Re-read under the lock: the source may have changed since the check.
       const row = await siteSource(tx, scope, existing.id, { site: false });
       const d = data(row);
       if (d.status !== "active") throw unavailable(409);
+      // A run that is active is returned as it is: no setting may change
+      // under it, and nothing was started.
+      const active = (await list(tx, scope, "knowledge_site_runs")).find(
+        (r) =>
+          data(r).sourceId === row.id &&
+          ["queued", "running"].includes(data(r).status),
+      );
+      if (active) return { sourceId: row.id, run: active };
+      if (d.site && d.site.rootUrl !== rootUrl)
+        throw new DomainError("KNOWLEDGE_SITE_ROOT_CHANGED", 409);
+      if (!d.site) {
+        const documents = await tx.knowledgeDocument.count({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            sourceId: row.id,
+            activeVersionId: { not: null },
+          },
+        });
+        // Its documents belong to its old allowlist: a root outside it would
+        // leave them active beside pages of another site.
+        if (documents) {
+          repoint = false;
+          try {
+            validatePublicUrl(rootUrl, {
+              allowedOrigins: d.allowedOrigins ?? [],
+              allowedPaths: d.allowedPaths ?? [],
+              maxBytes: 1_000_000,
+            });
+          } catch {
+            throw new DomainError("KNOWLEDGE_SITE_ROOT_CHANGED", 409);
+          }
+        }
+      } else repoint = false;
       await applyRights(tx, scope, row.id, d, wanted, audiences);
       sourceId = row.id;
     } else {
@@ -245,9 +287,13 @@ export async function startSite(scope: Scope, raw: unknown) {
       ...rest,
       ...(i.name && existing ? { name: i.name } : {}),
       ...(i.type && existing ? { type: i.type } : {}),
-      ...(i.language ? { language: i.language } : {}),
-      allowedOrigins: [root.origin],
-      allowedPaths: [root.pathname.replace(/\/+$/, "") || "/"],
+      language: i.language,
+      ...(repoint
+        ? {
+            allowedOrigins: [root.origin],
+            allowedPaths: [root.pathname.replace(/\/+$/, "") || "/"],
+          }
+        : {}),
       ...(i.autoUpdate ? { syncEveryHours: 168 } : {}),
       site: {
         rootUrl,

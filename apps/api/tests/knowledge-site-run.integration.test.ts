@@ -21,6 +21,7 @@ import {
   runSiteBatch,
   startSiteRun,
 } from "../src/platform/knowledge/site-run.ts";
+import { ZodError } from "zod";
 import { createPackageProject } from "./support/package-project.ts";
 import { knowledgeActions } from "../src/modules/knowledge/actions.ts";
 import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
@@ -1213,7 +1214,7 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
             excludedPages: range(201).map((n) => `${ROOT}/x-${n}`),
           }),
         ),
-      ).rejects.toThrow();
+      ).rejects.toBeInstanceOf(ZodError);
     });
 
     it("start returns the active run instead of a second one", async () => {
@@ -1300,10 +1301,10 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
           sourceId: source.id,
           excludedPages: range(201).map((n) => `${ROOT}/x-${n}`),
         }),
-      ).rejects.toThrow();
+      ).rejects.toBeInstanceOf(ZodError);
       await expect(
         act("knowledge-site-settings", { sourceId: source.id }),
-      ).rejects.toThrow();
+      ).rejects.toBeInstanceOf(ZodError);
       expect((await sourceData(source.id)).site.excludedPages).toEqual([
         page(2),
       ]);
@@ -1379,6 +1380,7 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
             }),
         );
         const notSite = await siteSource({ type: "manual", site: undefined });
+        const legacy = await siteSource({ type: "gitbook", site: undefined });
         const before = await counts();
         for (const sourceId of [foreign.id, notSite.id]) {
           await refusal(
@@ -1398,6 +1400,19 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
             "KNOWLEDGE_SOURCE_UNAVAILABLE",
           );
         }
+        // A legacy source without `site` can be discovered and started, not
+        // refreshed or changed.
+        await refusal(
+          act("knowledge-site-refresh", { sourceId: legacy.id }),
+          "KNOWLEDGE_SOURCE_UNAVAILABLE",
+        );
+        await refusal(
+          act("knowledge-site-settings", {
+            sourceId: legacy.id,
+            autoUpdate: false,
+          }),
+          "KNOWLEDGE_SOURCE_UNAVAILABLE",
+        );
         expect(await counts()).toEqual(before);
         const unchanged = await scoped(
           other.owner.workspaceId,
@@ -1409,6 +1424,82 @@ describe.skipIf(!enabled)("Knowledge site run", () => {
       } finally {
         await other.cleanup();
       }
+    });
+
+    it("start requires every owner setting", async () => {
+      publish(1);
+      for (const key of [
+        "excludedPages",
+        "autoUpdate",
+        "marketing",
+        "support",
+        "publicUse",
+        "modelUse",
+        "language",
+      ])
+        await expect(
+          act("knowledge-site-start", startInput({ [key]: undefined })),
+        ).rejects.toBeInstanceOf(ZodError);
+    });
+
+    it("start refuses a root outside a legacy source that has documents", async () => {
+      publish(1);
+      const legacy = await siteSource();
+      await read(legacy.id, [1]);
+      await changeSource(legacy.id, ({ site: _site, ...d }) => d);
+      expect(await live(legacy.id)).toHaveLength(1);
+      const before = await sourceData(legacy.id);
+      for (const url of [
+        "https://other.example.com/help",
+        "https://docs.example.com/elsewhere",
+      ])
+        await refusal(
+          act("knowledge-site-start", startInput({ sourceId: legacy.id, url })),
+          "KNOWLEDGE_SITE_ROOT_CHANGED",
+        );
+      expect(await sourceData(legacy.id)).toEqual(before);
+    });
+
+    it("start may re-point a legacy source without documents", async () => {
+      web.pages.set("https://new.example.com/docs/a", "# A\n\nText.");
+      web.sitemap = ["https://new.example.com/docs/a"];
+      const legacy = await siteSource({ site: undefined });
+      await act(
+        "knowledge-site-start",
+        startInput({
+          sourceId: legacy.id,
+          url: "https://new.example.com/docs",
+        }),
+      );
+      expect(await sourceData(legacy.id)).toMatchObject({
+        allowedOrigins: ["https://new.example.com"],
+        allowedPaths: ["/docs"],
+        site: { rootUrl: "https://new.example.com/docs" },
+      });
+    });
+
+    it("a second start with other settings during a run changes nothing and returns the live run", async () => {
+      publish(1, 2);
+      const first = await act("knowledge-site-start", startInput());
+      const before = await sourceData(first.sourceId);
+      const audits = (await siteAudits()).length;
+      const second = await act(
+        "knowledge-site-start",
+        startInput({
+          sourceId: first.sourceId,
+          modelUse: false,
+          support: false,
+          autoUpdate: false,
+          excludedPages: [page(2)],
+        }),
+      );
+      expect(second.run.id).toBe(first.run.id);
+      expect(await sourceData(first.sourceId)).toEqual(before);
+      expect((await siteAudits()).length).toBe(audits);
+      expect(await drain(first.run.id)).toMatchObject({
+        status: "completed",
+        added: 2,
+      });
     });
 
     it("an initial run does not retire pages missing from its list", async () => {
