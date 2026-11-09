@@ -6782,8 +6782,7 @@ a.support-row {
 .knowledge-statement details {
   margin-block: 16px;
 }
-.knowledge-statement summary,
-.knowledge-advanced summary {
+.knowledge-statement summary {
   cursor: pointer;
   padding-block: 12px;
   font-weight: 600;
@@ -6969,15 +6968,24 @@ a.support-row {
   width: 16px;
   height: 16px;
 }
-.knowledge-advanced {
-  border-top: 1px solid #dceaf4;
+.knowledge-technical-link {
+  border-top: 1px solid var(--border);
   margin-top: 28px;
+  padding-top: 16px;
 }
-.knowledge-advanced nav {
+.technical-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
-  padding: 16px 0;
+  gap: 8px 24px;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.technical-nav a[aria-current="page"] {
+  color: var(--foreground);
+  font-weight: 600;
+  text-decoration: none;
 }
 .knowledge-steps {
   display: grid;

@@ -70,6 +70,7 @@ import {
 import { EvidenceItems } from "@/platform/ui/evidence";
 import { AppLink } from "@/platform/ui/app-link";
 import { KnowledgeOverview } from "./overview";
+import { expertCopy, expertFill, expertValue } from "./expert-text";
 type Health = Record<string, unknown>;
 /** The knowledge tabs in their order; each has its own URL (WP3.3). */
 export const KNOWLEDGE_TABS = [
@@ -110,6 +111,7 @@ export function Knowledge({ tab }: { tab: KnowledgeTab }) {
 }
 function LegacyKnowledge({ tab }: { tab: KnowledgeTab }) {
   const { t, locale, isOwner } = useWorkspace();
+  const x = expertCopy[locale];
   const shell = useShell();
   const [add, setAdd] = useState(false);
   if (tab === "overview") return <KnowledgeOverview />;
@@ -150,47 +152,27 @@ function LegacyKnowledge({ tab }: { tab: KnowledgeTab }) {
           <div>
             <FileText />
             <div>
-              <strong>
-                {locale === "de" ? "Strukturierte Fakten" : "Structured facts"}
-              </strong>
-              <p>
-                {locale === "de"
-                  ? "Von deinem Team bestätigte Werte"
-                  : "Values reviewed by your team"}
-              </p>
+              <strong>{x.principleFacts}</strong>
+              <p>{x.principleFactsHint}</p>
             </div>
           </div>
           <div>
             <BookOpen />
             <div>
-              <strong>
-                {locale === "de" ? "Dokumentbibliothek" : "Document library"}
-              </strong>
-              <p>
-                {locale === "de"
-                  ? "Freigegebener Kontext mit Versionen"
-                  : "Approved context with version history"}
-              </p>
+              <strong>{x.principleLibrary}</strong>
+              <p>{x.principleLibraryHint}</p>
             </div>
           </div>
           <div>
             <ShieldCheck />
             <div>
-              <strong>Marketing Memory</strong>
-              <p>
-                {locale === "de"
-                  ? "Beobachtungen, keine Produktfakten"
-                  : "Observations, never product facts"}
-              </p>
+              <strong>{x.principleMemory}</strong>
+              <p>{x.principleMemoryHint}</p>
             </div>
           </div>
         </div>
       )}
-      <Alert>
-        {locale === "de"
-          ? "Wissen und generierte Inhalte bleiben getrennt."
-          : "Knowledge and generated content stay separate."}
-      </Alert>
+      <Alert>{x.separated}</Alert>
       {add &&
         (tab === "sources" ? (
           <SourceEditor onClose={() => setAdd(false)} />
@@ -205,14 +187,12 @@ function LegacyKnowledge({ tab }: { tab: KnowledgeTab }) {
  * of module ids; a source without audiences is open to all modules.
  */
 function audienceOptions(de: boolean) {
+  const x = expertCopy[de ? "de" : "en"];
   return [
-    { value: "all", label: de ? "Alle Module" : "All modules" },
-    { value: "marketing", label: de ? "Nur Marketing" : "Marketing only" },
-    { value: "support", label: de ? "Nur Support" : "Support only" },
-    {
-      value: "marketing,support",
-      label: de ? "Marketing und Support" : "Marketing and support",
-    },
+    { value: "all", label: x.audAll },
+    { value: "marketing", label: x.audMarketing },
+    { value: "support", label: x.audSupport },
+    { value: "marketing,support", label: x.audBoth },
   ];
 }
 function audienceValue(audiences: unknown) {
@@ -245,6 +225,7 @@ function Sources() {
     resource.refresh();
   });
   const de = locale === "de";
+  const x = expertCopy[locale];
   // A link can name the source to open, such as a warning's "Read in content".
   const named = useSearchParams()?.get("source");
   const current =
@@ -293,14 +274,8 @@ function Sources() {
                   <div>
                     <strong>{value(e, "name")}</strong>
                     <p>
-                      {value(e, "type")} ·{" "}
-                      {e.data.publicUse
-                        ? locale === "de"
-                          ? "Öffentlich"
-                          : "Public"
-                        : locale === "de"
-                          ? "Intern"
-                          : "Internal"}
+                      {expertValue(e.data.type, locale)} ·{" "}
+                      {e.data.publicUse ? x.public : x.internal}
                     </p>
                     <small>
                       {t("lastFetched")}:{" "}
@@ -312,7 +287,10 @@ function Sources() {
                       )}
                     </small>
                   </div>
-                  <Status value={e.data.status} />
+                  <Status
+                    value={e.data.status}
+                    label={expertValue(e.data.status, locale)}
+                  />
                   <IndexStateBadge
                     status={index.byId.get(e.id)}
                     locale={locale}
@@ -339,20 +317,21 @@ function Sources() {
           <h2>{current ? value(current, "name") : t("sourceDetails")}</h2>
           <p>
             {current
-              ? `${value(current, "type")} · ${value(current, "authority")} · v${current.version}`
+              ? `${expertValue(current.data.type, locale)} · ${expertValue(current.data.authority, locale)} · v${current.version}`
               : t("sourceSelect")}
           </p>
           {current && (
             <>
-              <Status value={current.data.status} />
+              <Status
+                value={current.data.status}
+                label={expertValue(current.data.status, locale)}
+              />
               <div className="rights-flags">
                 <Badge tone={current.data.publicUse ? "success" : "neutral"}>
-                  {current.data.publicUse ? "Public use" : "Internal only"}
+                  {current.data.publicUse ? x.publicUse : x.internalOnly}
                 </Badge>
                 <Badge tone={current.data.modelUse ? "blue" : "warning"}>
-                  {current.data.modelUse
-                    ? "Model processing allowed"
-                    : "No model processing"}
+                  {current.data.modelUse ? x.modelAllowed : x.modelNo}
                 </Badge>
                 <Badge
                   tone={
@@ -433,16 +412,16 @@ function Sources() {
                   >
                     <Pause data-icon="inline-start" />
                     {current.data.status === "paused"
-                      ? "Resume source"
-                      : "Pause source"}
+                      ? x.resumeSource
+                      : x.pauseSource}
                   </Button>
                   <Button variant="outline" onClick={() => setAudiences(true)}>
                     <ShieldCheck data-icon="inline-start" />
-                    {de ? "Zielgruppe ändern" : "Change audience"}
+                    {x.changeAudience}
                   </Button>
                   <Button variant="destructive" onClick={() => setRevoke(true)}>
                     <Trash2 data-icon="inline-start" />
-                    {locale === "de" ? "Zugriff widerrufen" : "Revoke access"}
+                    {x.revokeAccess}
                   </Button>
                 </>
               )}
@@ -458,19 +437,15 @@ function Sources() {
       )}
       {audiences && current && (
         <Modal
-          title={de ? "Zielgruppe der Quelle" : "Source audience"}
-          description={
-            de
-              ? "Legt fest, welche Module diese Quelle abrufen dürfen. Eine Einschränkung macht Belege und abhängige Inhalte ungültig, die auf der Quelle beruhen; der Index bleibt gültig."
-              : "Sets which modules may retrieve this source. Narrowing it invalidates the evidence and dependent content built on the source; the index stays valid."
-          }
+          title={x.audienceTitle}
+          description={x.audienceHint}
           onClose={() => setAudiences(false)}
         >
           <DataForm
             fields={[
               {
                 name: "audience",
-                label: de ? "Zielgruppe" : "Audience",
+                label: x.audience,
                 type: "select",
                 value: audienceValue(current.data.audiences),
                 options: audienceOptions(de),
@@ -478,7 +453,7 @@ function Sources() {
             ]}
             pending={mutation.pending}
             error={mutation.error}
-            submitLabel={de ? "Speichern" : "Save audience"}
+            submitLabel={x.saveAudience}
             onCancel={() => setAudiences(false)}
             onSubmit={(v) =>
               mutation
@@ -497,12 +472,8 @@ function Sources() {
       )}
       {revoke && current && (
         <Modal
-          title={locale === "de" ? "Quelle widerrufen" : "Revoke this source"}
-          description={
-            locale === "de"
-              ? "Belege, Memory und abhängige Inhalte werden erneut geprüft. Dieser Schritt entzieht den Zugriff."
-              : "Evidence, memory and dependent content are invalidated. This withdraws access to the source."
-          }
+          title={x.revokeTitle}
+          description={x.revokeHint}
           onClose={() => setRevoke(false)}
         >
           <p>
@@ -512,17 +483,14 @@ function Sources() {
             fields={[
               {
                 name: "confirm",
-                label:
-                  locale === "de"
-                    ? "Ich bestätige den Widerruf dieser Quelle."
-                    : "I confirm revoking access to this source.",
+                label: x.revokeConfirm,
                 type: "checkbox",
                 required: true,
               },
             ]}
             pending={mutation.pending}
             error={mutation.error}
-            submitLabel={locale === "de" ? "Jetzt widerrufen" : "Revoke source"}
+            submitLabel={x.revokeNow}
             onCancel={() => setRevoke(false)}
             onSubmit={() =>
               mutation
@@ -546,45 +514,40 @@ function SourceEditor({ onClose }: { onClose: () => void }) {
     onClose();
   });
   const de = locale === "de";
+  const x = expertCopy[locale];
+  const labelled = (values: string[]) =>
+    values.map((value) => ({ value, label: expertValue(value, locale) }));
   const fields: FormField[] = [
     { name: "name", label: t("name"), required: true },
     {
       name: "type",
-      label: de ? "Quellentyp" : "Source type",
+      label: x.sourceType,
       type: "select",
       value: "manual",
-      options: options(["manual", "file", "website", "gitbook"]),
+      options: labelled(["manual", "file", "website", "gitbook"]),
     },
     {
       name: "authority",
-      label: de ? "Quellenklasse" : "Source authority",
+      label: x.authority,
       type: "select",
       value: "research",
-      options: options(["official", "website", "research", "generated"]),
-      hint: de
-        ? "Verifikation bleibt eine serverseitige Prüfung."
-        : "Verification remains a server-side decision.",
+      options: labelled(["official", "website", "research", "generated"]),
+      hint: x.authorityHint,
     },
     {
       name: "allowedOrigins",
-      label: de
-        ? "Erlaubte Ursprünge (kommagetrennt)"
-        : "Allowed origins (comma separated)",
+      label: x.origins,
       placeholder: "https://example.com",
-      hint: de
-        ? "Für Websites und GitBook ist ein konkreter Ursprung erforderlich."
-        : "A concrete origin is required for websites and GitBook.",
+      hint: x.originsHint,
     },
     {
       name: "allowedPaths",
-      label: de
-        ? "Erlaubte Pfade (kommagetrennt)"
-        : "Allowed paths (comma separated)",
+      label: x.paths,
       value: "/",
     },
     {
       name: "maxAgeHours",
-      label: de ? "Frischegrenze in Stunden" : "Freshness limit in hours",
+      label: x.freshness,
       type: "number",
       required: true,
       min: 1,
@@ -593,28 +556,22 @@ function SourceEditor({ onClose }: { onClose: () => void }) {
     },
     {
       name: "syncEveryHours",
-      label: de
-        ? "Automatischer Abruf alle X Stunden (optional)"
-        : "Automatic fetch every X hours (optional)",
+      label: x.syncEvery,
       type: "number",
       min: 1,
       max: 168,
       showWhen: { name: "type", values: ["website", "gitbook"] },
-      hint: de
-        ? "Leer lassen für manuellen Abruf. Nur zuvor importierte, erlaubte URLs werden erneut abgerufen."
-        : "Leave empty for manual fetching. Only previously imported, allowed URLs are fetched again.",
+      hint: x.syncHint,
     },
     { name: "publicUse", label: t("publicUse"), type: "checkbox" },
     { name: "modelUse", label: t("modelUse"), type: "checkbox" },
     {
       name: "audience",
-      label: de ? "Zielgruppe" : "Audience",
+      label: x.audience,
       type: "select",
       value: "all",
       options: audienceOptions(de),
-      hint: de
-        ? "Nur die gewählten Module dürfen diese Quelle abrufen."
-        : "Only the selected modules may retrieve this source.",
+      hint: x.audienceFieldHint,
     },
   ];
   return (
@@ -663,6 +620,7 @@ function ImportSource({
   onClose: () => void;
 }) {
   const { project, t, locale, refresh } = useWorkspace();
+  const x = expertCopy[locale];
   const mutation = useMutation(() => {
     refresh();
     onClose();
@@ -680,20 +638,12 @@ function ImportSource({
   return (
     <Modal
       title={`${t("import")} · ${value(source, "name")}`}
-      description={
-        locale === "de"
-          ? "Quelleninhalte werden als Daten verarbeitet, niemals als Systemanweisungen."
-          : "Source content is processed as data, never as system instructions."
-      }
+      description={x.importDescription}
       onClose={onClose}
     >
       {!url && (
         <div className="file-upload">
-          <label htmlFor="source-file">
-            {locale === "de"
-              ? "Datei importieren (optional, maximal 1 MB)"
-              : "Import file (optional, maximum 1 MB)"}
-          </label>
+          <label htmlFor="source-file">{x.importFile}</label>
           <Input
             id="source-file"
             type="file"
@@ -701,7 +651,7 @@ function ImportSource({
             onChange={(e) => {
               const next = e.target.files?.[0] || null;
               if (next && next.size > 1_000_000) {
-                setFileError("File exceeds the 1 MB upload limit.");
+                setFileError(x.uploadTooBig);
                 setFile(null);
                 e.target.value = "";
                 return;
@@ -721,7 +671,7 @@ function ImportSource({
             ? [
                 {
                   name: "url",
-                  label: "Approved source URL",
+                  label: x.sourceUrl,
                   type: "url",
                   required: true,
                 },
@@ -729,13 +679,10 @@ function ImportSource({
             : [
                 {
                   name: "externalId",
-                  label:
-                    locale === "de"
-                      ? "Stabile Dokumentkennung"
-                      : "Stable document identifier",
+                  label: x.documentId,
                   required: true,
                   value: file?.name,
-                  hint: "Reuse this identifier to import a new version.",
+                  hint: x.documentIdHint,
                 },
                 {
                   name: "title",
@@ -747,8 +694,7 @@ function ImportSource({
                   ? [
                       {
                         name: "text",
-                        label:
-                          locale === "de" ? "Dokumenttext" : "Document text",
+                        label: x.documentText,
                         type: "textarea" as const,
                         required: true,
                         max: 1000000,
@@ -794,7 +740,7 @@ function ImportSource({
                             ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                             : ""
                 : "text/plain";
-              if (!mimeType) throw new Error("Unsupported document type.");
+              if (!mimeType) throw new Error(x.unsupportedType);
               return action(project.id, "import", {
                 sourceId: source.id,
                 externalId: str(v, "externalId"),
@@ -821,6 +767,7 @@ function ImportSource({
 }
 function ImportCenter() {
   const { project, locale, refresh, isOwner } = useWorkspace();
+  const x = expertCopy[locale];
   const history = useCollection("knowledge_imports");
   const [payload, setPayload] = useState(
     JSON.stringify(
@@ -862,7 +809,7 @@ function ImportCenter() {
   const importFactsFile = async (file: File | null) => {
     if (!file) return;
     if (file.size > 1_000_000) {
-      setFileError("The file exceeds the 1 MB import limit.");
+      setFileError(x.importTooBig);
       return;
     }
     try {
@@ -874,9 +821,8 @@ function ImportCenter() {
             const parsed = JSON.parse(raw);
             return Array.isArray(parsed) ? parsed : parsed.facts;
           })()
-        : parseFactCsv(raw);
-      if (!Array.isArray(rows) || !rows.length)
-        throw new Error("No fact rows found.");
+        : parseFactCsv(raw, x);
+      if (!Array.isArray(rows) || !rows.length) throw new Error(x.noFactRows);
       const facts = rows.map((row) => ({
         key: String(row.key ?? ""),
         value: String(row.value ?? ""),
@@ -908,25 +854,15 @@ function ImportCenter() {
       setPreview(null);
       setFileError(null);
     } catch (error) {
-      setFileError(
-        error instanceof Error ? error.message : "The file could not be read.",
-      );
+      setFileError(error instanceof Error ? error.message : x.fileUnreadable);
     }
   };
   return (
     <section className="panel stack-gap">
       <div className="panel-head">
         <div>
-          <h2>
-            {locale === "de"
-              ? "Knowledge Import Center"
-              : "Knowledge Import Center"}
-          </h2>
-          <p>
-            {locale === "de"
-              ? "Vorschau und Validierung erfolgen vor dem Commit. Historische Inhalte bleiben getrennt von Faktenbelegen."
-              : "Preview and validation happen before commit. Historical content stays separate from factual evidence."}
-          </p>
+          <h2>{x.importTitle}</h2>
+          <p>{x.importIntro}</p>
         </div>
       </div>
       <div className="form-actions">
@@ -940,7 +876,7 @@ function ImportCenter() {
           }
         >
           <Download data-icon="inline-start" />
-          CSV facts template
+          {x.csvTemplate}
         </Button>
         <Button
           variant="outline"
@@ -968,32 +904,21 @@ function ImportCenter() {
           }
         >
           <Download data-icon="inline-start" />
-          JSON facts template
+          {x.jsonTemplate}
         </Button>
       </div>
       <div className="file-upload">
-        <label htmlFor="verified-facts-file">
-          {locale === "de"
-            ? "Verifizierte Fakten aus CSV oder JSON hochladen"
-            : "Upload verified facts as CSV or JSON"}
-        </label>
+        <label htmlFor="verified-facts-file">{x.uploadFacts}</label>
         <Input
           id="verified-facts-file"
           type="file"
           accept=".csv,application/json,.json,text/csv"
           onChange={(event) => importFactsFile(event.target.files?.[0] ?? null)}
         />
-        <p>
-          {locale === "de"
-            ? "Maximal 1 MB. Pflichtfelder: key, value; fehlende optionale Werte werden vor der Vorschau angezeigt."
-            : "Maximum 1 MB. Required: key, value; optional values are shown in the preview before commit."}
-        </p>
+        <p>{x.uploadFactsHint}</p>
       </div>
       {fileError && <Alert kind="error">{fileError}</Alert>}
-      <label htmlFor="knowledge-import-payload">
-        Import payload (website/GitBook URLs may be discovered and selected by
-        the importer; files use text or base64 content)
-      </label>
+      <label htmlFor="knowledge-import-payload">{x.payloadLabel}</label>
       <textarea
         id="knowledge-import-payload"
         className="input min-h-80 font-mono text-xs"
@@ -1004,15 +929,19 @@ function ImportCenter() {
         }}
         aria-describedby="knowledge-import-help"
       />
-      <p id="knowledge-import-help">
-        Source types: website, gitbook, url, url_list, file, verified_facts,
-        historical.
-      </p>
+      <p id="knowledge-import-help">{x.payloadHelp}</p>
       {preview && (
         <Alert kind={preview.ready ? "success" : "warning"}>
           {preview.ready
-            ? `${preview.documents?.length ?? 0} documents and ${preview.factCount ?? 0} facts are ready.`
-            : `Resolve: ${(preview.errors ?? []).map((x: any) => x.code).join(", ")}`}
+            ? expertFill(x.previewReady, {
+                documents: preview.documents?.length ?? 0,
+                facts: preview.factCount ?? 0,
+              })
+            : expertFill(x.previewResolve, {
+                codes: (preview.errors ?? [])
+                  .map((error: any) => error.code)
+                  .join(", "),
+              })}
         </Alert>
       )}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
@@ -1030,7 +959,7 @@ function ImportCenter() {
               })
           }
         >
-          Preview import
+          {x.previewImport}
         </Button>
         <Button
           disabled={!isOwner || !preview?.ready || mutation.pending}
@@ -1042,12 +971,12 @@ function ImportCenter() {
               .then(() => setPreview(null))
           }
         >
-          Commit selected import
+          {x.commitImport}
         </Button>
       </div>
-      <h3>{locale === "de" ? "Import-Verlauf" : "Import history"}</h3>
+      <h3>{x.importHistory}</h3>
       {history.data?.items.length ? (
-        <EntityRows
+        <ExpertRows
           items={history.data.items}
           fields={[
             "name",
@@ -1059,19 +988,105 @@ function ImportCenter() {
           ]}
         />
       ) : (
-        <p>
-          {locale === "de"
-            ? "Noch keine Importe in diesem Projekt."
-            : "No imports for this project yet."}
-        </p>
+        <p>{x.noImports}</p>
       )}
     </section>
   );
 }
-function parseFactCsv(raw: string): Record<string, string>[] {
+/** A table of expert records with named columns and labelled values. */
+function ExpertRows({
+  items,
+  fields,
+  onSelect,
+}: {
+  items: Entity[];
+  fields: string[];
+  onSelect?: (e: Entity) => void;
+}) {
+  const { locale, project } = useWorkspace();
+  const x = expertCopy[locale];
+  const heads: Record<string, string> = {
+    key: x.colKey,
+    value: x.colValue,
+    status: x.colStatus,
+    updatedAt: x.colUpdatedAt,
+    title: x.colTitle,
+    language: x.colLanguage,
+    name: x.colName,
+    sourceType: x.colSourceType,
+    completed: x.colCompleted,
+    failed: x.colFailed,
+    completedAt: x.colCompletedAt,
+  };
+  const cell = (e: Entity, f: string) =>
+    f === "status" ? (
+      <Status
+        value={e.data.status}
+        label={expertValue(e.data.status, locale)}
+      />
+    ) : f === "updatedAt" ? (
+      when(e.updatedAt, locale, project.timezone)
+    ) : f === "completedAt" ? (
+      when(e.data.completedAt, locale, project.timezone)
+    ) : f === "sourceType" ? (
+      expertValue(e.data.sourceType, locale)
+    ) : (
+      value(e, f)
+    );
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {fields.map((f) => (
+              <th key={f}>{heads[f] ?? x.unknown}</th>
+            ))}
+            {onSelect && (
+              <th>
+                <span className="sr-only">{x.review}</span>
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((e) => (
+            <tr key={e.id}>
+              {fields.map((f, i) => (
+                <td key={f}>
+                  {i === 0 && onSelect ? (
+                    <button className="row-button" onClick={() => onSelect(e)}>
+                      {value(e, f)}
+                    </button>
+                  ) : (
+                    cell(e, f)
+                  )}
+                </td>
+              ))}
+              {onSelect && (
+                <td>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`${x.review} ${value(e, fields[0]!)}`}
+                    onClick={() => onSelect(e)}
+                  >
+                    <ArrowRight />
+                  </Button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+function parseFactCsv(
+  raw: string,
+  x: (typeof expertCopy)["de"],
+): Record<string, string>[] {
   const lines = raw.trim().split(/\r?\n/);
-  if (lines.length < 2)
-    throw new Error("CSV needs a header and at least one row.");
+  if (lines.length < 2) throw new Error(x.csvNeedsRows);
   const cells = (line: string) => {
     const values: string[] = [];
     let value = "",
@@ -1087,13 +1102,13 @@ function parseFactCsv(raw: string): Record<string, string>[] {
         value = "";
       } else value += char;
     }
-    if (quoted) throw new Error("Malformed quoted CSV field.");
+    if (quoted) throw new Error(x.csvMalformed);
     values.push(value.trim());
     return values;
   };
   const header = cells(lines[0]!);
   if (!header.includes("key") || !header.includes("value"))
-    throw new Error("CSV requires key and value columns.");
+    throw new Error(x.csvColumns);
   return lines
     .slice(1)
     .filter(Boolean)
@@ -1105,6 +1120,7 @@ function parseFactCsv(raw: string): Record<string, string>[] {
 }
 function Facts() {
   const { t, locale, project, isOwner } = useWorkspace();
+  const x = expertCopy[locale];
   const resource = useCollection("facts");
   const [selected, setSelected] = useState<Entity | null>(null),
     [editing, setEditing] = useState(false),
@@ -1121,8 +1137,8 @@ function Facts() {
         <div className="search-field">
           <Search />
           <Input
-            aria-label="Search facts"
-            placeholder={locale === "de" ? "Fakten suchen" : "Search facts"}
+            aria-label={x.searchFacts}
+            placeholder={x.searchFacts}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -1134,7 +1150,7 @@ function Facts() {
       ) : (
         <section className="panel">
           {items.length ? (
-            <EntityRows
+            <ExpertRows
               items={items}
               fields={["key", "value", "status", "updatedAt"]}
               onSelect={setSelected}
@@ -1142,16 +1158,8 @@ function Facts() {
           ) : (
             <Empty
               icon={ShieldCheck}
-              title={
-                locale === "de"
-                  ? "Bestätige, was wirklich gilt"
-                  : "Make the important facts explicit"
-              }
-              description={
-                locale === "de"
-                  ? "Preise, Termine und Produktstatus mit Gültigkeit und Herkunft."
-                  : "Prices, dates and product status, with validity and provenance."
-              }
+              title={x.factsEmptyTitle}
+              description={x.factsEmptyHint}
             >
               {isOwner && (
                 <Button onClick={() => setCreate(true)}>{t("addFact")}</Button>
@@ -1163,40 +1171,43 @@ function Facts() {
       {selected && !editing && (
         <Modal title={value(selected, "key")} onClose={() => setSelected(null)}>
           <div className="detail-summary">
-            <Status value={selected.data.status} />
-            <Badge>Version {selected.version}</Badge>
+            <Status
+              value={selected.data.status}
+              label={expertValue(selected.data.status, locale)}
+            />
+            <Badge>
+              {x.version} {selected.version}
+            </Badge>
           </div>
           <h2 className="fact-value">
             {value(selected, "value")} {value(selected, "currency", "")}{" "}
             {value(selected, "unit", "")}
           </h2>
           <dl className="detail-grid">
-            <dt>Source</dt>
+            <dt>{x.detailSource}</dt>
             <dd>{value(selected, "sourceId")}</dd>
-            <dt>Valid from</dt>
+            <dt>{x.validFrom}</dt>
             <dd>{when(selected.data.validFrom, locale, project.timezone)}</dd>
-            <dt>Valid until</dt>
+            <dt>{x.validUntil}</dt>
             <dd>{when(selected.data.validUntil, locale, project.timezone)}</dd>
-            <dt>Verified at</dt>
+            <dt>{x.verifiedAt}</dt>
             <dd>{when(selected.data.verifiedAt, locale, project.timezone)}</dd>
-            <dt>Verified by</dt>
+            <dt>{x.verifiedBy}</dt>
             <dd>{value(selected, "verifiedBy")}</dd>
-            <dt>Language / market</dt>
+            <dt>{x.languageMarket}</dt>
             <dd>
               {value(selected, "language")} / {value(selected, "market")}
             </dd>
-            <dt>Public use</dt>
-            <dd>{selected.data.publicUse ? "Allowed" : "Not permitted"}</dd>
-            <dt>Model processing</dt>
-            <dd>{selected.data.modelUse ? "Allowed" : "Not permitted"}</dd>
+            <dt>{x.publicUse}</dt>
+            <dd>{selected.data.publicUse ? x.allowed : x.notPermitted}</dd>
+            <dt>{x.modelProcessing}</dt>
+            <dd>{selected.data.modelUse ? x.allowed : x.notPermitted}</dd>
           </dl>
           <FactWithdrawal entity={selected} onDone={() => setSelected(null)} />
           {isOwner && (
             <div className="form-actions">
               <Button onClick={() => setEditing(true)}>
-                {locale === "de"
-                  ? "Korrigierte Version erstellen"
-                  : "Create corrected version"}
+                {x.correctVersion}
               </Button>
             </div>
           )}
@@ -1230,7 +1241,9 @@ function FactEditor({
     onClose();
   });
   const d = entity?.data;
-  const de = locale === "de";
+  const x = expertCopy[locale];
+  const labelled = (values: string[]) =>
+    values.map((value) => ({ value, label: expertValue(value, locale) }));
   const resolving = d?.status === "conflicting";
   const conflicts = resolving
     ? (facts.data?.items || []).filter((fact) => {
@@ -1259,33 +1272,31 @@ function FactEditor({
   const fields: FormField[] = [
     {
       name: "key",
-      label: de ? "Fachschlüssel" : "Fact key",
+      label: x.factKey,
       required: true,
       value: d?.key as string,
       placeholder: "product.availability",
     },
     {
       name: "value",
-      label: de ? "Wert" : "Value",
+      label: x.factValue,
       required: true,
       value: d?.value as string,
     },
     {
       name: "valueType",
-      label: de ? "Werttyp" : "Value type",
+      label: x.valueType,
       type: "select",
       value: String(d?.valueType || "text"),
-      options: options(["text", "decimal", "date", "status", "url"]),
+      options: labelled(["text", "decimal", "date", "status", "url"]),
     },
     {
       name: "currency",
-      label: de
-        ? "Währung (für Dezimalpreise)"
-        : "Currency (for decimal prices)",
+      label: x.currency,
       value: d?.currency as string,
       placeholder: "EUR",
     },
-    { name: "unit", label: de ? "Einheit" : "Unit", value: d?.unit as string },
+    { name: "unit", label: x.unit, value: d?.unit as string },
     {
       name: "language",
       label: t("language"),
@@ -1299,12 +1310,12 @@ function FactEditor({
     },
     {
       name: "market",
-      label: de ? "Markt / Geltungsbereich" : "Market / scope",
+      label: x.market,
       value: d?.market as string,
     },
     {
       name: "sourceId",
-      label: de ? "Belegquelle" : "Supporting source",
+      label: x.supportingSource,
       type: "select",
       required: true,
       value: d?.sourceId as string,
@@ -1313,26 +1324,19 @@ function FactEditor({
         .map((s) => ({ value: s.id, label: value(s, "name") })),
     },
     {
-      ...dateField(
-        "validFrom",
-        de ? "Gültig ab (Browserzeit)" : "Valid from (browser time)",
-      ),
+      ...dateField("validFrom", x.validFromBrowser),
       value: browserDate(d?.validFrom),
     },
     {
-      ...dateField(
-        "validUntil",
-        de ? "Gültig bis (optional)" : "Valid until (optional)",
-        false,
-      ),
+      ...dateField("validUntil", x.validUntilOptional, false),
       value: browserDate(d?.validUntil),
     },
     {
       name: "status",
-      label: de ? "Reviewstatus" : "Review status",
+      label: x.reviewStatus,
       type: "select",
       value: resolving ? "verified" : "candidate",
-      options: options(
+      options: labelled(
         resolving
           ? ["verified"]
           : isOwner
@@ -1358,27 +1362,19 @@ function FactEditor({
       name: "confirmResolution",
       type: "checkbox",
       required: true,
-      label: de
-        ? "Ich bestätige diesen Wert als maßgeblich und ersetze alle aufgeführten Konfliktversionen."
-        : "I confirm this authoritative value and supersede every conflict version listed above.",
+      label: x.resolveConfirm,
     });
   return (
-    <Modal
-      title={entity ? (de ? "Fakt korrigieren" : "Correct fact") : t("addFact")}
-      onClose={onClose}
-    >
+    <Modal title={entity ? x.correctFact : t("addFact")} onClose={onClose}>
       {resolving && (
         <>
-          <Alert kind="warning">
-            {de
-              ? "Alle überlappenden Werte dieses Schlüssels müssen gemeinsam aufgelöst werden. Die bisherigen Versionen bleiben im Verlauf erhalten."
-              : "All overlapping values for this key must be resolved together. Previous versions remain in the history."}
-          </Alert>
+          <Alert kind="warning">{x.resolveHint}</Alert>
           <ul className="blocker-list">
             {conflicts.map((fact) => (
               <li key={fact.id}>
-                {value(fact, "value")} {value(fact, "currency", "")} · version{" "}
-                {fact.version} · {value(fact, "status")}
+                {value(fact, "value")} {value(fact, "currency", "")} ·{" "}
+                {x.conflictVersion} {fact.version} ·{" "}
+                {expertValue(fact.data.status, locale)}
               </li>
             ))}
           </ul>
@@ -1433,6 +1429,7 @@ function FactEditor({
 function Library() {
   const sourceFilter = useSearchParams()?.get("source");
   const { project, revision, t, locale, isOwner, refresh } = useWorkspace();
+  const x = expertCopy[locale];
   const resource = useResource<{ items: Array<Record<string, unknown>> }>(
     collectionPath(project.id, `documents?revision=${revision}`),
   );
@@ -1480,7 +1477,7 @@ function Library() {
       ) : (
         <section className="panel">
           {documents.length ? (
-            <EntityRows
+            <ExpertRows
               items={documents}
               fields={["title", "language", "status", "updatedAt"]}
               onSelect={setSelected}
@@ -1488,16 +1485,8 @@ function Library() {
           ) : (
             <Empty
               icon={BookOpen}
-              title={
-                locale === "de"
-                  ? "Deine Dokumentbibliothek ist leer"
-                  : "Your document library is empty"
-              }
-              description={
-                locale === "de"
-                  ? "Importiere freigegebenen Text über eine Quelle."
-                  : "Import approved text through a source to see its version history."
-              }
+              title={x.libraryEmptyTitle}
+              description={x.libraryEmptyHint}
             />
           )}
         </section>
@@ -1509,9 +1498,14 @@ function Library() {
           wide
         >
           <div className="detail-summary">
-            <Status value={selected.data.status} />
-            <Badge>{selected.data.publicUse ? "Public" : "Internal"}</Badge>
-            <span>Version {selected.version}</span>
+            <Status
+              value={selected.data.status}
+              label={expertValue(selected.data.status, locale)}
+            />
+            <Badge>{selected.data.publicUse ? x.public : x.internal}</Badge>
+            <span>
+              {x.version} {selected.version}
+            </span>
           </div>
           <p>{value(selected, "canonicalUrl", "")}</p>
           {isOwner && (
@@ -1522,30 +1516,24 @@ function Library() {
                     variant="outline"
                     onClick={() => setConfirmEmbedding(true)}
                   >
-                    Embed with OpenAI
+                    {x.embedWithOpenAI}
                   </Button>
                 </div>
               ) : (
                 <>
-                  <Alert kind="warning">
-                    This sends the extracted document passages to OpenAI for
-                    paid embeddings. Current source rights, the active policy,
-                    and the configured budget are checked again by the worker
-                    before transmission.
-                  </Alert>
+                  <Alert kind="warning">{x.embedWarning}</Alert>
                   <DataForm
                     fields={[
                       {
                         name: "confirmEmbeddingMayBeSentToOpenAI",
                         type: "checkbox",
                         required: true,
-                        label:
-                          "I authorize sending this document's extracted passages to OpenAI for paid embeddings.",
+                        label: x.embedConfirm,
                       },
                     ]}
                     pending={mutation.pending}
                     error={mutation.error}
-                    submitLabel="Queue embedding"
+                    submitLabel={x.embedQueue}
                     onCancel={() => setConfirmEmbedding(false)}
                     onSubmit={() =>
                       mutation
@@ -1565,7 +1553,7 @@ function Library() {
           <article className="content-preview">
             {value(selected, "text", value(selected, "preview", ""))}
           </article>
-          <h3>Version history</h3>
+          <h3>{x.versionHistory}</h3>
           {Array.isArray(selected.data.versions) ? (
             selected.data.versions.map((v, i) => (
               <div className="history-row" key={i}>
@@ -1575,34 +1563,40 @@ function Library() {
                       key,
                     ),
                   )
-                  .map(([key, x]) => (
+                  .map(([key, entry]) => (
                     <span key={key}>
-                      {key}: {String(x)}
+                      {{
+                        version: x.histVersion,
+                        createdAt: x.histCreatedAt,
+                        contentHash: x.histContentHash,
+                        status: x.histStatus,
+                      }[key] ?? x.unknown}
+                      :{" "}
+                      {key === "status"
+                        ? expertValue(entry, locale)
+                        : String(entry)}
                     </span>
                   ))}
               </div>
             ))
           ) : (
-            <p>
-              {locale === "de"
-                ? "Noch keine älteren Versionen."
-                : "No older versions available."}
-            </p>
+            <p>{x.noOlderVersions}</p>
           )}
-          <h3>Extracted passages</h3>
+          <h3>{x.extractedPassages}</h3>
           {Array.isArray(selected.data.chunks) ? (
             selected.data.chunks.map((c, i) => (
               <div className="chunk" key={i}>
                 <small>
                   {String(
-                    (c as Record<string, unknown>).anchor || `Passage ${i + 1}`,
+                    (c as Record<string, unknown>).anchor ||
+                      `${x.passage} ${i + 1}`,
                   )}
                 </small>
                 <p>{String((c as Record<string, unknown>).text || "")}</p>
               </div>
             ))
           ) : (
-            <p>No indexed passages available.</p>
+            <p>{x.noPassages}</p>
           )}
         </Modal>
       )}
@@ -1611,18 +1605,20 @@ function Library() {
 }
 function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
   const { project, revision, locale, isOwner } = useWorkspace();
+  const x = expertCopy[locale];
   const resource = useResource<Health>(
     collectionPath(project.id, `knowledge-health?revision=${revision}`),
   );
   const keys = impact
     ? ["impacts"]
-    : [
-        "conflicts",
-        "expiredFacts",
-        "missingEvidence",
-        "failedImports",
-        "staleSources",
-      ];
+    : ["conflicts", "expiredFacts", "failedImports", "staleSources"];
+  const names: Record<string, string> = {
+    conflicts: x.conflicts,
+    expiredFacts: x.expiredFacts,
+    failedImports: x.failedImports,
+    staleSources: x.staleSources,
+    impacts: x.impacts,
+  };
   return (
     <>
       {!impact && isOwner && <IndexManagement />}
@@ -1635,7 +1631,7 @@ function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
             <div className="health-stats">
               {keys.map((key) => (
                 <div key={key}>
-                  <span>{key.replace(/([A-Z])/g, " $1")}</span>
+                  <span>{names[key]}</span>
                   <strong>
                     {Array.isArray(resource.data![key])
                       ? (resource.data![key] as unknown[]).length
@@ -1649,56 +1645,57 @@ function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
             {keys.map((key) => (
               <section className="panel health-section" key={key}>
                 <div className="panel-head">
-                  <h2>{key.replace(/([A-Z])/g, " $1")}</h2>
+                  <h2>{names[key]}</h2>
                 </div>
                 {Array.isArray(resource.data![key]) &&
                 (resource.data![key] as unknown[]).length > 0 ? (
                   (resource.data![key] as Array<Record<string, unknown>>).map(
-                    (item, i) => (
-                      <div className="health-case" key={String(item.id || i)}>
-                        <Status
-                          value={
-                            item.status ||
-                            (item.data as Record<string, unknown> | undefined)
-                              ?.status ||
-                            "needs_review"
-                          }
-                        />
-                        <div>
-                          <strong>
-                            {String(
-                              item.key ||
-                                item.title ||
-                                (
-                                  item.data as
-                                    Record<string, unknown> | undefined
-                                )?.key ||
-                                item.contentId ||
-                                item.id ||
-                                "Affected object",
+                    (item, i) => {
+                      const data = item.data as
+                        Record<string, unknown> | undefined;
+                      const name =
+                        item.key ??
+                        item.title ??
+                        data?.key ??
+                        item.name ??
+                        data?.name;
+                      const named =
+                        name !== undefined && name !== null && name !== "";
+                      const id = item.contentId ?? item.id;
+                      return (
+                        <div className="health-case" key={String(item.id || i)}>
+                          {(() => {
+                            const status =
+                              item.status || data?.status || "needs_review";
+                            return (
+                              <Status
+                                value={status}
+                                label={expertValue(status, locale)}
+                              />
+                            );
+                          })()}
+                          <div>
+                            <strong>
+                              {named ? String(name) : x.affectedObject}
+                            </strong>
+                            {!named && id !== undefined && id !== null && (
+                              <small>{String(id)}</small>
                             )}
-                          </strong>
-                          <p>
-                            {String(
-                              item.reason ||
-                                item.message ||
-                                (
-                                  item.data as
-                                    Record<string, unknown> | undefined
-                                )?.reason ||
-                                "Review the current source and dependent content.",
-                            )}
-                          </p>
+                            <p>
+                              {String(
+                                item.reason ||
+                                  item.message ||
+                                  data?.reason ||
+                                  x.reviewSource,
+                              )}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ),
+                      );
+                    },
                   )
                 ) : (
-                  <p className="panel-note">
-                    {locale === "de"
-                      ? "Keine gemeldeten Fälle."
-                      : "No cases reported."}
-                  </p>
+                  <p className="panel-note">{x.noCases}</p>
                 )}
               </section>
             ))}
@@ -1710,53 +1707,46 @@ function KnowledgeHealth({ impact = false }: { impact?: boolean }) {
 }
 function Inspector() {
   const { project, locale } = useWorkspace();
+  const x = expertCopy[locale];
   const [evidence, setEvidence] = useState<Entity | null>(null);
   const mutation = useMutation();
   return (
     <div className="inspector-layout">
       <section className="panel inspector-form">
         <div className="panel-head">
-          <h2>{locale === "de" ? "Retrieval prüfen" : "Inspect retrieval"}</h2>
+          <h2>{x.inspectTitle}</h2>
           <FlaskConical />
         </div>
         <DataForm
           fields={[
             {
               name: "query",
-              label: locale === "de" ? "Testfrage" : "Test question",
+              label: x.testQuestion,
               type: "textarea",
               required: true,
               max: 2000,
             },
             {
               name: "language",
-              label: locale === "de" ? "Sprache" : "Language",
+              label: x.language,
               type: "select",
               value: project.language,
               options: contentLanguageOptions(project, locale),
             },
             {
               name: "purpose",
-              label: locale === "de" ? "Verwendungszweck" : "Purpose",
+              label: x.purpose,
               type: "select",
               value: "public",
               options: [
-                {
-                  value: "public",
-                  label:
-                    locale === "de" ? "Öffentlicher Inhalt" : "Public content",
-                },
-                {
-                  value: "internal",
-                  label:
-                    locale === "de" ? "Interne Recherche" : "Internal research",
-                },
+                { value: "public", label: x.purposePublic },
+                { value: "internal", label: x.purposeInternal },
               ],
             },
           ]}
           pending={mutation.pending}
           error={mutation.error}
-          submitLabel={locale === "de" ? "Belege abrufen" : "Retrieve evidence"}
+          submitLabel={x.retrieveEvidence}
           onSubmit={(v) =>
             mutation
               .run(() =>
@@ -1774,84 +1764,79 @@ function Inspector() {
       </section>
       <section className="panel">
         <div className="panel-head">
-          <h2>{locale === "de" ? "Evidence-Pack" : "Evidence pack"}</h2>
+          <h2>{x.evidencePack}</h2>
         </div>
         {evidence ? (
           <div className="evidence-result">
             <div className="detail-summary">
-              <Status value={evidence.data.status} />
-              <Badge>{value(evidence, "mode")}</Badge>
+              <Status
+                value={evidence.data.status}
+                label={expertValue(evidence.data.status, locale)}
+              />
+              <Badge>{expertValue(evidence.data.mode, locale)}</Badge>
             </div>
             <dl className="detail-grid">
-              <dt>Purpose</dt>
-              <dd>{value(evidence, "purpose")}</dd>
-              <dt>Retrieval version</dt>
+              <dt>{x.purpose}</dt>
+              <dd>{expertValue(evidence.data.purpose, locale)}</dd>
+              <dt>{x.retrievalVersion}</dt>
               <dd>{value(evidence, "retrieverVersion")}</dd>
-              <dt>Retrieved at</dt>
+              <dt>{x.retrievedAt}</dt>
               <dd>
                 {when(evidence.data.createdAt || evidence.createdAt, locale)}
               </dd>
-              <dt>Cost / latency</dt>
+              <dt>{x.costLatency}</dt>
               <dd>
-                {value(evidence, "costMicros", "Not reported")} /{" "}
-                {value(evidence, "durationMs", "Not reported")}
+                {value(evidence, "costMicros", x.notReported)} /{" "}
+                {value(evidence, "durationMs", x.notReported)}
               </dd>
             </dl>
             <EvidenceItems evidence={evidence} />
             <details className="evidence-details">
-              <summary>Effective filters and excluded results</summary>
+              <summary>{x.filtersSummary}</summary>
               <dl className="detail-grid">
-                <dt>Project</dt>
+                <dt>{x.project}</dt>
                 <dd>{project.name}</dd>
-                <dt>Language</dt>
+                <dt>{x.language}</dt>
                 <dd>{value(evidence, "language")}</dd>
-                <dt>Purpose</dt>
-                <dd>{value(evidence, "purpose")}</dd>
-                <dt>Model processing</dt>
+                <dt>{x.purpose}</dt>
+                <dd>{expertValue(evidence.data.purpose, locale)}</dd>
+                <dt>{x.modelProcessing}</dt>
                 <dd>
-                  {evidence.data.forModel === true
-                    ? "Required"
-                    : "No model call requested"}
+                  {evidence.data.forModel === true ? x.required : x.noModelCall}
                 </dd>
-                <dt>Index profile</dt>
+                <dt>{x.indexProfile}</dt>
                 <dd>{value(evidence, "indexProfile")}</dd>
-                <dt>Estimated tokens</dt>
+                <dt>{x.estimatedTokens}</dt>
                 <dd>{value(evidence, "estimatedTokens")}</dd>
               </dl>
               {Array.isArray(evidence.data.excluded) &&
               evidence.data.excluded.length > 0 ? (
-                evidence.data.excluded.map((x, i) => (
+                evidence.data.excluded.map((excluded, i) => (
                   <div className="history-row" key={i}>
                     <span>
                       {String(
-                        (x as Record<string, unknown>).sourceId || "Source",
+                        (excluded as Record<string, unknown>).sourceId ||
+                          x.excludedSource,
                       )}
                     </span>
                     <span>
                       {String(
-                        (x as Record<string, unknown>).reason || "Excluded",
+                        (excluded as Record<string, unknown>).reason ||
+                          x.excluded,
                       )}
                     </span>
                   </div>
                 ))
               ) : (
-                <p>No excluded sources were reported.</p>
+                <p>{x.noneExcluded}</p>
               )}
             </details>
           </div>
         ) : (
           <Empty
             icon={Search}
-            title={
-              locale === "de"
-                ? "Jede Antwort beginnt mit Belegen"
-                : "Every answer starts with evidence"
-            }
-            description={
-              locale === "de"
-                ? "Prüfe Fakten, Quellenpassagen und Wissenslücken in deinem Rechtekontext."
-                : "Inspect facts, source passages and gaps within your permissions."
-            }
+            title={x.inspectEmptyTitle}
+            description={x.inspectEmptyHint}
           />
         )}
       </section>

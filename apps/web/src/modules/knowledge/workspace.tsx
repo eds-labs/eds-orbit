@@ -10,6 +10,7 @@ import { Alert, Button, Input, Loading } from "@/components/ui/primitives";
 import { knowledgeCopy } from "./workspace-text";
 import { KnowledgeAddFlow } from "./add-flow";
 import { KnowledgeGithubPage } from "./github-page";
+import { TechnicalNav } from "./technical-nav";
 import { SourceList } from "./source-list";
 import { countRemoved, StatementList } from "./statements";
 import {
@@ -51,7 +52,12 @@ export function KnowledgeWorkspaceGate({
     data?.enabled &&
     (expert || ["library", "health", "inspector", "impact"].includes(tab))
   )
-    return fallback;
+    return (
+      <>
+        <TechnicalNav tab={tab} />
+        {fallback}
+      </>
+    );
   if (data?.enabled)
     return (
       <WorkspaceView
@@ -101,7 +107,9 @@ function WorkspaceView({
       <header className="knowledge-heading">
         <div>
           <h1>{tab === "sources" ? t.sources : review ? t.review : t.title}</h1>
-          <p>{t.hint}</p>
+          <p>
+            {tab === "sources" ? t.sourcesHint : review ? t.reviewHint : t.hint}
+          </p>
         </div>
         {isOwner && (
           <Button asChild>
@@ -178,37 +186,14 @@ function WorkspaceView({
             )}
         </>
       )}
-      <details className="knowledge-advanced">
-        <summary>{t.advanced}</summary>
-        <nav aria-label={t.advanced}>
-          {(
-            [
-              ["facts", t.facts],
-              ["library", t.library],
-              ["health", t.health],
-              ["inspector", t.inspector],
-              ["impact", t.impact],
-              ["import", t.advancedImport],
-            ] as const
-          ).map(([key, label]) => (
-            <AppLink
-              key={key}
-              className="text-link"
-              href={shell.hrefOf(`knowledge-${key}`) + "?expert=1"}
-            >
-              {label}
-            </AppLink>
-          ))}
-          {isOwner && (
-            <AppLink
-              className="text-link"
-              href={shell.hrefOf("knowledge-github")}
-            >
-              {t.configure}
-            </AppLink>
-          )}
-        </nav>
-      </details>
+      <p className="knowledge-technical-link">
+        <AppLink
+          className="text-link"
+          href={shell.hrefOf("knowledge-health") + "?expert=1"}
+        >
+          {t.technical}
+        </AppLink>
+      </p>
     </div>
   );
 }
@@ -217,7 +202,7 @@ function LegacyExpert({ tab }: { tab: KnowledgeTab }) {
   const { locale } = useWorkspace();
   return (
     <p>
-      {knowledgeCopy[locale].advanced}: {tab}
+      {knowledgeCopy[locale].technical}: {tab}
     </p>
   );
 }

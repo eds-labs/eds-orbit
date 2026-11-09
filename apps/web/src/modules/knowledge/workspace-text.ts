@@ -1,13 +1,15 @@
 export const knowledgeCopy = {
   de: {
     title: "Projektwissen",
-    hint: "Was Orbit über dein Projekt weiß – mit nachvollziehbaren Quellen.",
+    hint: "Das hast du aus deinen Quellen bestätigt. Orbit nutzt nur dieses Wissen.",
+    sourcesHint: "Woher dein Wissen kommt und was als Nächstes zu tun ist.",
+    reviewHint:
+      "Vorschläge aus deinen Quellen. Erst nach deiner Bestätigung werden sie zu Wissen.",
     add: "Wissen hinzufügen",
     sources: "Quellen",
     review: "Zu prüfen",
-    advanced: "Erweitert",
+    technical: "Technik-Bereich",
     search: "Wissen durchsuchen",
-    all: "Alle Themen",
     description: "Beschreibung",
     audience: "Zielgruppe",
     platforms: "Plattformen",
@@ -15,7 +17,7 @@ export const knowledgeCopy = {
     limitations: "Grenzen",
     empty: "Hier entsteht dein Projektwissen",
     emptyHint:
-      "Füge eine Quelle hinzu, zum Beispiel die FamilyPlan-Dokumentation. Prüfe anschließend die vorgeschlagenen Erkenntnisse.",
+      "Füge eine Quelle hinzu, zum Beispiel die FamilyPlan-Dokumentation. Prüfe anschließend die Vorschläge.",
     accepted: "Bestätigt",
     pending: "Zu prüfen",
     needs_review: "Aktualisierung nötig",
@@ -42,7 +44,7 @@ export const knowledgeCopy = {
     noSources: "Noch keine Quellen",
     noReview: "Alles geprüft",
     noReviewHint:
-      "Neue Erkenntnisse und Änderungen erscheinen hier, sobald du eine Quelle analysierst.",
+      "Neue Vorschläge und Änderungen erscheinen hier, sobald du eine Quelle analysierst.",
     noMatch:
       "Keine passenden Einträge. Ändere die Suche oder den Themenfilter.",
     accept: "Übernehmen",
@@ -102,11 +104,9 @@ export const knowledgeCopy = {
     history: "Entscheidungsverlauf",
     legacySources: "Weitere bestehende Quellen",
     library: "Dokumente und Versionen",
-    facts: "Fakten verwalten",
     health: "Diagnose",
     inspector: "Suche prüfen",
     impact: "Auswirkungen",
-    advancedImport: "Technischer Import",
     readOnly:
       "Nur Projektverantwortliche können Wissen hinzufügen und bestätigen.",
     progress: "Bearbeitungsstand",
@@ -116,7 +116,7 @@ export const knowledgeCopy = {
     errorPrefix: "Der Schritt konnte nicht abgeschlossen werden.",
     saved: "Gespeichert",
     noProposal:
-      "Keine belegbaren neuen Erkenntnisse gefunden. Ergänze weitere Quellen oder wähle zusätzliche Dateien aus.",
+      "Keine belegbaren neuen Vorschläge gefunden. Ergänze weitere Quellen oder wähle zusätzliche Dateien aus.",
     legacyReview: "Bestehende Widersprüche prüfen",
     version: "Version",
     loadHistory: "Verlauf laden",
@@ -147,7 +147,7 @@ export const knowledgeCopy = {
     removeHint:
       "Die Aussage wird nicht mehr verwendet. Du kannst sie unter „Entfernt“ wiederherstellen.",
     removeShared:
-      "An derselben Quelle hängen {n} weitere Fakten. Sie werden ebenfalls pausiert.",
+      "An derselben Quelle hängen {n} weitere Aussagen. Sie werden ebenfalls pausiert.",
     refreshTitle: "Quelle neu lesen?",
     refreshHint:
       "Orbit liest die Quelle erneut, das kostet nichts. Hat sich der Text geändert, werden die betroffenen Aussagen pausiert, bis du unter „Zu prüfen“ entschieden hast.",
@@ -305,13 +305,15 @@ export const knowledgeCopy = {
   },
   en: {
     title: "Project knowledge",
-    hint: "What Orbit knows about your project, backed by traceable sources.",
+    hint: "What you confirmed from your sources. Orbit uses only this knowledge.",
+    sourcesHint: "Where your knowledge comes from and what to do next.",
+    reviewHint:
+      "Proposals from your sources. They become knowledge only after you confirm them.",
     add: "Add knowledge",
     sources: "Sources",
     review: "To review",
-    advanced: "Advanced",
+    technical: "Technical area",
     search: "Search knowledge",
-    all: "All topics",
     description: "Description",
     audience: "Audience",
     platforms: "Platforms",
@@ -319,7 +321,7 @@ export const knowledgeCopy = {
     limitations: "Limitations",
     empty: "Build your project knowledge here",
     emptyHint:
-      "Add a source, such as the FamilyPlan documentation. Then review the proposed findings.",
+      "Add a source, such as the FamilyPlan documentation. Then review the proposals.",
     accepted: "Confirmed",
     pending: "To review",
     needs_review: "Update needed",
@@ -346,7 +348,7 @@ export const knowledgeCopy = {
     noSources: "No sources yet",
     noReview: "Everything reviewed",
     noReviewHint:
-      "New findings and changes appear here after you analyze a source.",
+      "New proposals and changes appear here after you analyze a source.",
     noMatch: "No matching entries. Change the search or topic filter.",
     accept: "Accept",
     reject: "Discard",
@@ -404,11 +406,9 @@ export const knowledgeCopy = {
     history: "Decision history",
     legacySources: "Other existing sources",
     library: "Documents and versions",
-    facts: "Manage facts",
     health: "Diagnostics",
     inspector: "Inspect search",
     impact: "Impacts",
-    advancedImport: "Technical import",
     readOnly: "Only project owners can add and confirm knowledge.",
     progress: "Progress",
     projectHome: "Project overview",
@@ -416,7 +416,7 @@ export const knowledgeCopy = {
     errorPrefix: "This step could not be completed.",
     saved: "Saved",
     noProposal:
-      "No supported new findings found. Add more sources or select additional files.",
+      "No supported new proposals found. Add more sources or select additional files.",
     legacyReview: "Review existing conflicts",
     version: "Version",
     loadHistory: "Load history",
@@ -445,7 +445,7 @@ export const knowledgeCopy = {
     removeHint:
       "The statement will no longer be used. You can restore it under “Removed”.",
     removeShared:
-      "{n} more facts belong to the same source. They will be paused too.",
+      "{n} more statements belong to the same source. They will be paused too.",
     refreshTitle: "Read this source again?",
     refreshHint:
       "Orbit reads the source again at no cost. If the text has changed, the affected statements are paused until you decide under “To review”.",

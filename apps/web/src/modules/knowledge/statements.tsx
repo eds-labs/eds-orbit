@@ -288,7 +288,7 @@ export function StatementList({
                       className="text-link"
                       href={shell.hrefOf("knowledge-facts") + "?expert=1"}
                     >
-                      {t.facts}
+                      {t.technical}
                     </AppLink>
                   </details>
                 </article>

@@ -76,8 +76,8 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
   knowledge_review_pending: (item, locale) => ({
     title:
       locale === "de"
-        ? `${item.count ?? 1} Erkenntnisse zu prüfen`
-        : `${item.count ?? 1} findings to review`,
+        ? `${item.count ?? 1} Vorschläge zu prüfen`
+        : `${item.count ?? 1} proposals to review`,
     action: { en: "Review", de: "Prüfen" },
   }),
   knowledge_conflicts: (item, locale) => {
@@ -85,8 +85,8 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
     return {
       title:
         locale === "de"
-          ? `${n} ${n === 1 ? "widersprüchlicher Fakt" : "widersprüchliche Fakten"}`
-          : `${n} conflicting fact${n === 1 ? "" : "s"}`,
+          ? `${n} ${n === 1 ? "widersprüchliche Aussage" : "widersprüchliche Aussagen"}`
+          : `${n} conflicting statement${n === 1 ? "" : "s"}`,
       action: { en: "Resolve", de: "Klären" },
     };
   },

@@ -35,6 +35,8 @@ import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { navigationForFeatures, routeTable } from "@/platform/shell/routes";
 import { knowledgeCopy } from "./workspace-text";
+import { expertCopy, expertValue } from "./expert-text";
+import { readFileSync } from "node:fs";
 const response = vi.hoisted(() => ({
   value: {
     enabled: true,
@@ -465,7 +467,6 @@ describe("statements by topic", () => {
     response.value.proposals = [pending()];
     for (const html of [render("review"), render()]) {
       expect(html).not.toContain("<select");
-      expect(html).not.toContain(de.all);
       expect(html).toContain('type="search"');
     }
   });
@@ -1812,9 +1813,11 @@ describe("add flow", () => {
     expect(reader).not.toContain(de.clientSecret);
     expect(reader).toContain(de.readOnly);
   });
-  it("lists the GitHub page under Advanced for owners", () => {
-    expect(render()).toContain('href="/p/p/knowledge/github"');
-    expect(render("overview", false)).not.toContain(
+  it("lists the GitHub page in the technical bar for owners", () => {
+    nav.search = "expert=1";
+    response.value.items = [];
+    expect(renderExpert("sources")).toContain('href="/p/p/knowledge/github"');
+    expect(renderExpert("sources", false)).not.toContain(
       'href="/p/p/knowledge/github"',
     );
   });
@@ -2115,5 +2118,137 @@ describe("site runs and analysis outcomes", () => {
     html = render("sources");
     expect(html).toContain("Bearbeiten");
     expect(html).not.toContain("Weiter einrichten");
+  });
+});
+
+const renderExpert = (tab: any, owner = true, locale: "de" | "en" = "de") =>
+  renderToStaticMarkup(
+    <ShellContext.Provider
+      value={
+        {
+          hrefOf: (key: string) =>
+            `/p/p/${key.replace("knowledge-", "knowledge/")}`.replace(
+              "/p/p/knowledge/knowledge",
+              "/p/p/knowledge",
+            ),
+        } as any
+      }
+    >
+      <WorkspaceContext.Provider
+        value={
+          {
+            project: { id: "p", name: "FamilyPlan" },
+            locale,
+            revision: 0,
+            isOwner: owner,
+            canEdit: owner,
+            refresh: () => {},
+            t: (k: string) => k,
+            href: (x: string) => x,
+          } as any
+        }
+      >
+        <Knowledge tab={tab} />
+      </WorkspaceContext.Provider>
+    </ShellContext.Provider>,
+  );
+
+describe("plain language and the technical area", () => {
+  const tabs = [
+    "sources",
+    "facts",
+    "conflicts",
+    "import",
+    "library",
+    "health",
+    "inspector",
+    "impact",
+  ];
+  it("the technical bar appears on expert pages with the workspace on", () => {
+    nav.search = "expert=1";
+    const html = renderExpert("health");
+    expect(html).toContain(expertCopy.de.navSources);
+    expect(html).toContain(expertCopy.de.navInspector);
+    expect(html).toContain(expertCopy.de.navBack);
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain("?expert=1");
+  });
+  it("the bar is absent with the workspace off", () => {
+    nav.search = "expert=1";
+    response.value = { enabled: false };
+    expect(renderExpert("health")).not.toContain(expertCopy.de.navBack);
+  });
+  it("every expert URL still renders", () => {
+    nav.search = "expert=1";
+    response.value.items = [];
+    for (const tab of tabs) {
+      expect(() => renderExpert(tab)).not.toThrow();
+      expect(renderExpert(tab)).toContain(expertCopy.de.navBack);
+    }
+  });
+  it("health shows named sections and no missing evidence", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [],
+      expiredFacts: [],
+      missingEvidence: [{ id: "m1", key: "x" }],
+      failedImports: [],
+      staleSources: [],
+    });
+    const html = renderExpert("health", false);
+    expect(html).toContain("Abgelaufene Fakten");
+    expect(html).toContain("Fehlgeschlagene Importe");
+    expect(html).toContain("Veraltete Quellen");
+    expect(html).not.toMatch(/missing evidence/i);
+    expect(html).not.toContain("expired Facts");
+  });
+  it("impact shows Affected content", () => {
+    nav.search = "expert=1";
+    response.value.impacts = [];
+    expect(renderExpert("impact", false, "en")).toContain("Affected content");
+  });
+  it("no raw status or source type is printed", () => {
+    nav.search = "expert=1";
+    Object.assign(response.value, {
+      conflicts: [{ id: "c", key: "k", status: "needs_review" }],
+      expiredFacts: [],
+      failedImports: [],
+      staleSources: [],
+    });
+    const html = renderExpert("health", false);
+    expect(html).not.toContain("needs review");
+    expect(html).not.toContain("needs_review");
+    expect(html).toContain("Prüfung nötig");
+    expect(expertValue("verified_facts", "de")).toBe("Bestätigte Fakten");
+  });
+  it("the Advanced fold is replaced by one link", () => {
+    const html = render("sources");
+    expect(html).not.toContain("knowledge-advanced");
+    expect(html).toContain('href="/p/p/knowledge/health?expert=1"');
+    expect(html).toContain("Technik-Bereich");
+  });
+  it("an unknown value prints Unknown", () => {
+    expect(expertValue("some_new_state", "en")).toBe("Unknown");
+    expect(expertValue(undefined, "de")).toBe("Unbekannt");
+  });
+  it("workspace pages use plain terms and a sentence about their place", () => {
+    const de = knowledgeCopy.de;
+    expect(render("sources")).toContain(de.sourcesHint);
+    expect(render("review")).toContain(de.reviewHint);
+    expect(render()).toContain(de.hint);
+    for (const lang of ["de", "en"] as const)
+      for (const text of Object.values(knowledgeCopy[lang]))
+        expect(text).not.toMatch(/Erkenntnis|Fakt|\bfindings\b|\bfacts?\b/i);
+    expect(Object.keys(expertCopy.en).sort()).toEqual(
+      Object.keys(expertCopy.de).sort(),
+    );
+    expect("all" in knowledgeCopy.de).toBe(false);
+  });
+  it("knowledge.tsx has no hard-coded headings or terms", () => {
+    const source = readFileSync(
+      new URL("./knowledge.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).not.toMatch(/<(dt|h2|h3|summary|th)>[A-Z][a-z]/);
   });
 });
