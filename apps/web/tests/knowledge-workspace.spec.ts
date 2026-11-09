@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "./fixtures";
+import { test, expect, type Locator, type Page } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
@@ -17,11 +17,64 @@ const SITE_PAGES = [
 ];
 const USE_TITLE = "Wie soll Orbit das verwenden?";
 
+// Unbreakable strings: the strictest case for horizontal overflow.
+const LONG_NAME = `FamilyPlan-${"Familienkalender".repeat(5)}`;
+const LONG_TEXT = `FamilyPlan Beleg ${"kalender-synchronisierung-".repeat(8)}Ende.`;
+
+type Statement = { name: string; text: string };
+const FIRST: Statement = {
+  name: "FamilyPlan Testdokumentation",
+  text: "FamilyPlan bündelt gemeinsame Kalender.",
+};
+const LONG: Statement = { name: LONG_NAME, text: LONG_TEXT };
+const THIRD: Statement = {
+  name: "FamilyPlan Erinnerungen",
+  text: "FamilyPlan erinnert Familien an gemeinsame Termine.",
+};
+const FOURTH: Statement = {
+  name: "FamilyPlan Listen",
+  text: "FamilyPlan teilt Einkaufslisten mit allen.",
+};
+const FIRST_EDITED = "FamilyPlan bündelt gemeinsame Kalender für Familien.";
+const THIRD_EDITED = "FamilyPlan erinnert Familien rechtzeitig an Termine.";
+
 async function expectNoOverflow(page: Page) {
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth + 1,
   );
   expect(overflow).toBe(false);
+}
+
+/** One text taken in through the real add flow as a single statement to review. */
+async function addStatement(page: Page, setupPath: string, s: Statement) {
+  await page.goto(setupPath);
+  await page.getByRole("button", { name: /^Text / }).click();
+  await page.getByLabel("Name der Quelle").fill(s.name);
+  await page.getByLabel("Inhalt", { exact: true }).fill(s.text);
+  await page.getByRole("button", { name: "Weiter", exact: true }).click();
+  await page.getByRole("radio", { name: /^Als eine Aussage prüfen/ }).check();
+  await page
+    .getByRole("button", { name: "Zur Prüfung geben", exact: true })
+    .click();
+  await expect(
+    page.getByRole("link", { name: "Vorschläge prüfen" }),
+  ).toBeVisible({ timeout: 30000 });
+}
+
+const reviewCard = (page: Page, text: string) =>
+  page.locator("article.knowledge-statement", {
+    has: page.getByRole("heading", { level: 3, name: text }),
+  });
+
+/** The box lies inside the viewport on both axes. */
+async function expectInViewport(page: Page, box: Locator) {
+  const rect = await box.boundingBox();
+  const view = page.viewportSize()!;
+  expect(rect).not.toBeNull();
+  expect(rect!.x).toBeGreaterThanOrEqual(0);
+  expect(rect!.x + rect!.width).toBeLessThanOrEqual(view.width + 0.5);
+  expect(rect!.y).toBeGreaterThanOrEqual(0);
+  expect(rect!.y + rect!.height).toBeLessThanOrEqual(view.height + 0.5);
 }
 
 for (const [name, viewport] of [
@@ -35,6 +88,7 @@ for (const [name, viewport] of [
       context,
       baseURL,
     }) => {
+      test.setTimeout(420_000);
       const account = JSON.parse(
         readFileSync(".runtime/knowledge-e2e.json", "utf8"),
       );
@@ -78,18 +132,18 @@ for (const [name, viewport] of [
         .getByLabel("Was ist das Projekt?")
         .fill("Synthetisches FamilyPlan-Projekt für die lokale Abnahme.");
       await page.getByLabel("Für wen ist es gedacht?").fill("Familien");
-      await page.getByRole("button", { name: "Speichern", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Speichern", exact: true })
+        .click();
       await expect(
         page.getByRole("heading", { name: "Projektwissen", exact: true }),
       ).toBeVisible();
+
+      // The whole-text way is the default; this reads the first statement.
       await page.goto(project.setupPath);
       await page.getByRole("button", { name: /^Text / }).click();
-      await page
-        .getByLabel("Name der Quelle")
-        .fill("FamilyPlan Testdokumentation");
-      await page
-        .getByLabel("Inhalt", { exact: true })
-        .fill("FamilyPlan bündelt gemeinsame Kalender.");
+      await page.getByLabel("Name der Quelle").fill(FIRST.name);
+      await page.getByLabel("Inhalt", { exact: true }).fill(FIRST.text);
       await page.getByRole("button", { name: "Weiter", exact: true }).click();
       await expect(
         page.getByRole("heading", { name: USE_TITLE }),
@@ -97,94 +151,286 @@ for (const [name, viewport] of [
       await expect(
         page.getByRole("radio", { name: /^Ganz übernehmen/ }),
       ).toBeChecked();
-      await page.getByRole("radio", { name: /^Als eine Aussage prüfen/ }).check();
+      await page
+        .getByRole("radio", { name: /^Als eine Aussage prüfen/ })
+        .check();
       await page
         .getByRole("button", { name: "Zur Prüfung geben", exact: true })
         .click();
       await expect(
         page.getByRole("link", { name: "Vorschläge prüfen" }),
       ).toBeVisible({ timeout: 30000 });
-      await page.getByRole("link", { name: "Vorschläge prüfen" }).click();
+      for (const s of [LONG, THIRD, FOURTH])
+        await addStatement(page, project.setupPath, s);
+
+      // Sources: one row per source, one primary control, a working More menu.
+      await page.goto(`/p/${project.id}/knowledge/sources`);
+      const row = page.locator(".knowledge-source", {
+        has: page.getByRole("heading", { name: FIRST.name, exact: true }),
+      });
+      await expect(row).toBeVisible();
       await expect(
-        page.getByRole("heading", {
-          name: "FamilyPlan bündelt gemeinsame Kalender.",
+        page.locator(".knowledge-source", {
+          has: page.getByRole("heading", { name: LONG_NAME, exact: true }),
         }),
       ).toBeVisible();
-      await page.getByText("Beleg und Verlauf", { exact: true }).click();
-      await expect(page.locator("blockquote")).toContainText(
-        "FamilyPlan bündelt gemeinsame Kalender.",
+      await expectNoOverflow(page);
+      const primaries = row.locator(
+        ".knowledge-source-actions > a, .knowledge-source-actions > button",
       );
-      await page
-        .getByRole("button", { name: "Übernehmen", exact: true })
+      await expect(primaries).toHaveCount(1);
+      await expect(primaries.first()).toHaveText("Prüfen");
+      const more = row.locator("details.knowledge-more");
+      await expect(more).not.toHaveAttribute("open", "");
+      await more.locator("summary").click();
+      await expect(more).toHaveAttribute("open", "");
+      const panel = more.locator(".knowledge-more-panel");
+      await expect(panel).toBeVisible();
+      await panel.scrollIntoViewIfNeeded();
+      await expectInViewport(page, panel);
+      await expectNoOverflow(page);
+      await page.screenshot({
+        path: `.runtime/knowledge-more-${name}.png`,
+        fullPage: true,
+      });
+      await panel
+        .getByRole("menuitem", { name: "Entscheidungsverlauf" })
         .click();
+      // A choice closes the menu and acts.
+      await expect(more).not.toHaveAttribute("open", "");
+      await expect(
+        row.locator(".knowledge-source-history .knowledge-statement"),
+      ).toHaveCount(1);
+      await expectNoOverflow(page);
+
+      // To review: statements under their topic, selected and confirmed in bulk.
+      await page.goto(`/p/${project.id}/knowledge/review`);
+      await expect(
+        page.getByRole("heading", { level: 2, name: /^Beschreibung/ }),
+      ).toBeVisible();
+      await expect(page.locator("article.knowledge-statement h3")).toHaveCount(
+        4,
+      );
+      await expect(reviewCard(page, LONG.text)).toBeVisible();
+      await expect(reviewCard(page, LONG.text)).toContainText(LONG_NAME);
+      await expect(
+        reviewCard(page, LONG.text).locator("blockquote"),
+      ).toContainText(LONG.text);
+      await expectNoOverflow(page);
+      const bar = page.locator(".knowledge-bulk-bar");
+      await expect(bar).toHaveCount(0);
+      await page.screenshot({
+        path: `.runtime/knowledge-review-${name}.png`,
+        fullPage: true,
+      });
+
+      // A card's edit under Adjust stays with the card, also across a refresh.
+      await reviewCard(page, FIRST.text)
+        .getByRole("button", { name: "Anpassen" })
+        .click();
+      await reviewCard(page, FIRST.text)
+        .getByRole("textbox", { name: "Aussage", exact: true })
+        .fill(FIRST_EDITED);
+      await reviewCard(page, THIRD.text)
+        .getByRole("button", { name: "Anpassen" })
+        .click();
+      await reviewCard(page, THIRD.text)
+        .getByRole("textbox", { name: "Aussage", exact: true })
+        .fill(THIRD_EDITED);
+      await expect(
+        page.getByRole("heading", { level: 3, name: FIRST_EDITED }),
+      ).toBeVisible();
+
+      await page.getByRole("button", { name: "Alle auswählen" }).click();
+      await expect(bar).toBeVisible();
+      const summary = bar.locator(".knowledge-bulk-summary");
+      await expect(summary).toHaveText(
+        /^4 Aussagen · Marketing und Support · \d+ öffentlich$/,
+      );
+      await expect(
+        page.locator(".knowledge-review-check input:checked"),
+      ).toHaveCount(4);
+
+      // The bar stays in view while the page scrolls and clears the bottom bar.
+      await page.setViewportSize({
+        width: viewport.width,
+        height: name === "desktop" ? 600 : 844,
+      });
+      const scrollable = await page.evaluate(
+        () => document.documentElement.scrollHeight > window.innerHeight + 50,
+      );
+      expect(scrollable).toBe(true);
+      const nav = page.locator(".mobile-nav");
+      for (const y of [0, 400, 100000]) {
+        await page.evaluate((top) => window.scrollTo(0, top), y);
+        await expectInViewport(page, bar);
+        if (name === "mobile") {
+          const barBox = (await bar.boundingBox())!;
+          const navBox = (await nav.boundingBox())!;
+          expect(barBox.y + barBox.height).toBeLessThanOrEqual(navBox.y + 0.5);
+        }
+      }
+      if (name === "mobile") await expect(nav).toBeVisible();
+      await page.screenshot({ path: `.runtime/knowledge-bulk-${name}.png` });
+      await page.setViewportSize(viewport);
+
+      // Partial failure: one request is answered with a version conflict.
+      const sent: Record<string, any>[] = [];
+      let conflictThird = true;
+      await page.route(
+        `**/api/projects/${project.id}/actions/knowledge-proposal-decide`,
+        (route) => {
+          const body = route.request().postDataJSON();
+          sent.push(body);
+          if (conflictThird && body.statement === THIRD_EDITED)
+            return route.fulfill({
+              status: 409,
+              json: { error: { code: "VERSION_CONFLICT" } },
+            });
+          return route.continue();
+        },
+      );
+      await bar.getByRole("button", { name: "Auswahl bestätigen" }).click();
+      await expect(bar.getByRole("status")).toHaveText("3 von 4 bestätigt");
+      // What was sent is what the owner adjusted, one request per statement.
+      expect(sent).toHaveLength(4);
+      expect(sent.map((b) => b.statement).sort()).toEqual(
+        [FIRST_EDITED, LONG.text, THIRD_EDITED, FOURTH.text].sort(),
+      );
+      for (const body of sent)
+        expect(body).toMatchObject({
+          decision: "accept",
+          audiences: ["marketing", "support"],
+        });
+      const failed = reviewCard(page, THIRD_EDITED);
+      await expect(failed).toBeVisible();
+      await expect(
+        failed.getByText("Dieser Eintrag wurde inzwischen geändert."),
+      ).toBeVisible();
+      await expect(
+        failed.locator(".knowledge-review-check input"),
+      ).toBeChecked();
+      await expect(page.locator("article.knowledge-statement h3")).toHaveCount(
+        1,
+      );
+      await expect(summary).toHaveText(
+        /^1 Aussage · Marketing und Support · \d+ öffentlich$/,
+      );
+      await expectInViewport(page, bar);
+      await expectNoOverflow(page);
+      await page.screenshot({
+        path: `.runtime/knowledge-bulk-failed-${name}.png`,
+        fullPage: true,
+      });
+
+      // The kept edit is what the retry sends.
+      conflictThird = false;
+      sent.length = 0;
+      await bar.getByRole("button", { name: "Auswahl bestätigen" }).click();
+      await expect(bar.getByRole("status")).toHaveText("1 von 1 bestätigt");
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.statement).toBe(THIRD_EDITED);
       await expect(
         page.getByText("Alles geprüft", { exact: true }),
       ).toBeVisible();
+      await page.unroute(
+        `**/api/projects/${project.id}/actions/knowledge-proposal-decide`,
+      );
+
+      // Project knowledge: the statements are listed under their topic.
       await page.goto(`/p/${project.id}/knowledge`);
       await expect(
         page.getByRole("heading", { name: "Projektwissen", exact: true }),
       ).toBeVisible();
+      const topic = page.locator("section.knowledge-topic", {
+        has: page.getByRole("heading", { level: 2, name: /^Beschreibung/ }),
+      });
+      await expect(topic.locator("article.knowledge-statement h3")).toHaveCount(
+        4,
+      );
+      for (const text of [FIRST_EDITED, LONG.text, THIRD_EDITED, FOURTH.text])
+        await expect(
+          topic.getByRole("heading", { level: 3, name: text }),
+        ).toBeVisible();
+      await expectNoOverflow(page);
+      const first = reviewCard(page, FIRST_EDITED);
+      await first.getByText("Beleg und Verlauf", { exact: true }).click();
+      await expect(first.locator("blockquote")).toContainText(FIRST.text);
+      await first.getByRole("button", { name: "Verlauf laden" }).click();
       await expect(
-        page.getByRole("heading", {
-          name: "FamilyPlan bündelt gemeinsame Kalender.",
-        }),
-      ).toBeVisible();
-      await page.getByText("Beleg und Verlauf", { exact: true }).click();
-      await page.getByRole("button", { name: "Verlauf laden" }).click();
-      await expect(
-        page.getByRole("region", { name: "Entscheidungsverlauf" }),
+        first.getByRole("region", { name: "Entscheidungsverlauf" }),
       ).toContainText("Bestätigt");
       await expectNoOverflow(page);
       if (name === "desktop") {
-        const nav = page.locator(".sidebar");
+        const side = page.locator(".sidebar");
         await expect(
-          nav.getByRole("link", { name: "Projektwissen", exact: true }),
+          side.getByRole("link", { name: "Projektwissen", exact: true }),
         ).toBeVisible();
         await expect(
-          nav.getByRole("link", { name: "Quellen", exact: true }),
+          side.getByRole("link", { name: "Quellen", exact: true }),
         ).toBeVisible();
         await expect(
-          nav.getByRole("link", { name: /^Zu prüfen/ }),
+          side.getByRole("link", { name: /^Zu prüfen/ }),
         ).toBeVisible();
         await expect(
-          nav.getByRole("link", { name: "Fakten", exact: true }),
+          side.getByRole("link", { name: "Fakten", exact: true }),
         ).toHaveCount(0);
         await expect(
-          nav.getByRole("link", { name: "Importieren", exact: true }),
+          side.getByRole("link", { name: "Importieren", exact: true }),
         ).toHaveCount(0);
       }
       await page.screenshot({
         path: `.runtime/knowledge-${name}.png`,
         fullPage: true,
       });
-      await page.getByRole("button", { name: "Verlauf laden" }).click();
       await page.getByLabel("Wissen durchsuchen").fill("nicht vorhanden");
       await expect(page.getByText(/Keine passenden Einträge/)).toBeVisible();
       await page.getByLabel("Wissen durchsuchen").fill("");
       // A confirmed statement can be corrected, removed and brought back.
-      const corrected = page.getByRole("heading", {
-        name: "FamilyPlan teilt Familienkalender.",
-      });
-      await page
+      const corrected = "FamilyPlan teilt Einkaufslisten mit der Familie.";
+      await reviewCard(page, FOURTH.text)
         .getByRole("button", { name: "Bearbeiten", exact: true })
         .click();
       await page
         .getByRole("textbox", { name: "Aussage", exact: true })
-        .fill("FamilyPlan teilt Familienkalender.");
+        .fill(corrected);
       await page.getByRole("button", { name: "Änderung speichern" }).click();
-      await expect(corrected).toBeVisible();
-      await page.getByRole("button", { name: "Entfernen", exact: true }).click();
+      const correctedHeading = page.getByRole("heading", {
+        level: 3,
+        name: corrected,
+      });
+      await expect(correctedHeading).toBeVisible();
+      await reviewCard(page, corrected)
+        .getByRole("button", { name: "Entfernen", exact: true })
+        .click();
       await page
         .getByRole("dialog", { name: "Aussage entfernen?" })
         .getByRole("button", { name: "Entfernen", exact: true })
         .click();
-      await expect(corrected).toHaveCount(0);
+      await expect(correctedHeading).toHaveCount(0);
       await page.getByRole("button", { name: "Entfernt (1)" }).click();
       await page.getByRole("button", { name: "Wiederherstellen" }).click();
-      await expect(corrected).toBeVisible();
+      await expect(correctedHeading).toBeVisible();
       await expect(page.getByRole("button", { name: /^Entfernt/ })).toHaveCount(
         0,
       );
+
+      // The technical area is one link; its bar leads back to knowledge.
+      await page
+        .getByRole("link", { name: "Technik-Bereich", exact: true })
+        .click();
+      await expect(page).toHaveURL(/\/knowledge\/health\?expert=1/);
+      const technical = page.getByRole("navigation", {
+        name: "Technik-Bereich",
+      });
+      await expect(technical).toBeVisible();
+      await expectNoOverflow(page);
+      await technical.getByRole("link", { name: "Zurück zum Wissen" }).click();
+      await expect(
+        page.getByRole("heading", { name: "Projektwissen", exact: true }),
+      ).toBeVisible();
+      await expect(page).not.toHaveURL(/expert=1/);
+
       // A warning's link lands on its source, which says what is wrong.
       const empty = await context.request.post(
         `/api/projects/${project.id}/sources`,
@@ -207,51 +453,37 @@ for (const [name, viewport] of [
       expect(empty.status()).toBe(201);
       const source = await empty.json();
       await page.goto(`/p/${project.id}/knowledge/sources?source=${source.id}`);
-      const row = page.locator(`#knowledge-source-${source.id}`);
-      await expect(row).toContainText("Noch nie abgerufen");
-      await expect(row).toBeFocused();
+      const emptyRow = page.locator(`#knowledge-source-${source.id}`);
+      await expect(emptyRow).toContainText("Noch nie abgerufen");
+      await expect(emptyRow).toBeFocused();
+      await expectNoOverflow(page);
       await page.screenshot({
         path: `.runtime/knowledge-sources-${name}.png`,
         fullPage: true,
       });
-      await row.getByRole("button", { name: "Entfernen", exact: true }).click();
+      await emptyRow.locator("details.knowledge-more summary").click();
+      await emptyRow
+        .getByRole("menuitem", { name: "Entfernen", exact: true })
+        .click();
       await page
         .getByRole("dialog", { name: "Quelle entfernen?" })
         .getByRole("button", { name: "Entfernen", exact: true })
         .click();
-      await expect(row).toHaveCount(0);
-      // Reading a source again asks first and then shows how it is used.
-      await page
-        .locator(".knowledge-source", {
-          has: page.getByRole("heading", {
-            name: "FamilyPlan Testdokumentation",
-          }),
-        })
-        .getByRole("button", { name: "Aktualisieren" })
-        .click();
-      const confirmRead = page.getByRole("dialog", {
-        name: "Quelle neu lesen?",
-      });
-      await expect(confirmRead).toBeVisible();
-      await confirmRead.getByRole("button", { name: "Jetzt lesen" }).click();
-      await expect(
-        page.getByRole("heading", { name: USE_TITLE }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("radio", { name: /^Als eine Aussage prüfen/ }),
-      ).toBeChecked();
+      await expect(emptyRow).toHaveCount(0);
 
       // A long text taken over whole is on the Sources page with its document.
       await page.goto(project.setupPath);
       await page.getByRole("button", { name: /^Text / }).click();
       await page.getByLabel("Name der Quelle").fill("FamilyPlan Handbuch");
-      await page.getByLabel("Inhalt", { exact: true }).fill(
-        Array.from(
-          { length: 30 },
-          (_, i) =>
-            `Abschnitt ${i + 1}: Familien teilen Termine und Aufgaben in FamilyPlan.`,
-        ).join("\n"),
-      );
+      await page
+        .getByLabel("Inhalt", { exact: true })
+        .fill(
+          Array.from(
+            { length: 30 },
+            (_, i) =>
+              `Abschnitt ${i + 1}: Familien teilen Termine und Aufgaben in FamilyPlan.`,
+          ).join("\n"),
+        );
       await page.getByRole("button", { name: "Weiter", exact: true }).click();
       await expect(
         page.getByRole("radio", { name: /^Ganz übernehmen/ }),
@@ -260,7 +492,9 @@ for (const [name, viewport] of [
       await expect(
         page.getByRole("radio", { name: /^Als eine Aussage prüfen/ }),
       ).toHaveCount(0);
-      await page.getByRole("button", { name: "Übernehmen", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Übernehmen", exact: true })
+        .click();
       await expect(
         page.getByText("Der Inhalt ist jetzt durchsuchbar.", { exact: true }),
       ).toBeVisible();
@@ -269,8 +503,9 @@ for (const [name, viewport] of [
         has: page.getByRole("heading", { name: "FamilyPlan Handbuch" }),
       });
       await expect(handbook).toBeFocused();
+      await handbook.locator("details.knowledge-more summary").click();
       await expect(
-        handbook.getByRole("link", { name: "Dokumente und Versionen" }),
+        handbook.getByRole("menuitem", { name: "Dokumente und Versionen" }),
       ).toBeVisible();
       await expectNoOverflow(page);
 
@@ -290,7 +525,9 @@ for (const [name, viewport] of [
         .getByLabel("Inhalt", { exact: true })
         .fill("FamilyPlan erinnert Familien an gemeinsame Termine.");
       await page.getByRole("button", { name: "Weiter", exact: true }).click();
-      await page.getByRole("radio", { name: /^KI schlägt Aussagen vor/ }).check();
+      await page
+        .getByRole("radio", { name: /^KI schlägt Aussagen vor/ })
+        .check();
       const startAi = page.getByRole("button", { name: /^Analyse starten/ });
       await expect(startAi).toBeVisible();
       await expect(startAi).toBeDisabled();
