@@ -65,6 +65,13 @@ export type SocialMediaList = { items: SocialMedia[] };
 export type ValidationIssue = { code: string; severity: "error" | "warning"; path?: string };
 export type MediaRef = { mediaId: string; width: number; height: number; altText: string | null };
 export type ApprovalState = "none" | "pending" | "approved" | "rejected" | "expired" | "canceled";
+/**
+ * The other module's record a post came from (read-only, WP3): Marketing's
+ * publication (`marketing`/`publication`), a Marketing draft hand-off
+ * (`marketing`/`draft_handoff`) or a mirrored Postiz record (`postiz`/…).
+ * Absent from an API before 2026-11-10.
+ */
+export type OriginRef = { module: string; type: string; id: string } | null;
 export type PostStatus =
   | "draft"
   | "needs_approval"
@@ -95,6 +102,7 @@ export type PostView = {
   approval: { state: ApprovalState; requestId: string | null; approvedAt: string | null; approvedBy: string | null };
   packageHash: string | null;
   origin: string;
+  originRef?: OriginRef;
   readOnly: boolean;
   version: number;
   createdAt: string;
@@ -141,6 +149,7 @@ export type PostListItem = {
   schedule: PostSchedule;
   approvalState: ApprovalState;
   origin: string;
+  originRef?: OriginRef;
   readOnly: boolean;
   accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
   publications: { total: number; published: number; failed: number; unknown: number; test: boolean };
@@ -159,6 +168,7 @@ export type CalendarItem = {
   excerpt: string;
   status: PostStatus;
   origin: string;
+  originRef?: OriginRef;
   readOnly: boolean;
   schedule: PostSchedule;
   approvalState: ApprovalState;
