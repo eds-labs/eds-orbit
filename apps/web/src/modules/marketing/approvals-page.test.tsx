@@ -345,6 +345,48 @@ describe("approvals page in lanes (WP3)", () => {
   });
 });
 
+describe("open exceptions in words (WP2 D)", () => {
+  it("explains the data-class block instead of a raw code and a dash", () => {
+    seed();
+    search.value = "";
+    answers["/exceptions?"] = {
+      items: [
+        row("exceptions", "x-data", {
+          code: "AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA",
+          status: "open",
+          count: 2,
+          lastSeenAt: "2026-11-08T07:46:00.000Z",
+        }),
+      ],
+    };
+    const html = render(<ApprovalInbox />);
+    expect(html).toContain("KI-Anbieter für Kundendaten nicht erlaubt");
+    expect(html).toContain("nur an OpenAI");
+    expect(html).toContain("Einstellung öffnen");
+    expect(html).toContain("/settings?section=ai");
+    // The code stays readable, but only under the technical details.
+    const details = html.indexOf("Technische Details");
+    expect(details).toBeGreaterThan(-1);
+    expect(html.indexOf("AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA")).toBeGreaterThan(
+      details,
+    );
+    expect(html).not.toContain("<p>—</p>");
+  });
+
+  it("keeps an unknown code as its title", () => {
+    seed();
+    search.value = "";
+    answers["/exceptions?"] = {
+      items: [
+        row("exceptions", "x-new", { code: "SOMETHING_NEW", status: "open" }),
+      ],
+    };
+    const html = render(<ApprovalInbox />, { locale: "en" });
+    expect(html).toContain("<strong>SOMETHING_NEW</strong>");
+    expect(html).not.toContain("Technical details");
+  });
+});
+
 describe("draft decisions in the detail view", () => {
   it("disables reject and discard with the reason while a post holds the draft", () => {
     const content = row("content", "c-fb", { status: "reviewed" }) as never;

@@ -18,6 +18,7 @@ import {
 } from "./approvals-lanes";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import { marketingText } from "./labels";
+import { exceptionText } from "@/lib/exception-text";
 import { APPROVAL_STATUSES } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
 import { ContentGroupRows, contentGroups } from "./content-studio";
@@ -1767,6 +1768,44 @@ function PausedPublications() {
 /** History rows the approvals page shows, newest first. */
 const HISTORY_LIMIT = 50;
 /**
+ * An open exception in words (plan 2026-11-10, WP2 D): what happened, why
+ * and what to do, with the setting that resolves it. A stored title or
+ * message wins; a code without its own text keeps showing the code. The
+ * raw code stays readable under "Technical details".
+ */
+function ExceptionWords({ exception }: { exception: Entity }) {
+  const { locale } = useWorkspace();
+  const de = locale === "de";
+  const code = value(exception, "code", "");
+  const text = exceptionText(locale, code);
+  const title = value(exception, "title", "") || text.title;
+  const stored =
+    value(exception, "message", "") || value(exception, "reason", "");
+  const cause = stored || text.cause;
+  return (
+    <>
+      <strong>{title}</strong>
+      {cause && <p>{cause}</p>}
+      {!stored && text.action && (
+        <p>
+          {text.action}{" "}
+          {text.href && (
+            <AppLink href={text.href}>
+              {de ? "Einstellung öffnen" : "Open the setting"}
+            </AppLink>
+          )}
+        </p>
+      )}
+      {code && title !== code && (
+        <details className="approval-diagnostics">
+          <summary>{de ? "Technische Details" : "Technical details"}</summary>
+          <code>{code}</code>
+        </details>
+      )}
+    </>
+  );
+}
+/**
  * The approvals page in lanes (WP3, 2026-11-10), derived at read time from
  * content, publications and Postiz drafts (approvalLanes): open actions
  * (drafts to release, one button per channel; content to review;
@@ -1961,8 +2000,7 @@ export function ApprovalInbox() {
             {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
             {exceptionRows.map((e) => (
               <Alert key={e.id} kind="warning">
-                <strong>{value(e, "title", value(e, "code"))}</strong>
-                <p>{value(e, "message", value(e, "reason"))}</p>
+                <ExceptionWords exception={e} />
                 <small>
                   {de ? "Zuletzt" : "Last seen"}{" "}
                   {when(e.data.lastSeenAt, locale, project.timezone)} ·{" "}
