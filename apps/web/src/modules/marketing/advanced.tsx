@@ -38,7 +38,7 @@ import {
   type AssetCategory,
   type AssetSourceFilter,
   type AssetStatusFilter,
-} from "./asset-library-copy";
+} from "./asset-library-text";
 import {
   brandTermsField,
   mergeVisualIdentity,

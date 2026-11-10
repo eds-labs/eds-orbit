@@ -28,7 +28,7 @@ import { labels, type Locale } from "@/lib/i18n";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { BrandAssetLibrary } from "./advanced";
-import { assetFacts, assetSource, inCategory, inStatus, sourceLabel } from "./asset-library-copy";
+import { assetFacts, assetSource, inCategory, inStatus, sourceLabel } from "./asset-library-text";
 
 const project = { id: "p1", workspaceId: "w1", name: "Synthetic", timezone: "Europe/Berlin", role: "owner" } as Project;
 const identity: Identity = {

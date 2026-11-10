@@ -10,7 +10,7 @@ import {
   say,
   sourceLabel,
   statusLabel,
-} from "./asset-library-copy";
+} from "./asset-library-text";
 
 // One brand asset of the library (WP4): a preview, a readable name, facts
 // and source, its status, the owner's actions, and the raw ids only in
