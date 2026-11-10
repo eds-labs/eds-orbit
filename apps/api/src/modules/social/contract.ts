@@ -13,7 +13,7 @@ import { socialActive } from "./gate.ts";
 import { ingestMedia } from "./media/library.ts";
 import { approveOriginPost, holdOriginPost } from "./posts/approval.ts";
 import { createPost, heldByOrigin, lockPost } from "./posts/posts.ts";
-import { validateVariant } from "./posts/validation.ts";
+import { validateVariant, type ValidationIssue } from "./posts/validation.ts";
 
 // What other modules may use of Social (ADR 0020 §6.4, S9). This file is
 // the only one Marketing may import from the social module (boundary zone
@@ -94,14 +94,20 @@ export async function accountForChannel(tx: DbTx, scope: Scope, channel: string)
 }
 
 /**
- * What would keep a post with this text from going out on the channel now:
- * the module, the mapping, the account and Social's rules (text, live
- * gates). Images are checked when the post is created.
+ * Social's checks of one channel for a post body: the module, the mapping,
+ * then the account and Social's rules (text, live gates) as validation
+ * issues. `active` passes a module state already read.
  */
-export async function publishingBlockers(tx: DbTx, scope: Scope, channel: string, input: { text: string }): Promise<string[]> {
-  if (!(await socialActive(tx, scope))) return ["SOCIAL_DISABLED"];
+async function channelIssues(
+  tx: DbTx,
+  scope: Scope,
+  channel: string,
+  body: string,
+  active?: boolean,
+): Promise<{ refused: "SOCIAL_DISABLED" | "SOCIAL_CHANNEL_NOT_MAPPED" } | { account: SocialAccountRef; issues: ValidationIssue[] }> {
+  if (!(active ?? (await socialActive(tx, scope)))) return { refused: "SOCIAL_DISABLED" };
   const account = await accountForChannel(tx, scope, channel);
-  if (!account) return ["SOCIAL_CHANNEL_NOT_MAPPED"];
+  if (!account) return { refused: "SOCIAL_CHANNEL_NOT_MAPPED" };
   const row = await tx.socialAccount.findFirstOrThrow({ where: { id: account.accountId, projectId: scope.projectId } });
   const issues = validateVariant(
     {
@@ -113,14 +119,70 @@ export async function publishingBlockers(tx: DbTx, scope: Scope, channel: string
         capability: row.capability,
         settings: row.settings as { xLongPosts?: boolean },
       },
-      body: input.text,
+      body,
       media: [],
       options: {},
     },
     validationContext(account.platform),
   );
+  return { account, issues };
+}
+
+const unique = (codes: string[]) => [...new Set(codes)];
+
+/**
+ * What would keep a post with this text from going out on the channel now:
+ * the module, the mapping, the account and Social's rules (text, live
+ * gates). Images are checked when the post is created.
+ */
+export async function publishingBlockers(tx: DbTx, scope: Scope, channel: string, input: { text: string }): Promise<string[]> {
+  const checked = await channelIssues(tx, scope, channel, input.text);
+  if ("refused" in checked) return [checked.refused];
   // An image is checked with the post; without it Instagram always asks for one.
-  return [...new Set(issues.filter((i) => i.severity === "error" && i.code !== "SOCIAL_MEDIA_REQUIRED").map((i) => i.code))];
+  return unique(checked.issues.filter((i) => i.severity === "error" && i.code !== "SOCIAL_MEDIA_REQUIRED").map((i) => i.code));
+}
+
+/** One channel's readiness for publishing through Social, before any post exists (codes only, no text). */
+export type ChannelPublishingReadiness = {
+  channel: string;
+  /** The connected account behind the channel; null while the module is off or nothing is mapped. */
+  accountId: string | null;
+  platform: SocialPlatform | null;
+  /** What stops every post on the channel now, as publishingBlockers raises it at preflight. */
+  blockers: string[];
+  /** What only informs in the current send mode: an account whose posting was not verified, in test mode. */
+  warnings: string[];
+};
+
+// Issues of the post's own content. An empty body without media raises only
+// these two, never a text-length or media-rule issue; everything else the
+// same check raises belongs to the channel (module, mapping, account, gates).
+const CONTENT_ISSUES = new Set(["SOCIAL_TEXT_EMPTY", "SOCIAL_MEDIA_REQUIRED"]);
+
+/**
+ * The text-free part of publishingBlockers for each channel (readiness,
+ * ADR 0020 S9): the same checks with an empty post, minus the content
+ * issues. Codes only; the caller words them.
+ */
+export async function channelPublishingReadiness(tx: DbTx, scope: Scope, channels: string[]): Promise<ChannelPublishingReadiness[]> {
+  const active = await socialActive(tx, scope);
+  const result: ChannelPublishingReadiness[] = [];
+  for (const channel of channels) {
+    const checked = await channelIssues(tx, scope, channel, "", active);
+    if ("refused" in checked) {
+      result.push({ channel, accountId: null, platform: null, blockers: [checked.refused], warnings: [] });
+      continue;
+    }
+    const issues = checked.issues.filter((i) => !CONTENT_ISSUES.has(i.code));
+    result.push({
+      channel,
+      accountId: checked.account.accountId,
+      platform: checked.account.platform,
+      blockers: unique(issues.filter((i) => i.severity === "error").map((i) => i.code)),
+      warnings: unique(issues.filter((i) => i.severity === "warning").map((i) => i.code)),
+    });
+  }
+  return result;
 }
 
 /** Puts an approved image of the origin into Social's library; outside a transaction. */
