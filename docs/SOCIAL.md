@@ -200,7 +200,7 @@ Orbit Chat (feature `social`, while the module is on for the project) and outsid
 
 | Tool | Kind | Permission | What it does |
 |---|---|---|---|
-| `social_accounts` | read | `social.read` | Accounts with status, posting verified and the longest text; no tokens or connection ids |
+| `social_accounts` | read | `social.read` | Live accounts (`items`) with status, posting verified and the longest text; disconnected ones only in `archivedAccounts`; no tokens or connection ids |
 | `social_calendar` | read | `social.read` | Posts timed in at most 31 days (filters: accounts, platforms, statuses, origins), at most 200 with `truncated` |
 | `social_post_get` | read | `social.read` | One post: text per account, image metadata, schedule, approval, check results, version, publications |
 | `social_post_status` | read | `social.read` | Status and publications of up to 20 posts; unknown ids under `missing` |
@@ -213,6 +213,7 @@ Orbit Chat (feature `social`, while the module is on for the project) and outsid
 | `social_media_import` | internal write (W0, MCP only) | `social.compose` | An image into the library from the project's Google Drive, an HTTPS URL or an Orbit file; returns the media id |
 | `social_media_upload` | internal write (W0, MCP only) | `social.compose` | A new image: inline base64 (≤ 160 KB), a client-held file (download URL) or a one-time upload session; returns the media id |
 
+- **Archived accounts (2026-11-10):** `social_accounts` lists only accounts that are not disconnected in `items`. A disconnected account (status `disabled`) keeps its row for the history of its posts but is no posting target (drafts and checks refuse it with `SOCIAL_ACCOUNT_NOT_ACTIVE`); it is listed apart in the additive `archivedAccounts` with `accountId`, `platform`, `handle`, `displayName`, `status` and `disabledAt` only. Reconnecting the same account in the same project makes it live again. The REST list `GET …/social/accounts` still returns every account with `disabledAt`; the Accounts page shows disconnected ones in a collapsed "Archived accounts" section without actions.
 - **Approvals:** every proposal is an ActionRequest the owner decides (S-D9); nothing changes before. The W0 proposals may be covered by an agent mandate (cost 0); the W2 ones never. A schedule or publish-now proposal stores the exact package (texts, images, accounts, time, package hash) as its approval context, and Decisions shows it like a post approval; the owner's decision is the post's approval, applied without a second request. A post that changed after the proposal makes the approval stale (`SOCIAL_APPROVAL_STALE`); a time that is less than two minutes away at approval is refused (`SOCIAL_SCHEDULE_TOO_SOON`). While a proposal waits, the post stays a draft.
 - **Proposals over MCP** need `ORBIT_MCP_TASKS` and the gateway's proposals switch, like Support, Finance and Work; idempotency keys work as there (same key and arguments: the same request; other arguments: `IDEMPOTENCY_KEY_CONFLICT`).
 - **Chat budget:** the eleven chat tools add about 10 KB to a Claude chat's fixed part (tool schemas use a short UUID pattern for this reason); `social_media_list` is about 0.9 KB of it. Import and upload are not offered to Orbit Chat.

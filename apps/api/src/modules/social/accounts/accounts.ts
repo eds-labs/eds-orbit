@@ -26,6 +26,8 @@ const accountView = (row: AccountRow) => {
     status: row.status,
     capability: row.capability,
     connectedAt: row.createdAt.toISOString(),
+    // Set when the account was disconnected; the row stays for its history.
+    disabledAt: row.disabledAt?.toISOString() ?? null,
     lastCheckedAt: settings.lastCheckedAt ?? null,
     lastCheckCode: settings.lastCheckCode ?? null,
     // What posts may do on the account (S4): X Premium allows long posts.
