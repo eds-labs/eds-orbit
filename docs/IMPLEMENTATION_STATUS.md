@@ -6,7 +6,8 @@ Spec [2026-11-10-evidence-across-index-generations-design.md](superpowers/specs/
 
 - **Cause:** on 2026-11-10 activating FamilyPlan index generation 5 made every pending draft fail with `EVIDENCE_INVALID` (`index_generation_changed`), although nothing it cited had changed.
 - **Change:** `validateEvidence` accepts evidence from a non-active generation when `evidenceOriginEvaluated` holds (passed, `live`, own manifest, at most 30 days old at creation). Item checks and the `LIVE_RAG_EVAL_REQUIRED` publication gate are unchanged.
-- **Verification:** see the branch's final report; production not changed.
+- **Verification (local, this worktree's own test database, implementation `199ef870`):** new integration test with 11 cases (switch, rollback, broken citation, expired, later or malformed evaluation, other manifest, synthetic, undated evidence, unknown origin) RED before and GREEN after the change; marketing, knowledge, `rls-matrix` and `access-matrix` suites 516/516; whole vitest suite 582 files passed, 1 skipped, 6,731 tests passed, 7 skipped, 0 failed; `pnpm lint` (import boundaries 0 known, none new), `pnpm typecheck` and `pnpm build` pass. Independent review: no critical findings. Known edge: evidence created while the active generation's evaluation had expired fails after the next activation (open owner decision).
+- **Production:** not changed; a push to `main` needs Mario's approval (no schema hash needed).
 
 ## Webmail module: Roundcube and mail-to-ticket (2026-11-09, branch `claude/roundcube-webmail-ticket-integration-a2dd99`; on `main` and `ORBIT_WEBMAIL` on since 2026-11-10, no grants yet, not live-accepted)
 
