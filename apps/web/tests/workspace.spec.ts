@@ -628,7 +628,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog.getByRole("button", { name: "Close dialog" }).click();
     dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Review", exact: true }).click();
-    await expect(dialog.locator(".detail-summary")).toContainText("reviewed");
+    // The status badge prints its localized word ("Reviewed").
+    await expect(dialog.locator(".detail-summary")).toContainText("reviewed", {
+      ignoreCase: true,
+    });
     await dialog.getByRole("button", { name: "Create social variant" }).click();
     await dialog
       .getByLabel("Variant title")
