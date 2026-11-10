@@ -54,6 +54,7 @@ import {
   update,
   DomainError,
 } from "../shared.ts";
+import { providersForData, type DataClass } from "./data-class.ts";
 
 /**
  * The project's AI configuration: one entity of kind `openai_configuration`
@@ -415,6 +416,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
       : {}),
     capabilities: aiCapabilities(status),
     routesWithoutKey: routesWithoutKey(status),
+    routesNotAllowedForData: routesNotAllowedForData(status.effectiveRoutes),
     textKeyConfigured: status.textKeyConfigured,
     imageKeyConfigured: status.imageKeyConfigured,
     providers: {
@@ -791,6 +793,52 @@ export function routesWithoutKey(status: {
     })
     .map(([task]) => task)
     .sort();
+}
+
+/**
+ * The task classes whose input is personal customer or financial data, by
+ * data class (ADR 0021 D-11). `enforced`: the pipeline refuses a call on a
+ * provider the class does not allow before anything is reserved
+ * (AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA, Support triage and draft); finance
+ * extraction has no such check yet (follow-up in the 2026-11-10 plan).
+ */
+export const TASK_DATA_CLASSES: Readonly<
+  Partial<Record<TaskClass, { dataClass: Exclude<DataClass, "internal">; enforced: boolean }>>
+> = {
+  support_triage: { dataClass: "customer_personal", enforced: true },
+  support_draft: { dataClass: "customer_personal", enforced: true },
+  finance_extraction: { dataClass: "financial", enforced: false },
+};
+
+/**
+ * Task classes whose effective route names a provider their data class
+ * does not allow (`providersForData`). Read only: saving such a route stays
+ * possible and nothing switches the provider; the settings show the warning
+ * and name the setting to change (MODEL_ROUTING: an explicit route never
+ * falls back).
+ */
+export function routesNotAllowedForData(
+  effectiveRoutes: Record<string, unknown> | undefined,
+) {
+  return Object.entries(TASK_DATA_CLASSES)
+    .flatMap(([task, rule]) => {
+      const route = effectiveRoutes?.[task] as
+        | { error?: string; provider?: ProviderId }
+        | undefined;
+      if (!rule || !route || route.error || !route.provider) return [];
+      const allowed = providersForData(rule.dataClass);
+      if (!allowed || allowed.includes(route.provider)) return [];
+      return [
+        {
+          task,
+          dataClass: rule.dataClass,
+          provider: route.provider,
+          allowed: [...allowed],
+          enforced: rule.enforced,
+        },
+      ];
+    })
+    .sort((a, b) => a.task.localeCompare(b.task));
 }
 
 /**
