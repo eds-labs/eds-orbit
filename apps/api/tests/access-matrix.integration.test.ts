@@ -37,6 +37,8 @@ Object.assign(process.env, {
   ORBIT_ISSUES: "true",
   // Social module (ADR 0020): routes exist; the project never enables it.
   ORBIT_SOCIAL: "true",
+  // Ads module (ADR 0025): routes exist; the project never enables it.
+  ORBIT_ADS: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
@@ -111,6 +113,9 @@ const PUBLIC_ROUTES = [
   "GET /api/public/social/data-deletion/{code}",
   // Signed social media for platforms (ADR 0020, S3): the token authenticates.
   "GET /api/public/social/media/{token}",
+  // Social upload sessions (MCP social_media_upload): the signed one-time
+  // token authenticates; a made-up token answers 404 before the body is read.
+  "PUT /api/public/social/media-uploads/{token}",
   "GET /api/public/support/{publicKey}/conversations",
   "GET /api/public/support/{publicKey}/messages",
   "GET /api/public/support/{publicKey}/stream",

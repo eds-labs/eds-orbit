@@ -24,6 +24,7 @@ import {
   setSourceRights,
   setSourceAudiences,
   revokeDocument,
+  retireDocument,
 } from "../../../apps/api/src/platform/knowledge/engine.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -1059,6 +1060,352 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
     await expect(
       run(a, (tx) => ingest(tx, a, { ...data, expectedGeneration: 2 })),
     ).rejects.toThrow("DOCUMENT_REVOKED");
+  });
+  describe("retiring a document", () => {
+    const find = (src: string, text: string) =>
+      run(a, (tx) =>
+        retrieve(tx, a, { query: text, purpose: "public", at }),
+      ).then((e) => e.data as unknown as EvidenceData);
+    it("retiring hides a document from retrieval", async () => {
+      const src = await source();
+      const doc = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE801 hidden page text.")),
+      );
+      expect((await find(src.id, "RETIRE801")).items.length).toBeGreaterThan(0);
+      await expect(
+        run(a, (tx) => retireDocument(tx, a, doc.documentId)),
+      ).resolves.toEqual({ retired: true });
+      expect((await find(src.id, "RETIRE801")).items).toHaveLength(0);
+      const stored = await run(a, (tx) =>
+        tx.knowledgeDocument.findUniqueOrThrow({
+          where: { id: doc.documentId },
+        }),
+      );
+      expect(stored.activeVersionId).toBeNull();
+      const version = await run(a, (tx) =>
+        tx.documentVersion.findUniqueOrThrow({ where: { id: doc.versionId } }),
+      );
+      expect(version.state).toBe("superseded");
+    });
+    it("retiring writes no tombstone, so the same externalId can be ingested again", async () => {
+      const src = await source();
+      const data = input(src.id, "RETIRE802 returning page text.");
+      const first = await run(a, (tx) => ingest(tx, a, data));
+      await run(a, (tx) => retireDocument(tx, a, first.documentId));
+      const tombstones = await run(a, (tx) =>
+        tx.entity.findMany({ where: { kind: "revocations" } }),
+      );
+      expect(
+        tombstones.filter(
+          (t) => (t.data as { sourceId?: string }).sourceId === src.id,
+        ),
+      ).toHaveLength(0);
+      const again = await run(a, (tx) => ingest(tx, a, data));
+      expect(again.unchanged).toBe(false);
+      expect(again.documentId).toBe(first.documentId);
+      expect(again.versionId).not.toBe(first.versionId);
+      const stored = await run(a, (tx) =>
+        tx.knowledgeDocument.findUniqueOrThrow({
+          where: { id: first.documentId },
+        }),
+      );
+      expect(stored.activeVersionId).toBe(again.versionId);
+      const version = await run(a, (tx) =>
+        tx.documentVersion.findUniqueOrThrow({
+          where: { id: again.versionId },
+        }),
+      );
+      expect(version).toMatchObject({ state: "active", version: 2 });
+      expect((await find(src.id, "RETIRE802")).items.length).toBeGreaterThan(0);
+    });
+    it("retiring invalidates dependents without purging evidence items", async () => {
+      const src = await source();
+      const doc = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE803 dependent page text.")),
+      );
+      const evidence = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE803", purpose: "public", at }),
+      );
+      const items = (evidence.data as unknown as EvidenceData).items;
+      expect(items.length).toBeGreaterThan(0);
+      await run(a, (tx) => retireDocument(tx, a, doc.documentId));
+      const after = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      const data = after.data as unknown as EvidenceData;
+      expect(data.status).toBe("invalidated");
+      expect(data.gaps).toContain("document_retired");
+      expect(data.items).toHaveLength(items.length);
+    });
+    it("retiring invalidates only evidence citing that page", async () => {
+      const src = await source();
+      const retired = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE804A first page text.")),
+      );
+      await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE804B second page text.")),
+      );
+      const citing = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE804A", purpose: "public", at }),
+      );
+      const other = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE804B", purpose: "public", at }),
+      );
+      await run(a, (tx) => retireDocument(tx, a, retired.documentId));
+      const status = async (id: string) =>
+        (
+          (await run(a, (tx) => tx.entity.findUniqueOrThrow({ where: { id } })))
+            .data as unknown as EvidenceData
+        ).status;
+      expect(await status(citing.id)).toBe("invalidated");
+      expect(await status(other.id)).toBe("ready");
+    });
+    it("retiring two pages of a source writes one evidence version", async () => {
+      const src = await source();
+      const one = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE805 first page text.")),
+      );
+      const two = await run(a, (tx) =>
+        ingest(tx, a, input(src.id, "RETIRE805 second page text.")),
+      );
+      const evidence = await run(a, (tx) =>
+        retrieve(tx, a, { query: "RETIRE805", purpose: "public", at }),
+      );
+      await run(a, (tx) => retireDocument(tx, a, one.documentId));
+      const mid = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      const versions = await run(a, (tx) =>
+        tx.entityVersion.count({ where: { entityId: evidence.id } }),
+      );
+      const seen: string[] = [];
+      await run(a, (tx) =>
+        engine.retireDocument(
+          tx,
+          a,
+          [
+            async (_tx, _s, impact) => {
+              seen.push(...impact.evidenceIds);
+            },
+          ],
+          two.documentId,
+        ),
+      );
+      const end = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+      );
+      expect(end.version).toBe(mid.version);
+      expect(
+        await run(a, (tx) =>
+          tx.entityVersion.count({ where: { entityId: evidence.id } }),
+        ),
+      ).toBe(versions);
+      expect(seen).toEqual([evidence.id]);
+    });
+    it("retiring twice reports retired false", async () => {
+      const src = await source();
+      const doc = await run(a, (tx) => ingest(tx, a, input(src.id)));
+      await run(a, (tx) => retireDocument(tx, a, doc.documentId));
+      await expect(
+        run(a, (tx) => retireDocument(tx, a, doc.documentId)),
+      ).resolves.toEqual({ retired: false });
+    });
+  });
+  describe("document-scoped changes (site runs)", () => {
+    const stored = (id: string) =>
+      run(a, (tx) => tx.entity.findUniqueOrThrow({ where: { id } }));
+    const statusOf = async (id: string) =>
+      ((await stored(id)).data as { status: string }).status;
+    const entityOf = (kind: string, data: Record<string, unknown>) =>
+      run(a, (tx) =>
+        tx.entity.create({
+          data: {
+            workspaceId: a.workspaceId,
+            projectId: a.projectId,
+            kind,
+            data: data as never,
+          },
+        }),
+      );
+    /** Two pages of one source, evidence on each, and records built on them. */
+    async function site(tag: string) {
+      const src = await source();
+      const page = input(src.id, `${tag}A first page text.`);
+      const changing = await run(a, (tx) =>
+        ingest(tx, a, { ...page, documentScoped: true }),
+      );
+      const staying = await run(a, (tx) =>
+        ingest(tx, a, {
+          ...input(src.id, `${tag}B second page text.`),
+          documentScoped: true,
+        }),
+      );
+      const search = (query: string) =>
+        run(a, (tx) => retrieve(tx, a, { query, purpose: "public", at }));
+      const onChanging = await search(`${tag}A`);
+      const onStaying = await search(`${tag}B`);
+      const cited = (e: typeof onChanging) =>
+        (e.data as unknown as EvidenceData).items.map(
+          (i) => i.documentVersionId,
+        );
+      expect(cited(onChanging)).toEqual([changing.versionId]);
+      expect(cited(onStaying)).toEqual([staying.versionId]);
+      return { src, page, changing, staying, onChanging, onStaying };
+    }
+    const newText = (tag: string) => `${tag}A first page, rewritten this week.`;
+
+    it("a changed page invalidates only evidence citing that page", async () => {
+      const { src, page, onChanging, onStaying } = await site("SCOPED901");
+      const seen: KnowledgeImpact[] = [];
+      await run(a, (tx) =>
+        engine.ingest(
+          tx,
+          a,
+          [
+            async (_tx, _s, impact) => {
+              seen.push(impact);
+            },
+          ],
+          { ...page, text: newText("SCOPED901"), documentScoped: true },
+        ),
+      );
+      expect(await statusOf(onChanging.id)).toBe("invalidated");
+      expect(await statusOf(onStaying.id)).toBe("ready");
+      expect(seen).toEqual([
+        {
+          sourceId: src.id,
+          reason: "source_changed",
+          purge: false,
+          evidenceIds: [onChanging.id],
+          documentScoped: true,
+        },
+      ]);
+    });
+    it("a changed page keeps the source's verified facts", async () => {
+      const { src, page } = await site("SCOPED902");
+      const fact = await run(a, (tx) =>
+        setFact(tx, a, {
+          key: "scoped.902",
+          value: "kept",
+          valueType: "text",
+          language: "en",
+          sourceId: src.id,
+          validFrom: new Date(at.getTime() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        }),
+      );
+      const withFact = await run(a, (tx) =>
+        retrieve(tx, a, {
+          query: "scoped.902",
+          factKeys: ["scoped.902"],
+          purpose: "public",
+          at,
+        }),
+      );
+      expect((withFact.data as unknown as EvidenceData).facts).toHaveLength(1);
+      await run(a, (tx) =>
+        ingest(tx, a, {
+          ...page,
+          text: newText("SCOPED902"),
+          documentScoped: true,
+        }),
+      );
+      expect(await statusOf(fact.id)).toBe("verified");
+      expect(await statusOf(withFact.id)).toBe("ready");
+    });
+    it("an unscoped change still demotes facts and reaches every page's evidence", async () => {
+      const { src, page, onChanging, onStaying } = await site("SCOPED903");
+      const fact = await run(a, (tx) =>
+        setFact(tx, a, {
+          key: "scoped.903",
+          value: "demoted",
+          valueType: "text",
+          language: "en",
+          sourceId: src.id,
+          validFrom: new Date(at.getTime() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        }),
+      );
+      await run(a, (tx) =>
+        ingest(tx, a, { ...page, text: newText("SCOPED903") }),
+      );
+      expect(await statusOf(fact.id)).toBe("candidate");
+      expect(await statusOf(onChanging.id)).toBe("invalidated");
+      expect(await statusOf(onStaying.id)).toBe("invalidated");
+    });
+    it("marketing records follow the cited page, not the source", async () => {
+      const { src, page, onChanging, onStaying } = await site("SCOPED904");
+      const hit = await entityOf("content", {
+        status: "approved",
+        evidenceId: onChanging.id,
+      });
+      const hitApproval = await entityOf("approvals", {
+        status: "approved",
+        resourceId: hit.id,
+      });
+      const hitPublication = await entityOf("publications", {
+        status: "scheduled",
+        contentId: hit.id,
+      });
+      const untouched = await Promise.all([
+        entityOf("content", { status: "approved", evidenceId: onStaying.id }),
+        entityOf("content", {
+          status: "approved",
+          evidenceId: onStaying.id,
+          sourceIds: [src.id],
+        }),
+        entityOf("content", { status: "approved", sourceId: src.id }),
+        entityOf("approvals", { status: "approved", resourceId: src.id }),
+        entityOf("publications", { status: "scheduled", sourceId: src.id }),
+        entityOf("insights", { status: "active", sourceIds: [src.id] }),
+      ]);
+      const versions = await Promise.all(
+        untouched.map((e) => stored(e.id).then((r) => r.version)),
+      );
+      await run(a, (tx) =>
+        ingest(tx, a, {
+          ...page,
+          text: newText("SCOPED904"),
+          documentScoped: true,
+        }),
+      );
+      expect(await statusOf(hit.id)).toBe("needs_review");
+      expect(await statusOf(hitApproval.id)).toBe("invalidated");
+      expect(await statusOf(hitPublication.id)).toBe("blocked_dependency");
+      for (const [i, e] of untouched.entries()) {
+        expect(await stored(e.id).then((r) => r.version)).toBe(versions[i]);
+      }
+    });
+    it("a new page of the source invalidates nothing", async () => {
+      const { src, onChanging, onStaying } = await site("SCOPED905");
+      await run(a, (tx) =>
+        ingest(tx, a, {
+          ...input(src.id, "SCOPED905C third page text."),
+          documentScoped: true,
+        }),
+      );
+      expect(await statusOf(onChanging.id)).toBe("ready");
+      expect(await statusOf(onStaying.id)).toBe("ready");
+    });
+    it("a retired page reaches the marketing content citing it only", async () => {
+      const { src, changing, onChanging, onStaying } = await site("SCOPED906");
+      const hit = await entityOf("content", {
+        status: "approved",
+        evidenceId: onChanging.id,
+      });
+      const kept = await entityOf("content", {
+        status: "approved",
+        evidenceId: onStaying.id,
+        sourceId: src.id,
+      });
+      await run(a, (tx) => retireDocument(tx, a, changing.documentId));
+      expect(await statusOf(hit.id)).toBe("needs_review");
+      expect(await statusOf(kept.id)).toBe("approved");
+    });
   });
   it("external model permission is independent from public use", async () => {
     const src = await source(a, { modelUse: false });

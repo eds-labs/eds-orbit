@@ -100,7 +100,14 @@ export function Badge({
 }) {
   return <span className={cn("badge", `badge-${tone}`)}>{children}</span>;
 }
-export function Status({ value }: { value: unknown }) {
+export function Status({
+  value,
+  label,
+}: {
+  value: unknown;
+  /** Printed instead of the value, which only picks the tone. */
+  label?: string;
+}) {
   const s = String(value ?? "unknown");
   return (
     <Badge
@@ -116,7 +123,7 @@ export function Status({ value }: { value: unknown }) {
                 : "neutral"
       }
     >
-      {s.replaceAll("_", " ")}
+      {label ?? s.replaceAll("_", " ")}
     </Badge>
   );
 }

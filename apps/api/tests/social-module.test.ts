@@ -36,7 +36,11 @@ describe("social module skeleton (ADR 0020)", () => {
       displayName: { en: "Social", de: "Social Media" },
       dependsOn: [],
       defaultEnabled: false,
-      entityKinds: [],
+      // MCP media receipts and upload sessions: technical state, not exported.
+      entityKinds: [
+        expect.objectContaining({ kind: "social_media_receipt", exported: false }),
+        expect.objectContaining({ kind: "social_media_upload", exported: false }),
+      ],
     });
     expect(
       socialModule.permissions.map((p) => [p.key, [...p.defaultRoles], p.sensitive === true]),

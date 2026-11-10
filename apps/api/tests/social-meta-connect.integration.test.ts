@@ -23,20 +23,30 @@ describe.skipIf(!enabled)("connecting Facebook Pages and Instagram accounts", ()
   let p: Awaited<ReturnType<typeof createSocialProject>>;
   let cleanupApp: () => Promise<unknown>;
   const urls: string[] = [];
+  const auths = new Map<string, string | null>();
   let pages: Page[][] = [];
+  // What the person picked in Meta's dialog (debug_token granular scopes).
+  let granted: Array<{ scope: string; target_ids?: string[] }> = [];
+  // Pages read one by one by ID (the ones /me/accounts does not list).
+  let byId: Record<string, Partial<Page>> = {};
   let exchange: () => Response;
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
   const fakeGraph = () =>
-    setSocialFetchForTests(async (url) => {
+    setSocialFetchForTests(async (url, init = {}) => {
       const u = new URL(String(url));
       urls.push(String(url));
+      auths.set(String(url), new Headers(init.headers).get("authorization"));
       if (u.pathname === "/v26.0/oauth/access_token")
         return u.searchParams.get("grant_type") === "fb_exchange_token"
           ? json({ access_token: "long-user-token", token_type: "bearer", expires_in: 5183944 })
           : exchange();
       if (u.pathname === "/v26.0/me") return json({ id: "meta-user-1", name: "Mario" });
+      if (u.pathname === "/v26.0/debug_token")
+        return json({ data: { is_valid: true, granular_scopes: granted } });
+      const lookup = /^\/v26\.0\/([^/]+)$/.exec(u.pathname)?.[1];
+      if (lookup && byId[lookup]) return json({ id: lookup, ...byId[lookup] });
       if (u.pathname === "/v26.0/me/accounts") {
         const index = Number(u.searchParams.get("page") ?? "0");
         const next = index + 1 < pages.length ? `${GRAPH}/me/accounts?page=${index + 1}` : undefined;
@@ -82,6 +92,9 @@ describe.skipIf(!enabled)("connecting Facebook Pages and Instagram accounts", ()
   afterEach(() => {
     setSocialFetchForTests(null);
     urls.length = 0;
+    auths.clear();
+    granted = [];
+    byId = {};
   });
   afterAll(async () => {
     await removeProjectConnections(p);
@@ -166,6 +179,49 @@ describe.skipIf(!enabled)("connecting Facebook Pages and Instagram accounts", ()
     expect(error?.message).not.toContain("secret-detail");
     expect(await authDb.connection.count({ where: { projectId: p.owner.projectId } })).toBe(before);
     expect((await accounts()).some((a) => a.externalId === "901")).toBe(false);
+  });
+
+  it("connects Pages picked in the dialog that /me/accounts does not list", async () => {
+    // Facebook Login for Business: a Page the person picked can be missing
+    // from /me/accounts (06.11.2026, FamilyPlan), while debug_token names it.
+    exchange = () => json({ access_token: "short-user-token" });
+    pages = [[]];
+    granted = [
+      { scope: "pages_show_list", target_ids: ["301"] },
+      { scope: "pages_manage_posts", target_ids: ["301"] },
+      { scope: "instagram_content_publish", target_ids: ["ig-701"] },
+    ];
+    byId = {
+      "301": {
+        name: "Granted Page",
+        access_token: "page-token-301",
+        instagram_business_account: { id: "ig-701", username: "granted_ig" },
+      },
+    };
+    fakeGraph();
+    expect(await connect()).toEqual({ accounts: 2 });
+    const list = (await accounts()).filter((a) => ["301", "ig-701"].includes(a.externalId));
+    expect(list.map((a) => [a.platform, a.externalId, a.handle, a.status])).toEqual([
+      ["facebook", "301", "Granted Page", "active"],
+      ["instagram", "ig-701", "@granted_ig", "active"],
+    ]);
+    expect((await secretOf(list[0]!.connectionId)).value).toEqual({ pageToken: "page-token-301" });
+    // debug_token reads the user token with the app token (header, never the query).
+    const debug = urls.find((u) => new URL(u).pathname === "/v26.0/debug_token")!;
+    expect(new URL(debug).searchParams.get("input_token")).toBe("long-user-token");
+    expect(debug).not.toContain(META_APP_SECRET.appSecret);
+    expect(auths.get(debug)).toBe(`Bearer ${META_APP_SECRET.appId}|${META_APP_SECRET.appSecret}`);
+    const lookup = urls.find((u) => new URL(u).pathname === "/v26.0/301")!;
+    expect(auths.get(lookup)).toBe("Bearer long-user-token");
+  });
+
+  it("skips a picked Page that gives no Page token", async () => {
+    exchange = () => json({ access_token: "short-user-token" });
+    pages = [[]];
+    granted = [{ scope: "pages_manage_posts", target_ids: ["302"] }];
+    byId = { "302": { name: "No Token Page" } };
+    fakeGraph();
+    await expect(connect()).rejects.toMatchObject({ code: "SOCIAL_META_NO_PAGES" });
   });
 
   it("refuses a login that granted no Page", async () => {

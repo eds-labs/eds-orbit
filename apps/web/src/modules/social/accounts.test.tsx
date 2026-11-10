@@ -131,10 +131,10 @@ describe("social accounts view (ADR 0020, S2)", () => {
     for (const [, inner] of buttons(render(<AccountsView />))) expect(inner!.replace(/<[^>]+>/g, "").trim()).not.toBe("");
   });
 
-  it("explains that Meta posts stay private until the Meta app is live", () => {
+  it("shows no standing note about the Meta app's development mode", () => {
     answers["/social/accounts"] = accounts;
-    expect(render(<AccountsView />)).toContain("only members of the Meta app see posts");
-    expect(render(<AccountsView />, { locale: "de" })).toContain("nur Mitglieder der Meta-App");
+    expect(render(<AccountsView />)).not.toContain("development mode");
+    expect(render(<AccountsView />, { locale: "de" })).not.toContain("Entwicklungsmodus");
   });
 
   it("says which developer app is missing before the owner taps connect", () => {
@@ -154,6 +154,22 @@ describe("social accounts view (ADR 0020, S2)", () => {
     expect(ready).not.toMatch(/<button[^>]*disabled=""[^>]*>Connect X<\/button>/);
     expect(render(<AccountsView />, { access: "viewer" })).not.toContain("is not set up yet");
     delete answers["/social/accounts/apps"];
+  });
+
+  it("sends a missing project grant to the organization settings for organization owners", () => {
+    answers["/social/accounts"] = accounts;
+    answers["/social/accounts/apps"] = { x: "project_not_granted", meta: "ready" };
+    const plain = render(<AccountsView />);
+    expect(plain).toContain("X is not granted to this project yet");
+    expect(plain).toContain(">Hide</button>");
+    expect(plain).not.toContain('href="/o/w1/settings"');
+    identity.workspaces[0]!.canManage = true;
+    try {
+      expect(render(<AccountsView />)).toMatch(/<a[^>]*href="\/o\/w1\/settings"[^>]*>Open organization settings<\/a>/);
+    } finally {
+      delete identity.workspaces[0]!.canManage;
+      delete answers["/social/accounts/apps"];
+    }
   });
 
   it("shows the outcome of a connection from the callback", () => {

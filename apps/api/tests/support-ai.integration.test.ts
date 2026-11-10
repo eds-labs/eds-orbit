@@ -3,6 +3,7 @@ import {
   afterAll,
   afterEach,
   beforeAll,
+  beforeEach,
   describe,
   expect,
   it,
@@ -306,6 +307,8 @@ describe.skipIf(!enabled)("support AI", () => {
       expect.objectContaining({ query: expect.any(String) }),
       expect.objectContaining({ budgetRunKey: `support:${t.ticketId}` }),
       "support",
+      undefined,
+      {},
     );
     // Eval case D04: what the evidence does not name is handed off, never
     // answered from its absence.
@@ -329,6 +332,156 @@ describe.skipIf(!enabled)("support AI", () => {
       ticketDetail(tx, project.owner, t.ticketId),
     );
     expect(detail.aiCostMicros).toBeGreaterThan(0);
+  });
+
+  describe("the language of the knowledge search", () => {
+    const draftAfterTriage = async (language?: string) => {
+      const t = await ticket("How long does a deposit take?");
+      if (language)
+        await run((tx) =>
+          tx.supportTicketEvent.create({
+            data: {
+              id: randomUUID(),
+              workspaceId: project.owner.workspaceId,
+              projectId: project.owner.projectId,
+              ticketId: t.ticketId,
+              type: "ai_triage",
+              actorKind: "ai",
+              after: { language },
+            },
+          }),
+        );
+      mocked.search.mockResolvedValue(ready);
+      mocked.validate.mockResolvedValue({ valid: true, reasons: [] });
+      mocked.replies.push({
+        reply: "Deposits arrive within an hour.",
+        citations: ["fact:fact-1"],
+        confidence: "high",
+        handoff: false,
+        handoffReason: "",
+      });
+      await runSupportTask(worker(), { task: "draft", ticketId: t.ticketId });
+      return mocked.search.mock.calls.at(-1)!;
+    };
+    const setLanguages = (language: string, contentLanguages: string[]) =>
+      authDb.project.update({
+        where: { id: project.owner.projectId },
+        data: { language, contentLanguages },
+      });
+    afterEach(() => setLanguages("en", ["en"]));
+
+    it("uses the language triage recorded for the ticket", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage("en"))[5]).toEqual({ language: "en" });
+    });
+    it("leaves the project's language without a recorded one", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage())[5]).toEqual({});
+    });
+    it("leaves the project's language for one it holds no content in", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage("fr"))[5]).toEqual({});
+    });
+    it("matches a regional code to the project's language", async () => {
+      await setLanguages("de", ["de", "en"]);
+      expect((await draftAfterTriage("EN-us"))[5]).toEqual({ language: "en" });
+    });
+
+    describe("when the ticket's language holds no knowledge", () => {
+      const nothing = (evidenceId: string = EVIDENCE) => ({
+        result: {
+          status: "insufficient_evidence",
+          retrieval: { evidenceId },
+          facts: [],
+          passages: [],
+          gaps: ["no source"],
+        },
+        cards: [],
+      });
+      const foundIn = (evidenceId: string) => ({
+        ...ready,
+        result: {
+          ...ready.result,
+          retrieval: { mode: "hybrid", evidenceId },
+        },
+      });
+      const packs = () =>
+        run(async (tx) => [
+          await create(tx, project.owner, "evidence", {
+            status: "insufficient_evidence",
+            query: "How long does a deposit take?",
+          }),
+          await create(tx, project.owner, "evidence", {
+            status: "ready",
+            query: "How long does a deposit take?",
+          }),
+        ]);
+      const stored = (id: string) =>
+        run(async (tx) =>
+          JSON.stringify(
+            (await tx.entity.findUniqueOrThrow({ where: { id } })).data,
+          ),
+        );
+      beforeEach(() => setLanguages("de", ["de", "en"]));
+
+      it("searches the project's language under its own key", async () => {
+        mocked.search.mockResolvedValueOnce(nothing());
+        const last = await draftAfterTriage("en");
+        expect(mocked.search).toHaveBeenCalledTimes(2);
+        const first = mocked.search.mock.calls[0]!;
+        expect(first[5]).toEqual({ language: "en" });
+        expect(last[5]).toEqual({});
+        expect(last[2].retrievalJobKey).toBe(
+          `${first[2].retrievalJobKey}:project-language`,
+        );
+        expect(last[2].budgetRunKey).toBe(first[2].budgetRunKey);
+        expect(mocked.requests).toHaveLength(1);
+      });
+      it("counts a ready search without content as nothing found", async () => {
+        mocked.search.mockResolvedValueOnce({
+          ...ready,
+          result: { ...ready.result, facts: [], passages: [] },
+        });
+        await draftAfterTriage("en");
+        expect(mocked.search).toHaveBeenCalledTimes(2);
+        expect(mocked.requests).toHaveLength(1);
+      });
+      it("searches once when the ticket's language has an answer", async () => {
+        await draftAfterTriage("en");
+        expect(mocked.search).toHaveBeenCalledTimes(1);
+      });
+      it("searches once for a ticket in the project's own language", async () => {
+        mocked.search.mockResolvedValueOnce(nothing());
+        expect((await draftAfterTriage("de"))[5]).toEqual({});
+        expect(mocked.search).toHaveBeenCalledTimes(1);
+        expect(mocked.requests).toHaveLength(0);
+      });
+      it("stores the gap note when neither language has an answer", async () => {
+        mocked.search
+          .mockResolvedValueOnce(nothing())
+          .mockResolvedValueOnce(nothing());
+        await draftAfterTriage("en");
+        expect(mocked.search).toHaveBeenCalledTimes(2);
+        expect(mocked.requests).toHaveLength(0);
+      });
+      it("removes the customer's question from both searches", async () => {
+        const [empty, found] = await packs();
+        mocked.search
+          .mockResolvedValueOnce(nothing(empty!.id))
+          .mockResolvedValueOnce(foundIn(found!.id));
+        await draftAfterTriage("en");
+        expect(await stored(empty!.id)).not.toContain("deposit take");
+        expect(await stored(found!.id)).not.toContain("deposit take");
+      });
+      it("removes the question from the first search when the second fails", async () => {
+        const [empty] = await packs();
+        mocked.search
+          .mockResolvedValueOnce(nothing(empty!.id))
+          .mockRejectedValueOnce(new Error("search down"));
+        await expect(draftAfterTriage("en")).rejects.toThrow("search down");
+        expect(await stored(empty!.id)).not.toContain("deposit take");
+      });
+    });
   });
 
   it("hands off without a model call for sensitive questions", async () => {

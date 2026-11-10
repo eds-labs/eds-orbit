@@ -428,6 +428,65 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
     expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, origin: "marketing" } }))).toBe(2);
   });
 
+  it("an assignment draft on a social: channel becomes a Social draft without a Postiz connector", async () => {
+    vi.stubEnv("ORBIT_SOCIAL", "true");
+    vi.stubEnv("ORBIT_SOCIAL_PLATFORMS", "x");
+    const accountId = await h.run(async (tx) => {
+      await tx.projectModule.create({
+        data: { workspaceId: project.owner.workspaceId, projectId: project.owner.projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: project.owner.userId },
+      });
+      const account = await tx.socialAccount.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          connectionId: randomUUID(),
+          platform: "x",
+          externalId: "4242",
+          handle: "@orbit_x",
+          displayName: "Orbit X",
+          capability: "write_verified",
+          settings: { xLongPosts: true },
+          createdBy: project.owner.userId,
+        },
+      });
+      return account.id;
+    });
+    await h.run((tx) => forcePublishingBackend(tx, project.owner, "social"));
+    await h.setPolicy({ channels: [`social:${accountId}`] });
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft", channels: [`social:${accountId}`] });
+    const { slots } = await reviewed();
+    const booked = await handoffs();
+    expect(booked).toHaveLength(2);
+    expect(booked.map((row) => [row.integrationId, row.connectorId])).toEqual([
+      [`social:${accountId}`, null],
+      [`social:${accountId}`, null],
+    ]);
+    const client = fakePostiz();
+    for (const row of booked) await deliver(row.id, client);
+    // Nothing reached Postiz: two timed drafts wait in Social for a human.
+    expect(client.posts).toEqual([]);
+    const sent = await handoffs();
+    expect(sent.map((row) => [row.status, row.remoteType, row.publishingBackend])).toEqual([
+      ["accepted", "social_draft", "social"],
+      ["accepted", "social_draft", "social"],
+    ]);
+    const posts = await h.run((tx) =>
+      tx.socialPost.findMany({ where: { projectId: project.owner.projectId, origin: "marketing" }, orderBy: { scheduledAt: "asc" } }),
+    );
+    expect(posts.map((p) => [p.id, p.status, p.scheduledAt?.toISOString()])).toEqual([
+      [sent[0]!.remoteId, "draft", slots[0]!.at],
+      [sent[1]!.remoteId, "draft", slots[1]!.at],
+    ]);
+    expect(posts[0]!.baseText).toContain(BODY);
+    const variants = await h.run((tx) => tx.socialPostVariant.findMany({ where: { postId: posts[0]!.id } }));
+    expect(variants.map((v) => v.accountId)).toEqual([accountId]);
+    // Delivering again changes nothing.
+    for (const row of sent) await deliver(row.id, client);
+    expect(await h.run((tx) => tx.socialPost.count({ where: { projectId: project.owner.projectId, origin: "marketing" } }))).toBe(2);
+  });
+
   it("refuses to publish a draft-delivery assignment's content", async () => {
     await linkBot();
     await h.makeAssignment({ delivery: "postiz_draft" });

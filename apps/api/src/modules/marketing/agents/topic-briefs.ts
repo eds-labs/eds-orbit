@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, entity, DomainError } from "../../../shared.ts";
+import { historyDaysOf } from "./assignments.ts";
 import { reserveTopic } from "./novelty.ts";
 /** Saves accepted holds in the same transaction as the strategy output and
  * successor queueing. Conflicts drop only the affected deliverable. */
@@ -57,6 +58,7 @@ export async function reserveStrategyBriefs(
               identity,
               ownerKey: `run:${task.runId}:${brief.channel}:${brief.slotAt}`,
               runId: task.runId,
+              holdDays: historyDaysOf(assignment),
             })
           ).id,
         );

@@ -69,6 +69,10 @@ const errors: Record<string, { en: string; de: string }> = {
     en: "Owners keep their role in every module.",
     de: "Owner behalten ihre Rolle in jedem Modul.",
   },
+  SOCIAL_APP_INVALID: {
+    en: "These keys do not have the expected format. Check each field, for example that the app ID has digits only.",
+    de: "Die Schlüssel haben nicht das erwartete Format. Prüfe die einzelnen Felder, zum Beispiel dass die App-ID nur aus Ziffern besteht.",
+  },
   PASSWORD_TOO_SHORT: {
     en: "Use at least 12 characters.",
     de: "Verwende mindestens 12 Zeichen.",

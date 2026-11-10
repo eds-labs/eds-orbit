@@ -1,5 +1,5 @@
 // The social module's client side (ADR 0020): types of the /social API.
-import { ApiError } from "@/lib/api";
+import { ApiError, post } from "@/lib/api";
 
 export type SocialApproval = "owner_each" | "editor_each";
 
@@ -35,7 +35,12 @@ export type SocialAccount = {
 export type SocialAccounts = { items: SocialAccount[] };
 
 /** GET /projects/:projectId/social/accounts/apps (owners): which developer app can start a connection. */
-export type SocialAppReadiness = Record<"x" | "meta", "ready" | "not_granted" | "invalid">;
+/**
+ * "project_not_granted": the organization holds the app and an owner of the
+ * organization still grants it to the project; "not_granted": the
+ * administration still adds or grants it.
+ */
+export type SocialAppReadiness = Record<"x" | "meta", "ready" | "project_not_granted" | "not_granted" | "invalid">;
 
 /** GET /projects/:projectId/social/media (S3). */
 export type SocialMedia = {
@@ -215,3 +220,10 @@ export type PostMetrics = { postId: string; publications: PostMetricsPublication
 /** GET …/social/analytics?days (S8). */
 export type AnalyticsItem = PostMetrics & { title: string | null; excerpt: string; publishedAt: string };
 export type AnalyticsResponse = { items: AnalyticsItem[] };
+
+/** POST /projects/:projectId/social/media/from-drive: a Drive image into the library. */
+export const importFromDrive = (projectId: string, fileId: string, name?: string) =>
+  post<SocialMedia>(socialPath(projectId, "/media/from-drive"), { fileId, ...(name ? { name } : {}) });
+
+/** The Drive files Social takes (the server's media library types). */
+export const SOCIAL_DRIVE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);

@@ -20,8 +20,9 @@ registerModules();
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 const ENV = { ORBIT_SOCIAL: "true", ORBIT_MODULES: "true", ORBIT_MCP_PROPOSALS: "true", ORBIT_MCP_TASKS: "true" };
-const READS = ["social_accounts", "social_calendar", "social_post_get", "social_post_status", "social_validate"];
-const VIEWER_READS = READS.filter((n) => n !== "social_validate");
+const READS = ["social_accounts", "social_calendar", "social_drive_files", "social_media_list", "social_post_get", "social_post_status", "social_validate"];
+// The check and the Drive list (for importing) need social.compose.
+const VIEWER_READS = READS.filter((n) => n !== "social_validate" && n !== "social_drive_files");
 const DRAFTS = ["social_cancel", "social_draft_create", "social_draft_update"];
 const PUBLISHING = ["social_publish_now", "social_schedule"];
 const PROPOSALS = [...DRAFTS, ...PUBLISHING].sort();
@@ -193,7 +194,9 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     const discovery = ours(
       (await visibleMcpToolsForDiscovery(await grantFor(owner(), ["orbit:read"]), owner().projectId)).map((t) => t.name),
     );
-    expect(discovery).toEqual(READS);
+    // Discovery assumes the content scope and orbit:write (not orbit:propose),
+    // so a client can ask for the scopes the library writes declare.
+    expect(discovery).toEqual([...READS, "social_media_import", "social_media_upload"].sort());
     expect(await names(await grantFor(p.viewer, ALL))).toEqual(VIEWER_READS);
   });
 

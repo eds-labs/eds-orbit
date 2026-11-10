@@ -22,7 +22,7 @@ Enforcement is active only with `ORBIT_MODULES=true`. With the flag off (the def
 Not affected:
 
 - **Platform services.** Pause, export and retention keep calling every module's hooks. They protect data, and a pause must still block a disabled module's publications.
-- **Knowledge services.** Knowledge jobs and the source sync are still registered by the platform until WP3.3, so they keep running.
+- **Knowledge services.** Knowledge jobs and the source sync are still registered by the platform until WP3.3, so they keep running. Site sources are the exception: with `ORBIT_KNOWLEDGE_WORKSPACE` off, or Knowledge unavailable or off for the project, nobody could pause them, so the sweep skips them and a batch already queued ends its run as `failed` with `KNOWLEDGE_DISABLED`.
 - **Data.** Turning a module off deletes nothing, and turning it on again restores it unchanged.
 
 **Deviation from the plan.** Plan `07` names the job status `skipped_module_disabled`. Orbit uses `blocked_dependency` with the error `MODULE_DISABLED` instead. That is the established pattern of the project pause, and the existing `retry` action, the job views and the exception list already understand it. A new status would have made such a job impossible to retry.
@@ -166,6 +166,18 @@ The social module (`docs/SOCIAL.md`, ADR 0020) follows the same pattern: `defaul
 | Installation | `ORBIT_SOCIAL=true` (default `false`). While off, routes answer 404 `SOCIAL_DISABLED`. S1 has no tools, jobs or attention items yet. |
 | Project | An owner enables it in Settings → Modules (`enabled = true` row). |
 | Member | `social.read` and `social.analytics.read` (all roles), `social.compose` and `social.publish` (owner, editor), `social.approve`, `social.settings` and `social.accounts.manage` (owner; the last sensitive); module roles may narrow them. |
+
+Switching it off deletes nothing.
+
+## Ads module (opt-in, 2026-11-08, branch only; flag off)
+
+The ads module (`docs/ADS.md`, ADR 0025) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_ADS` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_ADS=true` (default `false`). While off, routes answer 404 `ADS_DISABLED`. A1 has no tools, jobs or attention items yet. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `ads.read` and `ads.analytics.read` (owner, editor; sensitive; by default viewers see nothing, an owner can grant a viewer the editor module role, which includes spend data), `ads.compose` and `ads.manage` (owner, editor), `ads.approve`, `ads.accounts.manage` and `ads.budget.manage` (owner; sensitive) and `ads.settings` (owner); module roles may narrow them. |
 
 Switching it off deletes nothing.
 

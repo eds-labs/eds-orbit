@@ -26,6 +26,8 @@ export const ISSUES_EVENTS = [
   "issues.issue.released",
   "issues.issue.closed",
   "issues.delivery.recorded",
+  "issues.github.linked",
+  "issues.github.unlinked",
 ] as const;
 
 /** What the issue center plugs into the platform. */

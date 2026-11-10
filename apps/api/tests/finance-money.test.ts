@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DomainError } from "../src/shared.ts";
 import {
   convert,
   formatMicros,
@@ -17,6 +18,15 @@ const code = (fn: () => unknown) => {
 };
 
 describe("parseAmount", () => {
+  it("rethrows package errors as DomainError 422", () => {
+    expect(() => parseAmount("abc", "EUR")).toThrow(DomainError);
+    try {
+      parseAmount("abc", "EUR");
+    } catch (error) {
+      expect((error as DomainError).code).toBe("AMOUNT_INVALID");
+      expect((error as DomainError).status).toBe(422);
+    }
+  });
   it("parses plain, signed and grouped amounts", () => {
     expect(parseAmount("1234.56", "EUR")).toBe(1_234_560_000n);
     expect(parseAmount("-50", "EUR")).toBe(-50_000_000n);

@@ -1,3 +1,4 @@
+import { draftReplaced } from "../agents/draft-state.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   artZones,
@@ -654,7 +655,7 @@ export async function composeRunCreatives(
       // A reviewed, replaced or copied draft keeps what it has; a copy carries its original's creative (R76).
       if (
         v.status !== "draft" ||
-        v.supersededBy ||
+        draftReplaced(v) ||
         v.sharedFrom ||
         v.type !== "social"
       )

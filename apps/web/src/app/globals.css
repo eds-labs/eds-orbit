@@ -1004,6 +1004,12 @@ pre {
   border: 1px dashed var(--border);
   border-radius: 8px;
 }
+/* The native file input never grows past the drop zone's padding. */
+.finance-upload > *,
+.finance-upload input[type="file"] {
+  min-width: 0;
+  max-width: 100%;
+}
 .finance-upload[data-over="true"] {
   border-color: var(--primary);
 }
@@ -1128,6 +1134,13 @@ pre {
   align-items: center;
   justify-content: space-between;
 }
+/* The title and its hint stack instead of running into each other. */
+.finance-link-row > div:has(> .field-hint) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
 .finance-sums [data-balanced="true"] dd {
   color: var(--success, inherit);
 }
@@ -1174,6 +1187,9 @@ pre {
   margin-bottom: 18px;
 }
 .panel {
+  /* The inset every piece of panel content shares with the head. */
+  --panel-inset: 21px;
+  --panel-inset-block: 18px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1186,7 +1202,87 @@ pre {
   gap: 14px;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 21px 12px;
+  padding: var(--panel-inset-block, 18px) var(--panel-inset, 21px) 12px;
+}
+/*
+ * Content placed straight into a panel. A panel has no padding: its head,
+ * body (.panel-body) and notes (.panel-note) carry the inset. Alerts, detail
+ * lists, count tiles, action rows, buttons and plain headings or text that
+ * sit directly in a panel otherwise touch its border, so they take the
+ * panel inset here. Full-bleed children (tables, divider rows, empty states)
+ * keep their own padding and are not listed. A component rule that is more
+ * specific (e.g. the settings sections) still wins.
+ */
+.panel
+  > :is(
+    .alert,
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .support-check,
+    .settings-check,
+    .skeleton,
+    .button
+  ),
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]) {
+  margin-inline: var(--panel-content-inset, var(--panel-inset));
+}
+.panel > :is(h2, h3, h4):not([class]):not(:first-child) {
+  margin-top: 14px;
+}
+.panel
+  > :is(
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .support-check,
+    .settings-check,
+    .skeleton,
+    .button
+  ):last-child,
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]):last-child {
+  margin-bottom: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+.panel
+  > :is(
+    .detail-grid,
+    .home-counts,
+    .settings-rows,
+    .metrics-strip,
+    .page-actions,
+    .row-actions,
+    .work-actions,
+    .support-controls,
+    .support-muted,
+    .button
+  ):first-child,
+.panel > :is(h2, h3, h4, p, ul, ol, dl, form, label):not([class]):first-child {
+  margin-top: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+/* Panels that pad themselves already. */
+.marketing-reports,
+.calendar-list {
+  --panel-content-inset: 0px;
+  --panel-content-inset-block: 0px;
+}
+/*
+ * Panels stacked in a plain page container (no grid or flex gap of its own)
+ * keep the page's section rhythm instead of touching each other.
+ */
+.main > div:not([class]) > .panel + .panel {
+  margin-top: 20px;
 }
 .panel-head p {
   font-size: 13px;
@@ -1963,7 +2059,7 @@ select.input {
   font-size: 16px;
 }
 .panel-note {
-  padding: 18px 21px 22px;
+  padding: 18px var(--panel-inset, 21px) 22px;
   font-size: 13px;
   color: var(--muted-foreground);
 }
@@ -2282,13 +2378,15 @@ select.input {
   align-items: start;
 }
 .settings-grid > .panel {
+  /* The panel's own bottom padding ends its content. */
+  --panel-content-inset-block: 0px;
   padding-bottom: 22px;
 }
 .settings-grid .detail-grid {
-  padding: 0 var(--settings-inset);
+  padding: 0 var(--settings-inset, 0px);
 }
 .settings-grid .panel > .button {
-  margin: 0 var(--settings-inset);
+  margin: 0 var(--settings-inset, var(--panel-inset, 21px));
 }
 /*
  * One rhythm for every settings section: panels stack with one gap (their own
@@ -2326,6 +2424,10 @@ select.input {
 }
 .settings-content .settings-grid .panel > .button {
   margin-bottom: 0;
+}
+/* Settings rows carry the inset on each row. */
+.settings-content .panel > .settings-rows {
+  margin-inline: 0;
 }
 .settings-content .panel > .detail-grid {
   margin: 8px 0 20px;
@@ -5017,6 +5119,40 @@ body:has(dialog[open]) {
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* Approval card actions: always visible, wrapping instead of overflowing. */
+.approval-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+.form-actions.approval-actions {
+  justify-content: flex-start;
+  margin-top: 4px;
+}
+.approval-history {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.approval-history > summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.approval-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+@media (max-width: 760px) {
+  .form-actions.approval-actions > .button {
+    flex: 1 1 calc(50% - 8px);
+    min-height: 44px;
+  }
+}
 /* Agent hub on the overview: live run graph, up next and health. */
 .agent-activity {
   margin-bottom: 18px;
@@ -6598,7 +6734,7 @@ a.support-row {
 }
 .knowledge-filters {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
 }
 .knowledge-field {
@@ -6632,7 +6768,7 @@ a.support-row {
 .knowledge-statement:last-child {
   border-bottom: 0;
 }
-.knowledge-statement h2 {
+.knowledge-statement h3 {
   font-size: 18px;
   line-height: 1.5;
   margin-block: 12px;
@@ -6646,10 +6782,83 @@ a.support-row {
 .knowledge-statement details {
   margin-block: 16px;
 }
-.knowledge-statement summary,
-.knowledge-advanced summary {
+.knowledge-statement summary {
   cursor: pointer;
   padding-block: 12px;
+  font-weight: 600;
+}
+.knowledge-topic-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+.knowledge-topic-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.knowledge-topic-count {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.knowledge-review-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.knowledge-review-head h3 {
+  flex: 1;
+  min-width: 0;
+  margin-block: 10px 8px;
+}
+/* A 44 px target around the box, with the statement as its name. */
+.knowledge-review-check {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-left: -12px;
+  cursor: pointer;
+}
+.knowledge-review-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.knowledge-review-source,
+.knowledge-review-rights {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+/* The right padding keeps the button clear of the assistant bubble. */
+.knowledge-bulk-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 88px 12px 16px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.knowledge-bulk-text {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.knowledge-bulk-text p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.knowledge-bulk-summary {
   font-weight: 600;
 }
 .knowledge-badges {
@@ -6683,6 +6892,10 @@ a.support-row {
   border: 1px solid #dceaf4;
   border-radius: 12px;
 }
+.knowledge-source-focused {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 .knowledge-source h2 {
   font-size: 18px;
   overflow-wrap: anywhere;
@@ -6693,19 +6906,90 @@ a.support-row {
 .knowledge-source p {
   overflow-wrap: anywhere;
 }
-.knowledge-advanced {
-  border-top: 1px solid #dceaf4;
-  margin-top: 28px;
+.knowledge-source {
+  flex-wrap: wrap;
+  position: relative;
 }
-.knowledge-advanced nav {
+.knowledge-source-body {
+  flex: 1 1 320px;
+}
+.knowledge-source-actions {
+  align-items: center;
+}
+.knowledge-source-history {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.knowledge-more {
+  position: relative;
+}
+.knowledge-more > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.knowledge-more > summary::-webkit-details-marker {
+  display: none;
+}
+.knowledge-more-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px #0f2a4420;
+}
+.knowledge-more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #2c3e52;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.knowledge-more-item:hover {
+  background: #eef5fd;
+  color: #2c3e52;
+}
+.knowledge-more-item svg {
+  width: 16px;
+  height: 16px;
+}
+.knowledge-technical-link {
+  border-top: 1px solid var(--border);
+  margin-top: 28px;
+  padding-top: 16px;
+}
+.technical-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 24px;
-  padding: 16px 0;
+  gap: 8px 24px;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.technical-nav a[aria-current="page"] {
+  color: var(--foreground);
+  font-weight: 600;
+  text-decoration: none;
 }
 .knowledge-steps {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   list-style: none;
   padding: 0;
   gap: 16px;
@@ -6751,8 +7035,144 @@ a.support-row {
   padding-bottom: 12px;
   font-weight: 600;
 }
+/* The weekly switch: a 44px target whose text wraps on a narrow screen. */
+.knowledge-weekly {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  line-height: 1.4;
+}
+.knowledge-weekly input {
+  flex-shrink: 0;
+}
 .knowledge-app-settings {
   padding-block: 16px;
+}
+/* The stack sets the distance; an alert's own margin would double it. */
+.knowledge-form .alert {
+  margin: 0;
+}
+.knowledge-step-title {
+  font-size: 20px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.knowledge-step-title:focus {
+  outline: none;
+}
+.knowledge-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.knowledge-choice.button {
+  justify-content: space-between;
+  width: 100%;
+  padding-block: 14px;
+  white-space: normal;
+  text-align: left;
+}
+.knowledge-choice > span,
+.knowledge-way > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.knowledge-choice strong,
+.knowledge-way strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.knowledge-choice small,
+.knowledge-way small {
+  color: #60738a;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+.knowledge-choice svg {
+  flex-shrink: 0;
+}
+.knowledge-ways {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #dceaf4;
+  border-radius: 12px;
+  background: #ffffffc2;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.knowledge-way {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #dceaf4;
+}
+.knowledge-way:last-child {
+  border-bottom: 0;
+}
+.knowledge-way:has(input:checked) {
+  background: #eef8ff;
+}
+.knowledge-way:first-child:has(input:checked) {
+  border-radius: 11px 11px 0 0;
+}
+.knowledge-way:last-child:has(input:checked) {
+  border-radius: 0 0 11px 11px;
+}
+.knowledge-way input {
+  margin-top: 3px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+.knowledge-way-off {
+  cursor: not-allowed;
+}
+.knowledge-page-group {
+  padding: 8px 16px;
+  background: #ffffffc2;
+  border: 1px solid #dceaf4;
+  border-radius: 12px;
+  min-width: 0;
+}
+.knowledge-page-group .knowledge-check {
+  min-height: 44px;
+  align-items: center;
+  padding-block: 8px;
+}
+.knowledge-page-group .knowledge-check input {
+  margin-top: 0;
+}
+.knowledge-page-all {
+  font-weight: 600;
+}
+.knowledge-page-group summary {
+  cursor: pointer;
+  padding-block: 12px;
+  font-size: 13px;
+  color: #244563;
+}
+.knowledge-page-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.knowledge-page-group .knowledge-path {
+  min-width: 0;
+}
+.knowledge-start.button {
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 @media (max-width: 760px) {
   .knowledge-heading,
@@ -6760,18 +7180,31 @@ a.support-row {
     flex-direction: column;
     gap: 16px;
   }
-  .knowledge-filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .knowledge-steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .knowledge-choice small,
+  .knowledge-way small {
+    font-size: 14px;
   }
   .knowledge-statement,
   .knowledge-source {
     padding: 18px;
   }
+  .knowledge-bulk-bar {
+    bottom: calc(var(--mobile-nav-height) + 8px);
+    padding-right: 76px;
+  }
   .knowledge-workspace .form-actions {
     flex-wrap: wrap;
+  }
+  /* Anchor the menu to the row, not to a button that may sit anywhere in it. */
+  .knowledge-more {
+    position: static;
+  }
+  .knowledge-more-panel {
+    left: 18px;
+    right: 18px;
+    top: auto;
+    min-width: 0;
+    max-width: calc(100vw - 36px);
   }
 }
 
@@ -7056,9 +7489,15 @@ a.support-row {
   }
 }
 
-.marketing-plans-page .page-actions { flex-wrap: wrap; }
+.marketing-plans-page .page-actions {
+  flex-wrap: wrap;
+}
 @media (max-width: 760px) {
-  .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
+  .marketing-plans-page .page-actions > .button {
+    flex: 1 0 100%;
+    width: 100%;
+    white-space: normal;
+  }
 }
 /* System administration, organization settings and account (ADR 0013). */
 .admin-main {
@@ -7089,18 +7528,39 @@ a.support-row {
   margin: 0 auto;
 }
 .panel-body {
-  padding: 0 21px 21px;
+  padding: 0 var(--panel-inset, 21px) 21px;
 }
+/* Every button group: buttons in a row never touch. */
 .panel-actions,
 .row-actions,
 .modal-actions,
 .admin-actions,
 .badge-row,
-.pager {
+.pager,
+.chat-message-actions,
+.support-privacy-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+/*
+ * Buttons that follow each other in plain flow (a wrapper without a layout
+ * class, where only a JSX space or nothing separates them) keep the action
+ * row gap. Flex and grid action groups above use gap and are not affected.
+ */
+:where(div, span, li, p, td):not([class]) > .button + .button {
+  margin-inline-start: 8px;
+}
+/*
+ * A checkbox or radio label used outside the support/settings forms that
+ * style it (task lists, finance reports, initiatives): the box keeps a gap
+ * to its text.
+ */
+label:is(.support-check, .settings-check) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .admin-actions,
 .pager {
@@ -8563,4 +9023,210 @@ a.support-row {
   flex-direction: row;
   justify-content: flex-start;
   gap: 8px;
+}
+
+/* Google Drive browser (Drive page design 2026-11-05 §5.1). */
+.drive-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.drive-tree-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 8px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.drive-tree-panel > summary {
+  display: none;
+}
+.drive-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.drive-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding-block: 4px;
+  padding-inline-end: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.drive-tree-row:hover {
+  background: var(--muted);
+}
+.drive-tree-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.drive-tree-row.is-selected {
+  background: var(--muted);
+  font-weight: 600;
+}
+.drive-tree-row svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-tree-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drive-tree-more {
+  color: var(--primary);
+}
+.drive-main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.drive-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+.drive-breadcrumb li + li::before {
+  content: "/";
+  margin-inline-end: 4px;
+  color: var(--muted-foreground);
+}
+.drive-breadcrumb li[aria-current="page"] {
+  font-weight: 600;
+}
+.drive-crumb {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+}
+.drive-toolbar form {
+  display: flex;
+  gap: 6px;
+}
+.drive-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.drive-view-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+.drive-table-wrap {
+  overflow-x: auto;
+}
+.drive-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.drive-table th,
+.drive-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: middle;
+}
+.drive-table thead th {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  font-size: 12px;
+}
+.drive-table tbody th {
+  font-weight: 500;
+}
+.drive-file-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+}
+button.drive-file-name {
+  cursor: pointer;
+  color: var(--primary);
+}
+.drive-file-name svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+.drive-file-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.drive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.drive-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  min-width: 0;
+}
+.drive-card > img,
+.drive-card > .asset-placeholder {
+  width: 100%;
+  height: 140px;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+}
+.drive-card strong {
+  overflow-wrap: anywhere;
+}
+.drive-card p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .drive-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .drive-tree-panel > summary {
+    display: list-item;
+    cursor: pointer;
+    font-weight: 600;
+    padding: 4px;
+  }
+  .drive-tree-panel {
+    max-height: none;
+  }
 }

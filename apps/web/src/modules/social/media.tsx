@@ -1,10 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Button, Empty, Field, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
-import { socialPath, type SocialMedia, type SocialMediaList } from "./api";
+import { ShellContext } from "@/platform/shell/shell-context";
+import { DriveBrowser } from "@/platform/drive/drive-browser";
+import { driveText } from "@/platform/drive/labels";
+import { isDriveVideo, type DriveFile } from "@/platform/drive/api";
+import { importFromDrive, SOCIAL_DRIVE_TYPES, socialPath, type SocialMedia, type SocialMediaList } from "./api";
 import { mediaMessage, socialText } from "./labels";
 
 // The social media library (ADR 0020, S3): everybody in the module sees the
@@ -101,6 +105,25 @@ export function MediaView() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState<SocialMedia | null>(null);
+  const googleDrive = useContext(ShellContext)?.features?.googleDrive === true;
+  const [driveOpen, setDriveOpen] = useState(false);
+  const [driveFolder, setDriveFolder] = useState<string | null>(null);
+  const [drivePending, setDrivePending] = useState<string | null>(null);
+  const [driveNotice, setDriveNotice] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+
+  const fromDrive = async (file: DriveFile) => {
+    setDrivePending(file.id);
+    setDriveNotice(null);
+    try {
+      const media = await importFromDrive(project.id, file.id);
+      setDriveNotice({ kind: "success", text: `${t.addedToSocial}: ${media.name}` });
+      list.refresh();
+    } catch (e) {
+      setDriveNotice({ kind: "error", text: mediaMessage(codeOf(e), locale) });
+    } finally {
+      setDrivePending(null);
+    }
+  };
 
   const upload = async (file: File) => {
     if (file.size > MAX_UPLOAD_BYTES) return setMessage(mediaMessage("FILE_TOO_LARGE", locale));
@@ -143,6 +166,11 @@ export function MediaView() {
             />
           </label>
         )}
+        {canEdit && googleDrive && (
+          <Button variant="outline" onClick={() => setDriveOpen(true)}>
+            {t.fromDrive}
+          </Button>
+        )}
       </PageHead>
       {message && <Alert kind="error">{message}</Alert>}
       <ResourceError error={list.error} retry={list.refresh} />
@@ -165,6 +193,30 @@ export function MediaView() {
         ) : (
           <Empty title={t.empty} />
         ))}
+      {driveOpen && (
+        <Modal wide title={t.fromDriveTitle} description={t.fromDriveIntro} onClose={() => setDriveOpen(false)}>
+          {driveNotice && <Alert kind={driveNotice.kind}>{driveNotice.text}</Alert>}
+          <DriveBrowser
+            projectId={project.id}
+            folderId={driveFolder}
+            onFolderChange={setDriveFolder}
+            mode="pick"
+            onPick={fromDrive}
+            pickPending={drivePending}
+            pickDisabled={(file) =>
+              isDriveVideo(file)
+                ? driveText(locale).videosLater
+                : SOCIAL_DRIVE_TYPES.has(file.mimeType)
+                  ? null
+                  : socialText(locale).posts.driveTypes
+            }
+            locale={locale}
+          />
+          <Button variant="outline" onClick={() => setDriveOpen(false)}>
+            {t.close}
+          </Button>
+        </Modal>
+      )}
       {removing && (
         <Modal title={t.confirmTitle(removing.name)} description={t.confirmBody} onClose={() => setRemoving(null)}>
           <Button variant="outline" onClick={() => setRemoving(null)}>

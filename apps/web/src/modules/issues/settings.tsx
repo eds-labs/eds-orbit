@@ -2,11 +2,11 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useMutation, useResource } from "@/lib/api";
-import { Alert, Button, Input, Loading } from "@/components/ui/primitives";
+import { Alert, Badge, Button, Input, Loading } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import type { SettingsSection } from "@/platform/shell/types";
 import { ResourceError } from "@/platform/ui/collection";
-import { issuesPath, send, type IssuesSettings, type Source } from "./api";
+import { issuesPath, repositoryKey, send, type GithubStatus, type IssuesSettings, type Source } from "./api";
 import { issuesText, type IssuesText } from "./labels";
 import { useIssuesAccess, useIssuesLists } from "./shared";
 
@@ -22,6 +22,9 @@ function IssuesSettingsForm() {
   const t = issuesText(locale);
   const access = useIssuesAccess();
   const lists = useIssuesLists();
+  // Owners only; a 404 (feature off) or 403 leaves the section out. Only the
+  // settings picker asks for the installation's repositories (a GitHub call).
+  const githubStatus = useResource<GithubStatus>(access.owner ? issuesPath(project.id, "/github/status?available=1") : null);
   const [draft, setDraft] = useState<IssuesSettings | null>(null);
   useEffect(() => {
     if (lists.settings) setDraft(structuredClone(lists.settings));
@@ -164,6 +167,16 @@ function IssuesSettingsForm() {
           </div>
         </fieldset>
       </fieldset>
+      {githubStatus.data && (
+        <fieldset disabled={!access.owner || mutation.pending} className="work-stack">
+          <GithubSettings
+            draft={draft}
+            status={githubStatus.data}
+            onChange={(repositories) => update({ github: { repositories } })}
+            onComponentsChange={(components) => update({ components })}
+          />
+        </fieldset>
+      )}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       {access.owner && (
         <Button type="submit" disabled={!valid || mutation.pending}>
@@ -172,6 +185,138 @@ function IssuesSettingsForm() {
       )}
       {access.owner && <SourcesPanel t={t} />}
     </form>
+  );
+}
+
+/**
+ * Sets a component's default repository to an allow-list key, or removes it
+ * (`""`). A stored key that is not on the allow-list is ignored by the
+ * server and shown as "none" here.
+ */
+export function withComponentRepository(
+  components: IssuesSettings["components"],
+  componentKey: string,
+  repositoryKey: string,
+): IssuesSettings["components"] {
+  return components.map((c) => {
+    if (c.key !== componentKey) return c;
+    const { repository: _old, ...rest } = c;
+    return repositoryKey ? { ...rest, repository: repositoryKey } : rest;
+  });
+}
+
+/**
+ * The GitHub allow-list (spec 2026-11-05 §5.3): the installed repositories
+ * with the reason a public or archived one cannot be added, the stored list
+ * with its keys, and each component's default repository. The server stays
+ * authoritative.
+ */
+export function GithubSettings({
+  draft,
+  onChange,
+  onComponentsChange = () => {},
+  status,
+}: {
+  draft: IssuesSettings;
+  onChange: (repositories: IssuesSettings["github"]["repositories"]) => void;
+  onComponentsChange?: (components: IssuesSettings["components"]) => void;
+  status: GithubStatus;
+}) {
+  const { locale } = useWorkspace();
+  const g = issuesText(locale).github;
+  const s = g.settings;
+  const list = draft.github?.repositories ?? [];
+  const known = new Set(list.map((r) => r.fullName.toLowerCase()));
+  const components = draft.components ?? [];
+  return (
+    <fieldset className="work-stack">
+      <legend>{s.title}</legend>
+      <p className="support-muted">{s.intro}</p>
+      {!status.connected ? (
+        <p className="support-muted">{g.notConnected}</p>
+      ) : (
+        status.account && (
+          <p>
+            {s.account}: <code>{status.account}</code>
+          </p>
+        )
+      )}
+      {status.error && <Alert kind="warning">{g.errors[status.error] ?? g.errors.REQUEST_FAILED}</Alert>}
+      <strong>{s.allowList}</strong>
+      {list.length === 0 ? (
+        <p className="support-muted">{s.none}</p>
+      ) : (
+        <ul className="settings-rows">
+          {list.map((r) => (
+            <li key={r.key} className="work-settings-row">
+              <code>{r.key}</code>
+              <span>{r.fullName}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => onChange(list.filter((x) => x.key !== r.key))}>
+                {s.remove}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(status.available?.length ?? 0) > 0 && (
+        <>
+          <strong>{s.available}</strong>
+          <ul className="settings-rows">
+            {status.available!.map((r) => {
+              const added = known.has(r.fullName.toLowerCase());
+              const reason = !r.private ? s.onlyPrivate : r.archived ? s.archived : null;
+              return (
+                <li key={r.fullName} className="work-settings-row">
+                  <span>{r.fullName}</span>
+                  {reason && <Badge tone="warning">{reason}</Badge>}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={Boolean(reason) || added || list.length >= 20}
+                    onClick={() =>
+                      onChange([...list, { key: repositoryKey(r.fullName, list.map((x) => x.key)), fullName: r.fullName }])
+                    }
+                  >
+                    {added ? s.added : s.add}
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+          {list.length >= 20 && <p className="support-muted">{s.limit}</p>}
+        </>
+      )}
+      <strong>{s.componentRepositories}</strong>
+      {components.length === 0 ? (
+        <p className="support-muted">{s.noComponents}</p>
+      ) : (
+        <ul className="settings-rows">
+          {components.map((c) => {
+            const current = c.repository && list.some((r) => r.key === c.repository) ? c.repository : "";
+            return (
+              <li key={c.key} className="work-settings-row">
+                <label>
+                  {c.label[locale] || c.key} <code>{c.key}</code>
+                  <select
+                    aria-label={`${s.componentRepository}: ${c.key}`}
+                    value={current}
+                    onChange={(e) => onComponentsChange(withComponentRepository(components, c.key, e.target.value))}
+                  >
+                    <option value="">{s.noRepository}</option>
+                    {list.map((r) => (
+                      <option key={r.key} value={r.key}>
+                        {r.key} · {r.fullName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </fieldset>
   );
 }
 

@@ -89,3 +89,13 @@ See `docs/IMPLEMENTATION_STATUS.md` ("Track M WP-M4").
 ## Addendum 2026-10-28: agent mandates (proposed)
 
 [ADR 0019](0019-agent-mandates.md) proposes the first mode looser than `approval_required`: `auto_within_policy` under an owner-granted, bounded agent mandate for internal classes (`W0`, `C1`, `C2`) only. It would replace the WP-M4 sentence "a looser mode … must stay one step stricter for MCP requests" with a separate MCP opt-in per mandate. It also gives every assistant/MCP operation its own risk class instead of `W2`. It is behind `ORBIT_AGENT_MANDATES` (off) until Mario accepts it.
+
+## Addendum 2026-11-07: paid media and budget changes ([ADR 0025](0025-ads-module.md))
+
+Decided by Mario with the ads module decisions A-D6 and A-D7 on 2026-11-07. Not implemented yet: the decision rules take effect with ads step A7, the MCP proposals with step A10.
+
+- **Hard floors stay.** F1 (paid media creation, including activating a paused campaign) and F2 (budget change, including raising a spend limit or Orbit's own ad budget limit) are never mandatable, never `auto`, never a direct effect of an MCP or chat call, and only an owner decides them.
+- **Proposals are allowed.** An F1 or F2 type may be marked `mcpProposable` and created as a proposal from MCP, Orbit Chat, the personal assistant or a configured agent. This narrows the WP-M4 sentence "The hard floors (deletion, budget, governance, infrastructure) are never marked" for F1 and F2, as the existing F2 proposal `platform.mcp.ai_spend_policy_update` already does; D1, D2, G and infrastructure stay unmarked.
+- **The decision is web-only** (`ui_only` applied to the decision): no Telegram button, no MCP or chat decision, no standing approval.
+- **Recent authentication** (`approval_required_reauth`): the decider's session must be authenticated within the last 15 minutes; otherwise Orbit asks for a new sign-in before the decision. The decision records `reauthAt`. This is the first implementation of the mode; other hard floors may adopt it later.
+- **No AI spending authority.** Ads action types set `requires: []` and carry ad amounts with their currency in their own payload, never in `costCeilingMicros`, which keeps meaning AI cost.

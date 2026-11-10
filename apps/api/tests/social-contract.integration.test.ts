@@ -9,10 +9,12 @@ import {
   importOriginMedia,
   originPostStatus,
   publishingBlockers,
+  recentPosts,
   recentPublishedTexts,
   socialPublishingAvailable,
   submitOriginPost,
 } from "../src/modules/social/contract.ts";
+import { uploadMedia } from "../src/modules/social/media/library.ts";
 import { DISPATCH } from "../src/modules/social/dispatch/queues.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
@@ -153,6 +155,56 @@ describe.skipIf(!enabled)("social contract for Marketing", () => {
     expect(post.scheduledAt?.toISOString()).toBe(at.toISOString());
   });
 
+  describe("one library asset per image", () => {
+    const fixture = (ext: string) => readFileSync(new URL(`./fixtures/social/photo-800x600.${ext}`, import.meta.url));
+    const count = (q: typeof p, sha?: string) =>
+      q.run((tx) => tx.socialMediaAsset.count({ where: { projectId: q.owner.projectId, ...(sha ? { sha256: sha } : {}) } }));
+
+    it("importOriginMedia twice with the same bytes returns the same id and stores one asset", async () => {
+      const bytes = fixture("webp");
+      const before = await count(p);
+      const first = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      const second = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      expect(second).toBe(first);
+      expect(await count(p)).toBe(before + 1);
+    });
+
+    it("an archived asset is not reused", async () => {
+      const bytes = fixture("jpg");
+      const first = await importOriginMedia(p.owner, { bytes, mime: "image/jpeg" });
+      await p.run((tx) => tx.socialMediaAsset.update({ where: { id: first }, data: { archivedAt: new Date() } }));
+      const second = await importOriginMedia(p.owner, { bytes, mime: "image/jpeg" });
+      expect(second).not.toBe(first);
+    });
+
+    it("assets of another project are never reused", async () => {
+      const bytes = fixture("webp");
+      const mine = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      const theirs = await importOriginMedia(other.owner, { bytes, mime: "image/webp" });
+      expect(theirs).not.toBe(mine);
+    });
+
+    it("two concurrent imports of the same bytes both succeed", async () => {
+      const bytes = Buffer.from(PNG);
+      const [a, b] = await Promise.all([
+        importOriginMedia(other.owner, { bytes, mime: "image/png" }),
+        importOriginMedia(other.owner, { bytes, mime: "image/png" }),
+      ]);
+      expect(a).toBeTruthy();
+      expect(b).toBeTruthy();
+      const rows = await other.run((tx) => tx.socialMediaAsset.findMany({ where: { id: { in: [a, b] } } }));
+      expect(rows.length).toBeGreaterThanOrEqual(1);
+      expect(rows.length).toBeLessThanOrEqual(2);
+    });
+
+    it("a manual upload of the same bytes still creates a new asset", async () => {
+      const bytes = fixture("webp");
+      const imported = await importOriginMedia(p.owner, { bytes, mime: "image/webp" });
+      const manual = await uploadMedia(p.owner, { bytes, mime: "image/webp" });
+      expect(manual.id).not.toBe(imported);
+    });
+  });
+
   it("withdraws an origin post that has not gone out, and says when it has", async () => {
     const { postId } = await p.run((tx) =>
       submitOriginPost(tx, p.owner, { origin: origin(), accountId: telegram, text: "Withdraw me", mediaIds: [], mode: "now", packageHash: "d".repeat(64) }),
@@ -233,5 +285,80 @@ describe.skipIf(!enabled)("social contract for Marketing", () => {
     // The origin's own handed-over post is not its duplicate.
     expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [telegram], 7, { excludePostIds: [postId] }))).not.toContain("Status text");
     expect(await p.run((tx) => recentPublishedTexts(tx, p.owner, [x], 7))).not.toContain("Status text");
+  });
+
+  it("recentPosts returns native published and scheduled posts, not Marketing hand-offs or the Postiz mirror, and nothing of another project", async () => {
+    const day = 86_400_000;
+    const post = (
+      q: typeof p,
+      accountId: string,
+      body: string,
+      fields: Record<string, unknown>,
+      publishedAt: Date | null = null,
+    ) =>
+      q.run(async (tx) => {
+        const id = randomUUID();
+        await tx.socialPost.create({
+          data: {
+            id,
+            workspaceId: q.owner.workspaceId,
+            projectId: q.owner.projectId,
+            baseText: body,
+            baseMedia: [],
+            scheduleTimezone: "UTC",
+            createdBy: q.owner.userId,
+            ...fields,
+          } as any,
+        });
+        const variantId = randomUUID();
+        await tx.socialPostVariant.create({
+          data: {
+            id: variantId,
+            workspaceId: q.owner.workspaceId,
+            projectId: q.owner.projectId,
+            postId: id,
+            accountId,
+            body,
+            contentHash: "a".repeat(64),
+          },
+        });
+        if (publishedAt)
+          await tx.socialPublication.create({
+            data: {
+              id: randomUUID(),
+              workspaceId: q.owner.workspaceId,
+              projectId: q.owner.projectId,
+              variantId,
+              accountId,
+              idempotencyKey: randomUUID(),
+              status: "published",
+              publishedAt,
+            },
+          });
+        return id;
+      });
+    const now = Date.now();
+    await post(p, x, "Native published", { status: "published" }, new Date(now - 2 * day));
+    await post(p, x, "L".repeat(400), { status: "scheduled", scheduleMode: "at", scheduledAt: new Date(now + day) });
+    await post(p, x, "Marketing hand-off", { status: "published", origin: "marketing", originModule: "marketing", originType: "publication", originId: randomUUID(), originVersion: 1 }, new Date(now - day));
+    await post(p, x, "Postiz mirror", { status: "published", origin: "legacy_postiz", readOnly: true, originModule: "postiz", originType: "publication", originId: randomUUID(), originVersion: 1 }, new Date(now - day));
+    await post(p, x, "Still a draft", { status: "draft" });
+    await post(p, x, "Too old", { status: "published" }, new Date(now - 40 * day));
+    await post(other, (await other.run((tx) => tx.socialAccount.findFirstOrThrow({ where: { projectId: other.owner.projectId } }))).id, "Foreign", { status: "published" }, new Date(now - day));
+    const since = new Date(now - 30 * day);
+    const rows = await p.run((tx) => recentPosts(tx, p.owner, [x, telegram], since));
+    expect(rows.map((r) => [r.text.slice(0, 20), r.status])).toEqual(
+      expect.arrayContaining([
+        ["Native published", "published"],
+        ["L".repeat(20), "scheduled"],
+      ]),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.text.startsWith("LLL"))!.text).toHaveLength(280);
+    expect(rows.every((r) => r.accountId === x)).toBe(true);
+    expect(await p.run((tx) => recentPosts(tx, p.owner, [], since))).toEqual([]);
+    // Another project's account id yields nothing here.
+    const foreign = (await other.run((tx) => tx.socialAccount.findFirstOrThrow({ where: { projectId: other.owner.projectId } }))).id;
+    expect(await p.run((tx) => recentPosts(tx, p.owner, [foreign], since))).toEqual([]);
   });
 });

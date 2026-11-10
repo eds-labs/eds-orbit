@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { languageCode } from "./project-settings.js";
 
 export const knowledgeTopic = z.enum([
   "description",
@@ -28,6 +29,18 @@ export const knowledgeProposal = z
 export const knowledgeAnalysisOutput = z
   .object({ proposals: z.array(knowledgeProposal).max(30) })
   .strict();
+/**
+ * The use an owner allowed for the statements of a draft. Apart from the
+ * draft's `modelUse`, which says whether its analysis calls a model at all.
+ */
+export const knowledgeDraftRights = z
+  .object({
+    marketing: z.boolean(),
+    support: z.boolean(),
+    publicUse: z.boolean(),
+    modelUse: z.boolean(),
+  })
+  .strict();
 export const knowledgeDraftBase = z
   .object({
     name: z.string().min(1).max(200),
@@ -36,6 +49,9 @@ export const knowledgeDraftBase = z
     kind: z.enum(["manual", "file", "website", "github"]),
     text: z.string().max(100000).default(""),
     url: z.url().optional(),
+    // A site draft: the selected pages of `url`, one snapshot file each. An
+    // address longer than an evidence path could not be cited.
+    pages: z.array(z.url().max(400)).max(30).optional(),
     connectionId: z.uuid().optional(),
     repositoryId: z.number().int().positive().optional(),
     repository: z
@@ -49,6 +65,7 @@ export const knowledgeDraftBase = z
       .max(20)
       .default(["README.md", "docs/"]),
     modelUse: z.boolean().default(false),
+    rights: knowledgeDraftRights.optional(),
     language: z.enum(["de", "en"]).default("de"),
   })
   .strict();
@@ -63,6 +80,28 @@ export const knowledgeDraft = knowledgeDraftBase.superRefine((v, ctx) => {
     require(v.repository, "repository");
   } else if (v.kind === "website") require(v.url, "url");
   else require(v.text.trim(), "text");
+});
+/**
+ * Text or a document taken over whole as searchable content. The owner's
+ * review is the choice of audiences and rights (no analysis run, no model).
+ */
+export const knowledgeContentAcceptInput = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    text: z.string().trim().min(1).max(100000),
+    kind: z.enum(["manual", "file"]),
+    language: languageCode,
+    marketing: z.boolean(),
+    support: z.boolean(),
+    publicUse: z.boolean(),
+    modelUse: z.boolean(),
+    // The draft this take-over replaces, made while the owner chose a way.
+    draftId: z.uuid().optional(),
+  })
+  .strict();
+/** A run's input: the draft, plus the owner's consent given at the start of an AI run. */
+export const knowledgeRunInput = knowledgeDraftBase.extend({
+  confirmModelUse: z.literal(true).optional(),
 });
 export type KnowledgeDraft = z.infer<typeof knowledgeDraft>;
 export type KnowledgeProposal = z.infer<typeof knowledgeProposal>;

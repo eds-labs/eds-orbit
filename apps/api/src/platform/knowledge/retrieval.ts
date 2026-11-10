@@ -112,7 +112,16 @@ export async function retrieveHybrid(
           "evidence",
           data(run).evidenceId,
         );
-        if (!(await validateEvidence(tx, scope, evidence.id, new Date())).valid)
+        const check = await validateEvidence(tx, scope, evidence.id, new Date());
+        // A search that found nothing cites nothing that could have changed:
+        // a retried job gets that same answer back.
+        const foundNothing =
+          check.reasons.includes("insufficient_evidence") &&
+          check.reasons.every(
+            (r) =>
+              r === "insufficient_evidence" || r === "evidence_not_public_ready",
+          );
+        if (!check.valid && !foundNothing)
           throw new DomainError("RETRIEVAL_DEPENDENCY_CHANGED");
         return evidence;
       },

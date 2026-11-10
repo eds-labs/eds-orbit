@@ -531,7 +531,7 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     const assignment = await confirmed();
     let r = await request("viewer", "GET", "assignment-drafts");
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ items: [] });
+    expect(r.json()).toEqual({ items: [], history: [] });
     // A draft that is not an assignment draft is not found; roles are checked first.
     const plain = await run((tx) =>
       create(tx, project.owner, "content", {
@@ -566,6 +566,29 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
       },
     );
     expect(r.statusCode).toBe(400);
+    // Reject, discard and archive: owner only, assignment drafts only.
+    for (const decision of ["reject", "discard", "archive"]) {
+      for (const who of ["viewer", "editor"] as const) {
+        r = await request(
+          who,
+          "POST",
+          `assignment-drafts/${plain.id}/${decision}`,
+          { version: plain.version },
+        );
+        expect([who, decision, r.statusCode]).toEqual([who, decision, 403]);
+      }
+      r = await request(
+        "owner",
+        "POST",
+        `assignment-drafts/${plain.id}/${decision}`,
+        { version: plain.version },
+      );
+      expect([decision, r.statusCode]).toEqual([decision, 404]);
+    }
+    r = await request("owner", "POST", `assignment-drafts/${plain.id}/delete`, {
+      version: plain.version,
+    });
+    expect(r.statusCode).toBe(404);
     const unchanged = await run((tx) =>
       entity(tx, project.owner, "content", plain.id),
     );
@@ -675,6 +698,110 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     expect(r.json()).toEqual({ status: "none", linkedAt: null });
   });
 
+  it("lets only the owner retry a failed run before its slot (G6)", async () => {
+    const tz = (
+      await run((tx) =>
+        tx.project.findUniqueOrThrow({
+          where: { id: project.owner.projectId },
+        }),
+      )
+    ).timezone;
+    const slot = new Date(Date.now() + 2 * 3600000);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(slot);
+    const part = (type: string) => parts.find((p) => p.type === type)!.value;
+    const assignment = await confirmed({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: [`${part("hour")}:${part("minute")}`],
+      },
+    });
+    const failedRun = await run((tx) =>
+      create(tx, project.owner, "assignment_runs", {
+        assignmentId: assignment.id,
+        assignmentVersion: assignment.version,
+        date: `${part("year")}-${part("month")}-${part("day")}`,
+        status: "failed",
+        slots: [{ channel: X, at: slot.toISOString() }],
+        unavailable: [],
+        steps: [],
+        costMicros: 0,
+      }),
+    );
+    const path = `assignment-runs/${failedRun.id}/retry`;
+    for (const who of ["viewer", "editor"] as const)
+      expect([who, (await request(who, "POST", path, {})).statusCode]).toEqual([
+        who,
+        403,
+      ]);
+    // Unknown run: 404; unexpected body: 400.
+    expect(
+      (
+        await request(
+          "owner",
+          "POST",
+          `assignment-runs/${randomUUID()}/retry`,
+          {},
+        )
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (await request("owner", "POST", path, { force: true })).statusCode,
+    ).toBe(400);
+    // A paused project offers no retry and refuses one with PROJECT_PAUSED.
+    const setPaused = (paused: boolean) =>
+      run((tx) =>
+        tx.project.update({
+          where: { id: project.owner.projectId },
+          data: { paused },
+        }),
+      );
+    await setPaused(true);
+    const paused = await request("owner", "POST", path, {});
+    expect([paused.statusCode, paused.json().error.code]).toEqual([
+      409,
+      "PROJECT_PAUSED",
+    ]);
+    const whilePaused = (await request("owner", "GET", "assignments")).json()
+      .items as Array<Record<string, any>>;
+    expect(
+      whilePaused.find((i) => i.id === assignment.id)!.retryableRunId,
+    ).toBeNull();
+    await setPaused(false);
+    expect(
+      (
+        (await request("owner", "GET", "assignments")).json().items as Array<
+          Record<string, any>
+        >
+      ).find((i) => i.id === assignment.id)!.retryableRunId,
+    ).toBe(failedRun.id);
+    const ok = await request("owner", "POST", path, {});
+    expect([ok.statusCode, ok.json()]).toEqual([
+      200,
+      { retiredRunId: failedRun.id, runId: expect.any(String) },
+    ]);
+    // Retired runs are not retried again.
+    const again = await request("owner", "POST", path, {});
+    expect([again.statusCode, again.json().error.code]).toEqual([
+      409,
+      "RUN_NOT_RETRYABLE",
+    ]);
+    // The list names the latest run as retryable only while it can be.
+    const items = (await request("owner", "GET", "assignments")).json()
+      .items as Array<Record<string, any>>;
+    expect(
+      items.find((i) => i.id === assignment.id)!.retryableRunId,
+    ).toBeNull();
+  });
+
   it("answers 404 on every Orbit Agents route while the flag is off", async () => {
     const assignment = await confirmed();
     const post = await assignmentPost(assignment.id);
@@ -704,6 +831,7 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
           { version: post.version },
         ],
         ["owner", "GET", "telegram", undefined],
+        ["owner", "POST", `assignment-runs/${randomUUID()}/retry`, {}],
         // Before authentication and role checks, too.
         ["viewer", "POST", `publications/${post.id}/veto`, { version: 1 }],
       ];

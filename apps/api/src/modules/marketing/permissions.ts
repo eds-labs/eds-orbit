@@ -7,6 +7,7 @@ import {
 export const marketingActionPermissions = actionPermissions("marketing", {
   owner: [
     "approve",
+    "archive-content",
     "archive-mission",
     "asset-status",
     "brand-approval",
@@ -14,6 +15,7 @@ export const marketingActionPermissions = actionPermissions("marketing", {
     "calendar-unblock",
     "configure-matomo-schedule",
     "correct-metric",
+    "discard-content",
     "import-matomo",
     "memory-lifecycle",
     "postiz-assign-channels",
@@ -23,6 +25,7 @@ export const marketingActionPermissions = actionPermissions("marketing", {
     "postiz-test-prepare",
     "postiz-test-reconcile",
     "preference-update",
+    "reject-content",
     "resume-live-draft-batch",
     "resume-paused-publications",
     "slack-configure",

@@ -20,6 +20,7 @@ import { errorCode } from "../../telemetry.ts";
 import { enqueue, publishIntent } from "../pipeline/workflow.ts";
 import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import { agentReviewAccepted } from "./agent-review.ts";
+import { draftReplaced, slotExpired } from "./draft-state.ts";
 import { SLOT_STEP_MS, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import {
   agentsEnabled,
@@ -127,6 +128,11 @@ const rowsWhere = (
     },
     orderBy: { createdAt: "asc" },
   });
+
+/** The refusal for a deliverable whose run slot has already passed (D-2). */
+export const SLOT_EXPIRED = "SLOT_EXPIRED";
+
+export { slotExpired } from "./draft-state.ts";
 
 /**
  * The time a deliverable can go out with its full veto window: its own slot,
@@ -298,7 +304,7 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       dropped.some((entry) => entry.contentId === draft.id) ||
       c.type !== "social" ||
       c.status !== "reviewed" ||
-      c.supersededBy ||
+      draftReplaced(c) ||
       !(await agentReviewAccepted(tx, scope, c))
     )
       continue;
@@ -324,6 +330,8 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       // Switched off: the deliverable is dropped with a notice (R73).
       if (drafting && !postizDraftsEnabled())
         failure = "POSTIZ_DRAFTS_DISABLED";
+      // A passed slot is never moved (D-2).
+      else if (slotExpired(planned, now)) failure = SLOT_EXPIRED;
       else
         target = await vetoSlot(
           tx,
@@ -458,7 +466,7 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       .filter(
         (draft) =>
           PENDING_DRAFT.includes(data(draft).status) &&
-          !data(draft).supersededBy &&
+          !draftReplaced(data(draft)) &&
           !existing.some((pub) => data(pub).contentId === draft.id) &&
           !handoffs.some((row) => data(row).contentId === draft.id) &&
           !dropped.some((entry) => entry.contentId === draft.id),
@@ -514,6 +522,8 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
 export function awaitsScheduling(run: Record<string, any>) {
   return (
     ["done", "partial"].includes(run.status) &&
+    // A run the owner retried (G6) is never scheduled: its drafts are retired.
+    !run.retiredAt &&
     !run.scheduledAt &&
     ((run.steps ?? []) as Array<Record<string, any>>).some(
       (step) => step.role === "review" && step.status === "done",
@@ -980,7 +990,7 @@ export async function runDeliverables(
     if (
       covered.has(draft.id) ||
       c.status !== "needs_review" ||
-      c.supersededBy ||
+      draftReplaced(c) ||
       c.type !== "social"
     )
       continue;

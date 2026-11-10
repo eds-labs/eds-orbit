@@ -41,6 +41,7 @@ import { publishingBackend, refuseWhileDraining } from "./backend.ts";
 import {
   accountForChannel,
   importOriginMedia,
+  isSocialChannel,
   submitOriginPost,
 } from "../../social/contract.ts";
 
@@ -117,7 +118,8 @@ const OPEN = ["queued", "sending", "outcome_unknown"];
 export type DraftTarget = {
   content: Awaited<ReturnType<typeof entity>>;
   c: Record<string, any>;
-  connector: Awaited<ReturnType<typeof entity>>;
+  /** Null for a native `social:` channel: no Postiz connector stands behind it. */
+  connector: Awaited<ReturnType<typeof entity>> | null;
   integration: Record<string, any>;
 };
 
@@ -169,6 +171,27 @@ export async function draftTarget(
       data(row).contentVersion === content.version,
   );
   if (done) return { done };
+  if (isSocialChannel(c.channel)) {
+    // A native Social channel needs no Postiz connector (G9); the account
+    // must belong to the project and the policy must allow the channel.
+    if ((await publishingBackend(tx, scope)) !== "social")
+      throw new DomainError("SOCIAL_CHANNEL_REQUIRES_SOCIAL_BACKEND", 409);
+    const account = await accountForChannel(tx, scope, c.channel);
+    if (!account) throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
+    const policy = await activePolicy(tx, scope);
+    if (!policy || !data(policy).channels?.includes(c.channel))
+      throw new DomainError("POLICY_CHANNEL_REQUIRED", 409);
+    return {
+      content,
+      c,
+      connector: null,
+      integration: {
+        id: c.channel,
+        name: account.handle,
+        identifier: account.platform,
+      },
+    };
+  }
   const connector = (await list(tx, scope, "connectors")).find(
     (row) =>
       data(row).provider === "postiz" && connectionVerified(data(row).status),
@@ -212,8 +235,8 @@ export async function recordDraftHandoff(
     packageHash: hash(packageData),
     integrationName: integration.name ?? null,
     integrationIdentifier: integration.identifier,
-    connectorId: connector.id,
-    connectorVersion: connector.version,
+    connectorId: connector?.id ?? null,
+    connectorVersion: connector?.version ?? null,
     requestedBy: scope.userId,
     startedAt: new Date().toISOString(),
     ...fields,
@@ -248,7 +271,7 @@ export async function draftSend(
   target: DraftTarget,
   date: string,
 ): Promise<DraftSend> {
-  const k = data(target.connector);
+  const k = target.connector ? data(target.connector) : {};
   const c = target.c;
   const social =
     (await publishingBackend(tx, scope)) === "social"

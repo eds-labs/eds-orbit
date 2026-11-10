@@ -1,3 +1,4 @@
+import { draftReplaced } from "../agents/draft-state.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   failedBlockers,
@@ -196,7 +197,7 @@ export async function attachCreativeInTx(
     !(mode === "run" && record.status === "needs_owner")
   )
     throw new DomainError("CREATIVE_NOT_ATTACHABLE", 409);
-  if (v.supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
+  if (draftReplaced(v)) throw new DomainError("DRAFT_SUPERSEDED", 409);
   await assertRenditionHolds(tx, scope, kit, row.id, rendition);
   if (
     (await list(tx, scope, "publications")).some(

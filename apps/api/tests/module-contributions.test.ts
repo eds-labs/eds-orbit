@@ -102,8 +102,10 @@ describe("module contributions", () => {
         "index_evaluation_set",
         "ingestion",
         "issues_ai",
+        "issues_github",
         "issues_intake",
         "knowledge_analysis",
+        "knowledge_site_sync",
         "postiz_draft",
         "publishing",
         "reconciliation",
@@ -163,12 +165,16 @@ describe("module contributions", () => {
       "knowledge_profiles",
       "knowledge_proposals",
       "knowledge_runs",
+      "knowledge_site_runs",
       // Proactive layer (ADR 0023): user-private preferences and scheduler marks.
       "notification_preferences",
       "orbit_tasks",
       "personal_context",
       "proactive_state",
       "public_sessions",
+      // MCP media idempotency receipts and one-time upload sessions (Social).
+      "social_media_receipt",
+      "social_media_upload",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
       "telegram_connections",
@@ -237,6 +243,7 @@ describe("module contributions", () => {
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
+      "social-hold-sync",
     ]);
     // Support's task counts only while support is available (WP5.3, WP5.6).
     process.env.ORBIT_SUPPORT = "true";
@@ -264,6 +271,7 @@ describe("module contributions", () => {
       "ai-spend-policy",
       "analyze",
       "approve",
+      "archive-content",
       "archive-mission",
       "archive-old-drafts",
       "asset-status",
@@ -281,6 +289,7 @@ describe("module contributions", () => {
       "correct-metric",
       "customer-context-connect",
       "customer-context-disconnect",
+      "discard-content",
       "editorial-propose-brief",
       "email-connect",
       "email-disconnect",
@@ -292,7 +301,9 @@ describe("module contributions", () => {
       "import-matomo",
       "import-metrics",
       "knowledge-analysis-cancel",
+      "knowledge-analysis-preflight",
       "knowledge-analysis-start",
+      "knowledge-content-accept",
       "knowledge-draft-preview",
       "knowledge-draft-save",
       "knowledge-file-read",
@@ -303,6 +314,13 @@ describe("module contributions", () => {
       "knowledge-import-retry",
       "knowledge-profile-save",
       "knowledge-proposal-decide",
+      "knowledge-proposal-edit",
+      "knowledge-proposal-remove",
+      "knowledge-proposal-restore",
+      "knowledge-site-discover",
+      "knowledge-site-refresh",
+      "knowledge-site-settings",
+      "knowledge-site-start",
       "memory-lifecycle",
       "openai-configure",
       "pause",
@@ -317,6 +335,7 @@ describe("module contributions", () => {
       "project-settings",
       "publish",
       "reconcile",
+      "reject-content",
       "render",
       "resolve-exception",
       "restore-draft-cleanup",
@@ -369,7 +388,9 @@ describe("module contributions", () => {
       "connector-health",
       "import-matomo",
       "knowledge-analysis-cancel",
+      "knowledge-analysis-preflight",
       "knowledge-analysis-start",
+      "knowledge-content-accept",
       "knowledge-draft-preview",
       "knowledge-draft-save",
       "knowledge-file-read",
@@ -378,6 +399,13 @@ describe("module contributions", () => {
       "knowledge-import-preview",
       "knowledge-profile-save",
       "knowledge-proposal-decide",
+      "knowledge-proposal-edit",
+      "knowledge-proposal-remove",
+      "knowledge-proposal-restore",
+      "knowledge-site-discover",
+      "knowledge-site-refresh",
+      "knowledge-site-settings",
+      "knowledge-site-start",
       "openai-configure",
       "postiz-draft-handoff",
       "postiz-test-execute",
@@ -439,6 +467,7 @@ describe("module contributions", () => {
       "openai",
       "anthropic",
       "n8n",
+      "github_app",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
       // The social module's developer apps and managed accounts (ADR 0020).
@@ -456,10 +485,11 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("customer_context")?.owner).toBe(
       "platform",
     );
+    expect(registeredConnectionProvider("github_app")?.owner).toBe("platform");
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(6, 12))
+    for (const id of registeredConnectionProviderIds().slice(7, 13))
       expect(registeredConnectionProvider(id)?.owner).toBe("social");
-    for (const id of registeredConnectionProviderIds().slice(12))
+    for (const id of registeredConnectionProviderIds().slice(13))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

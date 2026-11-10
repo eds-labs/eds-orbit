@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import { authDb, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { connectionSecret, resolveConnection } from "../../../platform/connections/central.ts";
+import { connectionSecret, connectionsEnabled, resolveConnection } from "../../../platform/connections/central.ts";
 import { DomainError } from "../../../shared.ts";
 
 // Developer apps (ADR 0020): system connections in the administration whose
@@ -57,7 +57,38 @@ export async function appCredentials(
     : { connectionId, x: parseAppSecret(xAppSecret, raw) };
 }
 
-export type AppReadiness = "ready" | "not_granted" | "invalid";
+/**
+ * "project_not_granted": the organization holds the app, only this
+ * project's grant is missing (an organization owner adds it in the
+ * organization settings); "not_granted": the administration still has to
+ * add or grant the app.
+ */
+export type AppReadiness = "ready" | "project_not_granted" | "not_granted" | "invalid";
+
+/**
+ * Whether the organization holds an active grant of the app for social
+ * sign-in. The business role sees a connection only through a project
+ * grant, so this existence check reads as the auth role, limited to the
+ * caller's organization; only a boolean leaves it.
+ */
+async function grantedToOrganization(scope: Scope, app: SocialApp): Promise<boolean> {
+  if (!connectionsEnabled()) return false;
+  const grant = await authDb.connectionGrant.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: null,
+      userId: null,
+      revokedAt: null,
+      connection: { provider: `social.app.${app}`, disabledAt: null, revokedAt: null },
+      AND: [
+        { OR: [{ purposes: { isEmpty: true } }, { purposes: { has: "social_oauth" } }] },
+        { OR: [{ modules: { isEmpty: true } }, { modules: { has: "social" } }] },
+      ],
+    },
+    select: { id: true },
+  });
+  return grant !== null;
+}
 
 /**
  * Whether each developer app can start a connection for the project, so
@@ -70,7 +101,8 @@ export async function appReadiness(tx: DbTx, scope: Scope): Promise<Record<Socia
       await appCredentials(tx, scope, app);
       return "ready";
     } catch (error) {
-      return (error as { code?: string }).code === "SOCIAL_APP_INVALID" ? "invalid" : "not_granted";
+      if ((error as { code?: string }).code === "SOCIAL_APP_INVALID") return "invalid";
+      return (await grantedToOrganization(scope, app)) ? "project_not_granted" : "not_granted";
     }
   };
   return { x: await state("x"), meta: await state("meta") };

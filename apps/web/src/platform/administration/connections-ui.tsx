@@ -8,11 +8,15 @@ import {
   Badge,
   Button,
   Empty,
+  Field,
+  FieldGroup,
+  FieldLabel,
+  Input,
   Loading,
   Modal,
 } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
-import { DataForm, str } from "@/platform/ui/form";
+import { DataForm, str, type FormField, type FormValues } from "@/platform/ui/form";
 import { at, errorText } from "./texts";
 
 // Central connections (ADR 0014): the same list, forms and grants for the
@@ -20,6 +24,13 @@ import { at, errorText } from "./texts";
 // with a budget) and the organization settings (own connections and
 // granted system ones, granted to projects). Secrets are write-only.
 
+type SecretField = {
+  key: string;
+  label: { en: string; de: string };
+  secret?: boolean;
+  pattern?: string;
+  hint?: { en: string; de: string };
+};
 type Provider = {
   id: string;
   label: { en: string; de: string };
@@ -28,6 +39,10 @@ type Provider = {
   checkable: boolean;
   /** Its channels are assigned to projects, one project each. */
   channels?: boolean;
+  /** The parts of its JSON secret, asked for one by one. */
+  secretFields?: SecretField[];
+  /** Path on this Orbit the provider calls back (OAuth apps). */
+  callbackPath?: string;
 };
 type Connection = {
   id: string;
@@ -44,6 +59,7 @@ type Connection = {
 };
 type Grant = {
   id: string;
+  workspaceId: string;
   workspaceName: string;
   projectName: string | null;
   projectId: string | null;
@@ -64,6 +80,267 @@ export const usdOf = (micros: number | null | undefined) =>
       }).format(micros / 1_000_000);
 const microsOf = (usd: string) =>
   usd.trim() ? Math.round(Number(usd.replace(",", ".")) * 1_000_000) : undefined;
+
+const fieldName = (provider: string, key: string) => `secret:${provider}:${key}`;
+const browserOrigin = () => (typeof window === "undefined" ? "" : window.location.origin);
+
+/**
+ * The secret a form sends: for a provider with separate fields (developer
+ * apps), the JSON of those fields; otherwise the single secret field.
+ */
+export function secretOf(provider: Provider | undefined, values: FormValues) {
+  if (!provider?.secretFields?.length) return String(values.secret ?? "");
+  return JSON.stringify(
+    Object.fromEntries(
+      provider.secretFields.map((f) => [f.key, String(values[fieldName(provider.id, f.key)] ?? "").trim()]),
+    ),
+  );
+}
+
+/** One field per part of the provider's secret, plus its callback URL. */
+function appFields(
+  provider: Provider,
+  locale: Locale,
+  origin: string,
+  showWhen?: FormField["showWhen"],
+): FormField[] {
+  const de = locale === "de";
+  const when = showWhen ? { showWhen } : {};
+  return [
+    ...(provider.callbackPath
+      ? [
+          {
+            name: `callback:${provider.id}`,
+            label: de ? "Callback-URL für die App" : "Callback URL for the app",
+            readOnly: true,
+            value: `${origin}${provider.callbackPath}`,
+            copyLabel: de ? "Kopieren" : "Copy",
+            hint: de
+              ? "In der App des Anbieters als Callback- bzw. Redirect-URL eintragen."
+              : "Enter it in the provider's app as the callback or redirect URL.",
+            ...when,
+          },
+        ]
+      : []),
+    ...(provider.secretFields ?? []).map((f) => ({
+      name: fieldName(provider.id, f.key),
+      label: f.label[locale],
+      type: f.secret ? ("password" as const) : ("text" as const),
+      required: true,
+      ...(f.pattern ? { pattern: f.pattern } : {}),
+      ...(f.hint ? { hint: f.hint[locale] } : {}),
+      ...when,
+    })),
+  ];
+}
+
+/**
+ * The fields of "Add connection": developer apps ask for each key on its
+ * own and show their callback URL; other providers keep one secret field.
+ */
+export function createFields(
+  providers: Provider[],
+  mode: "admin" | "owner",
+  locale: Locale,
+  origin: string,
+): FormField[] {
+  const de = locale === "de";
+  const offered = providers.filter((p) => p.scopes.includes(mode === "admin" ? "system" : "workspace"));
+  const plain = {
+    name: "provider",
+    values: ["", ...offered.filter((p) => !p.secretFields?.length).map((p) => p.id)],
+  };
+  return [
+    {
+      name: "provider",
+      label: de ? "Anbieter" : "Provider",
+      type: "select",
+      required: true,
+      options: offered.map((p) => ({ value: p.id, label: p.label[locale] })),
+    },
+    { name: "label", label: de ? "Bezeichnung" : "Label", required: true },
+    {
+      name: "baseUrl",
+      label: de ? "Basis-URL (optional)" : "Base URL (optional)",
+      type: "url",
+      showWhen: plain,
+    },
+    {
+      name: "secret",
+      label: de ? "API-Schlüssel oder Token" : "API key or token",
+      type: "password",
+      required: true,
+      hint: de
+        ? "n8n und Kundenkontext: JSON mit apiKey/token und signingSecret. GitHub-App: JSON mit appId, appSlug, installationId und privateKey."
+        : "n8n and customer context: JSON with apiKey/token and signingSecret. GitHub App: JSON with appId, appSlug, installationId and privateKey.",
+      showWhen: plain,
+    },
+    ...offered
+      .filter((p) => p.secretFields?.length)
+      .flatMap((p) => appFields(p, locale, origin, { name: "provider", values: [p.id] })),
+    {
+      name: "budget",
+      label: de ? "Monatsbudget in USD (optional)" : "Monthly budget in USD (optional)",
+      type: "number",
+      min: 0,
+      step: "0.01",
+      showWhen: plain,
+    },
+  ];
+}
+
+/**
+ * The grant requests for an organization and the projects chosen with it.
+ * An existing organization grant stays (a new one would end its project
+ * grants); projects already granted are skipped; project purposes stay
+ * within the organization's.
+ */
+export function grantRequests(input: {
+  grants: Grant[];
+  workspaceId: string;
+  projectIds: string[];
+  purposes: string[];
+  budgetMicros: number | undefined;
+}): Array<Record<string, unknown>> {
+  const { grants, workspaceId, projectIds, purposes, budgetMicros } = input;
+  const organization = grants.find((g) => g.workspaceId === workspaceId && !g.projectId);
+  const out: Array<Record<string, unknown>> = [];
+  if (!organization)
+    out.push({
+      workspaceId,
+      purposes,
+      ...(budgetMicros !== undefined ? { monthlyBudgetMicros: budgetMicros } : {}),
+    });
+  const allowed = organization?.purposes.length
+    ? purposes.filter((p) => organization.purposes.includes(p))
+    : purposes;
+  for (const projectId of projectIds)
+    if (!grants.some((g) => g.workspaceId === workspaceId && g.projectId === projectId))
+      out.push({ workspaceId, projectId, purposes: allowed });
+  return out;
+}
+
+/** The administration's grant: an organization and, in the same step, its projects. */
+export function OrganizationGrantForm({
+  targets,
+  grants,
+  purposes,
+  budgetRequired,
+  locale,
+  pending,
+  initialOrganization = "",
+  onSubmit,
+}: {
+  targets: Array<{ id: string; name: string }>;
+  grants: Grant[];
+  purposes: string[];
+  budgetRequired: boolean;
+  locale: Locale;
+  pending: boolean;
+  initialOrganization?: string;
+  onSubmit: (requests: Array<Record<string, unknown>>) => void;
+}) {
+  const de = locale === "de";
+  const [organization, setOrganization] = useState(initialOrganization);
+  const [projectIds, setProjectIds] = useState<string[]>([]);
+  const [budget, setBudget] = useState("");
+  const projects = useResource<{ items: Array<{ id: string; name: string }> }>(
+    organization ? `/admin/projects?workspaceId=${encodeURIComponent(organization)}` : null,
+  );
+  const organizationGranted = grants.some((g) => g.workspaceId === organization && !g.projectId);
+  const granted = (projectId: string) =>
+    grants.some((g) => g.workspaceId === organization && g.projectId === projectId);
+  const requests = organization
+    ? grantRequests({ grants, workspaceId: organization, projectIds, purposes, budgetMicros: microsOf(budget) })
+    : [];
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (requests.length) onSubmit(requests);
+      }}
+    >
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="grant-organization">{de ? "Organisation" : "Organization"}</FieldLabel>
+          <select
+            id="grant-organization"
+            className="input"
+            required
+            value={organization}
+            onChange={(event) => {
+              setOrganization(event.target.value);
+              setProjectIds([]);
+            }}
+          >
+            <option value="">{de ? "Auswählen…" : "Select…"}</option>
+            {targets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          {organizationGranted && (
+            <p className="field-hint">
+              {de
+                ? "Die Organisation ist schon freigegeben; es kommen nur die gewählten Projekte dazu."
+                : "The organization is already granted; only the chosen projects are added."}
+            </p>
+          )}
+        </Field>
+        {!organizationGranted && (
+          <Field>
+            <FieldLabel htmlFor="grant-budget">
+              {de ? "Monatsbudget in USD" : "Monthly budget in USD"}
+              {budgetRequired ? <span aria-hidden="true"> *</span> : de ? " (optional)" : " (optional)"}
+            </FieldLabel>
+            <Input
+              id="grant-budget"
+              type="number"
+              min={0}
+              step="0.01"
+              required={budgetRequired}
+              value={budget}
+              onChange={(event) => setBudget(event.target.value)}
+            />
+          </Field>
+        )}
+        {organization && projects.data && (
+          <fieldset className="grant-list">
+            <legend>{de ? "Gleich auch für diese Projekte freigeben" : "Also grant to these projects"}</legend>
+            {projects.data.items.length ? (
+              projects.data.items.map((p) => (
+                <label key={p.id} className="module-role-row">
+                  <span>
+                    {p.name}
+                    {granted(p.id) && <small> · {de ? "bereits freigegeben" : "already granted"}</small>}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={granted(p.id) || projectIds.includes(p.id)}
+                    disabled={granted(p.id)}
+                    onChange={(event) =>
+                      setProjectIds(
+                        event.target.checked ? [...projectIds, p.id] : projectIds.filter((x) => x !== p.id),
+                      )
+                    }
+                  />
+                </label>
+              ))
+            ) : (
+              <p className="field-hint">
+                {de ? "Diese Organisation hat noch keine Projekte." : "This organization has no projects yet."}
+              </p>
+            )}
+          </fieldset>
+        )}
+      </FieldGroup>
+      <Button type="submit" disabled={pending || !requests.length}>
+        {de ? "Freigeben" : "Grant"}
+      </Button>
+    </form>
+  );
+}
 
 export function ConnectionsPanel({
   base,
@@ -95,6 +372,7 @@ export function ConnectionsPanel({
   const own = (c: Connection) => (mode === "admin" ? c.scope === "system" : c.scope === "workspace");
   // Some providers can only be checked in use (the X app needs an account).
   const checkable = (c: Connection) => providers.find((p) => p.id === c.provider)?.checkable ?? true;
+  const rotatingProvider = rotating ? providers.find((p) => p.id === rotating.provider) : undefined;
   return (
     <section className="panel">
       <div className="panel-head">
@@ -262,50 +540,19 @@ export function ConnectionsPanel({
           onClose={() => setCreating(false)}
         >
           <DataForm
-            fields={[
-              {
-                name: "provider",
-                label: de ? "Anbieter" : "Provider",
-                type: "select",
-                required: true,
-                options: providers
-                  .filter((p) => p.scopes.includes(mode === "admin" ? "system" : "workspace"))
-                  .map((p) => ({ value: p.id, label: p.label[locale] })),
-              },
-              { name: "label", label: de ? "Bezeichnung" : "Label", required: true },
-              {
-                name: "baseUrl",
-                label: de ? "Basis-URL (optional)" : "Base URL (optional)",
-                type: "url",
-              },
-              {
-                name: "secret",
-                label: de ? "API-Schlüssel oder Token" : "API key or token",
-                type: "password",
-                required: true,
-                hint: de
-                  ? "n8n und Kundenkontext: JSON mit apiKey/token und signingSecret. Social-Apps: JSON mit appId, appSecret und configId (Meta) oder clientId und clientSecret (X); Callback-URL <Orbit-Adresse>/api/social/oauth/callback/meta bzw. /x."
-                  : "n8n and customer context: JSON with apiKey/token and signingSecret. Social apps: JSON with appId, appSecret and configId (Meta) or clientId and clientSecret (X); callback URL <Orbit address>/api/social/oauth/callback/meta or /x.",
-              },
-              {
-                name: "budget",
-                label: de ? "Monatsbudget in USD (optional)" : "Monthly budget in USD (optional)",
-                type: "number",
-                min: 0,
-                step: "0.01",
-              },
-            ]}
+            fields={createFields(providers, mode, locale, browserOrigin())}
             pending={action.pending}
             error={errorText(action.error, locale)}
             submitLabel={de ? "Anlegen" : "Add"}
             onCancel={() => setCreating(false)}
             onSubmit={async (v) => {
+              const chosen = providers.find((p) => p.id === str(v, "provider"));
               const done = await action.run(() =>
                 post(base, {
                   provider: str(v, "provider"),
                   label: str(v, "label"),
                   config: str(v, "baseUrl") ? { baseUrl: str(v, "baseUrl") } : {},
-                  secret: String(v.secret),
+                  secret: secretOf(chosen, v),
                   ...(microsOf(str(v, "budget")) !== undefined
                     ? { monthlyBudgetMicros: microsOf(str(v, "budget")) }
                     : {}),
@@ -327,21 +574,25 @@ export function ConnectionsPanel({
           onClose={() => setRotating(null)}
         >
           <DataForm
-            fields={[
-              {
-                name: "secret",
-                label: de ? "Neuer Schlüssel" : "New secret",
-                type: "password",
-                required: true,
-              },
-            ]}
+            fields={
+              rotatingProvider?.secretFields?.length
+                ? appFields(rotatingProvider, locale, browserOrigin())
+                : [
+                    {
+                      name: "secret",
+                      label: de ? "Neuer Schlüssel" : "New secret",
+                      type: "password",
+                      required: true,
+                    },
+                  ]
+            }
             pending={action.pending}
             error={errorText(action.error, locale)}
             submitLabel={de ? "Ersetzen" : "Replace"}
             onCancel={() => setRotating(null)}
             onSubmit={async (v) => {
               const done = await action.run(() =>
-                post(`${base}/${rotating.id}/secret`, { secret: String(v.secret) }),
+                post(`${base}/${rotating.id}/secret`, { secret: secretOf(rotatingProvider, v) }),
               );
               if (done) setRotating(null);
             }}
@@ -420,8 +671,8 @@ function GrantsDialog({
       description={
         toOrganization
           ? de
-            ? "Freigabe an eine Organisation mit Monatsbudget; deren Owner verteilen sie auf Projekte."
-            : "Grant to an organization with a monthly budget; its owners hand it on to projects."
+            ? "Freigabe an eine Organisation und auf Wunsch gleich an ihre Projekte. Weitere Projekte geben Owner in den Organisationseinstellungen frei."
+            : "Grant to an organization and, if you like, to its projects in the same step. Owners grant further projects in the organization settings."
           : de
             ? "Freigabe an ein Projekt dieser Organisation."
             : "Grant to a project of this organization."
@@ -502,48 +753,59 @@ function GrantsDialog({
           ))}
         </fieldset>
       )}
-      {canGrant && (
-      <DataForm
-        fields={[
-          {
-            name: "target",
-            label: toOrganization ? (de ? "Organisation" : "Organization") : de ? "Projekt" : "Project",
-            type: "select",
-            required: true,
-            options: targets.map((t) => ({ value: t.id, label: t.name })),
-          },
-          {
-            name: "budget",
-            label: toOrganization
-              ? de
-                ? "Monatsbudget in USD"
-                : "Monthly budget in USD"
-              : de
-                ? "Monatsbudget in USD (optional)"
-                : "Monthly budget in USD (optional)",
-            type: "number",
-            min: 0,
-            step: "0.01",
-            required: toOrganization && purposes.some((p) => p === "text" || p === "image"),
-          },
-        ]}
-        pending={action.pending}
-        error={null}
-        submitLabel={de ? "Freigeben" : "Grant"}
-        onSubmit={(v) =>
-          void action.run(() =>
-            post(`${base}/${connection.id}/grants`, {
-              ...(toOrganization
-                ? { workspaceId: str(v, "target") }
-                : { projectId: str(v, "target") }),
-              purposes: chosen,
-              ...(microsOf(str(v, "budget")) !== undefined
-                ? { monthlyBudgetMicros: microsOf(str(v, "budget")) }
-                : {}),
-            }),
-          )
-        }
-      />
+      {canGrant && toOrganization && (
+        <OrganizationGrantForm
+          targets={targets}
+          grants={usage.data?.grants ?? []}
+          purposes={chosen}
+          budgetRequired={purposes.some((p) => p === "text" || p === "image")}
+          locale={locale}
+          pending={action.pending}
+          onSubmit={(requests) =>
+            void action.run(async () => {
+              try {
+                // The organization first: its project grants hang below it.
+                for (const body of requests) await post(`${base}/${connection.id}/grants`, body);
+              } finally {
+                usage.refresh();
+              }
+            })
+          }
+        />
+      )}
+      {canGrant && !toOrganization && (
+        <DataForm
+          fields={[
+            {
+              name: "target",
+              label: de ? "Projekt" : "Project",
+              type: "select",
+              required: true,
+              options: targets.map((t) => ({ value: t.id, label: t.name })),
+            },
+            {
+              name: "budget",
+              label: de ? "Monatsbudget in USD (optional)" : "Monthly budget in USD (optional)",
+              type: "number",
+              min: 0,
+              step: "0.01",
+            },
+          ]}
+          pending={action.pending}
+          error={null}
+          submitLabel={de ? "Freigeben" : "Grant"}
+          onSubmit={(v) =>
+            void action.run(() =>
+              post(`${base}/${connection.id}/grants`, {
+                projectId: str(v, "target"),
+                purposes: chosen,
+                ...(microsOf(str(v, "budget")) !== undefined
+                  ? { monthlyBudgetMicros: microsOf(str(v, "budget")) }
+                  : {}),
+              }),
+            )
+          }
+        />
       )}
     </Modal>
   );

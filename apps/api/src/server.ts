@@ -98,7 +98,9 @@ import {
   configureRoot,
   rootCandidates,
   browseDrive,
+  listDriveFolders,
   driveContent,
+  driveThumbnail,
 } from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
@@ -257,6 +259,9 @@ const TELEGRAM_ROUTES = new Set([
   "/api/projects/:projectId/telegram/disconnect",
 ]);
 // Orbit Agents routes (assignments, assignment posts), by registered pattern.
+// The social module's upload session URL (modules/social/media/upload-sessions.ts):
+// a signed one-time token, no cookie, so no browser Origin is required.
+const SOCIAL_UPLOAD_URL = /^\/api\/public\/social\/media-uploads\/[A-Za-z0-9_.-]{1,200}$/;
 const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/assignments",
   "/api/projects/:projectId/assignments/:id/status",
@@ -265,6 +270,7 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/publications/:id/veto",
   "/api/projects/:projectId/assignment-drafts",
   "/api/projects/:projectId/assignment-drafts/:id/release",
+  "/api/projects/:projectId/assignment-drafts/:id/:decision",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =
@@ -430,6 +436,9 @@ export async function buildServer(
       ) &&
       // The public API checks the Origin itself, against its key (WP4.2b).
       !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
+      // Social upload sessions: the signed one-time URL is the credential,
+      // sent by an MCP client without a browser origin or cookie.
+      !(req.method === "PUT" && SOCIAL_UPLOAD_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -1214,6 +1223,29 @@ export async function buildServer(
   app.get("/api/projects/:projectId/google-drive/files", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
+  });
+  app.get(
+    "/api/projects/:projectId/google-drive/files/:fileId/thumbnail",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const thumb = await driveThumbnail(
+        await scopeFor(auth, req, projectId),
+        fileId,
+      );
+      return reply
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "private, max-age=300")
+        .type(thumb.mime)
+        .send(thumb.bytes);
+    },
+  );
+  app.get("/api/projects/:projectId/google-drive/folders", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return listDriveFolders(await scopeFor(auth, req, projectId), req.query);
   });
   app.get(
     "/api/projects/:projectId/google-drive/files/:fileId/content",

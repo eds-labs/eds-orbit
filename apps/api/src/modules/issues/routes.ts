@@ -9,17 +9,24 @@ import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { createLink, linksOf, linkTargets, removeLink } from "../../platform/links/links.ts";
 import { ISSUE_TYPE, issuesMembers, userActor, uuid } from "./common.ts";
 import { confirmCandidate, rejectCandidate } from "./duplicates.ts";
-import { requireIssues } from "./gate.ts";
+import { requireIssues, requireIssuesGithub } from "./gate.ts";
 import { issueView, setIssueStatus, setShareReview, updateIssue } from "./issues.ts";
 import { mergeIssue } from "./merge.ts";
 import {
+  ISSUES_GITHUB,
   ISSUES_READ,
   ISSUES_REPORT,
   ISSUES_SETTINGS,
   ISSUES_TRIAGE,
 } from "./permissions.ts";
 import { issueDetail, listIssues } from "./queries.ts";
-import { readIssuesSettings, saveIssuesSettings } from "./settings.ts";
+import { can } from "../../platform/tenancy/permissions.ts";
+import { DomainError } from "../../shared.ts";
+import { installationRepositories } from "../../platform/connections/github-app.ts";
+import { checkAvailable, githubApp, githubStatus, githubStoredStatus, newRepositories } from "./github-connection.ts";
+import { linkGithubIssue, refreshGithubRefs, unlinkGithubRef } from "./github-links.ts";
+import { previewGithubIssue, reconcileGithubRequest, requestGithubIssue } from "./github.ts";
+import { issuesSettingsSchema, readIssuesSettings, saveIssuesSettings } from "./settings.ts";
 import { reportManually } from "./sources/manual.ts";
 import { createSource, disableSource, listSources } from "./sources.ts";
 import { issuesOverview } from "./stats.ts";
@@ -56,6 +63,10 @@ const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) 
 const linkInput = z
   .object({ targetType: z.string().regex(OBJECT_TYPE), targetId: uuid, relation: z.enum(LINK_RELATIONS) })
   .strict();
+const githubLinkInput = z.object({ url: z.string().min(1).max(300) }).strict();
+const githubInput = z.object({ repository: z.string().min(1).max(100) }).strict();
+/** `available=1` lists the installation's repositories (one GitHub call). */
+const statusQuery = z.object({ available: z.enum(["0", "1"]).default("0") });
 const targetsQuery = z.object({ type: z.string().regex(OBJECT_TYPE), q: z.string().max(200).default("") }).strict();
 
 /** Issue center routes (plan §4.2). */
@@ -67,12 +78,81 @@ export const issuesRoutes: RoutesContribution = (context) => {
     inIssues(auth, req, ISSUES_READ, async (_tx, scope) => ({ items: await issuesMembers(scope) })),
   );
   app.get(`${BASE}/settings`, (req) => inIssues(auth, req, ISSUES_READ, (tx, scope) => readIssuesSettings(tx, scope)));
-  app.put(`${BASE}/settings`, (req) =>
-    inIssues(auth, req, ISSUES_SETTINGS, (tx, scope) => {
-      const { settings, version } = settingsInput.parse(req.body);
-      return saveIssuesSettings(tx, scope, settings, version);
+  app.put(`${BASE}/settings`, async (req) => {
+    const { settings, version } = settingsInput.parse(req.body);
+    const next = issuesSettingsSchema.parse(settings);
+    const path = req.params as Params;
+    const scope = await scopeFor(auth, req, path.projectId!, ISSUES_SETTINGS);
+    // The allow-list changes only with issues.github and is checked against
+    // the installation before the settings transaction opens.
+    const added = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await requireIssues(tx, scope);
+      const stored = (await readIssuesSettings(tx, scope)).settings;
+      const changed =
+        JSON.stringify(stored.github.repositories) !== JSON.stringify(next.github.repositories);
+      if (!changed) return null;
+      if (!can(scope, ISSUES_GITHUB)) throw new DomainError("FORBIDDEN", 403);
+      requireIssuesGithub();
+      const fresh = newRepositories(next, stored).map((r) => r.fullName);
+      return fresh.length ? { fresh, app: (await githubApp(tx, scope)).app } : null;
+    });
+    if (added)
+      checkAvailable(added.fresh, await installationRepositories(added.app));
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await requireIssues(tx, scope);
+      return saveIssuesSettings(tx, scope, next, version);
+    });
+  });
+  // The stored state in the transaction; the installation's repositories
+  // (a GitHub call) only on request and only after the transaction closed.
+  app.get(`${BASE}/github/status`, async (req) => {
+    const stored = await inIssues(auth, req, ISSUES_GITHUB, (tx, scope) => {
+      requireIssuesGithub();
+      return githubStoredStatus(tx, scope);
+    });
+    const { available } = statusQuery.parse(req.query ?? {});
+    return githubStatus(stored, { available: available === "1" });
+  });
+
+  // GitHub (owner only, spec 2026-11-05 §5.2): the exact text first, then a
+  // queued create; a request with an unknown outcome is reconciled, never
+  // created again.
+  app.post(`${BASE}/issues/:id/github/preview`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, (tx, scope, p) => {
+      requireIssuesGithub();
+      return previewGithubIssue(tx, scope, id(p), githubInput.parse(req.body).repository);
     }),
   );
+  app.post(`${BASE}/issues/:id/github`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, (tx, scope, p) => {
+      requireIssuesGithub();
+      return requestGithubIssue(tx, scope, id(p), githubInput.parse(req.body).repository, userActor(scope));
+    }),
+  );
+  // Link an existing GitHub issue, refresh its state, unlink (GitHub is read
+  // outside any transaction; unlink is a pure database change).
+  app.post(`${BASE}/issues/:id/github/link`, async (req) => {
+    const p = req.params as Params;
+    const scope = await scopeFor(auth, req, p.projectId!, ISSUES_GITHUB);
+    return linkGithubIssue(scope, id(p), githubLinkInput.parse(req.body).url, userActor(scope));
+  });
+  app.post(`${BASE}/issues/:id/github/refresh`, async (req) => {
+    const p = req.params as Params;
+    const scope = await scopeFor(auth, req, p.projectId!, ISSUES_GITHUB);
+    return { refs: await refreshGithubRefs(scope, id(p), userActor(scope)) };
+  });
+  app.delete(`${BASE}/issues/:id/github/:refId`, (req) =>
+    inIssues(auth, req, ISSUES_GITHUB, async (tx, scope, p) => {
+      await unlinkGithubRef(tx, scope, id(p), id(p, "refId"), userActor(scope));
+      return { id: id(p, "refId"), deleted: true };
+    }),
+  );
+  app.post(`${BASE}/github/requests/:id/reconcile`, async (req) => {
+    const p = req.params as Params;
+    const scope = await scopeFor(auth, req, p.projectId!, ISSUES_GITHUB);
+    // GitHub is read outside any transaction; the function checks module and flag.
+    return reconcileGithubRequest(scope, id(p), userActor(scope));
+  });
 
   // Reports: a new issue or a report on a chosen issue (intake, §2.4).
   app.post(`${BASE}/issues`, (req) =>

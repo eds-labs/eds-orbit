@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { crc32, deflateSync } from "node:zlib";
 import {
   afterAll,
   afterEach,
@@ -74,7 +75,10 @@ vi.mock("../../../packages/connectors/src/index.ts", async (original) => ({
   createPostizClient: () => ({ listPosts: async () => [] }),
 }));
 import { closeDatabase } from "../../../packages/db/src/index.ts";
-import { renderRasterTemplate } from "../../../packages/creative/src/index.ts";
+import {
+  bannerPalette,
+  renderRasterTemplate,
+} from "../../../packages/creative/src/index.ts";
 import {
   create,
   data,
@@ -97,7 +101,7 @@ import {
 import { assetTools } from "../src/modules/asset-tools.ts";
 import {
   BANNER_TEXT_LIMITS,
-  DEFAULT_BANNER_STYLE,
+  BANNER_LAYOUT_NEEDS,
 } from "../src/modules/agents/banner.ts";
 import {
   createPackageProject,
@@ -362,7 +366,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     expect(provider.generateImage).toHaveBeenCalledTimes(1);
     const imageRequest = provider.generateImage.mock.calls[0]![0];
     expect(imageRequest.size).toBe("1536x1024");
-    expect(imageRequest.prompt).toContain(DEFAULT_BANNER_STYLE);
+    expect(imageRequest.prompt).toContain(BANNER_LAYOUT_NEEDS);
     expect(imageRequest.prompt).toContain(
       "No text, no letters, no logos and no identifiable persons",
     );
@@ -623,6 +627,187 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     ).rejects.toThrow("BANNER_LOGO_REQUIRED");
   });
 
+  // 2026-11-07: a FamilyPlan banner came out in another brand's dark tech
+  // look, because the banner style and colours were fixed in code.
+  const setIdentity = (changes: Record<string, unknown>) =>
+    h.run(async (tx) => {
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: { ...(value.visualIdentity ?? {}), ...changes },
+          },
+        },
+      });
+    });
+  const LIGHT_KIT = {
+    primaryColor: "#F97316",
+    secondaryColor: "#0F766E",
+    accentColor: "#FACC15",
+    backgroundColor: "#FFF8F0",
+    surfaceColor: "#FFFFFF",
+    textColor: "#1F2937",
+    imagery: {
+      kind: "illustration",
+      mood: "friendly, warm and everyday",
+      subjects: "families planning their week together",
+      avoid: [],
+    },
+  };
+  const DARK_KIT = {
+    primaryColor: "#22D3EE",
+    secondaryColor: "#0B1D3A",
+    accentColor: "#22D3EE",
+    backgroundColor: "#040B1A",
+    surfaceColor: "#0B1D3A",
+    textColor: "#FFFFFF",
+  };
+  // A solid PNG (art of one tone) without an image library in the API tests.
+  const solidPng = async (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const width = 96;
+    const height = 64;
+    const row = Buffer.concat([
+      Buffer.from([0]),
+      Buffer.from(Array.from({ length: width }, () => [r, g, b]).flat()),
+    ]);
+    const chunk = (type: string, body: Buffer) => {
+      const head = Buffer.alloc(4);
+      head.writeUInt32BE(body.length);
+      const typed = Buffer.concat([Buffer.from(type), body]);
+      const crc = Buffer.alloc(4);
+      crc.writeUInt32BE(crc32(typed));
+      return Buffer.concat([head, typed, crc]);
+    };
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(width, 0);
+    header.writeUInt32BE(height, 4);
+    header.set([8, 2, 0, 0, 0], 8);
+    return Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", header),
+      chunk(
+        "IDAT",
+        deflateSync(Buffer.concat(Array.from({ length: height }, () => row))),
+      ),
+      chunk("IEND", Buffer.alloc(0)),
+    ]);
+  };
+
+  it("draws the banner and its art prompt from the project's own brand kit", async () => {
+    await setIdentity(LIGHT_KIT);
+    const lightArt = await solidPng("#FFF1E0");
+    provider.generateImage.mockImplementation(async (params: any) => ({
+      bytes: lightArt,
+      model: IMAGE_MODEL,
+      size: params.size,
+      quality: "medium",
+      background: "opaque",
+      usage: null,
+    }));
+    await linkBot();
+    await shared();
+    const { review } = await drafted();
+    const prompt = String(provider.generateImage.mock.calls[0]![0].prompt);
+    expect(prompt).toContain(BANNER_LAYOUT_NEEDS);
+    expect(prompt).toContain("light and airy");
+    expect(prompt).toContain("#F97316");
+    expect(prompt).toContain("families planning their week together");
+    for (const word of ["fintech", "navy", "cyan", "frosted glass", "#22D3EE"])
+      expect(prompt.toLowerCase()).not.toContain(word.toLowerCase());
+    const banners = (await h.rows("assets")).filter((a) => a.bannerKey);
+    expect(banners.length).toBeGreaterThan(0);
+    for (const composed of banners) {
+      expect(composed.bannerPalette).toEqual(bannerPalette(LIGHT_KIT));
+      expect(composed.brandCheck).toMatchObject({
+        verdict: "pass",
+        brandTone: "light",
+      });
+    }
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    for (const draft of await contents()) expect(draft.status).toBe("reviewed");
+  });
+
+  it("leaves a banner whose background is in another tone than the brand kit for the owner", async () => {
+    await setIdentity(LIGHT_KIT);
+    const darkArt = await solidPng("#061226");
+    provider.generateImage.mockImplementation(async (params: any) => ({
+      bytes: darkArt,
+      model: IMAGE_MODEL,
+      size: params.size,
+      quality: "medium",
+      background: "opaque",
+      usage: null,
+    }));
+    await linkBot();
+    await shared();
+    const { review } = await drafted();
+    const banners = (await h.rows("assets")).filter((a) => a.bannerKey);
+    for (const composed of banners)
+      expect(composed.brandCheck).toMatchObject({ verdict: "mismatch" });
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    expect(drafts.length).toBeGreaterThan(0);
+    for (const draft of drafts) expect(draft.status).toBe("needs_review");
+    const decided = drafts.filter((c) => c.agentReviewDecision);
+    expect(decided.length).toBeGreaterThan(0);
+    for (const draft of decided)
+      expect(draft.agentReviewDecision.deterministicProblems).toContain(
+        "BANNER_BRAND_MISMATCH",
+      );
+    // Nothing went to Postiz as approved by the agent.
+    expect(await h.rows("postiz_drafts")).toHaveLength(0);
+  });
+
+  it("keeps a dark brand's banner dark, in its own colours", async () => {
+    await setIdentity(DARK_KIT);
+    await linkBot();
+    await shared();
+    await drafted();
+    const prompt = String(provider.generateImage.mock.calls[0]![0].prompt);
+    expect(prompt).toContain("Overall tone: dark");
+    const banners = (await h.rows("assets")).filter((a) => a.bannerKey);
+    for (const composed of banners)
+      expect(composed.bannerPalette).toEqual(bannerPalette(DARK_KIT));
+  });
+
+  it("never uses another project's logo for a banner", async () => {
+    const otherProject = await createPackageProject();
+    try {
+      const foreign = await assignmentRun(otherProject).run((tx) =>
+        create(tx, otherProject.owner, "assets", {
+          name: "Other project's logo",
+          type: "logo",
+          mime: "image/png",
+          base64: other.toString("base64"),
+          sha256: createHash("sha256").update(other).digest("hex"),
+          usageApproved: true,
+          assetStatus: "approved",
+        }),
+      );
+      await shared();
+      // A profile pointing at another project's asset has no usable logo.
+      await setLogo(foreign.id);
+      await drafted();
+      expect(await h.task("visual")).toMatchObject({
+        status: "failed",
+        errorCode: "BANNER_LOGO_REQUIRED",
+      });
+      expect(provider.generateImage).not.toHaveBeenCalled();
+      const assets = await h.rows("assets");
+      expect(assets.some((a) => a.bannerKey)).toBe(false);
+    } finally {
+      await otherProject.cleanup();
+    }
+  });
+
   it("leaves an assignment without a banner exactly as before", async () => {
     await linkBot();
     await shared({ banner: undefined });
@@ -634,7 +819,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     expect(provider.generateImage).toHaveBeenCalledTimes(1);
     const imageRequest = provider.generateImage.mock.calls[0]![0];
     expect(imageRequest.size).toBe("1024x1024");
-    expect(imageRequest.prompt).not.toContain(DEFAULT_BANNER_STYLE);
+    expect(imageRequest.prompt).not.toContain(BANNER_LAYOUT_NEEDS);
     provider.replies.push(approveAll);
     await runAgentTask(h.worker(), review.id);
     const shown = JSON.parse(provider.requests[0].input[0].content).drafts;

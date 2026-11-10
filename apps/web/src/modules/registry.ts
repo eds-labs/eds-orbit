@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   CircleCheck,
+  HardDrive,
   Home,
   Link2,
   MessageCircle,
@@ -17,6 +18,7 @@ import type {
 } from "@/platform/shell/types";
 import { Decisions } from "@/platform/shell/decisions";
 import { AgentsView } from "@/platform/agents/agents-view";
+import { DrivePage } from "@/platform/drive/drive-page";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -42,6 +44,7 @@ import { financeWeb } from "./finance/manifest";
 import { workWeb } from "./work/manifest";
 import { issuesWeb } from "./issues/manifest";
 import { socialWeb } from "./social/manifest";
+import { adsWeb } from "./ads/manifest";
 import { DataDeletionView } from "./social/data-deletion";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
@@ -117,6 +120,18 @@ const platformAttention: Readonly<Record<string, AttentionRenderer>> = {
             : "Orbit's calculated spend this billing period; the credit balance is not synchronized live.",
           action: { en: "Review", de: "Prüfen" },
         };
+  },
+  platform_spend_authority_expiring: (item, locale) => {
+    const date = new Date(String(item.params.endAt)).toLocaleDateString(
+      locale === "de" ? "de-DE" : "en-GB",
+    );
+    return {
+      title:
+        locale === "de"
+          ? `KI-Ausgabenfreigabe läuft am ${date} ab`
+          : `AI spending authority expires on ${date}`,
+      action: { en: "Review", de: "Prüfen" },
+    };
   },
   platform_action_request: (item, locale) => {
     const n = item.count ?? 1;
@@ -212,6 +227,20 @@ export const webRegistry: WebRegistry = {
       navGroup: "project",
       nav: { label: label("connectors"), icon: Link2, order: 100 },
       legacyPaths: ["/connectors"],
+    },
+    {
+      // The project's Google Drive folder (design 2026-11-05 §5.2): listed
+      // while Drive is set up; the shell sets "googleDrive".
+      key: "drive",
+      path: "drive",
+      component: DrivePage,
+      navGroup: "project",
+      nav: {
+        feature: "googleDrive",
+        label: { en: "Google Drive", de: "Google Drive" },
+        icon: HardDrive,
+        order: 102,
+      },
     },
     {
       // External work orders (MCP 2.0), formerly above Orbit Chat. The entry
@@ -326,5 +355,14 @@ export const webRegistry: WebRegistry = {
     },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).
-  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb, workWeb, issuesWeb, socialWeb],
+  modules: [
+    knowledgeWeb,
+    marketingWeb,
+    supportWeb,
+    financeWeb,
+    workWeb,
+    issuesWeb,
+    socialWeb,
+    adsWeb,
+  ],
 };

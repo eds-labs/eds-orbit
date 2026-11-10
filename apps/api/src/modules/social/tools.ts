@@ -21,6 +21,7 @@ import {
   type PostView,
 } from "./posts/posts.ts";
 import { TEXT_LIMITS } from "./posts/validation.ts";
+import { socialDriveFilesTool, socialMediaImportTool, socialMediaListTool, socialMediaUploadTool } from "./media/mcp-tools.ts";
 
 // The social module's assistant and MCP tools (ADR 0020 §6.5, S7): reads of
 // accounts, the calendar and posts, and a check that saves nothing. Every
@@ -434,12 +435,15 @@ function publishing(name: "social_schedule" | "social_publish_now", timed: boole
 export const socialSchedule = publishing("social_schedule", true);
 export const socialPublishNow = publishing("social_publish_now", false);
 
-const reads = [socialAccountsTool, socialCalendarTool, socialPostGetTool, socialPostStatusTool, socialValidateTool];
+const reads = [socialAccountsTool, socialCalendarTool, socialPostGetTool, socialPostStatusTool, socialValidateTool, socialMediaListTool, socialDriveFilesTool];
 const proposals = [socialDraftCreate, socialDraftUpdate, socialCancel, socialSchedule, socialPublishNow];
+// Library writes (media/mcp-tools.ts): internal, MCP only, need orbit:write.
+const internalWrites = [socialMediaImportTool, socialMediaUploadTool];
 
-export const socialTools = [...reads, ...proposals.map((p) => p.tool)];
+export const socialTools = [...reads, ...proposals.map((p) => p.tool), ...internalWrites];
 export const socialMcpActionTypes = Object.fromEntries(proposals.map((p) => [p.actionType, p.action]));
 
 export const socialInstructions = [
   "Social (module social): posts go to connected accounts (X, Facebook Pages, Instagram, Telegram channels). Read accounts with social_accounts and posts with social_calendar or social_post_get before proposing; check drafts with social_validate. Every publication needs the owner's approval in Orbit; never claim a post is published unless its publication says published.",
+  "Images: find library images with social_media_list; add new ones with social_media_import (project Google Drive, see social_drive_files; https URL; Orbit file) or social_media_upload, then use the returned mediaId in baseMedia or per-account media (a different image per account is fine). Instagram needs 4:5 to 1.91:1; social_validate reports image problems.",
 ];

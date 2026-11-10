@@ -198,15 +198,21 @@ export function checkForbiddenLiterals(files, config) {
 
 /**
  * Import specifiers no source file may name (`config.forbiddenImportPrefixes`),
- * matched as the prefix itself or the prefix followed by a subpath, as sorted
- * ids "forbidden-import: file -> \"specifier\"". Keeps managed publishing
- * providers of the social SDK out of every zone (ADR 0020).
+ * as sorted ids "forbidden-import: file -> \"specifier\"". Entries cover the
+ * social SDK's managed providers (ADR 0020) and, for the ads module (ADR 0025),
+ * ads SDKs and the n8n intermediary. A prefix ending in "-" or "/" matches any
+ * specifier starting with it; any other prefix matches itself or a subpath. The
+ * check scans quoted string literals in the source, not only import statements.
  */
 export function checkForbiddenImportPrefixes(files, config) {
   const found = [];
   for (const prefix of config.forbiddenImportPrefixes ?? []) {
     const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`(["'\`])(${escaped}(?:/[^"'\`]*)?)\\1`, "g");
+    // A prefix ending in "-" or "/" is a name family ("n8n-", "@n8n/"): any
+    // specifier starting with it. Otherwise it names one package or path and
+    // matches only itself and its sub-paths, not look-alikes ("...cloudy").
+    const tail = /[-/]$/.test(prefix) ? "[^\"'`]*" : "(?:/[^\"'`]*)?";
+    const pattern = new RegExp(`(["'\`])(${escaped}${tail})\\1`, "g");
     for (const [file, source] of Object.entries(files))
       for (const match of source.matchAll(pattern))
         found.push(`forbidden-import: ${file} -> "${match[2]}"`);
