@@ -62,7 +62,7 @@ Each step needs its own approval. Stop at the first failure and roll back.
 2. Create DNS for the webmail host and set `WEBMAIL_ORIGIN` in Orbit.
 3. Create the shared variables `WEBMAIL_BRIDGE_SECRET` and `WEBMAIL_DB_PASSWORD` in the Coolify environment, and reference both in Orbit.
 4. Deploy Orbit. This creates `orbit-webmail-link` and `orbit-webmail-backup`.
-5. Create the webmail application: Git source, same repository and branch, Docker Compose build pack, Compose file `/docker-compose.webmail.yml`, same project, environment and server, no predefined network. Set `APP_ORIGIN` and the two references. Set the domain of service `webmail` to `https://<webmail host>:8000`; the port names the container port, the public URL has none. The Compose file declares no `SERVICE_URL_*` variable, so Coolify generates no sslip.io host and a missing domain means no route at all. Deploy once with `ORBIT_WEBMAIL_REPLICAS` at 0: no container starts.
+5. Create the webmail application: Git source, same repository and branch, Docker Compose build pack, Compose file `/docker-compose.webmail.yml`, same project, environment and server, no predefined network. Set `APP_ORIGIN` and the two references. Switch off "Inject Build Args to Dockerfile" (`inject_build_args_to_dockerfile: false`) before the first build, or the shared secrets end up in the image history. Set the domain of service `webmail` to `https://<webmail host>:8000`; the port names the container port, the public URL has none. The Compose file declares no `SERVICE_URL_*` variable, so Coolify generates no sslip.io host and a missing domain means no route at all. Deploy once with `ORBIT_WEBMAIL_REPLICAS` at 0: no container starts.
 6. Set `ORBIT_WEBMAIL_REPLICAS=1` in Orbit and redeploy (the bridge), then in the webmail application and redeploy. `ORBIT_WEBMAIL` stays `false`.
 7. Run every [rollout check](#rollout-checks-on-a-real-coolify-instance). Do not continue until the network check is clean.
 8. Set `ORBIT_WEBMAIL=true` in Orbit and redeploy.
@@ -155,7 +155,19 @@ The test stack cannot prove these. Record each result before setting `ORBIT_WEBM
 - **Domain and TLS: not reached.** The DNS record `webmail.orbit.eds-labs.io` resolved to the server, but the domain had not been stored on the `webmail` service, so Traefik had no router for it (503, Traefik default certificate). The service kept the domain Coolify generated, `http://webmail-<application uuid>.<server ip>.sslip.io`, so Roundcube was publicly reachable over plain HTTP from 06:25 to 07:20 UTC with the flag off: it answered with its 403 "open from Orbit" page, the bridge was health-only and no session could start.
 - **Traefik route, Safari: not reached.**
 
-Consequence: `webmail` and `webmail-db` moved into their own Coolify application, joined to Orbit only through `orbit-webmail-link` and `orbit-webmail-backup` (see [Applications and services](#applications-and-services)). The local suite now models Coolify's application network, so its isolation check would have failed the same way on the old layout. The checks below are repeated for the new layout before `ORBIT_WEBMAIL` is set.
+### Results on production with the separate application, 2026-11-10
+
+All checks passed, so `ORBIT_WEBMAIL` was set to `true` at 10:07 UTC. Probes ran from temporary scheduled tasks, deleted afterwards.
+
+- **Networks.** Coolify kept the fixed names: Orbit's deployment created `orbit-webmail-link` and `orbit-webmail-backup`, and the webmail application joined them. Roundcube had four interfaces (its three Compose networks and the webmail application's own network); Orbit's services sat in four other subnets; the only shared subnet was `orbit-webmail-link`, where only the bridge is.
+- **Isolation: pass.** From `webmail`: `api`, `web`, `mcp`, `postgres` and `redis` do not resolve; `api` timed out (errno 110) on all four of its addresses; the bridge answered on its `orbit-webmail-link` address and timed out on its other three. From `webmail-db`: no Orbit name resolves and `api` is closed on all four addresses; `webmail:8000` is open (positive control).
+- **Backup path: pass.** `backup` logged in to `webmail-db` over `orbit-webmail-backup` with the shared password.
+- **Domain and TLS: pass.** Let's Encrypt certificate for `webmail.orbit.eds-labs.io`, `403` from Roundcube with `frame-ancestors 'self' https://orbit.eds-labs.io`, no `X-Frame-Options`, HSTS, a `__Host-` cookie, HTTP redirected to HTTPS. Neither application has a generated sslip.io host (both answer 503).
+- **`deploy.replicas`: pass** in both applications.
+- **Build arguments.** Coolify's Compose build first injected every variable of the webmail application as an `ARG` into the Dockerfile, which would put the shared secrets into the image history. `inject_build_args_to_dockerfile` is now off for that application and the image was rebuilt without cache; the second build injected nothing.
+- **Not reached yet:** a test mailbox (enabling sequence step 9) and real Safari.
+
+Consequence of the first attempt: `webmail` and `webmail-db` moved into their own Coolify application, joined to Orbit only through `orbit-webmail-link` and `orbit-webmail-backup` (see [Applications and services](#applications-and-services)). The local suite now models Coolify's application network, so its isolation check would have failed the same way on the old layout. The checks below are repeated for the new layout before `ORBIT_WEBMAIL` is set.
 
 **Domain and TLS.** `curl -sSI "$WEBMAIL_ORIGIN/"` gives `403` over a valid certificate, with `Content-Security-Policy` containing `frame-ancestors 'self' <APP_ORIGIN>` and no `X-Frame-Options`. The origin must be a sibling of Orbit's host and must not be served under it.
 
