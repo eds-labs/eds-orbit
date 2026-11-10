@@ -1,5 +1,6 @@
 "use client";
 import {
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -10,6 +11,10 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { AlertCircle, Check, LoaderCircle, X, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Locale } from "@/lib/i18n";
+import { statusLabel } from "@/lib/status-text";
+import { WorkspaceContext } from "@/components/workspace-context";
+import { StandaloneContext } from "@/platform/shell/standalone-context";
 import {
   forgetTabFocus,
   rememberTabFocus,
@@ -100,6 +105,15 @@ export function Badge({
 }) {
   return <span className={cn("badge", `badge-${tone}`)}>{children}</span>;
 }
+/**
+ * The interface language around a primitive: the open project's, else a
+ * standalone page's (pickers, account), else English.
+ */
+export function useUiLocale(): Locale {
+  const workspace = useContext(WorkspaceContext);
+  const standalone = useContext(StandaloneContext);
+  return workspace?.locale ?? standalone?.locale ?? "en";
+}
 export function Status({
   value,
   label,
@@ -108,6 +122,7 @@ export function Status({
   /** Printed instead of the value, which only picks the tone. */
   label?: string;
 }) {
+  const locale = useUiLocale();
   const s = String(value ?? "unknown");
   return (
     <Badge
@@ -123,7 +138,7 @@ export function Status({
                 : "neutral"
       }
     >
-      {label ?? s.replaceAll("_", " ")}
+      {label ?? statusLabel(locale, s)}
     </Badge>
   );
 }
