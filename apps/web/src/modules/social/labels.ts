@@ -176,6 +176,13 @@ const en = {
       expired: "Request expired",
       canceled: "Request withdrawn",
     } as Record<ApprovalState, string>,
+    // Where a post came from (originRef); its approval came from there.
+    origin: {
+      marketing: "Released through Marketing",
+      draftHandoff: "Draft from Marketing – approve it here in Social",
+      postiz: "Taken over from Postiz",
+      openMarketing: "View in Marketing approvals",
+    },
     titleLabel: "Title (only shown in Orbit)",
     baseText: "Text for all accounts",
     baseMedia: "Images for all accounts",
@@ -556,6 +563,12 @@ const de: SocialText = {
       rejected: "Freigabe abgelehnt",
       expired: "Anfrage abgelaufen",
       canceled: "Anfrage zurückgezogen",
+    },
+    origin: {
+      marketing: "Freigegeben über Marketing",
+      draftHandoff: "Entwurf aus Marketing – Freigabe hier in Social",
+      postiz: "Aus Postiz übernommen",
+      openMarketing: "In den Marketing-Freigaben ansehen",
     },
     titleLabel: "Titel (nur in Orbit sichtbar)",
     baseText: "Text für alle Konten",

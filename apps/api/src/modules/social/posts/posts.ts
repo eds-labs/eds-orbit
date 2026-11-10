@@ -36,6 +36,8 @@ export type PostView = {
   approval: { state: ApprovalState; requestId: string | null; approvedAt: string | null; approvedBy: string | null };
   packageHash: string | null;
   origin: string;
+  /** The other module's record the post came from (read-only), or null. */
+  originRef: OriginRefView;
   readOnly: boolean;
   version: number;
   createdAt: string;
@@ -64,12 +66,26 @@ export type PostListItem = {
   schedule: PostView["schedule"];
   approvalState: ApprovalState;
   origin: string;
+  originRef: OriginRefView;
   readOnly: boolean;
   accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
   publications: PublicationSummary;
   version: number;
   updatedAt: string;
 };
+/**
+ * Where a post came from, as its own columns name it: Marketing's
+ * publication it announced or handed over (`marketing`/`publication`), a
+ * Marketing draft hand-off (`marketing`/`draft_handoff`) or a mirrored
+ * Postiz record (`postiz`/<kind>). Read-only; null for posts written here.
+ */
+export type OriginRefView = { module: string; type: string; id: string } | null;
+export const originRefOf = (
+  post: Pick<SocialPostRow, "originModule" | "originType" | "originId">,
+): OriginRefView =>
+  post.originModule && post.originType && post.originId
+    ? { module: post.originModule, type: post.originType, id: post.originId }
+    : null;
 export type PublicationSummary = { total: number; published: number; failed: number; unknown: number; test: boolean };
 
 /** Per post: how many of its publications were published, failed or are unclear, and whether all are test sends. */
@@ -297,6 +313,7 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
     },
     packageHash: post.packageHash,
     origin: post.origin,
+    originRef: originRefOf(post),
     readOnly: closedToChanges(post),
     version: post.version,
     createdAt: post.createdAt.toISOString(),
@@ -385,6 +402,7 @@ export async function listPosts(
       schedule: scheduleView(post),
       approvalState: state(post),
       origin: post.origin,
+      originRef: originRefOf(post),
       readOnly: closedToChanges(post),
       accounts: variants
         .filter((v) => v.postId === post.id)

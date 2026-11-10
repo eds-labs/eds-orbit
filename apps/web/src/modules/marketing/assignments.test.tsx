@@ -488,6 +488,95 @@ describe("AwaitingOwnerDraftList", () => {
   it("renders nothing without drafts", () => {
     expect(render([])).toBe("");
   });
+
+  it("shows a Facebook/Instagram pair once, with a release per channel", () => {
+    const pair = [
+      draft({
+        id: "ig",
+        baseId: "fb",
+        channel: "ig-int",
+        channelName: "Synthetic IG",
+      }),
+      draft({
+        id: "fb",
+        baseId: "fb",
+        channel: "fb-int",
+        channelName: "Synthetic FB",
+      }),
+    ];
+    const html = render(pair);
+    // One text, one item; the original's channel first.
+    expect(html.match(/Beta access is open for product teams\./g)).toHaveLength(
+      1,
+    );
+    expect(html.match(/class="approval-item"/g)).toHaveLength(1);
+    expect(html.indexOf("Synthetic FB")).toBeLessThan(
+      html.indexOf("Synthetic IG"),
+    );
+    // Each channel keeps its own release, reject and discard, named for readers.
+    expect(html.match(/>Freigeben</g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Freigeben: Synthetic FB"');
+    expect(html).toContain('aria-label="Freigeben: Synthetic IG"');
+    expect(html).toContain('aria-label="Ablehnen: Synthetic IG"');
+    expect(html).toContain('aria-label="Verwerfen: Synthetic FB"');
+    // Without a baseId every draft stays its own item.
+    expect(
+      render([draft({ id: "a" }), draft({ id: "b" })]).match(
+        /class="approval-item"/g,
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("can name its head or leave it out, and list the history plainly", () => {
+    const named = renderToStaticMarkup(
+      <AwaitingOwnerDraftList
+        items={[draft({ state: "expired" })]}
+        heading={{
+          title: "Abgelaufene Entwürfe",
+          text: "Nur noch archivieren.",
+        }}
+        projectId="p1"
+        de
+        timezone="Europe/Berlin"
+        canRelease
+        pending={false}
+        onRelease={() => {}}
+      />,
+    );
+    expect(named).toContain("Abgelaufene Entwürfe");
+    expect(named).not.toContain("Wartet auf deine Freigabe");
+    const history = renderToStaticMarkup(
+      <AwaitingOwnerDraftList
+        items={[]}
+        history={[
+          {
+            id: "h1",
+            version: 1,
+            state: "released",
+            channel: "x-int",
+            channelName: "Synthetic X",
+            excerpt: "Old text",
+            assignmentName: null,
+            decidedAt: "2026-11-06T10:00:00.000Z",
+            reason: null,
+            hidden: false,
+            slotAt: null,
+          },
+        ]}
+        heading={null}
+        historyAs="list"
+        projectId="p1"
+        de
+        timezone="Europe/Berlin"
+        canRelease
+        pending={false}
+        onRelease={() => {}}
+      />,
+    );
+    expect(history).toContain("Old text");
+    expect(history).not.toContain("<details");
+    expect(history).not.toContain("<h3");
+  });
 });
 
 describe("knownData", () => {

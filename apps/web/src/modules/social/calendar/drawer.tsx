@@ -12,6 +12,7 @@ import { Publications } from "../posts/publications";
 import { PostMetricsSection } from "../analytics";
 import { localOf } from "./grid";
 import { moveCheck } from "./move";
+import { OriginNote } from "../origin";
 
 // A post opened from the calendar (S6): its time, status, approval, how it
 // looks per account, its deliveries, and the way to the editor or to
@@ -43,6 +44,7 @@ export function PostDrawer({
         status: post.status,
         readOnly: post.readOnly,
         origin: post.origin,
+        originRef: post.originRef ?? item.originRef,
         version: post.version,
         schedule: post.schedule,
         approvalState: post.approval.state,
@@ -91,7 +93,7 @@ export function PostDrawer({
           )}
         <p>
           <Badge>{all.posts.status[current.status]}</Badge>{" "}
-          {all.posts.approval[current.approvalState]}
+          <OriginNote post={current} locale={locale} />
         </p>
         {!own && <p className="field-hint">{t.otherProject}</p>}
         <div className="button-row">

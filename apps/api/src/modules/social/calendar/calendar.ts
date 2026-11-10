@@ -8,7 +8,7 @@ import { DomainError } from "../../../shared.ts";
 import { socialActive, socialSwitchedOn } from "../gate.ts";
 import { SOCIAL_READ } from "../permissions.ts";
 import type { SocialPlatform } from "../accounts/store.ts";
-import { approvalStates, closedToChanges, postFilters, publicationSummaries, type ApprovalState, type PostView, type PublicationSummary } from "../posts/posts.ts";
+import { approvalStates, closedToChanges, originRefOf, postFilters, publicationSummaries, type ApprovalState, type OriginRefView, type PostView, type PublicationSummary } from "../posts/posts.ts";
 
 // The calendar (ADR 0020 §6.2, S6): the posts timed in a range of at most
 // 62 days, in time order, with what a calendar cell shows: accounts,
@@ -22,6 +22,7 @@ export type CalendarItem = {
   excerpt: string;
   status: string;
   origin: string;
+  originRef: OriginRefView;
   readOnly: boolean;
   schedule: PostView["schedule"];
   approvalState: ApprovalState;
@@ -91,6 +92,7 @@ export async function calendarItems(tx: DbTx, scope: Scope, raw: unknown, limit 
         excerpt: [...post.baseText].slice(0, 140).join(""),
         status: post.status,
         origin: post.origin,
+        originRef: originRefOf(post),
         readOnly: closedToChanges(post),
         schedule: {
           mode: post.scheduleMode as PostView["schedule"]["mode"],

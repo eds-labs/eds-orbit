@@ -14,6 +14,7 @@ import { assertAssignedSocialChannels } from "../src/modules/marketing/publishin
 import { resolveChannelRules } from "../src/modules/marketing/publishing/channel-rules.ts";
 import { readPolicy } from "../src/modules/marketing/policy/policy-admin.ts";
 import { channelNames } from "../src/modules/marketing/agents/assignment-overview.ts";
+import { channelDirectory } from "../src/modules/marketing/publishing/channel-directory.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { createPackageProject, TELEGRAM, X } from "./support/package-project.ts";
 
@@ -388,6 +389,33 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         await expect(check([`social:${accountId}`])).resolves.toBeUndefined();
       } finally {
         await backend("postiz");
+      }
+    });
+
+    it("names every channel content can carry, a disconnected account inactive (WP3)", async () => {
+      const entries = async () => run((tx) => channelDirectory(tx, project.owner));
+      expect(await entries()).toEqual(
+        expect.arrayContaining([
+          { id: X, name: "Synthetic X", platform: "x", source: "postiz", active: true },
+          { id: TELEGRAM, name: "Synthetic Telegram", platform: "telegram", source: "postiz", active: true },
+          { id: `social:${accountId}`, name: "@orbit_x", platform: "x", source: "social", active: true },
+        ]),
+      );
+      // On either backend, and a viewer reads the same names.
+      expect(await run((tx) => channelDirectory(tx, project.viewer))).toEqual(await entries());
+      await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { status: "disabled" } }));
+      try {
+        expect((await entries()).find((e) => e.id === `social:${accountId}`)).toEqual({
+          id: `social:${accountId}`,
+          name: "@orbit_x",
+          platform: "x",
+          source: "social",
+          active: false,
+        });
+        // Nothing beyond name and platform: no token, connection or external id.
+        expect(JSON.stringify(await entries())).not.toMatch(/4242|connection|token/i);
+      } finally {
+        await run((tx) => tx.socialAccount.update({ where: { id: accountId }, data: { status: "active" } }));
       }
     });
 

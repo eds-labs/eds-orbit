@@ -17,6 +17,7 @@ import { socialText } from "../labels";
 import { PostEditor } from "./editor";
 import { Preview } from "./preview";
 import { Publications } from "./publications";
+import { OriginNote } from "../origin";
 
 // The posts of the project (ADR 0020, S4): a list, and the editor for one
 // post (`?post=<id>`) or a new one (`?new=1`). The calendar is S6.
@@ -48,7 +49,7 @@ function PostListView() {
                     <strong>{item.title || item.excerpt || item.id}</strong>
                   </a>{" "}
                   <Badge>{t.status[item.status]}</Badge>{" "}
-                  {t.approval[item.approvalState] && <span className="field-hint">{t.approval[item.approvalState]}</span>}
+                  <OriginNote post={item} locale={locale} />
                   <p className="field-hint">
                     {when(item.schedule, t.notPlanned)} · {item.accounts.map((a) => a.handle).join(", ")}
                   </p>
@@ -70,7 +71,8 @@ function PostSummary({ post }: { post: PostView }) {
   return (
     <div>
       <p>
-        <Badge>{t.status[post.status]}</Badge> {when(post.schedule, t.notPlanned)}
+        <Badge>{t.status[post.status]}</Badge> {when(post.schedule, t.notPlanned)}{" "}
+        <OriginNote post={{ ...post, approvalState: post.approval.state }} locale={locale} />
       </p>
       <p className="field-hint">{t.readOnly}</p>
       {post.variants.map((v) => (

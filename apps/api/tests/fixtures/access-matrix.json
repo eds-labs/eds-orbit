@@ -1671,6 +1671,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/projects/{projectId}/marketing/channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/marketing/settings": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

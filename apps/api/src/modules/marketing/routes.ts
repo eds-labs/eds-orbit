@@ -51,6 +51,7 @@ import {
   readMarketingSettings,
   saveMarketingSettings,
 } from "./publishing/backend.ts";
+import { channelDirectory } from "./publishing/channel-directory.ts";
 import {
   mapPostizChannel,
   mirrorPostizHistory,
@@ -179,6 +180,18 @@ export const marketingRoutes: RoutesContribution = (context) => {
     return scoped(scope.workspaceId, projectId, (tx) =>
       saveMarketingSettings(tx, scope, settings, version),
     );
+  });
+
+  // The channels content names, with name and platform (WP3): read-only,
+  // the same access as reading content.
+  app.get("/api/projects/:projectId/marketing/channels", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        channelDirectory(tx, scope),
+      ),
+    };
   });
 
   // Moving from Postiz to Social (S10): channel mapping and history mirror.

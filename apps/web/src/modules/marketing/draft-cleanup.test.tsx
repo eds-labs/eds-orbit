@@ -13,6 +13,7 @@ import {
   KEEP_REASONS,
   MISSION_KEEP_REASONS,
   cleanupConfirmText,
+  cleanupItemText,
   cleanupRestoredText,
   cleanupStorageKey,
   confirmCleanup,
@@ -297,5 +298,77 @@ describe("DraftCleanup", () => {
     expect(cleanupRestoredText({ content: 1, missions: 0 }, "de")).toBe(
       "1 Entwurf wiederhergestellt.",
     );
+  });
+
+  it("explains the cleanup next to its button", () => {
+    const html = renderToStaticMarkup(<>{view(initialCleanupState)}</>);
+    expect(html).toContain("an denen nichts mehr hängt");
+    expect(html).toContain("Alte Entwürfe archivieren");
+  });
+
+  it("lists each draft of the preview with its channel and why it stays", () => {
+    const FB = "social:11111111-1111-4111-8111-111111111111";
+    const preview = summary({
+      items: [
+        {
+          contentId: "c1",
+          title: "Familienabend",
+          channel: FB,
+          action: "keep",
+          reason: "HAS_OPEN_PUBLICATION",
+        },
+        { contentId: "c2", title: null, channel: "gone", action: "archive" },
+      ],
+      truncated: true,
+    });
+    const html = renderToStaticMarkup(
+      <>
+        {DraftCleanupView({
+          role: "owner",
+          locale: "de",
+          state: { ...initialCleanupState, preview },
+          pending: false,
+          error: null,
+          onPreview: () => {},
+          onConfirm: () => {},
+          onClose: () => {},
+          onUndo: () => {},
+          channels: new Map([
+            [
+              FB,
+              {
+                id: FB,
+                name: "FamilyPlan",
+                platform: "facebook",
+                source: "social" as const,
+                active: true,
+              },
+            ],
+          ]),
+        })}
+      </>,
+    );
+    expect(html).toContain("Jeder Entwurf im Einzelnen (2)");
+    expect(html).toContain("Familienabend");
+    expect(html).toContain("FamilyPlan · Facebook");
+    expect(html).toContain("Bleibt: ein geplanter Post hängt daran");
+    expect(html).toContain("Ohne Titel");
+    expect(html).toContain("Kanal ohne Namen");
+    expect(html).toContain("Wird archiviert");
+    expect(html).toContain("die Zahlen oben zählen alle");
+    expect(html).not.toContain(">social:");
+    for (const reason of KEEP_REASONS)
+      expect(
+        cleanupItemText(
+          {
+            contentId: "x",
+            title: null,
+            channel: null,
+            action: "keep",
+            reason,
+          },
+          "en",
+        ),
+      ).toMatch(/^Stays: /);
   });
 });

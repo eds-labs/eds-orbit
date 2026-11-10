@@ -13,6 +13,8 @@ import {
   packageOf,
   updatePost,
 } from "../src/modules/social/posts/posts.ts";
+import { submitOriginPost } from "../src/modules/social/contract.ts";
+import { calendarItems } from "../src/modules/social/calendar/calendar.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
@@ -228,6 +230,54 @@ describe.skipIf(!enabled)("social posts", () => {
     await expect(
       p.run((tx) => updatePost(tx, p.editor, free.id, { version: 2, baseText: "x", baseMedia: [], variants: [{ accountId: x }] })),
     ).rejects.toMatchObject({ code: "SOCIAL_POST_READ_ONLY", status: 409 });
+  });
+
+  it("names the record a post came from by its own columns, read-only", async () => {
+    const manual = await draft();
+    expect(manual.originRef).toBeNull();
+    // A Marketing draft hand-off: a draft for a human in Social, timed.
+    const handoffId = randomUUID();
+    const at = new Date(Date.now() + 2 * 86_400_000);
+    const { postId } = await p.run((tx) =>
+      submitOriginPost(tx, p.owner, {
+        origin: { module: "marketing", type: "draft_handoff", id: handoffId, version: 3 },
+        accountId: x,
+        text: "From Marketing.",
+        mediaIds: [],
+        mode: "draft",
+        at,
+      }),
+    );
+    const handed = await p.run((tx) => getPost(tx, p.viewer, postId));
+    expect(handed.originRef).toEqual({ module: "marketing", type: "draft_handoff", id: handoffId });
+    // Its own approval is still Social's to give: none, editable.
+    expect(handed.approval.state).toBe("none");
+    expect(handed.readOnly).toBe(false);
+    // A mirrored Postiz record.
+    const mirrorId = randomUUID();
+    const mirror = await draft();
+    await p.run((tx) =>
+      tx.socialPost.update({
+        where: { id: mirror.id },
+        data: { origin: "legacy_postiz", readOnly: true, originModule: "postiz", originType: "postiz_drafts", originId: mirrorId },
+      }),
+    );
+    const mirrored = await p.run((tx) => getPost(tx, p.viewer, mirror.id));
+    expect(mirrored.originRef).toEqual({ module: "postiz", type: "postiz_drafts", id: mirrorId });
+    expect(mirrored.readOnly).toBe(true);
+    // The list and the calendar carry the same reference.
+    const listed = await p.run((tx) => listPosts(tx, p.viewer, { limit: 50 }));
+    const byId = new Map(listed.items.map((i) => [i.id, i]));
+    expect(byId.get(manual.id)!.originRef).toBeNull();
+    expect(byId.get(postId)!.originRef).toEqual(handed.originRef);
+    expect(byId.get(mirror.id)!.originRef).toEqual(mirrored.originRef);
+    const { items } = await p.run((tx) =>
+      calendarItems(tx, p.viewer, {
+        from: new Date(at.valueOf() - 3_600_000).toISOString(),
+        to: new Date(at.valueOf() + 3_600_000).toISOString(),
+      }),
+    );
+    expect(items.find((i) => i.id === postId)?.originRef).toEqual(handed.originRef);
   });
 
   it("lists posts newest first with paging and a bounded time range", async () => {

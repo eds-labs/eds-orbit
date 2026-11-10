@@ -272,7 +272,7 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     const b = await timed("Telegram only", "2026-12-12T09:00:00Z", [telegram]);
     const out = await op("social_calendar", { from: "2026-12-01T00:00:00Z", to: "2026-12-31T00:00:00Z" });
     expect(out.result.items.map((i: { postId: string }) => i.postId)).toEqual([a, b]);
-    expect(out.result.items[0]).toMatchObject({ excerpt: "December launch", status: "draft", accounts: [expect.anything(), expect.anything()] });
+    expect(out.result.items[0]).toMatchObject({ excerpt: "December launch", status: "draft", originRef: null, accounts: [expect.anything(), expect.anything()] });
     expect(out.result.truncated).toBe(false);
     const filtered = await op("social_calendar", { from: "2026-12-01T00:00:00Z", to: "2026-12-31T00:00:00Z", platforms: ["x"] });
     expect(filtered.result.items.map((i: { postId: string }) => i.postId)).toEqual([a]);
@@ -285,6 +285,8 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     expect(post.result).toMatchObject({
       postId: id,
       status: "draft",
+      // Written here: no other module's record behind it.
+      originRef: null,
       version: expect.any(Number),
       variants: [expect.objectContaining({ accountId: x, platform: "x", body: "Read me back", issues: expect.any(Array) })],
       publications: [],

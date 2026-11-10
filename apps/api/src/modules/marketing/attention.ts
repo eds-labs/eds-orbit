@@ -10,11 +10,17 @@ import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import { budgetExhausted, RECENT_MS } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
-import { draftReplaced, expiredDraftIds } from "./agents/draft-state.ts";
+import { expiredDraftIds } from "./agents/draft-state.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
 import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
-import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
+import {
+  approvalLane,
+  baseContentId,
+  isPausedPost,
+  OPEN_REVIEW_STATUSES,
+  type LaneHandoff,
+} from "./approval-state.ts";
 
 // The marketing module's attention items (UI restructure §4.1): what waits on
 // the approvals page, plus failed runs. Params carry names, codes and times
@@ -30,33 +36,57 @@ const ASSIGNMENT_LIMIT = 100;
 
 type Draft = Awaited<ReturnType<typeof draftsAwaitingOwner>>[number];
 
-/** The owner's drafts of assignments, one item each (the owner releases them). */
+/**
+ * The owner's drafts of assignments, one item per original (the owner
+ * releases them): a Facebook/Instagram pair of copies (R76) is one thing to
+ * decide, so it counts once; the page keeps one release button per channel.
+ */
 function draftItems(drafts: Draft[]): AttentionItem[] {
   // `drafts` holds pending drafts only: an expired one can no longer be
   // released (D-2), so it has no item and the content review leaves it out.
-  return drafts.map((draft) => ({
-      id: `marketing:draft:${draft.id}`,
+  const groups = new Map<string, Draft[]>();
+  for (const draft of drafts)
+    groups.set(draft.baseId, [...(groups.get(draft.baseId) ?? []), draft]);
+  return [...groups.entries()].map(([baseId, group]) => {
+    const first = [...group].sort((a, b) =>
+      a.slotAt.localeCompare(b.slotAt),
+    )[0]!;
+    // The original's channel first, then its copies'.
+    const ordered = [...group].sort(
+      (a, b) => Number(a.id !== baseId) - Number(b.id !== baseId),
+    );
+    const channels = [
+      ...new Set(
+        ordered.map((d) => String(d.channelName ?? "")).filter(Boolean),
+      ),
+    ];
+    return {
+      id: `marketing:draft:${baseId}`,
       moduleId: "marketing",
       kind: "marketing_draft_release",
       severity: "warning",
-      dueAt: draft.slotAt,
+      dueAt: first.slotAt,
       params: {
-        assignmentName: String(draft.assignmentName ?? ""),
-        channelName: String(draft.channelName ?? ""),
-        slotAt: draft.slotAt,
+        assignmentName: String(first.assignmentName ?? ""),
+        channelName: channels.join(" · "),
+        slotAt: first.slotAt,
       },
       ...APPROVALS,
-    }));
+    };
+  });
 }
 
-/** Assignment drafts in a review status read per request for their expiry. */
-const ASSIGNMENT_DRAFT_LIMIT = 1000;
+/** Content waiting for a review read per request (open statuses only). */
+const REVIEW_LIMIT = 1000;
 
 /**
- * Content in a status the approvals page lists, as one aggregated item. A
- * draft that has its own release item is not counted again, and an
- * assignment draft whose slot passed (D-2: it can never be released) or that
- * was replaced (a retried run, a revision) is not counted at all.
+ * Content that still waits for someone, as one aggregated item: the rows in
+ * an open review status whose approval lane is `open`. Reviewed content is
+ * never counted (released, scheduled and published posts are reviewed), nor
+ * a row a live publication or Postiz draft holds, an assignment draft whose
+ * slot passed (D-2) or one that was replaced. A draft with its own release
+ * item is not counted again, and channel copies count once with their
+ * original (R76).
  */
 async function contentReviewItems(
   tx: DbTx,
@@ -64,46 +94,67 @@ async function contentReviewItems(
   drafts: Draft[],
   now: Date,
 ): Promise<AttentionItem[]> {
-  const inReview = {
-    workspaceId: scope.workspaceId,
-    projectId: scope.projectId,
-    kind: "content",
-    OR: APPROVAL_STATUSES.map((status) => ({
-      data: { path: ["status"], equals: status },
-    })),
-  };
-  const candidates = (
-    await tx.entity.findMany({
-      where: inReview,
-      select: { id: true, data: true },
-      orderBy: { createdAt: "desc" },
-      take: ASSIGNMENT_DRAFT_LIMIT,
-    })
-  ).filter((row) => typeof data(row).assignmentRunId === "string");
-  const gone = await expiredDraftIds(tx, scope, candidates, now);
-  // Drafts of a retried run (or a revision's original) are gone as well.
-  for (const row of candidates)
-    if (draftReplaced(data(row))) gone.add(row.id);
-  const waiting = await tx.entity.aggregate({
-    where: gone.size
-      ? { ...inReview, id: { notIn: [...gone] } }
-      : inReview,
-    _count: { _all: true },
-    _min: { createdAt: true },
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "content",
+      OR: OPEN_REVIEW_STATUSES.map((status) => ({
+        data: { path: ["status"], equals: status },
+      })),
+    },
+    select: { id: true, data: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: REVIEW_LIMIT,
   });
-  const drafted = drafts.filter((draft) => !gone.has(draft.id)).length;
-  const count = waiting._count._all - drafted;
-  if (count <= 0) return [];
+  if (!rows.length) return [];
+  const expired = await expiredDraftIds(tx, scope, rows, now);
+  // The publications and Postiz drafts of these rows, in one bounded read.
+  const handoffs = new Map<string, LaneHandoff[]>();
+  for (const row of await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: { in: ["publications", "postiz_drafts"] },
+      OR: rows.map((row) => ({
+        data: { path: ["contentId"], equals: row.id },
+      })),
+    },
+    select: { kind: true, data: true },
+  })) {
+    const id = String(data(row).contentId);
+    handoffs.set(id, [
+      ...(handoffs.get(id) ?? []),
+      {
+        kind: row.kind === "publications" ? "publication" : "postiz_draft",
+        status: data(row).status,
+      },
+    ]);
+  }
+  const releasing = new Set(drafts.map((draft) => draft.id));
+  const releasedBases = new Set(drafts.map((draft) => draft.baseId));
+  const waiting = new Map<string, Date>();
+  for (const row of rows) {
+    if (releasing.has(row.id)) continue;
+    const lane = approvalLane(data(row), {
+      handoffs: handoffs.get(row.id),
+      expired: expired.has(row.id),
+    });
+    const base = baseContentId(row);
+    if (lane !== "open" || releasedBases.has(base)) continue;
+    const since = waiting.get(base);
+    if (!since || row.createdAt < since) waiting.set(base, row.createdAt);
+  }
+  if (!waiting.size) return [];
+  const since = [...waiting.values()].reduce((a, b) => (b < a ? b : a));
   return [
     {
       id: "marketing:content-review",
       moduleId: "marketing",
       kind: "marketing_content_review",
       severity: "warning",
-      count,
-      ...(waiting._min.createdAt
-        ? { since: waiting._min.createdAt.toISOString() }
-        : {}),
+      count: waiting.size,
+      since: since.toISOString(),
       params: {},
       ...APPROVALS,
     },
