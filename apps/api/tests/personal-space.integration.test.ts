@@ -285,6 +285,55 @@ describe.skipIf(!enabled)("Personal space (ADR 0022)", () => {
     });
   });
 
+  it("never sets the per-member cap by itself, and a project's own authority never pays for it (WP2 A)", async () => {
+    // An organization without any AI budget row: reading the assistant's
+    // status reports no cap and writes nothing.
+    const fresh = (
+      await authDb.workspace.create({
+        data: {
+          name: "Synthetic org without an AI budget",
+          members: { create: [{ userId: p.owner.id, role: "owner" }, { userId: p.member.id, role: "viewer" }] },
+        },
+      })
+    ).id;
+    try {
+      const status = await call("GET", `/api/assistant?workspaceId=${fresh}`, p.member);
+      expect(status.statusCode).toBe(200);
+      expect(status.json()).toMatchObject({ enabled: true, capMicros: null });
+      const ownerView = await call("GET", `/api/assistant?workspaceId=${fresh}`, p.owner);
+      expect(ownerView.json()).toMatchObject({ enabled: true, capMicros: null });
+      expect(await authDb.organizationAiBudget.count({ where: { workspaceId: fresh } })).toBe(0);
+      // A FamilyPlan-like business project with an active spending
+      // authority: it authorizes its own calls, never the personal space.
+      const business = (
+        await authDb.project.create({ data: { workspaceId: fresh, name: "Synthetic FamilyPlan-like" } })
+      ).id;
+      const businessScope: Scope = { workspaceId: fresh, projectId: business, userId: p.owner.id, role: "owner" };
+      await scoped(fresh, business, (tx) =>
+        saveSpendPolicy(tx, businessScope, { profile: "monthly", monthlyBudgetMicros: 25 * USD }),
+      );
+      const space = await ensurePersonalSpace(fresh, p.member.id, moduleRegistry());
+      const personalScope: Scope = { workspaceId: fresh, projectId: space.projectId, userId: p.member.id, role: "owner" };
+      await scoped(fresh, space.projectId, async (tx) => {
+        await expect(requireSpendMandate(tx, personalScope)).rejects.toMatchObject({ code: "POLICY_REQUIRED" });
+        expect(await tx.budgetReservation.count({ where: { projectId: space.projectId } })).toBe(0);
+      });
+      expect(await authDb.organizationAiBudget.count({ where: { workspaceId: fresh } })).toBe(0);
+      // A cap of 0 is a decision too: no paid turns, still nothing written.
+      await saveOrganizationAiBudget(p.owner.id, fresh, { monthlyMicros: null, assistantPerUserMonthlyMicros: 0 });
+      const zero = await scoped(fresh, space.projectId, (tx) => requireSpendMandate(tx, personalScope));
+      expect(zero.limits).toMatchObject({ approvedPaidTests: false, monthlyBudgetMicros: 0, perRunBudgetMicros: 0 });
+      await expect(
+        scoped(fresh, space.projectId, (tx) =>
+          reserve(tx, personalScope, `assistant:${randomUUID()}`, "chat_text", 1_000, zero.limits),
+        ),
+      ).rejects.toMatchObject({ code: "BUDGET_NOT_APPROVED" });
+      expect((await call("GET", `/api/assistant?workspaceId=${fresh}`, p.member)).json().capMicros).toBe(0);
+    } finally {
+      await authDb.workspace.delete({ where: { id: fresh } }).catch(() => null);
+    }
+  });
+
   it("follows the owner's per-member switch and the organization membership", async () => {
     await setMemberAssistant({ userId: p.owner.id, kind: "org_owner" }, workspaceId, p.member.id, {
       enabled: false,

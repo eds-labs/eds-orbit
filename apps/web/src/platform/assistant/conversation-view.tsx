@@ -303,6 +303,13 @@ export type ConversationViewProps = {
   composerTools?: ReactNode;
   /** Controls per message, e.g. "Read aloud" (ADR 0024). */
   messageActions?: (message: ChatMessage) => ReactNode;
+  /** A notice above the composer, e.g. the assistant's budget (WP2 A). */
+  notice?: ReactNode;
+  /**
+   * The server would refuse every turn now (no paid budget): the composer
+   * cannot send and no composer tools are offered.
+   */
+  blocked?: boolean;
 };
 
 export function ConversationView(props: ConversationViewProps) {
@@ -317,6 +324,7 @@ export function ConversationView(props: ConversationViewProps) {
     moduleCards = {},
     afterMessages = [],
     host,
+    blocked = false,
   } = props;
   const { detail, stream, activeRunId, pending, busy } = conversation;
   const proposals: Proposal[] =
@@ -342,6 +350,7 @@ export function ConversationView(props: ConversationViewProps) {
     );
   }
   async function submit() {
+    if (blocked) return;
     if (await conversation.send(input)) setInput("");
   }
   return (
@@ -475,6 +484,7 @@ export function ConversationView(props: ConversationViewProps) {
         ))}
       </div>
       {conversation.error && <Alert kind="error">{conversation.error}</Alert>}
+      {props.notice}
       <form
         className="chat-compose"
         onSubmit={(event) => {
@@ -493,7 +503,7 @@ export function ConversationView(props: ConversationViewProps) {
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={busy}
+                disabled={busy || blocked}
                 onClick={() => setInput(template.prompt)}
               >
                 {template.label}
@@ -508,11 +518,11 @@ export function ConversationView(props: ConversationViewProps) {
           onChange={(event) => setInput(event.target.value)}
           maxLength={4000}
           rows={3}
-          disabled={busy}
+          disabled={busy || blocked}
           placeholder={props.placeholder}
         />
         <div className="chat-compose-actions">
-          {props.composerTools}
+          {!blocked && props.composerTools}
           {activeRunId && (
             <Button
               type="button"
@@ -523,7 +533,7 @@ export function ConversationView(props: ConversationViewProps) {
               {de ? "Abbrechen" : "Cancel"}
             </Button>
           )}
-          <Button type="submit" disabled={!input.trim() || busy}>
+          <Button type="submit" disabled={!input.trim() || busy || blocked}>
             <Send aria-hidden="true" />
             {de ? "Senden" : "Send"}
           </Button>
