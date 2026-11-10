@@ -131,6 +131,9 @@ html.orbit-no-send {
 html.orbit-no-organize {
     a.sidebar-menu,
     .toolbar a.delete,
+    // Elastic's desktop layout (frame wider than about 1024 px, no touch) adds a
+    // delete button to the message list header, outside any .toolbar.
+    #messagelist-content a.delete,
     .toolbar a.markmessage,
     #message-menu a.import,
     #message-menu a.move,

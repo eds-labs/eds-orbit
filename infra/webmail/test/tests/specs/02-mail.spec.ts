@@ -124,10 +124,15 @@ test.describe('working in a mailbox', () => {
             await imap.select('Archive');
             expect(await imap.search(`SUBJECT "${subject}"`)).toEqual([]);
         });
-        // The controls are gone as well.
+        // The controls are gone as well, every copy of them: Elastic renders some twice,
+        // and its desktop layout adds a delete button to the message list header.
         for (const selector of ['a.reply', 'a.delete', 'a.move', 'a.orbit-convert']) {
-            const control = frame.locator(selector).first();
-            if (await control.count()) expect(await control.isVisible() && await control.evaluate((el) => !el.classList.contains('disabled'))).toBe(false);
+            const controls = frame.locator(selector);
+            for (let i = 0; i < (await controls.count()); i++) {
+                const control = controls.nth(i);
+                const usable = (await control.isVisible()) && (await control.evaluate((el) => !el.classList.contains('disabled')));
+                expect(usable, `${selector}[${i}]`).toBe(false);
+            }
         }
         await context.close();
     });

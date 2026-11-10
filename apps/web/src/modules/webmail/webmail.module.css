@@ -1,53 +1,49 @@
 /* The webmail page, its dialog and settings (ADR 0026). */
-.layout {
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+.page {
+  min-width: 0;
+}
+/* The head carries the mailbox menu, so it may wrap below the title. */
+.page :global(.page-head) {
+  flex-wrap: wrap;
+}
+.page :global(.page-actions) {
+  flex-shrink: 1;
+  min-width: 0;
 }
 .main {
   display: grid;
   gap: 12px;
   min-width: 0;
 }
-.mainActions {
-  display: flex;
-  justify-content: flex-end;
-}
 
-.list ul {
+/* The mailbox menu and the open mailbox's state, in the page head. */
+.picker {
   display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  justify-items: end;
+  gap: 4px;
+  min-width: 0;
 }
-.mailbox {
-  display: grid;
-  justify-items: start;
-  gap: 2px;
-  min-height: 44px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--foreground);
+.pickerField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   font-size: 13px;
-  text-decoration: none;
   overflow-wrap: anywhere;
 }
-.mailbox[aria-current="page"] {
-  border-color: var(--primary);
-  background: #fff;
-}
-.mailbox small {
+.pickerField > span {
   color: var(--muted-foreground);
-  font-size: 12px;
+}
+.pickerField select {
+  width: min(420px, 60vw);
 }
 .status {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  margin: 0;
   color: var(--muted-foreground);
   font-size: 12px;
 }
@@ -90,10 +86,11 @@
   border-radius: 12px;
   background: #fff;
 }
+/* Everything below the 64 px header, the page padding and the page head. */
 .frame {
   display: block;
   width: 100%;
-  height: clamp(480px, calc(100dvh - 260px), 1400px);
+  height: max(480px, calc(100dvh - 224px));
   border: 0;
 }
 .frameCover {
@@ -191,16 +188,23 @@
 }
 
 @media (max-width: 760px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
+  .page :global(.page-actions) {
+    flex-wrap: wrap;
+    width: 100%;
   }
-  .list ul {
-    display: flex;
-    overflow-x: auto;
-    padding-bottom: 4px;
+  .picker {
+    flex: 1 1 100%;
+    justify-items: stretch;
   }
-  .list li {
-    flex: 0 0 min(260px, 80%);
+  .pickerField {
+    display: grid;
+    gap: 4px;
+  }
+  .pickerField select {
+    width: 100%;
+  }
+  .status {
+    justify-content: flex-start;
   }
   .frame {
     height: clamp(420px, calc(100dvh - 300px - var(--mobile-nav-height)), 900px);

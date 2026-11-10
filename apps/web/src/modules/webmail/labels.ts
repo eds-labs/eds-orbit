@@ -8,7 +8,8 @@ const en = {
   intro: "The mailboxes shared with you in this project.",
   loading: "Loading…",
   retry: "Try again",
-  list: "Mailboxes",
+  picker: "Mailbox",
+  pickerPlaceholder: "Choose a mailbox",
   empty: {
     title: "No mailbox available to you",
     body: "An owner of this project has to grant you access to a mailbox before you can work with it here.",
@@ -171,7 +172,8 @@ const de: WebmailText = {
   intro: "Die Postfächer, die in diesem Projekt für dich freigegeben sind.",
   loading: "Wird geladen…",
   retry: "Erneut versuchen",
-  list: "Postfächer",
+  picker: "Postfach",
+  pickerPlaceholder: "Postfach wählen",
   empty: {
     title: "Für dich ist kein Postfach verfügbar",
     body: "Ein Owner dieses Projekts muss dir Zugriff auf ein Postfach geben, bevor du hier damit arbeiten kannst.",

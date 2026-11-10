@@ -8,8 +8,9 @@ import {
   convertHandlerFor,
   EmptyMailboxes,
   lastErrorText,
+  mailboxOptionLabel,
   mailboxStatus,
-  MailboxListView,
+  MailboxPicker,
   selectMailbox,
   WithdrawnNotice,
 } from "./overview";
@@ -252,27 +253,54 @@ describe("the mailbox page", () => {
     expect(lastErrorText("SOMETHING_NEW", t)).toBe(t.lastError.unknown);
   });
 
-  it("lists address, name, status and the deep link", () => {
+  it("names a mailbox in the menu with its state unless it is fine", () => {
+    expect(mailboxOptionLabel(mailbox(), t)).toBe("Info (info@example.com)");
+    expect(
+      mailboxOptionLabel(
+        mailbox({ address: "b@example.com", displayName: null, sync: "error", sensitive: true }),
+        t,
+      ),
+    ).toBe(`b@example.com · ${t.status.syncError} · ${t.sensitive}`);
+  });
+
+  it("offers every mailbox in a menu and shows the open one's state", () => {
+    const second = mailbox({
+      id: "m2",
+      address: "b@example.com",
+      displayName: null,
+      sync: "error",
+      lastError: "IMAP_ERROR",
+      sensitive: true,
+    });
     const html = renderToStaticMarkup(
-      <MailboxListView
-        t={t}
-        mailboxes={[
-          mailbox(),
-          mailbox({ id: "m2", address: "b@example.com", displayName: null, sync: "error", lastError: "IMAP_ERROR", sensitive: true }),
-        ]}
-        selectedId="m1"
-        hrefOf={(id) => `/p/p1/webmail?mailbox=${id}`}
-      />,
+      <MailboxPicker t={t} mailboxes={[mailbox(), second]} selected={second} onSelect={() => {}} />,
     );
-    expect(html).toContain("Info");
-    expect(html).toContain("info@example.com");
-    expect(html).toContain('href="/p/p1/webmail?mailbox=m2"');
-    expect(html).toContain('aria-current="page"');
-    expect(html).toContain(t.status.ok);
+    expect(html).toContain("<select");
+    expect(html).toContain(t.picker);
+    expect(html).toContain('<option value="m1">Info (info@example.com)</option>');
+    expect(html).toMatch(/<option value="m2" selected="">b@example\.com/);
     expect(html).toContain(t.status.syncError);
     expect(html).toContain(t.lastError.IMAP_ERROR);
     expect(html).toContain(t.sensitive);
     expect(html).not.toContain("IMAP_ERROR");
+  });
+
+  it("shows a single mailbox as text, without a menu", () => {
+    const html = renderToStaticMarkup(
+      <MailboxPicker t={t} mailboxes={[mailbox()]} selected={mailbox()} onSelect={() => {}} />,
+    );
+    expect(html).not.toContain("<select");
+    expect(html).toContain("Info (info@example.com)");
+    expect(html).toContain(t.status.ok);
+  });
+
+  it("asks for a choice when the deep link names no listed mailbox", () => {
+    const html = renderToStaticMarkup(
+      <MailboxPicker t={t} mailboxes={[mailbox()]} selected={null} onSelect={() => {}} />,
+    );
+    expect(html).toContain("<select");
+    expect(html).toMatch(/<option value="" disabled="" selected="">Choose a mailbox<\/option>/);
+    expect(html).not.toContain(t.status.ok);
   });
 
   it("says access was withdrawn and offers no way to reopen", () => {

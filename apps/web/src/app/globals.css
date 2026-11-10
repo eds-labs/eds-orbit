@@ -541,6 +541,10 @@ pre {
   margin: 0 auto;
   padding: 30px 30px 22px;
 }
+/* A page that embeds a full client (webmail) takes the whole width. */
+.main:has([data-page-width="full"]) {
+  max-width: none;
+}
 .page-head {
   display: flex;
   align-items: center;

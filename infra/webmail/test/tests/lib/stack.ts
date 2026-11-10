@@ -293,6 +293,14 @@ export async function frameInRoundcube(page: Page): Promise<Frame> {
     return frame;
 }
 
+/** Picks a mailbox in the page head's menu, as a member does, and waits for the deep link. */
+export async function chooseMailbox(page: Page, mailboxId: string) {
+    const menu = page.getByRole('combobox', { name: 'Mailbox', exact: true });
+    await menu.selectOption(mailboxId);
+    await expect(menu).toHaveValue(mailboxId);
+    await expect(page).toHaveURL(new RegExp(`[?&]mailbox=${encodeURIComponent(mailboxId)}(&|$)`));
+}
+
 export async function openMailbox(page: Page, world: World, mailboxId: string): Promise<Frame> {
     await page.goto(webmailPage(world, mailboxId));
     return frameInRoundcube(page);

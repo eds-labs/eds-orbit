@@ -1,7 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Inbox } from "lucide-react";
 import { useResource } from "@/lib/api";
 import {
@@ -72,48 +71,81 @@ export const convertHandlerFor = <T,>(
   handler: T,
 ): T | null => (mailbox?.capabilities.convert ? handler : null);
 
-export function MailboxListView({
+/** A mailbox in the menu: its name and address, and its state unless it is fine. */
+export function mailboxOptionLabel(mailbox: WebmailMailbox, t: WebmailText) {
+  const name = mailbox.displayName
+    ? `${mailbox.displayName} (${mailbox.address})`
+    : mailbox.address;
+  const status = mailboxStatus(mailbox, t);
+  const notes = [
+    ...(status.tone === "ok" ? [] : [status.label]),
+    ...(mailbox.sensitive ? [t.sensitive] : []),
+  ];
+  return notes.length ? `${name} · ${notes.join(" · ")}` : name;
+}
+
+/**
+ * The open mailbox with its state, and a menu to switch to another one. A
+ * single mailbox needs no menu. Choosing one changes ?mailbox=, the deep link.
+ */
+export function MailboxPicker({
   t,
   mailboxes,
-  selectedId,
-  hrefOf,
+  selected,
+  onSelect,
 }: {
   t: WebmailText;
   mailboxes: readonly WebmailMailbox[];
-  selectedId: string | null;
-  hrefOf: (id: string) => string;
+  selected: WebmailMailbox | null;
+  onSelect: (id: string) => void;
 }) {
+  const status = selected ? mailboxStatus(selected, t) : null;
+  const problem = selected ? lastErrorText(selected.lastError, t) : null;
   return (
-    <nav aria-label={t.list} className={styles.list}>
-      <ul>
-        {mailboxes.map((mailbox) => {
-          const status = mailboxStatus(mailbox, t);
-          const problem = lastErrorText(mailbox.lastError, t);
-          return (
-            <li key={mailbox.id}>
-              <Link
-                href={hrefOf(mailbox.id)}
-                scroll={false}
-                className={styles.mailbox}
-                aria-current={mailbox.id === selectedId ? "page" : undefined}
-              >
-                <strong>{mailbox.displayName || mailbox.address}</strong>
-                {mailbox.displayName && <span>{mailbox.address}</span>}
-                <span className={styles.status}>
-                  <span
-                    className={`${styles.dot} ${styles[status.tone]}`}
-                    aria-hidden="true"
-                  />
-                  {status.label}
-                </span>
-                {problem && <small>{problem}</small>}
-                {mailbox.sensitive && <Badge tone="warning">{t.sensitive}</Badge>}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <div className={styles.picker}>
+      {mailboxes.length > 1 || selected === null ? (
+        <label className={styles.pickerField}>
+          <span>{t.picker}</span>
+          <select
+            className="input"
+            value={selected?.id ?? ""}
+            onChange={(event) => onSelect(event.target.value)}
+          >
+            {selected === null && (
+              <option value="" disabled>
+                {t.pickerPlaceholder}
+              </option>
+            )}
+            {mailboxes.map((mailbox) => (
+              <option key={mailbox.id} value={mailbox.id}>
+                {mailboxOptionLabel(mailbox, t)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <div className={styles.pickerField}>
+          <span>{t.picker}</span>
+          <strong>
+            {selected.displayName
+              ? `${selected.displayName} (${selected.address})`
+              : selected.address}
+          </strong>
+        </div>
+      )}
+      {/* div, not p: the page head styles every paragraph as its intro. */}
+      {selected && status && (
+        <div className={styles.status}>
+          <span
+            className={`${styles.dot} ${styles[status.tone]}`}
+            aria-hidden="true"
+          />
+          {status.label}
+          {problem && <small>{problem}</small>}
+          {selected.sensitive && <Badge tone="warning">{t.sensitive}</Badge>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -132,6 +164,7 @@ export function WebmailOverview() {
   const shell = useShell();
   const t = webmailText(locale);
   const params = useSearchParams();
+  const router = useRouter();
   const resource = useResource<MailboxesResponse>(
     webmailPath(project.id, "/mailboxes"),
   );
@@ -231,50 +264,49 @@ export function WebmailOverview() {
       </>
     );
 
+  // The client needs every pixel, so this page opts out of the shell's width
+  // cap (globals.css, `data-page-width`) and keeps its controls in the head.
   return (
-    <>
-      {head}
-      <div className={styles.layout}>
-        <MailboxListView
+    <div className={styles.page} data-page-width="full">
+      <PageHead eyebrow={t.eyebrow} title={t.title} description={t.intro}>
+        <MailboxPicker
           t={t}
           mailboxes={data.mailboxes}
-          selectedId={selectedId}
-          hrefOf={(id) => `${base}?mailbox=${encodeURIComponent(id)}`}
+          selected={mailbox}
+          onSelect={(id) =>
+            router.push(`${base}?mailbox=${encodeURIComponent(id)}`, {
+              scroll: false,
+            })
+          }
         />
-        <div className={styles.main}>
-          {withdrawnNotice}
-          {missing && !withdrawn && (
-            <Alert kind="warning">{t.notAvailable}</Alert>
-          )}
-          {mailbox?.capabilities.manage && (
-            <div className={styles.mainActions}>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setManaging(true)}
-              >
-                {t.manageAccess}
-              </Button>
-            </div>
-          )}
-          {mailbox && mailbox.status === "disabled" && (
-            <Alert kind="info">{t.mailboxOff}</Alert>
-          )}
-          {mailbox && mailbox.status !== "disabled" && !mailbox.capabilities.read && (
-            <Alert kind="info">{t.noRead}</Alert>
-          )}
-          {mailbox && !blocked && mailbox.status !== "disabled" && mailbox.capabilities.read && (
-            <WebmailEmbed
-              t={t}
-              projectId={project.id}
-              mailboxId={mailbox.id}
-              address={mailbox.address}
-              origin={data.origin}
-              onConvert={convertHandlerFor(mailbox, onConvert)}
-              onWithdrawn={onWithdrawn}
-            />
-          )}
-        </div>
+        {mailbox?.capabilities.manage && (
+          <Button size="sm" variant="outline" onClick={() => setManaging(true)}>
+            {t.manageAccess}
+          </Button>
+        )}
+      </PageHead>
+      <div className={styles.main}>
+        {withdrawnNotice}
+        {missing && !withdrawn && (
+          <Alert kind="warning">{t.notAvailable}</Alert>
+        )}
+        {mailbox && mailbox.status === "disabled" && (
+          <Alert kind="info">{t.mailboxOff}</Alert>
+        )}
+        {mailbox && mailbox.status !== "disabled" && !mailbox.capabilities.read && (
+          <Alert kind="info">{t.noRead}</Alert>
+        )}
+        {mailbox && !blocked && mailbox.status !== "disabled" && mailbox.capabilities.read && (
+          <WebmailEmbed
+            t={t}
+            projectId={project.id}
+            mailboxId={mailbox.id}
+            address={mailbox.address}
+            origin={data.origin}
+            onConvert={convertHandlerFor(mailbox, onConvert)}
+            onWithdrawn={onWithdrawn}
+          />
+        )}
       </div>
       {open && (
         <ConvertDialog
@@ -299,6 +331,6 @@ export function WebmailOverview() {
           />
         </Modal>
       )}
-    </>
+    </div>
   );
 }

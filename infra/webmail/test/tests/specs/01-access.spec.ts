@@ -1,4 +1,4 @@
-import { ownerSettingsRow, expect, frameInRoundcube, messageId, ok, openMailbox, ORBIT, raw, selectMessage, signedIn, test, unique, USERS, webmailPage } from '../lib/stack';
+import { chooseMailbox, ownerSettingsRow, expect, frameInRoundcube, messageId, ok, openMailbox, ORBIT, raw, selectMessage, signedIn, test, unique, USERS, webmailPage } from '../lib/stack';
 import { deliver } from '../lib/imap';
 
 test.describe('access', () => {
@@ -34,7 +34,7 @@ test.describe('access', () => {
         const memberContext = await signedIn(browser, 'member', world);
         const memberPage = await memberContext.newPage();
         await memberPage.goto(webmailPage(world));
-        await memberPage.getByRole('link', { name: new RegExp(world.address.info) }).click();
+        await chooseMailbox(memberPage, mailboxId);
         const frame = await frameInRoundcube(memberPage);
         await selectMessage(frame, subject);
         await expect(memberPage.locator('iframe[name=orbit-webmail]')).toHaveAttribute('sandbox', /allow-scripts/);
@@ -71,8 +71,7 @@ test.describe('access', () => {
         await selectMessage(frame, salesSubject);
         expect(await frame.locator('#messagelist tr', { hasText: supportSubject }).count()).toBe(0);
 
-        await page.getByRole('link', { name: new RegExp(world.address.support) }).click();
-        await expect(page.getByRole('navigation', { name: 'Mailboxes' }).locator('a[aria-current=page]')).toContainText(world.address.support);
+        await chooseMailbox(page, world.mailboxId.support);
         await expect
             .poll(async () => {
                 const current = page.frame({ name: 'orbit-webmail' });
@@ -83,7 +82,7 @@ test.describe('access', () => {
         const second = await frameInRoundcube(page);
         expect(await second.locator('#messagelist tr', { hasText: salesSubject }).count()).toBe(0);
 
-        await page.getByRole('link', { name: new RegExp(world.address.sales) }).click();
+        await chooseMailbox(page, world.mailboxId.sales);
         await expect
             .poll(async () => {
                 const current = page.frame({ name: 'orbit-webmail' });
