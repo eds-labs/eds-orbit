@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
-import { create, data, entity, update } from "../src/shared.ts";
+import { create, data, entity, list, update } from "../src/shared.ts";
 import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { readReadiness } from "../src/modules/marketing/readiness/readiness-admin.ts";
 import { readinessActions } from "../src/modules/marketing/readiness/action-readiness.ts";
 import { reconcilePublication } from "../src/modules/marketing/publishing/publisher.ts";
-import { publishIntent } from "../src/modules/marketing/pipeline/workflow.ts";
+import { claimPublication, publishIntent } from "../src/modules/marketing/pipeline/workflow.ts";
+import { AUTOPILOT_ON_SOCIAL_NOT_APPROVED, marketingJobs } from "../src/modules/marketing/jobs.ts";
 import { bookPostizDraft } from "../src/modules/marketing/agents/draft-delivery.ts";
 import { submitOriginPost } from "../src/modules/social/contract.ts";
-import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
+import { approve, packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
 import { assertAssignedSocialChannels } from "../src/modules/marketing/publishing/postiz-assignment.ts";
 import { resolveChannelRules } from "../src/modules/marketing/publishing/channel-rules.ts";
 import { readPolicy, savePolicy } from "../src/modules/marketing/policy/policy-admin.ts";
@@ -79,7 +80,8 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
     await closeDatabase();
   });
 
-  const backend = (value: "postiz" | "postiz_draining" | "social") => run((tx) => forcePublishingBackend(tx, project.owner, value));
+  const backend = (value: "postiz" | "postiz_draining" | "social", extra: { socialAutopilot?: boolean } = {}) =>
+    run((tx) => forcePublishingBackend(tx, project.owner, value, extra));
 
   it("keeps a Postiz project's package input exactly as before", async () => {
     const pkg = await run((tx) => packageFor(tx, project.owner, contentId));
@@ -662,7 +664,7 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
       expect(await sent()).toEqual(start);
     });
 
-    it("refuses live autopilot on Social until the owner decides; nothing is saved and Postiz is unchanged", async () => {
+    it("refuses live autopilot on Social without the owner's switch and while Postiz drains; nothing is saved and Postiz is unchanged", async () => {
       live();
       const start = await sent();
       const stored = () =>
@@ -675,8 +677,13 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
       const { active: _a, activatedAt: _at, activatedBy: _by, ...fields } = data(active) as Record<string, unknown>;
       const save = (mode: string) => run((tx) => savePolicy(tx, project.owner, { ...fields, mode }));
       const before = await stored();
-      for (const value of ["social", "postiz_draining"] as const) {
-        await backend(value);
+      // A stored switch counts only on Social.
+      for (const [value, socialAutopilot] of [
+        ["social", false],
+        ["postiz_draining", false],
+        ["postiz_draining", true],
+      ] as const) {
+        await backend(value, { socialAutopilot });
         try {
           await expect(save("autopilot")).rejects.toMatchObject({
             code: "LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED",
@@ -689,6 +696,18 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         } finally {
           await backend("postiz");
         }
+      }
+      // With the switch the Social gate passes: what remains is exactly
+      // the readiness refusal, as on Postiz.
+      await backend("social", { socialAutopilot: true });
+      try {
+        const refusal = await save("autopilot").catch((error: { code?: string }) => error);
+        expect(refusal).toMatchObject({ status: 409 });
+        expect((refusal as { code: string }).code).not.toContain("AUTOPILOT_ON_SOCIAL_NOT_APPROVED");
+        expect((refusal as { code: string }).code).toBe("LIVE_ACTIVATION_BLOCKED:" + (await state()).blockers.join(","));
+        expect(await stored()).toEqual(before);
+      } finally {
+        await backend("postiz");
       }
       // Postiz: the readiness refusal as before, without the Social code.
       const postizRefusal = await save("autopilot").catch((error: { code?: string }) => error);
@@ -740,6 +759,139 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         await run(async (tx) => update(tx, project.owner, await entity(tx, project.owner, "publications", pending.id), { ...data(pending), status: "canceled" }));
       }
       expect(await sent()).toEqual(start);
+    });
+  });
+
+  /**
+   * The owner's per-project switch (plan 2026-11-10): autopilot releases
+   * posts through Social without per-post approval only while it is on;
+   * otherwise an autopilot post needs the approval of its exact package,
+   * as in assisted mode. The fixture's policy is autopilot.
+   */
+  describe("autopilot through Social: the owner's switch", () => {
+    const worker = () => ({ ...project.owner, userId: "worker", role: "owner" as const });
+    const activePolicyRow = () =>
+      run(async (tx) => (await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "policies" } })).find((p) => data(p).active)!);
+    let original: Awaited<ReturnType<typeof activePolicyRow>>;
+    let originalMode = "";
+    /** The generation job reads the project's mode (set when a policy is activated). */
+    const projectMode = (mode: string) =>
+      run((tx) => tx.project.update({ where: { id: project.owner.projectId }, data: { mode } }));
+    /** Changes the active policy in place (no new version), as the readiness tests do. */
+    const policy = (fields: Record<string, unknown>) =>
+      run((tx) => tx.entity.update({ where: { id: original.id }, data: { data: { ...data(original), ...fields } } }));
+    const blockers = async (options: { ignoreApproval?: boolean } = {}) =>
+      (await run((tx) => preflight(tx, project.owner, contentId, { test: true, ...options }))).blockers;
+    const counts = () =>
+      run(async (tx) => ({
+        publications: await tx.entity.count({ where: { projectId: project.owner.projectId, kind: "publications" } }),
+        socialPublications: await tx.socialPublication.count({ where: { projectId: project.owner.projectId } }),
+        socialPosts: await tx.socialPost.count({ where: { projectId: project.owner.projectId } }),
+      }));
+    /** A mission whose generation job drafts one post on the channel (test execution). */
+    const generate = async (channel: string) => {
+      const mission = await run((tx) =>
+        create(tx, project.owner, "missions", {
+          title: `Synthetic autopilot ${channel}`,
+          goal: "beta access",
+          audience: "Product teams",
+          language: "en",
+          channels: [channel],
+          startAt: new Date(Date.now() - 3600_000).toISOString(),
+          endAt: new Date(Date.now() + 86_400_000).toISOString(),
+          maxContents: 1,
+          targetAction: "Learn more.",
+          sourceIds: [project.sourceId],
+          contentType: "social",
+          status: "ready",
+        }),
+      );
+      const generation = marketingJobs.find((job) => job.queueClass === "generation")!;
+      await generation.handler({ scope: worker(), jobId: randomUUID(), job: { resourceId: mission.id }, executionMode: "test" });
+      const content = (await run((tx) => list(tx, project.owner, "content"))).find((row) => data(row).missionId === mission.id)!;
+      const publications = (await run((tx) => list(tx, project.owner, "publications"))).filter((row) => data(row).contentId === content.id);
+      return { content, publications };
+    };
+
+    beforeAll(async () => {
+      original = await activePolicyRow();
+      expect(data(original).mode).toBe("autopilot");
+      // Room for this block's posts next to the earlier tests' publications.
+      await policy({ maxPerDay: 20 });
+      originalMode = (await run((tx) => tx.project.findUniqueOrThrow({ where: { id: project.owner.projectId } }))).mode;
+      await projectMode("autopilot");
+    });
+    afterAll(async () => {
+      await run((tx) => tx.entity.update({ where: { id: original.id }, data: { data: data(original) } }));
+      await projectMode(originalMode);
+      await backend("postiz");
+    });
+
+    it("preflight asks for the package approval on Social without the switch; Postiz and assisted stay as they were", async () => {
+      const postiz = await blockers();
+      expect(postiz).not.toContain("APPROVAL_REQUIRED");
+      // A stored switch changes nothing on Postiz.
+      await backend("postiz", { socialAutopilot: true });
+      expect(await blockers()).toEqual(postiz);
+      try {
+        await backend("social");
+        expect(await blockers()).toContain("APPROVAL_REQUIRED");
+        // A claimed publication's hand-off keeps skipping it (its approval was consumed at the claim).
+        expect(await blockers({ ignoreApproval: true })).not.toContain("APPROVAL_REQUIRED");
+        await backend("social", { socialAutopilot: true });
+        expect(await blockers()).not.toContain("APPROVAL_REQUIRED");
+        await backend("postiz_draining", { socialAutopilot: true });
+        expect(await blockers()).toContain("APPROVAL_REQUIRED");
+        // Without the switch the owner's approval of the exact package releases the post.
+        await backend("social");
+        const pkg = await run((tx) => packageFor(tx, project.owner, contentId));
+        const approval = await run((tx) => approve(tx, project.owner, { contentId, version: pkg.content.version, packageHash: pkg.packageHash }));
+        try {
+          expect(await blockers()).not.toContain("APPROVAL_REQUIRED");
+        } finally {
+          await run((tx) => update(tx, project.owner, approval, { ...data(approval), status: "expired" }));
+        }
+        // Assisted needs the approval with or without the switch, on either backend.
+        await policy({ maxPerDay: 20, mode: "assisted" });
+        await backend("social", { socialAutopilot: true });
+        expect(await blockers()).toContain("APPROVAL_REQUIRED");
+        await backend("postiz");
+        expect(await blockers()).toContain("APPROVAL_REQUIRED");
+      } finally {
+        await policy({ maxPerDay: 20 });
+        await backend("postiz");
+      }
+    });
+
+    it("generation in autopilot on Social without the switch publishes nothing and records the exception", async () => {
+      await backend("social");
+      const start = await counts();
+      const { content, publications } = await generate(X);
+      expect(data(content).status).toBe("reviewed");
+      expect(publications).toEqual([]);
+      expect(await counts()).toEqual(start);
+      const notice = (await run((tx) => list(tx, project.owner, "exceptions"))).find(
+        (row) => data(row).code === AUTOPILOT_ON_SOCIAL_NOT_APPROVED && data(row).status === "open",
+      );
+      expect(data(notice!).resourceIds).toContain(content.id);
+    });
+
+    it("with the switch autopilot schedules the post; turning it off holds the post at its claim and nothing reaches Social", async () => {
+      await backend("social", { socialAutopilot: true });
+      const { content, publications } = await generate(TELEGRAM);
+      expect(data(content).status).toBe("reviewed");
+      expect(publications.map((row) => [data(row).status, data(row).test])).toEqual([["intent_created", true]]);
+      const pubId = publications[0]!.id;
+      // The owner turns the switch off before the slot.
+      await backend("social");
+      const start = await counts();
+      const claim = await run((tx) => claimPublication(tx, worker(), pubId));
+      expect(claim.send).toBe(false);
+      const blocked = data(await run((tx) => entity(tx, project.owner, "publications", pubId)));
+      expect(blocked.status).toBe("blocked_dependency");
+      expect(blocked.blockers).toContain("APPROVAL_REQUIRED");
+      expect(blocked.remoteId).toBeNull();
+      expect(await counts()).toEqual(start);
     });
   });
 });

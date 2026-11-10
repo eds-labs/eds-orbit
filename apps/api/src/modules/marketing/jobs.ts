@@ -7,6 +7,7 @@ import {
   reviewContent,
 } from "./pipeline/workflow.ts";
 import { generateMissionLive } from "./pipeline/generation.ts";
+import { autopilotAllowedOnBackend } from "./publishing/backend.ts";
 import {
   dispatchPublication,
   reconcilePublication,
@@ -28,6 +29,10 @@ import {
   PREVIEW_QUEUE,
   runCreativePreview,
 } from "./creative/preview.ts";
+
+/** Autopilot generated a post its backend may not release without approval. */
+export const AUTOPILOT_ON_SOCIAL_NOT_APPROVED =
+  "AUTOPILOT_ON_SOCIAL_NOT_APPROVED";
 
 /**
  * The marketing module's worker queues (WP1.6). The handlers and the per-queue
@@ -93,6 +98,17 @@ export const marketingJobs: JobDef[] = [
                 : current;
             if (data(result).status !== "reviewed") {
               await exception(tx, scope, "CONTENT_REVIEW_REQUIRED", result.id);
+              return null;
+            }
+            // Through Social only with the owner's autopilot switch; without
+            // it the reviewed post waits for the owner's release.
+            if (!(await autopilotAllowedOnBackend(tx, scope))) {
+              await exception(
+                tx,
+                scope,
+                AUTOPILOT_ON_SOCIAL_NOT_APPROVED,
+                result.id,
+              );
               return null;
             }
             return result;

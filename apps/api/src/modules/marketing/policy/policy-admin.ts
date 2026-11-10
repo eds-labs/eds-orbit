@@ -32,7 +32,10 @@ import {
   PROJECT_OWN,
   PROJECT_READ,
 } from "../../../platform/tenancy/permissions.ts";
-import { publishingBackend } from "../publishing/backend.ts";
+import {
+  autopilotAllowedOnBackend,
+  publishingBackend,
+} from "../publishing/backend.ts";
 import { socialChannels } from "../../social/contract.ts";
 import {
   assertAssignedSocialChannels,
@@ -60,8 +63,8 @@ function policyFields(row: { data: unknown } | null): Record<string, unknown> {
 
 /**
  * Saves a policy as the project's only active one (the policy form and
- * MCP). In live execution, autopilot needs a project on Postiz without
- * blockers.
+ * MCP). In live execution, autopilot needs a project without blockers on
+ * Postiz, or on Social with the owner's autopilot switch on.
  */
 export async function savePolicy(tx: DbTx, scope: Scope, raw: unknown) {
   const parsed = policySchema.parse(raw);
@@ -80,11 +83,11 @@ export async function savePolicy(tx: DbTx, scope: Scope, raw: unknown) {
   });
   if (parsed.mode === "autopilot" && loadConfig().EXECUTION_MODE === "live") {
     // Live autopilot releases posts without the owner's approval of each
-    // package. Through Social (or while Postiz drains towards it) that is
-    // not approved: the owner decides it first (plan 2026-11-10, security
-    // review). Deliberately no readiness blocker, so assisted projects on
-    // Social are not shown a missing configuration.
-    if ((await publishingBackend(tx, scope)) !== "postiz")
+    // package. Through Social that needs the owner's per-project switch
+    // ("Autopilot through Social", plan 2026-11-10); while Postiz drains it
+    // stays closed. Deliberately no readiness blocker, so assisted projects
+    // on Social are not shown a missing configuration.
+    if (!(await autopilotAllowedOnBackend(tx, scope)))
       throw new DomainError(
         "LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED",
         409,

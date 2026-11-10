@@ -7,7 +7,10 @@ import {
 import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
 import { calendarConflicts } from "../publishing/calendar.ts";
 import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
-import { publishingBackend } from "../publishing/backend.ts";
+import {
+  autopilotAllowedOnBackend,
+  publishingBackend,
+} from "../publishing/backend.ts";
 import {
   accountForChannel,
   publishingBlockers,
@@ -65,6 +68,23 @@ import {
 } from "../../../shared.ts";
 export async function activePolicy(tx: DbTx, scope: Scope) {
   return activePolicyRecord(tx, scope);
+}
+/**
+ * Whether a post under the policy mode needs the owner's approval of its
+ * exact package: in assisted mode, and in autopilot where the backend does
+ * not allow it (Social without the owner's switch, Postiz draining). So
+ * turning the switch off holds pending autopilot posts at their claim, and
+ * an owner's release records the approval it then needs.
+ */
+export async function packageApprovalRequired(
+  tx: DbTx,
+  scope: Scope,
+  mode: unknown,
+) {
+  return (
+    mode === "assisted" ||
+    (mode === "autopilot" && !(await autopilotAllowedOnBackend(tx, scope)))
+  );
 }
 export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
   const content = await entity(tx, scope, "content", contentId);
@@ -679,7 +699,10 @@ export async function preflight(
         : hour >= p.quietStart || hour < p.quietEnd)
     )
       blockers.push("QUIET_HOURS");
-    if (p.mode === "assisted" && !options.ignoreApproval) {
+    if (
+      !options.ignoreApproval &&
+      (await packageApprovalRequired(tx, scope, p.mode))
+    ) {
       const approval = (await list(tx, scope, "approvals")).find(
         (x) =>
           data(x).packageHash === pkg.packageHash &&

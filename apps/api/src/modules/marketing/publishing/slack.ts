@@ -30,7 +30,11 @@ import {
   publicEntity,
   credentialKey,
 } from "../../../shared.ts";
-import { preflight, approve } from "../policy/policy.ts";
+import {
+  preflight,
+  approve,
+  packageApprovalRequired,
+} from "../policy/policy.ts";
 import { enqueue } from "../pipeline/workflow.ts";
 import { notify } from "../agents/notifications.ts";
 import { decryptCredential } from "../../../platform/connections/connections.ts";
@@ -193,7 +197,11 @@ export async function queueSlackDigest(tx: DbTx, scope: Scope) {
         test: process.env.EXECUTION_MODE !== "live",
         ignoreApproval: true,
       });
-      if (!p.allowed || p.policyInput?.mode !== "assisted") continue;
+      if (
+        !p.allowed ||
+        !(await packageApprovalRequired(tx, scope, p.policyInput?.mode))
+      )
+        continue;
       const approved = (await list(tx, scope, "approvals")).some(
         (a) =>
           data(a).packageHash === p.packageHash &&
