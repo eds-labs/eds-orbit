@@ -4,6 +4,7 @@ import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { value, when, type Entity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { fieldLabel } from "@/lib/field-text";
+import { statusLabel } from "@/lib/status-text";
 import { Badge, Button, Status } from "@/components/ui/primitives";
 import { baseContentId } from "./approval-lists";
 import { ChannelLabel, channelInfo, type ChannelEntry } from "./channel-names";
@@ -47,6 +48,20 @@ export function contentGroups(
     return { baseId, lead: variants[0]!, variants };
   });
   return { groups, replaced };
+}
+
+/**
+ * Each distinct status of a group's versions once, with how many versions
+ * share it, in the order the versions list them ("Reviewed · 2", not two
+ * equal badges).
+ */
+export function statusCounts(variants: readonly Entity[]): [string, number][] {
+  const counts = new Map<string, number>();
+  for (const row of variants) {
+    const status = String(row.data.status ?? "unknown");
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts.entries()];
 }
 
 /** The table of grouped content; a group with several channels expands. */
@@ -150,8 +165,16 @@ export function ContentGroupRows({
                   <td>
                     {many ? (
                       <span className="approval-item-meta">
-                        {group.variants.map((row) => (
-                          <Status key={row.id} value={row.data.status} />
+                        {statusCounts(group.variants).map(([status, count]) => (
+                          <Status
+                            key={status}
+                            value={status}
+                            label={
+                              count > 1
+                                ? `${statusLabel(locale, status)} · ${count}`
+                                : undefined
+                            }
+                          />
                         ))}
                       </span>
                     ) : (

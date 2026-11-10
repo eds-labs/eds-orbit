@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { WorkspaceContext } from "@/components/workspace-context";
 import type { Entity } from "@/lib/api";
-import { ContentGroupRows, contentGroups } from "./content-studio";
+import { ContentGroupRows, contentGroups, statusCounts } from "./content-studio";
+import { marketingText } from "./labels";
 import { channelInfo, ChannelLabel, type ChannelEntry } from "./channel-names";
 import {
   PlatformMark,
@@ -88,6 +89,26 @@ describe("Content Studio groups (WP3)", () => {
     row("lost", { title: "Old account", channel: GONE, status: "draft" }),
   ];
 
+  it("counts each distinct status once, in listing order", () => {
+    expect(
+      statusCounts([
+        row("a", { status: "reviewed" }),
+        row("b", { status: "needs_review" }),
+        row("c", { status: "reviewed" }),
+      ]),
+    ).toEqual([
+      ["reviewed", 2],
+      ["needs_review", 1],
+    ]);
+  });
+
+  it("has words for every content format, ads included", () => {
+    for (const locale of ["en", "de"] as const)
+      for (const type of ["social", "blog", "newsletter", "ad", "script", "community"])
+        expect(marketingText(locale).contentTypes[type]).toBeTruthy();
+    expect(marketingText("de").contentTypes.ad).toBe("Anzeige");
+  });
+
   it("groups channel copies with their original and hides replaced versions", () => {
     const { groups, replaced } = contentGroups(items);
     expect(replaced).toBe(1);
@@ -130,8 +151,9 @@ describe("Content Studio groups (WP3)", () => {
     expect(html).toMatch(
       /platform-mark-facebook.*platform-mark-instagram.*2 Kanäle/,
     );
-    // Both variant statuses stay visible on the group row.
-    expect(html.match(/Geprüft/g)?.length).toBe(2);
+    // A status the variants share shows once, with its count.
+    expect(html).toContain(">Geprüft · 2<");
+    expect(html.match(/Geprüft/g)?.length).toBe(1);
     // A Postiz channel by name with its platform and mark.
     expect(html).toContain("EDS Labs · LinkedIn");
     expect(html).toContain(

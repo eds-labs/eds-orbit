@@ -103,6 +103,23 @@ import {
   type AwaitingOwnerDraft,
 } from "./assignments";
 import { useSearchParams } from "next/navigation";
+/** Every content format (packages/schemas content `type`) with its words. */
+const CONTENT_TYPES = [
+  "social",
+  "blog",
+  "newsletter",
+  "ad",
+  "script",
+  "community",
+] as const;
+function contentTypeOptions(locale: "en" | "de") {
+  const words = marketingText(locale).contentTypes;
+  return CONTENT_TYPES.map((value) => ({
+    value,
+    label: words[value] ?? value,
+  }));
+}
+
 export function Missions() {
   const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
   const resource = useCollection("missions");
@@ -568,14 +585,7 @@ export function MissionEditor({
       name: "contentType",
       label: de ? "Inhaltstyp" : "Content type",
       type: "select",
-      options: options([
-        "social",
-        "blog",
-        "newsletter",
-        "ad",
-        "script",
-        "community",
-      ]),
+      options: contentTypeOptions(locale),
       value: "social",
     },
     {
@@ -754,13 +764,11 @@ export function ContentStudio() {
           onChange={(e) => setType(e.target.value)}
         >
           <option value="all">{words.content.allFormats}</option>
-          {["social", "blog", "newsletter", "ad", "script", "community"].map(
-            (s) => (
-              <option key={s} value={s}>
-                {words.contentTypes[s] ?? s}
-              </option>
-            ),
-          )}
+          {contentTypeOptions(locale).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
         {replaced > 0 && (
           <label className="approval-history-toggle">
@@ -869,14 +877,7 @@ export function ContentEditor({
       label: "Format",
       type: "select",
       value: String(d?.type || "social"),
-      options: options([
-        "social",
-        "blog",
-        "newsletter",
-        "ad",
-        "script",
-        "community",
-      ]),
+      options: contentTypeOptions(locale),
     },
     {
       name: "language",
