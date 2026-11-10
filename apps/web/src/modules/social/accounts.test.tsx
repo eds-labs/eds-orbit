@@ -74,8 +74,8 @@ function render(node: React.ReactNode, { locale = "en" as Locale, access = "owne
 
 const accounts = {
   items: [
-    { id: "a1", platform: "x", handle: "@orbit_hq", displayName: "Orbit HQ", status: "active", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", lastCheckedAt: null, lastCheckCode: null, settings: { xLongPosts: true }, version: 1 },
-    { id: "a2", platform: "instagram", handle: "@orbit_ig", displayName: "Orbit IG", status: "reconnect_required", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", lastCheckedAt: "2026-11-02T11:00:00.000Z", lastCheckCode: "SOCIAL_META_TOKEN_INVALID", settings: { xLongPosts: false }, version: 2 },
+    { id: "a1", platform: "x", handle: "@orbit_hq", displayName: "Orbit HQ", status: "active", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", disabledAt: null, lastCheckedAt: null, lastCheckCode: null, settings: { xLongPosts: true }, version: 1 },
+    { id: "a2", platform: "instagram", handle: "@orbit_ig", displayName: "Orbit IG", status: "reconnect_required", capability: "read_verified", connectedAt: "2026-11-02T10:00:00.000Z", disabledAt: null, lastCheckedAt: "2026-11-02T11:00:00.000Z", lastCheckCode: "SOCIAL_META_TOKEN_INVALID", settings: { xLongPosts: false }, version: 2 },
   ],
 };
 const buttons = (html: string) => [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)];
@@ -124,6 +124,65 @@ describe("social accounts view (ADR 0020, S2)", () => {
     expect(html).toContain("Posting verified");
     expect(render(<AccountsView />, { access: "viewer" })).not.toContain("Verify posting");
     expect(render(<AccountsView />, { locale: "de" })).toContain("Posten prüfen");
+  });
+
+  it("keeps disconnected accounts in a collapsed archive without any action", () => {
+    const archivedAccount = {
+      ...accounts.items[0],
+      id: "d1",
+      platform: "facebook",
+      handle: "@uliquid_test",
+      displayName: "uLiquid Desk",
+      status: "disabled",
+      capability: "write_verified",
+      disabledAt: "2026-11-05T09:30:00.000Z",
+      version: 3,
+    };
+    answers["/social/accounts"] = { items: [...accounts.items, archivedAccount] };
+    const html = render(<AccountsView />);
+    const archive = html.match(/<details class="social-archived-accounts">(.*?)<\/details>/s)?.[0] ?? "";
+    expect(archive).not.toBe("");
+    expect(archive).toContain("<summary>Archived accounts (1)</summary>");
+    expect(archive).toContain("Disconnected accounts stay here for the history of their posts");
+    expect(archive).toContain("@uliquid_test");
+    expect(archive).toContain("uLiquid Desk");
+    expect(archive).toContain("Disconnected on");
+    // Collapsed, and nothing to tap or tick inside.
+    expect(archive).not.toMatch(/<details[^>]*\sopen/);
+    expect(archive).not.toMatch(/<button|<input|Posting verified/);
+    // The live list above holds only the live accounts, each with its actions.
+    const liveList = html.slice(0, html.indexOf("<details"));
+    expect(liveList).not.toContain("@uliquid_test");
+    expect(liveList.match(/>Disconnect</g)).toHaveLength(2);
+    const de = render(<AccountsView />, { locale: "de" });
+    expect(de).toContain("<summary>Archivierte Konten (1)</summary>");
+    expect(de).toContain("Getrennte Konten bleiben für den Verlauf ihrer Beiträge erhalten");
+    expect(de).toContain("Getrennt am");
+    expect(render(<AccountsView />, { access: "viewer" })).toContain("Archived accounts (1)");
+  });
+
+  it("shows the empty state when only disconnected accounts are left", () => {
+    answers["/social/accounts"] = {
+      items: [{ ...accounts.items[0], id: "d2", status: "disabled", disabledAt: "2026-11-05T09:30:00.000Z" }],
+    };
+    const html = render(<AccountsView />);
+    expect(html).toContain("No account is connected yet.");
+    expect(html).toContain("Archived accounts (1)");
+    expect(html).not.toContain(">Check<");
+    answers["/social/accounts"] = accounts;
+    expect(render(<AccountsView />)).not.toContain("social-archived-accounts");
+  });
+
+  it("names the account when its display name says more than the handle", () => {
+    answers["/social/accounts"] = {
+      items: [
+        { ...accounts.items[0], id: "n1", handle: "@orbit_hq", displayName: "Orbit HQ" },
+        { ...accounts.items[0], id: "n2", handle: "@same", displayName: "same" },
+      ],
+    };
+    const html = render(<AccountsView />);
+    expect(html).toContain(" · Orbit HQ");
+    expect(html).not.toContain(" · same");
   });
 
   it("names every button", () => {

@@ -71,6 +71,10 @@ const en = {
     verifyNote: "The test post is published for real once you approve it in Decisions.",
     verifyRequested: "Approve the test post in Decisions.",
     saved: "Saved.",
+    archivedTitle: (n: number) => `Archived accounts (${n})`,
+    archivedHint:
+      "Disconnected accounts stay here for the history of their posts. Nothing is posted to them; connect an account again to use it.",
+    disconnectedOn: "Disconnected on",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" } satisfies Record<SocialPlatform, string>,
   status: {
@@ -448,6 +452,10 @@ const de: SocialText = {
     verifyNote: "Der Testbeitrag wird erst nach deiner Freigabe unter Entscheidungen wirklich veröffentlicht.",
     verifyRequested: "Gib den Testbeitrag unter Entscheidungen frei.",
     saved: "Gespeichert.",
+    archivedTitle: (n: number) => `Archivierte Konten (${n})`,
+    archivedHint:
+      "Getrennte Konten bleiben für den Verlauf ihrer Beiträge erhalten. Es wird nichts an sie veröffentlicht; verbinde ein Konto neu, um es wieder zu nutzen.",
+    disconnectedOn: "Getrennt am",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" },
   status: {

@@ -26,6 +26,8 @@ export type SocialAccount = {
   status: SocialAccountStatus;
   capability: "configured" | "read_verified" | "write_verified";
   connectedAt: string;
+  /** When the account was disconnected; its row stays for the history. */
+  disabledAt: string | null;
   lastCheckedAt: string | null;
   lastCheckCode: string | null;
   /** What posts may do on the account (S4); long posts only on X. */
