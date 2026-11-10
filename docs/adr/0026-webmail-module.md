@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by Mario on 2026-11-09 for local implementation. Delivered to `main` on 2026-11-10 with his approval of the push and the schema hash, with `ORBIT_WEBMAIL` off and no webmail container running. The production network check failed the same day: Coolify attaches every Compose service to the application's own network, which defeats decision 3 and the network split behind decision 1 (`docs/deployment/WEBMAIL.md`, "Results on production"). Enabling waits for an isolation change with its own review. DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval.
+Accepted by Mario on 2026-11-09 for local implementation. Delivered to `main` on 2026-11-10 with his approval of the push and the schema hash, with `ORBIT_WEBMAIL` off and no webmail container running. The production network check failed the same day: Coolify attaches every Compose service to the application's own network, which defeats decision 3 and the network split behind decision 1 (`docs/deployment/WEBMAIL.md`, "Results on production"). Mario approved the remedy the same day: Roundcube and its database move into their own Coolify application (amendment below). DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval.
 
 Extends [ADR 0009](0009-modular-platform.md) (module contracts). Mailbox ownership between Support and Finance stays as defined by `apps/api/src/platform/email/ownership.ts`.
 
@@ -45,6 +45,10 @@ The design was tested against the real Roundcube 1.7.6 image with a mock bridge 
 - A small plugin shim keeps `set_unread_message` from aborting under a cross-origin parent.
 
 Cookie and iframe behaviour in real Safari with Intelligent Tracking Prevention and the proxy attachment under Coolify could not be tested locally and are rollout checks. Under Coolify it must also be confirmed that Roundcube cannot reach `api:4311`.
+
+### Amendment (2026-11-10): Roundcube in its own Coolify application
+
+The production network check showed that Coolify attaches every service of a Compose application to one network of the application's own, next to the networks the Compose file declares. With Roundcube in Orbit's application it reached `api`, `web`, `mcp`, Postgres and Redis, which defeated decision 3 and the network split behind decision 1. Roundcube and its database therefore run as a second Coolify application (`docker-compose.webmail.yml`) on the same server. They meet Orbit only on two internal networks with fixed names that Orbit's Compose file creates: `orbit-webmail-link`, shared with the bridge, and `orbit-webmail-backup`, shared with the backup service. The bridge secret and the webmail database password, which both applications need, come from shared variables of the Coolify environment instead of being generated per application. The local suite models Coolify's application network per project, so it reproduces the failure on the old layout.
 
 ## Consequences
 

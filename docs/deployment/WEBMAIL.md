@@ -1,18 +1,30 @@
 # Webmail operator runbook
 
-Roundcube as a client of Orbit's mailboxes ([ADR 0026](../adr/0026-webmail-module.md)). **The code is on `main` since 2026-11-10 with `ORBIT_WEBMAIL` off and `ORBIT_WEBMAIL_REPLICAS` at 0; enabling is blocked by the failed network check below.** DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval. See [COOLIFY.md](COOLIFY.md) for how production builds and how schema approval works.
+Roundcube as a client of Orbit's mailboxes ([ADR 0026](../adr/0026-webmail-module.md)). **The code is on `main` since 2026-11-10 with `ORBIT_WEBMAIL` off and `ORBIT_WEBMAIL_REPLICAS` at 0. The first network check failed (results below), so Roundcube now runs as its own Coolify application, and enabling waits for the checks on that layout.** DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval. See [COOLIFY.md](COOLIFY.md) for how production builds and how schema approval works.
 
-## Services
+## Applications and services
 
-All three start only when `ORBIT_WEBMAIL_REPLICAS` is 1. With the default 0 they do not exist.
+Webmail spans two Coolify applications on the same server, built from the same repository and branch:
 
-| Service | Image | Networks | Purpose |
+| Application | Compose file | Webmail services |
+|---|---|---|
+| Orbit (`Orbit Production (GitHub)`) | `docker-compose.pve.yml`, generated from `docker-compose.yml` | `webmail-bridge` |
+| Webmail | `docker-compose.webmail.yml` | `webmail`, `webmail-db` |
+
+Coolify attaches every service of a Compose application to one network of the application's own, in addition to the networks in the Compose file. Inside Orbit's application that put Roundcube next to the API, Postgres and Redis (see [Results on production](#results-on-production-2026-11-10-coolify-46-docker-299-compose-56)). In its own application that network holds only Roundcube and its database. Each application starts its webmail services only when its own `ORBIT_WEBMAIL_REPLICAS` is 1; with the default 0 they do not exist.
+
+| Service | Image | Networks (plus Coolify's network of its application) | Purpose |
 |---|---|---|---|
-| `webmail` | `infra/webmail/Dockerfile` | `webmail`, `webmail-egress` | Roundcube 1.7 on Apache, port 8000. Renders untrusted HTML. Never on `frontend`, `database` or the shared `egress`, which would put it next to the API, the MCP gateway and the worker. |
+| `webmail` | `infra/webmail/Dockerfile` | `webmail`, `webmail-egress`, `webmail-link` | Roundcube 1.7 on Apache, port 8000. Renders untrusted HTML. Never on Orbit's `frontend`, `database` or `egress`, which would put it next to the API, the MCP gateway and the worker. |
 | `webmail-db` | pinned `postgres:17` | `webmail`, `webmail-backup` | Roundcube's own database: preferences, identities, sessions. No mail content, no mail passwords and no collected addresses. |
-| `webmail-bridge` | Orbit runtime image | `webmail`, `database`, `egress` | Internal API on port 4313, protected by `WEBMAIL_BRIDGE_SECRET`. Health-only while `ORBIT_WEBMAIL` is off. |
+| `webmail-bridge` | Orbit runtime image | `webmail-link`, `database`, `egress` | Internal API on port 4313, protected by `WEBMAIL_BRIDGE_SECRET`. Health-only while `ORBIT_WEBMAIL` is off. |
 
-The `backup` service reaches `webmail-db` over the internal `webmail-backup` network, which only those two share, so it never sits next to Roundcube (see [Backup and restore](#backup-and-restore)).
+The two applications meet only on two internal networks with fixed names, which Orbit's Compose file creates, so Orbit is deployed before the webmail application:
+
+- `orbit-webmail-link` (`webmail-link`): Roundcube and the bridge. Roundcube reaches the bridge as `webmail-bridge:4313`.
+- `orbit-webmail-backup` (`webmail-backup`): the webmail database and Orbit's `backup` service, so backup never sits next to Roundcube (see [Backup and restore](#backup-and-restore)).
+
+The first rollout attempt left an unused volume `<orbit uuid>_orbit-webmail-pg` and the networks `<orbit uuid>_webmail`, `_webmail-egress` and `_webmail-backup` behind in Orbit's application. They hold nothing and can be removed on the host.
 
 The image bakes in everything: Roundcube's code and dependencies, the `orbit_bridge` plugin, the compiled `orbit` skin and the configuration. The upstream entrypoint is replaced, because its restart path runs composer and needs egress. Neither a restart nor a recreate needs anything beyond the webmail database; at runtime Roundcube talks only to the bridge and to IMAP/SMTP. The root filesystem is read-only with a 256 MB tmpfs on `/tmp`, which holds Apache's runtime files, PHP uploads and attachments being composed. The code is owned by root, and composer is removed from the image.
 
@@ -27,37 +39,47 @@ Limits to know:
 
 | Variable | Set on | Notes |
 |---|---|---|
-| `ORBIT_WEBMAIL_REPLICAS` | Coolify | `0` (default) or `1`. Creates or removes the three services. |
-| `ORBIT_WEBMAIL` | Coolify | Application flag on the API, worker and bridge. Default `false`. |
-| `WEBMAIL_ORIGIN` | Coolify | Public origin of Roundcube, a sibling host of Orbit, for example `https://webmail.orbit.eds-labs.io`. |
-| `APP_ORIGIN` | Coolify | Orbit's origin. Becomes `ORBIT_WEBMAIL_PARENT_ORIGIN`, the only origin that may start a session or embed the page. |
-| `WEBMAIL_BRIDGE_SECRET` | Generated | Defaults to `SERVICE_HEX_64_WEBMAILBRIDGE`. Must be identical on the bridge and Roundcube; Compose takes care of that. |
-| `WEBMAIL_DB_PASSWORD` | Generated | Defaults to `SERVICE_PASSWORD_64_WEBMAILDB`. Also passed to `backup`. |
-| `ROUNDCUBE_DES_KEY` | Generated | Defaults to `SERVICE_HEX_64_ROUNDCUBEDES`. Any length; hashed to an AES-256 key. Changing it only ends open sessions. |
+| `ORBIT_WEBMAIL_REPLICAS` | Both applications | `0` (default) or `1`. In Orbit it creates or removes the bridge, in the webmail application Roundcube and its database. |
+| `ORBIT_WEBMAIL` | Orbit | Application flag on the API, worker and bridge. Default `false`. |
+| `WEBMAIL_ORIGIN` | Orbit | Public origin of Roundcube, a sibling host of Orbit, for example `https://webmail.orbit.eds-labs.io`. |
+| `APP_ORIGIN` | Both applications | Orbit's origin; in Orbit derived from the `web` domain, in the webmail application required and set by hand. Becomes `ORBIT_WEBMAIL_PARENT_ORIGIN`, the only origin that may start a session or embed the page. |
+| `WEBMAIL_BRIDGE_SECRET` | Both applications, same value | Reference the environment's shared variable, `{{environment.WEBMAIL_BRIDGE_SECRET}}`, in both. Required in the webmail application. If the two differ, the bridge refuses every request. |
+| `WEBMAIL_DB_PASSWORD` | Both applications, same value | `{{environment.WEBMAIL_DB_PASSWORD}}` in both: the webmail application creates the database with it, Orbit's `backup` dumps it. Required in the webmail application. |
+| `ROUNDCUBE_DES_KEY` | Webmail application, generated | Defaults to `SERVICE_HEX_64_ROUNDCUBEDES`. Any length; hashed to an AES-256 key. Changing it only ends open sessions. |
 | `ORBIT_WEBMAIL_TLS_CA_FILE` | Not set in production | Path to a private CA bundle. Unset means the image's system CA store. It exists for the test stack. |
 
-`webmail` exits at start when one of its required values is empty, and logs which one.
+Generate each shared value once, for example with `openssl rand -hex 32`, and store it only as a shared variable of the Coolify environment.
+
+Compose refuses to deploy the webmail application while `APP_ORIGIN`, `WEBMAIL_BRIDGE_SECRET` or `WEBMAIL_DB_PASSWORD` is empty, even with the replicas at 0. `webmail` itself exits at start when another required value is empty, and logs which one.
+
+The names `orbit-webmail-link` and `orbit-webmail-backup` are global on the Docker host. Never deploy a second copy of either application on the same server, and run the local suite only on a workstation (it uses its own `orbit-e2e-…` names). Do not change the definition of either network in `docker-compose.yml` while the webmail application runs: Compose would try to recreate a network that still has endpoints, after Coolify has already removed Orbit's old containers. Stop the webmail application first.
 
 ## Enabling sequence
 
 Each step needs its own approval. Stop at the first failure and roll back.
 
 1. Approve the schema hash for the webmail migrations in Coolify (`COOLIFY.md`, VM102). Without it the deployment is refused.
-2. Create DNS for the webmail host, add it as the domain of service `webmail` on port 8000, and set `WEBMAIL_ORIGIN`.
-3. Set `ORBIT_WEBMAIL_REPLICAS=1` and redeploy. `ORBIT_WEBMAIL` stays `false`.
-4. Run every [rollout check](#rollout-checks-on-a-real-coolify-instance). Do not continue until the network check is clean.
-5. Set `ORBIT_WEBMAIL=true` and redeploy.
-6. Grant one test mailbox to one member. Check list, read, reply to an address you own, the convert dialog, and that a read-only grant shows no write controls.
-7. Grant the remaining members.
+2. Create DNS for the webmail host and set `WEBMAIL_ORIGIN` in Orbit.
+3. Create the shared variables `WEBMAIL_BRIDGE_SECRET` and `WEBMAIL_DB_PASSWORD` in the Coolify environment, and reference both in Orbit.
+4. Deploy Orbit. This creates `orbit-webmail-link` and `orbit-webmail-backup`.
+5. Create the webmail application: Git source, same repository and branch, Docker Compose build pack, Compose file `/docker-compose.webmail.yml`, same project, environment and server, no predefined network. Set `APP_ORIGIN` and the two references. Set the domain of service `webmail` to `https://<webmail host>:8000`; the port names the container port, the public URL has none. The Compose file declares no `SERVICE_URL_*` variable, so Coolify generates no sslip.io host and a missing domain means no route at all. Deploy once with `ORBIT_WEBMAIL_REPLICAS` at 0: no container starts.
+6. Set `ORBIT_WEBMAIL_REPLICAS=1` in Orbit and redeploy (the bridge), then in the webmail application and redeploy. `ORBIT_WEBMAIL` stays `false`.
+7. Run every [rollout check](#rollout-checks-on-a-real-coolify-instance). Do not continue until the network check is clean.
+8. Set `ORBIT_WEBMAIL=true` in Orbit and redeploy.
+9. Grant one test mailbox to one member. Check list, read, reply to an address you own, the convert dialog, and that a read-only grant shows no write controls.
+10. Grant the remaining members.
 
 ## Rollback
 
-1. Set `ORBIT_WEBMAIL=false` and redeploy. Orbit stops offering webmail, the bridge goes health-only and every open session ends at its next request.
-2. Set `ORBIT_WEBMAIL_REPLICAS=0` and redeploy. The three containers are removed.
+1. Set `ORBIT_WEBMAIL=false` in Orbit and redeploy. Orbit stops offering webmail, the bridge goes health-only and every open session ends at its next request.
+2. Set `ORBIT_WEBMAIL_REPLICAS=0` in the webmail application and redeploy, or stop that application. Roundcube and its database are removed.
+3. Set `ORBIT_WEBMAIL_REPLICAS=0` in Orbit and redeploy. The bridge is removed.
 
-The volume `orbit_webmail_pg` is kept, and with `ORBIT_WEBMAIL=false` the mail fetch path is the previous one (ADR 0026, E9). Nothing has to be restored. Mail that was moved, deleted or sent stays that way, because those actions happened on the real mailbox.
+The webmail application's volume `orbit_webmail_pg` is kept, and with `ORBIT_WEBMAIL=false` the mail fetch path is the previous one (ADR 0026, E9). Nothing has to be restored. Mail that was moved, deleted or sent stays that way, because those actions happened on the real mailbox.
 
 For a critical Roundcube vulnerability with no update available yet, step 2 alone removes the exposed surface immediately.
+
+Every deployment of Orbit's application removes its old containers before it starts the new ones, so each step that redeploys Orbit interrupts it for about half a minute.
 
 ## Monthly Roundcube upgrade
 
@@ -82,7 +104,7 @@ Checklist:
 
 The daily `orbit-backup once` run also archives the webmail database, as `orbit-webmail-<UTC timestamp>.dump.age` with a `.sha256` sidecar under the same prefix and bucket lifecycle as the main dump, encrypted to the same `age` recipient.
 
-- With `ORBIT_WEBMAIL_REPLICAS=0` the database is not contacted at all and the main dump behaves as before: no failure and no alert.
+- With `ORBIT_WEBMAIL_REPLICAS=0` in Orbit the database is not contacted at all and the main dump behaves as before: no failure and no alert. Orbit's value decides, so set it to 1 only once the webmail application runs.
 - With webmail on, a failed webmail dump fails the run, so the scheduler alerts and the heartbeat is not sent. The main dump is taken first and is already uploaded by then.
 
 The database holds preferences and identities, so it is low value: Roundcube recreates a user at the next login and a lost session only needs reopening from Orbit. Address collection is switched off (`collected_recipients`, `collected_senders`), so correspondents' addresses do not outlive Orbit's retention and erasure in this database or its backups. The original `ROUNDCUBE_DES_KEY` is not needed for a restore, because sessions are disposable.
@@ -94,8 +116,9 @@ sha256sum -c orbit-webmail-<ts>.dump.age.sha256
 age --decrypt --identity orbit-backup.key --output webmail.dump orbit-webmail-<ts>.dump.age
 pg_restore --list webmail.dump
 
-# With webmail stopped (ORBIT_WEBMAIL_REPLICAS=0 removes webmail-db too, so stop only
-# the webmail service for this step), replace the contents of the database:
+# With webmail stopped (ORBIT_WEBMAIL_REPLICAS=0 in the webmail application removes
+# webmail-db too, so stop only the webmail service for this step), replace the contents
+# of the database:
 docker exec -i <webmail-db container> pg_restore -U roundcube -d roundcubemail --clean --if-exists --no-owner < webmail.dump
 ```
 
@@ -132,13 +155,13 @@ The test stack cannot prove these. Record each result before setting `ORBIT_WEBM
 - **Domain and TLS: not reached.** The DNS record `webmail.orbit.eds-labs.io` resolved to the server, but the domain had not been stored on the `webmail` service, so Traefik had no router for it (503, Traefik default certificate). The service kept the domain Coolify generated, `http://webmail-<application uuid>.<server ip>.sslip.io`, so Roundcube was publicly reachable over plain HTTP from 06:25 to 07:20 UTC with the flag off: it answered with its 403 "open from Orbit" page, the bridge was health-only and no session could start.
 - **Traefik route, Safari: not reached.**
 
-Before the next attempt, the three services need an isolation Coolify cannot undo: run `webmail` and `webmail-db` as their own Coolify resource joined to the bridge through one external network that only the bridge shares, or enforce it with host firewall rules. Either is an architecture change with its own review. Replace the generated domain on `webmail` before setting the replicas to 1 again.
+Consequence: `webmail` and `webmail-db` moved into their own Coolify application, joined to Orbit only through `orbit-webmail-link` and `orbit-webmail-backup` (see [Applications and services](#applications-and-services)). The local suite now models Coolify's application network, so its isolation check would have failed the same way on the old layout. The checks below are repeated for the new layout before `ORBIT_WEBMAIL` is set.
 
 **Domain and TLS.** `curl -sSI "$WEBMAIL_ORIGIN/"` gives `403` over a valid certificate, with `Content-Security-Policy` containing `frame-ancestors 'self' <APP_ORIGIN>` and no `X-Frame-Options`. The origin must be a sibling of Orbit's host and must not be served under it.
 
-**Traefik reaches the service.** The same request must be answered by Roundcube (the page says to open the mailbox from Orbit), not with a Traefik 404 or 502. Check `SERVICE_URL_WEBMAIL_8000` produced a route to port 8000.
+**Traefik reaches the service.** The same request must be answered by Roundcube (the page says to open the mailbox from Orbit), not with a Traefik 404 or 502, or Coolify's 503 "Site not available", which means no route for the host. Check the service domain carries `:8000`.
 
-**Network isolation, the blocking check.** Roundcube leaves through its own `webmail-egress` network rather than the shared `egress`. Coolify can still attach services to its own network in addition to those in the Compose file. Roundcube must not be able to reach Orbit's internal services:
+**Network isolation, the blocking check.** Roundcube leaves through its own `webmail-egress` network rather than the shared `egress`, and Coolify attaches it to the webmail application's own network, not Orbit's. Roundcube must not be able to reach Orbit's internal services. Without host access, the same probe runs from a temporary Coolify scheduled task on container `webmail` (its command field holds about 255 characters, so send short `echo <base64> | base64 -d | php` scripts) and the task is deleted afterwards:
 
 ```sh
 C=$(docker ps --filter name=webmail- --format '{{.Names}}' | grep -v -e bridge -e db | head -1)
@@ -148,11 +171,15 @@ done
 docker inspect -f '{{json .NetworkSettings.Networks}}' "$C"
 ```
 
-Every target must print `closed`. A name that does not resolve also prints `closed`, so repeat the check with the container IPs from `docker inspect <container>`. `webmail-bridge:4313` is the one that must be reachable.
+Every target must print `closed`. A name that does not resolve also prints `closed`, and across applications Orbit's names never resolve, so the check that counts is the one by IP: repeat it with the container IPs from `docker inspect <container>`, or, without host access, with the addresses a scheduled task on each Orbit container prints (`hostname -I` in `api`, `web`, `mcp`). `webmail-bridge:4313` is the one that must be reachable, at its address on `orbit-webmail-link`.
 
-If anything is reachable, **do not set `ORBIT_WEBMAIL=true`**. Set `ORBIT_WEBMAIL_REPLICAS=0`, then remove the shared network from the service (Coolify's "Connect to Predefined Network" option, or the equivalent for the installed version) and repeat the check. If Coolify cannot do that, run the three webmail services as a separate Coolify resource and connect only the bridge to it, or block the traffic with `DOCKER-USER` firewall rules. Each of those is an architecture change that needs its own review.
+Then check the backup path: a scheduled task on `backup` connects to `webmail-db` with `WEBMAIL_PGPASSWORD` (for example `psql -h webmail-db -U roundcube -d roundcubemail -c 'select 1'`). A failure means the shared password is not referenced in Orbit, and the nightly backup will fail.
 
-**`deploy.replicas`.** With the variable unset, `docker ps -a --filter name=webmail` must list nothing. With `ORBIT_WEBMAIL_REPLICAS=1` it must list three containers, and going back to `0` must remove them. Local Compose does this; whether Coolify honours it has to be seen. If Coolify starts the services at 0, leave them unexposed and treat the flag as the only switch until this is resolved.
+Also run the probe from `webmail-db` (`nc -z -w 3 <host> <port>`, BusyBox): it shares the webmail application's network with Roundcube, so it must not reach Orbit either.
+
+If anything is reachable, **do not set `ORBIT_WEBMAIL=true`**. Set `ORBIT_WEBMAIL_REPLICAS=0` in the webmail application, redeploy, and find which network connects them (`docker inspect`, or the interfaces printed by `net_get_interfaces()`). Make sure "Connect to Predefined Network" is off in both applications. A remaining path needs a review of its own, for example `DOCKER-USER` firewall rules.
+
+**`deploy.replicas`.** Passed on 2026-11-10 with the old layout: unset or 0 created no container, 1 created all three, 0 again removed them. Repeat it for each application.
 
 **Real Safari.** On macOS and iOS with Intelligent Tracking Prevention, in a fresh profile: open a mailbox from Orbit, navigate, reply, reload. WebKit in the test stack passed only with a parent on a real public suffix. If iframe cookies are dropped, the frame reports no `orbit.webmail.ready` and Orbit has to offer the fallback.
 

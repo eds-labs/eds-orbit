@@ -1,0 +1,114 @@
+# Roundcube webmail (ADR 0026) as its own Coolify application, next to Orbit.
+#
+# Coolify attaches every service of a Compose application to one network of its
+# own. Inside Orbit's application that put Roundcube, which renders untrusted HTML,
+# next to the API, Postgres and Redis (production check, 2026-11-10). Here that
+# network holds only Roundcube and its database. Orbit is reached on two external
+# networks that Orbit's docker-compose.yml creates, so Orbit is deployed first:
+#
+#   webmail-link    Roundcube and Orbit's webmail-bridge only
+#   webmail-backup  this database and Orbit's backup service only
+#
+# Required in this application: APP_ORIGIN (Orbit's origin), WEBMAIL_BRIDGE_SECRET
+# (same value as Orbit's) and WEBMAIL_DB_PASSWORD (same value as Orbit's, which its
+# backup uses). Nothing starts while ORBIT_WEBMAIL_REPLICAS is 0, the default.
+# See docs/deployment/WEBMAIL.md.
+
+services:
+  webmail:
+    image: eds-orbit-webmail:${ORBIT_IMAGE_TAG:-0.1.0-rc.1}
+    build:
+      context: infra/webmail
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    deploy:
+      replicas: ${ORBIT_WEBMAIL_REPLICAS:-0}
+    environment:
+      ROUNDCUBEMAIL_DB_HOST: webmail-db
+      ROUNDCUBEMAIL_DB_PORT: "5432"
+      ROUNDCUBEMAIL_DB_USER: roundcube
+      ROUNDCUBEMAIL_DB_PASSWORD: ${WEBMAIL_DB_PASSWORD:?}
+      ROUNDCUBEMAIL_DB_NAME: roundcubemail
+      ROUNDCUBEMAIL_DES_KEY: ${ROUNDCUBE_DES_KEY:-${SERVICE_HEX_64_ROUNDCUBEDES}}
+      ORBIT_WEBMAIL_BRIDGE_URL: http://webmail-bridge:4313
+      ORBIT_WEBMAIL_BRIDGE_SECRET: ${WEBMAIL_BRIDGE_SECRET:?}
+      ORBIT_WEBMAIL_PARENT_ORIGIN: ${APP_ORIGIN:?}
+    # No SERVICE_URL_* variable on purpose: with one, Coolify generates a public
+    # sslip.io host that serves Roundcube over plain HTTP until the real domain is
+    # stored (2026-11-10). The domain is set on the service, https://<host>:8000.
+    expose:
+      - "8000"
+    # Its own way out for IMAP and SMTP, and the bridge on webmail-link. The bridge
+    # lives in another application, so there is no depends_on: until it answers,
+    # Roundcube reports "Orbit cannot be reached right now".
+    networks:
+      - webmail
+      - webmail-egress
+      - webmail-link
+    depends_on:
+      webmail-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$s=@fsockopen('127.0.0.1',8000);exit($$s?0:1);"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    labels:
+      coolify.exclude_from_hc: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  webmail-db:
+    image: postgres:17.7-alpine@sha256:bb377b7239d2774ac8cc76f481596ce96c5a6b5e9d141f6d0a0ee371a6e7c0f2
+    restart: unless-stopped
+    deploy:
+      replicas: ${ORBIT_WEBMAIL_REPLICAS:-0}
+    environment:
+      POSTGRES_USER: roundcube
+      POSTGRES_PASSWORD: ${WEBMAIL_DB_PASSWORD:?}
+      POSTGRES_DB: roundcubemail
+    volumes:
+      - orbit_webmail_pg:/var/lib/postgresql/data
+    networks:
+      - webmail
+      - webmail-backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roundcube -d roundcubemail"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    labels:
+      coolify.exclude_from_hc: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  # Roundcube and its database only.
+  webmail:
+    internal: true
+  webmail-egress: {}
+  webmail-link:
+    name: orbit-webmail-link
+    external: true
+  webmail-backup:
+    name: orbit-webmail-backup
+    external: true
+
+volumes:
+  orbit_webmail_pg: {}

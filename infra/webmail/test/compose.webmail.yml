@@ -1,0 +1,36 @@
+# Overlay over docker-compose.webmail.yml, the second project of `pnpm test:webmail`:
+#
+#   docker compose -p orbit-webmail-e2e-rc -f docker-compose.webmail.yml -f infra/webmail/test/compose.webmail.yml
+#
+# It starts after the Orbit project (compose.yml), which creates the networks the two
+# share; run.sh creates the backup network, because backup does not run in the suite.
+# Both services join webmail-app, the stand-in for Coolify's network of this
+# application, which the TLS proxy also joins. The suite uses its own names for the
+# shared networks, never the production ones.
+
+x-mail-ca: &mail-ca ./infra/webmail/test/.work/certs/ca.crt:/e2e-ca/ca.crt:ro
+
+services:
+  webmail:
+    environment:
+      ORBIT_WEBMAIL_TLS_CA_FILE: /e2e-ca/ca.crt
+    volumes:
+      - *mail-ca
+    networks:
+      - webmail-app
+  webmail-db:
+    networks:
+      - webmail-app
+
+networks:
+  webmail-link:
+    name: orbit-e2e-webmail-link
+  webmail-backup:
+    name: orbit-e2e-webmail-backup
+  # The test mail server is reached here; the Orbit project creates it.
+  webmail-egress:
+    name: orbit-e2e-webmail-egress
+    external: true
+  webmail-app:
+    name: orbit-e2e-webmail-app
+    external: true

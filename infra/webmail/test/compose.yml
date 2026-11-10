@@ -2,15 +2,35 @@
 #
 #   docker compose -p orbit-webmail-e2e -f docker-compose.yml -f infra/webmail/test/compose.yml
 #
+# Production runs two Coolify applications: Orbit, and Roundcube with its database
+# (docker-compose.webmail.yml, overlaid by compose.webmail.yml as a second project).
 # The services under test are the real ones, built from infra/Dockerfile and
 # infra/webmail/Dockerfile. This file adds what production gets from elsewhere (a TLS
-# proxy, a mail server) and what a test needs on top (a throwaway CA, Playwright).
-# The only change to a real service's networks is the bridge, see below. Secrets come
-# from .work/env.
+# proxy, a mail server), what a test needs on top (a throwaway CA, Playwright), and
+# Coolify's own application network, which Coolify attaches to every service of an
+# application. Without it the isolation check could not fail the way it did on
+# production on 2026-11-10. The only other change to a real service's networks is the
+# bridge, see below. Secrets come from .work/env.
 
 x-mail-ca: &mail-ca ./infra/webmail/test/.work/certs/ca.crt:/e2e-ca/ca.crt:ro
 
 services:
+  # Every Orbit service joins coolify-app, as under Coolify.
+  postgres:
+    networks:
+      - coolify-app
+  redis:
+    networks:
+      - coolify-app
+  migrate:
+    networks:
+      - coolify-app
+  web:
+    networks:
+      - coolify-app
+  mcp:
+    networks:
+      - coolify-app
   # The mail clients trust the throwaway CA the same way production trusts a public one:
   # through the runtime's CA store. assertPublicMailHost and TLS verification stay on.
   api:
@@ -18,11 +38,15 @@ services:
       NODE_EXTRA_CA_CERTS: /e2e-ca/ca.crt
     volumes:
       - *mail-ca
+    networks:
+      - coolify-app
   worker:
     environment:
       NODE_EXTRA_CA_CERTS: /e2e-ca/ca.crt
     volumes:
       - *mail-ca
+    networks:
+      - coolify-app
   webmail-bridge:
     environment:
       NODE_EXTRA_CA_CERTS: /e2e-ca/ca.crt
@@ -32,14 +56,10 @@ services:
     # server has one public address for everybody; this one has one per Docker network,
     # so the bridge has to resolve it where Roundcube connects to it.
     networks: !override
-      - webmail
+      - webmail-link
       - database
-      - webmail-egress
-  webmail:
-    environment:
-      ORBIT_WEBMAIL_TLS_CA_FILE: /e2e-ca/ca.crt
-    volumes:
-      - *mail-ca
+      - mail-webmail
+      - coolify-app
 
   mail:
     image: greenmail/standalone:2.1.8@sha256:d556b8c7df01ba04a0e0f67dacab2c5f75a61207a51774e0654c179b83a671e1
@@ -54,7 +74,8 @@ services:
       egress:
         aliases:
           - ${E2E_MAIL_HOST:?run run.sh}
-      webmail-egress:
+      # Roundcube's way out (its webmail-egress), shared with the second project.
+      mail-webmail:
         aliases:
           - ${E2E_MAIL_HOST:?run run.sh}
     healthcheck:
@@ -63,7 +84,9 @@ services:
       timeout: 3s
       retries: 40
 
-  # Plays Traefik: terminates TLS for Orbit and the sibling webmail host.
+  # Plays Traefik: terminates TLS for Orbit and the sibling webmail host. Like Traefik
+  # under Coolify it joins each application's network: Orbit's through frontend and
+  # coolify-app, the webmail application's through webmail-app.
   caddy:
     image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
     environment:
@@ -75,7 +98,8 @@ services:
       - ./infra/webmail/test/.work/results:/results
     networks:
       frontend: {}
-      webmail: {}
+      coolify-app: {}
+      webmail-app: {}
       e2e:
         aliases:
           - ${E2E_APEX:?run run.sh}
@@ -114,11 +138,27 @@ networks:
     ipam:
       config:
         - subnet: 11.42.0.0/24
-  webmail-egress:
+  # The webmail application's webmail-egress, created here because this project starts
+  # first; compose.webmail.yml joins it by name.
+  mail-webmail:
+    name: orbit-e2e-webmail-egress
     internal: true
     ipam:
       config:
         - subnet: 11.43.0.0/24
+  # The production names are global on a Docker host; the suite never uses them.
+  webmail-link:
+    name: orbit-e2e-webmail-link
+  # Created by run.sh with this project's Compose labels, because backup does not run here.
+  webmail-backup:
+    name: orbit-e2e-webmail-backup
+  # Coolify's network of this application.
+  coolify-app:
+    internal: true
+  # Coolify's network of the webmail application, joined by compose.webmail.yml.
+  webmail-app:
+    name: orbit-e2e-webmail-app
+    internal: true
   # The tests' own network. Everything the tests talk to joins it deliberately.
   e2e: {}
 
