@@ -38,8 +38,20 @@ export const MISSION_KEEP_REASONS = [
 ] as const;
 export type MissionKeepReason = (typeof MISSION_KEEP_REASONS)[number];
 
+/** One draft of a preview: what the cleanup does with it and why it stays. */
+export type CleanupItem = {
+  contentId: string;
+  title: string | null;
+  channel: string | null;
+  action: "archive" | "keep";
+  reason?: KeepReason;
+};
+
 /** The counts `archive-old-drafts` answers with, for a preview and a run. */
 export type DraftCleanupSummary = {
+  /** A preview names the drafts (at most 200; `truncated` beyond). */
+  items?: CleanupItem[];
+  truncated?: boolean;
   preview: boolean;
   cleanupId: string | null;
   content: { total: number; alreadyInPostiz?: number };
@@ -108,6 +120,33 @@ const reasonText: Record<KeepReason, { de: string; en: string }> = {
     en: "from an active assignment run",
   },
 };
+
+const itemReasonText: Record<KeepReason, { de: string; en: string }> = {
+  HAS_OPEN_PUBLICATION: {
+    de: "Bleibt: ein geplanter Post hängt daran",
+    en: "Stays: a planned post holds it",
+  },
+  HAS_OPEN_POSTIZ_DRAFT: {
+    de: "Bleibt: die Übergabe an Postiz ist ungeklärt",
+    en: "Stays: its Postiz hand-off is unresolved",
+  },
+  PENDING_DECISION: {
+    de: "Bleibt: eine Entscheidung ist offen",
+    en: "Stays: a decision is open",
+  },
+  ACTIVE_ASSIGNMENT_RUN: {
+    de: "Bleibt: sein Auftrag läuft noch",
+    en: "Stays: its assignment run is still working",
+  },
+};
+
+/** What happens to one draft of a preview, in words. */
+export function cleanupItemText(item: CleanupItem, locale: Locale) {
+  const de = locale === "de";
+  if (item.action === "archive") return de ? "Wird archiviert" : "Will be archived";
+  const text = item.reason ? itemReasonText[item.reason] : undefined;
+  return text ? text[de ? "de" : "en"] : de ? "Bleibt" : "Stays";
+}
 
 const missionReasonText: Record<MissionKeepReason, { de: string; en: string }> =
   {
