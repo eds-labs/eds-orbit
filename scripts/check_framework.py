@@ -20,6 +20,25 @@ try:
 except ModuleNotFoundError:  # Optional local dependency; required in CI.
     yaml = None
 
+if yaml is not None:
+    class ComposeSafeLoader(yaml.SafeLoader):
+        """SafeLoader that also reads Docker Compose's merge tags.
+
+        Compose overlays use `!override` and `!reset` to replace or clear an inherited
+        value. Both are valid YAML local tags; the safe loader only lacks a constructor.
+        Every other unknown tag is still rejected.
+        """
+
+    def _construct_compose_merge_tag(loader, node):
+        if isinstance(node, yaml.MappingNode):
+            return loader.construct_mapping(node, deep=True)
+        if isinstance(node, yaml.SequenceNode):
+            return loader.construct_sequence(node, deep=True)
+        return loader.construct_scalar(node)
+
+    for _compose_tag in ("!override", "!reset"):
+        ComposeSafeLoader.add_constructor(_compose_tag, _construct_compose_merge_tag)
+
 try:
     from jsonschema import Draft202012Validator, FormatChecker
 except ModuleNotFoundError:  # Optional local dependency; required in CI.
@@ -684,7 +703,7 @@ def check_yaml_files(reporter: Reporter, require_full_validation: bool) -> None:
     parsed: dict[Path, object] = {}
     for path in yaml_files:
         try:
-            parsed[path] = yaml.safe_load(read_text(path))
+            parsed[path] = yaml.load(read_text(path), Loader=ComposeSafeLoader)
         except Exception as error:
             reporter.error(f"Ungültiges YAML in {relative(path)}: {error}")
 
