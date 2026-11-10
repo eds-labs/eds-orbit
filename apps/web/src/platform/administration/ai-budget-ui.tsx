@@ -299,7 +299,11 @@ export function BudgetLevelBlocks({
   locale: Locale;
 }) {
   const { assistant } = levels;
-  const assistantOrigin = originText(assistant.origin, t, locale);
+  // Who set the cap only once there is one: an unset cap was set by nobody.
+  const assistantOrigin =
+    assistant.capMicros === null
+      ? null
+      : originText(assistant.origin, t, locale);
   return (
     <>
       <div

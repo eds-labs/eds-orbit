@@ -76,6 +76,25 @@ describe("the organization's budget levels (WP2 B)", () => {
     expect(html).toContain("$1.20 this month");
   });
 
+  it("names who set the assistant cap only once there is one", () => {
+    const origin = { by: { id: "u1", name: "Mario" }, at: "2026-11-10T09:00:00.000Z" };
+    const assistant = (capMicros: number | null) =>
+      renderToStaticMarkup(
+        <BudgetLevelBlocks
+          levels={levels({
+            projects: [],
+            assistant: { ...levels().assistant, capMicros, origin },
+          })}
+          t={aiBudgetText("de")}
+          locale="de"
+        />,
+      );
+    // The organization budget was saved by Mario, but the cap is unset.
+    expect(assistant(null)).not.toContain("Festgelegt von");
+    expect(assistant(0)).toContain("Festgelegt von Mario am");
+    expect(assistant(5_000_000)).toContain("Festgelegt von Mario am");
+  });
+
   it("derives the per-answer limit text from an active cap", () => {
     const html = renderToStaticMarkup(
       <BudgetLevelBlocks

@@ -303,7 +303,7 @@ export type ConversationViewProps = {
   composerTools?: ReactNode;
   /** Controls per message, e.g. "Read aloud" (ADR 0024). */
   messageActions?: (message: ChatMessage) => ReactNode;
-  /** A notice above the composer, e.g. the assistant's budget (WP2 A). */
+  /** A notice at the end of the messages, above the composer, e.g. the assistant's budget (WP2 A). */
   notice?: ReactNode;
   /**
    * The server would refuse every turn now (no paid budget): the composer
@@ -358,7 +358,14 @@ export function ConversationView(props: ConversationViewProps) {
       className={props.className ? `chat-main ${props.className}` : "chat-main"}
       aria-label={props.label}
     >
-      <div className="chat-messages" aria-live="polite">
+      <div
+        className={
+          blocked && props.notice
+            ? "chat-messages chat-messages-blocked"
+            : "chat-messages"
+        }
+        aria-live="polite"
+      >
         {!conversation.conversationId && (
           <Empty
             icon={MessageCircle}
@@ -482,9 +489,11 @@ export function ConversationView(props: ConversationViewProps) {
             )}
           </section>
         ))}
+        {/* Inside the scroll area, so a long notice never squeezes the
+            messages or the empty state to a clipped strip (QA 2026-11-10). */}
+        {props.notice && <div className="chat-notice-slot">{props.notice}</div>}
       </div>
       {conversation.error && <Alert kind="error">{conversation.error}</Alert>}
-      {props.notice}
       <form
         className="chat-compose"
         onSubmit={(event) => {
