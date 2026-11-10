@@ -5199,6 +5199,107 @@ body:has(dialog[open]) {
     min-height: 44px;
   }
 }
+/* Approval lanes (WP3): open actions, reviewed, released, history. */
+.approval-lanes {
+  display: grid;
+  gap: 18px;
+}
+.approval-lane > .panel-head h2 .lane-count {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  margin-left: 6px;
+}
+details.approval-lane > summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+details.approval-lane > summary::-webkit-details-marker {
+  display: none;
+}
+details.approval-lane > summary h2 {
+  margin: 0;
+}
+details.approval-lane > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted-foreground);
+  border-bottom: 2px solid var(--muted-foreground);
+  transform: rotate(45deg);
+  flex: none;
+}
+details.approval-lane[open] > summary::after {
+  transform: rotate(-135deg);
+}
+.approval-variants {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.approval-variant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.approval-item.is-focused {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.cleanup-items {
+  display: grid;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cleanup-items li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+/* A platform's letter mark beside its name (platform/ui/platform-mark.tsx). */
+.platform-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex: none;
+}
+.channel-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.content-group-toggle {
+  min-height: 44px;
+  min-width: 44px;
+}
+.content-variant-row td:first-child {
+  padding-left: 32px;
+}
 /* Agent hub on the overview: live run graph, up next and health. */
 .agent-activity {
   margin-bottom: 18px;

@@ -7,6 +7,8 @@ import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import { marketingText } from "./labels";
 import { APPROVAL_STATUSES, approvalItems } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
+import { ContentGroupRows, contentGroups } from "./content-studio";
+import { useChannelDirectory } from "./channel-names";
 import {
   AdaptationDialog,
   BriefProposalDialog,
@@ -662,12 +664,15 @@ export function MissionEditor({
   );
 }
 export function ContentStudio() {
-  const { t, locale, canEdit } = useWorkspace();
+  const { t, locale, canEdit, project } = useWorkspace();
+  const words = marketingText(locale);
   const resource = useCollection("content");
+  const channels = useChannelDirectory();
   const [community, setCommunity] = useState(false);
   const [filter, setFilter] = useState(""),
     [type, setType] = useState("all"),
     [create, setCreate] = useState(false),
+    [showReplaced, setShowReplaced] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null);
   const items = (resource.data?.items || []).filter(
     (e) =>
@@ -676,15 +681,16 @@ export function ContentStudio() {
         .toLowerCase()
         .includes(filter.toLowerCase()),
   );
+  const { groups, replaced } = contentGroups(items, { showReplaced });
   if (community)
     return (
       <>
         <PageHead
-          title="Community questions"
-          description="Labeled imports, recurring topics and accountable internal drafts."
+          title={words.content.community}
+          description={words.content.communityIntro}
         >
           <Button variant="outline" onClick={() => setCommunity(false)}>
-            Content Studio
+            {words.content.studio}
           </Button>
         </PageHead>
         <CommunityQuestions />
@@ -692,16 +698,9 @@ export function ContentStudio() {
     );
   return (
     <>
-      <PageHead
-        title={t("content")}
-        description={
-          locale === "de"
-            ? "Von belegten Ideen zu überprüften Inhalten."
-            : "From source-backed ideas to reviewed content."
-        }
-      >
+      <PageHead title={t("content")} description={words.content.description}>
         <Button variant="outline" onClick={() => setCommunity(true)}>
-          Community questions
+          {words.content.community}
         </Button>
         {canEdit && (
           <Button onClick={() => setCreate(true)}>
@@ -714,33 +713,41 @@ export function ContentStudio() {
         <div className="search-field">
           <Search />
           <Input
-            aria-label="Search content"
+            aria-label={words.content.search}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder={
-              locale === "de" ? "Inhalte durchsuchen" : "Search content"
-            }
+            placeholder={words.content.search}
           />
         </div>
         <select
           className="input"
-          aria-label="Content type"
+          aria-label={words.content.format}
           value={type}
           onChange={(e) => setType(e.target.value)}
         >
-          <option value="all">
-            {locale === "de" ? "Alle Formate" : "All formats"}
-          </option>
+          <option value="all">{words.content.allFormats}</option>
           {["social", "blog", "newsletter", "ad", "script", "community"].map(
             (s) => (
-              <option key={s}>{s}</option>
+              <option key={s} value={s}>
+                {words.contentTypes[s] ?? s}
+              </option>
             ),
           )}
         </select>
+        {replaced > 0 && (
+          <label className="approval-history-toggle">
+            <input
+              type="checkbox"
+              checked={showReplaced}
+              onChange={(e) => setShowReplaced(e.target.checked)}
+            />{" "}
+            {words.content.showReplaced(replaced)}
+          </label>
+        )}
         <Button asChild variant="outline">
           <AppLink href="/calendar">
             <CalendarDays data-icon="inline-start" />
-            {t("calendar")}
+            {words.calendar.title}
           </AppLink>
         </Button>
       </div>
@@ -749,10 +756,12 @@ export function ContentStudio() {
         <Loading />
       ) : (
         <section className="panel">
-          {items.length ? (
-            <EntityRows
-              items={items}
-              fields={["title", "type", "channel", "status", "updatedAt"]}
+          {groups.length ? (
+            <ContentGroupRows
+              groups={groups}
+              channels={channels}
+              locale={locale}
+              timezone={project.timezone}
               onSelect={setSelected}
             />
           ) : (

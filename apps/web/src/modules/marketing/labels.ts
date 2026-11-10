@@ -110,6 +110,62 @@ const en = {
     reason: "Reason",
     submit: "Block this period",
   },
+  content: {
+    description: "From source-backed ideas to reviewed content.",
+    community: "Community questions",
+    communityIntro:
+      "Labeled imports, recurring topics and accountable internal drafts.",
+    studio: "Content Studio",
+    search: "Search content",
+    format: "Format",
+    allFormats: "All formats",
+    channels: "Channels",
+    caption: "Content: one row per post, its channel versions inside",
+    showReplaced: (n: number) => `Show replaced versions (${n})`,
+    replaced: "Replaced",
+    variants: (n: number) => `${n} channels`,
+    expand: (title: string) => `Show the channels of ${title}`,
+    open: (title: string) => `Open ${title}`,
+  },
+  approvals: {
+    open: "Open actions",
+    openIntro:
+      "What waits for a decision: drafts to release or review, exceptions and stopped posts.",
+    openEmpty: "Nothing waits for you.",
+    openContent: "Content to review",
+    openContentIntro:
+      "Content that still needs a review. Open it to review, reject or discard it.",
+    reviewed: "Reviewed, not scheduled",
+    reviewedIntro:
+      "Reviewed content that no publication or Postiz draft holds yet.",
+    released: "Released & scheduled",
+    releasedIntro:
+      "Released posts with their slot. They no longer need a decision; an upcoming one can still be stopped.",
+    releasedEmpty: "Nothing is released or scheduled.",
+    history: "History",
+    historyIntro: "Published, replaced, rejected and archived content.",
+    historyNewest: (n: number) => `The ${n} most recent are shown.`,
+    decisions: "Decisions on assignment drafts",
+    decisionsIntro: "What the owner decided in the last 30 days.",
+    cleanup: "Clean up",
+    cleanupHint:
+      "“Archive old drafts” archives every draft here that nothing holds any more (no planned post, open hand-off, open decision or running assignment); you see each draft first and can undo it.",
+    expired: "Expired drafts",
+    expiredIntro:
+      "Their slot passed and is not caught up: reject or archive them, or archive all old drafts at once.",
+    releasedByYou: (date: string) => `Released by you on ${date}`,
+    releasedByOwner: (date: string) => `Released by an owner on ${date}`,
+    releasedByAgent:
+      "Released by the review agent after the veto window",
+    scheduled: "Scheduled",
+    heldInSocial: "Announced in Social; it goes out at its slot",
+    postizDraft: "Handed to Postiz as a draft",
+    openInSocial: "Open in Social",
+    slot: (time: string) => `Slot ${time}`,
+    focused: "This is the post you opened from Social.",
+    focusMissing:
+      "The post opened from Social is not listed here any more; it may be in the history.",
+  },
 };
 
 export type MarketingText = typeof en;
@@ -217,6 +273,62 @@ const de: MarketingText = {
     endAt: "Endet (Ortszeit des Browsers)",
     reason: "Grund",
     submit: "Diesen Zeitraum sperren",
+  },
+  content: {
+    description: "Von belegten Ideen zu überprüften Inhalten.",
+    community: "Community-Fragen",
+    communityIntro:
+      "Gekennzeichnete Importe, wiederkehrende Themen und verantwortete interne Entwürfe.",
+    studio: "Content Studio",
+    search: "Inhalte durchsuchen",
+    format: "Format",
+    allFormats: "Alle Formate",
+    channels: "Kanäle",
+    caption: "Inhalte: eine Zeile je Beitrag, darin seine Kanalversionen",
+    showReplaced: (n: number) => `Ersetzte Versionen anzeigen (${n})`,
+    replaced: "Ersetzt",
+    variants: (n: number) => `${n} Kanäle`,
+    expand: (title: string) => `Kanäle von ${title} anzeigen`,
+    open: (title: string) => `${title} öffnen`,
+  },
+  approvals: {
+    open: "Offene Aktionen",
+    openIntro:
+      "Was auf eine Entscheidung wartet: Entwürfe zum Freigeben oder Prüfen, Ausnahmen und gestoppte Posts.",
+    openEmpty: "Nichts wartet auf dich.",
+    openContent: "Inhalte zum Prüfen",
+    openContentIntro:
+      "Inhalte, die noch eine Prüfung brauchen. Öffne sie, um sie zu prüfen, abzulehnen oder zu verwerfen.",
+    reviewed: "Geprüft, nicht eingeplant",
+    reviewedIntro:
+      "Geprüfte Inhalte, die noch keine Veröffentlichung und kein Postiz-Entwurf hält.",
+    released: "Freigegeben & geplant",
+    releasedIntro:
+      "Freigegebene Posts mit ihrem Termin. Sie brauchen keine Entscheidung mehr; einen anstehenden kannst du noch stoppen.",
+    releasedEmpty: "Nichts ist freigegeben oder geplant.",
+    history: "Verlauf",
+    historyIntro: "Veröffentlichte, ersetzte, abgelehnte und archivierte Inhalte.",
+    historyNewest: (n: number) => `Die ${n} neuesten werden gezeigt.`,
+    decisions: "Entscheidungen zu Auftragsentwürfen",
+    decisionsIntro: "Was der Owner in den letzten 30 Tagen entschieden hat.",
+    cleanup: "Aufräumen",
+    cleanupHint:
+      "„Alte Entwürfe archivieren“ archiviert alle Entwürfe hier, an denen nichts mehr hängt (kein geplanter Post, keine offene Übergabe, Entscheidung oder laufender Auftrag); du siehst vorher jeden Entwurf und kannst es rückgängig machen.",
+    expired: "Abgelaufene Entwürfe",
+    expiredIntro:
+      "Ihr Termin ist vorbei und wird nicht nachgeholt: lehne sie ab oder archiviere sie – oder archiviere alle alten Entwürfe auf einmal.",
+    releasedByYou: (date: string) => `Von dir freigegeben am ${date}`,
+    releasedByOwner: (date: string) => `Von einem Owner freigegeben am ${date}`,
+    releasedByAgent:
+      "Vom Review-Agenten nach dem Veto-Fenster freigegeben",
+    scheduled: "Eingeplant",
+    heldInSocial: "In Social angekündigt; geht zum Termin raus",
+    postizDraft: "Als Entwurf an Postiz übergeben",
+    openInSocial: "In Social öffnen",
+    slot: (time: string) => `Termin ${time}`,
+    focused: "Das ist der Post, den du aus Social geöffnet hast.",
+    focusMissing:
+      "Der aus Social geöffnete Post steht hier nicht mehr; vielleicht ist er im Verlauf.",
   },
 };
 
