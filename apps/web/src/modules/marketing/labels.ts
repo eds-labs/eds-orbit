@@ -40,6 +40,40 @@ const en = {
       "The AI budget is not part of this policy. It applies to every module and is set under",
     budgetLink: "Settings → AI & budget",
   },
+  // The owner's per-project switch (plan 2026-11-10) under the policy.
+  socialAutopilot: {
+    heading: "Autopilot through Social",
+    intro:
+      "Lets autopilot publish this project's posts through Social without an owner's approval of each post. It applies only while the policy's mode is Autopilot.",
+    state: "Status",
+    on: "On",
+    off: "Off",
+    onNote:
+      "Autopilot posts go out through Social without per-post approval. Turn it off to hold pending autopilot posts for approval.",
+    offNote: "Autopilot on Social waits for an owner's approval of each post.",
+    turnOn: "Turn on",
+    turnOff: "Turn off",
+    ownerOnly: "Only an owner can change this.",
+    confirmTitle: "Turn on autopilot through Social?",
+    confirmGoesOut:
+      "Posts in autopilot go out without an owner's approval of each post and without a stop window.",
+    confirmStillApplies:
+      "Still in force: the AI budget, the policy's channels, quiet hours and daily limits, blocked periods, verified Social accounts and the live evaluation.",
+    confirmStop:
+      "Emergency stop: turn this switch off (pending autopilot posts are then held for approval) or pause the project.",
+    confirmCheck:
+      "I understand that autopilot posts go out through Social without per-post approval.",
+    confirmSubmit: "Turn on autopilot through Social",
+    cancel: "Cancel",
+    errors: {
+      SETTINGS_VERSION_CONFLICT:
+        "The settings changed in the meantime and were reloaded. Try again.",
+      SOCIAL_AUTOPILOT_REQUIRES_SOCIAL:
+        "This needs the project to publish through Social.",
+      SOCIAL_DISABLED: "The Social module is off for this project.",
+      OWNER_REQUIRED: "Only an owner can change this.",
+    } as Record<string, string>,
+  },
   contentTypes: {
     social: "Social media",
     blog: "Blog",
@@ -206,6 +240,40 @@ const de: MarketingText = {
     budgetNote:
       "Das KI-Budget ist nicht Teil dieser Richtlinie. Es gilt für alle Module und wird festgelegt unter",
     budgetLink: "Einstellungen → KI & Budget",
+  },
+  socialAutopilot: {
+    heading: "Autopilot über Social",
+    intro:
+      "Erlaubt dem Autopiloten, die Posts dieses Projekts ohne Freigabe jedes einzelnen Posts durch einen Owner über Social zu veröffentlichen. Gilt nur, solange der Modus der Richtlinie Autopilot ist.",
+    state: "Status",
+    on: "An",
+    off: "Aus",
+    onNote:
+      "Autopilot-Posts gehen ohne Freigabe einzelner Posts über Social raus. Ausschalten hält anstehende Autopilot-Posts zur Freigabe an.",
+    offNote:
+      "Im Autopilot über Social wartet jeder Post auf die Freigabe eines Owners.",
+    turnOn: "Einschalten",
+    turnOff: "Ausschalten",
+    ownerOnly: "Nur ein Owner kann das ändern.",
+    confirmTitle: "Autopilot über Social einschalten?",
+    confirmGoesOut:
+      "Posts im Autopilot gehen ohne Freigabe jedes einzelnen Posts durch einen Owner und ohne Stopp-Fenster raus.",
+    confirmStillApplies:
+      "Weiter gelten: das KI-Budget, die Kanäle, Ruhezeiten und Tageslimits der Richtlinie, Sperrzeiten, geprüfte Social-Konten und die Live-Evaluation.",
+    confirmStop:
+      "Notstopp: diesen Schalter ausschalten (anstehende Autopilot-Posts werden dann zur Freigabe angehalten) oder das Projekt pausieren.",
+    confirmCheck:
+      "Ich verstehe, dass Autopilot-Posts ohne Freigabe einzelner Posts über Social rausgehen.",
+    confirmSubmit: "Autopilot über Social einschalten",
+    cancel: "Abbrechen",
+    errors: {
+      SETTINGS_VERSION_CONFLICT:
+        "Die Einstellungen wurden inzwischen geändert und neu geladen. Bitte erneut versuchen.",
+      SOCIAL_AUTOPILOT_REQUIRES_SOCIAL:
+        "Dafür muss das Projekt über Social veröffentlichen.",
+      SOCIAL_DISABLED: "Das Social-Modul ist für dieses Projekt ausgeschaltet.",
+      OWNER_REQUIRED: "Nur ein Owner kann das ändern.",
+    },
   },
   contentTypes: {
     social: "Social Media",

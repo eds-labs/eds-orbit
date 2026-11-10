@@ -26,6 +26,8 @@ type Entry = {
 export const AI_SETTINGS_HREF = "/settings?section=ai";
 const OPERATIONS_HREF = "/operations";
 const CONNECTIONS_HREF = "/settings?section=integrations";
+/** Settings → Publishing rules, at the owner's "Autopilot through Social" switch. */
+export const SOCIAL_AUTOPILOT_HREF = "/settings?section=policy#social-autopilot";
 
 const entries: Record<string, Entry> = {
   AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA: {
@@ -108,6 +110,23 @@ const entries: Record<string, Entry> = {
       action:
         "Freigaben öffnen, das Genannte beheben und den Post erneut freigeben.",
     },
+  },
+  AUTOPILOT_ON_SOCIAL_NOT_APPROVED: {
+    en: {
+      title: "Autopilot post waits for your release",
+      cause:
+        "Autopilot wrote and reviewed a post, but this project publishes through Social and the owner's switch “Autopilot through Social” is off, so Orbit did not schedule it.",
+      action:
+        "Release the post yourself in the approvals, or turn on “Autopilot through Social” under Settings → Publishing rules.",
+    },
+    de: {
+      title: "Autopilot-Post wartet auf deine Freigabe",
+      cause:
+        "Der Autopilot hat einen Post geschrieben und geprüft, aber dieses Projekt veröffentlicht über Social und der Schalter „Autopilot über Social“ des Owners ist aus. Deshalb hat Orbit ihn nicht eingeplant.",
+      action:
+        "Post selbst in den Freigaben freigeben oder „Autopilot über Social“ unter Einstellungen → Veröffentlichungsregeln einschalten.",
+    },
+    href: SOCIAL_AUTOPILOT_HREF,
   },
   CONTENT_REVIEW_REQUIRED: {
     en: {

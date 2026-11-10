@@ -67,7 +67,7 @@ describe("readiness wording (server and web)", () => {
         "LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED",
       ),
     ).toBe(
-      "Live-Autopilot über Social ist noch nicht freigegeben (Entscheidung des Owners ausstehend).",
+      "Live-Autopilot über Social braucht den Schalter „Autopilot über Social“ des Owners (Einstellungen → Veröffentlichungsregeln); solange Postiz ausläuft, bleibt er aus.",
     );
     expect(
       activationErrorText(

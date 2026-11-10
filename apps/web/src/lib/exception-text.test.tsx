@@ -4,6 +4,7 @@ import {
   dataClassRouteWarning,
   exceptionText,
   hasExceptionText,
+  SOCIAL_AUTOPILOT_HREF,
 } from "./exception-text";
 
 describe("exceptionText", () => {
@@ -30,6 +31,19 @@ describe("exceptionText", () => {
       expect(de.cause && de.action && en.cause && en.action).toBeTruthy();
       expect(hasExceptionText(code)).toBe(true);
     }
+  });
+
+  it("explains an autopilot post held on Social and links the owner's switch", () => {
+    const de = exceptionText("de", "AUTOPILOT_ON_SOCIAL_NOT_APPROVED");
+    expect(de.title).toBe("Autopilot-Post wartet auf deine Freigabe");
+    expect(de.cause).toContain("„Autopilot über Social“");
+    expect(de.action).toContain("Einstellungen → Veröffentlichungsregeln");
+    const en = exceptionText("en", "AUTOPILOT_ON_SOCIAL_NOT_APPROVED");
+    expect(en.title).toBe("Autopilot post waits for your release");
+    expect(en.action).toContain("“Autopilot through Social”");
+    expect(de.href).toBe(SOCIAL_AUTOPILOT_HREF);
+    expect(en.href).toBe("/settings?section=policy#social-autopilot");
+    expect(hasExceptionText("AUTOPILOT_ON_SOCIAL_NOT_APPROVED")).toBe(true);
   });
 
   it("reuses the budget layer's texts and accepts codes with spaces", () => {

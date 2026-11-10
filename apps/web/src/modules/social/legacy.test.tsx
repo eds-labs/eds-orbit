@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MigrationPanel, type MigrationView } from "./legacy";
+import { backendSwitchBody, MigrationPanel, type MigrationView } from "./legacy";
 
 // Moving a project from Postiz to Social (ADR 0020, S10): channel mapping,
 // what Postiz still holds, the history mirror and the backend switch.
@@ -76,5 +76,14 @@ describe("Postiz migration panel", () => {
     expect(button(viewer, "Stop new posts to Postiz")).toBeUndefined();
     expect(viewer).not.toContain("<select");
     expect(render(view(), true, "de")).toContain("Umzug von Postiz");
+  });
+
+  it("keeps Marketing's other settings when it switches the backend", () => {
+    const current = { settings: { publishingBackend: "social", socialAutopilot: true }, version: 7 };
+    expect(backendSwitchBody(current, "postiz")).toEqual({ settings: { publishingBackend: "postiz", socialAutopilot: true }, version: 7 });
+    expect(backendSwitchBody({ settings: { publishingBackend: "postiz" }, version: 2 }, "postiz_draining")).toEqual({
+      settings: { publishingBackend: "postiz_draining" },
+      version: 2,
+    });
   });
 });

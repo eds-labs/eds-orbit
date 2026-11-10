@@ -11,9 +11,11 @@ import { PolicyVersions } from "./policy-versions";
 import { marketingText } from "./labels";
 import { BrandApproval, MarketingProfileConfiguration } from "./advanced";
 import { BrandKitSection } from "./creative/brand-kit-section";
+import { SocialAutopilotSection } from "./social-autopilot";
 
 // Marketing's sections of the project settings (WP2.3b): the versioned
-// operating policy and the brand. The assignments are a Marketing page
+// operating policy (with the owner's "Autopilot through Social" switch on
+// the Social backend) and the brand. The assignments are a Marketing page
 // since 2026-10-19 (they are operations, not configuration).
 
 const POLICY_TAB = {
@@ -54,6 +56,8 @@ function usePolicySection() {
             />
           )}
         </section>
+        {/* Only for a project that publishes through Social. */}
+        <SocialAutopilotSection />
         {policy && <PolicyEditor onClose={() => setPolicy(false)} />}
       </>
     ),

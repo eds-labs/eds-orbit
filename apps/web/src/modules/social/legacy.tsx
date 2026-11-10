@@ -207,6 +207,18 @@ export function MigrationPanel({
   );
 }
 
+type MarketingSettingsRead = { settings: Record<string, unknown>; version: number };
+
+/**
+ * The PUT body of a backend switch: Marketing's current settings with the
+ * new backend. The API replaces the settings as a whole, so the owner's
+ * other settings (the autopilot switch) are sent along; leaving Social
+ * turns that switch off on the server.
+ */
+export function backendSwitchBody(current: MarketingSettingsRead, backend: Backend) {
+  return { settings: { ...current.settings, publishingBackend: backend }, version: current.version };
+}
+
 /** The section on Social → Accounts; empty without Marketing or Postiz channels. */
 export function PostizMigration() {
   const { project, locale, isOwner } = useWorkspace();
@@ -247,11 +259,8 @@ export function PostizMigration() {
         }
         onBackend={(backend) =>
           act(async () => {
-            const current = await api<{ version: number }>(`${base}/settings`);
-            await api(`${base}/settings`, {
-              method: "PUT",
-              body: JSON.stringify({ settings: { publishingBackend: backend }, version: current.version }),
-            });
+            const current = await api<MarketingSettingsRead>(`${base}/settings`);
+            await api(`${base}/settings`, { method: "PUT", body: JSON.stringify(backendSwitchBody(current, backend)) });
           })
         }
       />
