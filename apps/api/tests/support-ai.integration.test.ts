@@ -35,7 +35,21 @@ const mocked = vi.hoisted(() => ({
   replies: [] as unknown[],
   search: vi.fn(),
   validate: vi.fn(),
+  // A task class whose planned provider is forced (D-11 tests).
+  forceAnthropic: null as string | null,
 }));
+vi.mock("../src/platform/ai/call-plan.ts", async (original) => {
+  const real = await original<typeof import("../src/platform/ai/call-plan.ts")>();
+  return {
+    ...real,
+    planCall: async (...args: Parameters<typeof real.planCall>) => {
+      const plan = await real.planCall(...args);
+      return mocked.forceAnthropic === args[2]
+        ? { ...plan, provider: "anthropic" as const }
+        : plan;
+    },
+  };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
   respond: vi.fn(async (request: any) => {
@@ -182,6 +196,7 @@ describe.skipIf(!enabled)("support AI", () => {
   afterEach(() => {
     mocked.requests.length = 0;
     mocked.replies.length = 0;
+    mocked.forceAnthropic = null;
     mocked.search.mockReset();
     mocked.validate.mockReset();
     process.env.ORBIT_SUPPORT = "true";
@@ -288,6 +303,41 @@ describe.skipIf(!enabled)("support AI", () => {
       }),
     );
     expect(reservations.map((r) => r.category)).toEqual(["support_text"]);
+  });
+
+  it("D-11: refuses a Claude route for triage before anything is reserved or sent, and runs on OpenAI (WP2 D)", async () => {
+    const t = await ticket("My deposit has not arrived.");
+    const reservations = () =>
+      run((tx) =>
+        tx.budgetReservation.findMany({
+          where: { key: { contains: `support:${t.ticketId}:` } },
+        }),
+      );
+    mocked.forceAnthropic = "support_triage";
+    await expect(
+      runSupportTask(worker(), { task: "triage", ticketId: t.ticketId }),
+    ).rejects.toMatchObject({ code: "AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA" });
+    expect(mocked.requests).toHaveLength(0);
+    expect(await reservations()).toHaveLength(0);
+    // No automatic switch: the same route stays refused until the owner
+    // changes it. With the OpenAI route the call runs.
+    mocked.forceAnthropic = null;
+    mocked.replies.push({
+      language: "en",
+      category: "deposits",
+      priority: "normal",
+      sentiment: "neutral",
+      summary: "[customer name] asks about a deposit.",
+      summaryDe: "[customer name] fragt nach einer Einzahlung.",
+      sensitive: false,
+    });
+    await runSupportTask(worker(), {
+      task: "triage",
+      ticketId: t.ticketId,
+      attemptKey: "after-route-change",
+    });
+    expect(mocked.requests).toHaveLength(1);
+    expect(await reservations()).toHaveLength(1);
   });
 
   it("drafts a grounded reply with citations for agents only", async () => {
