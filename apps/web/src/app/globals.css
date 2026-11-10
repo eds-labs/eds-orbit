@@ -1442,7 +1442,24 @@ th {
 .table-plain-head th {
   text-transform: none;
 }
-/* The policy versions (WP5): a visible caption and the active row marked. */
+/* The policy versions (WP5): the current version, then the history table
+   with a visible caption and the active row marked. */
+.policy-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+/* Padding, not flex: a flex summary loses its disclosure marker. */
+.policy-history > summary {
+  cursor: pointer;
+  padding: 12px 0;
+  line-height: 20px;
+  font-weight: 550;
+  color: #304b63;
+}
 .policy-versions caption {
   caption-side: top;
   text-align: left;
