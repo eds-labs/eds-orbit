@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by Mario on 2026-11-09 for local implementation. Nothing is deployed. The push to `main`, the schema hash in Coolify, DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval.
+Accepted by Mario on 2026-11-09 for local implementation. Delivered to `main` on 2026-11-10 with his approval of the push and the schema hash, with `ORBIT_WEBMAIL` off and no webmail container running. DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval.
 
 Extends [ADR 0009](0009-modular-platform.md) (module contracts). Mailbox ownership between Support and Finance stays as defined by `apps/api/src/platform/email/ownership.ts`.
 

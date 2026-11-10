@@ -1,10 +1,10 @@
 # Implementation status
 
-## Webmail module: Roundcube and mail-to-ticket (2026-11-09, branch `claude/roundcube-webmail-ticket-integration-a2dd99`, not merged, not deployed)
+## Webmail module: Roundcube and mail-to-ticket (2026-11-09, branch `claude/roundcube-webmail-ticket-integration-a2dd99`; delivered to `main` 2026-11-10 with the flag off, not enabled)
 
-[ADR 0026](adr/0026-webmail-module.md), contract [plans/WEBMAIL.md](plans/WEBMAIL.md), rollout [deployment/WEBMAIL.md](deployment/WEBMAIL.md), proof of concept `infra/webmail/poc/REPORT.md`. Risk high: mail credentials, auth, a migration and a new internet-facing service. Environment: local only.
+[ADR 0026](adr/0026-webmail-module.md), contract [plans/WEBMAIL.md](plans/WEBMAIL.md), rollout [deployment/WEBMAIL.md](deployment/WEBMAIL.md), proof of concept `infra/webmail/poc/REPORT.md`. Risk high: mail credentials, auth, a migration and a new internet-facing service. Environment: production code path present, nothing enabled.
 
-- **State:** implemented, tested locally, committed on the branch. Not pushed, not merged, not deployed, not enabled. `ORBIT_WEBMAIL` defaults to false and `ORBIT_WEBMAIL_REPLICAS` to 0.
+- **State:** implemented and tested locally. Mario approved the schema hash and the push to `main` on 2026-11-10; the push deploys the additive migration with `ORBIT_WEBMAIL` unset (false) and `ORBIT_WEBMAIL_REPLICAS` unset (0), so no webmail container starts. Not enabled, not live-accepted.
 - **Built:**
   - Module `webmail` (`apps/api/src/modules/webmail/`), internal bridge `apps/api/src/webmail-bridge-main.ts`, web module `apps/web/src/modules/webmail/`.
   - Roundcube 1.7.6 pinned by digest with the plugin `orbit_bridge` and the skin `orbit` (`infra/webmail/`), on its own origin, in a sandboxed iframe, with its own database and networks.
@@ -19,9 +19,10 @@
   - `pnpm test:webmail` on the real stack: 51 of 51 in Chromium, Firefox and WebKit (17 each), 2 of 2 with the flag off.
   - With `ORBIT_WEBMAIL_REPLICAS` unset a deployment starts none of the three services and needs no new variable (Coolify generates the secrets), but it still builds the `webmail` image (`infra/webmail/Dockerfile`, including `npm ci` for the skin), so a failing build would stop the whole deployment.
   - `pnpm test:e2e` (on `6838e992`): 24 passed, 4 failed, 25 skipped by their own feature gates. Unmodified `origin/main` (`e62decb0`) gives the same totals: 24, 4, 25. Most failures hang on "Loading workspace…" and which tests fail varies between runs. `workspace.spec.ts:704` alone failed 6 of 6 on the branch and 6 of 6 on `main`. The cause is not established; heavy read pacing is a candidate. Not a regression of this branch, but this suite gives no clean signal locally.
-  - `scripts/check-secrets.py` reports 3 findings, none in a file this branch touches; the same 3 fail `main` in CI, where that step stops the run before the browser job.
+  - `scripts/check-secrets.py` reported 3 findings outside this branch on that head; `main` fixed them in `5b2e3903`.
+  - Re-integrated with `origin/main` at `3b6675d1` (test pacing, secret-scan fixtures and docs, no schema change; hash unchanged): `scripts/check-secrets.py`, `pnpm framework:check` and its unit tests, root and web `tsc`, source and boundary checks and `pnpm test:coolify-compose` pass. The framework check had failed on the two webmail test overlays; it now reads Compose's `!override` and `!reset` tags, and `GREENMAIL_OPTS` is one line with the identical value.
   - Not tested: attachment to Coolify's proxy, whether Coolify's network lets Roundcube reach `api:4311` (blocking rollout check), `deploy.replicas` under Coolify, real Safari with Intelligent Tracking Prevention, a real AI draft, UIDVALIDITY and messages above 10 MB on the real stack (UIDVALIDITY is covered by integration tests).
-- **Production:** each step needs its own approval: push to `main` (deploys), the schema hash in Coolify, DNS and TLS for the webmail host, secrets, `ORBIT_WEBMAIL` and `ORBIT_WEBMAIL_REPLICAS`, any mail to real recipients, and the data-protection review of the mail processing. Rollback: `ORBIT_WEBMAIL=false` and `ORBIT_WEBMAIL_REPLICAS=0`; the migration is additive and can stay.
+- **Production:** push to `main` and the schema hash in Coolify approved 2026-11-10. Each remaining step needs its own approval: DNS and TLS for the webmail host, secrets, `ORBIT_WEBMAIL` and `ORBIT_WEBMAIL_REPLICAS`, any mail to real recipients, and the data-protection review of the mail processing. Rollback: `ORBIT_WEBMAIL=false` and `ORBIT_WEBMAIL_REPLICAS=0`; the migration is additive and can stay.
 
 ## Knowledge: one row per source, grouped knowledge and plain language (2026-11-09, delivered to `main`, not live-accepted)
 
