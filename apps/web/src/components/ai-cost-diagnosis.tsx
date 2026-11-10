@@ -403,7 +403,8 @@ export function settleReady(values: FormValues) {
 }
 
 export function AiCostDiagnosis() {
-  const { locale, project, isOwner, canEdit, revision, refresh } = useWorkspace();
+  const { locale, project, isOwner, canEdit, revision, refresh, t: label } =
+    useWorkspace();
   const t = diagnosisText(locale);
   const first = useResource<ReservationPage>(
     canEdit
@@ -479,6 +480,7 @@ export function AiCostDiagnosis() {
             pending={mutation.pending}
             error={mutation.error}
             submitLabel={t.submit}
+            cancelLabel={label("cancel")}
             canSubmit={settleReady}
             onCancel={() => setConfirming(false)}
             onSubmit={(values) =>

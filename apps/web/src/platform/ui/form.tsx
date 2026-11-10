@@ -80,6 +80,7 @@ export function DataForm({
   onCancel,
   t,
   canSubmit,
+  cancelLabel,
 }: {
   fields: FormField[];
   onSubmit: (values: FormValues) => void | Promise<void>;
@@ -88,6 +89,8 @@ export function DataForm({
   submitLabel?: string;
   onCancel?: () => void;
   t?: Text;
+  /** The cancel button's words; else `t("cancel")`, else "Cancel" as before. */
+  cancelLabel?: string;
   /**
    * A rule across fields that HTML validation cannot express: submit stays
    * disabled while it returns false for the current values.
@@ -232,7 +235,7 @@ export function DataForm({
       <div className="form-actions">
         {onCancel && (
           <Button variant="outline" type="button" onClick={onCancel}>
-            {t?.("cancel") || "Cancel"}
+            {cancelLabel || t?.("cancel") || "Cancel"}
           </Button>
         )}
         <Button type="submit" disabled={pending || !ready}>

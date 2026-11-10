@@ -155,6 +155,23 @@ describe("AI cost diagnosis (WP2 C)", () => {
     expect(invoice).not.toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
   });
 
+  it("cancels in the member's language; other forms keep their default", () => {
+    const t = diagnosisText("de");
+    const form = (cancelLabel?: string) =>
+      renderToStaticMarkup(
+        <DataForm
+          fields={settleFields(t)}
+          pending={false}
+          submitLabel={t.submit}
+          cancelLabel={cancelLabel}
+          onCancel={() => {}}
+          onSubmit={() => {}}
+        />,
+      );
+    expect(form("Abbrechen")).toMatch(/<button[^>]*type="button"[^>]*>Abbrechen</);
+    expect(form()).toMatch(/<button[^>]*type="button"[^>]*>Cancel</);
+  });
+
   it("drops the loaded pages when the first page refreshes, so no row repeats", () => {
     const first: ReservationPage = { items: [item({ id: "a" }), item({ id: "b" })], nextCursor: "b", staleAfterMs: 900_000, summary };
     const more = { after: first, items: [item({ id: "c" })], cursor: "c" };

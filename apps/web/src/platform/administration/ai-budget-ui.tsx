@@ -558,6 +558,7 @@ function BudgetForm({
         pending={mutation.pending}
         error={aiErrorText(mutation.error, locale)}
         submitLabel={t.save}
+        cancelLabel={locale === "de" ? "Abbrechen" : "Cancel"}
         onCancel={onClose}
         onSubmit={(values) =>
           mutation.run(() => {
