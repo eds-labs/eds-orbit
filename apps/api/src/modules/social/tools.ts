@@ -150,6 +150,7 @@ export const socialCalendarTool = readOperation({
         excerpt: i.excerpt,
         status: i.status,
         origin: i.origin,
+        originRef: i.originRef,
         at: i.schedule.at,
         local: i.schedule.local,
         timeZone: i.schedule.timeZone,
@@ -177,6 +178,9 @@ export const socialPostGetTool = readOperation({
       title: post.title,
       status: post.status,
       origin: post.origin,
+      // Marketing's publication or hand-off (or the Postiz record) behind the
+      // post; its approval came from there, not from a Social approval.
+      originRef: post.originRef,
       readOnly: post.readOnly,
       version: post.version,
       schedule: post.schedule,

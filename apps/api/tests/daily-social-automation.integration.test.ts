@@ -111,7 +111,7 @@ import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { claimPublication as claimMarketingPublication } from "../src/modules/marketing/pipeline/workflow.ts";
 import { assignmentDetail } from "../src/modules/marketing/agents/assignment-detail.ts";
 import { calendarItems } from "../src/modules/social/calendar/calendar.ts";
-import { updatePost } from "../src/modules/social/posts/posts.ts";
+import { getPost, listPosts, updatePost } from "../src/modules/social/posts/posts.ts";
 import { setSocialFetchForTests } from "../src/modules/social/accounts/http.ts";
 import { claimPublication } from "../src/modules/social/dispatch/claim.ts";
 import { deliverPublication } from "../src/modules/social/dispatch/deliver.ts";
@@ -798,6 +798,27 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       for (const item of items)
         expect(item).toMatchObject({ origin: "marketing", status: "scheduled", readOnly: true });
       expect(items.flatMap((i) => i.accounts.map((a) => a.platform)).sort()).toEqual(["facebook", "instagram"]);
+      // Every view names Marketing's publication behind the held post; its
+      // native approval stays "none" (Marketing released it, not Social).
+      const pubIds = (await daily.publications()).map((p) => p.id).sort();
+      expect(items.map((i) => i.originRef?.id).sort()).toEqual(pubIds);
+      for (const item of items) {
+        expect(item.originRef).toEqual({ module: "marketing", type: "publication", id: expect.any(String) });
+        expect(item.approvalState).toBe("none");
+      }
+      const listed = await daily.h.run((tx) => listPosts(tx, owner, {}));
+      for (const post of listed.items)
+        expect(post).toMatchObject({
+          originRef: { module: "marketing", type: "publication" },
+          approvalState: "none",
+          readOnly: true,
+        });
+      for (const post of posts) {
+        const view = await daily.h.run((tx) => getPost(tx, owner, post.id));
+        expect(view.originRef).toEqual({ module: "marketing", type: "publication", id: post.originId });
+        expect(view.approval).toMatchObject({ state: "none", approvedAt: null, approvedBy: null });
+        expect(view.readOnly).toBe(true);
+      }
       const media = await daily.h.run((tx) =>
         tx.socialPostMedia.findMany({ where: { projectId: owner.projectId } }),
       );
@@ -855,6 +876,12 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       const { items } = await calendar(slot);
       expect(items).toHaveLength(2);
       for (const item of items) expect(item.status).toBe("publishing");
+      // Handed over: the same reference, and the hand-off's approval as before.
+      for (const post of posts) {
+        const view = await daily.h.run((tx) => getPost(tx, owner, post.id));
+        expect(view.originRef).toEqual({ module: "marketing", type: "publication", id: post.originId });
+        expect(view.approval).toMatchObject({ state: "approved", approvedAt: expect.any(String) });
+      }
     });
 
     it("takes a held post back when Marketing no longer sends it, and a paused project too", async () => {
