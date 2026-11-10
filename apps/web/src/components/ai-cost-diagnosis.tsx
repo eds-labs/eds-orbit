@@ -223,6 +223,27 @@ export function settleBody(
   };
 }
 
+/** Pages loaded with "Load more", and the first page they continue. */
+export type MorePages = {
+  after: ReservationPage;
+  items: ReservationItem[];
+  cursor: string | null;
+};
+
+/**
+ * The rows shown and the next cursor. Pages loaded after an earlier first
+ * page are dropped once the first page is refreshed, so a refresh never
+ * repeats rows; a row appears once.
+ */
+export function diagnosisRows(first: ReservationPage, more: MorePages | null) {
+  const extra = more?.after === first ? more : null;
+  const seen = new Set<string>();
+  const items = [...first.items, ...(extra?.items ?? [])].filter((item) =>
+    seen.has(item.id) ? false : (seen.add(item.id), true),
+  );
+  return { items, cursor: extra ? extra.cursor : first.nextCursor, extra };
+}
+
 /** Whether the diagnosis has anything to show: open rows or unclear amounts. */
 export function diagnosisVisible(page: ReservationPage | null | undefined) {
   if (!page) return false;
@@ -389,7 +410,7 @@ export function AiCostDiagnosis() {
       ? collectionPath(project.id, `ai-reservations?state=open&revision=${revision}`)
       : null,
   );
-  const [more, setMore] = useState<{ items: ReservationItem[]; cursor: string | null } | null>(null);
+  const [more, setMore] = useState<MorePages | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState<number | null>(null);
@@ -403,8 +424,7 @@ export function AiCostDiagnosis() {
   });
   if (!canEdit || !diagnosisVisible(first.data)) return null;
   const page = first.data!;
-  const items = [...page.items, ...(more?.items ?? [])];
-  const cursor = more ? more.cursor : page.nextCursor;
+  const { items, cursor, extra } = diagnosisRows(page, more);
   const chosen = items.filter((i) => selected.has(i.id) && i.status === "unknown");
   const total = chosen.reduce((n, i) => n + Number(i.reservedMicros), 0);
   return (
@@ -440,7 +460,11 @@ export function AiCostDiagnosis() {
                 `ai-reservations?state=open&cursor=${encodeURIComponent(cursor!)}`,
               ),
             );
-            setMore({ items: [...(more?.items ?? []), ...next.items], cursor: next.nextCursor });
+            setMore({
+              after: page,
+              items: [...(extra?.items ?? []), ...next.items],
+              cursor: next.nextCursor,
+            });
           })
         }
       />

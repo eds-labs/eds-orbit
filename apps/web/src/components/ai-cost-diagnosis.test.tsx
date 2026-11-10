@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   AiCostDiagnosisView,
   diagnosisText,
+  diagnosisRows,
   diagnosisVisible,
   settleBody,
   settleFields,
@@ -152,6 +153,20 @@ describe("AI cost diagnosis (WP2 C)", () => {
     expect(invoice).toContain(t.note);
     expect(invoice).not.toContain(t.noteRequiredHint);
     expect(invoice).not.toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
+  });
+
+  it("drops the loaded pages when the first page refreshes, so no row repeats", () => {
+    const first: ReservationPage = { items: [item({ id: "a" }), item({ id: "b" })], nextCursor: "b", staleAfterMs: 900_000, summary };
+    const more = { after: first, items: [item({ id: "c" })], cursor: "c" };
+    expect(diagnosisRows(first, more)).toMatchObject({ cursor: "c" });
+    expect(diagnosisRows(first, more).items.map((i) => i.id)).toEqual(["a", "b", "c"]);
+    // A refresh (a new first page that already holds c) starts over.
+    const refreshed: ReservationPage = { ...first, items: [item({ id: "a" }), item({ id: "b" }), item({ id: "c" })], nextCursor: "c" };
+    const after = diagnosisRows(refreshed, more);
+    expect(after.items.map((i) => i.id)).toEqual(["a", "b", "c"]);
+    expect(after).toMatchObject({ cursor: "c", extra: null });
+    // A row in two pages shows once.
+    expect(diagnosisRows(first, { ...more, items: [item({ id: "b" }), item({ id: "c" })] }).items.map((i) => i.id)).toEqual(["a", "b", "c"]);
   });
 
   it("shows nothing without open rows or unclear amounts", () => {
