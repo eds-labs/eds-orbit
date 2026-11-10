@@ -17,6 +17,7 @@ import { postMessage, socialText } from "../labels";
 import { editorReducer, emptyEditor, toPostInput } from "./editor-state";
 import { scheduleErrorView, ScheduleField, type ScheduleChoice } from "./schedule-field";
 import { VariantTabs } from "./variant-tabs";
+import { OriginNote } from "../origin";
 
 // The post editor (ADR 0020, S4). Owners schedule and publish directly (their
 // action is the approval); editors ask the owner. Changes are saved before
@@ -147,7 +148,7 @@ export function PostEditor({
       {post && (
         <p>
           <Badge tone={statusTone[status as keyof typeof statusTone] ?? "neutral"}>{t.status[status]}</Badge>{" "}
-          {t.approval[post.approval.state] && <span className="field-hint">{t.approval[post.approval.state]}</span>}
+          <OriginNote post={{ ...post, approvalState: post.approval.state }} locale={locale} />
         </p>
       )}
       {message && <Alert kind={message.kind}>{message.text}</Alert>}

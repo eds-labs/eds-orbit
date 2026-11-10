@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { authDb, closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create, encrypt } from "../src/shared.ts";
+import { create, data, encrypt, entity } from "../src/shared.ts";
+import { markSyncFailed } from "../src/modules/marketing/brand/drive-assets.ts";
 import {
   driveContent,
   driveThumbnail,
@@ -130,6 +131,28 @@ describe.skipIf(!enabled)("Drive content and thumbnails", () => {
     await expect(driveThumbnail(scope, "imageNoThumb01")).rejects.toMatchObject({
       code: "GOOGLE_DRIVE_THUMBNAIL_MISSING",
     });
+  });
+
+  it("never reads or marks another project's brand asset, even of the same organization", async () => {
+    const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      create(tx, scope, "assets", {
+        name: "Banner",
+        type: "generated_artwork",
+        mime: "image/png",
+        driveFileId: "imagePng000001",
+        driveSyncStatus: "SYNCED",
+      }),
+    );
+    const b = await authDb.project.create({ data: { workspaceId, name: "Drive content B" } });
+    const other: Scope = { ...scope, projectId: b.id };
+    // The content route reads the asset with the project filter first.
+    await expect(
+      scoped(other.workspaceId, other.projectId, (tx) => entity(tx, other, "assets", asset.id)),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(markSyncFailed(other, asset.id)).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
+    const unchanged = await scoped(scope.workspaceId, scope.projectId, (tx) => entity(tx, scope, "assets", asset.id));
+    expect([unchanged.version, data(unchanged).driveSyncStatus]).toEqual([asset.version, "SYNCED"]);
+    expect(calls.filter((c) => c.startsWith("media:"))).toEqual([]);
   });
 
   it("never fetches a thumbnail link outside Google", async () => {

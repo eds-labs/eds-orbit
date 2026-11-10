@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { Alert, Button, Status } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { fieldLabel } from "@/lib/field-text";
 export function useCollection(name: string) {
   const { project, revision } = useWorkspace();
   return useResource<{ items: Entity[] }>(
@@ -71,14 +72,16 @@ export function EntityRows({
   const { locale, project, t } = useWorkspace();
   return (
     <div className="table-wrap">
-      <table>
+      <table className="table-plain-head">
         <thead>
           <tr>
             {fields.map((f) => (
-              <th key={f}>{f.replace(/([A-Z])/g, " $1")}</th>
+              <th key={f} scope="col">
+                {fieldLabel(locale, f)}
+              </th>
             ))}
             {onSelect && (
-              <th>
+              <th scope="col">
                 <span className="sr-only">{t("review")}</span>
               </th>
             )}

@@ -120,6 +120,12 @@ summary:focus-visible {
   outline: 3px solid #0969ff;
   outline-offset: 3px;
 }
+/* Date and month fields: Chromium gives :focus-visible to their inner
+   segments, not to the field, so the field shows the ring on focus. */
+.input:is([type="month"], [type="date"], [type="time"], [type="datetime-local"]):focus {
+  outline: 3px solid #0969ff;
+  outline-offset: 3px;
+}
 /* A file input inside a button-styled label: the label shows the focus. */
 .media-upload:has(input:focus-visible) {
   outline: 3px solid #0969ff;
@@ -1418,6 +1424,10 @@ pre {
   font-size: 12px;
 }
 .table-wrap {
+  /* The containing block of absolutely positioned cell content (.sr-only
+     headers): without it they escape the scroll box and widen the page
+     (horizontal scroll at 390px, QA 2026-11-10). */
+  position: relative;
   overflow: auto;
   max-width: 100%;
   background: #fff;
@@ -1437,6 +1447,53 @@ th {
   border-bottom: 1px solid var(--border);
   padding: 13px 20px;
   white-space: nowrap;
+}
+/* Localized headers print as written ("Aktualisiert", not "Aktualisiert Am"). */
+.table-plain-head th {
+  text-transform: none;
+}
+/* The policy versions (WP5): the current version, then the history table
+   with a visible caption and the active row marked. */
+.policy-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+/* The current version and the history summary take the panel inset; the
+   history table stays full width. */
+.policy-current {
+  padding-inline: var(--panel-inset, 21px);
+}
+/* Padding, not flex: a flex summary loses its disclosure marker. */
+.policy-history > summary {
+  cursor: pointer;
+  padding: 12px var(--panel-inset, 21px);
+  line-height: 20px;
+  font-weight: 550;
+  color: #304b63;
+}
+.policy-versions caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 20px 10px;
+  color: #60738a;
+  font-size: 12px;
+}
+.policy-versions tr[aria-current="true"] td,
+.policy-versions tr[aria-current="true"] th {
+  background: #f1f7ff;
+}
+.policy-versions tbody th {
+  font-weight: 600;
+  color: #182e43;
+  text-align: left;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e9f0f7;
+  background: transparent;
+  font-size: 13px;
 }
 td {
   padding: 15px 20px;
@@ -4016,6 +4073,11 @@ body:has(dialog[open]) {
 .capability-readiness .data-row {
   padding-inline: 21px;
 }
+/* The headings of the AI budget levels and usage lists, at the row inset. */
+.capability-readiness > .field-heading,
+.ai-usage-list > .field-heading {
+  margin: 14px var(--panel-inset, 21px) -6px;
+}
 @media (max-width: 640px) {
   .index-generation > div:first-child,
   .calendar-block-row > div:first-child {
@@ -4798,6 +4860,16 @@ body:has(dialog[open]) {
   max-height: none;
   padding: 14px;
 }
+/* A blocking notice (the assistant budget) in the messages: it keeps its
+   height, and the empty state above it shrinks to its content. */
+.chat-notice-slot {
+  flex: none;
+}
+.chat-messages-blocked > .empty {
+  flex: none;
+  min-height: 0;
+  padding-block: 12px;
+}
 .assistant-panel .chat-message {
   max-width: 94%;
   min-width: 0;
@@ -5156,6 +5228,158 @@ body:has(dialog[open]) {
     flex: 1 1 calc(50% - 8px);
     min-height: 44px;
   }
+}
+/* Approval lanes (WP3): open actions, reviewed, released, history. */
+.approval-lanes {
+  display: grid;
+  gap: 18px;
+}
+.approval-lane .lane-count {
+  color: var(--muted-foreground);
+  font-weight: 500;
+  margin-left: 6px;
+}
+.approval-lane > .panel-head h2,
+details.approval-lane > summary h2 {
+  font-size: 20px;
+}
+.approval-lane .panel-head h3 {
+  font-size: 16px;
+}
+details.approval-lane {
+  padding: 0 20px 16px;
+}
+details.approval-lane > summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+details.approval-lane > summary::-webkit-details-marker {
+  display: none;
+}
+details.approval-lane > summary h2 {
+  margin: 0;
+}
+details.approval-lane > summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted-foreground);
+  border-bottom: 2px solid var(--muted-foreground);
+  transform: rotate(45deg);
+  flex: none;
+}
+details.approval-lane[open] > summary::after {
+  transform: rotate(-135deg);
+}
+.approval-variants {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.approval-variant {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+/* Stop and its note sit on the row of the version they act on and wrap
+   under it on narrow screens (QA 2026-11-10). */
+.approval-variant-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.approval-variant-controls:has(> .alert) {
+  flex-basis: 100%;
+}
+.approval-variant-controls > .form-actions {
+  margin: 0;
+}
+.approval-variant-controls > .panel-note {
+  padding: 0;
+}
+/* Content rows of a lane share the panel inset with its head; their
+   divider stays full width. Collapsible lanes pad themselves. */
+section.approval-list > .approval-content-item {
+  padding-inline: var(--panel-inset, 21px);
+}
+section.panel.approval-list > .approval-content-item:last-child {
+  padding-bottom: var(--panel-inset-block, 18px);
+}
+section.approval-list > .form-actions.approval-actions {
+  margin-inline: var(--panel-inset, 21px);
+}
+section.panel.approval-list > .form-actions.approval-actions:last-child {
+  margin-bottom: var(--panel-inset-block, 18px);
+}
+.approval-list > .panel-head + .panel-note {
+  padding-top: 0;
+}
+details.approval-lane > .panel-note {
+  padding-inline: 0;
+  padding-top: 4px;
+}
+.approval-variant-controls:empty {
+  display: none;
+}
+.approval-item.is-focused {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.cleanup-items {
+  display: grid;
+  gap: 4px;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cleanup-items li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+/* A platform's letter mark beside its name (platform/ui/platform-mark.tsx). */
+.platform-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex: none;
+}
+.channel-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.content-group-toggle {
+  min-height: 44px;
+  min-width: 44px;
+}
+.content-variant-row td:first-child {
+  padding-left: 32px;
 }
 /* Agent hub on the overview: live run graph, up next and health. */
 .agent-activity {
@@ -9232,5 +9456,207 @@ button.drive-file-name {
   }
   .drive-tree-panel {
     max-height: none;
+  }
+}
+/* Brand asset tiles and archived social accounts (WP4, 2026-11-10). The
+   tiles keep `.asset-card` for existing selectors and override its compact
+   two-column layout; three to four tiles per desktop row, one on phones. */
+.asset-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.asset-filters > .input {
+  width: auto;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.asset-filters > input.input {
+  flex-basis: 220px;
+}
+/* Straight in the panel: the panel inset like .page-actions. */
+.panel > :is(.asset-filters, .asset-tile-grid, .asset-tile-list) {
+  margin-inline: var(--panel-content-inset, var(--panel-inset));
+}
+.panel > :is(.asset-tile-grid, .asset-tile-list) {
+  margin-bottom: var(--panel-content-inset-block, var(--panel-inset-block));
+}
+.asset-filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 13px;
+  color: #244563;
+  cursor: pointer;
+}
+.asset-library.asset-tile-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 16px;
+}
+.data-list.asset-tile-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+.asset-card.asset-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.asset-tile-preview {
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #f6fbff;
+  overflow: hidden;
+}
+.asset-tile-preview > img,
+.asset-tile-preview > .asset-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  object-fit: contain;
+}
+.asset-tile-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.asset-tile .asset-tile-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.asset-tile .asset-tile-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.asset-tile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.asset-tile .panel-note {
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.asset-tile .field-check {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 12px;
+  color: #244563;
+  cursor: pointer;
+}
+.asset-tile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+.asset-tile-actions > .button {
+  flex: 1 1 auto;
+  padding-inline: 14px;
+}
+.asset-tile-details {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+  font-size: 12px;
+}
+.asset-tile-details > summary,
+.social-archived-accounts > summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  cursor: pointer;
+  color: #275f92;
+  font-weight: 600;
+}
+.asset-tile-details dl {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+.asset-tile-details dt {
+  color: var(--muted-foreground);
+}
+.asset-tile-details dd {
+  margin: 2px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+}
+.asset-tile-list .asset-card.asset-tile {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: start;
+  column-gap: 16px;
+}
+.asset-tile-list .asset-tile-preview {
+  grid-row: span 3;
+}
+.asset-tile-list .asset-tile-actions,
+.asset-tile-list .asset-tile-details {
+  grid-column: 2;
+}
+.social-archived-accounts {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+.social-archived-accounts .settings-rows {
+  margin-top: 8px;
+  opacity: 0.86;
+}
+.social-account-name {
+  color: var(--muted-foreground);
+}
+@media (max-width: 760px) {
+  .asset-filters > .input,
+  .asset-filters > input.input {
+    flex-basis: 100%;
+    font-size: 16px;
+  }
+  .asset-tile-list .asset-card.asset-tile {
+    display: flex;
+  }
+  .asset-tile-list .asset-tile-preview {
+    grid-row: auto;
+  }
+}
+@media (forced-colors: active) {
+  .asset-card.asset-tile,
+  .asset-tile-preview {
+    border: 1px solid CanvasText;
   }
 }

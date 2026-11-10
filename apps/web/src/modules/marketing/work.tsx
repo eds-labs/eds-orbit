@@ -2,10 +2,32 @@
 import { profileCampaignTypes } from "./profile-fields";
 import { contentLanguageOptions } from "@/platform/project-settings/project-configuration";
 import { AppLink } from "@/platform/ui/app-link";
-import { openExceptions, pausedPosts } from "./approval-lists";
+import {
+  approvalLanes,
+  approvalSlots,
+  groupByBase,
+  hasActiveHandoff,
+  openExceptions,
+  pausedPosts,
+  type LaneItem,
+} from "./approval-lists";
+import {
+  ContentLaneList,
+  Lane,
+  liveHandoff,
+  releaseNote,
+} from "./approvals-lanes";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
-import { APPROVAL_STATUSES, approvalItems } from "./draft-cleanup";
+import { marketingText } from "./labels";
+import { exceptionText, hasExceptionText } from "@/lib/exception-text";
+import { APPROVAL_STATUSES } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
+import { ContentGroupRows, contentGroups } from "./content-studio";
+import {
+  ChannelLabel,
+  channelInfo,
+  useChannelDirectory,
+} from "./channel-names";
 import {
   AdaptationDialog,
   BriefProposalDialog,
@@ -71,7 +93,33 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { EvidenceItems } from "@/platform/ui/evidence";
-import { decisionErrorText, UpcomingAssignmentPosts } from "./assignments";
+import {
+  AwaitingOwnerDraftList,
+  decisionErrorText,
+  draftGroups,
+  UpcomingPostControls,
+  UpcomingPostList,
+  useAssignmentApprovals,
+  type AwaitingOwnerDraft,
+} from "./assignments";
+import { useSearchParams } from "next/navigation";
+/** Every content format (packages/schemas content `type`) with its words. */
+const CONTENT_TYPES = [
+  "social",
+  "blog",
+  "newsletter",
+  "ad",
+  "script",
+  "community",
+] as const;
+function contentTypeOptions(locale: "en" | "de") {
+  const words = marketingText(locale).contentTypes;
+  return CONTENT_TYPES.map((value) => ({
+    value,
+    label: words[value] ?? value,
+  }));
+}
+
 export function Missions() {
   const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
   const resource = useCollection("missions");
@@ -537,14 +585,7 @@ export function MissionEditor({
       name: "contentType",
       label: de ? "Inhaltstyp" : "Content type",
       type: "select",
-      options: options([
-        "social",
-        "blog",
-        "newsletter",
-        "ad",
-        "script",
-        "community",
-      ]),
+      options: contentTypeOptions(locale),
       value: "social",
     },
     {
@@ -661,12 +702,15 @@ export function MissionEditor({
   );
 }
 export function ContentStudio() {
-  const { t, locale, canEdit } = useWorkspace();
+  const { t, locale, canEdit, project } = useWorkspace();
+  const words = marketingText(locale);
   const resource = useCollection("content");
+  const channels = useChannelDirectory();
   const [community, setCommunity] = useState(false);
   const [filter, setFilter] = useState(""),
     [type, setType] = useState("all"),
     [create, setCreate] = useState(false),
+    [showReplaced, setShowReplaced] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null);
   const items = (resource.data?.items || []).filter(
     (e) =>
@@ -675,15 +719,16 @@ export function ContentStudio() {
         .toLowerCase()
         .includes(filter.toLowerCase()),
   );
+  const { groups, replaced } = contentGroups(items, { showReplaced });
   if (community)
     return (
       <>
         <PageHead
-          title="Community questions"
-          description="Labeled imports, recurring topics and accountable internal drafts."
+          title={words.content.community}
+          description={words.content.communityIntro}
         >
           <Button variant="outline" onClick={() => setCommunity(false)}>
-            Content Studio
+            {words.content.studio}
           </Button>
         </PageHead>
         <CommunityQuestions />
@@ -691,16 +736,9 @@ export function ContentStudio() {
     );
   return (
     <>
-      <PageHead
-        title={t("content")}
-        description={
-          locale === "de"
-            ? "Von belegten Ideen zu überprüften Inhalten."
-            : "From source-backed ideas to reviewed content."
-        }
-      >
+      <PageHead title={t("content")} description={words.content.description}>
         <Button variant="outline" onClick={() => setCommunity(true)}>
-          Community questions
+          {words.content.community}
         </Button>
         {canEdit && (
           <Button onClick={() => setCreate(true)}>
@@ -713,33 +751,39 @@ export function ContentStudio() {
         <div className="search-field">
           <Search />
           <Input
-            aria-label="Search content"
+            aria-label={words.content.search}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder={
-              locale === "de" ? "Inhalte durchsuchen" : "Search content"
-            }
+            placeholder={words.content.search}
           />
         </div>
         <select
           className="input"
-          aria-label="Content type"
+          aria-label={words.content.format}
           value={type}
           onChange={(e) => setType(e.target.value)}
         >
-          <option value="all">
-            {locale === "de" ? "Alle Formate" : "All formats"}
-          </option>
-          {["social", "blog", "newsletter", "ad", "script", "community"].map(
-            (s) => (
-              <option key={s}>{s}</option>
-            ),
-          )}
+          <option value="all">{words.content.allFormats}</option>
+          {contentTypeOptions(locale).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
+        {replaced > 0 && (
+          <label className="approval-history-toggle">
+            <input
+              type="checkbox"
+              checked={showReplaced}
+              onChange={(e) => setShowReplaced(e.target.checked)}
+            />{" "}
+            {words.content.showReplaced(replaced)}
+          </label>
+        )}
         <Button asChild variant="outline">
           <AppLink href="/calendar">
             <CalendarDays data-icon="inline-start" />
-            {t("calendar")}
+            {words.calendar.title}
           </AppLink>
         </Button>
       </div>
@@ -748,10 +792,12 @@ export function ContentStudio() {
         <Loading />
       ) : (
         <section className="panel">
-          {items.length ? (
-            <EntityRows
-              items={items}
-              fields={["title", "type", "channel", "status", "updatedAt"]}
+          {groups.length ? (
+            <ContentGroupRows
+              groups={groups}
+              channels={channels}
+              locale={locale}
+              timezone={project.timezone}
               onSelect={setSelected}
             />
           ) : (
@@ -831,14 +877,7 @@ export function ContentEditor({
       label: "Format",
       type: "select",
       value: String(d?.type || "social"),
-      options: options([
-        "social",
-        "blog",
-        "newsletter",
-        "ad",
-        "script",
-        "community",
-      ]),
+      options: contentTypeOptions(locale),
     },
     {
       name: "language",
@@ -1155,6 +1194,8 @@ export function ContentDetail({
 }) {
   const { project, t, locale, canEdit, isOwner, refresh } = useWorkspace();
   const connectors = useCollection("connectors");
+  const publications = useCollection("publications"),
+    handoffs = useCollection("postiz_drafts");
   const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const [creative, setCreative] = useState(false);
   const [humanConfirm, setHumanConfirm] = useState(false),
@@ -1366,6 +1407,11 @@ export function ContentDetail({
         <DraftDecisionSection
           content={current}
           canDecide={isOwner}
+          handedOn={hasActiveHandoff(
+            current.id,
+            publications.data?.items ?? [],
+            handoffs.data?.items ?? [],
+          )}
           de={locale === "de"}
           onDone={() => {
             refresh();
@@ -1381,16 +1427,21 @@ export function ContentDetail({
 /**
  * The owner's reject or discard of a draft in its detail view (the same
  * decisions as on the approvals page; nothing is deleted). Others see the
- * actions disabled with the reason, not missing buttons.
+ * actions disabled with the reason, not missing buttons; so does everyone
+ * while a live publication or Postiz draft holds the draft (the server
+ * would refuse with DRAFT_HAS_PUBLICATION).
  */
-function DraftDecisionSection({
+export function DraftDecisionSection({
   content,
   canDecide,
+  handedOn = false,
   de,
   onDone,
 }: {
   content: Entity;
   canDecide: boolean;
+  /** A publication or Postiz draft that is not canceled or failed holds it. */
+  handedOn?: boolean;
   de: boolean;
   onDone: () => void;
 }) {
@@ -1423,18 +1474,23 @@ function DraftDecisionSection({
             : "Only an owner can reject or discard this draft."}
         </p>
       )}
+      {handedOn && (
+        <p className="panel-note" role="note">
+          {decisionErrorText("DRAFT_HAS_PUBLICATION", de)}
+        </p>
+      )}
       {mode === null && (
         <div className="form-actions approval-actions">
           <Button
             variant="outline"
-            disabled={!canDecide || mutation.pending}
+            disabled={!canDecide || handedOn || mutation.pending}
             onClick={() => setMode("reject")}
           >
             {de ? "Ablehnen" : "Reject"}
           </Button>
           <Button
             variant="outline"
-            disabled={!canDecide || mutation.pending}
+            disabled={!canDecide || handedOn || mutation.pending}
             onClick={() => setMode("discard")}
           >
             {de ? "Verwerfen" : "Discard"}
@@ -1658,7 +1714,7 @@ function PausedPublications() {
     <section className="panel approval-list">
       <div className="panel-head">
         <div>
-          <h2>{de ? "Gestoppte Posts" : "Stopped posts"}</h2>
+          <h3>{de ? "Gestoppte Posts" : "Stopped posts"}</h3>
           <p>
             {project.paused
               ? de
@@ -1711,20 +1767,208 @@ function PausedPublications() {
     </section>
   );
 }
-export function ApprovalInbox() {
-  const { t, locale, project, isOwner, refresh } = useWorkspace();
+/** History rows the approvals page shows, newest first. */
+const HISTORY_LIMIT = 50;
+/**
+ * An open exception in words (plan 2026-11-10, WP2 D): what happened, why
+ * and what to do, with the setting that resolves it. A code with its own
+ * text speaks the member's language even when the server stored an English
+ * title or message (the Postiz queue watch does); a stored title or message
+ * is shown only for codes without one, and a code without either keeps
+ * showing the code. The raw code stays readable under "Technical details".
+ */
+function ExceptionWords({ exception }: { exception: Entity }) {
+  const { locale } = useWorkspace();
   const de = locale === "de";
+  const code = value(exception, "code", "");
+  const text = exceptionText(locale, code);
+  const known = hasExceptionText(code);
+  const title = known
+    ? text.title
+    : value(exception, "title", "") || text.title;
+  const stored = known
+    ? ""
+    : value(exception, "message", "") || value(exception, "reason", "");
+  const cause = stored || text.cause;
+  return (
+    <>
+      <strong>{title}</strong>
+      {cause && <p>{cause}</p>}
+      {!stored && text.action && (
+        <p>
+          {text.action}{" "}
+          {text.href && (
+            <AppLink href={text.href}>
+              {de ? "Einstellung öffnen" : "Open the setting"}
+            </AppLink>
+          )}
+        </p>
+      )}
+      {code && title !== code && (
+        <details className="approval-diagnostics">
+          <summary>{de ? "Technische Details" : "Technical details"}</summary>
+          <code>{code}</code>
+        </details>
+      )}
+    </>
+  );
+}
+/**
+ * The approvals page in lanes (WP3, 2026-11-10), derived at read time from
+ * content, publications and Postiz drafts (approvalLanes): open actions
+ * (drafts to release, one button per channel; content to review;
+ * exceptions; stopped posts), reviewed but not scheduled, released and
+ * scheduled (who released it, Stop while it can still be stopped, the
+ * Social post), and the history. Nothing on this page writes a released
+ * row; the badge counts the open actions only.
+ */
+export function ApprovalInbox() {
+  const { t, locale, project, identity, isOwner, canEdit, refresh } =
+    useWorkspace();
+  const de = locale === "de";
+  const words = marketingText(locale).approvals;
+  const shell = useContext(ShellContext);
+  const focus = useSearchParams()?.get("publication") ?? null;
   const content = useCollection("content"),
-    exceptions = useCollection("exceptions");
+    exceptions = useCollection("exceptions"),
+    publications = useCollection("publications"),
+    postizDrafts = useCollection("postiz_drafts"),
+    missions = useCollection("missions");
+  const channels = useChannelDirectory();
+  const agent = useAssignmentApprovals();
+  const studio = shell?.features?.creativeStudio === true;
   const resolve = useMutation(refresh);
   const [selected, setSelected] = useState<Entity | null>(null);
-  const items = approvalItems(content.data?.items || []);
+  const items = approvalLanes(
+    content.data?.items ?? [],
+    publications.data?.items ?? [],
+    postizDrafts.data?.items ?? [],
+    {
+      // The server's slot: the mission's planned slot, then the drafts list.
+      slots: approvalSlots(
+        content.data?.items ?? [],
+        missions.data?.items ?? [],
+        agent.drafts,
+      ),
+    },
+  );
+  // Assignment drafts have their own release list; their rows are not repeated.
+  const drafted = new Set(agent.drafts.map((d) => d.id));
+  const pending = agent.drafts.filter(
+    (d) => (d.state ?? "pending") === "pending",
+  );
+  const expired = agent.drafts.filter((d) => d.state === "expired");
+  const lane = (name: string) =>
+    items.filter((i) => i.lane === name && !drafted.has(i.content.id));
+  const open = lane("open");
+  const reviewed = lane("reviewed");
+  const released = items.filter((i) => i.lane === "released");
+  // The upcoming post behind a released version (its Stop and veto note).
+  const upcomingOf = (item: LaneItem) =>
+    agent.posts.find((post) =>
+      [...item.publications, ...item.postizDrafts].some(
+        (h) => h.id === post.id,
+      ),
+    ) ?? null;
+  const shown = new Set(
+    released.flatMap((i) =>
+      [...i.publications, ...i.postizDrafts].map((h) => h.id),
+    ),
+  );
+  // Upcoming posts whose content is not listed keep their own list.
+  const unlisted = agent.posts.filter((post) => !shown.has(post.id));
+  const cleanup = lane("cleanup");
+  const historyAll = items
+    .filter((i) => i.lane === "history")
+    .sort((a, b) =>
+      String(b.content.updatedAt).localeCompare(String(a.content.updatedAt)),
+    );
+  const history = historyAll.slice(0, HISTORY_LIMIT);
+  const exceptionRows = openExceptions(exceptions.data?.items ?? []);
+  const paused = pausedPosts(publications.data?.items ?? []);
+  const groups = (list: { content: Entity }[]) => groupByBase(list).length;
+  const openCount =
+    draftGroups(pending).length +
+    groups(open) +
+    exceptionRows.length +
+    paused.length;
+  const releasedCount = groups(released) + unlisted.length;
+  const focusLane = focus
+    ? items.find((i) => i.publications.some((p) => p.id === focus))?.lane
+    : undefined;
+  useEffect(() => {
+    if (focus && focusLane)
+      document
+        .getElementById(`publication-${focus}`)
+        ?.scrollIntoView({ block: "center" });
+  }, [focus, focusLane]);
+  const socialOpen = Boolean(
+    shell?.modules.some(
+      (m) => m.id === "social" && m.enabled && m.access !== "none",
+    ),
+  );
+  const socialLink = (item: LaneItem) => {
+    const postId = liveHandoff(item).publication?.data.socialPostId;
+    return socialOpen && shell && typeof postId === "string"
+      ? {
+          href: `${shell.hrefOf("social.posts")}?post=${encodeURIComponent(postId)}`,
+          label: words.openInSocial,
+        }
+      : null;
+  };
+  const note = (item: LaneItem) =>
+    releaseNote(item, {
+      userId: identity.user.id,
+      locale,
+      timezone: project.timezone,
+    });
+  const channelText = (item: { channel: string; channelName: string | null }) =>
+    item.channelName ?? channelInfo(item.channel, channels, locale).label;
+  const channelName = (item: {
+    channel: string;
+    channelName: string | null;
+  }) =>
+    channels.has(item.channel) ? (
+      <ChannelLabel info={channelInfo(item.channel, channels, locale)} />
+    ) : (
+      channelText(item)
+    );
+  const draftList = {
+    projectId: project.id,
+    thumbnails: studio,
+    de,
+    timezone: project.timezone,
+    canRelease: isOwner,
+    pending: agent.mutation.pending,
+    channelText,
+    channelName,
+    onRelease: agent.release,
+    onReject: (item: AwaitingOwnerDraft, reason: string) =>
+      agent.decide(item, "reject", reason ? { reason } : {}),
+    onDiscard: (item: AwaitingOwnerDraft) => agent.decide(item, "discard"),
+    onArchive: (item: { id: string; version: number }) =>
+      agent.decide(item, "archive"),
+  };
+  const list = (
+    lanes: LaneItem[],
+    extra: Partial<Parameters<typeof ContentLaneList>[0]> = {},
+  ) => (
+    <ContentLaneList
+      items={lanes}
+      channels={channels}
+      locale={locale}
+      timezone={project.timezone}
+      onSelect={setSelected}
+      {...extra}
+    />
+  );
+  const loading = content.loading && !content.data;
   return (
     <>
       <PageHead
         title={t("approvals")}
         description={
-          locale === "de"
+          de
             ? "Die Entscheidungen, die deine Aufmerksamkeit brauchen."
             : "The decisions that need your attention."
         }
@@ -1738,64 +1982,189 @@ export function ApprovalInbox() {
         </AppLink>
         .
       </p>
-      <DraftCleanup />
       <ResourceError
-        error={content.error || exceptions.error}
+        error={
+          content.error ||
+          exceptions.error ||
+          publications.error ||
+          postizDrafts.error
+        }
         retry={() => {
           content.refresh();
           exceptions.refresh();
+          publications.refresh();
+          postizDrafts.refresh();
         }}
       />
-      <PausedPublications />
-      <UpcomingAssignmentPosts />
-      {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
-      {openExceptions(exceptions.data?.items ?? []).map((e) => (
-        <Alert key={e.id} kind="warning">
-          <strong>{value(e, "title", value(e, "code"))}</strong>
-          <p>{value(e, "message", value(e, "reason"))}</p>
-          <small>
-            {de ? "Zuletzt" : "Last seen"}{" "}
-            {when(e.data.lastSeenAt, locale, project.timezone)} ·{" "}
-            {Number(e.data.count ?? 1)}×
-          </small>
-          {isOwner && (
-            <div className="form-actions">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={resolve.pending}
-                onClick={() =>
-                  resolve.run(() =>
-                    action(project.id, "resolve-exception", {
-                      exceptionId: e.id,
-                    }),
-                  )
-                }
-              >
-                {de ? "Erledigt" : "Resolved"}
-              </Button>
-            </div>
-          )}
+      {agent.error && <Alert kind="error">{agent.error.message}</Alert>}
+      {agent.mutation.error && (
+        <Alert kind="error">
+          {decisionErrorText(agent.mutation.error, de)}
         </Alert>
-      ))}
-      {content.loading ? (
+      )}
+      {focus && !loading && !focusLane && <Alert>{words.focusMissing}</Alert>}
+      {loading ? (
         <Loading />
       ) : (
-        <section className="panel">
-          {items.length ? (
-            <EntityRows
-              items={items}
-              fields={["title", "type", "status", "updatedAt"]}
-              onSelect={setSelected}
-            />
-          ) : (
-            <Empty
-              icon={CircleCheck}
-              title={t("noApprovals")}
-              description={t("approvalHint")}
-            />
+        <div className="approval-lanes">
+          <Lane
+            id="approvals-open"
+            title={words.open}
+            count={openCount}
+            intro={words.openIntro}
+          >
+            {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
+            {exceptionRows.map((e) => (
+              <Alert key={e.id} kind="warning">
+                <ExceptionWords exception={e} />
+                <small>
+                  {de ? "Zuletzt" : "Last seen"}{" "}
+                  {when(e.data.lastSeenAt, locale, project.timezone)} ·{" "}
+                  {Number(e.data.count ?? 1)}×
+                </small>
+                {isOwner && (
+                  <div className="form-actions">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={resolve.pending}
+                      onClick={() =>
+                        resolve.run(() =>
+                          action(project.id, "resolve-exception", {
+                            exceptionId: e.id,
+                          }),
+                        )
+                      }
+                    >
+                      {de ? "Erledigt" : "Resolved"}
+                    </Button>
+                  </div>
+                )}
+              </Alert>
+            ))}
+            <PausedPublications />
+            <AwaitingOwnerDraftList items={pending} {...draftList} />
+            {open.length > 0 && (
+              <section className="panel approval-list">
+                <div className="panel-head">
+                  <div>
+                    <h3>{words.openContent}</h3>
+                    <p>{words.openContentIntro}</p>
+                  </div>
+                </div>
+                {list(open)}
+              </section>
+            )}
+            {openCount === 0 && (
+              <Empty
+                icon={CircleCheck}
+                title={words.openEmpty}
+                description={t("approvalHint")}
+              />
+            )}
+          </Lane>
+          {(isOwner || expired.length > 0 || cleanup.length > 0) && (
+            <section
+              className="panel approval-list"
+              aria-labelledby="approvals-cleanup-title"
+            >
+              <div className="panel-head">
+                <div>
+                  <h2 id="approvals-cleanup-title">{words.cleanup}</h2>
+                </div>
+              </div>
+              <DraftCleanup />
+              {!isOwner && <p className="panel-note">{words.cleanupHint}</p>}
+              <AwaitingOwnerDraftList
+                items={expired}
+                {...draftList}
+                heading={{ title: words.expired, text: words.expiredIntro }}
+              />
+              {cleanup.length > 0 && list(cleanup)}
+            </section>
           )}
-        </section>
+          <Lane
+            id="approvals-reviewed"
+            title={words.reviewed}
+            count={groups(reviewed)}
+            intro={words.reviewedIntro}
+            collapsible
+            open={focusLane === "reviewed"}
+          >
+            {list(reviewed)}
+          </Lane>
+          <Lane
+            id="approvals-released"
+            title={words.released}
+            count={releasedCount}
+            intro={words.releasedIntro}
+          >
+            {focus && focusLane === "released" && (
+              <Alert>{words.focused}</Alert>
+            )}
+            {unlisted.length > 0 && (
+              <UpcomingPostList
+                items={unlisted}
+                de={de}
+                timezone={project.timezone}
+                canStop={canEdit}
+                pending={agent.mutation.pending}
+                handedOver={agent.handedOver}
+                onStop={agent.stop}
+              />
+            )}
+            {released.length > 0 &&
+              list(released, {
+                note,
+                link: socialLink,
+                focus,
+                controls: (item, channel) => {
+                  // A Postiz draft hand-off has no Stop; its note says enough.
+                  const upcoming = upcomingOf(item);
+                  return upcoming && upcoming.delivery !== "postiz_draft" ? (
+                    <UpcomingPostControls
+                      item={upcoming}
+                      stopLabel={`Stop – ${channel}`}
+                      de={de}
+                      timezone={project.timezone}
+                      canStop={canEdit}
+                      pending={agent.mutation.pending}
+                      handedOver={agent.handedOver}
+                      onStop={agent.stop}
+                      compact
+                    />
+                  ) : null;
+                },
+              })}
+            {releasedCount === 0 && (
+              <p className="panel-note">{words.releasedEmpty}</p>
+            )}
+          </Lane>
+          <Lane
+            id="approvals-history"
+            title={words.history}
+            count={groups(historyAll)}
+            intro={words.historyIntro}
+            collapsible
+            open={focusLane === "history"}
+          >
+            {history.length > 0 && list(history, { focus })}
+            {historyAll.length > HISTORY_LIMIT && (
+              <p className="panel-note">{words.historyNewest(HISTORY_LIMIT)}</p>
+            )}
+            {(agent.history.length > 0 || agent.showArchived) && (
+              <AwaitingOwnerDraftList
+                items={[]}
+                history={agent.history}
+                showArchived={agent.showArchived}
+                onShowArchived={agent.setShowArchived}
+                {...draftList}
+                heading={{ title: words.decisions, text: words.decisionsIntro }}
+                historyAs="list"
+              />
+            )}
+          </Lane>
+        </div>
       )}
       {selected && (
         <ContentDetail entity={selected} onClose={() => setSelected(null)} />
@@ -1803,8 +2172,21 @@ export function ApprovalInbox() {
     </>
   );
 }
+/**
+ * The editorial plan (route key `calendar`, WP5 2026-11-10): content items
+ * planned by month and the owner's blocked periods. It publishes nothing;
+ * with the Social module on, it links to the Social calendar (by route key,
+ * no import of that module).
+ */
 export function CalendarView() {
   const { t, locale, project } = useWorkspace();
+  const words = marketingText(locale).calendar;
+  const shell = useContext(ShellContext);
+  const socialCalendar = shell?.modules.some(
+    (m) => m.id === "social" && m.enabled && m.access !== "none",
+  )
+    ? shell.hrefOf("social.calendar")
+    : null;
   const resource = useCollection("content");
   const blocks = useCollection("calendar_blocks");
   const handoffs = useCollection("postiz_drafts");
@@ -1850,20 +2232,25 @@ export function CalendarView() {
   return (
     <>
       <PageHead
-        title={t("calendar")}
-        description={`${locale === "de" ? "Planung und Inhalte teilen denselben Datenstand." : "Your schedule and content share one source of truth."} ${project.timezone}`}
+        title={words.title}
+        description={words.description(project.timezone)}
       >
         <Input
-          aria-label="Calendar month"
+          aria-label={words.month}
           type="month"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
         />
       </PageHead>
       <Alert>
-        {locale === "de"
-          ? "Termine bearbeitest du über das Inhaltsformular – vollständig per Tastatur. Jede Änderung hebt veraltete Freigaben auf."
-          : "Edit a schedule through the content form, fully accessible by keyboard. Changes invalidate outdated approvals."}
+        <p>{words.scheduleHint}</p>
+        {socialCalendar && (
+          <p>
+            <AppLink className="text-link" href={socialCalendar}>
+              {words.socialLink}
+            </AppLink>
+          </p>
+        )}
       </Alert>
       <ResourceError
         error={resource.error || blocks.error}
@@ -1876,7 +2263,7 @@ export function CalendarView() {
       {resource.loading ? (
         <Loading />
       ) : (
-        <section className="panel calendar-list">
+        <section className="panel calendar-list" aria-label={words.items}>
           {items.length ? (
             items
               .sort((a, b) =>
@@ -1907,7 +2294,7 @@ export function CalendarView() {
                   {(blocks.data?.items || []).some((block) =>
                     calendarBlockConflicts(block, e),
                   ) ? (
-                    <Badge tone="danger">Calendar conflict</Badge>
+                    <Badge tone="danger">{words.conflict}</Badge>
                   ) : (
                     <Status value={e.data.status} />
                   )}
@@ -1917,16 +2304,8 @@ export function CalendarView() {
           ) : (
             <Empty
               icon={CalendarDays}
-              title={
-                locale === "de"
-                  ? "Noch keine geplanten Inhalte"
-                  : "No content scheduled this month"
-              }
-              description={
-                locale === "de"
-                  ? "Öffne einen Entwurf und wähle einen Termin."
-                  : "Open a draft and choose its schedule."
-              }
+              title={words.emptyTitle}
+              description={words.emptyText}
             >
               <Button asChild variant="outline">
                 <AppLink href="/content">{t("content")}</AppLink>

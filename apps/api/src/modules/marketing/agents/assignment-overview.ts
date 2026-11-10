@@ -1,4 +1,5 @@
 import { draftReplaced } from "./draft-state.ts";
+import { baseContentId } from "../approval-state.ts";
 import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
@@ -486,6 +487,9 @@ export async function draftsAwaitingOwner(
     items.push({
       id: row.id,
       version: row.version,
+      // The original of a channel copy (R76), else the draft itself: the
+      // approvals page and the badge show a Facebook/Instagram pair once.
+      baseId: baseContentId(row),
       state: expired ? ("expired" as const) : ("pending" as const),
       channel: d.channel,
       channelName: names.get(String(d.channel)) ?? null,

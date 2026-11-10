@@ -5,7 +5,14 @@ import {
   type Scope,
 } from "../../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
-import { audit, create, data, DomainError, list, update } from "../../../shared.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  list,
+  update,
+} from "../../../shared.ts";
 import {
   activePolicyRecord,
   activeSpendPolicyRecord,
@@ -21,7 +28,10 @@ import {
   approvedOperation,
   readOperation,
 } from "../../../platform/tasks/operation-tools.ts";
-import { PROJECT_OWN, PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
+import {
+  PROJECT_OWN,
+  PROJECT_READ,
+} from "../../../platform/tenancy/permissions.ts";
 import { publishingBackend } from "../publishing/backend.ts";
 import { socialChannels } from "../../social/contract.ts";
 import {
@@ -50,12 +60,14 @@ function policyFields(row: { data: unknown } | null): Record<string, unknown> {
 
 /**
  * Saves a policy as the project's only active one (the policy form and
- * MCP). In live execution, autopilot needs a project without blockers.
+ * MCP). In live execution, autopilot needs a project on Postiz without
+ * blockers.
  */
 export async function savePolicy(tx: DbTx, scope: Scope, raw: unknown) {
   const parsed = policySchema.parse(raw);
   for (const p of await list(tx, scope, "policies"))
-    if (data(p).active) await update(tx, scope, p, { ...data(p), active: false });
+    if (data(p).active)
+      await update(tx, scope, p, { ...data(p), active: false });
   await tx.project.update({
     where: { id: scope.projectId },
     data: { mode: parsed.mode },
@@ -67,6 +79,16 @@ export async function savePolicy(tx: DbTx, scope: Scope, raw: unknown) {
     activatedAt: new Date().toISOString(),
   });
   if (parsed.mode === "autopilot" && loadConfig().EXECUTION_MODE === "live") {
+    // Live autopilot releases posts without the owner's approval of each
+    // package. Through Social (or while Postiz drains towards it) that is
+    // not approved: the owner decides it first (plan 2026-11-10, security
+    // review). Deliberately no readiness blocker, so assisted projects on
+    // Social are not shown a missing configuration.
+    if ((await publishingBackend(tx, scope)) !== "postiz")
+      throw new DomainError(
+        "LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED",
+        409,
+      );
     const state = await projectReadiness(tx, scope);
     if (state.blockers.length)
       throw new DomainError(
@@ -116,8 +138,8 @@ export async function readPolicy(tx: DbTx, scope: Scope) {
     version: await policyVersion(tx, scope),
     active: Boolean(
       policy &&
-        Date.parse(String(policy.startAt)) <= now &&
-        Date.parse(String(policy.endAt)) > now,
+      Date.parse(String(policy.startAt)) <= now &&
+      Date.parse(String(policy.endAt)) > now,
     ),
     policyId: row?.id ?? null,
     activatedAt: data(row).activatedAt ?? null,
@@ -230,9 +252,7 @@ async function proposedPolicy(tx: DbTx, scope: Scope, change: PolicyChange) {
     await assertAssignedSocialChannels(tx, scope, next.channels);
   const fields = (value: Record<string, unknown>) =>
     Object.fromEntries(POLICY_FIELDS.map((key) => [key, value[key]]));
-  const changes = requireChanges(
-    settingChanges(fields(current), fields(next)),
-  );
+  const changes = requireChanges(settingChanges(fields(current), fields(next)));
   return { next, changes };
 }
 

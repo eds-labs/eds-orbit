@@ -212,6 +212,24 @@ describe("renderAttention", () => {
     ).toBeUndefined();
   });
 
+  it("a known exception code reads as cause and action, keeping the code (WP2 D)", () => {
+    const blocked = item({
+      moduleId: "marketing",
+      kind: "marketing_exception",
+      navKey: "approvals",
+      params: { code: "AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA", affected: 2 },
+    });
+    const de = renderAttention(blocked, renderers, "de", modules);
+    expect(de.title).toBe("KI-Anbieter für Kundendaten nicht erlaubt");
+    expect(de.detail).toContain("nur an OpenAI");
+    expect(de.detail).toContain("verifiziertes OpenAI-Modell");
+    expect(de.detail).toContain("betrifft 2");
+    expect(de.detail).toContain("(AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA)");
+    expect(renderAttention(blocked, renderers, "en", modules).title).toBe(
+      "AI provider not allowed for customer data",
+    );
+  });
+
   // Every kind the API emits (Tasks 10–12) has its own text in both languages.
   it.each([
     ["support", "support_sla_breached", { number: 1, subject: "S" }],

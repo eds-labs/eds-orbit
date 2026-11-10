@@ -871,6 +871,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/ai-reservations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/ai-spend-policy": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1662,6 +1670,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/marketing/channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/marketing/settings": {
     "anonymous": "unauthenticated",
@@ -3661,7 +3677,7 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
-    "owner": "allowed:200"
+    "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/slack-configure": {
     "anonymous": "unauthenticated",

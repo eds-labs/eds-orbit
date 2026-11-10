@@ -45,6 +45,32 @@ export type FormField = {
   heading?: string;
 };
 export type FormValues = Record<string, string | boolean | File>;
+/** The form's current values, read from its elements. */
+function formValues(form: HTMLFormElement, fields: FormField[]): FormValues {
+  const f = new FormData(form),
+    values: FormValues = {};
+  for (const field of fields)
+    values[field.name] =
+      field.type === "checkbox"
+        ? f.has(field.name)
+        : field.type === "file"
+          ? (f.get(field.name) as File)
+          : String(f.get(field.name) || "");
+  return values;
+}
+/** The values a form starts with (no file chosen yet). */
+function initialValues(fields: FormField[]): FormValues {
+  return Object.fromEntries(
+    fields
+      .filter((field) => field.type !== "file")
+      .map((field) => [
+        field.name,
+        field.type === "checkbox"
+          ? Boolean(field.value)
+          : String(field.value ?? ""),
+      ]),
+  );
+}
 export function DataForm({
   fields,
   onSubmit,
@@ -53,6 +79,8 @@ export function DataForm({
   submitLabel = "Save",
   onCancel,
   t,
+  canSubmit,
+  cancelLabel,
 }: {
   fields: FormField[];
   onSubmit: (values: FormValues) => void | Promise<void>;
@@ -61,8 +89,18 @@ export function DataForm({
   submitLabel?: string;
   onCancel?: () => void;
   t?: Text;
+  /** The cancel button's words; else `t("cancel")`, else "Cancel" as before. */
+  cancelLabel?: string;
+  /**
+   * A rule across fields that HTML validation cannot express: submit stays
+   * disabled while it returns false for the current values.
+   */
+  canSubmit?: (values: FormValues) => boolean;
 }) {
   const [invalid, setInvalid] = useState(false);
+  const [ready, setReady] = useState(
+    () => !canSubmit || canSubmit(initialValues(fields)),
+  );
   const [selected, setSelected] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       fields
@@ -73,19 +111,19 @@ export function DataForm({
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setInvalid(false);
-    const f = new FormData(e.currentTarget),
-      values: FormValues = {};
-    for (const field of fields)
-      values[field.name] =
-        field.type === "checkbox"
-          ? f.has(field.name)
-          : field.type === "file"
-            ? (f.get(field.name) as File)
-            : String(f.get(field.name) || "");
+    const values = formValues(e.currentTarget, fields);
+    if (canSubmit && !canSubmit(values)) return;
     void onSubmit(values);
   }
   return (
-    <form onSubmit={submit} onInvalid={() => setInvalid(true)}>
+    <form
+      onSubmit={submit}
+      onInvalid={() => setInvalid(true)}
+      onChange={(e) => {
+        if (canSubmit)
+          setReady(canSubmit(formValues(e.currentTarget, fields)));
+      }}
+    >
       <FieldGroup>
         {fields
           .filter(
@@ -197,10 +235,10 @@ export function DataForm({
       <div className="form-actions">
         {onCancel && (
           <Button variant="outline" type="button" onClick={onCancel}>
-            {t?.("cancel") || "Cancel"}
+            {cancelLabel || t?.("cancel") || "Cancel"}
           </Button>
         )}
-        <Button type="submit" disabled={pending}>
+        <Button type="submit" disabled={pending || !ready}>
           {pending && (
             <LoaderCircle className="spin" data-icon="inline-start" />
           )}

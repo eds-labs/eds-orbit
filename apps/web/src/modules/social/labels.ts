@@ -71,6 +71,10 @@ const en = {
     verifyNote: "The test post is published for real once you approve it in Decisions.",
     verifyRequested: "Approve the test post in Decisions.",
     saved: "Saved.",
+    archivedTitle: (n: number) => `Archived accounts (${n})`,
+    archivedHint:
+      "Disconnected accounts stay here for the history of their posts. Nothing is posted to them; connect an account again to use it.",
+    disconnectedOn: "Disconnected on",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" } satisfies Record<SocialPlatform, string>,
   status: {
@@ -151,6 +155,9 @@ const en = {
     back: "All posts",
     empty: "No posts yet.",
     readOnly: "You can read this post; only owners and editors change it.",
+    heldByOrigin:
+      "Marketing holds this post: it goes out at the slot released there. Change or stop it in Marketing's approvals.",
+    closedToChanges: "This post can no longer be changed here.",
     notPlanned: "No time set",
     status: {
       draft: "Draft",
@@ -172,6 +179,13 @@ const en = {
       expired: "Request expired",
       canceled: "Request withdrawn",
     } as Record<ApprovalState, string>,
+    // Where a post came from (originRef); its approval came from there.
+    origin: {
+      marketing: "Released through Marketing",
+      draftHandoff: "Draft from Marketing – approve it here in Social",
+      postiz: "Taken over from Postiz",
+      openMarketing: "View in Marketing approvals",
+    },
     titleLabel: "Title (only shown in Orbit)",
     baseText: "Text for all accounts",
     baseMedia: "Images for all accounts",
@@ -448,6 +462,10 @@ const de: SocialText = {
     verifyNote: "Der Testbeitrag wird erst nach deiner Freigabe unter Entscheidungen wirklich veröffentlicht.",
     verifyRequested: "Gib den Testbeitrag unter Entscheidungen frei.",
     saved: "Gespeichert.",
+    archivedTitle: (n: number) => `Archivierte Konten (${n})`,
+    archivedHint:
+      "Getrennte Konten bleiben für den Verlauf ihrer Beiträge erhalten. Es wird nichts an sie veröffentlicht; verbinde ein Konto neu, um es wieder zu nutzen.",
+    disconnectedOn: "Getrennt am",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" },
   status: {
@@ -528,6 +546,9 @@ const de: SocialText = {
     back: "Alle Beiträge",
     empty: "Noch keine Beiträge.",
     readOnly: "Du kannst diesen Beitrag lesen; ändern dürfen ihn nur Owner und Editoren.",
+    heldByOrigin:
+      "Marketing hält diesen Beitrag: Er geht zum dort freigegebenen Termin raus. Ändern oder stoppen kannst du ihn in den Marketing-Freigaben.",
+    closedToChanges: "Dieser Beitrag lässt sich hier nicht mehr ändern.",
     notPlanned: "Keine Zeit festgelegt",
     status: {
       draft: "Entwurf",
@@ -548,6 +569,12 @@ const de: SocialText = {
       rejected: "Freigabe abgelehnt",
       expired: "Anfrage abgelaufen",
       canceled: "Anfrage zurückgezogen",
+    },
+    origin: {
+      marketing: "Freigegeben über Marketing",
+      draftHandoff: "Entwurf aus Marketing – Freigabe hier in Social",
+      postiz: "Aus Postiz übernommen",
+      openMarketing: "In den Marketing-Freigaben ansehen",
     },
     titleLabel: "Titel (nur in Orbit sichtbar)",
     baseText: "Text für alle Konten",

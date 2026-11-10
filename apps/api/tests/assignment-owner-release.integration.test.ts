@@ -61,6 +61,10 @@ import {
   upcomingAssignmentPosts,
 } from "../src/modules/agents/assignment-overview.ts";
 import { decideDraft } from "../src/modules/marketing/pipeline/content-decisions.ts";
+import { marketingAttention } from "../src/modules/marketing/attention.ts";
+import { approvalLane } from "../src/modules/marketing/approval-state.ts";
+import { archiveOldDrafts } from "../src/modules/marketing/pipeline/draft-cleanup.ts";
+import { channelDirectory } from "../src/modules/marketing/publishing/channel-directory.ts";
 import {
   vetoPublication,
   withdrawAssignmentPublications,
@@ -389,6 +393,49 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     expect(
       (await h.rows("jobs")).filter((job) => job.topic === "publishing"),
     ).toHaveLength(1);
+  });
+
+  it("leaves a released draft reviewed, its version untouched by every read of the approvals page (WP3)", async () => {
+    const { drafts } = await leftForOwner();
+    const released = await release(project.owner, drafts[0]!);
+    const after = async () =>
+      (await contents()).find((c) => c.id === drafts[0]!.id)!;
+    const row = await after();
+    // The release reviews the draft once; nothing later writes it.
+    expect(row.status).toBe("reviewed");
+    const [publication] = await publications();
+    expect(publication).toMatchObject({
+      id: released.publicationId,
+      contentId: row.id,
+      contentVersion: row.version,
+      status: "intent_created",
+    });
+    // The page, the badge and the cleanup preview only read.
+    const items = await h.run((tx) =>
+      marketingAttention(tx, project.owner, new Date()),
+    );
+    expect(items.some((i) => i.id === `marketing:draft:${row.id}`)).toBe(false);
+    await h.run((tx) => draftsAwaitingOwner(tx, project.owner));
+    await h.run((tx) => draftDecisionHistory(tx, project.owner));
+    await h.run((tx) => upcomingAssignmentPosts(tx, project.owner));
+    await h.run((tx) => channelDirectory(tx, project.owner));
+    const preview = await h.run((tx) =>
+      archiveOldDrafts(tx, project.owner, { preview: true }),
+    );
+    expect(preview.items?.find((i) => i.contentId === row.id)).toMatchObject({
+      action: "keep",
+      reason: "HAS_OPEN_PUBLICATION",
+    });
+    const unchanged = await after();
+    expect(unchanged.version).toBe(row.version);
+    expect(unchanged).toEqual(row);
+    expect((await publications())[0]).toEqual(publication);
+    // Its lane is derived from the publication: released, not open.
+    expect(
+      approvalLane(unchanged, {
+        handoffs: [{ kind: "publication", status: publication!.status }],
+      }),
+    ).toBe("released");
   });
 
   it("moves to the next free slot of the day when the run slot is taken", async () => {

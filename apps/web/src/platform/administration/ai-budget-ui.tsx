@@ -1,20 +1,59 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { put, useMutation, useResource, usd, when } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { aiErrorText, aiTasks, taskName } from "@/lib/ai-presets";
 import { Alert, Badge, Button, Loading, Modal } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
 import { DataForm, str, type FormField, type FormValues } from "@/platform/ui/form";
+import { ASSISTANT_BUDGET_ANCHOR } from "@/platform/assistant/budget-notice";
 
 // "Budget" and "Verbrauch" of an organization's AI area (plans/
 // ai-central-management.md, phase C): one monthly budget for all projects,
 // a cap per provider, the provider balances as last read, and the month's
-// spend across projects. Organization owners only (decision D-6).
+// spend across projects. Since plan 2026-11-10 (WP2 B) three blocks show
+// what limits apply: the organization's, the personal assistant's per
+// member (with the members' usage as one sum) and each project's own
+// spending authority, with state and origin. Organization owners only
+// (decision D-6).
 
 type Provider = "openai" | "anthropic";
 type Level = "ok" | "warn" | "warn2" | "stopped" | null;
 type Credit = { amountMicros: number; verifiedAt: string; note?: string };
+type LimitState = "off" | "not_set" | "active";
+type ProjectState = LimitState | "expired" | "invalid";
+type Origin = { by: { id: string; name: string } | null; at: string } | null;
+export type BudgetLevels = {
+  organization: {
+    state: LimitState;
+    monthlyMicros: number | null;
+    spentMicros: number;
+    origin: Origin;
+  };
+  assistant: {
+    /** ORBIT_PERSONAL_ASSISTANT is on. */
+    available: boolean;
+    state: LimitState;
+    capMicros: number | null;
+    perDayMicros: number | null;
+    perAnswerMicros: number | null;
+    /** All personal spaces of this month as one sum (ADR 0022). */
+    usage: { spentMicros: number; unknownMicros: number; spaces: number };
+    origin: Origin;
+  };
+  projects: {
+    projectId: string;
+    name: string;
+    state: ProjectState;
+    source: "platform" | "marketing_policy" | "none";
+    monthlyBudgetMicros: number | null;
+    dailyBudgetMicros: number | null;
+    perRunBudgetMicros: number | null;
+    endAt: string | null;
+    spentMicros: number;
+    origin: Origin;
+  }[];
+};
 type BudgetView = {
   enabled: boolean;
   periodStart: string;
@@ -26,6 +65,8 @@ type BudgetView = {
     credits: Partial<Record<Provider, Credit>>;
     version: number;
   } | null;
+  /** Absent from an older API. */
+  levels?: BudgetLevels;
   spend: { spentMicros: number; reservedMicros: number; settledMicros: number; level: Level };
   providers: Record<Provider, { spentMicros: number; capMicros: number | null; level: Level }>;
   proposal: {
@@ -38,6 +79,8 @@ type UsageRow = { key: string; spentMicros: number; unknownMicros: number; count
 type UsageView = {
   periodStart: string;
   projects: { projectId: string; name: string; spentMicros: number; unknownMicros: number; count: number }[];
+  /** The personal spaces as one sum, never per user (ADR 0022). */
+  assistants?: { spentMicros: number; unknownMicros: number; count: number; spaces: number };
   providers: UsageRow[];
   models: UsageRow[];
   tasks: UsageRow[];
@@ -51,7 +94,47 @@ const text = {
     title: "AI budget",
     intro:
       "One monthly budget for all projects of the organization and an optional cap per provider. Orbit stops a call before it would pass a limit; warnings at 75 % and 90 %.",
-    off: "Not switched on for this installation yet: limits are saved but not applied, and spend is not counted.",
+    off: "The organization's monthly budget and provider caps are saved but not applied on this installation yet, and spend is not counted against them. The personal assistant's cap per member applies regardless.",
+    orgLevel: "Organization limit",
+    orgHint: "One monthly amount for all projects of the organization, checked before every paid call.",
+    assistantLevel: "Personal assistant per member",
+    assistantLevelHint:
+      "The only budget the personal assistant is paid from; project budgets never fund it. It applies whether or not the organization limit is switched on.",
+    assistantUnavailable: "The personal assistant is switched off on this installation.",
+    perAnswer: (answer: string, day: string) => `up to ${answer} per answer, ${day} per day`,
+    assistantUsage: (spent: string, spaces: number) =>
+      `${spent} this month across ${spaces} personal ${spaces === 1 ? "space" : "spaces"} (one sum, never per member)`,
+    projectsLevel: "Project limits",
+    projectsHint:
+      "Each project's own AI spending authority (Settings → AI & budget in the project). A project call needs it and, while switched on, also fits the organization limit.",
+    projectsEmpty: "No business projects yet.",
+    projectLimits: (month: string, day: string, run: string) =>
+      `${month} a month · ${day} a day · ${run} per run`,
+    spentThisMonth: (spent: string) => `${spent} this month`,
+    until: (date: string) => `until ${date}`,
+    fromMarketing: "from the Marketing policy (rollback mode)",
+    origin: (who: string, at: string) => `Set by ${who} on ${at}`,
+    originAt: (at: string) => `Set on ${at}`,
+    states: {
+      organization: {
+        off: "saved, not applied",
+        not_set: "not set: no limit",
+        active: "active",
+      },
+      assistant: {
+        off: "USD 0: no paid answers",
+        not_set: "not set: no paid answers",
+        active: "active",
+      },
+      project: {
+        off: "off",
+        not_set: "no spending authority",
+        active: "active",
+        expired: "expired",
+        invalid: "invalid",
+      },
+    },
+    assistantsRow: (spaces: number) => `Personal assistants (${spaces} ${spaces === 1 ? "member" : "members"}, one sum)`,
     month: "This month",
     noLimit: "no limit",
     cap: "Cap",
@@ -90,7 +173,48 @@ const text = {
     title: "KI-Budget",
     intro:
       "Ein Monatsbudget für alle Projekte der Organisation und optional eine Obergrenze pro Anbieter. Orbit stoppt einen Aufruf, bevor er ein Limit überschreiten würde; Warnungen bei 75 % und 90 %.",
-    off: "Für diese Installation noch nicht eingeschaltet: Limits werden gespeichert, aber nicht angewendet, und Ausgaben werden nicht gezählt.",
+    off: "Monatsbudget und Anbieter-Obergrenzen der Organisation werden auf dieser Installation gespeichert, aber noch nicht angewendet, und Ausgaben werden nicht dagegen gezählt. Die Obergrenze des persönlichen Assistenten pro Mitglied gilt trotzdem.",
+    orgLevel: "Limit der Organisation",
+    orgHint: "Ein Monatsbetrag für alle Projekte der Organisation, vor jedem bezahlten Aufruf geprüft.",
+    assistantLevel: "Persönlicher Assistent pro Mitglied",
+    assistantLevelHint:
+      "Das einzige Budget, aus dem der persönliche Assistent bezahlt wird; Projektbudgets gelten dafür nie. Es gilt unabhängig davon, ob das Limit der Organisation eingeschaltet ist.",
+    assistantUnavailable: "Der persönliche Assistent ist auf dieser Installation ausgeschaltet.",
+    perAnswer: (answer: string, day: string) => `bis ${answer} pro Antwort, ${day} pro Tag`,
+    assistantUsage: (spent: string, spaces: number) =>
+      `${spent} diesen Monat über ${spaces} ${spaces === 1 ? "persönlichen Bereich" : "persönliche Bereiche"} (eine Summe, nie pro Mitglied)`,
+    projectsLevel: "Limits der Projekte",
+    projectsHint:
+      "Die eigene KI-Ausgabefreigabe jedes Projekts (im Projekt unter Einstellungen → KI & Budget). Ein Projektaufruf braucht sie und muss, wenn eingeschaltet, auch in das Limit der Organisation passen.",
+    projectsEmpty: "Noch keine Projekte.",
+    projectLimits: (month: string, day: string, run: string) =>
+      `${month} im Monat · ${day} am Tag · ${run} pro Lauf`,
+    spentThisMonth: (spent: string) => `${spent} diesen Monat`,
+    until: (date: string) => `bis ${date}`,
+    fromMarketing: "aus der Marketing-Richtlinie (Rückfallmodus)",
+    origin: (who: string, at: string) => `Festgelegt von ${who} am ${at}`,
+    originAt: (at: string) => `Festgelegt am ${at}`,
+    states: {
+      organization: {
+        off: "gespeichert, nicht angewendet",
+        not_set: "nicht gesetzt: kein Limit",
+        active: "aktiv",
+      },
+      assistant: {
+        off: "0 USD: keine bezahlten Antworten",
+        not_set: "nicht gesetzt: keine bezahlten Antworten",
+        active: "aktiv",
+      },
+      project: {
+        off: "aus",
+        not_set: "keine Ausgabefreigabe",
+        active: "aktiv",
+        expired: "abgelaufen",
+        invalid: "ungültig",
+      },
+    },
+    assistantsRow: (spaces: number) =>
+      `Persönliche Assistenten (${spaces} ${spaces === 1 ? "Mitglied" : "Mitglieder"}, eine Summe)`,
     month: "Dieser Monat",
     noLimit: "kein Limit",
     cap: "Obergrenze",
@@ -127,22 +251,134 @@ const text = {
   },
 } as const;
 type Text = (typeof text)["en" | "de"];
+/** The panel texts of a locale (tests render the blocks with them). */
+export const aiBudgetText = (locale: Locale): Text =>
+  text[locale === "de" ? "de" : "en"];
 
 function LevelBadge({ level, t }: { level: Level; t: Text }) {
   if (!level || level === "ok") return null;
   return <Badge tone={level === "stopped" ? "danger" : "warning"}>{t.levels[level]}</Badge>;
 }
 
+const stateTone = (state: ProjectState, limitIsOptional: boolean) =>
+  state === "active"
+    ? ("success" as const)
+    : state === "not_set" && limitIsOptional
+      ? ("neutral" as const)
+      : ("warning" as const);
+
+/** Who set a limit and when, if known. */
+export function originText(origin: Origin, t: Text, locale: Locale) {
+  if (!origin) return null;
+  const at = when(origin.at, locale).split(",")[0] ?? origin.at;
+  return origin.by ? t.origin(origin.by.name, at) : t.originAt(at);
+}
+
+/**
+ * Scrolls to and focuses the assistant cap when the page was opened with
+ * #assistant-budget (the personal assistant's notice links there).
+ */
+function useAssistantAnchor(ready: boolean) {
+  useEffect(() => {
+    if (!ready || typeof window === "undefined") return;
+    if (window.location.hash !== `#${ASSISTANT_BUDGET_ANCHOR}`) return;
+    const target = document.getElementById(ASSISTANT_BUDGET_ANCHOR);
+    target?.scrollIntoView?.({ block: "start" });
+    target?.focus?.({ preventScroll: true });
+  }, [ready]);
+}
+
+/** The three levels: organization, assistant per member, projects (WP2 B). */
+export function BudgetLevelBlocks({
+  levels,
+  t,
+  locale,
+}: {
+  levels: BudgetLevels;
+  t: Text;
+  locale: Locale;
+}) {
+  const { assistant } = levels;
+  // Who set the cap only once there is one: an unset cap was set by nobody.
+  const assistantOrigin =
+    assistant.capMicros === null
+      ? null
+      : originText(assistant.origin, t, locale);
+  return (
+    <>
+      <div
+        className="capability-readiness"
+        id={ASSISTANT_BUDGET_ANCHOR}
+        tabIndex={-1}
+        aria-labelledby={`${ASSISTANT_BUDGET_ANCHOR}-title`}
+      >
+        <h3 className="field-heading" id={`${ASSISTANT_BUDGET_ANCHOR}-title`}>
+          {t.assistantLevel}
+        </h3>
+        <p className="panel-note">{t.assistantLevelHint}</p>
+        {!assistant.available && <Alert>{t.assistantUnavailable}</Alert>}
+        <div className="data-row">
+          <div>
+            <strong>{assistantCapText(assistant.capMicros, t)}</strong>
+            {assistant.perAnswerMicros !== null && assistant.perDayMicros !== null && assistant.capMicros ? (
+              <p>{t.perAnswer(usd(assistant.perAnswerMicros), usd(assistant.perDayMicros))}</p>
+            ) : null}
+            <p>{t.assistantUsage(usd(assistant.usage.spentMicros), assistant.usage.spaces)}</p>
+            {assistantOrigin && <p>{assistantOrigin}</p>}
+          </div>
+          <Badge tone={stateTone(assistant.state, false)}>
+            {t.states.assistant[assistant.state]}
+          </Badge>
+        </div>
+      </div>
+      <div className="capability-readiness">
+        <h3 className="field-heading">{t.projectsLevel}</h3>
+        <p className="panel-note">{t.projectsHint}</p>
+        {levels.projects.length === 0 && <p className="panel-note">{t.projectsEmpty}</p>}
+        {levels.projects.map((p) => {
+          const origin = originText(p.origin, t, locale);
+          return (
+            <div className="data-row" key={p.projectId}>
+              <div>
+                <strong>{p.name}</strong>
+                {p.monthlyBudgetMicros !== null && (
+                  <p>
+                    {t.projectLimits(
+                      usd(p.monthlyBudgetMicros),
+                      usd(p.dailyBudgetMicros),
+                      usd(p.perRunBudgetMicros),
+                    )}
+                    {p.endAt ? ` · ${t.until(when(p.endAt, locale).split(",")[0] ?? p.endAt)}` : ""}
+                  </p>
+                )}
+                <p>
+                  {t.spentThisMonth(usd(p.spentMicros))}
+                  {p.source === "marketing_policy" ? ` · ${t.fromMarketing}` : ""}
+                </p>
+                {origin && <p>{origin}</p>}
+              </div>
+              <Badge tone={stateTone(p.state, false)}>{t.states.project[p.state]}</Badge>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 export function AiBudgetPanel({ base, locale }: { base: string; locale: Locale }) {
   const t = text[locale === "de" ? "de" : "en"];
   const view = useResource<BudgetView>(`${base}/ai/budget`);
   const [editing, setEditing] = useState<"current" | "proposal" | null>(null);
+  useAssistantAnchor(Boolean(view.data));
   if (view.loading && !view.data) return <Loading />;
   if (!view.data) return <ResourceError error={view.error} retry={view.refresh} />;
   const v = view.data;
   const proposed = providers.filter(
     (p) => v.proposal.providerCaps[p] !== undefined && v.budget?.providerCaps[p] === undefined,
   );
+  const organization = v.levels?.organization;
+  const organizationOrigin = organization ? originText(organization.origin, t, locale) : null;
   return (
     <section className="panel">
       <div className="panel-head">
@@ -166,6 +402,12 @@ export function AiBudgetPanel({ base, locale }: { base: string; locale: Locale }
         </Alert>
       )}
       <div className="capability-readiness">
+        {v.levels && (
+          <>
+            <h3 className="field-heading">{t.orgLevel}</h3>
+            <p className="panel-note">{t.orgHint}</p>
+          </>
+        )}
         <div className="data-row">
           <div>
             <strong>{t.month}</strong>
@@ -173,8 +415,14 @@ export function AiBudgetPanel({ base, locale }: { base: string; locale: Locale }
               {usd(v.spend.spentMicros)} /{" "}
               {v.budget?.monthlyMicros == null ? t.noLimit : usd(v.budget.monthlyMicros)}
             </p>
+            {organizationOrigin && <p>{organizationOrigin}</p>}
           </div>
           <LevelBadge level={v.spend.level} t={t} />
+          {organization && (
+            <Badge tone={stateTone(organization.state, true)}>
+              {t.states.organization[organization.state]}
+            </Badge>
+          )}
         </div>
         {providers.map((p) => {
           const credit = v.budget?.credits[p];
@@ -194,13 +442,16 @@ export function AiBudgetPanel({ base, locale }: { base: string; locale: Locale }
             </div>
           );
         })}
-        <div className="data-row">
-          <div>
-            <strong>{t.assistant}</strong>
-            <p>{assistantCapText(v.budget?.assistantPerUserMonthlyMicros, t)}</p>
+        {!v.levels && (
+          <div className="data-row">
+            <div>
+              <strong>{t.assistant}</strong>
+              <p>{assistantCapText(v.budget?.assistantPerUserMonthlyMicros, t)}</p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
+      {v.levels && <BudgetLevelBlocks levels={v.levels} t={t} locale={locale} />}
       {editing && (
         <BudgetForm
           base={base}
@@ -311,6 +562,7 @@ function BudgetForm({
         pending={mutation.pending}
         error={aiErrorText(mutation.error, locale)}
         submitLabel={t.save}
+        cancelLabel={locale === "de" ? "Abbrechen" : "Cancel"}
         onCancel={onClose}
         onSubmit={(values) =>
           mutation.run(() => {
@@ -359,7 +611,7 @@ function UsageList({
   label?: (key: string) => string;
 }) {
   return (
-    <div>
+    <div className="ai-usage-list">
       <h3 className="field-heading">{title}</h3>
       {rows.slice(0, 10).map((row) => (
         <div className="data-row" key={row.key}>
@@ -376,14 +628,36 @@ function UsageList({
   );
 }
 
+/**
+ * The "by project" rows: business projects, then the personal assistants
+ * as one row (the API sums them, never per member; ADR 0022).
+ */
+export function usageProjectRows(v: UsageView, t: Text): UsageRow[] {
+  const rows: UsageRow[] = v.projects.map((p) => ({
+    key: p.name,
+    spentMicros: p.spentMicros,
+    unknownMicros: p.unknownMicros,
+    count: p.count,
+  }));
+  if (v.assistants && v.assistants.count > 0)
+    rows.push({
+      key: t.assistantsRow(v.assistants.spaces),
+      spentMicros: v.assistants.spentMicros,
+      unknownMicros: v.assistants.unknownMicros,
+      count: v.assistants.count,
+    });
+  return rows.sort((a, b) => b.spentMicros - a.spentMicros);
+}
+
 export function AiUsagePanel({ base, locale }: { base: string; locale: Locale }) {
   const t = text[locale === "de" ? "de" : "en"];
   const view = useResource<UsageView>(`${base}/ai/usage`);
   if (view.loading && !view.data) return <Loading />;
   if (!view.data) return <ResourceError error={view.error} retry={view.refresh} />;
   const v = view.data;
-  const spent = v.projects.reduce((n, p) => n + p.spentMicros, 0);
-  const unclear = v.projects.reduce((n, p) => n + p.unknownMicros, 0);
+  const rows = usageProjectRows(v, t);
+  const spent = rows.reduce((n, p) => n + p.spentMicros, 0);
+  const unclear = rows.reduce((n, p) => n + p.unknownMicros, 0);
   return (
     <section className="panel">
       <div className="panel-head">
@@ -397,11 +671,7 @@ export function AiUsagePanel({ base, locale }: { base: string; locale: Locale })
         <p className="panel-note">{t.empty}</p>
       ) : (
         <div className="settings-grid">
-          <UsageList
-            title={t.byProject}
-            t={t}
-            rows={v.projects.map((p) => ({ ...p, key: p.name }))}
-          />
+          <UsageList title={t.byProject} t={t} rows={rows} />
           <UsageList
             title={t.byProvider}
             t={t}

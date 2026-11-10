@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
+import { data, exception, list } from "../src/shared.ts";
 import {
   publishingBackend,
   readMarketingSettings,
@@ -58,5 +60,52 @@ describe.skipIf(!enabled)("marketing publishing backend", () => {
     } finally {
       process.env.ORBIT_SOCIAL = "true";
     }
+  });
+
+  it("closes only the Postiz queue notices on the switch to Social; a rollback reopens nothing (WP1)", async () => {
+    const save = async (publishingBackend: string) => {
+      const current = await p.run((tx) => readMarketingSettings(tx, p.owner));
+      return p.run((tx) => saveMarketingSettings(tx, p.owner, { publishingBackend }, current.version));
+    };
+    const notices = () =>
+      p.run(async (tx) => (await list(tx, p.owner, "exceptions")).map((e): Record<string, any> => ({ ...data(e), id: e.id })));
+    const resolvedAudits = () =>
+      p.run((tx) => tx.auditEvent.findMany({ where: { projectId: p.owner.projectId, action: "marketing.postiz_queue_notice_resolved" } }));
+    // What a publish attempt would leave behind; none may happen here.
+    const sent = () =>
+      p.run(async (tx) => ({
+        publications: await tx.entity.count({ where: { projectId: p.owner.projectId, kind: "publications" } }),
+        socialPublications: await tx.socialPublication.count({ where: { projectId: p.owner.projectId } }),
+        outbox: await tx.outbox.count({ where: { projectId: p.owner.projectId } }),
+      }));
+    const start = await sent();
+    await save("postiz");
+    // A queue notice the stopped watch left open, and a notice of another kind.
+    const stalled = await p.run((tx) => exception(tx, p.owner, "POSTIZ_QUEUE_STALLED", randomUUID()));
+    await p.run((tx) => exception(tx, p.owner, "POSTIZ_QUEUE_STALLED", randomUUID()));
+    const remote = await p.run((tx) => exception(tx, p.owner, "REMOTE_POST_MISSING", randomUUID()));
+    expect(await resolvedAudits()).toEqual([]);
+
+    await save("social");
+    const after = await notices();
+    expect(after.find((e) => e.id === stalled.id)).toMatchObject({
+      status: "resolved",
+      resolvedBy: p.owner.userId,
+      resolution: "publishing_backend_social",
+      count: 2,
+    });
+    expect(after.find((e) => e.id === remote.id)).toMatchObject({ status: "open" });
+    expect((await resolvedAudits()).map((a) => [a.resourceId, a.actorId, a.metadata])).toEqual([
+      [stalled.id, p.owner.userId, { code: "POSTIZ_QUEUE_STALLED", count: 2, reason: "publishing_backend_social" }],
+    ]);
+    // Nothing deleted: the notice keeps its history.
+    expect(await p.run((tx) => tx.entityVersion.count({ where: { entityId: stalled.id } }))).toBe(3);
+
+    await save("postiz");
+    const rolledBack = await notices();
+    expect(rolledBack.find((e) => e.id === stalled.id)).toMatchObject({ status: "resolved" });
+    expect(rolledBack.filter((e) => e.status === "open").map((e) => e.code)).toEqual(["REMOTE_POST_MISSING"]);
+    expect(await resolvedAudits()).toHaveLength(1);
+    expect(await sent()).toEqual(start);
   });
 });

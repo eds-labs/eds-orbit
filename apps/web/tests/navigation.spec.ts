@@ -91,7 +91,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["marketing", "Missions", "/marketing/missions"],
   ...(AGENTS ? [agentPage("Assignments", "/marketing/assignments")] : []),
   ["marketing", "Content Studio", "/marketing/content"],
-  ["marketing", "Calendar", "/marketing/calendar"],
+  ["marketing", "Editorial plan", "/marketing/calendar"],
   ["marketing", "Approvals", "/approvals"],
   ["marketing", "Assets", "/marketing/assets"],
   ["marketing", "Analytics", "/marketing/analytics"],
@@ -226,7 +226,7 @@ test("pickers, project home and every page have their own URL", async ({
   // read limit (600 per minute).
   for (const [group, name, path] of [
     ["project", "Settings", "/settings"],
-    ["marketing", "Calendar", "/marketing/calendar"],
+    ["marketing", "Editorial plan", "/marketing/calendar"],
   ]) {
     await page.goto(`${base}${path}`);
     await expect(entry(group, name)).toHaveAttribute("aria-current", "page");
@@ -507,7 +507,7 @@ test("navigating to a page opens its collapsed group", async ({ page }) => {
   await page.goto(`${base}/marketing/calendar`);
   await expect(marketing).toHaveAttribute("aria-expanded", "true");
   await expect(
-    nav.getByRole("link", { name: "Calendar", exact: true }),
+    nav.getByRole("link", { name: "Editorial plan", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 

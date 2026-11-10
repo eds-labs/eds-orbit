@@ -47,9 +47,13 @@ async function probe(scope: Scope, accountId: string, manual: boolean): Promise<
 
 async function record(scope: Scope, accountId: string, result: Result, refused: boolean) {
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const row = await tx.socialAccount.findUnique({ where: { id: accountId }, select: { settings: true } });
+    // The project explicitly, not only through row-level security.
+    const row = await tx.socialAccount.findFirst({
+      where: { id: accountId, projectId: scope.projectId },
+      select: { settings: true },
+    });
     await tx.socialAccount.update({
-      where: { id: accountId },
+      where: { id: accountId, projectId: scope.projectId },
       data: {
         settings: {
           ...((row?.settings as object) ?? {}),
@@ -61,7 +65,7 @@ async function record(scope: Scope, accountId: string, result: Result, refused: 
     if (refused && !result.ok) await markReconnectRequired(tx, scope, accountId, result.code);
     if (result.ok) {
       const restored = await tx.socialAccount.updateMany({
-        where: { id: accountId, status: "reconnect_required" },
+        where: { id: accountId, projectId: scope.projectId, status: "reconnect_required" },
         data: { status: "active", version: { increment: 1 } },
       });
       if (restored.count === 1) await audit(tx, scope, "social.account.restored", accountId, {});

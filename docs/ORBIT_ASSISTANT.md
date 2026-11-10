@@ -32,7 +32,8 @@ Both modes use the same conversations, runs, jobs, limits (8 model calls, 16 too
 
 - The assistant's own model calls are paid by the personal space.
 - Its spending authority is a read-only projection of the organization setting **assistant cap per member and month** (organization settings → AI). A day may use a tenth of it, and a run at most a day's share (USD 2 at most).
-- Without a cap the assistant makes no paid calls (`POLICY_REQUIRED`).
+- Without a cap the assistant makes no paid calls (`POLICY_REQUIRED`); with a cap of 0, or one whose limit per answer is below the call, it refuses `BUDGET_NOT_APPROVED`. Project budgets never fund it, also not the focus project's. Orbit never sets the cap by itself (no seed, no default; reading the status writes nothing).
+- Before sending, the panel and the full page show a notice above a blocked composer while the cap is missing or 0 (`platform/assistant/budget-notice.tsx`, from `capMicros` in `GET /api/assistant` and the shell identity): organization owners with administration and connections on get a link to `/o/<organization>/settings#assistant-budget`; owners without them are told the setting is not available on this installation; members are told only organization owners set it and project budgets do not apply. The personal error texts say the same instead of the project text.
 - The user cannot raise the cap (`PERSONAL_SPACE_SPEND_READ_ONLY`).
 - The organization budget counts this spend like any project's.
 - Paid work inside a business project, such as a knowledge search, a creative preview or an agent work order, is reserved against that project's own authority and approvals.

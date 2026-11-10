@@ -4,6 +4,7 @@ import {
   readinessActions,
   type ReadinessInputs,
 } from "./action-readiness.ts";
+import { READINESS_BLOCKERS } from "./blocker-catalog.ts";
 
 // Mirrors the accepted uLiquid Phase 6 state: internal drafting works while
 // publishing prerequisites are intentionally missing.
@@ -31,6 +32,9 @@ const draftOnly: ReadinessInputs = {
   postizWriteVerified: false,
   postizChannelWriteVerified: false,
   matomoReadVerified: false,
+  publishingBackend: "postiz",
+  socialDraftBlockers: [],
+  socialPublishBlockers: [],
 };
 const fullyVerified: ReadinessInputs = {
   ...draftOnly,
@@ -186,10 +190,226 @@ describe("action-specific readiness", () => {
   });
 
   it("blocks every action while the project is paused", () => {
-    const actions = actionReadiness({ ...fullyVerified, paused: true });
-    for (const action of readinessActions) {
-      expect(actions[action].state).not.toBe("ready");
-      expect(actions[action].blockers).toContain("PROJECT_PAUSED");
+    for (const publishingBackend of [
+      "postiz",
+      "postiz_draining",
+      "social",
+    ] as const) {
+      const actions = actionReadiness({
+        ...fullyVerified,
+        paused: true,
+        publishingBackend,
+      });
+      for (const action of readinessActions) {
+        expect(actions[action].state).not.toBe("ready");
+        expect(actions[action].blockers).toContain("PROJECT_PAUSED");
+      }
     }
+  });
+});
+
+describe("publishing readiness per backend (ADR 0020, S9/S10)", () => {
+  const live = {
+    ...fullyVerified,
+    executionMode: "live",
+    externalWritesEnabled: true,
+    postizDraftsEnabled: true,
+  };
+  const publishing = [
+    "publish_draft",
+    "publish_schedule",
+    "publish_live",
+  ] as const;
+  const postizActions = [
+    "postiz_draft",
+    "postiz_schedule",
+    "postiz_live",
+  ] as const;
+
+  it("appends the publish_* actions after the existing ones", () => {
+    expect([...readinessActions]).toEqual([
+      "chat",
+      "knowledge_search",
+      "text_draft",
+      "visual",
+      "drive_save",
+      "internal_review",
+      "export",
+      "postiz_draft",
+      "postiz_schedule",
+      "postiz_live",
+      "matomo",
+      "blog_live",
+      "newsletter_live",
+      "ads_live",
+      "publish_draft",
+      "publish_schedule",
+      "publish_live",
+    ]);
+  });
+
+  it("postiz: publish_* equals postiz_* and the Postiz results stay as before", () => {
+    for (const inputs of [draftOnly, fullyVerified, live]) {
+      const actions = actionReadiness(inputs);
+      expect(actions.publish_draft).toEqual(actions.postiz_draft);
+      expect(actions.publish_schedule).toEqual(actions.postiz_schedule);
+      expect(actions.publish_live).toEqual(actions.postiz_live);
+    }
+    // Pinned: the draft-only state reads exactly as before the backend split.
+    expect(actionReadiness(draftOnly)).toMatchObject({
+      postiz_draft: {
+        state: "not_configured",
+        effect: "external",
+        blockers: ["POSTIZ_DRAFTS_DISABLED"],
+      },
+      postiz_schedule: {
+        state: "blocked",
+        effect: "external",
+        blockers: [
+          "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+          "CHANNEL_WRITE_VERIFICATION_REQUIRED",
+          "EXECUTION_MODE_TEST",
+          "EXTERNAL_WRITES_DISABLED",
+        ],
+      },
+    });
+    const ready = actionReadiness(live);
+    for (const action of [...postizActions, ...publishing])
+      expect(ready[action]).toMatchObject({ state: "ready", blockers: [] });
+  });
+
+  it("postiz_draining: Postiz and publish actions are blocked by the drain", () => {
+    const actions = actionReadiness({
+      ...live,
+      publishingBackend: "postiz_draining",
+    });
+    for (const action of [...postizActions, ...publishing])
+      expect(actions[action]).toMatchObject({
+        state: "blocked",
+        blockers: ["PUBLISHING_BACKEND_DRAINING"],
+      });
+    // The Postiz checks still apply to what Postiz finishes.
+    const unverified = actionReadiness({
+      ...draftOnly,
+      publishingBackend: "postiz_draining",
+    });
+    expect(unverified.publish_schedule.blockers).toEqual([
+      "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+      "CHANNEL_WRITE_VERIFICATION_REQUIRED",
+      "EXECUTION_MODE_TEST",
+      "EXTERNAL_WRITES_DISABLED",
+      "PUBLISHING_BACKEND_DRAINING",
+    ]);
+    expect(unverified.text_draft.state).toBe("ready");
+  });
+
+  it("social: Social's blockers decide publish_*, postiz_* are not configured", () => {
+    const social = {
+      ...live,
+      publishingBackend: "social" as const,
+      // No Postiz at all: none of its codes may show up on Social.
+      postizConnected: false,
+      postizChannelsAssigned: false,
+      postizWriteVerified: false,
+      postizChannelWriteVerified: false,
+    };
+    const ready = actionReadiness(social);
+    for (const action of publishing)
+      expect(ready[action]).toMatchObject({ state: "ready", blockers: [] });
+    for (const action of postizActions)
+      expect(ready[action]).toEqual({
+        state: "not_configured",
+        effect: "external",
+        blockers: ["PUBLISHING_BACKEND_SOCIAL"],
+      });
+    const blocked = actionReadiness({
+      ...social,
+      executionMode: "test",
+      publishingUsesDriveAssets: true,
+      driveReconnectRequired: true,
+      socialDraftBlockers: ["SOCIAL_CHANNEL_NOT_MAPPED"],
+      socialPublishBlockers: [
+        "SOCIAL_CHANNEL_NOT_MAPPED",
+        "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED",
+      ],
+    });
+    expect(blocked.publish_draft).toMatchObject({
+      state: "blocked",
+      blockers: ["SOCIAL_CHANNEL_NOT_MAPPED"],
+    });
+    expect(blocked.publish_schedule).toMatchObject({
+      state: "blocked",
+      blockers: [
+        "SOCIAL_CHANNEL_NOT_MAPPED",
+        "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED",
+        "GOOGLE_DRIVE_RECONNECT_REQUIRED",
+        "EXECUTION_MODE_TEST",
+      ],
+    });
+    expect(blocked.publish_live).toEqual(blocked.publish_schedule);
+    for (const action of readinessActions)
+      for (const code of [
+        "POSTIZ_NOT_CONNECTED",
+        "POSTIZ_CHANNELS_NOT_ASSIGNED",
+        "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+        "CHANNEL_WRITE_VERIFICATION_REQUIRED",
+      ])
+        expect(blocked[action].blockers).not.toContain(code);
+    const off = actionReadiness({
+      ...social,
+      postizDraftsEnabled: false,
+      socialDraftBlockers: ["SOCIAL_DISABLED"],
+      socialPublishBlockers: ["SOCIAL_DISABLED"],
+    });
+    expect(off.publish_draft).toMatchObject({
+      state: "not_configured",
+      blockers: ["POSTIZ_DRAFTS_DISABLED", "SOCIAL_DISABLED"],
+    });
+    expect(off.publish_live).toMatchObject({
+      state: "not_configured",
+      blockers: ["SOCIAL_DISABLED"],
+    });
+  });
+
+  it("describes every code it can raise in the blocker catalog", () => {
+    const worst: ReadinessInputs = {
+      paused: true,
+      executionMode: "test",
+      externalWritesEnabled: false,
+      currentPublicKnowledge: false,
+      activePolicy: false,
+      paidMandate: false,
+      policyHasChannelsAndTypes: false,
+      marketingProfile: false,
+      textModelVerified: false,
+      imageKeyConfigured: false,
+      imagePricingCurrent: false,
+      imageModelVerified: false,
+      driveConfigured: false,
+      driveConnected: true,
+      driveRootConfigured: false,
+      driveReconnectRequired: true,
+      publishingUsesDriveAssets: true,
+      postizConnected: false,
+      postizChannelsAssigned: false,
+      postizDraftsEnabled: false,
+      postizWriteVerified: false,
+      postizChannelWriteVerified: false,
+      matomoReadVerified: false,
+      publishingBackend: "postiz",
+      socialDraftBlockers: [],
+      socialPublishBlockers: [],
+    };
+    const codes = new Set<string>();
+    for (const publishingBackend of [
+      "postiz",
+      "postiz_draining",
+      "social",
+    ] as const)
+      for (const value of Object.values(
+        actionReadiness({ ...worst, publishingBackend }),
+      ))
+        value.blockers.forEach((code) => codes.add(code));
+    expect([...codes].filter((code) => !READINESS_BLOCKERS[code])).toEqual([]);
   });
 });

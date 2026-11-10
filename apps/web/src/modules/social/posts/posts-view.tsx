@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useResource } from "@/lib/api";
+import { useResource, when as formatWhen } from "@/lib/api";
+import type { Locale } from "@/lib/i18n";
 import { Badge, Empty } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
@@ -17,12 +18,45 @@ import { socialText } from "../labels";
 import { PostEditor } from "./editor";
 import { Preview } from "./preview";
 import { Publications } from "./publications";
+import { OriginNote, originKind } from "../origin";
 
 // The posts of the project (ADR 0020, S4): a list, and the editor for one
 // post (`?post=<id>`) or a new one (`?new=1`). The calendar is S6.
 
-const when = (schedule: PostSchedule, notPlanned: string) =>
-  schedule.local ? `${schedule.local.replace("T", " ")} (${schedule.timeZone})` : notPlanned;
+/**
+ * A post's time in the member's locale (QA 2026-11-10: not ISO), in the
+ * post's own time zone, which is named only when it is not the project's.
+ */
+export function scheduleText(
+  schedule: PostSchedule,
+  notPlanned: string,
+  locale: Locale,
+  projectTimezone: string,
+) {
+  const zone =
+    schedule.timeZone && schedule.timeZone !== projectTimezone
+      ? ` (${schedule.timeZone})`
+      : "";
+  if (schedule.at)
+    return `${formatWhen(schedule.at, locale, schedule.timeZone || projectTimezone)}${zone}`;
+  return schedule.local
+    ? `${schedule.local.replace("T", " ")}${zone}`
+    : notPlanned;
+}
+
+/**
+ * What a member who cannot edit the post reads: a post Marketing holds is
+ * changed through Marketing, another closed post no longer changes, and
+ * otherwise only owners and editors change it.
+ */
+export function readOnlyNote(
+  post: Pick<PostView, "readOnly" | "origin" | "originRef">,
+  t: ReturnType<typeof socialText>["posts"],
+) {
+  if (post.readOnly && originKind(post) === "marketing") return t.heldByOrigin;
+  if (post.readOnly) return t.closedToChanges;
+  return t.readOnly;
+}
 
 function PostListView() {
   const { project, locale, canEdit } = useWorkspace();
@@ -48,9 +82,10 @@ function PostListView() {
                     <strong>{item.title || item.excerpt || item.id}</strong>
                   </a>{" "}
                   <Badge>{t.status[item.status]}</Badge>{" "}
-                  {t.approval[item.approvalState] && <span className="field-hint">{t.approval[item.approvalState]}</span>}
+                  <OriginNote post={item} locale={locale} />
                   <p className="field-hint">
-                    {when(item.schedule, t.notPlanned)} · {item.accounts.map((a) => a.handle).join(", ")}
+                    {scheduleText(item.schedule, t.notPlanned, locale, project.timezone)} ·{" "}
+                    {item.accounts.map((a) => a.handle).join(", ")}
                   </p>
                 </div>
               </li>
@@ -70,9 +105,11 @@ function PostSummary({ post }: { post: PostView }) {
   return (
     <div>
       <p>
-        <Badge>{t.status[post.status]}</Badge> {when(post.schedule, t.notPlanned)}
+        <Badge>{t.status[post.status]}</Badge>{" "}
+        {scheduleText(post.schedule, t.notPlanned, locale, project.timezone)}{" "}
+        <OriginNote post={{ ...post, approvalState: post.approval.state }} locale={locale} />
       </p>
-      <p className="field-hint">{t.readOnly}</p>
+      <p className="field-hint">{readOnlyNote(post, t)}</p>
       {post.variants.map((v) => (
         <Preview
           key={v.id}

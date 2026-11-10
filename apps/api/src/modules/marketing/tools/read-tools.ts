@@ -12,6 +12,7 @@ import {
 } from "../../agents/tools/registry.ts";
 import { assistantKnowledgeSearch } from "../../../platform/knowledge/search-tool.ts";
 import { readinessActions } from "../readiness/action-readiness.ts";
+import { marketingSettingsSchema } from "../publishing/backend.ts";
 
 // MCP exposure (Track M WP-M3): only `project_status` opts in, as
 // `marketing_project_status`. Its output schema below pins every key
@@ -76,7 +77,9 @@ export const projectStatusOutput = z
       })
       .strict()
       .nullable(),
-    // The connector's assigned, enabled Postiz channels (names clipped to 120).
+    // The connector's assigned, enabled Postiz channels and, on the Social
+    // backend, the connected accounts as `social:<accountId>` with their
+    // handle and platform (names clipped to 120).
     availableChannels: z
       .array(
         z
@@ -139,7 +142,8 @@ export const projectStatusOutput = z
       )
       .max(15),
     // The marketing readiness provider's state, blockers and per-action
-    // readiness (its `capabilities` are not part of project_status).
+    // readiness (its `capabilities` are not part of project_status), and
+    // where approved posts go (ADR 0020, S9/S10).
     readiness: z
       .object({
         state: z.enum([
@@ -159,6 +163,8 @@ export const projectStatusOutput = z
             >,
           )
           .strict(),
+        publishingBackend:
+          marketingSettingsSchema.shape.publishingBackend.optional(),
       })
       .strict(),
   })

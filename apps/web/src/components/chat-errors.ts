@@ -136,11 +136,23 @@ const texts: Record<string, [string, string]> = {
   ],
 };
 
-/** POLICY_REQUIRED reads differently in the personal space (D-09). */
+/**
+ * Budget codes read differently in the personal space (D-09): it is paid
+ * only from the organization's per-member assistant cap, never from a
+ * project budget, and only organization owners set that cap.
+ */
 const personalTexts: Record<string, [string, string]> = {
   POLICY_REQUIRED: [
-    "Your organization has not set an assistant budget, so the assistant cannot make paid calls.",
-    "Deine Organisation hat kein Assistenten-Budget festgelegt, deshalb kann der Assistent keine bezahlten Aufrufe machen.",
+    "The organization's personal assistant budget is not set. Project budgets do not fund the personal assistant; only organization owners set this budget.",
+    "Persönliches Assistentenbudget der Organisation nicht gesetzt. Projektbudgets gelten nicht für den persönlichen Assistenten; nur Organisations-Owner legen dieses Budget fest.",
+  ],
+  BUDGET_NOT_APPROVED: [
+    "The organization's assistant budget per member is 0, or its limit per answer (a tenth of the monthly cap, at most USD 2) is too small for this answer. Only organization owners can change it.",
+    "Das Assistentenbudget pro Mitglied der Organisation ist 0, oder seine Grenze pro Antwort (ein Zehntel des Monatsbudgets, höchstens 2 USD) ist für diese Antwort zu klein. Nur Organisations-Owner können es ändern.",
+  ],
+  PAID_MANDATE_EXPIRED: [
+    "The organization's assistant budget is not active right now. Only organization owners can change it.",
+    "Das Assistentenbudget der Organisation ist gerade nicht aktiv. Nur Organisations-Owner können es ändern.",
   ],
   BUDGET_EXCEEDED: [
     "Your assistant budget for today or this month is used up.",

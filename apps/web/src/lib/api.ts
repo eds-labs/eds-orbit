@@ -46,9 +46,20 @@ export type Dashboard = {
   exceptions: Entity[];
   publications: Entity[];
   jobs: Entity[];
+  /**
+   * This UTC month's AI reservations (since plan 2026-11-10 WP2 C; before,
+   * all months): settled spend and what is still open, split into live
+   * calls in flight, stale ones and unclear outcomes.
+   */
   budget: {
+    periodStart?: string;
+    /** Open this month: in flight + stale + unclear. */
     reservedMicros: number;
+    /** Settled this month. */
     spentMicros: number;
+    inFlightMicros?: number;
+    staleMicros?: number;
+    unknownMicros?: number;
     dailyLimitMicros: number | null;
     monthlyLimitMicros: number | null;
   };

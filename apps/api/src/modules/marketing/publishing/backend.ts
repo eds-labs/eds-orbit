@@ -51,6 +51,13 @@ export async function saveMarketingSettings(tx: DbTx, scope: Scope, raw: unknown
   const saved = await writeModuleSettings(tx, scope, "marketing", marketingSettingsSchema, next, version);
   if (before !== next.publishingBackend)
     await audit(tx, scope, "marketing.publishing_backend_changed", scope.projectId, { from: before, to: next.publishingBackend });
+  // On Social nobody watches the Postiz queue: its open notices are closed
+  // (resolved and audited, never deleted). A rollback to Postiz restarts the
+  // watch and reopens nothing; a new failure opens a new notice.
+  if (next.publishingBackend === "social") {
+    const { resolvePostizQueueNotices, POSTIZ_QUEUE_RETIRED } = await import("./postiz-queue-watch.ts");
+    await resolvePostizQueueNotices(tx, scope, POSTIZ_QUEUE_RETIRED);
+  }
   return saved;
 }
 

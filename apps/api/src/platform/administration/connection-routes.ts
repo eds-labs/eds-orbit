@@ -300,8 +300,8 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
   // "Budget" and "Verbrauch" (phase C): the organization's monthly AI
   // budget and provider caps, and its spend across projects (owners, D-6).
   app.get("/api/organizations/:workspaceId/ai/budget", async (req) => {
-    await owner(req);
-    return organizationAiBudgetView(id(req, "workspaceId"));
+    const o = await owner(req);
+    return organizationAiBudgetView(id(req, "workspaceId"), o.userId);
   });
   app.put("/api/organizations/:workspaceId/ai/budget", async (req) =>
     saveOrganizationAiBudget(

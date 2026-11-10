@@ -15,6 +15,10 @@ import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import {
+  dataClassRouteWarning,
+  type DataClassRoute,
+} from "@/lib/exception-text";
+import {
   AiSetupPanel,
   ModelChoicePanel,
   type ModelChoiceView,
@@ -799,6 +803,11 @@ export function AiSettings() {
                   : `These tasks are routed to a provider without a key and fail when called: ${view.routesWithoutKey.join(", ")}.`}
               </Alert>
             ) : null}
+            {view.routesNotAllowedForData?.length ? (
+              <Alert kind="warning">
+                {dataClassRouteWarning(locale, view.routesNotAllowedForData)}
+              </Alert>
+            ) : null}
             {(["openai", "anthropic"] as const).map((id) => (
               <div className="data-row" key={id}>
                 <div>
@@ -1044,6 +1053,8 @@ export type OpenAiConfigurationView = {
   defaults?: ModelChoiceView["defaults"];
   // Task classes routed to a provider without a usable key (effective view).
   routesWithoutKey?: string[];
+  // Task routes their data class does not allow (ADR 0021 D-11, read only).
+  routesNotAllowedForData?: DataClassRoute[];
   // The central price catalog (phase A), null while ORBIT_AI_CATALOG is off.
   catalog?: Array<{
     id: string;
