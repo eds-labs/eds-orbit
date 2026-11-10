@@ -25,7 +25,8 @@ import {
 } from "@/platform/shell/settings-nav";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
-import { UnclearAiCost } from "./unclear-ai-cost";
+import { AiCostDiagnosis } from "./ai-cost-diagnosis";
+import { operationsBudget, operationsText } from "./operations-text";
 import { blockerReason } from "@/lib/readiness-text";
 import { AiSettings } from "./ai-settings";
 import { SpendPolicySettings } from "./spend-policy";
@@ -54,7 +55,6 @@ import {
   collectionPath,
   useMutation,
   useResource,
-  usd,
   value,
   when,
   type Dashboard,
@@ -276,6 +276,8 @@ export function Operations() {
   const [selected, setSelected] = useState<Entity | null>(null);
   const mutation = useMutation(refresh);
   const d = resource.data;
+  const ops = operationsText(locale);
+  const aiMonth = d ? operationsBudget(d.budget, locale) : null;
   return (
     <>
       <PageHead
@@ -322,7 +324,7 @@ export function Operations() {
         }}
       />
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      {mutation.success && <Alert kind="success">Project state updated.</Alert>}
+      {mutation.success && <Alert kind="success">{ops.stateUpdated}</Alert>}
       {resource.loading ? (
         <Loading />
       ) : (
@@ -330,7 +332,7 @@ export function Operations() {
           <>
             <div className="operations-band">
               <div>
-                <span>Project execution</span>
+                <span>{ops.execution}</span>
                 {/* The mode is Marketing's (ADR 0015, E-6). */}
                 <Status
                   value={
@@ -343,25 +345,28 @@ export function Operations() {
                 />
               </div>
               <div>
-                <span>Readiness</span>
+                <span>{ops.readiness}</span>
                 <Status value={d.readiness.state} />
               </div>
+              {/* This UTC month, as the monthly limit counts it (WP2 C). */}
               <div>
-                <span>Spend</span>
-                <strong>{usd(d.budget.spentMicros)}</strong>
+                <span>{ops.spend}</span>
+                <strong>{aiMonth?.spend}</strong>
+                {aiMonth?.since && <small>{aiMonth.since}</small>}
               </div>
               <div>
-                <span>Reserved</span>
-                <strong>{usd(d.budget.reservedMicros)}</strong>
+                <span>{ops.open}</span>
+                <strong>{aiMonth?.open}</strong>
+                {aiMonth?.split && <small>{aiMonth.split}</small>}
               </div>
             </div>
             {runtime.data && (
               <section className="panel administration-panel">
                 <div className="panel-head">
                   <div>
-                    <h2>Worker and dispatch</h2>
+                    <h2>{ops.worker}</h2>
                     <p>
-                      Last observed{" "}
+                      {ops.lastObserved}{" "}
                       {when(
                         runtime.data.runtime.observedAt,
                         locale,
@@ -372,7 +377,7 @@ export function Operations() {
                   <Status value={runtime.data.runtime.worker} />
                 </div>
                 <dl className="detail-grid">
-                  <dt>Worker heartbeat</dt>
+                  <dt>{ops.heartbeat}</dt>
                   <dd>
                     {when(
                       runtime.data.runtime.lastHeartbeat,
@@ -380,20 +385,17 @@ export function Operations() {
                       project.timezone,
                     )}
                   </dd>
-                  <dt>Pending outbox</dt>
+                  <dt>{ops.outbox}</dt>
                   <dd>{runtime.data.pendingOutbox}</dd>
-                  <dt>Queue classes</dt>
+                  <dt>{ops.queues}</dt>
                   <dd>{runtime.data.runtime.queues.join(", ") || "—"}</dd>
                 </dl>
                 {runtime.data.runtime.worker !== "ready" && (
-                  <Alert kind="warning">
-                    The worker heartbeat is unavailable. Queued work is not
-                    evidence of execution.
-                  </Alert>
+                  <Alert kind="warning">{ops.workerDown}</Alert>
                 )}
               </section>
             )}
-            <UnclearAiCost />
+            <AiCostDiagnosis />
             {d.readiness.blockers.length > 0 && (
               <Alert kind="warning">
                 <strong>

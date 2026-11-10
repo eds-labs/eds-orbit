@@ -259,6 +259,7 @@ import {
 } from "../src/modules/marketing/assistant/proposals.ts";
 import { runChat, runChatJob } from "../src/modules/chat-runner.ts";
 import { CONTINUE_AFTER_OUTPUT_LIMIT } from "../src/platform/assistant/chat-runner.ts";
+import { listReservations } from "../src/platform/ai/reservation-diagnosis.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";
 import { hashText, startRun } from "../src/modules/telemetry.ts";
@@ -1632,6 +1633,39 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       costMicros: 0n,
     });
     expect(modelCalls[0]!.errorCode).toMatch(/^400 .*Unsupported value: 'reasoning\.effort'/);
+  });
+  it("keeps a timed-out call unknown, never settles it by itself and the diagnosis says what to do (WP2 C)", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.calls = 0;
+    // The request left: the provider may have billed it, so it is unclear.
+    mocked.onCall = async () => {
+      throw new Error("Synthetic provider timeout");
+    };
+    try {
+      await runChat(scope, sent.runId);
+    } finally {
+      mocked.onCall = null;
+    }
+    expect(mocked.calls).toBe(1);
+    const { reservations } = await traced(sent.runId);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]).toMatchObject({ state: "unknown", settledMicros: null });
+    // Running the job again repeats nothing and settles nothing.
+    await runChat(scope, sent.runId);
+    expect(mocked.calls).toBe(1);
+    const again = await traced(sent.runId);
+    expect(again.reservations[0]!.state).toBe("unknown");
+    const page = await listReservations(scope, { state: "unknown" });
+    expect(page.items.find((i) => i.id === reservations[0]!.id)).toMatchObject({
+      status: "unknown",
+      nextAction: "check_billing_then_settle",
+      module: "assistant",
+      providerConfirmed: false,
+    });
   });
   it("records each cut-off model call with its tokens and cost", async () => {
     mocked.mode = "incomplete";

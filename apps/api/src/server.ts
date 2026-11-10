@@ -88,6 +88,11 @@ import {
   revokeAgentMandate,
 } from "./platform/governance/agent-mandates.ts";
 import { platformSpendLimits } from "./platform/ai/spend-mandate.ts";
+import {
+  listReservations,
+  reservationBreakdown,
+  reservationsQuery,
+} from "./platform/ai/reservation-diagnosis.ts";
 import { providerBudgetStatus } from "./platform/ai/provider-budget.ts";
 import {
   beginConnect,
@@ -866,9 +871,10 @@ export async function buildServer(
       const counts: Record<string, number> = {};
       for (const kind of schemas.collections.filter(visible))
         counts[kind] = await tx.entity.count({ where: { projectId, kind } });
-      const reservations = await tx.budgetReservation.findMany({
-        where: { projectId },
-      });
+      // This UTC month only, in one grouped query (plan 2026-11-10 WP2 C):
+      // what the monthly limit counts, split into settled, live in flight,
+      // stale and unclear; never every reservation row of every month.
+      const month = await reservationBreakdown(tx, scope);
       const policy = visible("policies")
         ? (await list(tx, scope, "policies")).find((x) => data(x).active)
         : undefined;
@@ -892,14 +898,13 @@ export async function buildServer(
           : [],
         jobs: await list(tx, scope, "jobs"),
         budget: {
-          reservedMicros: reservations
-            .filter((x) =>
-              ["reserved", "in_flight", "unknown"].includes(x.state),
-            )
-            .reduce((n, x) => n + Number(x.amountMicros), 0),
-          spentMicros: reservations
-            .filter((x) => x.state === "settled")
-            .reduce((n, x) => n + Number(x.settledMicros), 0),
+          periodStart: month.periodStart,
+          // Open this month: in flight + stale + unclear.
+          reservedMicros: month.reservedMicros,
+          spentMicros: month.settledMicros,
+          inFlightMicros: month.inFlightMicros,
+          staleMicros: month.staleMicros,
+          unknownMicros: month.unknownMicros,
           // The platform's spending authority wins (ADR 0015).
           dailyLimitMicros:
             platformLimits?.dailyBudgetMicros ??
@@ -945,6 +950,14 @@ export async function buildServer(
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return aiCostSummary(scope, aiCostQuery.parse(req.query));
+  });
+  // The cost diagnosis (plan 2026-11-10 WP2 C): every reservation of every
+  // month with its derived status and next step. Same level as /ai-cost;
+  // read only, no prompt, key or provider response id.
+  app.get("/api/projects/:projectId/ai-reservations", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
+    return listReservations(scope, reservationsQuery.parse(req.query ?? {}));
   });
   // The provider credit budgets of the project: period, spend and level
   // (plan D-A6, D-A8). Same level as /ai-cost; no key, no prompt content.
