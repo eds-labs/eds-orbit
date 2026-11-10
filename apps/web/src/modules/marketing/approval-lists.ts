@@ -37,11 +37,7 @@ export const OPEN_REVIEW_STATUSES = [
 ];
 
 export type ApprovalLane =
-  | "open"
-  | "reviewed"
-  | "released"
-  | "cleanup"
-  | "history";
+  "open" | "reviewed" | "released" | "cleanup" | "history";
 export type LaneHandoff = {
   kind: "publication" | "postiz_draft";
   status: unknown;
@@ -70,6 +66,23 @@ export function approvalLane(
   if (content.status === "reviewed") return "reviewed";
   if (context.expired) return "cleanup";
   return "open";
+}
+
+/**
+ * Whether a publication or Postiz draft that is not canceled or failed holds
+ * the content: then the server refuses reject and discard
+ * (DRAFT_HAS_PUBLICATION); stopping it is the veto's job.
+ */
+export function hasActiveHandoff(
+  contentId: string,
+  publications: Entity[],
+  postizDrafts: Entity[],
+) {
+  return [...publications, ...postizDrafts].some(
+    (row) =>
+      row.data.contentId === contentId &&
+      !DONE_HANDOFF.includes(String(row.data.status)),
+  );
 }
 
 /** The original a channel copy was made from (R76), else the row itself. */

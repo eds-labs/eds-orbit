@@ -5204,10 +5204,20 @@ body:has(dialog[open]) {
   display: grid;
   gap: 18px;
 }
-.approval-lane > .panel-head h2 .lane-count {
+.approval-lane .lane-count {
   color: var(--muted-foreground);
   font-weight: 500;
   margin-left: 6px;
+}
+.approval-lane > .panel-head h2,
+details.approval-lane > summary h2 {
+  font-size: 20px;
+}
+.approval-lane .panel-head h3 {
+  font-size: 16px;
+}
+details.approval-lane {
+  padding: 0 20px 16px;
 }
 details.approval-lane > summary {
   cursor: pointer;

@@ -1,7 +1,7 @@
 "use client";
 import { RunOperationView, type RunOperation } from "./run-operation";
 import { AppLink } from "@/platform/ui/app-link";
-import { useContext, useEffect, useState } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { AssignmentDetail } from "./assignment-detail";
 import {
@@ -122,6 +122,9 @@ export type AwaitingOwnerDraft = {
   problems: string[];
   // What the release does: schedule the post or book a Postiz draft (R73).
   delivery?: "publish" | "postiz_draft";
+  // The original of a channel copy (R76), else the draft itself: a
+  // Facebook/Instagram pair is shown as one item with a release per channel.
+  baseId?: string;
 };
 const UUID_PARAM =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -657,7 +660,7 @@ export function UpcomingPostList({
     <section className="panel approval-list">
       <div className="panel-head">
         <div>
-          <h2>{de ? "Anstehende Posts" : "Upcoming posts"}</h2>
+          <h3>{de ? "Anstehende Posts" : "Upcoming posts"}</h3>
           <p>
             {de
               ? "Posts aus Aufträgen gehen nach Ablauf des Veto-Fensters automatisch raus. Bis zur Übergabe an Postiz kannst du jeden hier oder im Telegram-Bot stoppen. Aufträge mit Zustellung als Entwurf legen nur Entwürfe in Postiz an; die veröffentlichst du selbst."
@@ -908,6 +911,21 @@ type DraftDialog =
   | { kind: "discard" | "archive"; item: AwaitingOwnerDraft }
   | { kind: "archive-history"; item: DraftHistoryItem };
 
+/** Drafts grouped by their original (R76 copies with it), in list order. */
+export function draftGroups(items: AwaitingOwnerDraft[]) {
+  const groups = new Map<string, AwaitingOwnerDraft[]>();
+  for (const item of items) {
+    const key = item.baseId ?? item.id;
+    groups.set(key, [...(groups.get(key) ?? []), item]);
+  }
+  return [...groups.entries()].map(([baseId, members]) =>
+    // The original first, then its copies.
+    [...members].sort(
+      (a, b) => Number(a.id !== baseId) - Number(b.id !== baseId),
+    ),
+  );
+}
+
 export function AwaitingOwnerDraftList({
   items,
   history = [],
@@ -923,6 +941,10 @@ export function AwaitingOwnerDraftList({
   onReject = () => {},
   onDiscard = () => {},
   onArchive = () => {},
+  heading,
+  historyAs = "details",
+  channelText = (item) => item.channelName ?? item.channel,
+  channelName = channelText,
 }: {
   items: AwaitingOwnerDraft[];
   /** The owner's recent decisions (released, rejected, archived). */
@@ -943,6 +965,20 @@ export function AwaitingOwnerDraftList({
   onReject?: (draft: AwaitingOwnerDraft, reason: string) => void;
   onDiscard?: (draft: AwaitingOwnerDraft) => void;
   onArchive?: (draft: { id: string; version: number }) => void;
+  /** The panel's head; the default names the release, null leaves it out. */
+  heading?: { title: string; text?: string } | null;
+  /** "list": the history entries as a plain list (inside a history lane). */
+  historyAs?: "details" | "list";
+  /** A draft's channel in words (button labels; the page passes the channel list's names). */
+  channelText?: (item: {
+    channel: string;
+    channelName: string | null;
+  }) => string;
+  /** A draft's channel as shown (the page adds the platform mark). */
+  channelName?: (item: {
+    channel: string;
+    channelName: string | null;
+  }) => ReactNode;
 }) {
   const [dialog, setDialog] = useState<DraftDialog | null>(null);
   if (!items.length && !history.length) return null;
@@ -951,168 +987,232 @@ export function AwaitingOwnerDraftList({
   const ownerNote = de
     ? "Nur ein Owner kann freigeben, ablehnen, verwerfen oder archivieren."
     : "Only an owner can release, reject, discard or archive.";
+  const head =
+    heading === undefined
+      ? {
+          title: de ? "Wartet auf deine Freigabe" : "Waiting for your release",
+          text: de
+            ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt ist, zum nächsten freien Termin desselben Tages. Ein abgelaufener Termin wird nicht nachgeholt."
+            : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken, at the next free slot of the same day. A slot that has passed is not caught up.",
+        }
+      : heading;
+  // The release, reject and discard (or archive) of one draft; in a group
+  // each button also names its channel for screen readers.
+  const actions = (item: AwaitingOwnerDraft, channel?: string) => {
+    const state: DraftState = item.state ?? "pending";
+    const named = (label: string) =>
+      channel ? { "aria-label": `${label}: ${channel}` } : {};
+    const release = de ? "Freigeben" : "Release";
+    const reject = de ? "Ablehnen" : "Reject";
+    const other =
+      state === "expired"
+        ? de
+          ? "Archivieren"
+          : "Archive"
+        : de
+          ? "Verwerfen"
+          : "Discard";
+    return (
+      <div className="form-actions approval-actions">
+        {state === "pending" && (
+          <Button
+            size="sm"
+            disabled={pending || !canRelease}
+            onClick={() => onRelease(item)}
+            {...named(release)}
+          >
+            {release}
+          </Button>
+        )}
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending || !canRelease}
+          onClick={() => setDialog({ kind: "reject", item })}
+          {...named(reject)}
+        >
+          {reject}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending || !canRelease}
+          onClick={() =>
+            setDialog({
+              kind: state === "expired" ? "archive" : "discard",
+              item,
+            })
+          }
+          {...named(other)}
+        >
+          {other}
+        </Button>
+      </div>
+    );
+  };
+  const notes = (item: AwaitingOwnerDraft) => {
+    const state: DraftState = item.state ?? "pending";
+    return (
+      <>
+        {item.delivery === "postiz_draft" && state === "pending" && (
+          <p className="panel-note">
+            {de
+              ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
+              : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
+          </p>
+        )}
+        <p className="panel-note">
+          {state === "expired"
+            ? de
+              ? "Der Termin ist vorbei. Er wird nicht nachgeholt: Lehne den Entwurf ab oder archiviere ihn."
+              : "The slot has passed and is not caught up: reject or archive the draft."
+            : item.agentApproved
+              ? de
+                ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
+                : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
+              : de
+                ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
+                : "The review agent left this draft to you."}
+        </p>
+      </>
+    );
+  };
+  const problems = (codes: string[]) =>
+    [...new Set(codes)].map((code) => (
+      <span key={code} title={code}>
+        {" "}
+        <Badge tone="warning">
+          {PROBLEM_LABELS[code]?.[de ? 0 : 1] ?? code}
+        </Badge>
+      </span>
+    ));
+  const thumbnail = (item: AwaitingOwnerDraft) =>
+    thumbnails && item.assetId ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        className="approval-item-thumbnail"
+        src={`/api/projects/${projectId}/assets/${item.assetId}/content`}
+        alt={de ? "Bild des Entwurfs" : "Draft image"}
+        width={160}
+        loading="lazy"
+      />
+    ) : null;
+  const historyEntries = history.map((entry) => (
+    <article key={`${entry.state}:${entry.id}`} className="approval-item">
+      <p className="panel-note approval-item-meta">
+        <StateBadge state={entry.hidden ? "archived" : entry.state} de={de} />{" "}
+        {entry.slotAt ? `${when(entry.slotAt, locale, timezone)} · ` : ""}
+        {channelName(entry)}
+        {entry.assignmentName && ` · ${entry.assignmentName}`}
+      </p>
+      <pre className="approval-item-body">{entry.excerpt}</pre>
+      {entry.reason && (
+        <p className="panel-note">
+          {de ? "Grund" : "Reason"}: {entry.reason}
+        </p>
+      )}
+      {entry.state !== "released" && !entry.hidden && (
+        <div className="form-actions approval-actions">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={pending || !canRelease}
+            onClick={() => setDialog({ kind: "archive-history", item: entry })}
+          >
+            {de ? "Archivieren" : "Archive"}
+          </Button>
+        </div>
+      )}
+    </article>
+  ));
+  const archivedToggle = onShowArchived && (
+    <label className="approval-history-toggle">
+      <input
+        type="checkbox"
+        checked={showArchived}
+        onChange={(e) => onShowArchived(e.target.checked)}
+      />{" "}
+      {de ? "Archivierte anzeigen" : "Show archived"}
+    </label>
+  );
   return (
     <section className="panel approval-list">
-      <div className="panel-head">
-        <div>
-          <h2>
-            {de ? "Wartet auf deine Freigabe" : "Waiting for your release"}
-          </h2>
-          <p>
-            {de
-              ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt ist, zum nächsten freien Termin desselben Tages. Ein abgelaufener Termin wird nicht nachgeholt."
-              : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken, at the next free slot of the same day. A slot that has passed is not caught up."}
-          </p>
+      {head && (
+        <div className="panel-head">
+          <div>
+            <h3>{head.title}</h3>
+            {head.text && <p>{head.text}</p>}
+          </div>
         </div>
-      </div>
+      )}
       {!canRelease && items.length > 0 && (
         <p className="panel-note" role="note">
           {ownerNote}
         </p>
       )}
-      {items.map((item) => {
-        const state: DraftState = item.state ?? "pending";
+      {draftGroups(items).map((group) => {
+        const first = group[0]!;
+        const state: DraftState = first.state ?? "pending";
+        if (group.length === 1)
+          return (
+            <article key={first.id} className="approval-item">
+              <p className="panel-note approval-item-meta">
+                <StateBadge state={state} de={de} />{" "}
+                {when(first.slotAt, locale, timezone)} · {channelName(first)}
+                {first.assignmentName && ` · ${first.assignmentName}`}
+                {problems(first.problems)}
+              </p>
+              {thumbnail(first)}
+              <pre className="approval-item-body">{first.excerpt}</pre>
+              {notes(first)}
+              {actions(first)}
+            </article>
+          );
+        // A Facebook/Instagram pair (R76): one text, one release per channel.
         return (
-          <article key={item.id} className="approval-item">
+          <article key={first.baseId ?? first.id} className="approval-item">
             <p className="panel-note approval-item-meta">
               <StateBadge state={state} de={de} />{" "}
-              {when(item.slotAt, locale, timezone)} ·{" "}
-              {item.channelName ?? item.channel}
-              {item.assignmentName && ` · ${item.assignmentName}`}
-              {item.problems.map((code) => (
-                <span key={code} title={code}>
-                  {" "}
-                  <Badge tone="warning">
-                    {PROBLEM_LABELS[code]?.[de ? 0 : 1] ?? code}
-                  </Badge>
-                </span>
-              ))}
+              {when(first.slotAt, locale, timezone)}
+              {first.assignmentName && ` · ${first.assignmentName}`}
+              {problems(group.flatMap((item) => item.problems))}
             </p>
-            {thumbnails && item.assetId && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                className="approval-item-thumbnail"
-                src={`/api/projects/${projectId}/assets/${item.assetId}/content`}
-                alt={de ? "Bild des Entwurfs" : "Draft image"}
-                width={160}
-                loading="lazy"
-              />
-            )}
-            <pre className="approval-item-body">{item.excerpt}</pre>
-            {item.delivery === "postiz_draft" && state === "pending" && (
-              <p className="panel-note">
-                {de
-                  ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
-                  : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
-              </p>
-            )}
-            <p className="panel-note">
-              {state === "expired"
-                ? de
-                  ? "Der Termin ist vorbei. Er wird nicht nachgeholt: Lehne den Entwurf ab oder archiviere ihn."
-                  : "The slot has passed and is not caught up: reject or archive the draft."
-                : item.agentApproved
-                  ? de
-                    ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
-                    : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
-                  : de
-                    ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
-                    : "The review agent left this draft to you."}
-            </p>
-            <div className="form-actions approval-actions">
-              {state === "pending" && (
-                <Button
-                  size="sm"
-                  disabled={pending || !canRelease}
-                  onClick={() => onRelease(item)}
-                >
-                  {de ? "Freigeben" : "Release"}
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={pending || !canRelease}
-                onClick={() => setDialog({ kind: "reject", item })}
-              >
-                {de ? "Ablehnen" : "Reject"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={pending || !canRelease}
-                onClick={() =>
-                  setDialog({
-                    kind: state === "expired" ? "archive" : "discard",
-                    item,
-                  })
-                }
-              >
-                {state === "expired"
-                  ? de
-                    ? "Archivieren"
-                    : "Archive"
-                  : de
-                    ? "Verwerfen"
-                    : "Discard"}
-              </Button>
-            </div>
+            {thumbnail(first)}
+            <pre className="approval-item-body">{first.excerpt}</pre>
+            {notes(first)}
+            <ul className="approval-variants">
+              {group.map((item) => {
+                const label = channelText(item);
+                return (
+                  <li key={item.id} className="approval-variant">
+                    <span className="approval-item-meta">
+                      {(item.state ?? "pending") !== state && (
+                        <StateBadge state={item.state ?? "pending"} de={de} />
+                      )}
+                      {channelName(item)}
+                      {item.slotAt !== first.slotAt &&
+                        ` · ${when(item.slotAt, locale, timezone)}`}
+                    </span>
+                    {actions(item, label)}
+                  </li>
+                );
+              })}
+            </ul>
           </article>
         );
       })}
-      {history.length > 0 || showArchived ? (
+      {historyAs === "list" ? (
+        <>
+          {archivedToggle}
+          {historyEntries}
+        </>
+      ) : history.length > 0 || showArchived ? (
         <details className="approval-history">
           <summary>
             {de ? "Verlauf" : "History"} ({history.length})
           </summary>
-          {onShowArchived && (
-            <label className="approval-history-toggle">
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(e) => onShowArchived(e.target.checked)}
-              />{" "}
-              {de ? "Archivierte anzeigen" : "Show archived"}
-            </label>
-          )}
-          {history.map((entry) => (
-            <article
-              key={`${entry.state}:${entry.id}`}
-              className="approval-item"
-            >
-              <p className="panel-note approval-item-meta">
-                <StateBadge
-                  state={entry.hidden ? "archived" : entry.state}
-                  de={de}
-                />{" "}
-                {entry.slotAt
-                  ? `${when(entry.slotAt, locale, timezone)} · `
-                  : ""}
-                {entry.channelName ?? entry.channel}
-                {entry.assignmentName && ` · ${entry.assignmentName}`}
-              </p>
-              <pre className="approval-item-body">{entry.excerpt}</pre>
-              {entry.reason && (
-                <p className="panel-note">
-                  {de ? "Grund" : "Reason"}: {entry.reason}
-                </p>
-              )}
-              {entry.state !== "released" && !entry.hidden && (
-                <div className="form-actions approval-actions">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={pending || !canRelease}
-                    onClick={() =>
-                      setDialog({ kind: "archive-history", item: entry })
-                    }
-                  >
-                    {de ? "Archivieren" : "Archive"}
-                  </Button>
-                </div>
-              )}
-            </article>
-          ))}
+          {archivedToggle}
+          {historyEntries}
         </details>
       ) : null}
       {dialog?.kind === "reject" && (
@@ -1172,16 +1272,13 @@ export function AwaitingOwnerDraftList({
 }
 
 /**
- * Approvals page fallback (spec §10): upcoming assignment posts with Stop,
- * independent of Telegram delivery, and below them the drafts that wait for
- * the owner's release (R70). Hidden while Orbit Agents is off or nothing is
- * upcoming or waiting.
+ * Approvals page data of Orbit Agents (spec §10 fallback, R70): upcoming
+ * assignment posts with Stop, independent of Telegram delivery, the drafts
+ * that wait for the owner's release and the owner's recent decisions, with
+ * the release, decisions and Stop. `off` while Orbit Agents is off (404).
  */
-export function UpcomingAssignmentPosts() {
-  const { locale, project, revision, canEdit, isOwner, refresh } =
-    useWorkspace();
-  const de = locale === "de";
-  const studio = useContext(ShellContext)?.features?.creativeStudio === true;
+export function useAssignmentApprovals() {
+  const { project, revision, refresh } = useWorkspace();
   const posts = useResource<{ items: UpcomingPost[] }>(
     collectionPath(project.id, `assignment-posts?revision=${revision}`),
   );
@@ -1203,9 +1300,6 @@ export function UpcomingAssignmentPosts() {
   );
   const [handedOver, setHandedOver] = useState<string[]>([]);
   const mutation = useMutation();
-  const items = known?.items ?? [];
-  const drafts = knownDrafts?.items ?? [];
-  const history = knownDrafts?.history ?? [];
   // The owner's reject, discard or archive of one draft; nothing is deleted.
   const decide = (
     item: { id: string; version: number },
@@ -1226,81 +1320,49 @@ export function UpcomingAssignmentPosts() {
       );
       refresh();
     });
+  const release = (item: { id: string; version: number }) =>
+    mutation.run(async () => {
+      await refreshOnConflict(
+        () =>
+          post(
+            collectionPath(project.id, `assignment-drafts/${item.id}/release`),
+            { version: item.version },
+          ),
+        refresh,
+      );
+      refresh();
+    });
+  const stop = (item: { id: string; version: number }) =>
+    mutation.run(async () => {
+      const { result } = await refreshOnConflict(
+        () =>
+          post<{
+            result: "vetoed" | "already_handed_over" | "not_found";
+          }>(collectionPath(project.id, `publications/${item.id}/veto`), {
+            version: item.version,
+          }),
+        refresh,
+      );
+      if (result === "already_handed_over")
+        setHandedOver((ids) => [...ids, item.id]);
+      else refresh();
+    });
   const error =
     (!agentsOff(posts.error) && posts.error) ||
     (!agentsOff(waiting.error) && waiting.error) ||
     null;
-  if (
-    (agentsOff(posts.error) && agentsOff(waiting.error)) ||
-    (!items.length && !drafts.length && !error)
-  )
-    return null;
-  return (
-    <>
-      {error && <Alert kind="error">{error.message}</Alert>}
-      {mutation.error && (
-        <Alert kind="error">{decisionErrorText(mutation.error, de)}</Alert>
-      )}
-      {items.length > 0 && (
-        <UpcomingPostList
-          items={items}
-          de={de}
-          timezone={project.timezone}
-          canStop={canEdit}
-          pending={mutation.pending}
-          handedOver={handedOver}
-          onStop={(item) =>
-            mutation.run(async () => {
-              const { result } = await refreshOnConflict(
-                () =>
-                  post<{
-                    result: "vetoed" | "already_handed_over" | "not_found";
-                  }>(
-                    collectionPath(project.id, `publications/${item.id}/veto`),
-                    { version: item.version },
-                  ),
-                refresh,
-              );
-              if (result === "already_handed_over")
-                setHandedOver((ids) => [...ids, item.id]);
-              else refresh();
-            })
-          }
-        />
-      )}
-      <AwaitingOwnerDraftList
-        items={drafts}
-        history={history}
-        showArchived={showArchived}
-        onShowArchived={setShowArchived}
-        projectId={project.id}
-        thumbnails={studio}
-        de={de}
-        timezone={project.timezone}
-        canRelease={isOwner}
-        pending={mutation.pending}
-        onReject={(item, reason) =>
-          decide(item, "reject", reason ? { reason } : {})
-        }
-        onDiscard={(item) => decide(item, "discard")}
-        onArchive={(item) => decide(item, "archive")}
-        onRelease={(item) =>
-          mutation.run(async () => {
-            await refreshOnConflict(
-              () =>
-                post(
-                  collectionPath(
-                    project.id,
-                    `assignment-drafts/${item.id}/release`,
-                  ),
-                  { version: item.version },
-                ),
-              refresh,
-            );
-            refresh();
-          })
-        }
-      />
-    </>
-  );
+  return {
+    off: agentsOff(posts.error) && agentsOff(waiting.error),
+    error,
+    posts: known?.items ?? [],
+    drafts: knownDrafts?.items ?? [],
+    history: knownDrafts?.history ?? [],
+    showArchived,
+    setShowArchived,
+    handedOver,
+    mutation,
+    decide,
+    release,
+    stop,
+  };
 }
