@@ -3,6 +3,7 @@ import { labels } from "@/lib/i18n";
 import type { Label } from "@/platform/shell/types";
 import type { WebModule } from "@/platform/shell/types";
 import { supportActionRequests } from "./action-requests";
+import { supportAgentSetups } from "./agent-setup";
 import { supportAttention } from "./attention";
 import { SupportContacts } from "./contacts";
 import { SupportHome } from "./home";
@@ -35,6 +36,7 @@ export const supportWeb: WebModule = {
   settings: supportSettings,
   attention: supportAttention,
   actionRequests: supportActionRequests,
+  agentSetups: supportAgentSetups,
   views: [
     {
       key: "support",

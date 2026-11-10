@@ -23,6 +23,7 @@ import {
   removeProjectMember,
   removeWorkspaceMember,
   setProjectMember,
+  setMemberAssistant,
   setWorkspaceRole,
   type Actor,
 } from "./memberships.ts";
@@ -59,7 +60,9 @@ import { adminPasswordReset } from "../account/service.ts";
 export function isAdministrationRoute(url: string) {
   return (
     url.startsWith("/api/admin/") ||
-    url.startsWith("/api/organizations/") ||
+    // The social module's organization calendar (ADR 0020, S6) is a member
+    // read, not administration: it follows ORBIT_SOCIAL instead.
+    (url.startsWith("/api/organizations/") && url !== "/api/organizations/:workspaceId/social/calendar") ||
     url.startsWith("/api/invitations/") ||
     url === "/api/projects/:projectId/members/:userId" ||
     url.startsWith("/api/projects/:projectId/invitations")
@@ -213,6 +216,14 @@ export function registerAdministrationRoutes(
   );
   app.put(`${org}/members/:userId`, async (req) =>
     setWorkspaceRole(
+      await manager(req),
+      uuidParam(req, "workspaceId"),
+      param(req, "userId"),
+      req.body,
+    ),
+  );
+  app.put(`${org}/members/:userId/assistant`, async (req) =>
+    setMemberAssistant(
       await manager(req),
       uuidParam(req, "workspaceId"),
       param(req, "userId"),

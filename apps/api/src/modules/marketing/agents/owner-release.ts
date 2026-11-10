@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { ownedPlanRefusal } from "../plans/execution.ts";
 import { z } from "zod";
 import {
@@ -18,10 +19,17 @@ import {
   approvalModeOf,
 } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
+import { bookedDraft, releasedPublication } from "./handoff-lookup.ts";
+import {
+  CONTENT_CLOSED,
+  contentClosed,
+} from "../pipeline/content-decisions.ts";
 import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import {
   draftDelivery,
   moveDraft,
+  SLOT_EXPIRED,
+  slotExpired,
   slotKey,
   vetoSlot,
   type RunSlot,
@@ -43,8 +51,10 @@ import {
  * - the post is scheduled through `publishIntent` without a veto window,
  *   because the owner approved it.
  *
- * Slot: the draft's run slot (`plannedSlotAt`). If that slot is taken or has
- * passed, the post moves to the next free half hour of the same local day by
+ * Slot: the draft's run slot (`plannedSlotAt`). A slot that has passed is
+ * never moved: the release is refused with `SLOT_EXPIRED` (D-2) and the draft
+ * shows as expired (reject or archive it). If the slot is still ahead but
+ * taken, the post moves to the next free half hour of the same local day by
  * the rules `scheduleApproved` uses (`vetoSlot` with no window); without one
  * the release is refused with `SLOT_UNAVAILABLE` and nothing changes. The
  * assignment is checked through its confirmation (`confirmedHash`), so a
@@ -65,10 +75,8 @@ export const releaseInput = z
 
 const RUNS = "assignment_runs";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const INACTIVE = ["canceled", "failed", "blocked_dependency"];
 // Same tolerance after the slot as the mission the copywriter creates.
 const SLOT_WINDOW_MS = 2 * 3600000;
-
 export type ReleaseResult = {
   result: "released" | "already_released";
   delivery: "publish" | "postiz_draft";
@@ -79,40 +87,6 @@ export type ReleaseResult = {
   // The run slot the draft was planned for; differs when the post moved.
   requestedAt: string;
 };
-
-/** The owner-released publication of a content that is still active, if any. */
-async function releasedPublication(tx: DbTx, scope: Scope, contentId: string) {
-  const rows = await tx.entity.findMany({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "publications",
-      data: { path: ["contentId"], equals: contentId },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  return rows.find((row) => !INACTIVE.includes(data(row).status)) ?? null;
-}
-
-/** The assignment's Postiz draft handoff of a content that still delivers (R73), if any. */
-async function bookedDraft(tx: DbTx, scope: Scope, contentId: string) {
-  const rows = await tx.entity.findMany({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "postiz_drafts",
-      data: { path: ["contentId"], equals: contentId },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  return (
-    rows.find(
-      (row) =>
-        data(row).source === "assignment" &&
-        !["failed", "canceled"].includes(data(row).status),
-    ) ?? null
-  );
-}
 
 export async function releaseAssignmentDraft(
   tx: DbTx,
@@ -162,9 +136,11 @@ export async function releaseAssignmentDraft(
       requestedAt: h.requestedSlotAt ?? h.slotAt,
     };
   }
+  // A draft the owner (or the review) rejected or archived stays closed.
+  if (contentClosed(c.status)) throw new DomainError(CONTENT_CLOSED, 409);
   // Blog and newsletter drafts are saved to Drive, never published.
   if (c.type !== "social") throw new DomainError("DRAFT_NOT_PUBLISHABLE", 409);
-  if (c.status !== "needs_review" || c.supersededBy)
+  if (c.status !== "needs_review" || draftReplaced(c))
     throw new DomainError("DRAFT_NOT_AWAITING_OWNER", 409);
   if (content.version !== version)
     throw new DomainError("VERSION_CONFLICT", 409);
@@ -207,6 +183,11 @@ export async function releaseAssignmentDraft(
     ...slot,
   }));
   const now = new Date();
+  // A late release never catches up a slot that has passed: the post was
+  // planned for that time, and going out later is a new decision (schedule
+  // it anew), not the release of this one (D-2).
+  if (!Number.isFinite(planned.valueOf()) || slotExpired(planned, now))
+    throw new DomainError(SLOT_EXPIRED, 409);
   const target = await vetoSlot(
     tx,
     scope,

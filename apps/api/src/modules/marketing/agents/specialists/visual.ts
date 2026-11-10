@@ -1,3 +1,4 @@
+import { draftReplaced } from "../draft-state.ts";
 import { createHash } from "node:crypto";
 import {
   scoped,
@@ -29,7 +30,11 @@ import {
 import { mayTransmitToProvider } from "../../brand/provider-use.ts";
 import { isApprovedAsset } from "../../brand/asset-rules.ts";
 import { assetContent } from "../../creative/asset-content.ts";
-import { renderRasterBanner } from "../../../../../../../packages/creative/src/index.ts";
+import {
+  bannerPalette,
+  brandToneCheck,
+  renderRasterBanner,
+} from "../../../../../../../packages/creative/src/index.ts";
 import { assignmentHash } from "../assignments.ts";
 import {
   approvedBannerLogo,
@@ -256,7 +261,7 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
   for (const draft of drafts) {
     const v = data(draft);
     // An archived, rejected or replaced draft stays as it is.
-    if (["archived", "rejected"].includes(v.status) || v.supersededBy) continue;
+    if (["archived", "rejected"].includes(v.status) || draftReplaced(v)) continue;
     const asset = bannerRun
       ? await draftBanner(tx, scope, assets, image, v, brand)
       : image;
@@ -345,6 +350,19 @@ export async function bannerState(
   )
     return "media_refused";
   return "missing";
+}
+
+/**
+ * Whether the draft's attached banner failed the brand-tone check of its
+ * background (`brandCheck` stored when it was composed).
+ */
+export async function bannerBrandMismatch(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+) {
+  const attached = await findAsset(tx, scope, content.assetId);
+  return data(attached).brandCheck?.verdict === "mismatch";
 }
 
 /** Whether a draft carries its own composed banner (R78). */
@@ -633,7 +651,7 @@ export const visualStep: StepHandler = async (scope, task) => {
     const banner = data(row).banner
       ? assignmentBanner.parse(data(row).banner)
       : null;
-    if (banner) await approvedBannerLogo(tx, scope);
+    const bannerBrand = banner ? await approvedBannerLogo(tx, scope) : null;
     const rows = await styleAssets(
       tx,
       scope,
@@ -645,6 +663,8 @@ export const visualStep: StepHandler = async (scope, task) => {
       rows,
       useReferences,
       banner,
+      // The project's brand kit: the banner background follows it, never another project's look.
+      identity: bannerBrand?.visualIdentity ?? null,
       contentType: String(data(row).contentType),
       name: String(data(row).name),
       userId: String(data(row).confirmation.userId),
@@ -666,7 +686,10 @@ export const visualStep: StepHandler = async (scope, task) => {
       requestId,
       name: `Assignment ${banner ? "banner background" : "image"}: ${prepared.name}`,
       // A banner's background follows the banner style, the same for every slot (R78).
-      prompt: banner ? bannerBackgroundPrompt(banner) : idea,
+      prompt:
+        banner && prepared.identity
+          ? bannerBackgroundPrompt(banner, prepared.identity)
+          : idea,
       ...(banner ? { size: "1536x1024" as const } : {}),
       validUses: [
         prepared.contentType === "newsletter"
@@ -837,7 +860,7 @@ export async function composeRunBanners(scope: Scope, runId: string) {
     >();
     for (const draft of drafts) {
       const v = data(draft);
-      if (["archived", "rejected"].includes(v.status) || v.supersededBy)
+      if (["archived", "rejected"].includes(v.status) || draftReplaced(v))
         continue;
       const key = bannerKeyOf(background, v, logo.brand);
       // Copy the review will refuse or send back gets no banner (R78); its
@@ -867,6 +890,14 @@ export async function composeRunBanners(scope: Scope, runId: string) {
   });
   if (!plan?.todo.length) return { composed, failed, error: null };
   const backgroundUri = await imageBytes(scope, data(plan.background));
+  // The banner is drawn in the project's own colours, and its background is
+  // checked against the brand's tone (a dark background for a light brand is
+  // left for the owner by the review, BANNER_BRAND_MISMATCH).
+  const palette = bannerPalette(plan.logo.visualIdentity);
+  const brandCheck = await brandToneCheck(
+    Buffer.from(backgroundUri.slice(backgroundUri.indexOf(",") + 1), "base64"),
+    plan.logo.visualIdentity,
+  ).catch(() => null);
   const logo = data(plan.logo.row);
   const logoUri = await imageBytes(scope, logo);
   for (const [key, { contentIds, v }] of plan.todo) {
@@ -882,6 +913,7 @@ export async function composeRunBanners(scope: Scope, runId: string) {
         logoDataUri: logoUri,
         logoSha256: String(logo.sha256),
         backgroundDataUri: backgroundUri,
+        palette,
       });
       if (rendered.status !== "rendered") throw new Error("BLOCKED_ASSET");
     } catch (error) {
@@ -970,6 +1002,8 @@ export async function composeRunBanners(scope: Scope, runId: string) {
           boundTo: { runId, contentId: contentIds[0] },
           bannerKey: key,
           bannerText: text,
+          bannerPalette: palette,
+          ...(brandCheck ? { brandCheck } : {}),
           channel: "Social",
           validUses: ["social"],
           driveSyncStatus: "LOCAL_ONLY",

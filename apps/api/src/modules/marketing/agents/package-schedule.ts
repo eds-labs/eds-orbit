@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -115,7 +116,7 @@ export async function proposeScheduleInTx(
   if (current.pending) throw new DomainError("REVISION_IN_PROGRESS", 409);
   if (!current.draft) throw new DomainError("DRAFT_REQUIRED", 409);
   const draft = current.draft;
-  if (data(draft).supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
+  if (draftReplaced(data(draft))) throw new DomainError("DRAFT_SUPERSEDED", 409);
   await assertPackageDraft(tx, scope, pkg.id, draft);
   const mission = await entity(tx, scope, "missions", data(draft).missionId);
   const replaces = await openSchedule(tx, scope, step);
@@ -240,7 +241,7 @@ export async function revalidateSchedule(
   const content = await entity(tx, scope, "content", payload.contentId);
   if (
     content.version !== payload.contentVersion ||
-    data(content).supersededBy ||
+    draftReplaced(data(content)) ||
     payload.executionMode !== executionMode() ||
     (await packageFor(tx, scope, content.id)).packageHash !== payload.postHash
   )

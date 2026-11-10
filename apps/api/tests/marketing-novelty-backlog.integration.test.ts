@@ -11,6 +11,23 @@ import {
   vi,
 } from "vitest";
 import { randomUUID } from "node:crypto";
+const social = vi.hoisted(() => ({ fail: false }));
+vi.mock("../src/modules/social/contract.ts", async (original) => {
+  const actual =
+    await original<typeof import("../src/modules/social/contract.ts")>();
+  return {
+    ...actual,
+    // With `fail`, Social looks available and its read throws.
+    socialPublishingAvailable: (...args: Parameters<typeof actual.socialPublishingAvailable>) =>
+      social.fail ? Promise.resolve(true) : actual.socialPublishingAvailable(...args),
+    accountForChannel: (...args: Parameters<typeof actual.accountForChannel>) =>
+      social.fail
+        ? Promise.resolve({ accountId: "00000000-0000-4000-8000-000000000001" } as any)
+        : actual.accountForChannel(...args),
+    recentPosts: (...args: Parameters<typeof actual.recentPosts>) =>
+      social.fail ? Promise.reject(new Error("SOCIAL_READ_BOOM")) : actual.recentPosts(...args),
+  };
+});
 const paid = vi.hoisted(() => ({
   generate: vi.fn(),
   embed: vi.fn(),
@@ -36,6 +53,8 @@ import {
   reserveTopic,
   topicKey,
   marketingHistory,
+  boundRecentTopics,
+  recentTopicIdentities,
   assertDistinctDraft,
   prepareContentNovelty,
   commitTopic,
@@ -371,6 +390,77 @@ describe.skipIf(!enabled)(
           }),
         ),
       ).toBe(0);
+    });
+    it("expired assignment drafts hold no review capacity: planning proceeds (D-2)", async () => {
+      const helpers = assignmentRun(project);
+      const a = await helpers.makeAssignment({
+        pendingReviewLimit: 2,
+        approvalMode: "human_each",
+      });
+      const morning = tomorrowMorning();
+      // Two drafts of an earlier run whose slot passed yesterday: they can
+      // never be released any more.
+      const passed = new Date(morning.valueOf() - 86_400_000).toISOString();
+      const drafts = await run(async (tx) => {
+        const earlier = await create(tx, project.owner, "assignment_runs", {
+          assignmentId: a.id,
+          status: "done",
+          date: passed.slice(0, 10),
+          slots: [],
+          steps: [],
+        });
+        return Promise.all(
+          [1, 2].map(async (n) => {
+            const mission = await create(tx, project.owner, "missions", {
+              plannedSlotAt: passed,
+            });
+            return create(tx, project.owner, "content", {
+              assignmentId: a.id,
+              assignmentRunId: earlier.id,
+              missionId: mission.id,
+              channel: X,
+              body: `Expired ${n}`,
+              status: "needs_review",
+            });
+          }),
+        );
+      });
+      await helpers.connectTelegram();
+      await helpers.setPolicy({
+        startAt: "2026-01-01T00:00:00.000Z",
+        endAt: "2027-12-31T00:00:00.000Z",
+        maxPerDay: 4,
+      });
+      expect(
+        await run((tx) =>
+          reviewBacklog(tx, project.owner, a.id, undefined, morning),
+        ),
+      ).toMatchObject({ pending: 0, blocked: false });
+      expect(
+        await run((tx) => planAssignmentRuns(tx, project.owner, morning)),
+      ).toMatchObject({ created: 1 });
+      // The same drafts with a slot still ahead do fill the backlog.
+      await run(async (tx) => {
+        for (const draft of drafts) {
+          const mission = await entity(
+            tx,
+            project.owner,
+            "missions",
+            data(draft).missionId,
+          );
+          await update(tx, project.owner, mission, {
+            ...data(mission),
+            plannedSlotAt: new Date(
+              morning.valueOf() + 86_400_000,
+            ).toISOString(),
+          });
+        }
+      });
+      expect(
+        await run((tx) =>
+          reviewBacklog(tx, project.owner, a.id, undefined, morning),
+        ),
+      ).toMatchObject({ pending: 2, blocked: true });
     });
     it("holds already queued workers at zero cost and requeues unsent work exactly once after capacity returns", async () => {
       const h = assignmentRun(project);
@@ -720,6 +810,161 @@ describe.skipIf(!enabled)(
       expect(assignmentHash({ ...d, pendingReviewLimit: undefined })).toBe(
         assignmentHash(d),
       );
+    });
+
+    it("a reservation with holdDays 30 blocks the same topic and angle on day 29 and allows it on day 31", async () => {
+      const t0 = new Date();
+      const at = (days: number) => new Date(t0.valueOf() + days * 86400000);
+      const hold30 = (ownerKey: string, now: Date) =>
+        run((tx) =>
+          reserveTopic(
+            tx,
+            project.owner,
+            { channel: X, identity, ownerKey, holdDays: 30 },
+            now,
+          ),
+        );
+      await hold30("long:a", t0);
+      await expect(hold30("long:b", at(29))).rejects.toMatchObject({
+        code: "TOPIC_ANGLE_RESERVED",
+      });
+      await expect(hold30("long:c", at(31))).resolves.toBeTruthy();
+      // Without holdDays the hold is the 14-day default.
+      await run((tx) =>
+        reserveTopic(
+          tx,
+          project.owner,
+          {
+            channel: X,
+            identity: { ...identity, angle: "Short hold" },
+            ownerKey: "short:a",
+          },
+          t0,
+        ),
+      );
+      await expect(
+        run((tx) =>
+          reserveTopic(
+            tx,
+            project.owner,
+            {
+              channel: X,
+              identity: { ...identity, angle: "Short hold" },
+              ownerKey: "short:b",
+            },
+            at(15),
+          ),
+        ),
+      ).resolves.toBeTruthy();
+    });
+    it("recentTopicIdentities lists the last 30 days' topics, newest first", async () => {
+      const reserve = (angle: string, pillar: string) =>
+        run((tx) =>
+          reserveTopic(tx, project.owner, {
+            channel: X,
+            identity: { topic: "Beta access", angle, pillar },
+            ownerKey: `own:${angle}`,
+            holdDays: 30,
+          }),
+        );
+      const first = await reserve("First angle", "Education");
+      await reserve("Second angle", "Proof");
+      const released = await reserve("Released angle", "Proof");
+      await run((tx) =>
+        update(tx, project.owner, released, {
+          ...data(released),
+          state: "released",
+        }),
+      );
+      // The first one happened 20 days ago.
+      await run((tx) =>
+        tx.entity.update({
+          where: { id: first.id },
+          data: { createdAt: new Date(Date.now() - 20 * 86400000) },
+        }),
+      );
+      await reserve("Elsewhere", "Proof");
+      const since = (days: number) => new Date(Date.now() - days * 86400000);
+      const list30 = await run((tx) =>
+        recentTopicIdentities(tx, project.owner, [X], since(30)),
+      );
+      expect(list30.map((r) => r.angle)).toEqual([
+        "Elsewhere",
+        "Second angle",
+        "First angle",
+      ]);
+      expect(list30[2]).toEqual({
+        channel: X,
+        topic: "Beta access",
+        angle: "First angle",
+        pillar: "Education",
+        at: expect.any(String),
+      });
+      expect(
+        (
+          await run((tx) =>
+            recentTopicIdentities(tx, project.owner, [X], since(14)),
+          )
+        ).map((r) => r.angle),
+      ).toEqual(["Elsewhere", "Second angle"]);
+      expect(
+        await run((tx) =>
+          recentTopicIdentities(tx, project.owner, [TELEGRAM], since(30)),
+        ),
+      ).toEqual([]);
+    });
+    it("keeps the history and marks Social coverage when the Social read fails", async () => {
+      await run((tx) =>
+        create(tx, project.owner, "content", {
+          channel: X,
+          title: "Own draft",
+          body: "Own draft body",
+          status: "needs_review",
+        }),
+      );
+      const history = (channels = [X]) =>
+        run((tx) => marketingHistory(tx, project.owner, channels));
+      const normal = await history();
+      expect(normal.social).toEqual({ coverage: "unavailable" });
+      social.fail = true;
+      const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const failed = await history();
+        expect(failed.social).toEqual({ coverage: "failed" });
+        expect(failed.truncated).toBe(true);
+        expect(failed.items.map((i) => i.title)).toEqual(
+          normal.items.map((i) => i.title),
+        );
+        expect(failed.items.length).toBeGreaterThan(0);
+        expect(quiet).toHaveBeenCalledWith(
+          "Orbit Social history read failed",
+          expect.any(String),
+        );
+      } finally {
+        social.fail = false;
+        quiet.mockRestore();
+      }
+    });
+    it("caps recentTopics entries and the list's byte budget, oldest first, and flags it", () => {
+      const entries = Array.from({ length: 60 }, (_, i) => ({
+        channel: X,
+        topic: `T${i} ${"t".repeat(300)}`,
+        angle: `A${i} ${"a".repeat(500)}`,
+        pillar: `P${i} ${"p".repeat(300)}`,
+        at: new Date(Date.now() - i * 1000).toISOString(),
+      }));
+      const bounded = boundRecentTopics(entries);
+      expect(bounded.truncated).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(bounded.topics))).toBeLessThanOrEqual(12_000);
+      expect(bounded.topics.length).toBeLessThan(60);
+      expect(bounded.topics[0]!.topic).toHaveLength(120);
+      expect(bounded.topics[0]!.angle).toHaveLength(200);
+      expect(bounded.topics[0]!.pillar).toHaveLength(80);
+      // The newest stay, the oldest go.
+      expect(bounded.topics[0]!.topic.startsWith("T0 ")).toBe(true);
+      const small = boundRecentTopics(entries.slice(0, 3));
+      expect(small.truncated).toBe(false);
+      expect(small.topics).toHaveLength(3);
     });
   },
 );

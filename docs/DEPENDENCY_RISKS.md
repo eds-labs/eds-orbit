@@ -40,3 +40,16 @@ Usage limits:
 - mail hosts must resolve to public addresses only.
 
 See `docs/EMAIL_AND_NOTIFICATIONS.md`.
+
+## Social SDK (ADR 0020, 2026-11-02)
+
+`@opencoredev/social-sdk` **0.5.0**, pinned exactly in the root `package.json`. Approved by Mario on 2026-11-02 (decision S-D1). Used by the social module only: the X OAuth provider and token refresh (`/server`) in S2, the direct platform adapters from S5.
+
+| Aspect | Finding | Handling |
+| --- | --- | --- |
+| Provenance | Published by GitHub Actions trusted publishing with an SLSA attestation; the lockfile integrity `sha512-M+l6t/FRBH81…5I1Mg==` equals `npm view @opencoredev/social-sdk@0.5.0 dist.integrity` (checked 2026-11-02). | Exact pin; upgrades only as their own reviewed change. |
+| Dependencies and scripts | No runtime, peer or optional dependencies; no install scripts; ships an offline CLI bin (`social-sdk`) that Orbit never runs. MIT. | No transitive license or supply-chain surface. |
+| Maturity | Pre-1.0, one maintainer, eight releases in three days in September 2026, no release since; upstream marks all providers as not live-verified. Facebook Pages, the scheduler, SQL stores and MCP tools exist only unreleased on `main`. | Wrapped behind the module's own interfaces (`accounts/*`, later `adapters/registry.ts`); per-account live verification before publishing (S5); fallback for Facebook: a vendored pinned commit (S-D1). |
+| Managed providers | `./cloud/*` entries (Zernio, Post for Me, PostFast) exist but are never imported: `pnpm lint` refuses any `@opencoredev/social-sdk/cloud…` specifier (`scripts/boundaries.json`). `/server` also exports two pure webhook signature checks for managed providers (`verifyPostForMeWebhook`, `verifyZernioWebhook`; no network, no cloud import). | Pinned and never used: `apps/api/tests/social-sdk-surface.test.ts`. |
+| Error detail (S5) | The SDK's transport discards provider error bodies; only the HTTP status, `Retry-After`/`x-rate-limit-reset` and a request id survive. Graph errors that arrive as HTTP 400 (for example an expired token) are therefore "refused", not "reconnect"; only HTTP 401 means reconnect. The Instagram adapter uses Graph v25.0 (Orbit's own Meta calls use v26.0). | Orbit maps outcomes conservatively (`adapters/outcome.ts`): anything that may have been sent is `outcome_unknown` and is never resent. |
+| Network | Every SDK call receives `fetch: socialFetch`, i.e. Orbit's bounded transport (https only, public addresses, size and time limits). No vendor endpoint or telemetry was found in the package. | `apps/api/src/modules/social/accounts/http.ts`. |

@@ -7,6 +7,10 @@ import {
   workerStartHooks,
 } from "../../api/src/platform/modules/contributions.ts";
 import { enabledModules } from "../../api/src/platform/modules/enforcement.ts";
+import {
+  jobErrorCode,
+  retryableJobError,
+} from "../../api/src/platform/jobs/retry.ts";
 import { closeRealtime } from "../../api/src/platform/realtime/fanout.ts";
 import Redis from "ioredis";
 import {
@@ -33,6 +37,7 @@ import {
   closeDatabase,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
+import { redispatchLost } from "./lost-jobs.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import {
   entity,
@@ -86,6 +91,8 @@ const workspaces = workspaceAllowlist(
 );
 let stopping = false;
 const projectFailures = new Map<string, number>();
+const lostCheck = new Map<string, number>();
+const LOST_CHECK_MS = 5 * 60_000;
 const PUMP_INTERVAL_MS = 1500,
   PUMP_BATCH = 100,
   PUMP_CONCURRENCY = 4,
@@ -189,14 +196,13 @@ const workers = classes.map(
             });
           });
         } catch (error) {
-          const code = error instanceof Error ? error.message : "JOB_FAILED";
+          const code = jobErrorCode(error);
           let retryable = false;
           await scoped(workspaceId, projectId, async (tx) => {
             const job = await entity(tx, scope, "jobs", jobId);
             retryable =
-              !/BUDGET|NOT_|REQUIRED|EXPIRED|EVIDENCE|CAPABILITY|POLICY|PAUSED|UNKNOWN|REFUSAL|UNSUPPORTED/.test(
-                code,
-              ) && data(job).attempts < data(job).maxAttempts;
+              retryableJobError(code) &&
+              data(job).attempts < data(job).maxAttempts;
             await update(tx, scope, job, {
               ...data(job),
               status: retryable ? "retry_scheduled" : "blocked_dependency",
@@ -331,6 +337,16 @@ async function processProject(p: DueProject, claimed: Date) {
         data: { dispatchedAt: new Date() },
       }),
     );
+  }
+  // Jobs Redis lost after dispatch get a new outbox row (at most every
+  // five minutes per project); the next pass hands them over again.
+  if (at.getTime() - (lostCheck.get(p.id) ?? 0) >= LOST_CHECK_MS) {
+    lostCheck.set(p.id, at.getTime());
+    const lost = await redispatchLost(scope, queues, at).catch(() => 0);
+    if (lost) {
+      console.warn(JSON.stringify({ event: "worker.lost_jobs_redispatched", projectId: p.id, count: lost }));
+      redispatch = true;
+    }
   }
   // Module tasks after dispatch, such as saved Matomo imports and the
   // read-only Postiz queue check; a published status feeds /api/health.

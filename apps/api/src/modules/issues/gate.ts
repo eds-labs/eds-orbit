@@ -30,3 +30,13 @@ export async function requireIssues(tx: DbTx, scope: Scope) {
   if (!(await issuesActive(tx, scope)))
     throw new DomainError("ISSUES_DISABLED", 404);
 }
+
+/** True while GitHub issue creation is switched on (ORBIT_ISSUES_GITHUB). */
+export const issuesGithubSwitchedOn = () =>
+  loadConfig().ORBIT_ISSUES_GITHUB === "true";
+
+/** Throws 404 ISSUES_GITHUB_DISABLED while the GitHub flag is off. */
+export function requireIssuesGithub() {
+  if (!issuesGithubSwitchedOn())
+    throw new DomainError("ISSUES_GITHUB_DISABLED", 404);
+}

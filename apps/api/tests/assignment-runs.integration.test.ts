@@ -12,12 +12,14 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { create, data, list, update } from "../src/shared.ts";
+import { randomUUID } from "node:crypto";
+import { create, data, entity, list, update } from "../src/shared.ts";
 import { sweepProject, nextSweepAt } from "../src/modules/lifecycle.ts";
 import {
   buildWorkPlan,
   nextAssignmentPlanAt,
   planAssignmentRuns,
+  retryAssignmentRun,
   startReadySteps,
 } from "../src/modules/agents/assignment-runs.ts";
 import {
@@ -25,6 +27,11 @@ import {
   setAssignmentStatus,
 } from "../src/modules/agents/assignments.ts";
 import { channelSlots } from "../src/modules/agents/scheduling.ts";
+import { assignmentsMonthSpend } from "../src/modules/agents/specialists/runner.ts";
+import { draftsAwaitingOwner } from "../src/modules/marketing/agents/assignment-overview.ts";
+import { scheduleUnscheduledRuns } from "../src/modules/marketing/agents/veto.ts";
+import { releaseAssignmentDraft } from "../src/modules/marketing/agents/owner-release.ts";
+import { marketingAttention } from "../src/modules/marketing/attention.ts";
 import { runBudgetKey } from "../src/modules/agents/specialists/runner.ts";
 import { assignmentTools } from "../src/modules/agents/tools/assignment-tools.ts";
 import {
@@ -221,7 +228,7 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
         ...content,
         // As a confirmed assignment: the confirmation covers exactly this content.
         confirmation: {
-          userId: "owner",
+          userId: project.owner.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },
@@ -832,6 +839,301 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
         copywriter: "skipped",
         review: "skipped",
       });
+    });
+  });
+
+  describe("retrying a failed run (G6)", () => {
+    // 06:00 local: the 10:00 slot is four hours away.
+    const retry = (runId: string, now = MORNING, who = project.owner) =>
+      run((tx) => retryAssignmentRun(tx, who, runId, now));
+    const setRun = (id: string, changes: Record<string, unknown>) =>
+      run(async (tx) => {
+        const row = (await list(tx, project.owner, "assignment_runs")).find(
+          (r) => r.id === id,
+        )!;
+        await update(tx, project.owner, row, { ...data(row), ...changes });
+      });
+    const failed = async (changes: Record<string, unknown> = {}) => {
+      const assignment = await makeAssignment();
+      await plan(MORNING);
+      const [planned] = await runs();
+      await setRun(planned.id, { status: "failed", ...changes });
+      return { assignment, planned };
+    };
+    const draftOf = (runId: string, assignmentId: string) =>
+      run((tx) =>
+        create(tx, project.owner, "content", {
+          title: "Draft",
+          type: "social",
+          channel: X,
+          status: "needs_review",
+          body: "Beta access is open.",
+          assignmentRunId: runId,
+          assignmentId,
+        }),
+      );
+    const reservation = (runId: string) =>
+      run((tx) =>
+        create(tx, project.owner, "marketing_topic_reservations", {
+          topicKey: "k",
+          channel: X,
+          ownerKey: `run:${runId}`,
+          runId,
+          state: "held",
+          topic: "t",
+          angle: "a",
+          expiresAt: "2026-12-01T00:00:00.000Z",
+        }),
+      );
+    const refusal = (promise: Promise<unknown>) =>
+      promise.then(
+        () => null,
+        (error: any) => error.message ?? error.code,
+      );
+
+    it("retries a failed run before its slot: a new run for the same date, the old one retired, its drafts gone from the release list, its topic free again", async () => {
+      const { assignment, planned } = await failed();
+      const draft = await draftOf(planned.id, assignment.id);
+      const held = await reservation(planned.id);
+      const result = await retry(planned.id);
+      expect(result.retiredRunId).toBe(planned.id);
+      const all = await runs();
+      const old = all.find((r) => r.id === planned.id)!;
+      const fresh = all.find((r) => r.id === result.runId)!;
+      expect(fresh).toMatchObject({
+        date: planned.date,
+        assignmentId: assignment.id,
+        status: "running",
+      });
+      expect(fresh.retiredAt).toBeUndefined();
+      expect(old).toMatchObject({
+        retiredBy: project.owner.userId,
+        retriedByRunId: result.runId,
+      });
+      expect(typeof old.retiredAt).toBe("string");
+      const content = await run((tx) =>
+        entity(tx, project.owner, "content", draft.id),
+      );
+      // Retired with its run (the new run is the old run's retriedByRunId);
+      // supersededBy keeps holding only content ids.
+      expect(data(content).retiredWithRunId).toBe(planned.id);
+      expect(data(content).supersededBy).toBeUndefined();
+      expect(await run((tx) => draftsAwaitingOwner(tx, project.owner))).toEqual(
+        [],
+      );
+      // The owner can no longer release it, and the review counts it nowhere.
+      expect(
+        await refusal(
+          run((tx) =>
+            releaseAssignmentDraft(tx, project.owner, draft.id, content.version),
+          ),
+        ),
+      ).toBe("DRAFT_NOT_AWAITING_OWNER");
+      expect(
+        (await run((tx) => marketingAttention(tx, project.owner, MORNING))).filter(
+          (item) =>
+            item.kind === "marketing_content_review" ||
+            item.kind === "marketing_draft_release",
+        ),
+      ).toEqual([]);
+      const reservationRow = await run((tx) =>
+        entity(tx, project.owner, "marketing_topic_reservations", held.id),
+      );
+      expect(data(reservationRow).state).toBe("released");
+      const audited = await run((tx) =>
+        tx.auditEvent.findFirst({
+          where: {
+            projectId: project.owner.projectId,
+            action: "assignment.run_retried",
+          },
+        }),
+      );
+      expect(audited?.metadata).toMatchObject({
+        assignmentId: assignment.id,
+        retiredRunId: planned.id,
+        runId: result.runId,
+      });
+      // A retired run is not retried twice, and planning leaves the date alone.
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      expect(await plan(MORNING)).toEqual({ created: 0 });
+    });
+
+    it("also retries a partial run whose review was skipped", async () => {
+      const { planned } = await failed({ status: "partial" });
+      expect((await retry(planned.id)).retiredRunId).toBe(planned.id);
+    });
+
+    it("refuses a done run, a released draft, a booked slot and a paused assignment with RUN_NOT_RETRYABLE", async () => {
+      const { assignment, planned } = await failed({ status: "done" });
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      await setRun(planned.id, { status: "failed" });
+      // A draft of the run was handed over to Postiz.
+      const draft = await draftOf(planned.id, assignment.id);
+      await run((tx) =>
+        create(tx, project.owner, "postiz_drafts", {
+          contentId: draft.id,
+          source: "assignment",
+          status: "booked",
+        }),
+      );
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      expect(await runs()).toHaveLength(1);
+    });
+
+    it("refuses a run with a published slot and a paused assignment", async () => {
+      const { assignment, planned } = await failed();
+      await setRun(planned.id, {
+        slots: planned.slots.map((slot: any) => ({
+          ...slot,
+          publicationId: randomUUID(),
+        })),
+      });
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      await setRun(planned.id, { slots: planned.slots });
+      await run((tx) =>
+        setAssignmentStatus(tx, project.owner, assignment.id, "paused"),
+      );
+      await setRun(planned.id, { status: "failed" });
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+    });
+
+    it("refuses while the project is paused with PROJECT_PAUSED", async () => {
+      const { planned } = await failed();
+      await run((tx) =>
+        tx.project.update({
+          where: { id: project.owner.projectId },
+          data: { paused: true },
+        }),
+      );
+      expect(await refusal(retry(planned.id))).toBe("PROJECT_PAUSED");
+      expect(await runs()).toHaveLength(1);
+    });
+
+    it("refuses 59 minutes before the slot with RUN_RETRY_TOO_LATE, allows 60", async () => {
+      const { planned } = await failed();
+      const slot = new Date(planned.slots[0].at).valueOf();
+      expect(
+        await refusal(retry(planned.id, new Date(slot - 59 * 60000))),
+      ).toBe("RUN_RETRY_TOO_LATE");
+      expect(
+        (await retry(planned.id, new Date(slot - 60 * 60000))).retiredRunId,
+      ).toBe(planned.id);
+    });
+
+    it("rolls back when planning creates no new run", async () => {
+      const { planned } = await failed();
+      await setPolicy({ maxPerDay: 0 });
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      const [only] = await runs();
+      expect(only.retiredAt).toBeUndefined();
+    });
+
+    it("never answers with a canceled run of the same date when planning creates none", async () => {
+      const { assignment, planned } = await failed();
+      await run((tx) =>
+        create(tx, project.owner, "assignment_runs", {
+          assignmentId: assignment.id,
+          assignmentVersion: 1,
+          date: planned.date,
+          status: "canceled",
+          slots: [],
+          unavailable: [],
+          steps: [],
+          costMicros: 0,
+        }),
+      );
+      await setPolicy({ maxPerDay: 0 });
+      expect(await refusal(retry(planned.id))).toBe("RUN_NOT_RETRYABLE");
+      const old = (await runs()).find((r) => r.id === planned.id)!;
+      expect(old.retiredAt).toBeUndefined();
+      expect(old.retriedByRunId).toBeUndefined();
+      expect(old.status).toBe("failed");
+    });
+
+    it("never schedules a retired partial run with a reviewed draft", async () => {
+      const { assignment, planned } = await failed({ status: "partial" });
+      await setRun(planned.id, {
+        steps: planned.steps.map((step: any) => ({ ...step, status: "done" })),
+      });
+      const draft = await draftOf(planned.id, assignment.id);
+      await run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", draft.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "reviewed",
+        });
+      });
+      const result = await retry(planned.id);
+      const content = await run((tx) =>
+        entity(tx, project.owner, "content", draft.id),
+      );
+      expect(data(content).retiredWithRunId).toBe(planned.id);
+      expect(result.retiredRunId).toBe(planned.id);
+      // The sweep looks at runs of the last two days by the wall clock.
+      vi.useFakeTimers({ toFake: ["Date"], now: EVENING });
+      const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const swept = await run((tx) =>
+          scheduleUnscheduledRuns(tx, project.owner),
+        );
+        expect(swept).toEqual({ scheduled: 0 });
+        expect(errors).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+        errors.mockRestore();
+      }
+      for (const kind of ["publications", "postiz_drafts", "jobs"])
+        expect(
+          (await run((tx) => list(tx, project.owner, kind))).filter(
+            (row) =>
+              JSON.stringify(data(row)).includes(planned.id) ||
+              data(row).contentId === draft.id,
+          ),
+        ).toEqual([]);
+    });
+
+    it("lets only an owner retry", async () => {
+      const { planned } = await failed();
+      expect(await refusal(retry(planned.id, MORNING, project.editor))).toBe(
+        "OWNER_REQUIRED",
+      );
+    });
+
+    it("counts the spend of both runs in the assignment month", async () => {
+      const { assignment, planned } = await failed();
+      const reserve = (amount: bigint) =>
+        run((tx) =>
+          tx.budgetReservation.create({
+            data: {
+              workspaceId: project.owner.workspaceId,
+              projectId: project.owner.projectId,
+              key: `synthetic:${randomUUID()}`,
+              amountMicros: amount,
+              settledMicros: amount,
+              category: "model",
+              state: "settled",
+            },
+          }),
+        );
+      const first = await reserve(1_000_000n);
+      await run((tx) =>
+        create(tx, project.owner, "budget_runs", {
+          runKey: runBudgetKey(planned.id),
+          reservationIds: [first.id],
+        }),
+      );
+      const result = await retry(planned.id);
+      const second = await reserve(500_000n);
+      await run((tx) =>
+        create(tx, project.owner, "budget_runs", {
+          runKey: runBudgetKey(result.runId),
+          reservationIds: [second.id],
+        }),
+      );
+      const spend = await run((tx) =>
+        assignmentsMonthSpend(tx, project.owner, [assignment.id], MORNING),
+      );
+      expect(spend.get(assignment.id)).toBe(1_500_000);
     });
   });
 

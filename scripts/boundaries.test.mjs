@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
   checkBoundaries,
+  checkForbiddenImportPrefixes,
   checkForbiddenLiterals,
   classify,
   compareBaseline,
@@ -109,6 +110,35 @@ describe("repository zones", () => {
   });
 });
 
+describe("ads zones", () => {
+  const repo = JSON.parse(readFileSync(new URL("./boundaries.json", import.meta.url), "utf8"));
+
+  it("gives the ads module its own API and web zones, not marketing's", () => {
+    expect(classify("apps/api/src/modules/ads/gate.ts", repo.zones)).toBe("module:ads");
+    expect(classify("apps/web/src/modules/ads/overview.tsx", repo.zones)).toBe("web-module:ads");
+    expect(classify("apps/api/src/modules/workflow.ts", repo.zones)).toBe("module:marketing");
+  });
+
+  it("bans ads SDK and intermediary imports in the repository config", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        {
+          "apps/api/src/modules/ads/a.ts": 'import "facebook-nodejs-business-sdk";',
+          "apps/api/src/modules/ads/b.ts": 'const m = await import("google-ads-api/build");',
+          "apps/api/src/modules/ads/c.ts": 'import "@n8n/client"; import "n8n-core";',
+          "apps/api/src/modules/ads/d.ts": 'import "@orbit/connectors";',
+        },
+        repo,
+      ),
+    ).toEqual([
+      'forbidden-import: apps/api/src/modules/ads/a.ts -> "facebook-nodejs-business-sdk"',
+      'forbidden-import: apps/api/src/modules/ads/b.ts -> "google-ads-api/build"',
+      'forbidden-import: apps/api/src/modules/ads/c.ts -> "@n8n/client"',
+      'forbidden-import: apps/api/src/modules/ads/c.ts -> "n8n-core"',
+    ]);
+  });
+});
+
 describe("ruleFor", () => {
   const rule = (from, to, file = "x.ts") => ruleFor(from, to, file, config);
   it("forbids the platform, the worker and the web platform to import modules", () => {
@@ -199,6 +229,49 @@ describe("checkForbiddenLiterals", () => {
           "apps/api/src/modules/chat.ts": 'const kind = "content";',
         },
         literals,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("checkForbiddenImportPrefixes", () => {
+  const banned = {
+    ...config,
+    forbiddenImportPrefixes: ["@opencoredev/social-sdk/cloud"],
+  };
+
+  it("flags a managed-provider import in any zone, as import or dynamic import", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        {
+          "apps/api/src/modules/chat.ts": 'import { postiz } from "@opencoredev/social-sdk/cloud/postiz";',
+          "packages/db/src/a.ts": "await import('@opencoredev/social-sdk/cloud');",
+        },
+        banned,
+      ),
+    ).toEqual([
+      'forbidden-import: apps/api/src/modules/chat.ts -> "@opencoredev/social-sdk/cloud/postiz"',
+      'forbidden-import: packages/db/src/a.ts -> "@opencoredev/social-sdk/cloud"',
+    ]);
+  });
+
+  it("allows the direct adapters and look-alike names", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        {
+          "apps/api/src/modules/chat.ts":
+            'import { x } from "@opencoredev/social-sdk/x"; import "@opencoredev/social-sdk/cloudy";',
+        },
+        banned,
+      ),
+    ).toEqual([]);
+  });
+
+  it("checks nothing without the setting", () => {
+    expect(
+      checkForbiddenImportPrefixes(
+        { "packages/db/src/a.ts": 'import "@opencoredev/social-sdk/cloud/zernio";' },
+        config,
       ),
     ).toEqual([]);
   });

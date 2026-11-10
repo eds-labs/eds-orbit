@@ -11,6 +11,8 @@ import { audit, data, DomainError, update } from "../../shared.ts";
 import { supportSettings } from "./common.ts";
 import { requireSupport, supportActive } from "./gate.ts";
 import { WIDGET_SESSION_KIND } from "./widget.ts";
+import { SUPPORT_TICKET_SUBJECT } from "./agent-events.ts";
+import { deleteWorkOrdersForSubject } from "../../platform/agents/work-orders/service.ts";
 
 // Support privacy and operations (WP5.8; Q-12b): export and erasure per
 // contact, retention by the project's settings, and abuse caps. Erasure
@@ -68,6 +70,7 @@ export async function exportContact(tx: DbTx, scope: Scope, contactId: string) {
           kind: m.kind,
           internal: !m.visibleToCustomer,
           bodyText: m.bodyText,
+          ...(m.bodyTranslations ? { bodyTranslations: m.bodyTranslations } : {}),
           createdAt: m.createdAt,
           attachments: attachments
             .filter((a) => a.messageId === m.id)
@@ -88,6 +91,8 @@ export async function exportContact(tx: DbTx, scope: Scope, contactId: string) {
  */
 async function deleteTickets(tx: DbTx, scope: Scope, ticketIds: string[]) {
   if (!ticketIds.length) return { files: [] as string[], mails: 0 };
+  // Agent work about these tickets goes with them (ADR 0021 Phase 2).
+  await deleteWorkOrdersForSubject(tx, scope, SUPPORT_TICKET_SUBJECT, ticketIds);
   const messages = await tx.supportMessage.findMany({
     where: { ticketId: { in: ticketIds } },
     select: { id: true, externalId: true, channel: true },

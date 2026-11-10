@@ -75,6 +75,23 @@ describe("AssignmentCard", () => {
     expect(html).toMatch(/datetime="2026-10-16T12:00:00.000Z"/i);
   });
 
+  it("shows the topic history window the owner confirms, 14 when absent", () => {
+    expect(render(false)).toContain("Themen der letzten 14 Tage bleiben gesperrt");
+    const html = renderToStaticMarkup(
+      <AssignmentCard
+        assignment={{ ...assignment(false), historyDays: 30 }}
+        status="draft"
+        request={{ id: "request", version: 1, packageHash: "a".repeat(64), status: "pending" }}
+        de={false}
+        canDecide
+        pending={false}
+        onConfirm={() => {}}
+        onReject={() => {}}
+      />,
+    );
+    expect(html).toContain("Topics of the last 30 days stay closed");
+  });
+
   it("requires the consent checkbox for image assignments", () => {
     const html = render(true);
     expect(html).toContain(CONSENT);
@@ -174,7 +191,7 @@ describe("AssignmentCard", () => {
     });
     expect(branded).toContain("<dt>Banner</dt>");
     expect(branded).toContain(
-      "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund · Stil: Mehr Glühen",
+      "Markenbanner 16:9 je Termin in den Farben und im Bildstil des Brandkits: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund · Stil: Mehr Glühen",
     );
     // Before R78: a free image per run, or none.
     expect(card({ image: true })).toContain("Kein Banner, freies Bild je Lauf");

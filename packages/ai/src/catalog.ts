@@ -1,5 +1,6 @@
 import type { Rate } from "./cost.ts";
 import { anthropicCatalog, type ProviderId } from "./provider.ts";
+import type { SpeechUnit } from "./speech.ts";
 
 /**
  * Orbit's price catalog (plan docs/plans/ai-central-management.md, phase A,
@@ -16,7 +17,12 @@ import { anthropicCatalog, type ProviderId } from "./provider.ts";
  * generation (gpt-image-2, high quality, 1024x1024: USD 0.211), not a price.
  */
 
-export type CatalogPurpose = "text" | "image" | "embedding";
+export type CatalogPurpose =
+  | "text"
+  | "image"
+  | "embedding"
+  | "speech_to_text"
+  | "text_to_speech";
 export type CatalogEntry = {
   provider: ProviderId;
   purpose: CatalogPurpose;
@@ -25,6 +31,13 @@ export type CatalogEntry = {
   rate?: Omit<Rate, "verifiedAt">;
   /** Booked amount per generated image (image models). */
   perImageMicros?: number;
+  /**
+   * Speech models (ADR 0024): USD micros per unit, up to six decimals; the
+   * unit is `audio_minute` (speech to text) or `character` (text to speech).
+   */
+  unitPrice?: { unit: SpeechUnit; micros: number };
+  /** Speech options the route may pick from; data, not call-path constants. */
+  speech?: { voices?: readonly string[]; defaultVoice?: string };
   verifiedAt: string;
   source: string;
   note?: string;
@@ -77,6 +90,36 @@ const openaiEmbedding = (displayName: string, input: number): CatalogEntry => ({
   source: OPENAI_PRICING,
 });
 
+// Speech prices (ADR 0024) as last read by the author from OpenAI's pricing
+// page; not re-verified for Orbit, so the catalogue shows "please check"
+// until an administrator saves a current price. No live speech call runs
+// without Mario's separate approval.
+const OPENAI_SPEECH_VERIFIED_AT = "2025-03-20T00:00:00.000Z";
+const OPENAI_SPEECH_NOTE =
+  "Not re-verified for Orbit: check the OpenAI pricing page and save the current price before switching voice on.";
+const OPENAI_VOICES = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"] as const;
+
+const openaiTranscribe = (displayName: string, perMinute: number, note = OPENAI_SPEECH_NOTE): CatalogEntry => ({
+  provider: "openai",
+  purpose: "speech_to_text",
+  displayName,
+  unitPrice: { unit: "audio_minute", micros: perMinute },
+  verifiedAt: OPENAI_SPEECH_VERIFIED_AT,
+  source: OPENAI_PRICING,
+  note,
+});
+
+const openaiSpeech = (displayName: string, perCharacter: number): CatalogEntry => ({
+  provider: "openai",
+  purpose: "text_to_speech",
+  displayName,
+  unitPrice: { unit: "character", micros: perCharacter },
+  speech: { voices: OPENAI_VOICES, defaultVoice: "alloy" },
+  verifiedAt: OPENAI_SPEECH_VERIFIED_AT,
+  source: OPENAI_PRICING,
+  note: OPENAI_SPEECH_NOTE,
+});
+
 export const priceCatalog: Readonly<Record<string, CatalogEntry>> = {
   // OpenAI text models, standard tier, prompts up to 272K tokens.
   "gpt-6-astra": openaiText("GPT-6 Astra", 10_000_000, 1_000_000, 50_000_000),
@@ -100,6 +143,21 @@ export const priceCatalog: Readonly<Record<string, CatalogEntry>> = {
   // OpenAI embedding models (semantic search).
   "text-embedding-3-small": openaiEmbedding("Text Embedding 3 Small", 20_000),
   "text-embedding-3-large": openaiEmbedding("Text Embedding 3 Large", 130_000),
+  // OpenAI speech models (ADR 0024). Order is the routing preference: the
+  // first active, verified model of a purpose serves voice requests.
+  "gpt-4o-mini-transcribe": openaiTranscribe(
+    "GPT-4o mini Transcribe",
+    3_000,
+    `${OPENAI_SPEECH_NOTE} OpenAI bills this model by tokens; the per-minute price is its published estimate.`,
+  ),
+  "gpt-4o-transcribe": openaiTranscribe(
+    "GPT-4o Transcribe",
+    6_000,
+    `${OPENAI_SPEECH_NOTE} OpenAI bills this model by tokens; the per-minute price is its published estimate.`,
+  ),
+  "whisper-1": openaiTranscribe("Whisper", 6_000),
+  "tts-1": openaiSpeech("TTS", 15),
+  "tts-1-hd": openaiSpeech("TTS HD", 30),
   // Anthropic models from the reviewed Claude catalog.
   ...Object.fromEntries(
     Object.entries(anthropicCatalog.models).map(([id, entry]): [string, CatalogEntry] => [

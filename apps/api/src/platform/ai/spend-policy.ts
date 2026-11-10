@@ -7,7 +7,12 @@ import {
 import { audit, create, data, DomainError, list, update } from "../shared.ts";
 import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import { budgetMonthStart } from "./budget.ts";
-import { activeSpendPolicyRecord, requireSpendMandate } from "./spend-mandate.ts";
+import {
+  activeSpendPolicyRecord,
+  derivedLimits,
+  personalSpendRecord,
+  requireSpendMandate,
+} from "./spend-mandate.ts";
 import { organizationBudgetForProject } from "./org-budget.ts";
 
 // The project's AI spending authority (ADR 0015): one active, versioned
@@ -46,17 +51,7 @@ export const spendProfiles = {
   },
 } as const;
 
-/**
- * Limits derived from a monthly amount (decision D-4): a day may use a
- * tenth of it, a run at most a day's share and never more than USD 2.
- */
-export function derivedLimits(monthlyBudgetMicros: number) {
-  const dailyBudgetMicros = Math.floor(monthlyBudgetMicros / 10);
-  return {
-    dailyBudgetMicros,
-    perRunBudgetMicros: Math.min(dailyBudgetMicros, 2 * USD),
-  };
-}
+export { derivedLimits };
 
 export const spendPolicyInput = z.discriminatedUnion("profile", [
   z.object({ profile: z.enum(["off", "test", "normal"]) }).strict(),
@@ -123,6 +118,10 @@ export async function saveSpendPolicy(
   options: { source?: { id: string; version: number }; now?: Date } = {},
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  // A personal space's authority follows the organization's per-user cap;
+  // its user cannot raise it (ADR 0022 D-09).
+  if ((await personalSpendRecord(tx, scope)) !== undefined)
+    throw new DomainError("PERSONAL_SPACE_SPEND_READ_ONLY", 403);
   const fields = spendPolicyFields(raw, options.now);
   for (const row of await list(tx, scope, SPEND_POLICY_KIND))
     if (data(row).active)

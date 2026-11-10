@@ -11,6 +11,7 @@ import { withPlaceholders } from "./ai.ts";
 import { ticketEvent } from "./common.ts";
 import { supportActive } from "./gate.ts";
 import { screenCustomerText } from "./hard-rules.ts";
+import { assertAgentTicket, byAgent, SUPPORT_AGENT_CATALOG } from "./agent-gate.ts";
 import { approvedOperation } from "../../platform/tasks/operation-tools.ts";
 import { ISSUES_SCOPE } from "../../platform/mcp/scopes.ts";
 import { SUPPORT_TICKETS_READ } from "./permissions.ts";
@@ -198,12 +199,18 @@ export const supportReportIssue = approvedOperation({
       acknowledgeSensitive: z.boolean().optional(),
     })
     .strict(),
+  agent: SUPPORT_AGENT_CATALOG.reportIssue,
   summary: (args) => ({ operation: { kind: "support_issue_report", ticketId: args.ticketId, title: args.title } }),
   async validate(tx, scope, args) {
     await ticketWithContact(tx, scope, args.ticketId);
+    await assertAgentTicket(tx, scope, args.ticketId);
+    // An agent never acknowledges a sensitive topic: a person reports it.
+    if (byAgent() && args.acknowledgeSensitive)
+      throw new DomainError("SUPPORT_SENSITIVE_ACK_REQUIRED", 409);
   },
-  async run(tx, scope, args) {
+  async run(tx, scope, args, requester) {
     const { ticketId, ...input } = args as { ticketId: string } & Record<string, unknown>;
-    return reportTicketAsIssue(tx, scope, ticketId, input);
+    const agent = (requester as { agentId?: string } | undefined)?.agentId;
+    return reportTicketAsIssue(tx, scope, ticketId, agent ? { ...input, acknowledgeSensitive: false } : input);
   },
 });

@@ -1048,13 +1048,14 @@ export type OpenAiConfigurationView = {
   catalog?: Array<{
     id: string;
     provider: ProviderId;
-    purpose: "text" | "image" | "embedding";
+    purpose: "text" | "image" | "embedding" | "speech_to_text" | "text_to_speech";
     displayName: string;
     rate: {
       inputMicrosPerMillion: number;
       outputMicrosPerMillion: number;
     } | null;
     perImageMicros: number | null;
+    unitPrice?: { unit: "audio_minute" | "character"; micros: number } | null;
     verifiedAt: string;
     priceSource: "orbit" | "system" | "organization";
     active: boolean;
@@ -1120,8 +1121,10 @@ const taskClasses = [
   { id: "pm_plan", label: "Project manager plans", defaultTokens: 12000 },
   { id: "pm_analysis", label: "Project manager reports", defaultTokens: 3000 },
   { id: "knowledge_evaluation", label: "Knowledge test questions", defaultTokens: 6000 },
+  { id: "knowledge_analysis", label: "Knowledge analysis", defaultTokens: 12000 },
   { id: "issue_triage", label: "Issue triage", defaultTokens: 1500 },
   { id: "creative_review", label: "Creative vision review", defaultTokens: 1500 },
+  { id: "agent_custom", label: "Configured agents", defaultTokens: 3000 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
 /** The task classes that get a route: the Creative Studio's vision review only while it is on (CS-D6). */
@@ -1582,7 +1585,11 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
                         ? `$${(m.perImageMicros / 1_000_000).toFixed(3)} ${de ? "pro Bild" : "per image"}`
                         : m.rate
                           ? `${perMillion(m.rate.inputMicrosPerMillion)} / ${perMillion(m.rate.outputMicrosPerMillion)} ${de ? "pro 1 Mio. Tokens" : "per 1M tokens"}`
-                          : "—"}
+                          : m.unitPrice?.unit === "audio_minute"
+                            ? `$${(m.unitPrice.micros / 1_000_000).toFixed(4)} ${de ? "pro Audiominute" : "per audio minute"}`
+                            : m.unitPrice
+                              ? `$${m.unitPrice.micros.toFixed(2)} ${de ? "pro 1 Mio. Zeichen" : "per 1M characters"}`
+                              : "—"}
                     </p>
                   </div>
                   {m.needsReview && (

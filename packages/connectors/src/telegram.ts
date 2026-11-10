@@ -19,6 +19,11 @@ const SECRET = /^[A-Za-z0-9_-]{1,256}$/;
 const MAX_TEXT = 4096;
 const MAX_CAPTION = 1024;
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
+// Uploading photos (a channel post may carry up to ten) takes longer than a text.
+const MEDIA_TIMEOUT_MS = 60_000;
+const PHOTO_TYPES = ["image/jpeg", "image/png"] as const;
+export type TelegramPhotoType = (typeof PHOTO_TYPES)[number];
+export type TelegramSendOptions = { disableLinkPreview?: boolean; silent?: boolean };
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 export type TelegramButton =
@@ -32,6 +37,28 @@ export type TelegramClientOptions = {
 };
 
 const sentMessage = z.object({ message_id: z.number().int() }).passthrough();
+// Reads used to check a publishing channel (ADR 0020): the bot itself, the
+// chat (a public channel may be named @username) and the bot's rights there.
+const USERNAME = /^@[A-Za-z][A-Za-z0-9_]{4,31}$/;
+const botUser = z
+  .object({ id: z.number().int(), is_bot: z.literal(true), username: z.string().min(1) })
+  .passthrough();
+const chatInfo = z
+  .object({
+    id: z.number().int(),
+    type: z.enum(["channel", "supergroup", "group", "private"]),
+    title: z.string().optional(),
+    username: z.string().optional(),
+  })
+  .passthrough();
+const chatMember = z
+  .object({
+    status: z.string().min(1),
+    can_post_messages: z.boolean().optional(),
+    can_send_messages: z.boolean().optional(),
+    is_member: z.boolean().optional(),
+  })
+  .passthrough();
 
 function keyboard(buttons: TelegramButton[] | undefined) {
   if (!buttons?.length) return undefined;
@@ -83,6 +110,14 @@ function chat(chatId: TelegramChatId) {
   throw new ConnectorError("INVALID_TELEGRAM_CHAT");
 }
 
+function chatOrUsername(chatId: TelegramChatId | `@${string}`) {
+  if (typeof chatId === "string" && chatId.startsWith("@")) {
+    if (USERNAME.test(chatId)) return chatId;
+    throw new ConnectorError("INVALID_TELEGRAM_CHAT");
+  }
+  return chat(chatId);
+}
+
 export function createTelegramClient(options: TelegramClientOptions) {
   if (typeof options.token !== "string" || !TOKEN.test(options.token))
     throw new ConnectorError("INVALID_TELEGRAM_TOKEN");
@@ -95,9 +130,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
     method: string,
     body: Record<string, unknown> | FormData,
     sideEffect: boolean,
+    callTimeoutMs = timeoutMs,
   ): Promise<unknown> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timer = setTimeout(() => controller.abort(), callTimeoutMs);
     try {
       let response: Response;
       try {
@@ -178,6 +214,13 @@ export function createTelegramClient(options: TelegramClientOptions) {
     }
   }
 
+  function read<T>(schema: z.ZodType<T>, result: unknown): T {
+    const parsed = schema.safeParse(result);
+    if (!parsed.success)
+      throw new ConnectorError("INVALID_PROVIDER_RESPONSE", "rejected");
+    return parsed.data;
+  }
+
   function receipt(result: unknown) {
     const parsed = sentMessage.safeParse(result);
     if (!parsed.success)
@@ -185,11 +228,18 @@ export function createTelegramClient(options: TelegramClientOptions) {
     return { messageId: parsed.data.message_id };
   }
 
+  const validPhoto = (bytes: unknown, mime: unknown = "image/jpeg") =>
+    bytes instanceof Uint8Array &&
+    bytes.byteLength > 0 &&
+    bytes.byteLength <= MAX_PHOTO_BYTES &&
+    PHOTO_TYPES.includes(mime as TelegramPhotoType);
+
   return {
     async sendMessage(
       chatId: TelegramChatId,
       text: string,
       buttons?: TelegramButton[],
+      options: TelegramSendOptions = {},
     ) {
       if (typeof text !== "string" || !text.trim() || text.length > MAX_TEXT)
         throw new ConnectorError("INVALID_TELEGRAM_MESSAGE");
@@ -200,7 +250,8 @@ export function createTelegramClient(options: TelegramClientOptions) {
           {
             chat_id: chat(chatId),
             text,
-            link_preview_options: { is_disabled: true },
+            link_preview_options: { is_disabled: options.disableLinkPreview ?? true },
+            ...(options.silent ? { disable_notification: true } : {}),
             ...(markup ? { reply_markup: markup } : {}),
           },
           true,
@@ -212,11 +263,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
       bytes: Uint8Array,
       caption: string,
       buttons?: TelegramButton[],
+      options: { silent?: boolean; mime?: TelegramPhotoType } = {},
     ) {
       if (
-        !(bytes instanceof Uint8Array) ||
-        !bytes.byteLength ||
-        bytes.byteLength > MAX_PHOTO_BYTES ||
+        !validPhoto(bytes, options.mime ?? "image/jpeg") ||
         typeof caption !== "string" ||
         caption.length > MAX_CAPTION
       )
@@ -224,10 +274,53 @@ export function createTelegramClient(options: TelegramClientOptions) {
       const markup = keyboard(buttons);
       const form = new FormData();
       form.set("chat_id", String(chat(chatId)));
-      form.set("photo", new Blob([new Uint8Array(bytes)]), "preview");
+      form.set(
+        "photo",
+        new Blob([new Uint8Array(bytes)], options.mime ? { type: options.mime } : {}),
+        "preview",
+      );
       if (caption) form.set("caption", caption);
+      if (options.silent) form.set("disable_notification", "true");
       if (markup) form.set("reply_markup", JSON.stringify(markup));
-      return receipt(await call("sendPhoto", form, true));
+      return receipt(await call("sendPhoto", form, true, MEDIA_TIMEOUT_MS));
+    },
+    /** Two to ten photos as one album; the caption goes on the first. */
+    async sendMediaGroup(
+      chatId: TelegramChatId,
+      photos: Array<{ bytes: Uint8Array; mime: TelegramPhotoType }>,
+      caption: string,
+      options: { silent?: boolean } = {},
+    ) {
+      if (
+        !Array.isArray(photos) ||
+        photos.length < 2 ||
+        photos.length > 10 ||
+        !photos.every((p) => validPhoto(p?.bytes, p?.mime)) ||
+        typeof caption !== "string" ||
+        caption.length > MAX_CAPTION
+      )
+        throw new ConnectorError("INVALID_TELEGRAM_MESSAGE");
+      const form = new FormData();
+      form.set("chat_id", String(chat(chatId)));
+      form.set(
+        "media",
+        JSON.stringify(
+          photos.map((_, i) => ({
+            type: "photo",
+            media: `attach://photo${i}`,
+            ...(i === 0 && caption ? { caption } : {}),
+          })),
+        ),
+      );
+      photos.forEach((p, i) =>
+        form.set(`photo${i}`, new Blob([new Uint8Array(p.bytes)], { type: p.mime }), `photo${i}`),
+      );
+      if (options.silent) form.set("disable_notification", "true");
+      const result = await call("sendMediaGroup", form, true, MEDIA_TIMEOUT_MS);
+      const parsed = z.array(sentMessage).min(1).safeParse(result);
+      if (!parsed.success)
+        throw new ConnectorError("INVALID_PROVIDER_RESPONSE", "unknown");
+      return { messageIds: parsed.data.map((m) => m.message_id) };
     },
     async setWebhook(url: string, secretToken: string) {
       let target: URL;
@@ -257,6 +350,37 @@ export function createTelegramClient(options: TelegramClientOptions) {
     },
     async deleteWebhook() {
       await call("deleteWebhook", { drop_pending_updates: true }, false);
+    },
+    async getMe() {
+      const bot = read(botUser, await call("getMe", {}, false));
+      return { id: bot.id, username: bot.username, isBot: true as const };
+    },
+    async getChat(chatId: TelegramChatId | `@${string}`) {
+      const info = read(chatInfo, await call("getChat", { chat_id: chatOrUsername(chatId) }, false));
+      return {
+        id: info.id,
+        type: info.type,
+        title: info.title ?? null,
+        username: info.username ?? null,
+      };
+    },
+    async getChatMember(chatId: TelegramChatId, userId: number) {
+      if (!Number.isSafeInteger(userId) || userId <= 0)
+        throw new ConnectorError("INVALID_TELEGRAM_CHAT");
+      const member = read(
+        chatMember,
+        await call("getChatMember", { chat_id: chat(chatId), user_id: userId }, false),
+      );
+      return {
+        status: member.status,
+        canPostMessages:
+          member.status === "creator" ||
+          (member.status === "administrator" && member.can_post_messages === true),
+        // In a group or supergroup: a member writes unless restricted.
+        canSendMessages:
+          ["creator", "administrator", "member"].includes(member.status) ||
+          (member.status === "restricted" && member.is_member === true && member.can_send_messages === true),
+      };
     },
     async answerCallbackQuery(id: string, text: string) {
       if (

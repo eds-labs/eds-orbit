@@ -1,5 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { authDb, type DbTx } from "../../../../../packages/db/src/index.ts";
+import {
+  afterCommit,
+  authDb,
+  type DbTx,
+} from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
@@ -10,10 +15,17 @@ import {
   ownerEnabled,
   registeredUserNotification,
   registeredUserNotifications,
+  signalSeverityOf,
 } from "../modules/contributions.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import { emailEnabled } from "../email/connection.ts";
 import { queueEmail } from "../email/send.ts";
+import { enqueue } from "../jobs/enqueue.ts";
+import { telegramEnabled } from "../connections/telegram.ts";
+import { findPersonalSpace } from "../assistant/personal-space.ts";
+import { proactiveEnabled } from "../proactive/preferences.ts";
+import { publishNotificationWake } from "../proactive/wake.ts";
+import { SIGNAL_SEVERITIES, type SignalSeverity } from "../signals/types.ts";
 
 /**
  * Member notifications (WP4.7, plan 06 S-R8). A module registers its kinds
@@ -30,6 +42,8 @@ export type UserNotificationKind = {
   label: { en: string; de: string };
   /** In-app is always on by default; e-mail only when this says so. */
   emailDefault: boolean;
+  /** Written by proactive signals only (ADR 0023): offered while ORBIT_PROACTIVE is on. */
+  proactive?: boolean;
 };
 
 /** A same-origin path; the database and the bell check the same rule. */
@@ -50,8 +64,67 @@ const notice = z
      * control character: browsers read "/\\x" and "/<tab>/x" as "//x".
      */
     link: z.string().max(500).regex(ORBIT_PATH).optional(),
+    /**
+     * ADR 0023, only while ORBIT_PROACTIVE is on: the signal's fingerprint
+     * with its period bucket. A repeat increments `occurrences` on the
+     * open row and sends no new e-mail or Telegram message.
+     */
+    dedupeKey: z
+      .string()
+      .regex(/^[A-Za-z0-9_.:@-]{1,200}$/)
+      .optional(),
+    /** A rise on a repeat marks the row unread again. */
+    severity: z.enum(SIGNAL_SEVERITIES).optional(),
+    /** `digest`: never delivered at once, only in the user's digest. */
+    delivery: z.enum(["immediate", "digest"]).optional(),
   })
   .strict();
+
+/** The queue of the per-notice delivery decision (ADR 0023: e-mail, Telegram). */
+export const NOTIFICATION_DELIVERY_QUEUE = "notification_delivery";
+
+/**
+ * Writes or repeats a deduplicated notice in one statement on the partial
+ * unique index: a repeat increments `occurrences` and `lastOccurredAt`,
+ * raises the severity and marks the row unread only when it rose.
+ */
+async function upsertNotice(
+  tx: DbTx,
+  row: {
+    workspaceId: string;
+    projectId: string;
+    userId: string;
+    moduleId: string;
+    kind: string;
+    title: string;
+    body: string;
+    link: string | null;
+    dedupeKey: string;
+    severity: SignalSeverity;
+  },
+) {
+  const now = new Date();
+  const [result] = await tx.$queryRaw<{ id: string; inserted: boolean }[]>`
+    INSERT INTO "Notification"
+      ("id","workspaceId","projectId","userId","moduleId","kind","title","body","link","dedupeKey","severity","lastOccurredAt")
+    VALUES (${randomUUID()}::uuid, ${row.workspaceId}::uuid, ${row.projectId}::uuid, ${row.userId},
+      ${row.moduleId}, ${row.kind}, ${row.title}, ${row.body}, ${row.link}, ${row.dedupeKey},
+      ${row.severity}, ${now})
+    ON CONFLICT ("projectId","userId","dedupeKey") WHERE "dedupeKey" IS NOT NULL
+    DO UPDATE SET
+      "occurrences" = "Notification"."occurrences" + 1,
+      "lastOccurredAt" = EXCLUDED."lastOccurredAt",
+      "readAt" = CASE
+        WHEN array_position(ARRAY['info','attention','urgent']::text[], EXCLUDED."severity")
+           > array_position(ARRAY['info','attention','urgent']::text[], "Notification"."severity")
+        THEN NULL ELSE "Notification"."readAt" END,
+      "severity" = CASE
+        WHEN array_position(ARRAY['info','attention','urgent']::text[], EXCLUDED."severity")
+           > array_position(ARRAY['info','attention','urgent']::text[], "Notification"."severity")
+        THEN EXCLUDED."severity" ELSE "Notification"."severity" END
+    RETURNING "id", (xmax = 0) AS "inserted"`;
+  return { id: result!.id, first: Boolean(result!.inserted) };
+}
 
 /** Runs `work` with app.user_id set to `userId`, then restores it. */
 async function asMember<T>(
@@ -79,6 +152,10 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
   const input = notice.parse(raw);
   const kind = registeredUserNotification(input.kind);
   if (!kind) throw new Error(`NOTIFICATION_KIND_UNKNOWN: ${input.kind}`);
+  // With ORBIT_PROACTIVE off the options are ignored and nothing changes.
+  const proactive = proactiveEnabled();
+  const severity: SignalSeverity =
+    input.severity ?? signalSeverityOf(input.kind) ?? "info";
   let inApp = 0;
   let email = 0;
   for (const userId of [...new Set(input.userIds)]) {
@@ -108,7 +185,7 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
         inApp: preference?.inApp ?? true,
         email: preference?.email ?? kind.emailDefault,
       };
-      if (wants.inApp)
+      if (wants.inApp && !proactive)
         await tx.notification.create({
           data: {
             workspaceId: scope.workspaceId,
@@ -121,9 +198,66 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
             link: input.link ?? null,
           },
         });
-      return wants;
+      if (!wants.inApp || !proactive) return { ...wants, written: null };
+      const fields = {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        userId,
+        moduleId: kind.owner,
+        kind: input.kind,
+        title: input.title,
+        body: input.body,
+        link: input.link ?? null,
+      };
+      if (input.dedupeKey)
+        return {
+          ...wants,
+          written: await upsertNotice(tx, {
+            ...fields,
+            dedupeKey: input.dedupeKey,
+            severity,
+          }),
+        };
+      const created = await tx.notification.create({
+        data: { ...fields, severity, lastOccurredAt: new Date() },
+        select: { id: true },
+      });
+      return { ...wants, written: { id: created.id, first: true } };
     });
     if (choice.inApp) inApp++;
+    if (proactive && choice.written) {
+      // ADR 0023: a content-free wake-up for the badge after commit; the
+      // first occurrence alone is delivered, by a job that reads the
+      // user's own preferences in their personal space after commit.
+      const workspaceId = scope.workspaceId;
+      afterCommit(tx, () => void publishNotificationWake(workspaceId, userId));
+      if (!choice.written.first) continue;
+      const mail = choice.email && emailEnabled();
+      const telegram =
+        telegramEnabled() &&
+        Boolean(await findPersonalSpace(scope.workspaceId, userId));
+      if (mail || telegram) {
+        await enqueue(
+          tx,
+          scope,
+          NOTIFICATION_DELIVERY_QUEUE,
+          choice.written.id,
+          `ndel:${choice.written.id}`,
+          new Date(),
+          {
+            userId,
+            email: mail ? "yes" : "no",
+            delivery: input.delivery ?? "immediate",
+            severity,
+          },
+        );
+        if (mail) email++;
+      }
+      continue;
+    }
+    // A deduplicated notice the member muted in-app has no row to count
+    // repeats against: it sends no e-mail either.
+    if (proactive && input.dedupeKey) continue;
     if (choice.email && emailEnabled()) {
       const user = await authDb.user.findUnique({
         where: { id: userId },
@@ -226,7 +360,8 @@ export async function myPreferences(scope: Scope) {
         .filter(
           (k) =>
             ownerEnabled(k.owner, enabled) &&
-            effectiveRole(scope, k.owner) !== "none",
+            effectiveRole(scope, k.owner) !== "none" &&
+            (!k.proactive || proactiveEnabled()),
         )
         .map((k) => {
           const mine = stored.find((p) => p.kind === k.kind);

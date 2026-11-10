@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
@@ -5,8 +6,13 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { socialChannelHandles } from "../../social/contract.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
-import { nextAssignmentRunAt } from "./assignment-runs.ts";
+import {
+  nextAssignmentRunAt,
+  runRetryRefusal,
+  runsMatching,
+} from "./assignment-runs.ts";
 import {
   agentsEnabled,
   confirmedDelivery,
@@ -14,9 +20,18 @@ import {
   approvalModeOf,
 } from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
-import { assignmentMonthSpend } from "./specialists/runner.ts";
+import {
+  assignmentMonthSpend,
+  assignmentsMonthSpend,
+} from "./specialists/runner.ts";
+import type { ManagedAgentListing } from "../../../platform/agents/managed.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
-import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
+import {
+  assignmentPost,
+  draftDelivery,
+  slotExpired,
+  withdrawable,
+} from "./veto.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 
 /**
@@ -43,13 +58,15 @@ export const vetoInput = z
 const EXCERPT = 280;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Postiz channel names of the project by channel ID, as the owner knows them. */
+/** Channel names of the project by channel ID (Postiz channels and `social:` accounts), as the owner knows them. */
 export async function channelNames(tx: DbTx, scope: Scope) {
   const names = new Map<string, string>();
   for (const row of await list(tx, scope, "connectors"))
     if (data(row).provider === "postiz")
       for (const channel of assignedPostizChannels(data(row)))
         names.set(String(channel.id), String(channel.name ?? channel.id));
+  for (const [channel, handle] of await socialChannelHandles(tx, scope))
+    names.set(channel, handle);
   return names;
 }
 const namesOf = (channels: unknown, names: Map<string, string>) =>
@@ -60,7 +77,12 @@ const namesOf = (channels: unknown, names: Map<string, string>) =>
       .map((id) => [id, names.get(id)!]),
   );
 
-async function rowsById(tx: DbTx, scope: Scope, kind: string, ids: unknown[]) {
+export async function rowsById(
+  tx: DbTx,
+  scope: Scope,
+  kind: string,
+  ids: unknown[],
+) {
   const wanted = [
     ...new Set(ids.filter((id): id is string => typeof id === "string")),
   ].filter((id) => UUID.test(id));
@@ -104,9 +126,27 @@ export async function listAssignments(
     "action_requests",
     rows.map((row) => data(row).actionRequestId),
   );
+  // Only runs of the last days can still be retried; bounds the lookup.
+  const recentDate = localDate(
+    new Date(now.valueOf() - 86400000),
+    project.timezone,
+  );
   const items = [];
   for (const row of rows) {
     const d = data(row);
+    // The latest run (not retired) when the owner can still retry it (G6).
+    const latest = (
+      await runsMatching(tx, scope, {
+        assignmentId: row.id,
+        dateFrom: recentDate,
+      })
+    )
+      .filter((run) => !data(run).retiredAt)
+      .at(0);
+    const retryableRunId =
+      latest && !(await runRetryRefusal(tx, scope, latest, now))
+        ? latest.id
+        : null;
     const request = requests.get(String(d.actionRequestId));
     items.push({
       id: row.id,
@@ -133,6 +173,8 @@ export async function listAssignments(
       ...(d.pendingReviewLimit !== undefined
         ? { pendingReviewLimit: d.pendingReviewLimit }
         : {}),
+      ...(d.historyDays != null ? { historyDays: d.historyDays } : {}),
+      retryableRunId,
       latestRun: await latestAssignmentResult(tx, scope, row.id),
       backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:
@@ -142,6 +184,69 @@ export async function listAssignments(
     });
   }
   return { timezone: project.timezone, paused: project.paused, items };
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** "Daily at 10:00, 17:00 (Europe/Berlin)": when an assignment's posts are due. */
+export function scheduleSummary(schedule: unknown, timezone: string) {
+  const s = (schedule ?? {}) as Record<string, any>;
+  const times = Array.isArray(s.times) ? s.times.map(String).join(", ") : "";
+  const at = times ? ` at ${times}` : "";
+  const zone = ` (${timezone})`;
+  if (s.rhythm === "daily") return `Daily${at}${zone}`;
+  if (s.rhythm === "weekly") {
+    const days = (Array.isArray(s.weekdays) ? s.weekdays : [])
+      .map((day: unknown) => WEEKDAYS[Number(day)])
+      .filter(Boolean)
+      .join(", ");
+    return `Weekly${days ? ` on ${days}` : ""}${at}${zone}`;
+  }
+  if (s.rhythm === "once")
+    return `Once${s.date ? ` on ${s.date}` : ""}${at}${zone}`;
+  return undefined;
+}
+
+/**
+ * The project's assignments as managed agents for the platform's agent
+ * overview (ModuleContributions.agentListings, WP1.9): read only, ended ones
+ * left out, with the schedule, this UTC month's spend (as the budget check
+ * counts it) against the monthly budget and a link to the assignments page.
+ * Nothing while Orbit Agents is off.
+ */
+export async function assignmentListings(
+  tx: DbTx,
+  scope: Scope,
+  now = new Date(),
+): Promise<ManagedAgentListing[]> {
+  if (!agentsEnabled()) return [];
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+    select: { timezone: true },
+  });
+  const rows = (await list(tx, scope, "assignments"))
+    .filter((row) => data(row).status !== "ended")
+    .slice(0, 100);
+  const spend = await assignmentsMonthSpend(
+    tx,
+    scope,
+    rows.map((row) => row.id),
+    now,
+  );
+  const link = `/p/${scope.projectId}/marketing/assignments`;
+  return rows.map((row) => {
+    const d = data(row);
+    const schedule = scheduleSummary(d.schedule, project.timezone);
+    return {
+      id: row.id,
+      name: String(d.name ?? ""),
+      status: String(d.status ?? "draft"),
+      ...(schedule ? { schedule } : {}),
+      monthSpendMicros: spend.get(row.id) ?? 0,
+      monthBudgetMicros: Number(d.monthlyBudgetMicros ?? 0),
+      link,
+    };
+  });
 }
 
 /**
@@ -297,17 +402,24 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
  * Assignment drafts that wait for the owner's release (R70, I1): social
  * drafts of a run that is not canceled, left `needs_review` by the review
  * (R47/R49), without a linked bot or while agent review authority is off,
- * whose assignment's confirmation still covers them and whose run slot is
- * today or later (project time). Each comes with its run slot, a text
- * excerpt, whether the review agent approved it and the problems it found.
- * Earliest slot first. Empty while Orbit Agents is off.
+ * and whose assignment's confirmation still covers them. Each comes with its
+ * run slot, a text excerpt, whether the review agent approved it and the
+ * problems it found, and its `state`: `pending` while its slot is ahead
+ * (it can be released), `expired` once the slot has passed (a release no
+ * longer catches it up; it can be rejected or archived). Expired drafts are
+ * listed only with `includeExpired`, for up to `EXPIRED_DAYS`; attention and
+ * the agent hub count pending drafts only. Earliest slot first. Empty while
+ * Orbit Agents is off.
  */
-export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
+export const EXPIRED_DAYS = 14;
+export async function draftsAwaitingOwner(
+  tx: DbTx,
+  scope: Scope,
+  options: { includeExpired?: boolean } = {},
+) {
   if (!agentsEnabled()) return [];
-  const project = await tx.project.findUniqueOrThrow({
-    where: { id: scope.projectId },
-  });
-  const today = localDate(new Date(), project.timezone);
+  const now = new Date();
+  const oldest = now.valueOf() - EXPIRED_DAYS * 86400000;
   const rows = (
     await tx.entity.findMany({
       where: {
@@ -324,7 +436,7 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     return (
       typeof d.assignmentRunId === "string" &&
       d.type === "social" &&
-      !d.supersededBy
+      !draftReplaced(d)
     );
   });
   const missions = await rowsById(
@@ -362,9 +474,11 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       !assignment ||
       !confirmedHash(data(assignment)) ||
       !withinConfirmation(data(assignment), d) ||
-      !Number.isFinite(Date.parse(slotAt)) ||
-      localDate(new Date(slotAt), project.timezone) < today
+      !Number.isFinite(Date.parse(slotAt))
     )
+      continue;
+    const expired = slotExpired(new Date(slotAt), now);
+    if (expired && (!options.includeExpired || Date.parse(slotAt) < oldest))
       continue;
     const text = String(d.body ?? "")
       .replace(/\s+/g, " ")
@@ -372,6 +486,7 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     items.push({
       id: row.id,
       version: row.version,
+      state: expired ? ("expired" as const) : ("pending" as const),
       channel: d.channel,
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
@@ -402,4 +517,125 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     });
   }
   return items.sort((a, b) => a.slotAt.localeCompare(b.slotAt));
+}
+
+/**
+ * What happened to the assignment drafts an owner decided in the last
+ * `HISTORY_DAYS` days, for the approvals page's history: released posts
+ * (a publication or Postiz draft the owner released), and drafts the owner
+ * rejected, discarded or archived (`ownerDecision`). An item the owner
+ * archived from the overview (`ownerDecision.hiddenAt`) is listed only with
+ * `includeHidden`, so archived requests stay traceable. Newest first.
+ */
+export const HISTORY_DAYS = 30;
+export async function draftDecisionHistory(
+  tx: DbTx,
+  scope: Scope,
+  options: { includeHidden?: boolean } = {},
+) {
+  if (!agentsEnabled()) return [];
+  const since = new Date(Date.now() - HISTORY_DAYS * 86400000);
+  const closed = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "content",
+      updatedAt: { gte: since },
+      OR: [
+        { data: { path: ["status"], equals: "rejected" } },
+        { data: { path: ["status"], equals: "archived" } },
+      ],
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
+  const handoffs = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: { in: ["publications", "postiz_drafts"] },
+      updatedAt: { gte: since },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 200,
+  });
+  const released = handoffs.filter((row) => {
+    const d = data(row);
+    return row.kind === "publications"
+      ? Boolean(d.ownerReleasedAt)
+      : d.source === "assignment" && d.approvedBy === "owner";
+  });
+  const releasedContent = await rowsById(
+    tx,
+    scope,
+    "content",
+    released.map((row) => data(row).contentId),
+  );
+  const names = await channelNames(tx, scope);
+  const assignments = await rowsById(tx, scope, "assignments", [
+    ...closed.map((row) => data(row).assignmentId),
+    ...[...releasedContent.values()].map((row) => data(row).assignmentId),
+  ]);
+  const excerpt = (body: unknown) => {
+    const text = String(body ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text;
+  };
+  const base = (row: { id: string; version: number; data: unknown }) => {
+    const d = data(row);
+    return {
+      id: row.id,
+      version: row.version,
+      channel: d.channel,
+      channelName: names.get(String(d.channel)) ?? null,
+      excerpt: excerpt(d.body),
+      assignmentId: d.assignmentId ?? null,
+      assignmentName:
+        data(assignments.get(String(d.assignmentId))).name ?? null,
+    };
+  };
+  const items = [];
+  for (const row of closed) {
+    const d = data(row);
+    const decision = d.ownerDecision;
+    if (
+      typeof d.assignmentRunId !== "string" ||
+      !decision?.action ||
+      Date.parse(decision.at) < since.valueOf() ||
+      (decision.hiddenAt && !options.includeHidden)
+    )
+      continue;
+    items.push({
+      ...base(row),
+      state:
+        d.status === "rejected" ? ("rejected" as const) : ("archived" as const),
+      decidedAt: String(decision.at),
+      reason: typeof decision.reason === "string" ? decision.reason : null,
+      archiveReason: d.archiveReason ?? null,
+      hidden: Boolean(decision.hiddenAt),
+      slotAt: d.scheduledAt ?? null,
+    });
+  }
+  const seen = new Set<string>();
+  for (const handoff of released) {
+    const h = data(handoff);
+    const content = releasedContent.get(String(h.contentId));
+    if (!content || seen.has(content.id)) continue;
+    seen.add(content.id);
+    items.push({
+      ...base(content),
+      state: "released" as const,
+      decidedAt: String(
+        h.ownerReleasedAt ?? handoff.createdAt?.toISOString?.() ?? "",
+      ),
+      reason: null,
+      archiveReason: null,
+      hidden: false,
+      slotAt: h.scheduledAt ?? h.slotAt ?? null,
+      delivery: handoff.kind === "postiz_drafts" ? "postiz_draft" : "publish",
+      handoffStatus: h.status ?? null,
+    });
+  }
+  return items.sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
 }

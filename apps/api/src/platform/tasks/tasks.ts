@@ -6,6 +6,7 @@ import {
 import { registeredConversationSections } from "../modules/contributions.ts";
 import { visibleModules } from "../tenancy/module-roles.ts";
 import { enabledModules } from "../modules/enforcement.ts";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -42,6 +43,242 @@ import { assertDelegation, type Delegation } from "./delegation.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 
 export const TASK_KIND = "orbit_tasks";
+
+// ---------------------------------------------------------------------------
+// The task store (ADR 0021 D-05, ADR 0022 item 7, plan agent-platform-phase-3
+// WP3.6). New MCP tasks are rows of AgentWorkOrder with target "assistant"
+// and origin "mcp": the frozen delegation is split into `requestedBy` (who:
+// user, client, grant, scopes) and `allow` (what: modules, mode) plus the
+// ceiling column; the private conversation is `conversationId`, the start
+// approval `startRequestId`. Tasks created before are `orbit_tasks`
+// entities and stay readable, cancellable and startable until task
+// retention removes them. This module is the compatibility reader: every
+// task read goes through `TaskRecord`, whichever store holds it.
+
+export type TaskRecord = {
+  id: string;
+  store: "table" | "entity";
+  description: string;
+  userId: string;
+  clientId: string;
+  delegation: Omit<Delegation, "taskId">;
+  idempotencyKey: string;
+  argsHash: string;
+  conversationId: string;
+  runId: string | null;
+  jobId: string | null;
+  canceledAt: string | null;
+  actionRequestId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/** Where an MCP task lives in the work order table. */
+const TASK_ROWS = { target: "assistant", origin: "mcp" } as const;
+
+type WorkOrderRow = Awaited<ReturnType<DbTx["agentWorkOrder"]["findFirstOrThrow"]>>;
+type EntityRow = Awaited<ReturnType<typeof create>>;
+
+function fromEntity(row: EntityRow): TaskRecord {
+  const d = data(row);
+  return {
+    id: row.id,
+    store: "entity",
+    description: d.description,
+    userId: d.userId,
+    clientId: d.clientId,
+    delegation: d.delegation,
+    idempotencyKey: d.idempotencyKey,
+    argsHash: d.argsHash,
+    conversationId: d.conversationId,
+    runId: d.runId ?? null,
+    jobId: d.jobId ?? null,
+    canceledAt: d.canceledAt ?? null,
+    actionRequestId: d.actionRequestId ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function fromWorkOrder(row: WorkOrderRow): TaskRecord {
+  const by = row.requestedBy as {
+    userId: string;
+    clientId: string;
+    grantId: string;
+    scopes: string[];
+  };
+  const allow = row.allow as { modules: string[]; mode: Delegation["mode"] };
+  const input = row.input as {
+    description: string;
+    idempotencyKey: string;
+    argsHash: string;
+    runId?: string | null;
+    canceledAt?: string | null;
+  };
+  const times = [row.createdAt, row.startedAt, row.finishedAt].filter(
+    (t): t is Date => t instanceof Date,
+  );
+  return {
+    id: row.id,
+    store: "table",
+    description: input.description,
+    userId: by.userId,
+    clientId: by.clientId,
+    delegation: {
+      grantId: by.grantId,
+      clientId: by.clientId,
+      userId: by.userId,
+      scopes: by.scopes,
+      modules: allow.modules,
+      mode: allow.mode,
+      ceilingMicros: Number(row.ceilingMicros),
+    },
+    idempotencyKey: input.idempotencyKey,
+    argsHash: input.argsHash,
+    conversationId: row.conversationId!,
+    runId: input.runId ?? null,
+    jobId: row.jobId,
+    canceledAt: input.canceledAt ?? null,
+    actionRequestId: row.startRequestId,
+    createdAt: row.createdAt,
+    updatedAt: new Date(Math.max(...times.map((t) => t.getTime()))),
+  };
+}
+
+/** A task by id from either store, or null. */
+export async function findTaskRecord(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  id: string,
+): Promise<TaskRecord | null> {
+  if (!z.uuid().safeParse(id).success) return null;
+  const row = await tx.agentWorkOrder.findFirst({
+    where: { id, workspaceId: scope.workspaceId, projectId: scope.projectId, ...TASK_ROWS },
+  });
+  if (row) return fromWorkOrder(row);
+  const legacy = await tx.entity.findFirst({
+    where: { id, workspaceId: scope.workspaceId, projectId: scope.projectId, kind: TASK_KIND },
+  });
+  return legacy ? fromEntity(legacy) : null;
+}
+
+/** A task by id from either store; 404 NOT_FOUND otherwise. */
+export async function readTaskRecord(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  id: string,
+): Promise<TaskRecord> {
+  const record = await findTaskRecord(tx, scope, id);
+  if (!record) throw new DomainError("NOT_FOUND", 404);
+  return record;
+}
+
+/** The task whose chat run this is, from either store, or null. */
+export async function taskRecordByRun(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  runId: string,
+): Promise<TaskRecord | null> {
+  const row = await tx.agentWorkOrder.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      ...TASK_ROWS,
+      input: { path: ["runId"], equals: runId },
+    },
+  });
+  if (row) return fromWorkOrder(row);
+  const legacy = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: TASK_KIND,
+      data: { path: ["runId"], equals: runId },
+    },
+  });
+  return legacy ? fromEntity(legacy) : null;
+}
+
+/** The user's task of a conversation, from either store, or null. */
+export async function taskRecordByConversation(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  conversationId: string,
+  userId: string,
+): Promise<TaskRecord | null> {
+  const row = await tx.agentWorkOrder.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      ...TASK_ROWS,
+      conversationId,
+      requestedBy: { path: ["userId"], equals: userId },
+    },
+  });
+  if (row) return fromWorkOrder(row);
+  const legacy = await tx.entity.findFirst({
+    where: {
+      projectId: scope.projectId,
+      kind: TASK_KIND,
+      AND: [
+        { data: { path: ["conversationId"], equals: conversationId } },
+        { data: { path: ["userId"], equals: userId } },
+      ],
+    },
+  });
+  return legacy ? fromEntity(legacy) : null;
+}
+
+/** Records a task's start or cancellation in its own store. */
+async function saveTaskRecord(
+  tx: DbTx,
+  scope: Scope,
+  record: TaskRecord,
+  change: { runId: string; jobId: string; startedAt: Date } | { canceledAt: Date },
+) {
+  if (record.store === "entity") {
+    const row = await entity(tx, scope, TASK_KIND, record.id);
+    await update(
+      tx,
+      scope,
+      row,
+      "canceledAt" in change
+        ? { ...data(row), canceledAt: change.canceledAt.toISOString() }
+        : {
+            ...data(row),
+            runId: change.runId,
+            jobId: change.jobId,
+            startedAt: change.startedAt.toISOString(),
+          },
+    );
+    return;
+  }
+  const row = await tx.agentWorkOrder.findFirstOrThrow({
+    where: { id: record.id, projectId: scope.projectId, ...TASK_ROWS },
+  });
+  const input = row.input as Record<string, unknown>;
+  await tx.agentWorkOrder.update({
+    where: { id: record.id },
+    data:
+      "canceledAt" in change
+        ? {
+            status: "canceled",
+            finishedAt: change.canceledAt,
+            input: { ...input, canceledAt: change.canceledAt.toISOString() },
+          }
+        : {
+            // The chat run carries the progress; the row records the start.
+            status: "running",
+            startedAt: change.startedAt,
+            jobId: change.jobId,
+            input: { ...input, runId: change.runId },
+          },
+  });
+}
+
+/** The table idempotency key of a task: per user, client and client key. */
+const taskKey = (userId: string, clientId: string, idempotencyKey: string) =>
+  `mcp-task:${hash({ userId, clientId, idempotencyKey })}`;
 
 /** Approve the largest allowed route, including the owner's provider-budget fallback. */
 export function taskChatCeiling(runtime: OpenAiRuntimeConfig) {
@@ -97,8 +334,8 @@ export const taskStart: ActionDefinition<z.infer<typeof payload>> = {
   payload,
   costCeilingMicros: (p) => p.ceilingMicros,
   async revalidate(tx, scope, p) {
-    const row = await entity(tx, scope, TASK_KIND, p.taskId);
-    const d = data(row);
+    const d = await readTaskRecord(tx, scope, p.taskId);
+    const row = { id: d.id };
     if (d.runId || d.canceledAt || hash(d.description) !== p.descriptionHash)
       throw new DomainError("TASK_STALE", 409);
     const actor = await actorScope(
@@ -116,13 +353,8 @@ export const taskStart: ActionDefinition<z.infer<typeof payload>> = {
       throw new DomainError("COST_CEILING_CHANGED", 409);
   },
   async onApproved(tx, scope, request) {
-    const row = await entity(
-      tx,
-      scope,
-      TASK_KIND,
-      data(request).payload.taskId,
-    );
-    const d = data(row);
+    const d = await readTaskRecord(tx, scope, data(request).payload.taskId);
+    const row = { id: d.id };
     const actor = await actorScope(
       scope.workspaceId,
       scope.projectId,
@@ -134,11 +366,10 @@ export const taskStart: ActionDefinition<z.infer<typeof payload>> = {
       text: d.description,
       clientRequestId: row.id,
     });
-    await update(tx, actor, row, {
-      ...d,
+    await saveTaskRecord(tx, actor, d, {
       runId: run.runId,
-      jobId: run.jobId,
-      startedAt: new Date().toISOString(),
+      jobId: String(run.jobId),
+      startedAt: new Date(),
     });
     await audit(tx, actor, "task.queued", row.id, { runId: run.runId });
   },
@@ -178,24 +409,38 @@ export async function createTask(
   const modules = [...new Set(input.modules)].sort();
   const argsHash = hash({ ...input, modules });
   return userScoped(scope, async (tx) => {
-    const old = await tx.entity.findFirst({
+    // A retry finds the task in either store: the table, or an entity of
+    // a task created before the fold-in.
+    const stored = await tx.agentWorkOrder.findUnique({
       where: {
-        workspaceId: scope.workspaceId,
-        projectId,
-        kind: TASK_KIND,
-        AND: [
-          { data: { path: ["userId"], equals: scope.userId } },
-          { data: { path: ["clientId"], equals: principal.clientId } },
-          { data: { path: ["idempotencyKey"], equals: input.idempotencyKey } },
-        ],
+        projectId_idempotencyKey: {
+          projectId,
+          idempotencyKey: taskKey(scope.userId, principal.clientId, input.idempotencyKey),
+        },
       },
     });
+    const legacy = stored
+      ? null
+      : await tx.entity.findFirst({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId,
+            kind: TASK_KIND,
+            AND: [
+              { data: { path: ["userId"], equals: scope.userId } },
+              { data: { path: ["clientId"], equals: principal.clientId } },
+              { data: { path: ["idempotencyKey"], equals: input.idempotencyKey } },
+            ],
+          },
+        });
+    const old = stored ? fromWorkOrder(stored) : legacy ? fromEntity(legacy) : null;
     if (old) {
-      if (data(old).argsHash !== argsHash)
+      if (old.argsHash !== argsHash)
         throw new DomainError("IDEMPOTENCY_KEY_CONFLICT", 409);
       return {
         taskId: old.id,
-        actionRequestId: data(old).actionRequestId,
+        // Set in the same transaction that created the task.
+        actionRequestId: old.actionRequestId as string,
         deduplicated: true,
         approveUrl: mcpApproveUrl(projectId),
       };
@@ -219,17 +464,38 @@ export async function createTask(
       mode: input.mode,
       ceilingMicros,
     };
-    const task = await create(tx, scope, TASK_KIND, {
-      description: input.description,
-      userId: scope.userId,
-      clientId: principal.clientId,
-      delegation,
-      idempotencyKey: input.idempotencyKey,
-      argsHash,
-      conversationId: conversation.id,
-      runId: null,
-      jobId: null,
-      canceledAt: null,
+    // An AgentWorkOrder of target "assistant" (D-05): who in
+    // `requestedBy`, what in `allow`, the ceiling in its column.
+    const taskId = randomUUID();
+    const task = await tx.agentWorkOrder.create({
+      data: {
+        id: taskId,
+        workspaceId: scope.workspaceId,
+        projectId,
+        ...TASK_ROWS,
+        idempotencyKey: taskKey(scope.userId, principal.clientId, input.idempotencyKey),
+        requestedBy: {
+          kind: "mcp",
+          userId: delegation.userId,
+          clientId: delegation.clientId,
+          grantId: delegation.grantId,
+          scopes: delegation.scopes,
+        },
+        allow: { tools: [], modules: delegation.modules, mode: delegation.mode, knowledge: null },
+        rootId: taskId,
+        depth: 0,
+        goal: input.description.slice(0, 2000),
+        input: {
+          description: input.description,
+          idempotencyKey: input.idempotencyKey,
+          argsHash,
+          runId: null,
+          canceledAt: null,
+        },
+        status: "awaiting_start",
+        ceilingMicros: BigInt(ceilingMicros),
+        conversationId: conversation.id,
+      },
     });
     const request = await createActionRequest(tx, scope, {
       actionType: "platform.task.start",
@@ -248,9 +514,9 @@ export async function createTask(
         taskId: task.id,
       },
     });
-    await update(tx, scope, task, {
-      ...data(task),
-      actionRequestId: request.id,
+    await tx.agentWorkOrder.update({
+      where: { id: task.id },
+      data: { startRequestId: request.id },
     });
     await audit(tx, scope, "task.created", task.id, {
       clientId: principal.clientId,
@@ -271,23 +537,18 @@ export async function readTask(
   clientId?: string,
 ) {
   return userScoped(scope, async (tx) => {
-    const row = await entity(tx, scope, TASK_KIND, taskId);
-    const d = data(row);
+    const d = await readTaskRecord(tx, scope, taskId);
     if (d.userId !== scope.userId || (clientId && d.clientId !== clientId))
       throw new DomainError("NOT_FOUND", 404);
     const visible = visibleModules(scope, await enabledModules(tx, scope));
     if (visible && d.delegation.modules.some((m: string) => !visible.has(m)))
       throw new DomainError("NOT_FOUND", 404);
-    return taskSnapshot(tx, scope, row);
+    return taskSnapshot(tx, scope, d);
   });
 }
 
-async function taskSnapshot(
-  tx: DbTx,
-  scope: Scope,
-  row: Awaited<ReturnType<typeof create>>,
-) {
-  const d = data(row);
+async function taskSnapshot(tx: DbTx, scope: Scope, d: TaskRecord) {
+  const row = d;
   const run = d.runId
     ? await tx.chatRun.findFirst({
         where: {
@@ -450,7 +711,8 @@ async function taskSnapshot(
     ],
     modules: d.delegation.modules,
     conversationId: d.conversationId,
-    runId: d.runId,
+    // Null until the start approval queued the run (typed as before the fold-in).
+    runId: d.runId as string,
     approvals,
     artifacts,
     blockers: [...blockers],
@@ -491,7 +753,15 @@ export async function listTasks(
         throw new DomainError("CURSOR_INVALID", 400);
       cursor = { at: new Date(at!), id: id! };
     }
-    const rows = await tx.entity.findMany({
+    const after = cursor
+      ? {
+          OR: [
+            { createdAt: { lt: cursor.at } },
+            { createdAt: cursor.at, id: { lt: cursor.id } },
+          ],
+        }
+      : {};
+    const legacy = await tx.entity.findMany({
       where: {
         workspaceId: scope.workspaceId,
         projectId: scope.projectId,
@@ -502,25 +772,42 @@ export async function listTasks(
             ? [{ data: { path: ["clientId"], equals: input.clientId } }]
             : []),
         ],
-        ...(cursor
-          ? {
-              OR: [
-                { createdAt: { lt: cursor.at } },
-                { createdAt: cursor.at, id: { lt: cursor.id } },
-              ],
-            }
-          : {}),
+        ...after,
       },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit + 1,
     });
+    const table = await tx.agentWorkOrder.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        ...TASK_ROWS,
+        AND: [
+          { requestedBy: { path: ["userId"], equals: scope.userId } },
+          ...(input.clientId
+            ? [{ requestedBy: { path: ["clientId"], equals: input.clientId } }]
+            : []),
+        ],
+        ...after,
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: limit + 1,
+    });
+    // Both stores in one order: newest first, then by id.
+    const rows = [...table.map(fromWorkOrder), ...legacy.map(fromEntity)]
+      .sort(
+        (a, b) =>
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          (a.id < b.id ? 1 : a.id > b.id ? -1 : 0),
+      )
+      .slice(0, limit + 1);
     const visible = visibleModules(scope, await enabledModules(tx, scope));
     const permitted = rows
       .slice(0, limit)
       .filter(
         (row) =>
           !visible ||
-          !data(row).delegation.modules.some((m: string) => !visible.has(m)),
+          !row.delegation.modules.some((m: string) => !visible.has(m)),
       );
     const items = await Promise.all(
       permitted.map((row) => taskSnapshot(tx, scope, row)),
@@ -545,12 +832,12 @@ export async function cancelTask(
 ) {
   authorize(scope, PROJECT_WRITE);
   await userScoped(scope, async (tx) => {
-    const row = await entity(tx, scope, TASK_KIND, taskId);
-    const d = data(row);
+    const d = await readTaskRecord(tx, scope, taskId);
+    const row = d;
     if (d.userId !== scope.userId || (clientId && d.clientId !== clientId))
       throw new DomainError("NOT_FOUND", 404);
     if (d.canceledAt) return;
-    const current = await taskSnapshot(tx, scope, row);
+    const current = await taskSnapshot(tx, scope, d);
     if (
       [
         "succeeded",
@@ -584,10 +871,7 @@ export async function cancelTask(
       await cancelActionRequest(tx, scope, a.id, "task_canceled", {
         pendingOnly: true,
       });
-    await update(tx, scope, row, {
-      ...d,
-      canceledAt: new Date().toISOString(),
-    });
+    await saveTaskRecord(tx, scope, d, { canceledAt: new Date() });
     await audit(tx, scope, "task.canceled", row.id);
   });
   return readTask(scope, taskId, clientId);

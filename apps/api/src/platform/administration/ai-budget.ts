@@ -33,6 +33,7 @@ export async function organizationAiBudgetView(workspaceId: string, now = new Da
     budget: budget
       ? {
           monthlyMicros: budget.monthlyMicros,
+          assistantPerUserMonthlyMicros: budget.assistantPerUserMonthlyMicros,
           providerCaps: budget.providerCaps,
           credits: budget.credits,
           version: budget.version,
@@ -68,6 +69,14 @@ export async function saveOrganizationAiBudget(
     const current = await tx.organizationAiBudget.findFirst({ where: { workspaceId } });
     const fields = {
       monthlyMicros: input.monthlyMicros === null ? null : BigInt(input.monthlyMicros),
+      ...(input.assistantPerUserMonthlyMicros === undefined
+        ? {}
+        : {
+            assistantPerUserMonthlyMicros:
+              input.assistantPerUserMonthlyMicros === null
+                ? null
+                : BigInt(input.assistantPerUserMonthlyMicros),
+          }),
       providerCaps: input.providerCaps as Prisma.InputJsonValue,
       credits: input.credits as Prisma.InputJsonValue,
       updatedBy: actorId,
@@ -89,6 +98,9 @@ export async function saveOrganizationAiBudget(
         metadata: {
           version: saved.version,
           monthlyMicros: input.monthlyMicros,
+          ...(input.assistantPerUserMonthlyMicros === undefined
+            ? {}
+            : { assistantPerUserMonthlyMicros: input.assistantPerUserMonthlyMicros }),
           providers: Object.keys(input.providerCaps),
         },
       },
@@ -132,9 +144,12 @@ const sorted = (map: Map<string, { spentMicros: number; unknownMicros: number; c
 export async function organizationAiUsage(workspaceId: string, now = new Date()) {
   const projects = await authDb.project.findMany({
     where: { workspaceId },
-    select: { id: true, name: true },
+    select: { id: true, name: true, kind: true },
     orderBy: { createdAt: "asc" },
   });
+  // Personal spaces count towards every total but are shown as one sum,
+  // never per user (ADR 0022).
+  const assistants = { spentMicros: 0, unknownMicros: 0, count: 0, spaces: 0 };
   const byProvider = new Map<string, { spentMicros: number; unknownMicros: number; count: number }>();
   const byModel = new Map<string, { spentMicros: number; unknownMicros: number; count: number }>();
   const byTask = new Map<string, { spentMicros: number; unknownMicros: number; count: number }>();
@@ -151,17 +166,24 @@ export async function organizationAiUsage(workspaceId: string, now = new Date())
     merge(byProvider, providers);
     merge(byModel, models);
     merge(byTask, tasks);
-    perProject.push({
-      projectId: project.id,
-      name: project.name,
+    const usage = {
       spentMicros: providers.reduce((n, r) => n + total(r), 0),
       unknownMicros: providers.reduce((n, r) => n + Number(r.unknownMicros), 0),
       count: providers.reduce((n, r) => n + r.count, 0),
-    });
+    };
+    if (project.kind === "personal") {
+      assistants.spentMicros += usage.spentMicros;
+      assistants.unknownMicros += usage.unknownMicros;
+      assistants.count += usage.count;
+      assistants.spaces += 1;
+      continue;
+    }
+    perProject.push({ projectId: project.id, name: project.name, ...usage });
   }
   return {
     periodStart: monthOf(now).toISOString(),
     projects: perProject.sort((a, b) => b.spentMicros - a.spentMicros),
+    assistants,
     providers: sorted(byProvider),
     models: sorted(byModel),
     tasks: sorted(byTask),

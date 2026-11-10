@@ -59,7 +59,28 @@ export type TicketDetail = {
   } | null;
   timeline: Array<Record<string, any>>;
   aiCostMicros?: number;
+  /** The latest configured-agent execution on the ticket (ADR 0021 Phase 2). */
+  agent?: TicketAgent | null;
 };
+/**
+ * The Support agent's latest work order on a ticket, content-free: status,
+ * error code, cost, its proposals and whether it handed the ticket off.
+ */
+export type TicketAgent = {
+  workOrderId: string;
+  agentId: string | null;
+  status: string;
+  errorCode: string | null;
+  spentMicros: number;
+  createdAt: string;
+  finishedAt: string | null;
+  actionRequestIds: string[];
+  handedOff: boolean;
+  /** A reason code (fixed list or check name), never text. */
+  handOffReason?: string | null;
+};
+/** An inbox's AI mode: off, drafts for people, or a configured agent. */
+export const AI_MODES = ["off", "draft", "agent"] as const;
 export type Inbox = {
   id: string;
   name: string;
@@ -174,7 +195,10 @@ export const VIEWS = ["mine", "unassigned", "all"] as const;
 export const supportPath = (projectId: string, rest = "") =>
   `/projects/${encodeURIComponent(projectId)}/support${rest}`;
 
-/** The list query: only set filters, trimmed search, the cursor encoded. */
+/**
+ * The list query: only set filters, trimmed search, the cursor encoded. Without
+ * a status it lists open tickets only.
+ */
 export function ticketQuery(filters: {
   view: string;
   status?: string | null;
@@ -190,6 +214,9 @@ export function ticketQuery(filters: {
     const value = typeof raw === "string" ? raw.trim() : raw;
     if (value) params.set(key, value);
   }
+  // Resolved and closed tickets stay out of every view until their status is
+  // chosen explicitly; otherwise the lists fill up with finished work.
+  if (!params.has("status")) params.set("openOnly", "true");
   return params.toString();
 }
 
@@ -236,6 +263,8 @@ export type TimelineEntry =
       authorUserId?: string | null;
       deliveryState?: string | null;
       attachments: Attachment[];
+      /** Written by the configured Support agent, not a person. */
+      byAgent?: boolean;
     }
   | {
       entry: "event";
@@ -244,12 +273,20 @@ export type TimelineEntry =
       before: Record<string, unknown>;
       after: Record<string, unknown>;
       createdAt: string;
+      /** Recorded by the configured Support agent (actor id = work order). */
+      byAgent?: boolean;
     };
 
 /** The server's timeline as typed entries (messages have a kind). */
 export function timelineEntries(
   items: Array<Record<string, any>>,
+  locale?: string,
 ): TimelineEntry[] {
+  // AI notes may carry their body per UI locale; bodyText is the English one.
+  const body = (item: Record<string, any>): string =>
+    (locale && typeof item.bodyTranslations?.[locale] === "string"
+      ? item.bodyTranslations[locale]
+      : item.bodyText) ?? "";
   return items.map((item) =>
     item.kind
       ? {
@@ -257,11 +294,13 @@ export function timelineEntries(
           id: item.id,
           kind: item.kind,
           internal: item.kind === "internal_note" || item.kind === "ai_draft",
-          bodyText: item.bodyText ?? "",
+          bodyText: body(item),
           createdAt: item.createdAt,
           authorUserId: item.authorUserId ?? null,
           deliveryState: item.deliveryState ?? null,
           attachments: item.attachments ?? [],
+          // A configured agent's note carries its run and no person (Phase 2).
+          byAgent: !item.authorUserId && Boolean(item.agentRunId),
         }
       : {
           entry: "event",
@@ -270,6 +309,8 @@ export function timelineEntries(
           before: item.before ?? {},
           after: item.after ?? {},
           createdAt: item.createdAt,
+          // The agent's events name its work order as the AI actor.
+          byAgent: item.actorKind === "ai" && Boolean(item.actorId),
         },
   );
 }

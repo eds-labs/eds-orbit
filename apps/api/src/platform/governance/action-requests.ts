@@ -28,6 +28,10 @@ import {
   activeSpendMandateRef,
 } from "../ai/spend-mandate.ts";
 import {
+  agentExecutionRequester,
+  currentCrossProjectContext,
+} from "../agents/agent-execution.ts";
+import {
   registeredActionType,
   registeredActionTypeOwner,
   registeredChannelDirectories,
@@ -43,13 +47,34 @@ const KIND = "action_requests";
 export type ActionRequestRow = Awaited<ReturnType<typeof create>>;
 type Row = ActionRequestRow;
 
+/**
+ * The other projects whose data entered the personal assistant's turn that
+ * made the proposal (ADR 0022 §5, cross-project taint): such a request is
+ * never approved under a mandate (CROSS_PROJECT_CONTEXT).
+ */
+const crossProjectContext = z.array(z.uuid()).min(1).max(50).optional();
+
 export const requestedBy = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("user"), userId: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal("user"),
+      userId: z.string().min(1),
+      crossProjectContext,
+    })
+    .strict(),
   z
     .object({
       kind: z.literal("agent"),
+      // The assistant's member, or a configured agent's sponsor.
       userId: z.string().min(1),
       agentRunId: z.string().nullable(),
+      // A configured agent (ADR 0021): which agent, at which activated
+      // version, in which work order, and who asked for that work order.
+      agentId: z.uuid().optional(),
+      agentVersion: z.number().int().positive().optional(),
+      workOrderId: z.uuid().optional(),
+      requesterUserId: z.string().min(1).optional(),
+      crossProjectContext,
     })
     .strict(),
   // A proposal from an MCP client (WP-M4): the client and grant it came from,
@@ -171,6 +196,12 @@ export type ActionDefinition<P> = {
   costCeilingMicros: (payload: P) => number;
   /** Module-owned exact proposal summary for native approval renderers. */
   summary?: (payload: P) => Record<string, unknown>;
+  /**
+   * Who of the members with the decider role may decide this request, for
+   * types only one person may confirm (an assistant delegation is confirmed
+   * by its requester, ADR 0021 D-06). Absent: every such member.
+   */
+  mayDecide?: (member: Scope, payload: P) => boolean;
   /** Rechecked at decision time; throws when the request no longer matches. */
   revalidate: (tx: DbTx, scope: Scope, payload: P) => Promise<void>;
   onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
@@ -207,6 +238,21 @@ function definition(actionType: unknown): ActionDefinition<any> {
   return found;
 }
 
+/**
+ * The requester with the turn's cross-project taint (ADR 0022 §5): while a
+ * personal assistant's tool runs in this project after data of other
+ * projects entered its turn, the request names those projects. A tool
+ * cannot leave them out; MCP requesters never run inside such a turn.
+ */
+function withCrossProjectContext(scope: Scope, by: RequestedBy): RequestedBy {
+  const others = currentCrossProjectContext()?.filter(
+    (projectId) => projectId !== scope.projectId,
+  );
+  if (!others?.length || by.kind === "mcp") return by;
+  const merged = [...new Set([...(by.crossProjectContext ?? []), ...others])];
+  return { ...by, crossProjectContext: merged.slice(0, 50) };
+}
+
 export async function createActionRequest(
   tx: DbTx,
   scope: Scope,
@@ -214,7 +260,12 @@ export async function createActionRequest(
 ) {
   const type = definition(input.actionType);
   const requester = requestedBy.parse(
-    delegatedRequester(input.payload) ?? input.requestedBy,
+    withCrossProjectContext(
+      scope,
+      delegatedRequester(input.payload) ??
+        agentExecutionRequester() ??
+        input.requestedBy,
+    ),
   );
   if (requester.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
@@ -325,14 +376,38 @@ export async function mcpActionRequestStatus(
   proposer: McpProposer,
   now: Date = new Date(),
 ) {
+  return actionRequestStatus(
+    tx,
+    scope,
+    id,
+    (row) => {
+      const by = data(row).requestedBy;
+      return (
+        by?.kind === "mcp" &&
+        by.userId === proposer.userId &&
+        by.clientId === proposer.clientId
+      );
+    },
+    now,
+  );
+}
+
+/**
+ * The state of one request as `mcpActionRequestStatus` reports it, for a
+ * reader `mayRead` admits: type, status, times, never the payload, hash,
+ * policy or any user id. NOT_FOUND, with one body, for any other request,
+ * so a reader cannot probe requests it may not see.
+ */
+export async function actionRequestStatus(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  mayRead: (row: Row) => boolean,
+  now: Date = new Date(),
+) {
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
-  if (
-    d.requestedBy?.kind !== "mcp" ||
-    d.requestedBy.userId !== proposer.userId ||
-    d.requestedBy.clientId !== proposer.clientId
-  )
-    throw new DomainError("NOT_FOUND", 404);
+  if (!mayRead(row)) throw new DomainError("NOT_FOUND", 404);
   const stored = String(d.status) as McpActionStatus;
   const status: McpActionStatus =
     stored === "pending" && Date.parse(d.expiresAt) <= now.getTime()
@@ -510,6 +585,8 @@ export async function decideActionRequest(
   if (type.deciderRole === "owner")
     authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   else authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
+  if (type.mayDecide && !type.mayDecide(scope, type.payload.parse(d.payload)))
+    throw new DomainError("DECIDER_NOT_ALLOWED", 403);
   if (d.status !== "pending") {
     // A repeated click with the same decision returns the recorded result.
     if (
@@ -848,19 +925,30 @@ export async function openDecidableRequests(tx: DbTx, member: Scope, now = new D
     orderBy: { createdAt: "desc" },
     take: 50,
   });
-  return rows.filter((row) => {
-    const d = data(row);
-    const type = registeredActionType(String(d.actionType));
-    if (!type || Date.parse(d.expiresAt) <= now.getTime()) return false;
-    if (type.deciderRole === "editor" && type.inbox !== "editors") return false;
-    let scope: Scope;
-    try {
-      scope = moduleScope(member, registeredActionTypeOwner(String(d.actionType)));
-    } catch {
-      return false;
-    }
-    return can(scope, type.deciderRole === "owner" ? PROJECT_OWN : PROJECT_WRITE);
-  });
+  return rows.filter((row) => decidableBy(member, row, now));
+}
+
+/**
+ * Whether the member may decide this pending, unexpired request in their
+ * inbox: the rule of `openDecidableRequests` for one row.
+ */
+export function decidableBy(member: Scope, row: Row, now = new Date()) {
+  const d = data(row);
+  if (d.status !== "pending") return false;
+  const type = registeredActionType(String(d.actionType));
+  if (!type || Date.parse(d.expiresAt) <= now.getTime()) return false;
+  if (type.deciderRole === "editor" && type.inbox !== "editors") return false;
+  let scope: Scope;
+  try {
+    scope = moduleScope(member, registeredActionTypeOwner(String(d.actionType)));
+  } catch {
+    return false;
+  }
+  if (type.mayDecide) {
+    const payload = type.payload.safeParse(d.payload);
+    if (!payload.success || !type.mayDecide(scope, payload.data)) return false;
+  }
+  return can(scope, type.deciderRole === "owner" ? PROJECT_OWN : PROJECT_WRITE);
 }
 
 /**
@@ -913,21 +1001,17 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         ...registeredActionType(String(d.actionType))?.summary?.(d.payload),
         ...(d.actionType === "platform.task.start"
           ? {
-              task: await tx.entity
-                .findFirst({
-                  where: {
-                    id: d.payload.taskId,
-                    projectId: scope.projectId,
-                    kind: "orbit_tasks",
-                  },
-                  select: { data: true },
-                })
+              // Either task store (platform/tasks/tasks.ts reads both).
+              task: await import("../tasks/tasks.ts")
+                .then(({ findTaskRecord }) =>
+                  findTaskRecord(tx, scope, String(d.payload.taskId)),
+                )
                 .then((t) =>
                   t
                     ? {
-                        description: data(t).description,
-                        mode: data(t).delegation.mode,
-                        modules: data(t).delegation.modules,
+                        description: t.description,
+                        mode: t.delegation.mode,
+                        modules: t.delegation.modules,
                       }
                     : null,
                 ),

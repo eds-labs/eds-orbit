@@ -1,0 +1,632 @@
+import type { EvidenceLabels } from "@/platform/ui/evidence";
+
+// Copy of the technical area (the expert pages). Unlike the workspace pages it
+// keeps the terms fact, index and generation. Both languages need every key.
+const en = {
+  // Technical navigation
+  navLabel: "Technical area",
+  navSources: "Sources",
+  navFacts: "Facts",
+  navConflicts: "Conflicts",
+  navImport: "Import",
+  navLibrary: "Library",
+  navHealth: "Status",
+  navInspector: "Search check",
+  navImpact: "Affected content",
+  navGithub: "GitHub App",
+  navBack: "Back to knowledge",
+  // Overview cards on the Sources page
+  principleFacts: "Structured facts",
+  principleFactsHint: "Values reviewed by your team",
+  principleLibrary: "Document library",
+  principleLibraryHint: "Approved context with version history",
+  principleMemory: "Marketing Memory",
+  principleMemoryHint: "Observations, never product facts",
+  separated: "Knowledge and generated content stay separate.",
+  // Audiences and flags
+  audAll: "All modules",
+  audMarketing: "Marketing only",
+  audSupport: "Support only",
+  audBoth: "Marketing and support",
+  public: "Public",
+  internal: "Internal",
+  publicUse: "Public use",
+  internalOnly: "Internal only",
+  modelAllowed: "Model processing allowed",
+  modelNo: "No model processing",
+  allowed: "Allowed",
+  notPermitted: "Not permitted",
+  required: "Required",
+  noModelCall: "No model call requested",
+  // Source detail
+  resumeSource: "Resume source",
+  pauseSource: "Pause source",
+  changeAudience: "Change audience",
+  revokeAccess: "Revoke access",
+  audienceTitle: "Source audience",
+  audienceHint:
+    "Sets which modules may retrieve this source. Narrowing it invalidates the evidence and dependent content built on the source; the index stays valid.",
+  audience: "Audience",
+  saveAudience: "Save audience",
+  revokeTitle: "Revoke this source",
+  revokeHint:
+    "Evidence, memory and dependent content are invalidated. This withdraws access to the source.",
+  revokeConfirm: "I confirm revoking access to this source.",
+  revokeNow: "Revoke source",
+  // Source editor
+  sourceType: "Source type",
+  authority: "Source authority",
+  authorityHint: "Verification remains a server-side decision.",
+  origins: "Allowed origins (comma separated)",
+  originsHint: "A concrete origin is required for websites and GitBook.",
+  paths: "Allowed paths (comma separated)",
+  freshness: "Freshness limit in hours",
+  syncEvery: "Automatic fetch every X hours (optional)",
+  syncHint:
+    "Leave empty for manual fetching. Only previously imported, allowed URLs are fetched again.",
+  audienceFieldHint: "Only the selected modules may retrieve this source.",
+  // Import of one source
+  importDescription:
+    "Source content is processed as data, never as system instructions.",
+  importFile: "Import file (optional, maximum 1 MB)",
+  uploadTooBig: "File exceeds the 1 MB upload limit.",
+  sourceUrl: "Approved source URL",
+  documentId: "Stable document identifier",
+  documentIdHint: "Reuse this identifier to import a new version.",
+  documentText: "Document text",
+  unsupportedType: "Unsupported document type.",
+  // Import center
+  importTitle: "Knowledge import center",
+  importIntro:
+    "Preview and validation happen before commit. Historical content stays separate from factual evidence.",
+  csvTemplate: "CSV facts template",
+  jsonTemplate: "JSON facts template",
+  uploadFacts: "Upload verified facts as CSV or JSON",
+  uploadFactsHint:
+    "Maximum 1 MB. Required: key, value; optional values are shown in the preview before commit.",
+  payloadLabel:
+    "Import payload (website/GitBook URLs may be discovered and selected by the importer; files use text or base64 content)",
+  payloadHelp:
+    "Source types: website, gitbook, url, url_list, file, verified_facts, historical.",
+  previewReady: "{documents} documents and {facts} facts are ready.",
+  previewResolve: "Resolve: {codes}",
+  previewImport: "Preview import",
+  commitImport: "Commit selected import",
+  importHistory: "Import history",
+  noImports: "No imports for this project yet.",
+  importTooBig: "The file exceeds the 1 MB import limit.",
+  noFactRows: "No fact rows found.",
+  fileUnreadable: "The file could not be read.",
+  csvNeedsRows: "CSV needs a header and at least one row.",
+  csvMalformed: "Malformed quoted CSV field.",
+  csvColumns: "CSV requires key and value columns.",
+  // Facts
+  searchFacts: "Search facts",
+  factsEmptyTitle: "Make the important facts explicit",
+  factsEmptyHint:
+    "Prices, dates and product status, with validity and provenance.",
+  version: "Version",
+  detailSource: "Source",
+  validFrom: "Valid from",
+  validUntil: "Valid until",
+  verifiedAt: "Verified at",
+  verifiedBy: "Verified by",
+  languageMarket: "Language / market",
+  modelProcessing: "Model processing",
+  correctVersion: "Create corrected version",
+  correctFact: "Correct fact",
+  // Fact editor
+  factKey: "Fact key",
+  factValue: "Value",
+  valueType: "Value type",
+  currency: "Currency (for decimal prices)",
+  unit: "Unit",
+  market: "Market / scope",
+  supportingSource: "Supporting source",
+  validFromBrowser: "Valid from (browser time)",
+  validUntilOptional: "Valid until (optional)",
+  reviewStatus: "Review status",
+  resolveConfirm:
+    "I confirm this authoritative value and supersede every conflict version listed above.",
+  resolveHint:
+    "All overlapping values for this key must be resolved together. Previous versions remain in the history.",
+  conflictVersion: "version",
+  // Library
+  libraryEmptyTitle: "Your document library is empty",
+  libraryEmptyHint:
+    "Import approved text through a source to see its version history.",
+  embedWithOpenAI: "Embed with OpenAI",
+  embedWarning:
+    "This sends the extracted document passages to OpenAI for paid embeddings. Current source rights, the active policy, and the configured budget are checked again by the worker before transmission.",
+  embedConfirm:
+    "I authorize sending this document's extracted passages to OpenAI for paid embeddings.",
+  embedQueue: "Queue embedding",
+  versionHistory: "Version history",
+  noOlderVersions: "No older versions available.",
+  extractedPassages: "Extracted passages",
+  passage: "Passage",
+  noPassages: "No indexed passages available.",
+  histVersion: "Version",
+  histCreatedAt: "Created",
+  histContentHash: "Content hash",
+  histStatus: "Status",
+  // Status page
+  conflicts: "Conflicts",
+  expiredFacts: "Expired facts",
+  failedImports: "Failed imports",
+  staleSources: "Out-of-date sources",
+  impacts: "Affected content",
+  noCases: "No cases reported.",
+  affectedObject: "Affected object",
+  reviewSource: "Review the current source and dependent content.",
+  // Search check
+  inspectTitle: "Inspect retrieval",
+  testQuestion: "Test question",
+  language: "Language",
+  purpose: "Purpose",
+  purposePublic: "Public content",
+  purposeInternal: "Internal research",
+  retrieveEvidence: "Retrieve evidence",
+  evidencePack: "Evidence pack",
+  retrievalVersion: "Retrieval version",
+  retrievedAt: "Retrieved at",
+  costLatency: "Cost / latency",
+  notReported: "Not reported",
+  filtersSummary: "Effective filters and excluded results",
+  project: "Project",
+  indexProfile: "Index profile",
+  estimatedTokens: "Estimated tokens",
+  excludedSource: "Source",
+  excluded: "Excluded",
+  noneExcluded: "No excluded sources were reported.",
+  inspectEmptyTitle: "Every answer starts with evidence",
+  inspectEmptyHint:
+    "Inspect facts, source passages and gaps within your permissions.",
+  // Columns of the expert tables
+  colKey: "Key",
+  colValue: "Value",
+  colStatus: "Status",
+  colUpdatedAt: "Updated",
+  colTitle: "Title",
+  colLanguage: "Language",
+  colName: "Name",
+  colSourceType: "Source type",
+  colCompleted: "Completed",
+  colFailed: "Failed",
+  colCompletedAt: "Completed at",
+  review: "Review",
+  // Generic
+  unknown: "Unknown",
+  evidence: {
+    fact: "Fact",
+    passage: "Source passage",
+    document: "Source document",
+    relevance: "relevance",
+  },
+} as const;
+
+export type ExpertCopy = {
+  [K in Exclude<keyof typeof en, "evidence">]: string;
+} & { evidence: EvidenceLabels };
+
+const de: ExpertCopy = {
+  navLabel: "Technik-Bereich",
+  navSources: "Quellen",
+  navFacts: "Fakten",
+  navConflicts: "Konflikte",
+  navImport: "Import",
+  navLibrary: "Bibliothek",
+  navHealth: "Zustand",
+  navInspector: "Suchprüfung",
+  navImpact: "Betroffene Inhalte",
+  navGithub: "GitHub-App",
+  navBack: "Zurück zum Wissen",
+  principleFacts: "Strukturierte Fakten",
+  principleFactsHint: "Von deinem Team bestätigte Werte",
+  principleLibrary: "Dokumentbibliothek",
+  principleLibraryHint: "Freigegebener Kontext mit Versionen",
+  principleMemory: "Marketing Memory",
+  principleMemoryHint: "Beobachtungen, keine Produktfakten",
+  separated: "Wissen und generierte Inhalte bleiben getrennt.",
+  audAll: "Alle Module",
+  audMarketing: "Nur Marketing",
+  audSupport: "Nur Support",
+  audBoth: "Marketing und Support",
+  public: "Öffentlich",
+  internal: "Intern",
+  publicUse: "Öffentliche Nutzung",
+  internalOnly: "Nur intern",
+  modelAllowed: "KI-Verarbeitung erlaubt",
+  modelNo: "Keine KI-Verarbeitung",
+  allowed: "Erlaubt",
+  notPermitted: "Nicht erlaubt",
+  required: "Erforderlich",
+  noModelCall: "Kein KI-Aufruf angefordert",
+  resumeSource: "Quelle fortsetzen",
+  pauseSource: "Quelle pausieren",
+  changeAudience: "Zielgruppe ändern",
+  revokeAccess: "Zugriff widerrufen",
+  audienceTitle: "Zielgruppe der Quelle",
+  audienceHint:
+    "Legt fest, welche Module diese Quelle abrufen dürfen. Eine Einschränkung macht Belege und abhängige Inhalte ungültig, die auf der Quelle beruhen; der Index bleibt gültig.",
+  audience: "Zielgruppe",
+  saveAudience: "Speichern",
+  revokeTitle: "Quelle widerrufen",
+  revokeHint:
+    "Belege, Memory und abhängige Inhalte werden erneut geprüft. Dieser Schritt entzieht den Zugriff.",
+  revokeConfirm: "Ich bestätige den Widerruf dieser Quelle.",
+  revokeNow: "Jetzt widerrufen",
+  sourceType: "Quellentyp",
+  authority: "Quellenklasse",
+  authorityHint: "Verifikation bleibt eine serverseitige Prüfung.",
+  origins: "Erlaubte Ursprünge (kommagetrennt)",
+  originsHint:
+    "Für Websites und GitBook ist ein konkreter Ursprung erforderlich.",
+  paths: "Erlaubte Pfade (kommagetrennt)",
+  freshness: "Frischegrenze in Stunden",
+  syncEvery: "Automatischer Abruf alle X Stunden (optional)",
+  syncHint:
+    "Leer lassen für manuellen Abruf. Nur zuvor importierte, erlaubte URLs werden erneut abgerufen.",
+  audienceFieldHint: "Nur die gewählten Module dürfen diese Quelle abrufen.",
+  importDescription:
+    "Quelleninhalte werden als Daten verarbeitet, niemals als Systemanweisungen.",
+  importFile: "Datei importieren (optional, maximal 1 MB)",
+  uploadTooBig: "Die Datei ist größer als 1 MB.",
+  sourceUrl: "Freigegebene Adresse der Quelle",
+  documentId: "Stabile Dokumentkennung",
+  documentIdHint:
+    "Verwende dieselbe Kennung, um eine neue Version zu importieren.",
+  documentText: "Dokumenttext",
+  unsupportedType: "Dieser Dokumenttyp wird nicht unterstützt.",
+  importTitle: "Import-Center",
+  importIntro:
+    "Vorschau und Validierung erfolgen vor dem Commit. Historische Inhalte bleiben getrennt von Faktenbelegen.",
+  csvTemplate: "CSV-Vorlage für Fakten",
+  jsonTemplate: "JSON-Vorlage für Fakten",
+  uploadFacts: "Verifizierte Fakten aus CSV oder JSON hochladen",
+  uploadFactsHint:
+    "Maximal 1 MB. Pflichtfelder: key, value; fehlende optionale Werte werden vor der Vorschau angezeigt.",
+  payloadLabel:
+    "Import-Daten (Adressen von Websites und GitBook kann der Import finden und auswählen; Dateien nutzen Text oder Base64)",
+  payloadHelp:
+    "Quellentypen: website, gitbook, url, url_list, file, verified_facts, historical.",
+  previewReady: "{documents} Dokumente und {facts} Fakten sind bereit.",
+  previewResolve: "Zu klären: {codes}",
+  previewImport: "Import in der Vorschau prüfen",
+  commitImport: "Ausgewählten Import übernehmen",
+  importHistory: "Import-Verlauf",
+  noImports: "Noch keine Importe in diesem Projekt.",
+  importTooBig: "Die Datei ist größer als 1 MB.",
+  noFactRows: "Keine Fakten in der Datei gefunden.",
+  fileUnreadable: "Die Datei konnte nicht gelesen werden.",
+  csvNeedsRows:
+    "Die CSV-Datei braucht eine Kopfzeile und mindestens eine Zeile.",
+  csvMalformed: "Ein Feld in Anführungszeichen ist fehlerhaft.",
+  csvColumns: "Die CSV-Datei braucht die Spalten key und value.",
+  searchFacts: "Fakten suchen",
+  factsEmptyTitle: "Bestätige, was wirklich gilt",
+  factsEmptyHint:
+    "Preise, Termine und Produktstatus mit Gültigkeit und Herkunft.",
+  version: "Version",
+  detailSource: "Quelle",
+  validFrom: "Gültig ab",
+  validUntil: "Gültig bis",
+  verifiedAt: "Verifiziert am",
+  verifiedBy: "Verifiziert von",
+  languageMarket: "Sprache / Markt",
+  modelProcessing: "KI-Verarbeitung",
+  correctVersion: "Korrigierte Version erstellen",
+  correctFact: "Fakt korrigieren",
+  factKey: "Fachschlüssel",
+  factValue: "Wert",
+  valueType: "Werttyp",
+  currency: "Währung (für Dezimalpreise)",
+  unit: "Einheit",
+  market: "Markt / Geltungsbereich",
+  supportingSource: "Belegquelle",
+  validFromBrowser: "Gültig ab (Browserzeit)",
+  validUntilOptional: "Gültig bis (optional)",
+  reviewStatus: "Reviewstatus",
+  resolveConfirm:
+    "Ich bestätige diesen Wert als maßgeblich und ersetze alle aufgeführten Konfliktversionen.",
+  resolveHint:
+    "Alle überlappenden Werte dieses Schlüssels müssen gemeinsam aufgelöst werden. Die bisherigen Versionen bleiben im Verlauf erhalten.",
+  conflictVersion: "Version",
+  libraryEmptyTitle: "Deine Dokumentbibliothek ist leer",
+  libraryEmptyHint: "Importiere freigegebenen Text über eine Quelle.",
+  embedWithOpenAI: "Mit OpenAI einbetten",
+  embedWarning:
+    "Dabei werden die extrahierten Textabschnitte des Dokuments für kostenpflichtige Einbettungen an OpenAI gesendet. Quellenrechte, aktive Richtlinie und Budget prüft der Worker vor dem Versand erneut.",
+  embedConfirm:
+    "Ich erlaube, die extrahierten Textabschnitte dieses Dokuments für kostenpflichtige Einbettungen an OpenAI zu senden.",
+  embedQueue: "Einbettung einreihen",
+  versionHistory: "Versionsverlauf",
+  noOlderVersions: "Noch keine älteren Versionen.",
+  extractedPassages: "Extrahierte Textabschnitte",
+  passage: "Abschnitt",
+  noPassages: "Keine indexierten Textabschnitte vorhanden.",
+  histVersion: "Version",
+  histCreatedAt: "Erstellt",
+  histContentHash: "Inhalts-Hash",
+  histStatus: "Status",
+  conflicts: "Konflikte",
+  expiredFacts: "Abgelaufene Fakten",
+  failedImports: "Fehlgeschlagene Importe",
+  staleSources: "Veraltete Quellen",
+  impacts: "Betroffene Inhalte",
+  noCases: "Keine gemeldeten Fälle.",
+  affectedObject: "Betroffenes Objekt",
+  reviewSource: "Prüfe die aktuelle Quelle und die davon abhängigen Inhalte.",
+  inspectTitle: "Suche prüfen",
+  testQuestion: "Testfrage",
+  language: "Sprache",
+  purpose: "Verwendungszweck",
+  purposePublic: "Öffentlicher Inhalt",
+  purposeInternal: "Interne Recherche",
+  retrieveEvidence: "Belege abrufen",
+  evidencePack: "Beleg-Paket",
+  retrievalVersion: "Version der Suche",
+  retrievedAt: "Abgerufen am",
+  costLatency: "Kosten / Dauer",
+  notReported: "Nicht gemeldet",
+  filtersSummary: "Angewendete Filter und ausgeschlossene Ergebnisse",
+  project: "Projekt",
+  indexProfile: "Index-Profil",
+  estimatedTokens: "Geschätzte Tokens",
+  excludedSource: "Quelle",
+  excluded: "Ausgeschlossen",
+  noneExcluded: "Es wurden keine ausgeschlossenen Quellen gemeldet.",
+  inspectEmptyTitle: "Jede Antwort beginnt mit Belegen",
+  inspectEmptyHint:
+    "Prüfe Fakten, Quellenpassagen und Wissenslücken in deinem Rechtekontext.",
+  colKey: "Schlüssel",
+  colValue: "Wert",
+  colStatus: "Status",
+  colUpdatedAt: "Aktualisiert",
+  colTitle: "Titel",
+  colLanguage: "Sprache",
+  colName: "Name",
+  colSourceType: "Quellentyp",
+  colCompleted: "Abgeschlossen",
+  colFailed: "Fehlgeschlagen",
+  colCompletedAt: "Abgeschlossen am",
+  review: "Prüfen",
+  unknown: "Unbekannt",
+  evidence: {
+    fact: "Fakt",
+    passage: "Quellenabschnitt",
+    document: "Quellendokument",
+    relevance: "Relevanz",
+  },
+};
+
+export const expertCopy: Record<"de" | "en", ExpertCopy> = { de, en };
+
+/** Fills `{name}` placeholders. */
+export const expertFill = (
+  text: string,
+  values: Record<string, string | number>,
+) => text.replace(/\{(\w+)\}/g, (_, k) => String(values[k] ?? ""));
+
+// Labels of the raw values the expert pages show: source types, authorities,
+// statuses and the other enums. Keys are the stored values.
+const VALUES: Record<string, { de: string; en: string }> = {
+  manual: { de: "Eigener Text", en: "Own text" },
+  file: { de: "Dokument", en: "Document" },
+  website: { de: "Website", en: "Website" },
+  gitbook: { de: "GitBook", en: "GitBook" },
+  github: { de: "GitHub", en: "GitHub" },
+  url: { de: "Webadresse", en: "Web address" },
+  url_list: { de: "Adressliste", en: "Address list" },
+  verified_facts: { de: "Bestätigte Fakten", en: "Confirmed facts" },
+  historical: { de: "Frühere Inhalte", en: "Historical content" },
+  official: { de: "Offiziell", en: "Official" },
+  research: { de: "Recherche", en: "Research" },
+  generated: { de: "Generiert", en: "Generated" },
+  active: { de: "Aktiv", en: "Active" },
+  paused: { de: "Pausiert", en: "Paused" },
+  revoked: { de: "Widerrufen", en: "Revoked" },
+  verified: { de: "Bestätigt", en: "Verified" },
+  candidate: { de: "Zu prüfen", en: "To review" },
+  conflicting: { de: "Widersprüchlich", en: "Conflicting" },
+  needs_review: { de: "Prüfung nötig", en: "Needs review" },
+  expired: { de: "Abgelaufen", en: "Expired" },
+  pending: { de: "Ausstehend", en: "Pending" },
+  accepted: { de: "Bestätigt", en: "Confirmed" },
+  rejected: { de: "Verworfen", en: "Discarded" },
+  superseded: { de: "Ersetzt", en: "Superseded" },
+  withdrawn: { de: "Zurückgezogen", en: "Withdrawn" },
+  completed: { de: "Abgeschlossen", en: "Completed" },
+  failed: { de: "Fehlgeschlagen", en: "Failed" },
+  canceled: { de: "Abgebrochen", en: "Canceled" },
+  draft: { de: "Entwurf", en: "Draft" },
+  queued: { de: "In der Warteschlange", en: "Queued" },
+  running: { de: "Läuft", en: "Running" },
+  ready: { de: "Bereit", en: "Ready" },
+  not_ready: { de: "Nicht bereit", en: "Not ready" },
+  stale: { de: "Veraltet", en: "Out of date" },
+  indexed: { de: "Indexiert", en: "Indexed" },
+  public: { de: "Öffentlich", en: "Public" },
+  internal: { de: "Intern", en: "Internal" },
+  text: { de: "Text", en: "Text" },
+  decimal: { de: "Dezimalzahl", en: "Decimal" },
+  date: { de: "Datum", en: "Date" },
+  status: { de: "Status", en: "Status" },
+  hybrid: { de: "Hybrid", en: "Hybrid" },
+  insufficient_evidence: {
+    de: "Nicht genug Belege",
+    en: "Not enough evidence",
+  },
+  invalidated: { de: "Ungültig geworden", en: "Invalidated" },
+  partial: { de: "Teilweise", en: "Partial" },
+  prepared: { de: "Vorbereitet", en: "Prepared" },
+  succeeded: { de: "Erfolgreich", en: "Succeeded" },
+  unknown: { de: "Unklar", en: "Unclear" },
+  blocked_dependency: { de: "Blockiert", en: "Blocked" },
+  retry_scheduled: { de: "Neuer Versuch geplant", en: "Retry scheduled" },
+  indexing: { de: "Wird indexiert", en: "Indexing" },
+  review: { de: "Zur Prüfung", en: "In review" },
+  generating: { de: "Wird erstellt", en: "Generating" },
+  replaced: { de: "Ersetzt", en: "Replaced" },
+  removed: { de: "Entfernt", en: "Removed" },
+  analyzing: { de: "Wird analysiert", en: "Analyzing" },
+  lexical_degraded: {
+    de: "Nur Stichwortsuche",
+    en: "Keyword search only",
+  },
+};
+
+/**
+ * The label of a stored value. An unmapped value gets the generic label, never
+ * the raw text.
+ */
+export function expertValue(value: unknown, locale: string): string {
+  const language = locale === "de" ? "de" : "en";
+  const label =
+    typeof value === "string" ? VALUES[value.toLowerCase()] : undefined;
+  return label ? label[language] : expertCopy[language].unknown;
+}
+
+// Labels of the codes the API reports: import preview errors, retrieval
+// reasons and gaps, excluded-source reasons and the retrieval branches.
+const CODES: Record<string, { de: string; en: string }> = {
+  duplicate_document: { de: "Doppeltes Dokument", en: "Duplicate document" },
+  lexical: { de: "Stichwortsuche", en: "Keyword match" },
+  semantic: { de: "Inhaltliche Nähe", en: "Semantic match" },
+  insufficient_evidence: {
+    de: "Nicht genug Belege",
+    en: "Not enough evidence",
+  },
+  evidence_not_public_ready: {
+    de: "Belege nicht für öffentliche Aussagen freigegeben",
+    en: "Evidence not approved for public statements",
+  },
+  source_unavailable: {
+    de: "Quelle nicht verfügbar",
+    en: "Source unavailable",
+  },
+  audience_excluded: {
+    de: "Zielgruppe der Quelle schließt dieses Modul aus",
+    en: "The source's audience excludes this module",
+  },
+  source_stale: { de: "Quelle veraltet", en: "Source out of date" },
+  source_rights_changed: {
+    de: "Rechte der Quelle haben sich geändert",
+    en: "The source's rights changed",
+  },
+  source_audience_changed: {
+    de: "Zielgruppe der Quelle hat sich geändert",
+    en: "The source's audience changed",
+  },
+  fact_changed_or_expired: {
+    de: "Fakt geändert oder abgelaufen",
+    en: "Fact changed or expired",
+  },
+  document_changed_or_expired: {
+    de: "Dokument geändert oder abgelaufen",
+    en: "Document changed or expired",
+  },
+  index_generation_changed: {
+    de: "Der Suchindex wurde erneuert",
+    en: "The search index was replaced",
+  },
+  chunk_unavailable: {
+    de: "Textabschnitt nicht mehr verfügbar",
+    en: "Text passage no longer available",
+  },
+  evidence_unavailable: {
+    de: "Beleg nicht mehr verfügbar",
+    en: "Evidence no longer available",
+  },
+  fact_context_limit: {
+    de: "Zu viele Fakten für den Kontext",
+    en: "Too many facts for the context",
+  },
+  source_changed: { de: "Quelle geändert", en: "Source changed" },
+  fact_changed: { de: "Fakt geändert", en: "Fact changed" },
+  fact_superseded: { de: "Fakt ersetzt", en: "Fact superseded" },
+  fact_conflict: { de: "Fakt im Widerspruch", en: "Fact in conflict" },
+  fact_revoked: { de: "Fakt zurückgezogen", en: "Fact withdrawn" },
+  source_revoked: { de: "Quelle widerrufen", en: "Source revoked" },
+  source_permissions_changed: {
+    de: "Berechtigungen der Quelle geändert",
+    en: "The source's permissions changed",
+  },
+  document_revoked: { de: "Dokument widerrufen", en: "Document revoked" },
+  document_retired: {
+    de: "Dokument nicht mehr aktuell",
+    en: "Document retired",
+  },
+  invalid_source_policy: {
+    de: "Die Richtlinie der Quelle ist ungültig",
+    en: "The source's policy is invalid",
+  },
+  generated_derived: {
+    de: "Generierte Inhalte sind keine Quelle",
+    en: "Generated content is not a source",
+  },
+  public_use_forbidden: {
+    de: "Quelle nicht für öffentliche Aussagen freigegeben",
+    en: "Source not approved for public statements",
+  },
+  model_use_forbidden: {
+    de: "Quelle darf nicht von KI verarbeitet werden",
+    en: "Source may not be processed by AI",
+  },
+};
+// Codes that carry a parameter after the colon. `key` ones keep it visible;
+// the others carry an id, which is left out.
+const PARAMETERISED: Record<
+  string,
+  { de: string; en: string; withKey?: boolean }
+> = {
+  missing_fact: { de: "Fakt fehlt", en: "Fact missing", withKey: true },
+  conflicting_fact: {
+    de: "Fakt widersprüchlich",
+    en: "Fact conflicting",
+    withKey: true,
+  },
+  stale_document: { de: "Dokument veraltet", en: "Document out of date" },
+  document_outside_validity: {
+    de: "Dokument außerhalb der Gültigkeit",
+    en: "Document outside its validity",
+  },
+  required_source_unavailable: {
+    de: "Pflichtquelle nicht verfügbar",
+    en: "Required source unavailable",
+  },
+};
+
+/**
+ * A reported reason, gap or error. Codes get a label or the generic one; a
+ * plain sentence is shown as it is.
+ */
+export function expertCode(value: unknown, locale: string): string {
+  const language = locale === "de" ? "de" : "en";
+  const text = typeof value === "string" ? value : "";
+  const label = CODES[text.toLowerCase()];
+  if (label) return label[language];
+  const colon = text.indexOf(":");
+  if (colon > 0) {
+    const parameterised = PARAMETERISED[text.slice(0, colon).toLowerCase()];
+    if (parameterised) {
+      const key = text.slice(colon + 1);
+      return parameterised.withKey && key
+        ? `${parameterised[language]}: ${key}`
+        : parameterised[language];
+    }
+  }
+  return text &&
+    !/^[A-Za-z0-9]+([_:][A-Za-z0-9-]+)*$/.test(text) &&
+    /\s/.test(text)
+    ? text
+    : expertCopy[language].unknown;
+}
+
+/** The error codes of an import preview as one line of labels. */
+export function previewErrors(
+  errors: Array<{ code?: unknown }>,
+  locale: string,
+): string {
+  return errors.map((error) => expertCode(error.code, locale)).join(", ");
+}

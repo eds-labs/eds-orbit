@@ -2,7 +2,14 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { enqueue } from "../jobs/enqueue.ts";
 import { telegramEnabled } from "../connections/telegram.ts";
-import { registeredNotification } from "../modules/contributions.ts";
+import {
+  botKindSignal,
+  registeredNotification,
+  registeredUserNotification,
+} from "../modules/contributions.ts";
+import { proactiveEnabled } from "../proactive/preferences.ts";
+import { notifyMembers } from "./members.ts";
+import { resolveRecipients } from "../signals/deliver.ts";
 
 /**
  * Notifications to the owner's private Telegram bot (WP2.5b; Orbit Agents,
@@ -46,6 +53,7 @@ export async function notify(
 ) {
   if (!registeredNotification(kind))
     throw new Error(`NOTIFY_KIND_UNKNOWN: ${kind}`);
+  if (proactiveEnabled()) await mirrorBotNotice(tx, scope, kind, ref);
   if (!telegramEnabled() || !(await telegramLinked(tx, scope))) return null;
   return enqueue(
     tx,
@@ -54,4 +62,29 @@ export async function notify(
     ref,
     `notify:${kind}:${ref}`,
   );
+}
+
+/**
+ * ADR 0023 item 4: a bot notice a signal maps also becomes a member notice
+ * for the project's owners, keyed by the bot's own job key, so a repeated
+ * `notify` writes no second row. It carries the kind's label only.
+ */
+async function mirrorBotNotice(tx: DbTx, scope: Scope, kind: string, ref: string) {
+  const mapped = botKindSignal(kind);
+  const target = mapped && registeredUserNotification(mapped.signal.kind);
+  if (!mapped || !target) return;
+  const userIds = await resolveRecipients(scope, { roles: ["owner"] }, target.owner);
+  if (!userIds.length) return;
+  const project = await tx.project.findFirst({
+    where: { id: scope.projectId },
+    select: { language: true },
+  });
+  await notifyMembers(tx, scope, {
+    kind: mapped.signal.kind,
+    userIds: userIds.slice(0, 200),
+    title: target.label[project?.language === "de" ? "de" : "en"],
+    link: `/p/${scope.projectId}${mapped.signal.link ?? ""}`,
+    dedupeKey: `notify:${kind}:${ref}`.slice(0, 200),
+    severity: mapped.severity,
+  });
 }

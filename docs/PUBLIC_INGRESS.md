@@ -11,6 +11,9 @@ Switching the flag on in production needs two things first: the security reviews
 | `POST /api/hooks/<provider>/<workspace>/<project>/<connection>`    | a provider (a module's webhook, Slack, the owner's Telegram bot) | the provider's secret on that connection                  |
 | `/api/public/<module>/<publicKey>/...`                             | browsers on a key's allowed origins, and servers                 | the key, its origins, and a public session's bearer token |
 | `GET/POST /api/projects/<id>/public-keys`, `POST …/<keyId>/revoke` | project owners                                                   | the member session (owner role)                           |
+| `POST /api/callbacks/<module>/<name>` (ADR 0020)                   | a provider's server (today only Meta's data-deletion request)    | the provider's signature, checked by the module           |
+| `GET /api/public/social/media/<token>` (ADR 0020, S3)              | a platform fetching a post's image (Instagram)                   | an HMAC token naming project, publication and file (2 h); also needs `ORBIT_SOCIAL_MEDIA_PUBLIC` |
+| `GET /api/public/social/data-deletion/<code>` (ADR 0020)           | the status page of a Meta data-deletion request (`/data-deletion`) | the signed confirmation code returned to Meta              |
 
 There are two kinds of webhook provider:
 

@@ -22,8 +22,20 @@ export type ModelStep = {
 
 /** Orbit-owned: reserves, transmits, settles and records exactly one model request. Never retries. */
 export interface BudgetedModel {
-  call(request: { input: unknown[]; signal: AbortSignal }): Promise<ModelStep>;
+  call(request: ModelRequest): Promise<ModelStep>;
 }
+
+export type ModelRequest = {
+  input: unknown[];
+  signal: AbortSignal;
+  /**
+   * Tool definitions the host loaded earlier in this turn (staged loading,
+   * ADR 0022 §6), to append after the turn's fixed tool list. Present only
+   * when the host loads tools that way; the fixed list never changes within
+   * a turn, so a provider's prompt cache keeps its prefix.
+   */
+  loadedTools?: unknown[];
+};
 
 /** Orbit-owned: runs model-requested tools and tool searches. */
 export interface ToolHost {
@@ -31,6 +43,14 @@ export interface ToolHost {
   execute(call: ToolCallRequest, callIndex: number): Promise<string>;
   /** Answers one tool search; returns the tool definitions the model may load. */
   search(request: ToolSearchRequest, callIndex: number): Promise<unknown[]>;
+  /**
+   * Provider-neutral staged loading (ADR 0022 §6): the definitions loaded by
+   * tool calls so far in this turn, in loading order, append-only. The
+   * runtime passes them with every following model call, for OpenAI and
+   * Anthropic alike, instead of returning them as `tool_search_output`
+   * items (which only the OpenAI Responses API understands).
+   */
+  loadedTools?(): unknown[];
 }
 
 /** `maxToolCalls` counts tool calls and tool searches together. */

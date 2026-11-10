@@ -7,7 +7,22 @@ import {
 import { ownedPlanRefusal } from "../plans/execution.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { audit, create, data, entity, list, update } from "../../../shared.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  entity,
+  list,
+  update,
+} from "../../../shared.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { NOVELTY_KIND } from "./novelty.ts";
+import { draftReplaced } from "./draft-state.ts";
+import { bookedDraft, releasedPublication } from "./handoff-lookup.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
 import { enqueue } from "../pipeline/workflow.ts";
@@ -320,10 +335,11 @@ async function plannedDates(
   assignmentId: string,
   from: string,
 ) {
-  // A canceled run (assignment paused or ended) leaves its date open for a resumed assignment.
+  // A canceled run (assignment paused or ended) leaves its date open for a resumed
+  // assignment; so does a retired one (the owner retried it, G6).
   return new Set(
     (await runsMatching(tx, scope, { assignmentId, dateFrom: from }))
-      .filter((row) => data(row).status !== "canceled")
+      .filter((row) => data(row).status !== "canceled" && !data(row).retiredAt)
       .map((row) => String(data(row).date)),
   );
 }
@@ -462,7 +478,7 @@ export async function planAssignmentRuns(
     // Nothing delivers a report yet (R71): a report confirmed before reports
     // were refused plans no paid run and sends no notice.
     if (d.contentType === "report") continue;
-    const backlog = await reviewBacklog(tx, scope, row.id);
+    const backlog = await reviewBacklog(tx, scope, row.id, undefined, now);
     if (backlog.blocked) {
       await recordBacklogBlocker(tx, scope, row.id, true);
       continue;
@@ -521,7 +537,7 @@ export async function planAssignmentRuns(
         await skipDay(tx, scope, row.id, due.date, allocation.unavailable);
         continue;
       }
-      const capacity = await reviewBacklog(tx, scope, row.id);
+      const capacity = await reviewBacklog(tx, scope, row.id, undefined, now);
       if (
         capacity.limit !== null &&
         (capacity.available ?? 0) < allocation.slots.length
@@ -579,7 +595,8 @@ export async function nextAssignmentRunAt(
   if (data(row).status !== "active" || data(row).contentType === "report")
     return null;
   const d = data(row);
-  if ((await reviewBacklog(tx, scope, row.id)).blocked) return null;
+  if ((await reviewBacklog(tx, scope, row.id, undefined, now)).blocked)
+    return null;
   const horizon = d.marketingPlan
     ? data(await entity(tx, scope, "marketing_plans", d.marketingPlan.planId))
         .spec.horizon
@@ -1244,4 +1261,157 @@ export async function resumeReviewBacklog(
       });
     }
   }
+}
+
+/** A failed or partial run can only be retried at least this long before its first open slot. */
+export const RETRY_LEAD_MS = 60 * 60000;
+export const RUN_NOT_RETRYABLE = "RUN_NOT_RETRYABLE";
+export const RUN_RETRY_TOO_LATE = "RUN_RETRY_TOO_LATE";
+/** A paused project plans nothing, so a retry is neither offered nor run. */
+export const RUN_RETRY_PROJECT_PAUSED = "PROJECT_PAUSED";
+
+const runContents = (tx: DbTx, scope: Scope, runId: string) =>
+  tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "content",
+      data: { path: ["assignmentRunId"], equals: runId },
+    },
+  });
+
+/**
+ * Why a run cannot be retried, or null when it can (G6). Side-effect free.
+ * `RUN_NOT_RETRYABLE`: the run is not `failed` or `partial`, is retired
+ * already, its assignment is not active, a slot was booked or handed over, a
+ * draft was released, or no slot is open. `PROJECT_PAUSED`: the project is
+ * paused (planning would create no run). `RUN_RETRY_TOO_LATE`: the first
+ * open slot is less than an hour away (or past).
+ */
+export async function runRetryRefusal(
+  tx: DbTx,
+  scope: Scope,
+  run: { id: string; data: unknown },
+  now: Date,
+): Promise<string | null> {
+  const d = data(run);
+  if (!["failed", "partial"].includes(d.status) || d.retiredAt)
+    return RUN_NOT_RETRYABLE;
+  const project = await tx.project.findUnique({
+    where: { id: scope.projectId },
+    select: { paused: true },
+  });
+  if (project?.paused) return RUN_RETRY_PROJECT_PAUSED;
+  const assignment = await tx.entity.findFirst({
+    where: {
+      id: String(d.assignmentId),
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "assignments",
+    },
+  });
+  if (!assignment || data(assignment).status !== "active")
+    return RUN_NOT_RETRYABLE;
+  const slots = (d.slots ?? []) as Array<Record<string, any>>;
+  if (slots.some((slot) => slot.publicationId || slot.postizDraftId))
+    return RUN_NOT_RETRYABLE;
+  const open = slots.filter((slot) => !slot.releasedAt);
+  if (!open.length) return RUN_NOT_RETRYABLE;
+  for (const content of await runContents(tx, scope, run.id))
+    if (
+      (await releasedPublication(tx, scope, content.id)) ||
+      (await bookedDraft(tx, scope, content.id))
+    )
+      return RUN_NOT_RETRYABLE;
+  const first = Math.min(...open.map((slot) => Date.parse(String(slot.at))));
+  if (first - now.valueOf() < RETRY_LEAD_MS) return RUN_RETRY_TOO_LATE;
+  return null;
+}
+
+/**
+ * The owner retries a failed or partial run before its slot (G6): the old
+ * run is retired (`retiredAt`, `retiredBy`, `retriedByRunId`; its open slots
+ * are released), its waiting drafts are retired with it (`retiredWithRunId`)
+ * so the release list and every other reader drop them, its held topic reservations are released, and
+ * planning creates one new run for the same date. Everything happens in the
+ * caller's transaction; when planning creates no run (budget, backlog,
+ * slots) the refusal rolls it all back. Spend of the old run stays in the
+ * assignment's month.
+ */
+export async function retryAssignmentRun(
+  tx: DbTx,
+  scope: Scope,
+  runId: string,
+  now = new Date(),
+): Promise<{ retiredRunId: string; runId: string }> {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  await lockRun(tx, scope, runId);
+  const row = await entity(tx, scope, RUNS, runId);
+  const refusal = await runRetryRefusal(tx, scope, row, now);
+  if (refusal) throw new DomainError(refusal, 409);
+  const d = data(row);
+  const stamp = now.toISOString();
+  const retired = await update(tx, scope, row, {
+    ...d,
+    retiredAt: stamp,
+    retiredBy: scope.userId,
+    slots: ((d.slots ?? []) as Array<Record<string, any>>).map((slot) =>
+      slot.releasedAt
+        ? slot
+        : { ...slot, releasedAt: stamp, releaseReason: "RUN_RETRIED" },
+    ),
+  });
+  // Retired with the run first, so planning's review backlog and topic
+  // checks no longer count these drafts (`draftReplaced`); the new run is
+  // the old run's `retriedByRunId`.
+  const drafts = (await runContents(tx, scope, row.id)).filter(
+    (content) =>
+      !["archived", "rejected", "deleted"].includes(data(content).status) &&
+      !draftReplaced(data(content)),
+  );
+  for (const draft of drafts)
+    await update(tx, scope, draft, {
+      ...data(draft),
+      retiredWithRunId: row.id,
+    });
+  const reservations = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: NOVELTY_KIND,
+      data: { path: ["runId"], equals: row.id },
+    },
+  });
+  for (const reservation of reservations)
+    if (data(reservation).state === "held")
+      await update(tx, scope, reservation, {
+        ...data(reservation),
+        state: "released",
+      });
+  const sameDay = () =>
+    runsMatching(tx, scope, {
+      assignmentId: String(d.assignmentId),
+      date: String(d.date),
+    });
+  const before = new Set((await sameDay()).map((candidate) => candidate.id));
+  await planAssignmentRuns(tx, scope, now);
+  // Only a run planning just created counts (not a canceled one of the same day).
+  const created = (await sameDay()).find(
+    (candidate) =>
+      !before.has(candidate.id) &&
+      !data(candidate).retiredAt &&
+      data(candidate).status !== "canceled",
+  );
+  if (!created) throw new DomainError(RUN_NOT_RETRYABLE, 409);
+  const current = await entity(tx, scope, RUNS, retired.id);
+  await update(tx, scope, current, {
+    ...data(current),
+    retriedByRunId: created.id,
+  });
+  await audit(tx, scope, "assignment.run_retried", row.id, {
+    assignmentId: d.assignmentId,
+    retiredRunId: row.id,
+    runId: created.id,
+  });
+  return { retiredRunId: row.id, runId: created.id };
 }

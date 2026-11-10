@@ -22,7 +22,10 @@ function publicAddress(address: string): boolean {
 }
 
 /** HTTPS transport pins a checked DNS address. No redirects, private ranges or unbounded response bodies. */
-export const boundedFetch: FetchLike = async (input, init = {}) => {
+export const boundedFetch: FetchLike = (input, init) => boundedFetchWith({ maxResponseBytes: 2 * 1024 * 1024 })(input, init);
+
+/** `boundedFetch` with its own response body cap (e.g. images up to the file limit). */
+export const boundedFetchWith = (limits: { maxResponseBytes: number }): FetchLike => async (input, init = {}) => {
   const url = new URL(input);
   if (url.protocol !== 'https:' || url.username || url.password) throw new ConnectorError('INVALID_ENDPOINT');
   if (init.signal?.aborted) throw new ConnectorError('REQUEST_TIMEOUT', 'not_sent', true);
@@ -53,7 +56,7 @@ export const boundedFetch: FetchLike = async (input, init = {}) => {
       },
     }, res => {
       const chunks: Buffer[] = []; let bytes = 0;
-      res.on('data', (chunk: Buffer) => { bytes += chunk.length; if (bytes > 2 * 1024 * 1024) { req.destroy(); done(new ConnectorError('RESPONSE_TOO_LARGE', prepared.method === 'GET' ? 'not_sent' : 'unknown')); } else chunks.push(chunk); });
+      res.on('data', (chunk: Buffer) => { bytes += chunk.length; if (bytes > limits.maxResponseBytes) { req.destroy(); done(new ConnectorError('RESPONSE_TOO_LARGE', prepared.method === 'GET' ? 'not_sent' : 'unknown')); } else chunks.push(chunk); });
       res.on('error', () => done(new ConnectorError('NETWORK_ERROR', prepared.method === 'GET' ? 'not_sent' : 'unknown', prepared.method === 'GET')));
       res.on('end', () => { const headers = new Headers(); for (const [k, v] of Object.entries(res.headers)) if (v !== undefined) headers.set(k, Array.isArray(v) ? v.join(', ') : v); const status = res.statusCode ?? 502; done(undefined, new Response([204, 205, 304].includes(status) ? null : Buffer.concat(chunks), { status, headers })); });
     });
@@ -66,6 +69,16 @@ export const boundedFetch: FetchLike = async (input, init = {}) => {
   });
 };
 
+const CREDENTIAL_WORD = 'bearer|token|key|secret|password';
+/** Alternatives that also consume a value come before the bare keyword. */
+const CREDENTIAL_TEXT = new RegExp([
+  String.raw`(?:bearer[\s:=]+)+\S+`, // "Bearer x", "Bearer: x", a doubled scheme
+  String.raw`(?:${CREDENTIAL_WORD})\S*\s*[:=]\s*\S+`, // "token: x", "secret = x"
+  // Without an assignment only a credential-shaped value goes, so "token expired" stays readable.
+  String.raw`(?:${CREDENTIAL_WORD})\S*\s+(?:(?:is|was)\s+)?(?=\S*\d|\S{20})\S+`,
+  String.raw`(?:${CREDENTIAL_WORD})\S*`,
+].join('|'), 'gi');
+
 /** Short, sanitized provider error message for diagnostics. Never the raw body. */
 export async function providerDetail(response: Response): Promise<string | undefined> {
   try {
@@ -73,7 +86,7 @@ export async function providerDetail(response: Response): Promise<string | undef
     let message: unknown = text;
     try { const body = JSON.parse(text); message = body?.message ?? body?.error ?? body?.msg ?? text; } catch { /* plain text */ }
     if (Array.isArray(message)) message = message.join('; ');
-    const clean = String(message).replace(/(bearer|token|key|secret|password)\S*/gi, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const clean = String(message).replace(CREDENTIAL_TEXT, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
     return clean || undefined;
   } catch { return undefined; }
 }

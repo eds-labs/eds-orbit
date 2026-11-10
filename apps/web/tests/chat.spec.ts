@@ -68,9 +68,12 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
     /already imported/,
   );
   const message = `Synthetic chat acceptance ${Date.now()}`;
+  // The message itself, not the conversation's title in the history list.
+  const sent = () =>
+    page.locator(".chat-message-text").getByText(message, { exact: true });
   await page.getByLabel("Message Orbit").fill(message);
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByText(message, { exact: true })).toBeVisible();
+  await expect(sent()).toBeVisible();
   // POLICY_REQUIRED is shown as text (lib/budget-refusals.ts).
   await expect(
     page.getByText(
@@ -78,7 +81,7 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
     ),
   ).toBeVisible({ timeout: 30000 });
   await page.reload();
-  await expect(page.getByText(message, { exact: true })).toBeVisible();
+  await expect(sent()).toBeVisible();
   const project = await page.request.post("/api/projects", {
     data: {
       name: `Chat isolation ${Date.now()}`,
@@ -93,10 +96,10 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
   await page.locator("#project").selectOption(otherId);
   // Switching keeps the page and changes the project in the URL.
   await expect(page).toHaveURL(new RegExp(`/p/${otherId}/assistant$`));
-  await expect(page.getByText(message, { exact: true })).toHaveCount(0);
+  await expect(sent()).toHaveCount(0);
   await page.locator("#project").selectOption(user.projectId);
   await expect(page).toHaveURL(new RegExp(`/p/${user.projectId}/assistant$`));
-  await expect(page.getByText(message, { exact: true })).toBeVisible();
+  await expect(sent()).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
     page

@@ -49,6 +49,7 @@ import {
   projectHref,
   routeEnabled,
   rewriteLegacyHref,
+  projectAwareHref,
   routeTable,
   navigationForFeatures,
   routesForFeatures,
@@ -72,6 +73,7 @@ import {
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
 import {
   moduleSettingsSection,
   settingsSectionHref,
@@ -95,6 +97,13 @@ import {
   ProjectPicker,
   projectFields,
 } from "@/platform/shell/pickers";
+import { agentPaths } from "@/platform/agents/api";
+import { agentPlatformVisible } from "@/platform/agents/logic";
+import { drivePaths, type DriveStatus } from "@/platform/drive/api";
+import { driveFeature, type DriveFeature } from "@/platform/drive/feature";
+import { OrganizationAgents } from "@/platform/agents/org-agents";
+import { AssistantProvider } from "@/platform/assistant/assistant-provider";
+import type { AssistantLinks } from "@/platform/assistant/links";
 
 const LAST_PROJECT = "orbit.project";
 type ModuleStates = {
@@ -172,6 +181,34 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     lastStates,
     project?.id,
   );
+  // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
+  // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).
+  const memberRole = project
+    ? project.role ||
+      identity.data?.workspaces.find((w) => w.id === project.workspaceId)
+        ?.role ||
+      "viewer"
+    : undefined;
+  const agentsProbe = useResource<unknown>(
+    project && (memberRole === "owner" || memberRole === "editor")
+      ? agentPaths.templates(project.id)
+      : null,
+  );
+  const agentPlatform = agentPlatformVisible(memberRole, agentsProbe);
+  // The Google Drive page (design 2026-11-05 §5.2): listed while the project
+  // has a Drive folder. The status is read from Orbit, not from Google.
+  // It reloads with the workspace revision, like the module states.
+  const driveStatus = useResource<DriveStatus>(
+    project ? `${drivePaths(project.id).status}?revision=${revision}` : null,
+  );
+  const [driveKnown, setDriveKnown] = useState<DriveFeature>(null);
+  const drive = project
+    ? driveFeature(driveKnown, project.id, driveStatus.data)
+    : null;
+  // Kept in state so a reload keeps it (render-time update, converges at once).
+  if (drive?.projectId !== driveKnown?.projectId || drive?.enabled !== driveKnown?.enabled)
+    setDriveKnown(drive);
+  const googleDrive = drive?.enabled === true;
   // Shared by the sidebar badges and the home page (§4.4), through a 30 s
   // cache that outlives the remount on navigation (ruling R15).
   const attention = useAttentionLoad(
@@ -188,6 +225,15 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     if (signedOut) clearAttentionCache();
   }, [signedOut]);
   const renderers = useMemo(() => attentionRenderers(registry), [registry]);
+  // Card links of the personal assistant open in the card's project (WP3.8).
+  const projectsOfMember = identity.data?.projects;
+  const assistantLinks = useMemo(
+    (): AssistantLinks => ({
+      hrefFor: (id, href) => projectAwareHref(table, id, href),
+      projectName: (id) => projectsOfMember?.find((p) => p.id === id)?.name,
+    }),
+    [table, projectsOfMember],
+  );
   useEffect(() => {
     try {
       const lang = localStorage.getItem("orbit.locale");
@@ -232,6 +278,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   useEffect(() => {
     setMenu(false);
   }, [pathname]);
+  useScrollTopOnNavigate(pathname);
   useEffect(() => {
     if (!project) return;
     try {
@@ -308,15 +355,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       const module = registry.modules.find((m) => m.id === id);
       return moduleShown(states, id, module?.optIn === true, module?.minAccess);
     };
-    const nav = navOrder(
-      navigationForFeatures(table.routes, knownStates?.features),
-    );
+    const features = { ...knownStates?.features, agentPlatform, googleDrive };
+    const nav = navOrder(navigationForFeatures(table.routes, features));
     const active = registry.modules.filter((m) => enabled(m.id));
     return {
-      features: knownStates?.features,
+      features,
       table: {
         ...table,
-        routes: routesForFeatures(table.routes, knownStates?.features),
+        routes: routesForFeatures(table.routes, features),
       },
       platformNav: nav.filter((r) => !r.moduleId && routeEnabled(r, enabled)),
       modules: registry.modules.map((m) => ({
@@ -362,8 +408,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         providers: active.flatMap((m) => m.connectors?.providers ?? []),
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
+      drive: {
+        fileActions: active.flatMap((m) => m.drive?.fileActions ?? []),
+        toolbar: active.flatMap((m) => m.drive?.toolbar ?? []),
+      },
+      agentSetups: Object.assign({}, ...active.map((m) => m.agentSetups ?? {})),
     };
-  }, [project, knownStates, registry, table, renderers]);
+  }, [project, knownStates, registry, table, renderers, agentPlatform, googleDrive]);
   // Apart, so a loaded attention keeps the functions above unchanged.
   const shell = useMemo(
     (): ShellContextValue | null => base && { ...base, attention },
@@ -380,23 +431,27 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     const page =
       place.kind === "organizations"
         ? t("chooseOrganization")
-        : place.kind === "organization"
-          ? t("chooseProject")
-          : projectId && !project
-            ? t("projectNotFound")
-            : place.kind === "view"
-              ? pageTitle(
-                  base?.table.routes.find((r) => r.key === place.route.key) ??
-                    place.route,
-                  base?.table ?? table,
-                  locale,
-                  groupLabel,
-                )
-              : place.kind === "standalone"
-                ? place.view.title[locale]
-                : place.kind === "notFound"
-                  ? t("notFound")
-                  : null;
+        : place.kind === "organizationAgents"
+          ? locale === "de"
+            ? "Agenten"
+            : "Agents"
+          : place.kind === "organization"
+            ? t("chooseProject")
+            : projectId && !project
+              ? t("projectNotFound")
+              : place.kind === "view"
+                ? pageTitle(
+                    base?.table.routes.find((r) => r.key === place.route.key) ??
+                      place.route,
+                    base?.table ?? table,
+                    locale,
+                    groupLabel,
+                  )
+                : place.kind === "standalone"
+                  ? place.view.title[locale]
+                  : place.kind === "notFound"
+                    ? t("notFound")
+                    : null;
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
@@ -526,22 +581,46 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       }
     />
   );
-  // Pages outside a project: pickers, administration and unknown addresses.
-  const frame = (children: ReactNode, wide = false) => (
-    <div className="picker-page">
-      <header>
-        <Brand />
-        <div className="topbar-actions">
-          {languageControl}
-          {userMenu()}
-        </div>
-      </header>
-      <main id="main" className={wide ? "admin-main" : "picker-main"}>
-        {signout.error && <Alert kind="error">{signout.error}</Alert>}
-        {children}
-      </main>
-    </div>
+  // The personal assistant (ADR 0022, WP3.8) around every authenticated page:
+  // the same element at the root of the project shell and of `frame`, so its
+  // state and a running reply survive navigation between them, and outside
+  // the keyed workspace <div>, so they survive project switches. Its
+  // organization: the open project's or organization's, else the last
+  // project's, else the server's default.
+  const assistantWorkspace =
+    project?.workspaceId ??
+    ("organizationId" in place ? place.organizationId : undefined) ??
+    me.projects.find((p) => p.id === lastProject())?.workspaceId;
+  const withAssistant = (tree: ReactNode, aboveNav = false) => (
+    <AssistantProvider
+      identity={me}
+      locale={locale}
+      pathname={pathname}
+      routeProjectId={project?.id}
+      workspaceId={assistantWorkspace}
+      links={assistantLinks}
+      aboveNav={aboveNav}
+    >
+      {tree}
+    </AssistantProvider>
   );
+  // Pages outside a project: pickers, administration and unknown addresses.
+  const frame = (children: ReactNode, wide = false) =>
+    withAssistant(
+      <div className="picker-page">
+        <header>
+          <Brand />
+          <div className="topbar-actions">
+            {languageControl}
+            {userMenu()}
+          </div>
+        </header>
+        <main id="main" className={wide ? "admin-main" : "picker-main"}>
+          {signout.error && <Alert kind="error">{signout.error}</Alert>}
+          {children}
+        </main>
+      </div>,
+    );
   if (standalone)
     return frame(
       <StandaloneContext.Provider
@@ -555,7 +634,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       >
         <standalone.component />
       </StandaloneContext.Provider>,
-      standalone.key === "account",
+      ["account", "account-assistant", "assistant"].includes(standalone.key),
     );
   // The system administration (ADR 0013); the API refuses everyone else.
   if (place.kind === "admin")
@@ -589,6 +668,26 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             />
             <OrganizationIntegrations
               identity={me}
+              organizationId={place.organizationId}
+              locale={locale}
+            />
+          </>,
+          true,
+        )
+      : frame(<NotFound t={t} project={false} />);
+  // The agents of all projects (ADR 0021); the summary API lists only
+  // projects the member may read agents in.
+  if (place.kind === "organizationAgents")
+    return me.workspaces.some((w) => w.id === place.organizationId)
+      ? frame(
+          <>
+            <Link
+              className="back-link"
+              href={`/o/${encodeURIComponent(place.organizationId)}`}
+            >
+              ← {t("chooseProject")}
+            </Link>
+            <OrganizationAgents
               organizationId={place.organizationId}
               locale={locale}
             />
@@ -703,7 +802,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </option>
         ));
   const label = (r: Route) => r.nav?.label[locale] ?? r.key;
-  return (
+  return withAssistant(
     <ShellContext.Provider value={shell}>
       <div className="orbit">
         <a href="#main" className="skip-link">
@@ -938,7 +1037,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </Modal>
         )}
       </div>
-    </ShellContext.Provider>
+    </ShellContext.Provider>,
+    true,
   );
 }
 export function ModuleOff({

@@ -1,6 +1,6 @@
 "use client";
 import { useState, type FormEvent } from "react";
-import { ArrowLeft, Lock, Paperclip } from "lucide-react";
+import { ArrowLeft, Bot, Lock, Paperclip } from "lucide-react";
 import { usd, useResource, useMutation, when } from "@/lib/api";
 import {
   Alert,
@@ -22,6 +22,7 @@ import {
   timelineEntries,
   uploadSupportFile,
   type Agent,
+  type TicketAgent,
   type TicketDetail,
   type TimelineEntry,
 } from "./api";
@@ -29,7 +30,12 @@ import { supportText, type SupportText } from "./labels";
 import { TagPicker, useSupportLists } from "./tags";
 import { CustomerAccountCard } from "./customer-context";
 import { useShell } from "@/platform/shell/shell-context";
+import { AppLink } from "@/platform/ui/app-link";
 import { ReportIssueButton, TicketIssues } from "./issue-report";
+import { executionHref } from "@/platform/agents/logic";
+import { WorkStatusBadge } from "@/platform/agents/parts";
+import type { WorkOrderStatus } from "@/platform/agents/types";
+import type { Locale } from "@/lib/i18n";
 
 export const SLA_TONE = {
   ok: "success",
@@ -99,24 +105,26 @@ export function TicketView({
               {t.aiCost}: {usd(detail.data.aiCostMicros)}
             </Badge>
           )}
-          {canEdit && detail.data.inbox?.aiMode === "draft" && (
-            <Button
-              size="sm"
-              variant="outline"
-              type="button"
-              disabled={draftRequest.pending}
-              onClick={() =>
-                draftRequest.run(() =>
-                  post(
-                    supportPath(project.id, `/tickets/${ticketId}/ai-draft`),
-                    {},
-                  ),
-                )
-              }
-            >
-              {t.generateDraft}
-            </Button>
-          )}
+          {canEdit &&
+            (detail.data.inbox?.aiMode === "draft" ||
+              detail.data.inbox?.aiMode === "agent") && (
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                disabled={draftRequest.pending}
+                onClick={() =>
+                  draftRequest.run(() =>
+                    post(
+                      supportPath(project.id, `/tickets/${ticketId}/ai-draft`),
+                      {},
+                    ),
+                  )
+                }
+              >
+                {t.generateDraft}
+              </Button>
+            )}
           {canEdit && (
             <ReportIssueButton
               ticketId={ticketId}
@@ -127,6 +135,16 @@ export function TicketView({
           )}
         </div>
         <TicketIssues key={reported} ticketId={ticketId} />
+        {detail.data.agent && (
+          <TicketAgentPanel
+            agent={detail.data.agent}
+            t={t}
+            locale={locale}
+            timezone={project.timezone}
+            agentsHref={shell.hrefOf("agents")}
+            approvalsHref={shell.hrefOf("decisions")}
+          />
+        )}
         {draftRequest.success && <Alert kind="info">{t.draftQueued}</Alert>}
         {draftRequest.error && <Alert kind="error">{draftRequest.error}</Alert>}
         {canEdit && (
@@ -140,7 +158,7 @@ export function TicketView({
       </header>
       <div className="support-ticket-body">
         <ol className="support-timeline" aria-label={t.tickets}>
-          {timelineEntries(detail.data.timeline).map((entry) => (
+          {timelineEntries(detail.data.timeline, locale).map((entry) => (
             <TimelineItem
               key={`${entry.entry}-${entry.id}`}
               entry={entry}
@@ -218,7 +236,13 @@ export function TimelineItem({
   if (entry.entry === "event")
     return (
       <li className="support-event">
-        <span>{t.event[entry.type] ?? entry.type}</span>{" "}
+        <span>{t.event[entry.type] ?? entry.type}</span>
+        {entry.byAgent && (
+          <>
+            {" · "}
+            <Bot aria-hidden size={13} /> {t.supportAgent}
+          </>
+        )}{" "}
         <time>{when(entry.createdAt, locale, timezone)}</time>
       </li>
     );
@@ -233,6 +257,11 @@ export function TimelineItem({
       <div className="support-message-meta">
         {entry.internal && <Lock aria-hidden size={14} />}
         <strong>{t.kind[entry.kind] ?? entry.kind}</strong>
+        {entry.byAgent && (
+          <span className="support-agent-author">
+            <Bot aria-hidden size={14} /> {t.supportAgent}
+          </span>
+        )}
         <time>{when(entry.createdAt, locale, timezone)}</time>
         {entry.deliveryState && (
           <Badge>
@@ -265,6 +294,109 @@ export function TimelineItem({
         </ul>
       )}
     </li>
+  );
+}
+
+/**
+ * The Support agent's latest execution on the ticket (ADR 0021 Phase 2):
+ * status, error code, cost, hand-off and its proposals, with links to the
+ * approvals and to the execution on the agents page. Content-free.
+ */
+export function TicketAgentPanel({
+  agent,
+  t,
+  locale,
+  timezone,
+  agentsHref,
+  approvalsHref,
+}: {
+  agent: TicketAgent;
+  t: SupportText;
+  locale: Locale;
+  timezone: string;
+  agentsHref: string;
+  approvalsHref: string;
+}) {
+  const p = t.agentPanel;
+  const proposals = agent.actionRequestIds.length;
+  return (
+    <section
+      className="support-agent-panel"
+      aria-labelledby="support-agent-title"
+    >
+      <h3 id="support-agent-title">
+        <Bot aria-hidden size={16} /> {p.title}
+      </h3>
+      <dl>
+        <div>
+          <dt>{p.status}</dt>
+          <dd>
+            <WorkStatusBadge
+              status={agent.status as WorkOrderStatus}
+              locale={locale}
+            />
+          </dd>
+        </div>
+        <div>
+          <dt>{p.started}</dt>
+          <dd>
+            <time>{when(agent.createdAt, locale, timezone)}</time>
+          </dd>
+        </div>
+        {agent.errorCode && (
+          <div>
+            <dt>{p.error}</dt>
+            <dd>
+              <code>{agent.errorCode}</code>
+            </dd>
+          </div>
+        )}
+        <div>
+          <dt>{p.cost}</dt>
+          <dd>{usd(agent.spentMicros)}</dd>
+        </div>
+        <div>
+          <dt>{p.handedOff}</dt>
+          <dd>
+            {agent.handedOff ? (
+              <>
+                <Badge tone="warning">{p.yes}</Badge>
+                {agent.handOffReason && (
+                  <>
+                    {" "}
+                    <code>{agent.handOffReason}</code>
+                  </>
+                )}
+              </>
+            ) : (
+              p.no
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>{p.proposals}</dt>
+          <dd>
+            {proposals}
+            {proposals > 0 && (
+              <>
+                {" · "}
+                <AppLink href={approvalsHref}>{p.openApprovals}</AppLink>
+              </>
+            )}
+          </dd>
+        </div>
+      </dl>
+      <p className="support-agent-actions">
+        {agent.agentId && (
+          <AppLink
+            href={executionHref(agentsHref, agent.agentId, agent.workOrderId)}
+          >
+            {p.openExecution}
+          </AppLink>
+        )}
+        <span className="support-muted">{p.hint}</span>
+      </p>
+    </section>
   );
 }
 

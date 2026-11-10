@@ -21,6 +21,7 @@ import {
   registeredRetention,
   registeredRoutes,
   registeredRoutesByOwner,
+  registeredAgentListings,
   registeredSchedulers,
   registeredTelegramCallback,
   registeredToolOwner,
@@ -39,6 +40,7 @@ import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
+import { socialContributions } from "../src/modules/social/contributions.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
 import { publicEntity } from "../src/platform/shared.ts";
@@ -60,7 +62,9 @@ describe("module contributions", () => {
             t.feature !== "mcp_tasks" &&
             t.feature !== "project_configuration" &&
             t.feature !== "project_administration" &&
-            t.feature !== "creative_studio",
+            t.feature !== "creative_studio" &&
+            // The personal assistant's tools (ADR 0022) are not chat tools.
+            t.exposure?.personal !== true,
         )
         .map((t) => t.name),
     ).toEqual(chatTools.map((t) => t.name));
@@ -78,7 +82,12 @@ describe("module contributions", () => {
     expect([...registeredJobs().keys()].sort()).toEqual(
       [
         "agent",
+        "agent_work",
         "analytics",
+        // Proactive layer (ADR 0023): delivery decisions, digests, briefings.
+        "assistant_briefing",
+        "notification_delivery",
+        "notification_digest",
         "chat",
         "creative_preview",
         "domain_event",
@@ -93,13 +102,18 @@ describe("module contributions", () => {
         "index_evaluation_set",
         "ingestion",
         "issues_ai",
+        "issues_github",
         "issues_intake",
         "knowledge_analysis",
+        "knowledge_site_sync",
         "postiz_draft",
         "publishing",
         "reconciliation",
         "reindex",
         "slack_notification",
+        "social_deliver",
+        "social_dispatch",
+        "social_reconcile",
         "support_draft",
         "support_email_inbound",
         "support_triage",
@@ -128,6 +142,10 @@ describe("module contributions", () => {
 
   it("leaves the same kinds out of the project export as before (WP1.8)", () => {
     expect([...unexportedKinds()].sort()).toEqual([
+      "agent_failure_notices",
+      // The personal space's own records (ADR 0022): settings, run steps, context.
+      "assistant_settings",
+      "chat_run_steps",
       "connectors",
       "drive_connection",
       "drive_oauth_state",
@@ -147,8 +165,16 @@ describe("module contributions", () => {
       "knowledge_profiles",
       "knowledge_proposals",
       "knowledge_runs",
+      "knowledge_site_runs",
+      // Proactive layer (ADR 0023): user-private preferences and scheduler marks.
+      "notification_preferences",
       "orbit_tasks",
+      "personal_context",
+      "proactive_state",
       "public_sessions",
+      // MCP media idempotency receipts and one-time upload sessions (Social).
+      "social_media_receipt",
+      "social_media_upload",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
       "telegram_connections",
@@ -171,7 +197,8 @@ describe("module contributions", () => {
   });
 
   it("lets marketing extend pause, resume and retention (WP1.8)", () => {
-    expect(registeredHooks()).toEqual([marketingHooks]);
+    // Social re-enqueues recently paused deliveries on resume (ADR 0020, S5).
+    expect(registeredHooks()).toEqual([socialContributions.hooks, marketingHooks]);
     // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
       platformContributions.retention,
@@ -209,9 +236,14 @@ describe("module contributions", () => {
       "email-inbound",
       "object-link-prune",
       "domain-event-retention",
+      // Personal spaces 30 days after their user left (ADR 0022).
+      "personal-space-cleanup",
+      // Periodic signal detectors (ADR 0023), off while ORBIT_PROACTIVE is off.
+      "signals-periodic",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
+      "social-hold-sync",
     ]);
     // Support's task counts only while support is available (WP5.3, WP5.6).
     process.env.ORBIT_SUPPORT = "true";
@@ -239,6 +271,7 @@ describe("module contributions", () => {
       "ai-spend-policy",
       "analyze",
       "approve",
+      "archive-content",
       "archive-mission",
       "archive-old-drafts",
       "asset-status",
@@ -256,6 +289,7 @@ describe("module contributions", () => {
       "correct-metric",
       "customer-context-connect",
       "customer-context-disconnect",
+      "discard-content",
       "editorial-propose-brief",
       "email-connect",
       "email-disconnect",
@@ -267,7 +301,9 @@ describe("module contributions", () => {
       "import-matomo",
       "import-metrics",
       "knowledge-analysis-cancel",
+      "knowledge-analysis-preflight",
       "knowledge-analysis-start",
+      "knowledge-content-accept",
       "knowledge-draft-preview",
       "knowledge-draft-save",
       "knowledge-file-read",
@@ -278,6 +314,13 @@ describe("module contributions", () => {
       "knowledge-import-retry",
       "knowledge-profile-save",
       "knowledge-proposal-decide",
+      "knowledge-proposal-edit",
+      "knowledge-proposal-remove",
+      "knowledge-proposal-restore",
+      "knowledge-site-discover",
+      "knowledge-site-refresh",
+      "knowledge-site-settings",
+      "knowledge-site-start",
       "memory-lifecycle",
       "openai-configure",
       "pause",
@@ -292,6 +335,7 @@ describe("module contributions", () => {
       "project-settings",
       "publish",
       "reconcile",
+      "reject-content",
       "render",
       "resolve-exception",
       "restore-draft-cleanup",
@@ -344,7 +388,9 @@ describe("module contributions", () => {
       "connector-health",
       "import-matomo",
       "knowledge-analysis-cancel",
+      "knowledge-analysis-preflight",
       "knowledge-analysis-start",
+      "knowledge-content-accept",
       "knowledge-draft-preview",
       "knowledge-draft-save",
       "knowledge-file-read",
@@ -353,6 +399,13 @@ describe("module contributions", () => {
       "knowledge-import-preview",
       "knowledge-profile-save",
       "knowledge-proposal-decide",
+      "knowledge-proposal-edit",
+      "knowledge-proposal-remove",
+      "knowledge-proposal-restore",
+      "knowledge-site-discover",
+      "knowledge-site-refresh",
+      "knowledge-site-settings",
+      "knowledge-site-start",
       "openai-configure",
       "postiz-draft-handoff",
       "postiz-test-execute",
@@ -414,8 +467,16 @@ describe("module contributions", () => {
       "openai",
       "anthropic",
       "n8n",
+      "github_app",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
+      // The social module's developer apps and managed accounts (ADR 0020).
+      "social.app.meta",
+      "social.app.x",
+      "social.account.x",
+      "social.account.facebook",
+      "social.account.instagram",
+      "social.account.telegram",
       "postiz",
       "matomo",
       "slack",
@@ -424,8 +485,11 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("customer_context")?.owner).toBe(
       "platform",
     );
+    expect(registeredConnectionProvider("github_app")?.owner).toBe("platform");
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(6))
+    for (const id of registeredConnectionProviderIds().slice(7, 13))
+      expect(registeredConnectionProvider(id)?.owner).toBe("social");
+    for (const id of registeredConnectionProviderIds().slice(13))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();
@@ -435,10 +499,13 @@ describe("module contributions", () => {
     // Registry order: knowledge before marketing, which depends on it.
     // Support counts only while ORBIT_SUPPORT is on; the server registers
     // its routes regardless and they answer 404 while it is off.
-    expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    // The platform's routes: the agent platform's and the personal assistant's (ADR 0022).
+    const platformRoutes = platformContributions.routes;
+    expect(registeredRoutes()).toEqual([platformRoutes, knowledgeRoutes, marketingRoutes]);
     process.env.ORBIT_SUPPORT = "true";
     try {
       expect(registeredRoutes()).toEqual([
+        platformRoutes,
         knowledgeRoutes,
         supportRoutes,
         marketingRoutes,
@@ -450,6 +517,11 @@ describe("module contributions", () => {
       "support",
     );
     expect(registeredToolOwner("knowledge_search")).toBe("platform");
+  });
+
+  it("lists module-managed agents of enabled modules only: Marketing's assignments (WP1.9)", () => {
+    expect(registeredAgentListings().map((l) => l.module)).toEqual(["marketing"]);
+    expect(registeredAgentListings(new Set(["knowledge"]))).toEqual([]);
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {

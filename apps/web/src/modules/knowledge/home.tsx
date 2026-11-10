@@ -4,8 +4,9 @@ import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { HomeCard } from "@/platform/ui/home-card";
-import { useResource } from "@/lib/api";
+import { useResource, type Entity } from "@/lib/api";
 import { knowledgeCopy } from "./workspace-text";
+import { listedSources, visibleDrafts } from "./workspace-parts";
 import { AppLink } from "@/platform/ui/app-link";
 import { figure, knowledgeText, useKnowledgeData } from "./overview";
 
@@ -28,7 +29,8 @@ function WorkspaceHomeCard() {
   const t = knowledgeCopy[locale];
   const resource = useResource<{
     proposals: Array<{ data: Record<string, unknown> }>;
-    drafts: unknown[];
+    drafts: Entity[];
+    sources: Entity[];
     facts: Array<{ data: Record<string, unknown> }>;
   }>(`/projects/${project.id}/knowledge-workspace?revision=${revision}`);
   if (resource.error?.status === 404) return null;
@@ -63,7 +65,12 @@ function WorkspaceHomeCard() {
             </div>
             <div>
               <dt>{t.sources}</dt>
-              <dd>{data?.drafts.length ?? "—"}</dd>
+              <dd>
+                {data
+                  ? visibleDrafts(data.drafts).length +
+                    listedSources(data.sources).length
+                  : "—"}
+              </dd>
             </div>
           </dl>
           {isOwner && (

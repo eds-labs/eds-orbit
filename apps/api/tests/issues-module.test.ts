@@ -98,4 +98,19 @@ describe("no automatic merge (ADR 0018 I-3)", () => {
     expect(confirm.match(/mergeIssue\(/g)).toHaveLength(1);
     expect(confirm).toMatch(/export async function confirmCandidate[\s\S]*mergeIssue\(/);
   });
+
+  it("old settings without github parse with an empty allow-list", () => {
+    const base = defaultIssuesSettings();
+    expect(issuesSettingsSchema.parse(base).github.repositories).toEqual([]);
+    const repo = (n: number) => ({ key: `repo_${n}`, fullName: `acme/app-${n}` });
+    const github = (repositories: unknown[]) => ({ ...base, github: { repositories } });
+    expect(issuesSettingsSchema.safeParse(github([repo(1), repo(2)])).success).toBe(true);
+    expect(issuesSettingsSchema.safeParse(github([repo(1), { ...repo(2), key: "repo_1" }])).success).toBe(false);
+    expect(issuesSettingsSchema.safeParse(github([repo(1), { ...repo(2), fullName: "acme/app-1" }])).success).toBe(false);
+    expect(
+      issuesSettingsSchema.safeParse(github(Array.from({ length: 21 }, (_, n) => repo(n + 10)))).success,
+    ).toBe(false);
+    for (const fullName of ["o/..", "../r", "./r", "o/.", "no-slash", "a/b/c"])
+      expect(issuesSettingsSchema.safeParse(github([{ key: "repo_1", fullName }])).success).toBe(false);
+  });
 });

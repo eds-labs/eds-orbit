@@ -22,7 +22,7 @@ Enforcement is active only with `ORBIT_MODULES=true`. With the flag off (the def
 Not affected:
 
 - **Platform services.** Pause, export and retention keep calling every module's hooks. They protect data, and a pause must still block a disabled module's publications.
-- **Knowledge services.** Knowledge jobs and the source sync are still registered by the platform until WP3.3, so they keep running.
+- **Knowledge services.** Knowledge jobs and the source sync are still registered by the platform until WP3.3, so they keep running. Site sources are the exception: with `ORBIT_KNOWLEDGE_WORKSPACE` off, or Knowledge unavailable or off for the project, nobody could pause them, so the sweep skips them and a batch already queued ends its run as `failed` with `KNOWLEDGE_DISABLED`.
 - **Data.** Turning a module off deletes nothing, and turning it on again restores it unchanged.
 
 **Deviation from the plan.** Plan `07` names the job status `skipped_module_disabled`. Orbit uses `blocked_dependency` with the error `MODULE_DISABLED` instead. That is the established pattern of the project pause, and the existing `retry` action, the job views and the exception list already understand it. A new status would have made such a job impossible to retry.
@@ -157,6 +157,30 @@ The issue center (`docs/ISSUES.md`, ADR 0018) follows the same pattern: `default
 
 Switching it off deletes nothing; links to issues stay and show as unavailable, and Support's "Report as product issue" disappears.
 
+## Social module (opt-in, 2026-11-02, branch only; flag off)
+
+The social module (`docs/SOCIAL.md`, ADR 0020) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_SOCIAL` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_SOCIAL=true` (default `false`). While off, routes answer 404 `SOCIAL_DISABLED`. S1 has no tools, jobs or attention items yet. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `social.read` and `social.analytics.read` (all roles), `social.compose` and `social.publish` (owner, editor), `social.approve`, `social.settings` and `social.accounts.manage` (owner; the last sensitive); module roles may narrow them. |
+
+Switching it off deletes nothing.
+
+## Ads module (opt-in, 2026-11-08, branch only; flag off)
+
+The ads module (`docs/ADS.md`, ADR 0025) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_ADS` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_ADS=true` (default `false`). While off, routes answer 404 `ADS_DISABLED`. A1 has no tools, jobs or attention items yet. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `ads.read` and `ads.analytics.read` (owner, editor; sensitive; by default viewers see nothing, an owner can grant a viewer the editor module role, which includes spend data), `ads.compose` and `ads.manage` (owner, editor), `ads.approve`, `ads.accounts.manage` and `ads.budget.manage` (owner; sensitive) and `ads.settings` (owner); module roles may narrow them. |
+
+Switching it off deletes nothing.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):
@@ -177,3 +201,7 @@ With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a ro
 - The API is `GET/PUT /api/projects/:id/members/:userId/module-roles` (owners only, audited); the UI is "Module roles" in the members list.
 - With the flag off, stored rows are ignored and the API answers 404.
 - The flag stays off in production until the security review in `docs/SECURITY_REVIEW.md` is done.
+
+## Configured agents (ADR 0021)
+
+Configured agents follow the same three checks on every tool call, for their sponsor and their requester: module availability, per-project activation and the member's module role. A disabled module makes its tools refuse with `AGENT_PRINCIPAL_FORBIDDEN`, keeps its tools out of the builder catalogue (`MODULE_DISABLED`) and stops its triggerable events from starting agents. See [AGENT_PLATFORM.md](AGENT_PLATFORM.md).

@@ -10,8 +10,10 @@ import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import { budgetExhausted, RECENT_MS } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
+import { draftReplaced, expiredDraftIds } from "./agents/draft-state.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
+import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
 import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
 
 // The marketing module's attention items (UI restructure §4.1): what waits on
@@ -30,42 +32,66 @@ type Draft = Awaited<ReturnType<typeof draftsAwaitingOwner>>[number];
 
 /** The owner's drafts of assignments, one item each (the owner releases them). */
 function draftItems(drafts: Draft[]): AttentionItem[] {
+  // `drafts` holds pending drafts only: an expired one can no longer be
+  // released (D-2), so it has no item and the content review leaves it out.
   return drafts.map((draft) => ({
-    id: `marketing:draft:${draft.id}`,
-    moduleId: "marketing",
-    kind: "marketing_draft_release",
-    severity: "warning",
-    dueAt: draft.slotAt,
-    params: {
-      assignmentName: String(draft.assignmentName ?? ""),
-      channelName: String(draft.channelName ?? ""),
-      slotAt: draft.slotAt,
-    },
-    ...APPROVALS,
-  }));
+      id: `marketing:draft:${draft.id}`,
+      moduleId: "marketing",
+      kind: "marketing_draft_release",
+      severity: "warning",
+      dueAt: draft.slotAt,
+      params: {
+        assignmentName: String(draft.assignmentName ?? ""),
+        channelName: String(draft.channelName ?? ""),
+        slotAt: draft.slotAt,
+      },
+      ...APPROVALS,
+    }));
 }
+
+/** Assignment drafts in a review status read per request for their expiry. */
+const ASSIGNMENT_DRAFT_LIMIT = 1000;
 
 /**
  * Content in a status the approvals page lists, as one aggregated item. A
- * draft that has its own release item is not counted again.
+ * draft that has its own release item is not counted again, and an
+ * assignment draft whose slot passed (D-2: it can never be released) or that
+ * was replaced (a retried run, a revision) is not counted at all.
  */
 async function contentReviewItems(
   tx: DbTx,
   scope: Scope,
-  drafted: number,
+  drafts: Draft[],
+  now: Date,
 ): Promise<AttentionItem[]> {
+  const inReview = {
+    workspaceId: scope.workspaceId,
+    projectId: scope.projectId,
+    kind: "content",
+    OR: APPROVAL_STATUSES.map((status) => ({
+      data: { path: ["status"], equals: status },
+    })),
+  };
+  const candidates = (
+    await tx.entity.findMany({
+      where: inReview,
+      select: { id: true, data: true },
+      orderBy: { createdAt: "desc" },
+      take: ASSIGNMENT_DRAFT_LIMIT,
+    })
+  ).filter((row) => typeof data(row).assignmentRunId === "string");
+  const gone = await expiredDraftIds(tx, scope, candidates, now);
+  // Drafts of a retried run (or a revision's original) are gone as well.
+  for (const row of candidates)
+    if (draftReplaced(data(row))) gone.add(row.id);
   const waiting = await tx.entity.aggregate({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "content",
-      OR: APPROVAL_STATUSES.map((status) => ({
-        data: { path: ["status"], equals: status },
-      })),
-    },
+    where: gone.size
+      ? { ...inReview, id: { notIn: [...gone] } }
+      : inReview,
     _count: { _all: true },
     _min: { createdAt: true },
   });
+  const drafted = drafts.filter((draft) => !gone.has(draft.id)).length;
   const count = waiting._count._all - drafted;
   if (count <= 0) return [];
   return [
@@ -205,6 +231,8 @@ async function runProblemItems(
     : [];
   const counts = { failed: 0, outcome_unknown: 0, degraded: 0 };
   for (const run of recent) {
+    // A run the owner retried (G6) is replaced by its new run, not open.
+    if (data(run).retiredAt) continue;
     const tasks = evidence
       .filter((r) => r.kind === "agent_tasks" && data(r).runId === run.id)
       .map((r) => ({
@@ -292,6 +320,40 @@ async function runProblemItems(
     }));
 }
 
+/** The owner is warned this long before the active policy ends. */
+const EXPIRY_WARNING_MS = 7 * 86_400_000;
+
+/** The active policy, when it ends within a week and has not ended yet. */
+async function policyExpiryItems(
+  tx: DbTx,
+  scope: Scope,
+  now: Date,
+): Promise<AttentionItem[]> {
+  if (!can(scope, PROJECT_OWN)) return [];
+  const policy = await activePolicyRecord(tx, scope);
+  if (!policy) return [];
+  const endAt = data(policy).endAt;
+  const end = typeof endAt === "string" ? Date.parse(endAt) : Number.NaN;
+  if (
+    Number.isNaN(end) ||
+    end <= now.getTime() ||
+    end - now.getTime() > EXPIRY_WARNING_MS
+  )
+    return [];
+  return [
+    {
+      id: `marketing:policy-expiring:${policy.id}`,
+      moduleId: "marketing",
+      kind: "marketing_policy_expiring",
+      severity: "warning",
+      dueAt: endAt as string,
+      params: { endAt: endAt as string },
+      navKey: "operations",
+      link: "/settings?section=policy",
+    },
+  ];
+}
+
 export const marketingAttention: AttentionContribution = async (
   tx,
   scope,
@@ -334,10 +396,11 @@ export const marketingAttention: AttentionContribution = async (
         link: `/marketing/analytics?report=${r.id}`,
       })),
     ...draftItems(drafts),
-    ...(await contentReviewItems(tx, scope, drafts.length)),
+    ...(await contentReviewItems(tx, scope, drafts, now)),
     ...(await exceptionItems(tx, scope)),
     ...(await pausedPostItems(tx, scope, now)),
     ...(await runProblemItems(tx, scope, now)),
+    ...(await policyExpiryItems(tx, scope, now)),
   ];
 };
 

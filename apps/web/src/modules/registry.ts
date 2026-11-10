@@ -1,9 +1,12 @@
 import {
   Activity,
+  Bot,
   CircleCheck,
+  HardDrive,
   Home,
   Link2,
   MessageCircle,
+  ScrollText,
   Settings,
 } from "lucide-react";
 import { usd } from "@/lib/api";
@@ -14,6 +17,8 @@ import type {
   WebRegistry,
 } from "@/platform/shell/types";
 import { Decisions } from "@/platform/shell/decisions";
+import { AgentsView } from "@/platform/agents/agents-view";
+import { DrivePage } from "@/platform/drive/drive-page";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -23,6 +28,9 @@ import {
 } from "@/components/management";
 import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
 import { AccountView } from "@/platform/account/account-view";
+import { PersonalContextView } from "@/platform/account/personal-context";
+import { AssistantPage } from "@/platform/assistant/assistant-page";
+import { ActivityLog } from "@/platform/assistant/activity-log";
 import {
   ConfirmEmailView,
   InviteView,
@@ -35,6 +43,9 @@ import { supportWeb } from "./support/manifest";
 import { financeWeb } from "./finance/manifest";
 import { workWeb } from "./work/manifest";
 import { issuesWeb } from "./issues/manifest";
+import { socialWeb } from "./social/manifest";
+import { adsWeb } from "./ads/manifest";
+import { DataDeletionView } from "./social/data-deletion";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
 // both the platform pages and every module, like apps/api/src/modules/registry.ts
@@ -110,6 +121,18 @@ const platformAttention: Readonly<Record<string, AttentionRenderer>> = {
           action: { en: "Review", de: "Prüfen" },
         };
   },
+  platform_spend_authority_expiring: (item, locale) => {
+    const date = new Date(String(item.params.endAt)).toLocaleDateString(
+      locale === "de" ? "de-DE" : "en-GB",
+    );
+    return {
+      title:
+        locale === "de"
+          ? `KI-Ausgabenfreigabe läuft am ${date} ab`
+          : `AI spending authority expires on ${date}`,
+      action: { en: "Review", de: "Prüfen" },
+    };
+  },
   platform_action_request: (item, locale) => {
     const n = item.count ?? 1;
     return {
@@ -152,6 +175,22 @@ export const webRegistry: WebRegistry = {
       legacyPaths: ["/chat"],
     },
     {
+      // Configured agents (ADR 0021, WP1.8): a platform page, not a module.
+      // The entry shows only while the agents API answers for the member
+      // (flag on, owner or editor); the shell sets "agentPlatform".
+      key: "agents",
+      path: "agents",
+      subpaths: true,
+      component: AgentsView,
+      navGroup: "top",
+      nav: {
+        feature: "agentPlatform",
+        label: { en: "Agents", de: "Agenten" },
+        icon: Bot,
+        order: 30,
+      },
+    },
+    {
       // Marketing's content approvals. Approval requests of every module
       // (ActionRequests) are the platform's "decisions" page below, which
       // needs no module (checked for ADR 0015, plan step 2.9).
@@ -188,6 +227,34 @@ export const webRegistry: WebRegistry = {
       navGroup: "project",
       nav: { label: label("connectors"), icon: Link2, order: 100 },
       legacyPaths: ["/connectors"],
+    },
+    {
+      // The project's Google Drive folder (design 2026-11-05 §5.2): listed
+      // while Drive is set up; the shell sets "googleDrive".
+      key: "drive",
+      path: "drive",
+      component: DrivePage,
+      navGroup: "project",
+      nav: {
+        feature: "googleDrive",
+        label: { en: "Google Drive", de: "Google Drive" },
+        icon: HardDrive,
+        order: 102,
+      },
+    },
+    {
+      // External work orders (MCP 2.0), formerly above Orbit Chat. The entry
+      // shows while the server advertises "workOrders" (ORBIT_MCP_TASKS).
+      key: "activity",
+      path: "activity",
+      component: ActivityLog,
+      navGroup: "project",
+      nav: {
+        feature: "workOrders",
+        label: { en: "Activity log", de: "Aktivitätslog" },
+        icon: ScrollText,
+        order: 105,
+      },
     },
     {
       key: "operations",
@@ -240,6 +307,22 @@ export const webRegistry: WebRegistry = {
       title: label("accountTitle"),
       session: "required",
     },
+    // The personal assistant (ADR 0022): its full page and "My context".
+    // Both answer "not found" while /api/assistant is 404 (flag off).
+    {
+      key: "account-assistant",
+      path: "account/assistant",
+      component: PersonalContextView,
+      title: { en: "My context", de: "Mein Kontext" },
+      session: "required",
+    },
+    {
+      key: "assistant",
+      path: "assistant",
+      component: AssistantPage,
+      title: { en: "Orbit Assistant", de: "Orbit Assistant" },
+      session: "required",
+    },
     {
       key: "account-confirm-email",
       path: "account/confirm-email",
@@ -261,7 +344,25 @@ export const webRegistry: WebRegistry = {
       title: label("resetPasswordTitle"),
       session: "none",
     },
+    // Meta links people here after a data-deletion request (ADR 0020); it
+    // works without an Orbit account.
+    {
+      key: "data-deletion",
+      path: "data-deletion",
+      component: DataDeletionView,
+      title: { en: "Data-deletion request", de: "Anfrage zur Datenlöschung" },
+      session: "none",
+    },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).
-  modules: [knowledgeWeb, marketingWeb, supportWeb, financeWeb, workWeb, issuesWeb],
+  modules: [
+    knowledgeWeb,
+    marketingWeb,
+    supportWeb,
+    financeWeb,
+    workWeb,
+    issuesWeb,
+    socialWeb,
+    adsWeb,
+  ],
 };

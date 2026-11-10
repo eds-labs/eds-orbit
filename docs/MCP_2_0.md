@@ -6,8 +6,10 @@ only. Production rollout and live-client acceptance are separate steps.
 
 ## Architecture
 
-`orbit_create_task` stores a private `Entity(kind=orbit_tasks)` and a native
-ChatConversation, and creates a hash-bound `platform.task.start` ActionRequest in
+`orbit_create_task` stores a private work order (`AgentWorkOrder` with
+`target: assistant`, `origin: mcp`, ADR 0022 D-05; tasks created before
+Phase 3 stay readable as `Entity(kind=orbit_tasks)` until task retention
+removes them) and a native ChatConversation, and creates a hash-bound `platform.task.start` ActionRequest in
 one project-locked transaction. The idempotency key is scoped to project, user
 and client. Reusing a key with different normalized arguments is rejected.
 
@@ -19,7 +21,7 @@ Membership, module access and the active grant are checked before model calls
 and each tool execution. Revoked/replaced grants stop future task execution;
 a new connection must submit a new work order. An in-flight transmission cannot
 be undone. The exact owner-approved chat ceiling is rechecked at approval and
-before each model reservation, with a bounded share for each of the six possible
+before each model reservation, with a bounded share for each of the eight possible
 calls. The maximum includes an owner-configured OpenAI fallback from an
 Anthropic route. The native provider budget/call plan, refusal handling and
 settlement remain authoritative. A higher route/price ceiling requires a new request. Existing budget
@@ -71,6 +73,12 @@ endpoint. Repeating an approval returns the recorded result.
   need `orbit:work`. Delegated work orders may read the PM's state but are
   refused every PM tool that spends or dispatches. See
   [AI project manager](WORK.md#ai-project-manager-phase-2-adr-0017).
+- `orbit:social` (ADR 0020, S7; `ORBIT_SOCIAL` off): explicit, initially
+  unchecked consent for the social module: the five reads (with
+  `orbit:read`) and the five proposals (with `orbit:propose`); the owner
+  decides every proposal, and the approval of `social_schedule` or
+  `social_publish_now` is the post's approval. See
+  [Social](SOCIAL.md#assistant-and-mcp-tools-s7).
 - Module roles, installation switches and project activation still apply.
   Support also needs `ORBIT_SUPPORT` and explicit per-project activation.
 - Text generation needs the existing spend mandate, priced/verified model and
@@ -207,8 +215,11 @@ legacy 2025-11-25 protocol continue to poll the tools. No Tasks-extension or
 
 ## Native UI and data lifecycle
 
-Orbit Chat shows a compact private work-order history, phase and blockers,
-conversation/results link and cancellation. The existing approval inbox shows
+The project's activity log (`/p/:projectId/activity`, sidebar group Project,
+shown while `ORBIT_MCP_TASKS` is on) lists the member's private work orders
+with status, start and end time, blockers, a link to the conversation and its
+results in Orbit Chat, and cancellation. Orbit Chat itself no longer lists
+them (2026-11-05). The existing approval inbox shows
 the exact task or operation payload. Support changes appear in the same ticket
 records; campaigns, packages, documents and facts use their normal module UI.
 

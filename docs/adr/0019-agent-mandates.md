@@ -61,3 +61,7 @@ A spending authority (ADR 0015) answers "how much paid AI may run". It does not 
 - A new owner surface (Settings → Agent permissions) and a mandate column in the approvals history.
 - The approval inbox shows the reason for each remaining approval (risk class, external effect, missing mandate).
 - Rollback: set `ORBIT_AGENT_MANDATES=false`. Every request then needs an approval again, and stored mandates stay in place but are inert.
+
+## Addendum (2026-11-04): Support types for agents
+
+With [ADR 0021](0021-agent-platform.md) D-16, the Support types an agent mandate may cover for a named configured agent are `support.mcp.support_add_note`, `support.mcp.support_prepare_reply` and `support.mcp.support_apply_triage` (priority, category and tags only; never a downgrade from `urgent`). `support_send_reply` (`W1`) and `support_update_ticket` stay outside every mandate.

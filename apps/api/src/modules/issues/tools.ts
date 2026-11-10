@@ -6,10 +6,13 @@ import { ISSUES_SCOPE, WORK_SCOPE } from "../../platform/mcp/scopes.ts";
 import type { RequestedBy } from "../action-requests.ts";
 import { DomainError } from "../../shared.ts";
 import { componentKey, ISSUE_TYPES, issueKey, PRIORITIES, SEVERITIES, type IssueActor } from "./common.ts";
+import { assertNoHits } from "./github-body.ts";
+import { assertNoUnsettledRequest, previewGithubIssue, requestGithubIssue } from "./github.ts";
+import { requireIssuesGithub } from "./gate.ts";
 import { ingestReport } from "./intake.ts";
 import { assertTaxonomy, loadIssue, setIssueStatus, updateIssue } from "./issues.ts";
 import { mergeIssue } from "./merge.ts";
-import { ISSUES_READ, ISSUES_REPORT, ISSUES_TRIAGE } from "./permissions.ts";
+import { ISSUES_GITHUB, ISSUES_READ, ISSUES_REPORT, ISSUES_TRIAGE } from "./permissions.ts";
 import { issueDetail, listIssues } from "./queries.ts";
 import { readIssuesSettings } from "./settings.ts";
 import { issuesOverview } from "./stats.ts";
@@ -48,6 +51,10 @@ async function issueByNumber(tx: DbTx, scope: Scope, n: number) {
 export const issuesSearch = readOperation({
   ...shared,
   name: "issues_search",
+  agent: {
+    title: { en: "Search issues", de: "Issues suchen" },
+    summary: { en: "Searches the issue center.", de: "Durchsucht das Issue-Center." },
+  },
   description:
     "Find product issues by words or ISS-number, filtered by status (open, triage, all or one status), severity and component. Returns redacted titles, counts and the version to pass to proposals.",
   input: z
@@ -92,6 +99,10 @@ export const issuesSearch = readOperation({
 export const issuesGet = readOperation({
   ...shared,
   name: "issues_get",
+  agent: {
+    title: { en: "Read issue", de: "Issue lesen" },
+    summary: { en: "Reads one issue with its details.", de: "Liest ein Issue mit Details." },
+  },
   description:
     "Read one issue by number: fields, version, redacted reports (no diagnostics), pending duplicate candidates, linked tasks and tickets (ticket titles stay in Orbit), deliveries and recent history.",
   input: z.object({ number }).strict(),
@@ -127,6 +138,10 @@ export const issuesGet = readOperation({
 export const issuesStats = readOperation({
   ...shared,
   name: "issues_stats",
+  agent: {
+    title: { en: "Issue figures", de: "Issue-Kennzahlen" },
+    summary: { en: "Reads issue counts by status and severity.", de: "Liest Issue-Zahlen nach Status und Schwere." },
+  },
   description: "The issue center's dashboard numbers: open, critical, awaiting triage, fix ready, released, by component and source, and median lead times in hours.",
   input: z.object({}).strict(),
   permission: ISSUES_READ,
@@ -139,6 +154,10 @@ export const issuesStats = readOperation({
 export const issuesDuplicates = readOperation({
   ...shared,
   name: "issues_duplicates",
+  agent: {
+    title: { en: "Find duplicates", de: "Duplikate finden" },
+    summary: { en: "Finds likely duplicate issues.", de: "Findet wahrscheinliche Issue-Duplikate." },
+  },
   description: "Pending duplicate candidates of one issue by number, with score and reason codes. Merging needs a person's approval.",
   input: z.object({ number }).strict(),
   permission: ISSUES_READ,
@@ -165,6 +184,10 @@ export const issuesProposeReport = approvedOperation({
   riskClass: "W0",
   ...proposal,
   name: "issues_propose_report",
+  agent: {
+    title: { en: "Propose issue", de: "Issue vorschlagen" },
+    summary: { en: "Proposes a new issue report for approval.", de: "Schlägt eine neue Issue-Meldung zur Freigabe vor." },
+  },
   description:
     "Propose a product issue report: a new issue, or a report on an existing issue by number. Never include customer names, e-mail addresses or account identifiers; Orbit redacts them anyway.",
   input: reportInput,
@@ -303,7 +326,54 @@ export const issuesProposeTask = approvedOperation({
   },
 });
 
-const proposals = [issuesProposeReport, issuesProposeUpdate, issuesProposeMerge, issuesProposeTask];
+const githubInput = z.object({ number, repository: z.string().trim().min(1).max(64) }).strict();
+
+async function checkGithubProposal(tx: DbTx, scope: Scope, args: z.infer<typeof githubInput>) {
+  requireIssuesGithub();
+  const issueId = await issueByNumber(tx, scope, args.number);
+  // Covers share review, status, allow-list, connection and an existing link.
+  const preview = await previewGithubIssue(tx, scope, issueId, args.repository);
+  await assertNoUnsettledRequest(tx, scope, issueId, preview.repository);
+  return preview;
+}
+
+export const issuesProposeGithubIssue = approvedOperation({
+  riskClass: "W0",
+  ...proposal,
+  // The issue leaves Orbit: only an owner decides, and only an owner may propose.
+  deciderRole: "owner" as const,
+  name: "issues_propose_github_issue",
+  description:
+    "Propose creating a GitHub issue from a confirmed, share-reviewed issue by number in an allowed repository key. The owner approves the exact title and text that will leave Orbit; nothing is sent before.",
+  input: githubInput,
+  permission: ISSUES_GITHUB,
+  summary: (args, context) => ({
+    operation: { kind: "issue_github", number: args.number, repository: args.repository },
+    // The exact text that will leave Orbit; no diagnostics, reports or ticket ids.
+    ...(context ? { preview: context } : {}),
+  }),
+  async validate(tx, scope, args) {
+    requireIssuesGithub();
+    const preview = await checkGithubProposal(tx, scope, args);
+    assertNoHits(preview);
+  },
+  async approvalContext(tx, scope, args) {
+    const { title, body, repository } = await checkGithubProposal(tx, scope, args);
+    return { repository, title, body };
+  },
+  // The owner approved exactly this text: a changed issue needs a new proposal.
+  async revalidateContext(tx, scope, args, saved) {
+    const { title, body, repository } = await checkGithubProposal(tx, scope, args);
+    const was = (saved ?? {}) as Record<string, unknown>;
+    if (was.title !== title || was.body !== body || was.repository !== repository)
+      throw new DomainError("ISSUES_GITHUB_TEXT_CHANGED", 409);
+  },
+  async run(tx, scope, args, requester) {
+    return requestGithubIssue(tx, scope, await issueByNumber(tx, scope, args.number), args.repository, actorOf(scope, requester));
+  },
+});
+
+const proposals = [issuesProposeReport, issuesProposeUpdate, issuesProposeMerge, issuesProposeTask, issuesProposeGithubIssue];
 
 /** The module's tools: reads first, then proposals. */
 export const issuesTools = [issuesSearch, issuesGet, issuesStats, issuesDuplicates, ...proposals.map((p) => p.tool)];
@@ -313,5 +383,5 @@ export const issuesActionTypes = Object.fromEntries(proposals.map((p) => [p.acti
 
 /** The assistant prompt fragment: short, factual, English. */
 export const issuesInstructions = [
-  "Issue center (module issues): product issues (ISS-12) aggregate redacted reports from Support, people and webhooks and are implemented by tasks. Status runs new → triage → confirmed → planned → in_progress → fix_ready (merged, not deployed) → released (in production) → verified → closed. Look issues up with issues_search or issues_get before proposing, pass the version you read, never put customer names or addresses into a report, and never claim a fix is live unless the issue is released. Proposals change nothing until a member approves them in Orbit.",
+  "Issue center (module issues): product issues (ISS-12) aggregate redacted reports from Support, people and webhooks and are implemented by tasks. Status runs new → triage → confirmed → planned → in_progress → fix_ready (merged, not deployed) → released (in production) → verified → closed. Look issues up with issues_search or issues_get before proposing, pass the version you read, never put customer names or addresses into a report, and never claim a fix is live unless the issue is released. Proposals change nothing until a member approves them in Orbit; issues_propose_github_issue needs an owner and sends the shown title and text to GitHub.",
 ];

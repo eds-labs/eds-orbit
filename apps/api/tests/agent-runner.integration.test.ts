@@ -11,6 +11,7 @@ import { PROJECT_READ } from "../src/platform/tenancy/permissions.ts";
 import { z } from "zod";
 import { APIError } from "openai";
 import {
+  authDb,
   closeDatabase,
   scoped,
   type DbTx,
@@ -36,6 +37,7 @@ import {
   registerSpecialist,
   registerStepHandler,
   runAgentTask,
+  runSpecialist,
 } from "../src/modules/agents/specialists/runner.ts";
 import type { Specialist } from "../src/modules/agents/specialists/types.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
@@ -166,7 +168,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       create(tx, project.owner, "assignments", {
         ...content,
         confirmation: {
-          userId: "owner",
+          userId: project.owner.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },
@@ -365,6 +367,81 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     } finally {
       registerSpecialist(echo("research"));
     }
+  });
+
+  it("runs on behalf of the confirming owner: demoted or removed, the turn stops before its next tool or model call (WP1.9)", async () => {
+    // A second project owner confirmed the assignment.
+    const confirmer = project.editor.userId;
+    const membership = { projectId: project.owner.projectId, userId: confirmer };
+    await authDb.projectMember.updateMany({
+      where: membership,
+      data: { role: "owner" },
+    });
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        confirmation: { ...data(row).confirmation, userId: confirmer },
+      });
+    });
+    const exceptions = async () =>
+      (await run((tx) => list(tx, project.owner, "exceptions")))
+        .map((row) => data(row))
+        .filter((x) => x.code === "AGENT_PRINCIPAL_FORBIDDEN");
+
+    // Demoted to editor while the first model call is out: its tool call is refused.
+    const research = await task("research");
+    mocked.replies.push(async () => {
+      await authDb.projectMember.updateMany({
+        where: membership,
+        data: { role: "editor" },
+      });
+      return { output: [lookupCall("beta")] };
+    });
+    mocked.replies.push(() => ({ output: [message('{"text":"late"}')] }));
+    await runAgentTask(worker(), research.id);
+    expect(mocked.requests).toHaveLength(1);
+    expect(await task("research")).toMatchObject({
+      status: "failed",
+      errorCode: "AGENT_PRINCIPAL_FORBIDDEN",
+      output: null,
+      costMicros: 7,
+    });
+    // The call before the refusal is settled; nothing was reserved after it.
+    expect(
+      (await reservations(research.id)).map((r) => [
+        r.state,
+        Number(r.settledMicros),
+      ]),
+    ).toEqual([["settled", 7]]);
+    const agentRun = await run((tx) =>
+      tx.agentRun.findFirstOrThrow({
+        where: { projectId: project.owner.projectId, subjectId: research.id },
+        include: { spans: true },
+      }),
+    );
+    expect(agentRun).toMatchObject({
+      status: "blocked",
+      errorCode: "AGENT_PRINCIPAL_FORBIDDEN",
+    });
+    // The tool never ran.
+    expect(agentRun.spans.map((span) => span.type)).toEqual(["model_call"]);
+    expect(await exceptions()).toMatchObject([
+      { status: "open", count: 1, resourceIds: [assignmentId] },
+    ]);
+
+    // Removed from the project before the next task: no model call at all.
+    await authDb.projectMember.deleteMany({ where: membership });
+    const analytics = await task("analytics");
+    await runAgentTask(worker(), analytics.id);
+    expect(mocked.requests).toHaveLength(1);
+    expect(await task("analytics")).toMatchObject({
+      status: "failed",
+      errorCode: "AGENT_PRINCIPAL_FORBIDDEN",
+      costMicros: 0,
+    });
+    expect(await reservations(analytics.id)).toEqual([]);
+    expect(await exceptions()).toMatchObject([{ status: "open", count: 2 }]);
   });
 
   it("reserves before and settles after every model call under the run's budget key", async () => {
@@ -712,6 +789,104 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     expect(spans[0]!.errorCode).toMatch(/^AGENT_OUTPUT_INVALID \S+:/);
   });
 
+  // WP1.3: runSpecialist runs on the platform task host with Marketing's own
+  // conventions; these are the ones the other tests here do not reach.
+  it("keeps the specialist's call keys, tool context, strict parsing and failure codes on the task host", async () => {
+    const contexts: unknown[] = [];
+    const contextLookup = defineTool({
+      ...lookup,
+      async execute(context, args) {
+        contexts.push({
+          runId: context.runId,
+          conversationId: context.conversationId,
+          agentTask: context.agentTask,
+        });
+        return lookup.execute(context, args);
+      },
+    });
+    const codes: string[] = [];
+    const attempt = async (work: () => Promise<unknown>) => {
+      try {
+        await work();
+      } catch (error) {
+        codes.push((error as DomainError).code);
+      }
+    };
+    registerStepHandler("research", async (scope, t) => {
+      const specialist = echo("research", { tools: [contextLookup] });
+      mocked.replies.push(() => ({ output: [lookupCall("beta")] }));
+      mocked.replies.push(() => ({ output: [message('{"text":"one"}')] }));
+      const first = await runSpecialist(scope, t, specialist, {
+        callKey: "review1",
+      });
+      // The same turn again finds its reservation and sends nothing.
+      await attempt(() =>
+        runSpecialist(scope, t, specialist, { callKey: "review1" }),
+      );
+      // A fenced answer is not the JSON object itself.
+      mocked.replies.push(() => ({
+        output: [message('```json\n{"text":"two"}\n```')],
+      }));
+      await attempt(() =>
+        runSpecialist(scope, t, specialist, { callKey: "review2" }),
+      );
+      // A task canceled meanwhile sends nothing more.
+      await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+        const row = await entity(tx, scope, "agent_tasks", t.id);
+        await update(tx, scope, row, { ...data(row), status: "canceled" });
+      });
+      await attempt(() =>
+        runSpecialist(scope, t, specialist, { callKey: "review3" }),
+      );
+      return first;
+    });
+    const research = await task("research");
+    await runAgentTask(worker(), research.id);
+
+    expect(codes).toEqual([
+      "RESERVATION_ALREADY_USED",
+      "AGENT_OUTPUT_INVALID",
+      "AGENT_CANCELED",
+    ]);
+    expect(mocked.requests).toHaveLength(3);
+    expect(contexts).toEqual([
+      {
+        runId: research.id,
+        conversationId: research.runId,
+        agentTask: { taskId: research.id, runId: research.runId },
+      },
+    ]);
+    expect(
+      (await reservations(research.id)).map((r) => [
+        r.key.slice(project.owner.projectId.length + 1),
+        r.category,
+        r.state,
+      ]),
+    ).toEqual([
+      [`agent:${research.id}:review1:0`, "agent_text", "settled"],
+      [`agent:${research.id}:review1:1`, "agent_text", "settled"],
+      [`agent:${research.id}:review2:0`, "agent_text", "settled"],
+    ]);
+    const runs = await run((tx) =>
+      tx.agentRun.findMany({
+        where: { projectId: project.owner.projectId, subjectId: research.id },
+        orderBy: { startedAt: "asc" },
+      }),
+    );
+    expect(
+      runs.map((r) => [r.kind, r.agentName, r.subjectType, r.status, r.errorCode]),
+    ).toEqual([
+      ["agent", "orbit_research", "agent_task", "succeeded", null],
+      ["agent", "orbit_research", "agent_task", "failed", "RESERVATION_ALREADY_USED"],
+      ["agent", "orbit_research", "agent_task", "failed", "AGENT_OUTPUT_INVALID"],
+      ["agent", "orbit_research", "agent_task", "canceled", "AGENT_CANCELED"],
+    ]);
+    // Marketing's preamble, not the platform's.
+    expect(mocked.requests[0].instructions).toMatch(
+      /^You are an Orbit specialist working on one step/,
+    );
+  });
+
   it("names an answer cut off at the output limit AGENT_OUTPUT_LIMIT (cost settled)", async () => {
     const research = await task("research");
     mocked.replies.push(() => ({
@@ -982,7 +1157,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       create(tx, project.owner, "assignments", {
         ...content,
         confirmation: {
-          userId: "owner",
+          userId: project.owner.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },

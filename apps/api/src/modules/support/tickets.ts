@@ -7,6 +7,11 @@ import { requireSupport } from "./gate.ts";
 import { loadInbox } from "./inboxes.ts";
 import { afterTicketCreated, notifyCustomerReply } from "./automations.ts";
 import { queueSupportAi } from "./ai.ts";
+import {
+  publishSupportMessageEvent,
+  SUPPORT_MESSAGE_RECEIVED,
+  SUPPORT_TICKET_CREATED,
+} from "./agent-events.ts";
 import { effectiveRules } from "./settings.ts";
 import {
   attachFiles,
@@ -225,6 +230,14 @@ export async function createTicket(
   conversationChanged(tx, scope, ticket.id);
   await afterTicketCreated(tx, scope, ticket);
   await queueSupportAi(tx, scope, ticket, message.id, { triage: true });
+  // Content-free; a configured agent may react to it (ADR 0021 Phase 2).
+  await publishSupportMessageEvent(
+    tx,
+    scope,
+    SUPPORT_TICKET_CREATED,
+    ticket,
+    message,
+  );
   await audit(tx, scope, "support.ticket.created", ticket.id, {
     ticketId: ticket.id,
     number: ticket.number,
@@ -318,6 +331,13 @@ export async function appendCustomerMessage(
   if (!input.automatic) {
     await notifyCustomerReply(tx, scope, ticket);
     await queueSupportAi(tx, scope, ticket, message.id);
+    await publishSupportMessageEvent(
+      tx,
+      scope,
+      SUPPORT_MESSAGE_RECEIVED,
+      ticket,
+      message,
+    );
   }
   return message;
 }

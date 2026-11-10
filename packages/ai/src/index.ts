@@ -35,6 +35,9 @@ export * from "./provider-budget.ts";
 export * from "./catalog.ts";
 export * from "./presets.ts";
 export * from "./image-models.ts";
+export * from "./speech.ts";
+export * from "./audio-duration.ts";
+export { openAiSpeechProvider } from "./providers/openai-speech.ts";
 // Upper bounds of the copy craft and image copy fields: a sanity cap on the
 // model's answer. The template's own, smaller limits are a review problem
 // (one revision), never an unusable answer.
@@ -564,6 +567,8 @@ export async function respond(params: {
   reservationId: string;
   runtime: OpenAiRuntimeConfig;
   signal?: AbortSignal;
+  /** Whole-request limit of a non-streamed call; a long answer may need more than the default. */
+  timeoutMs?: number;
 }): Promise<{
   output: unknown[];
   usage: Usage;
@@ -601,6 +606,7 @@ export async function respond(params: {
           maxToolCalls: params.maxToolCalls,
           include: params.include,
           signal: params.signal,
+          timeoutMs: params.timeoutMs,
         });
   return {
     output: completed.output,

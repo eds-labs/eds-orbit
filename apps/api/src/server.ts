@@ -3,6 +3,7 @@ import {
   commitTopic,
 } from "./modules/marketing/agents/novelty.ts";
 import { registerTaskRoutes } from "./platform/tasks/routes.ts";
+import { mcp2Enabled } from "./platform/tasks/operation-tools.ts";
 import {
   authorize,
   can,
@@ -22,6 +23,7 @@ import {
   moduleScope,
   setMemberModuleRoles,
 } from "./platform/tenancy/module-roles.ts";
+import { businessProjectsWhere } from "./platform/tenancy/member-scope.ts";
 import {
   registeredAction,
   registeredActionOwner,
@@ -96,7 +98,9 @@ import {
   configureRoot,
   rootCandidates,
   browseDrive,
+  listDriveFolders,
   driveContent,
+  driveThumbnail,
 } from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
@@ -173,6 +177,8 @@ import {
   registerWebhookRoutes,
   WEBHOOK_PATH,
   WEBHOOK_URL,
+  CALLBACK_PREFIX,
+  CALLBACK_URL,
 } from "./platform/http/webhooks.ts";
 import {
   createPublicKey,
@@ -253,6 +259,9 @@ const TELEGRAM_ROUTES = new Set([
   "/api/projects/:projectId/telegram/disconnect",
 ]);
 // Orbit Agents routes (assignments, assignment posts), by registered pattern.
+// The social module's upload session URL (modules/social/media/upload-sessions.ts):
+// a signed one-time token, no cookie, so no browser Origin is required.
+const SOCIAL_UPLOAD_URL = /^\/api\/public\/social\/media-uploads\/[A-Za-z0-9_.-]{1,200}$/;
 const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/assignments",
   "/api/projects/:projectId/assignments/:id/status",
@@ -261,6 +270,7 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/publications/:id/veto",
   "/api/projects/:projectId/assignment-drafts",
   "/api/projects/:projectId/assignment-drafts/:id/release",
+  "/api/projects/:projectId/assignment-drafts/:id/:decision",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =
@@ -403,7 +413,8 @@ export async function buildServer(
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
       (req.routeOptions.url === WEBHOOK_PATH ||
-        (req.routeOptions.url ?? "").startsWith("/api/public/")) &&
+        (req.routeOptions.url ?? "").startsWith("/api/public/") ||
+        (req.routeOptions.url ?? "").startsWith(CALLBACK_PREFIX)) &&
       !publicIngressEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
@@ -416,6 +427,8 @@ export async function buildServer(
       ) &&
       !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
       !(req.method === "POST" && WEBHOOK_URL.test(req.url)) &&
+      // Module provider callbacks are signed by the provider (ADR 0020).
+      !(req.method === "POST" && CALLBACK_URL.test(req.url)) &&
       // Workflow outcomes are signed with the connection's secret (WP3.7).
       !(
         req.method === "POST" &&
@@ -423,6 +436,9 @@ export async function buildServer(
       ) &&
       // The public API checks the Origin itself, against its key (WP4.2b).
       !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
+      // Social upload sessions: the signed one-time URL is the credential,
+      // sent by an MCP client without a browser origin or cookie.
+      !(req.method === "PUT" && SOCIAL_UPLOAD_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -653,14 +669,7 @@ export async function buildServer(
     });
     const projects = await authDb.project.findMany({
       where: {
-        OR: [
-          {
-            workspace: {
-              members: { some: { userId: user.id, role: "owner" } },
-            },
-          },
-          { members: { some: { userId: user.id } } },
-        ],
+        ...businessProjectsWhere(user.id),
       },
       include: { members: { where: { userId: user.id } } },
     });
@@ -700,16 +709,7 @@ export async function buildServer(
     const user = await userFor(auth, req);
     return {
       items: await authDb.project.findMany({
-        where: {
-          OR: [
-            {
-              workspace: {
-                members: { some: { userId: user.id, role: "owner" } },
-              },
-            },
-            { members: { some: { userId: user.id } } },
-          ],
-        },
+        where: businessProjectsWhere(user.id),
       }),
     };
   });
@@ -721,14 +721,7 @@ export async function buildServer(
     const user = await userFor(auth, req);
     const projects = await authDb.project.findMany({
       where: {
-        OR: [
-          {
-            workspace: {
-              members: { some: { userId: user.id, role: "owner" } },
-            },
-          },
-          { members: { some: { userId: user.id } } },
-        ],
+        ...businessProjectsWhere(user.id),
       },
       select: { id: true, name: true, workspaceId: true },
       orderBy: { createdAt: "asc" },
@@ -833,6 +826,8 @@ export async function buildServer(
         agents: agentsEnabled(),
         customerContext: config.ORBIT_CUSTOMER_CONTEXT === "true",
         creativeStudio: config.ORBIT_CREATIVE_STUDIO === "true",
+        // External work orders (MCP 2.0): the project's activity log.
+        workOrders: mcp2Enabled(),
       },
       switchable: moduleSwitchingEnabled(),
       // The requesting member's role per module (WP4.5): "none" hides it.
@@ -1228,6 +1223,29 @@ export async function buildServer(
   app.get("/api/projects/:projectId/google-drive/files", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
+  });
+  app.get(
+    "/api/projects/:projectId/google-drive/files/:fileId/thumbnail",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const thumb = await driveThumbnail(
+        await scopeFor(auth, req, projectId),
+        fileId,
+      );
+      return reply
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "private, max-age=300")
+        .type(thumb.mime)
+        .send(thumb.bytes);
+    },
+  );
+  app.get("/api/projects/:projectId/google-drive/folders", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return listDriveFolders(await scopeFor(auth, req, projectId), req.query);
   });
   app.get(
     "/api/projects/:projectId/google-drive/files/:fileId/content",

@@ -1,5 +1,133 @@
 # Requirements traceability
 
+## Daily social automation on assignments (spec 2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`; not merged)
+
+Spec [superpowers/specs/2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| DS-G1 | A release at or after the slot is refused (`SLOT_EXPIRED`), never moved; expired drafts shown, no release item | `agents/veto.ts`, `agents/owner-release.ts`, marketing attention, web approvals | integration and unit tests on the branch | PASS_TEST |
+| DS-G2 | A Marketing publication more than 30 minutes late is `blocked_dependency` with `SLOT_EXPIRED` | `marketing/pipeline/workflow.ts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G3 | Social never sends more than 30 minutes late (`SOCIAL_SLOT_EXPIRED`, never retried) | `social/dispatch/lateness.ts`, `claim.ts`, `deliver.ts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G4 | `historyDays` 14 to 60, `recentTopics`, native Social posts in the strategy history | assignment tools, `social/contract.ts` `recentPosts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G5 | One library asset per image hand-off (sha256 reuse) | `social/contract.ts` `importOriginMedia` | integration and unit tests on the branch | PASS_TEST |
+| DS-G6 | Owner retries a failed or partial run at least 60 minutes before the open slot | retry route, `assignment_change` `retry`, `runRetryRefusal`, web button | integration and unit tests on the branch | PASS_TEST |
+| DS-G7 | Assignment detail with runs, previews and per-platform status | `GET …/assignments/:id/detail`, web detail view | integration and unit tests on the branch | PASS_TEST |
+| DS-G8 | Owner warnings 7 days before policy and spend authority expiry | `marketing/attention.ts`, `platform/attention/platform-items.ts` | integration and unit tests on the branch | PASS_TEST |
+| DS-G9 | `social:<accountId>` channels on the Social backend | `marketing/publishing/postiz-assignment.ts`, `postiz-draft.ts`, `social/contract.ts` | integration and unit tests on the branch | PASS_TEST |
+
+Browser end-to-end check not yet run; nothing deployed or live-accepted.
+
+## Agent platform, Phase 4: proactive notices and voice (ADR 0023, ADR 0024; 2026-11-05, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-4.md](plans/agent-platform-phase-4.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP4-1 | Scenario E: one deduplicated notice per agent, code and day for sponsor and managers; no model call for detection or delivery | `platform/signals/`, `notifications/members.ts` | `proactive-signals.integration.test.ts` (provider spy, 500-failure storm) | PASS_TEST |
+| AP4-2 | Urgent and due items, aging approvals, budget thresholds once per period, delegations reach the right users; quiet hours respected | `signals/*`, `proactive/delivery.ts`, `ai/budget.ts` | `proactive-signals`, `proactive-delivery` integration tests (threshold race) | PASS_TEST |
+| AP4-3 | Bell "All projects" and bubble badge without data from inaccessible projects | `proactive/{summary,wake}.ts`, web bell and badge | `proactive-summary.integration.test.ts`, web component tests | PASS_TEST |
+| AP4-4 | Deterministic daily briefing at local time; optional AI summary within ceiling and cap | `proactive/{briefing,summarizer,scheduler}.ts` | `proactive-briefing.integration.test.ts` (DST, no model without opt-in) | PASS_TEST |
+| AP4-5 | Voice input: transcript into the composer, same turn as typed text, no audio stored, cost per audio minute | `assistant/voice*.ts`, `packages/ai/src/{speech,audio-duration}.ts` | `voice.integration.test.ts`, `speech.test.ts`, `audio-duration.test.ts`, `voice.test.tsx` | PASS_TEST (fake adapter); device check open |
+| AP4-6 | Read aloud per message, cost per character within the cap | `assistant/voice.ts` | `voice.integration.test.ts` | PASS_TEST (fake adapter) |
+| AP4-7 | Flags off: nothing proactive or voice-related runs; existing notifications unchanged | flags `ORBIT_PROACTIVE`, `ORBIT_VOICE` | flag-off regressions (notifications, support automations, Work PM, Telegram) | PASS_TEST |
+| AP4-8 | Per-user Telegram only to the user's linked chat, once per key, stops on `/stop` or unlink | `connections/telegram.ts`, `proactive/delivery.ts` | `proactive-delivery.integration.test.ts` | PASS_TEST |
+
+## Agent platform, Phase 3: personal Orbit Assistant (ADR 0022; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flag off)
+
+Plan [plans/agent-platform-phase-3.md](plans/agent-platform-phase-3.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP3-1 | Bubble on every signed-in page, panel by keyboard and on 375 px without covering the nav | `apps/web/src/platform/assistant/*`, `platform/ui/sheet.tsx` | `assistant-shell.test.tsx`, `ui/sheet.test.tsx` | PASS_TEST (component); browser check open |
+| AP3-2 | Scenario B: one labelled answer across projects; no access gives only a refusal code | `platform/agents/project-{calls,reads}.ts`, `assistant/user-tools.ts` | `personal-assistant.integration.test.ts` | PASS_TEST (scripted model) |
+| AP3-3 | Scenario C: one confirmation, work orders survive a restart, one notice with result cards, no second paid call | `assistant/{delegation,notices}.ts` | `assistant-delegation.integration.test.ts`, `assistant-notices.integration.test.ts` | PASS_TEST (blank agent, scripted model) |
+| AP3-4 | Pending approvals across projects; inline decisions identical to the approvals page | `assistant/personal-mode.ts`, `project-cards.tsx` | `personal-mode.integration.test.ts`, `project-cards.test.tsx` | PASS_TEST |
+| AP3-5 | No org owner, admin or other user reads a personal space, its conversations or its context | `tenancy/member-scope.ts`, `assistant/personal-space.ts` | `personal-space.integration.test.ts`, access-matrix personal-space probe, `personal-context.integration.test.ts` | PASS_TEST (mutation-checked) |
+| AP3-6 | Personal context: automatic save with notice and Undo, refused content never saved, fallback proposals, edit, delete, export, project scope (D-17) | `assistant/personal-context.ts`, `user-tools.ts` | `personal-context.integration.test.ts`, `personal-mode.integration.test.ts`, `account/personal-context.test.tsx` | PASS_TEST |
+| AP3-7 | Taint: a proposal after reading another project is never auto-approved and names it | `governance/{action-requests,authorization}.ts` | `personal-assistant.integration.test.ts`, `personal-mode.integration.test.ts` | PASS_TEST |
+| AP3-8 | Turns paid within the org per-member cap; readable stop at the cap; user cannot raise it | `ai/spend-mandate.ts`, `ai/spend-policy.ts` | `personal-space.integration.test.ts`, `personal-mode.integration.test.ts` | PASS_TEST |
+| AP3-9 | Project chat and MCP unchanged; safety nets pass | `mcp/{adapter,visibility}.ts`, `tasks/tasks.ts` | MCP suites, `mcp-2-workflows`, chat-runner, limits, access and RLS matrices | PASS_TEST |
+
+## Agent platform, Phase 2: Support agent (ADR 0021 D-11, D-15, D-16; 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-2.md](plans/agent-platform-phase-2.md), acceptance criteria §11.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP2-1 | Scenario A: one work order per ticket triages, drafts, proposes, notes under a mandate, never replies | `support/{agent-events,agent-tools,agent-template}.ts`, `agents/triggers/events.ts` | `support-agent.integration.test.ts` | PASS_TEST (scripted model) |
+| AP2-2 | No agent run for hard-rule tickets, unverified widget visitors or non-agent inboxes | `support/agent-events.ts`, `support/agent-gate.ts` | `support-agent.{unit,integration}.test.ts` | PASS_TEST |
+| AP2-3 | Scenario D: a lost sponsor role stops the run before the next tool | `agents/principal.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-4 | Model inputs without name, e-mail and platform redaction classes | `support/ai.ts` (`supportModelText`), `support/mcp-read.ts` | `support-agent.integration.test.ts` (mutation-checked), `support-ai.integration.test.ts` | PASS_TEST |
+| AP2-5 | Provider allow-list: Anthropic refused for customer data before transmission | `platform/ai/data-class.ts`, `agents/structured-run.ts`, `support/ai.ts` | `support-agent.integration.test.ts`, `support-agent.unit.test.ts` | PASS_TEST |
+| AP2-6 | Issue reports: agents propose, never acknowledge sensitive tickets | `support/issues-handoff.ts` | `support-agent.unit.test.ts`, issues suites | PASS_TEST (no dedicated agent report scenario) |
+| AP2-7 | Execution history on the ticket; erasure deletes work orders and runs | `support/workspace.ts`, `support/privacy.ts`, `agents/work-orders/service.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-8 | Send and close never automatic; inbox rule never for agents | `tasks/operation-tools.ts`, `support/mcp-tools.ts` | `support-agent.integration.test.ts` | PASS_TEST |
+| AP2-9 | Hard rules on subject (T2-3); offline hard-rule eval recall 1.0; agent eval set | `support/agent-events.ts`, `evals/support/agent-v1.json` | `evals/support/{hard-rules,agent}.test.ts` | PASS_TEST (no paid live run) |
+| AP2-10 | Inbox agent mode, no double jobs, manual draft kept, uncovered-inbox attention | `support/{inboxes,ai,workspace,attention}.ts`, migration `202611040002` | `support-agent.integration.test.ts` | PASS_TEST |
+
+## Agent platform, Phase 1 (ADR 0021, 2026-11-04, branch `claude/agent-platform-architecture-128114`; flags off)
+
+Plan [plans/agent-platform-phase-1.md](plans/agent-platform-phase-1.md), acceptance criteria §11 (AC-1 to AC-12).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AP-1 | One capability layer for chat, MCP and the task host | `platform/agents/capabilities.ts`, `assistant/chat-runner.ts`, `mcp/{visibility,adapter}.ts`, `agents/structured-run.ts` | `capabilities.test.ts` (equivalence matrix), chat/MCP/structured-run suites | PASS_TEST |
+| AP-2 | Agent principal re-checked on every call (scenario D) | `agents/principal.ts`, `agents/agent-execution.ts`, `tasks/operation-tools.ts` | `agent-principal.test.ts`, `agent-mandates.integration.test.ts`, `structured-run.integration.test.ts`, `agent-platform.integration.test.ts` | PASS_TEST (mutation-checked requester re-check) |
+| AP-3 | Mandates cover only named agents; W1+ never automatic | `governance/{agent-mandates,authorization}.ts` | `agent-mandates.integration.test.ts` | PASS_TEST |
+| AP-4 | Versioned definitions, draft/active split, hash-bound owner activation (AC-1, AC-3) | `agents/definitions/{schema,service,catalog,templates,store}.ts` | `agent-definitions-schema.unit.test.ts`, `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-5 | Roles: owner manage, editor read/run, viewer none, outsider 404 (AC-2) | `tenancy/permissions.ts`, `agents/routes.ts` | access matrix (reviewed) | PASS_TEST |
+| AP-6 | Durable work orders on the worker, restart and unknown outcome (AC-4) | `agents/work-orders/{service,execute}.ts`, migration `202611040001_agent_platform` | `agent-platform.integration.test.ts`, `rls-matrix`, `queue-dispatch` | PASS_TEST |
+| AP-7 | Schedule and event triggers, one work order per slot/event, debounce, no agent chains (AC-7) | `agents/triggers/{schedule,events,declarations}.ts` | `agent-platform.integration.test.ts` (DST, stale slot, burst, flag) | PASS_TEST |
+| AP-8 | Failure notice once per agent, code and day without a model call (AC-8) | `agents/work-orders/execute.ts` | `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-9 | Budgets: run and month ceilings, spend attributed to the agent | `agents/work-orders/execute.ts`, `ai/budget.ts` | `agent-platform.integration.test.ts` | PASS_TEST |
+| AP-10 | Marketing unchanged on shared primitives (AC-9) | `marketing/agents/specialists/runner.ts` | Marketing agent suites, reservation parity fixture | PASS_TEST |
+| AP-11 | Retention of work orders and AgentRun/AgentSpan (AC-11) | `agents/work-orders/retention.ts` | `agent-work-retention.integration.test.ts` | PASS_TEST (owner retention action only) |
+| AP-12 | Entitlements port, default unlimited | `platform/entitlements/entitlements.ts` | `entitlements.unit.test.ts` | PASS_TEST |
+
+## Social module (ADR 0020, 2026-11-02, branches `claude/social-module-plan` and `claude/social-s2`; flag off)
+
+Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (requirements R1–R7), ADR [0020](adr/0020-social-module.md) (proposed). Phases S1 to S5 are implemented (branches, not merged).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| R1 | Standalone module `social`, independent of Marketing | `modules/social/{manifest,permissions,gate,settings,contributions,routes}.ts`, `apps/web/src/modules/social/` | `social-module.test.ts`, `social-routes.integration.test.ts`, `module-registry.test.ts`, access matrix, web `social.test.tsx` | S1 PASS_TEST (skeleton only; features S2–S9) |
+| R1-A | Technical analytics of published posts | `modules/social/analytics/{readers,collect}.ts`, `posts/routes.ts`, `apps/web/src/modules/social/analytics.tsx` | `social-metrics-readers.test.ts`, `social-metrics.integration.test.ts`, `social-posts-routes.integration.test.ts`, web `analytics.test.tsx`, access matrix | PASS_TEST (local, fake providers) |
+| R1-DB | Own tables with forced RLS, composite keys, unique idempotency key, restricted grants | migration `202611020001_social_core`, `scripts/db-deploy.ts` | `social-schema.integration.test.ts`, `rls-matrix.integration.test.ts` | PASS_TEST (local) |
+| R2 | Direct adapters only (no managed providers) | `scripts/boundaries.{json,mjs}` `forbiddenImportPrefixes`; `modules/social/adapters/{registry,x,facebook,instagram,telegram,outcome,provider-state-store}.ts` | `scripts/boundaries.test.mjs`; `social-sdk-surface.test.ts`; `social-adapter-x`, `social-adapter-facebook`, `social-adapter-instagram`, `social-adapter-telegram`, `social-provider-state`, `social-facebook-deliver` tests | PASS_TEST (local, fake providers; Facebook since S5b; live acceptance needs Mario's write verification per account) |
+| R2-TG | Telegram via the Orbit connector; private bot untouched | `packages/connectors/src/telegram.ts`, `modules/social/accounts/telegram.ts`, `platform/connections/telegram.ts` `isOwnerBotToken` | `telegram.test.ts`, `social-telegram-account.integration.test.ts` (no webhook/update method called; owner bot refused and unchanged), `telegram.integration.test.ts` | PASS_TEST (connect; publishing S5) |
+| R3-M | Media (images) for the editor: library, normalization, platform rules, public URLs | `packages/creative/src/social-image.ts`, `modules/social/media/{library,rules,public-url}.ts`, migration `202611020002_social_media`, `apps/web/src/modules/social/media.tsx` | `social-image.test.ts`, `social-media-library`, `social-media-routes`, `social-media-public` integration tests, `social-media-rules.test.ts`, web `media.test.tsx`, RLS and access matrices | PASS_TEST (local; video S3b) |
+| R3-E | Editor without Marketing: posts, per-account variants, validation, approvals, schedule time | `modules/social/posts/*`, `platform/time/zoned-time.ts`, migration `202611020003_social_post_base`, `apps/web/src/modules/social/posts/*`, `apps/web/src/modules/social/action-requests.tsx` | `schedule-time.test.ts`, `social-validation.test.ts`, `social-posts`, `social-approval`, `social-posts-routes` integration tests, web `posts.test.tsx`, `editor-state.test.tsx`, `limits.test.tsx`, `action-requests.test.tsx`, access matrix | PASS_TEST (local; nothing is sent until S5) |
+| R3 | Calendar (month/week/list, filters, drag-and-drop) | `modules/social/calendar/calendar.ts`, `posts/posts.ts` (`postFilters`), `posts/routes.ts`, `apps/web/src/modules/social/calendar/*` | `social-calendar`, `social-calendar-org`, `social-posts-routes` integration tests, web `grid.test.tsx`, `query.test.tsx`, `move.test.tsx`, `calendar.test.tsx`, `move-dialog.test.tsx`, access matrix; `apps/web/tests/social-calendar.spec.ts` (gated, not run) | PASS_TEST (local; e2e not run) |
+| R4 | One scheduler on the Orbit worker; exactly once; no resend of unknown outcomes | `modules/social/dispatch/*`, `apps/worker/src/lost-jobs.ts` | `social-dispatch`, `social-deliver`, `social-reconcile`, `social-control`, `social-verify-write` integration tests, `social-gates.test.ts`, `apps/worker/tests/lost-job.integration.test.ts` | PASS_TEST (local) |
+| R5 | Social tools in the Orbit MCP gateway | `modules/social/tools.ts`, `posts/approval.ts` (`proposedSchedule`, `applyApprovedSchedule`), `platform/mcp/scopes.ts` (`orbit:social`), `platform/tasks/operation-tools.ts` (summary with approval context), `apps/web/src/modules/social/action-requests.tsx` | `social-mcp.integration.test.ts`, `agent-mandates` (mandatable and never lists), `mcp-gateway` (`scopes_supported`), `mcp-proposals-contract`, web `action-requests.test.tsx`, `connect-view.test.tsx` | PASS_TEST (local; no real client run) |
+| R5-M | Media library over MCP: list, Drive browse, import (Drive, HTTPS, Orbit file), upload (inline, client file, upload session), cleanup | `modules/social/media/{mcp-tools,upload-sessions,mcp-cleanup,from-url,from-drive,library}.ts`, `modules/social/routes.ts` (upload PUT), `platform/files/routes.ts` (`readMemberFile`), `packages/connectors/src/http.ts` (`boundedFetchWith`), `platform/mcp/adapter.ts` (`mcpMeta`) | `social-media-mcp.integration.test.ts` (A–E, SSRF, idempotency, upload sessions), `social-mcp.integration.test.ts` | PASS_TEST (local; no real client run) |
+| R6 | Developer apps in global administration; project OAuth accounts; sealed tokens | `modules/social/accounts/*`, `platform/connections/project-secrets.ts` | `social-apps`, `project-secrets`, `social-oauth-state`, `social-oauth-routes`, `social-x-connect`, `social-meta-connect`, `social-vault`, `social-accounts`, `social-meta-data-deletion` integration tests; access matrix | PASS_TEST (local, fake providers; live acceptance open) |
+| R7 | Postiz migration without loss, rollback | S9: `modules/social/contract.ts`, `marketing/publishing/{backend,publisher,postiz-draft}.ts`, `marketing/policy/policy.ts`, `scripts/boundaries.json` | `social-contract`, `marketing-publishing-backend`, `marketing-social-backend` integration tests, Social cases in `assignment-veto` and `assignment-postiz-drafts`, existing Marketing suites unchanged | S9 + S10 tools PASS_TEST (local; S10: `marketing-social-migration.integration.test.ts`, draining in `marketing-social-backend`, web `legacy.test.tsx`, `scripts/postiz-inventory.ts`); per-project cutover open |
+
+## Ads module (ADR 0025, 2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; flag off)
+
+Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is on `main` since 2026-11-09 (flag off); A1 Task 0 (ad-blocker test of the id `ads`) is open and gates enabling `ORBIT_ADS` (Mario, 2026-11-09). Step A2 (provider seam, Meta transport, `packages/money`) is on `main` since 2026-11-09 (flag off); its Task 6 (contract tests on sanitized A0 recordings) is open.
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| R1 | Standalone module `ads`, activatable without Marketing or Social | `modules/ads/{manifest,permissions,gate,settings,http-scope,contributions,routes}.ts`, `modules/registry.ts`, `apps/web/src/modules/ads/`, `ORBIT_ADS` in config, compose files, `.env.example` | `ads-module.test.ts`, `ads-routes.integration.test.ts`, `module-registry.test.ts`, access matrix, web `ads.test.tsx`, `pnpm test:coolify-compose` | A1 PASS_TEST (skeleton only; features A2–A11) |
+| R1-DB | Own tables with forced RLS, composite project keys, restricted grants | migration `202611080001_ads_core`, `scripts/db-deploy.ts` | `ads-schema.integration.test.ts`, `rls-matrix.integration.test.ts` | PASS_TEST (local test database only; not applied elsewhere) |
+| R1-B | Only direct HTTP adapters: no ads SDK, no automation intermediary | `scripts/boundaries.{json,mjs}` zones `module:ads`, `web-module:ads`, `forbiddenImportPrefixes` | `scripts/boundaries.test.mjs`, `pnpm lint` | PASS_TEST |
+| R2 | Navigation and views | `apps/web/src/modules/ads/` (six placeholder views) | web `ads.test.tsx` | A1 placeholders only; content A4, A5, A8, A9 |
+| R3 | Provider adapters | `modules/ads/providers/{types,registry}.ts`, `providers/meta/*` | `ads-meta-errors`, `ads-meta-graph`, `ads-meta-money` and registry tests (fake Graph, no network) | A2 PASS_TEST for the Meta transport; contract tests on A0 recordings OPEN (Task 6); OpenAI and Google OPEN |
+| R3-API | Official APIs only: every Meta call through one pinned (`v27.0`), `appsecret_proof`-signed client, token in the header only, cursor paging, classified failures | `providers/meta/{version,transport,graph,errors,usage}.ts`, `scripts/boundaries.json` | `ads-meta-graph.test.ts`, `ads-meta-errors.test.ts`, `pnpm lint` | PASS_TEST (no live Meta call: NOT_RUN) |
+| R3-M | Money exact in BigInt micros; Meta minor units by documented offset; `spend_cap` read minor, written major; inexact conversion refused | `packages/money`, `providers/meta/money.ts` | `packages/money` tests, `ads-meta-money.test.ts`, `finance-money.test.ts` | PASS_TEST (offsets from Meta's page of 2026-11-08; real-account confirmation in A0 OPEN) |
+| R4 | Meta connection | none | none | OPEN (A3) |
+| R5 | Meta campaigns | none | none | OPEN (A4, A7, A8) |
+| R6 | Creatives and audiences | none | none | OPEN (A8, A9) |
+| R7 | Analytics | none | none | OPEN (A5) |
+| R8 | Works without AI; Marketing agents use Ads | none | none | OPEN (A11) |
+| R9 | Approvals and budget guardrail | none | none | OPEN (A7) |
+| R10 | MCP access | none | none | OPEN (A10) |
+| R11 | Background sync | none | none | OPEN (A4–A6, A11) |
+| R12 | ChatGPT Ads and Google Ads: research and plan only | plan §12.2, §12.3 | none | OPEN (planning) |
+
 ## Approval UX v2 and agent mandates (2026-10-28, local; `ORBIT_AGENT_MANDATES` off)
 
 Plan [plans/APPROVAL_UX_V2.md](plans/APPROVAL_UX_V2.md), ADR [0019](adr/0019-agent-mandates.md) (proposed).
@@ -61,7 +189,9 @@ Mario's tests A–F for the MCP Creative Studio integration. Guide: [MARKETING_C
 | IC-13 Web: dashboard, list with detail, triage, releases, settings with sources; Support action and chips | `apps/web/src/modules/issues/`, `support/issue-report.tsx`; `issues.test.tsx`, shell tests | PASS_TEST (unit); e2e spec not run |
 | IC-14 Assistant and MCP tools with `orbit:issues`; diagnostics never in tool output; `support_report_issue` needs both scopes | `issues/tools.ts`, `support/issues-handoff.ts`, `platform/mcp/scopes.ts`; `issues-mcp.integration.test.ts`, gateway test | PASS_TEST (local; flags off) |
 | IC-15 Retention 36 months for closed issues, 12 for diagnostics | `issues/retention.ts`; `issues-retention.integration.test.ts` | PASS_TEST (local) |
-| IC-16 GitHub App, Sentry and monitoring sources, vector and AI judge stages | — | NOT_BUILT (after the MVP, separate approvals) |
+| IC-16a GitHub App: create and link GitHub issues (WP3.10a) | `apps/api/src/modules/issues/github*.ts`, `platform/connections/github-app.ts`, [github-app.md](integrations/github-app.md) | IMPLEMENTED and tested on a branch; not merged, not deployed, flag `ORBIT_ISSUES_GITHUB` off |
+| IC-16b Inbound PR/check linking (10b), release detection (10c) | spec §11 | PLANNED (own spec and approval) |
+| IC-16c Sentry and monitoring sources, vector and AI judge stages | — | NOT_BUILT (after the MVP, separate approvals) |
 
 ## AI project manager phase 2 (ADR 0017, 2026-10-25)
 
@@ -147,7 +277,7 @@ Spec `docs/superpowers/specs/2026-10-23-finance-module-design.md`; behaviour in 
 | Manual upload (API and web control), exact duplicates, unsupported types | `finance-intake.integration.test.ts`, `finance-routes.integration.test.ts`, `apps/web/src/modules/finance/upload.test.tsx`, `upload-access.test.tsx`, `apps/web/tests/finance.spec.ts` | PASS_TEST (browser spec local) |
 | Extraction safety: consent off by default, spend mandate, daily ceiling, no tools, injection text, invalid JSON, unknown outcome never retried | `finance-extraction.test.ts`, `finance-extraction.integration.test.ts` (stubbed provider) | PASS_TEST |
 | Duplicate rules (hash, counterparty and number, total within window) | `finance-extraction.integration.test.ts`, `finance-intake.integration.test.ts` | PASS_TEST |
-| Money as bigint micros, half-even rounding, ambiguous comma rejected | `finance-money.test.ts`, `apps/web/src/modules/finance/money.test.tsx`, `booking-form.test.tsx` | PASS_TEST |
+| Money as bigint micros, half-even rounding, ambiguous comma rejected (`finance/money.ts`, a thin wrapper over `packages/money` since Ads A2) | `finance-money.test.ts`, `apps/web/src/modules/finance/money.test.tsx`, `booking-form.test.tsx` | PASS_TEST |
 | Posting rules per transaction type, balance, splits, FX difference, reversal | `finance-posting.test.ts`, `finance-ledger.integration.test.ts`, `finance-booking.integration.test.ts` | PASS_TEST |
 | Database integrity: no DELETE, immutable lines, balanced entries, one reversal | `finance-integrity.integration.test.ts` | PASS_TEST |
 | Corrections: void invoice (reopens document), void payment, credit-note settlement, closing entry | `finance-booking.integration.test.ts` | PASS_TEST (partial credit at very different rates: known limitation) |

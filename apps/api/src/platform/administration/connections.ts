@@ -79,6 +79,8 @@ export function centralProviders() {
       purposes: def.purposes ?? [],
       checkable: Boolean(def.check),
       channels: Boolean(def.channelAssignment),
+      ...(def.secretFields ? { secretFields: def.secretFields } : {}),
+      ...(def.callbackPath ? { callbackPath: def.callbackPath } : {}),
     }));
 }
 
@@ -210,6 +212,7 @@ export async function createConnection(actor: ConnectionActor, raw: unknown) {
   if (!providerScopes(def).includes(scope))
     throw new DomainError("PROVIDER_SCOPE_NOT_ALLOWED", 409);
   const config = normalizeConfig(def, input.config);
+  def.validateSecret?.(input.secret);
   const sealed = sealSecret(input.secret);
   return authDb.$transaction(async (tx) => {
     const created = await tx.connection.create({
@@ -355,6 +358,7 @@ export async function rotateSecret(
     .parse(raw);
   const current = await authDb.$transaction((tx) => owned(tx, actor, id));
   const def = provider(current.provider);
+  def.validateSecret?.(secret);
   let checked: Awaited<ReturnType<typeof runCheck>>;
   try {
     checked = await runCheck(def, current, secret);

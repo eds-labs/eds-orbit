@@ -268,6 +268,8 @@ describe("module settings links in the sidebar", () => {
       ["finance", "finance-mailboxes"],
       ["work", "work"],
       ["issues", "issues"],
+      ["social", undefined],
+      ["ads", undefined],
     ]);
   });
 

@@ -1,4 +1,5 @@
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { marketingSignalNotifications, marketingSignals } from "./signals.ts";
 import { marketingConfigurationSection } from "./brand/configuration-section.ts";
 import { marketingMcpTools, marketingMcpActions } from "./mcp-tools.ts";
 import { policyAdminActionTypes, policyAdminTools } from "./policy/policy-admin.ts";
@@ -27,6 +28,7 @@ import { data } from "../../shared.ts";
 import { connectionsOf } from "../../platform/connections/connections.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
+import { assignmentListings } from "./agents/assignment-overview.ts";
 import { stopCallback } from "./agents/telegram-stop.ts";
 import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
@@ -77,6 +79,9 @@ export const marketingContributions: ModuleContributions = {
   telegram: { enabled: agentsEnabled, callbacks: { stop: stopCallback } },
   // Previews, notices and the daily report the bot sends (WP2.5b).
   notifications: marketingNotifications,
+  // Assignment exceptions join the proactive feed as a mapping only (ADR 0023).
+  userNotifications: marketingSignalNotifications,
+  signals: marketingSignals,
   // Postiz, Matomo and Slack connections and their checks (WP2.5c).
   connections: marketingConnections,
   // The Marketing profile in the project configuration (MCP and Orbit).
@@ -93,6 +98,8 @@ export const marketingContributions: ModuleContributions = {
   attentionStatus: marketingAttentionStatus,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
+  // Assignments in the platform's agent overview, read only (WP1.9).
+  agentListings: (tx, scope) => assignmentListings(tx, scope),
   publicViews: {
     // Asset bytes never leave the server through the collection API.
     assets: (row) => {

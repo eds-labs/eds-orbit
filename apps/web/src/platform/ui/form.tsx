@@ -35,6 +35,12 @@ export type FormField = {
   placeholder?: string;
   accept?: string;
   showWhen?: { name: string; values: string[] };
+  /** HTML pattern the whole value must match. */
+  pattern?: string;
+  /** Shown, not edited (such as a callback URL to copy). */
+  readOnly?: boolean;
+  /** Adds a button that copies the value, with this label. */
+  copyLabel?: string;
   /** Optional section heading rendered above this field. */
   heading?: string;
 };
@@ -160,6 +166,9 @@ export function DataForm({
                     step={field.step}
                     placeholder={field.placeholder}
                     accept={field.accept}
+                    pattern={field.pattern}
+                    readOnly={field.readOnly}
+                    spellCheck={field.type === "password" || field.pattern ? false : undefined}
                     autoComplete={
                       field.type === "password"
                         ? "new-password"
@@ -169,6 +178,16 @@ export function DataForm({
                     }
                   />
                 )}{" "}
+                {field.copyLabel && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void navigator.clipboard?.writeText(String(field.value ?? ""))}
+                  >
+                    {field.copyLabel}
+                  </Button>
+                )}
                 {field.hint && <p className="field-hint">{field.hint}</p>}
               </Field>
             </Fragment>

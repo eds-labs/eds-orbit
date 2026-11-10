@@ -55,6 +55,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/assistant/context/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "DELETE /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -199,6 +207,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/projects/{projectId}/issues/issues/{id}/github/{refId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "DELETE /api/projects/{projectId}/issues/links/{id}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -222,6 +238,14 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "not_found:MEMBER_NOT_FOUND"
+  },
+  "DELETE /api/projects/{projectId}/social/media/{mediaId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "DELETE /api/projects/{projectId}/work/attachments/{id}": {
     "anonymous": "unauthenticated",
@@ -455,6 +479,54 @@
     "sysadmin": "not_found:USER_NOT_FOUND",
     "owner": "not_found"
   },
+  "GET /api/agents/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/context": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/context/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/assistant/voice-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/google-drive/callback": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
@@ -501,6 +573,22 @@
     "viewer": "allowed:200",
     "editor": "allowed:200",
     "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/notifications/stream": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/notifications/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/openapi.json": {
@@ -607,6 +695,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/organizations/{workspaceId}/social/calendar": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "GET /api/projects": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:200",
@@ -622,6 +718,14 @@
     "editor": "allowed:200",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/ads/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/agent-activity": {
     "anonymous": "unauthenticated",
@@ -654,6 +758,78 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/agent-work-orders": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agent-work-orders/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/agents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/catalog": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/managed": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/templates": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agents/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found:AGENT_NOT_FOUND",
+    "sysadmin": "not_found",
+    "owner": "not_found:AGENT_NOT_FOUND"
+  },
+  "GET /api/projects/{projectId}/agents/{id}/versions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found:AGENT_NOT_FOUND",
+    "sysadmin": "not_found",
+    "owner": "not_found:AGENT_NOT_FOUND"
+  },
+  "GET /api/projects/{projectId}/agents/{id}/versions/{version}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "GET /api/projects/{projectId}/ai-budget": {
     "anonymous": "unauthenticated",
@@ -726,6 +902,14 @@
     "editor": "allowed:200",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/assignments/{id}/detail": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "GET /api/projects/{projectId}/assistant-tasks": {
     "anonymous": "unauthenticated",
@@ -1183,6 +1367,22 @@
     "sysadmin": "not_found",
     "owner": "allowed:409"
   },
+  "GET /api/projects/{projectId}/google-drive/files/{fileId}/thumbnail": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "sysadmin": "not_found",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/google-drive/folders": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "sysadmin": "not_found",
+    "owner": "allowed:409"
+  },
   "GET /api/projects/{projectId}/google-drive/health": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1230,6 +1430,14 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/issues/github/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/issues/issues/{id}": {
     "anonymous": "unauthenticated",
@@ -1431,6 +1639,22 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/projects/{projectId}/marketing/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/marketing/social-migration": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/matomo_schedules": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1558,6 +1782,94 @@
     "editor": "allowed:200",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/signal-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/social/accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/accounts/apps": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/analytics": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/calendar": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/media": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/media/{mediaId}/content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/posts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/posts/{postId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/posts/{postId}/metrics": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/social/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/sources": {
     "anonymous": "unauthenticated",
@@ -1919,6 +2231,22 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/public/social/data-deletion/{code}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/public/social/media/{token}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/public/support/{publicKey}/conversations": {
     "anonymous": "not_found",
     "outsider": "not_found",
@@ -1950,6 +2278,14 @@
     "editor": "allowed:200",
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
+  },
+  "GET /api/social/oauth/callback/{app}": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
   },
   "GET /api/workspaces/{workspaceId}/mcp-grants": {
     "anonymous": "unauthenticated",
@@ -1991,6 +2327,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "PATCH /api/assistant/context/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "PATCH /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",
@@ -2022,6 +2366,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "PATCH /api/projects/{projectId}/agents/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "PATCH /api/projects/{projectId}/content/{id}": {
     "anonymous": "unauthenticated",
@@ -2080,6 +2432,30 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/issues/issues/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/social/accounts/{accountId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/social/media/{mediaId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/social/posts/{postId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -2327,6 +2703,30 @@
     "sysadmin": "not_found:USER_NOT_FOUND",
     "owner": "not_found"
   },
+  "POST /api/assistant/context": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/assistant/speech": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/assistant/transcriptions": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:415",
+    "viewer": "allowed:415",
+    "editor": "allowed:415",
+    "sysadmin": "not_found",
+    "owner": "allowed:415"
+  },
   "POST /api/automation/callbacks/{projectId}/{runId}": {
     "anonymous": "not_found",
     "outsider": "not_found",
@@ -2334,6 +2734,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "POST /api/callbacks/social/meta-data-deletion": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
   },
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}": {
     "anonymous": "allowed:400",
@@ -2543,6 +2951,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/archive-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/archive-mission": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -2679,6 +3095,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "POST /api/projects/{projectId}/actions/discard-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/editorial-propose-brief": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -2767,7 +3191,23 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/knowledge-analysis-preflight": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/knowledge-analysis-start": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-content-accept": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
@@ -2848,6 +3288,62 @@
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-proposal-decide": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-proposal-edit": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-proposal-remove": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-proposal-restore": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-discover": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-refresh": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-site-start": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
@@ -2964,6 +3460,14 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/reject-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
@@ -3191,6 +3695,78 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/agent-work-orders/{id}/cancel": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/agent-work-orders/{id}/retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/agents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/activate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/disable": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/duplicate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found:AGENT_NOT_FOUND"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/pause": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/resume": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/agents/{id}/runs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/approvals": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3230,6 +3806,22 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/assignment-drafts/{id}/{decision}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/assignment-runs/{runId}/retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/assignments": {
     "anonymous": "unauthenticated",
@@ -3735,6 +4327,14 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "POST /api/projects/{projectId}/issues/github/requests/{id}/reconcile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/issues/issues": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3744,6 +4344,38 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/issues/issues/{id}/deliveries": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/github": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/github/link": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/github/preview": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/issues/issues/{id}/github/refresh": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -3887,6 +4519,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/marketing/social-migration/mirror": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/matomo_schedules": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3990,6 +4630,126 @@
     "editor": "allowed:400",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/social/accounts/connect/{app}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/accounts/telegram": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/accounts/{accountId}/check": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/accounts/{accountId}/disconnect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/accounts/{accountId}/verify-write": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/media": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/media/from-drive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts/{postId}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts/{postId}/cancel": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts/{postId}/publish-now": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts/{postId}/reschedule": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts/{postId}/schedule": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/posts/{postId}/validate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/social/publications/{publicationId}/resolve": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/sources": {
     "anonymous": "unauthenticated",
@@ -4463,6 +5223,30 @@
     "sysadmin": "allowed:400",
     "owner": "not_found"
   },
+  "PUT /api/assistant/context/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/assistant/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/assistant/voice-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "PUT /api/organizations/{workspaceId}/ai/budget": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4504,6 +5288,14 @@
     "owner": "allowed:400"
   },
   "PUT /api/organizations/{workspaceId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "PUT /api/organizations/{workspaceId}/members/{userId}/assistant": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
@@ -4559,6 +5351,22 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "PUT /api/projects/{projectId}/marketing/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/marketing/social-migration/mapping": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "PUT /api/projects/{projectId}/members/{userId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4591,6 +5399,22 @@
     "sysadmin": "not_found",
     "owner": "allowed:400"
   },
+  "PUT /api/projects/{projectId}/signal-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:OWNER_REQUIRED",
+    "editor": "forbidden:OWNER_REQUIRED",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/social/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "PUT /api/projects/{projectId}/support/settings": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4622,5 +5446,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
+  },
+  "PUT /api/public/social/media-uploads/{token}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   }
 }

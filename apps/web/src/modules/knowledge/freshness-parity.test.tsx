@@ -77,6 +77,12 @@ describe("source freshness parity (server and web)", () => {
       expect(tracksFreshness(source)).toBe(listedSource({ data: source }));
     });
 
+  it("leaves paused sources out on both sides", () => {
+    const paused = { status: "paused" };
+    expect(tracksFreshness(paused)).toBe(false);
+    expect(listedSource({ data: paused })).toBe(false);
+  });
+
   it("covers every state", () => {
     const states = new Set(
       Object.values(CASES).map((source) => sourceExpiry(source, NOW).state),

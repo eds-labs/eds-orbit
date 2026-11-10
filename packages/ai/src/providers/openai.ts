@@ -101,8 +101,9 @@ export async function openAiRespond(params: {
   maxToolCalls?: number;
   include?: OpenAI.Responses.ResponseIncludable[];
   signal?: AbortSignal;
+  timeoutMs?: number;
 }) {
-  const api = client(params.apiKey, 60000);
+  const api = client(params.apiKey, params.timeoutMs ?? 60000);
   const response = await api.responses.create(
     {
       model: params.route.model,

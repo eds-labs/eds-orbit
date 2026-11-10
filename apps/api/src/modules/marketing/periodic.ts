@@ -9,11 +9,13 @@ import {
   postizQueueHealth,
 } from "./publishing/postiz-queue-watch.ts";
 import { driveAssetRetry } from "./brand/drive-retry.ts";
+import { syncSocialHolds } from "./publishing/publisher.ts";
 
 /**
  * Marketing's per-project worker tasks (WP2.1), in the order the worker ran
- * them before: saved Matomo imports, the read-only Postiz queue check, then
- * the Drive retry of generated images (WP2.5d).
+ * them before: saved Matomo imports, the read-only Postiz queue check, the
+ * Drive retry of generated images (WP2.5d), then announcing released posts
+ * in Social's calendar.
  */
 export const marketingPeriodicTasks: readonly PeriodicTask[] = [
   {
@@ -35,4 +37,9 @@ export const marketingPeriodicTasks: readonly PeriodicTask[] = [
     health: { summarize: postizQueueHealth },
   },
   driveAssetRetry,
+  {
+    // Social's calendar follows Marketing; no wake-up of its own (a write wakes the project).
+    name: "social-hold-sync",
+    run: syncSocialHolds,
+  },
 ];

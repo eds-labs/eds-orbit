@@ -15,7 +15,7 @@ import { errorText } from "./texts";
 type CatalogRow = {
   id: string;
   provider: "openai" | "anthropic";
-  purpose: "text" | "image" | "embedding";
+  purpose: "text" | "image" | "embedding" | "speech_to_text" | "text_to_speech";
   displayName: string;
   rate?: {
     inputMicrosPerMillion: number;
@@ -23,6 +23,8 @@ type CatalogRow = {
     cachedInputMicrosPerMillion?: number;
   };
   perImageMicros?: number;
+  /** Speech models (ADR 0024): USD micros per audio minute or per character. */
+  unitPrice?: { unit: "audio_minute" | "character"; micros: number };
   verifiedAt: string;
   source: string;
   note?: string;
@@ -35,13 +37,39 @@ type CatalogRow = {
 const usd = (micros: number | undefined, digits = 2) =>
   micros === undefined ? "—" : `$${(micros / 1_000_000).toFixed(digits)}`;
 const toMicros = (value: unknown) => Math.round(Number(value) * 1_000_000);
+/**
+ * A speech price as entered: USD per minute (audio) or USD per 1M characters,
+ * which is the same number as micros per character.
+ */
+const unitDollars = (price: CatalogRow["unitPrice"]) =>
+  !price ? "" : price.unit === "audio_minute" ? String(price.micros / 1_000_000) : String(price.micros);
+const unitMicros = (unit: "audio_minute" | "character", value: unknown) =>
+  Number((unit === "audio_minute" ? Number(value) * 1_000_000 : Number(value)).toFixed(6));
+const unitLabel = (
+  price: NonNullable<CatalogRow["unitPrice"]>,
+  t: { perMinute: string; perMillionChars: string },
+) =>
+  price.unit === "audio_minute"
+    ? `$${(price.micros / 1_000_000).toFixed(4)} ${t.perMinute}`
+    : `$${price.micros.toFixed(2)} ${t.perMillionChars}`;
 
 const text = {
   en: {
     title: "Models & prices",
     intro:
       "Orbit ships dated prices for OpenAI and Claude. Every project draws on this list; a project's own prices (advanced) still win. Change a price here once instead of per project.",
-    purpose: { text: "Text", image: "Image", embedding: "Search (embeddings)" },
+    purpose: {
+      text: "Text",
+      image: "Image",
+      embedding: "Search (embeddings)",
+      speech_to_text: "Speech to text",
+      text_to_speech: "Text to speech",
+    },
+    perMinute: "per audio minute",
+    perMillionChars: "per 1M characters",
+    unitMinute: "USD per audio minute",
+    unitCharacters: "USD per 1M characters",
+    unitHint: "Voice in the assistant reserves and settles with this price; saving dates it today.",
     source: { orbit: "Orbit", system: "System", organization: "Organization" },
     perMillion: "per 1M tokens (input / output)",
     perImage: "booked per image",
@@ -65,7 +93,18 @@ const text = {
     title: "Modelle & Preise",
     intro:
       "Orbit liefert datierte Preise für OpenAI und Claude mit. Alle Projekte nutzen diese Liste; eigene Preise eines Projekts (Erweitert) gehen weiter vor. Einen Preis änderst du hier einmal statt pro Projekt.",
-    purpose: { text: "Text", image: "Bild", embedding: "Suche (Embeddings)" },
+    purpose: {
+      text: "Text",
+      image: "Bild",
+      embedding: "Suche (Embeddings)",
+      speech_to_text: "Sprache zu Text",
+      text_to_speech: "Text zu Sprache",
+    },
+    perMinute: "pro Audiominute",
+    perMillionChars: "pro 1 Mio. Zeichen",
+    unitMinute: "USD pro Audiominute",
+    unitCharacters: "USD pro 1 Mio. Zeichen",
+    unitHint: "Sprache im Assistenten reserviert und rechnet mit diesem Preis ab; beim Speichern wird er auf heute datiert.",
     source: { orbit: "Orbit", system: "System", organization: "Organisation" },
     perMillion: "pro 1 Mio. Tokens (Eingabe / Ausgabe)",
     perImage: "gebucht pro Bild",
@@ -125,7 +164,9 @@ export function ModelPricesPanel({
                 <p>
                   {provider === "anthropic" ? "Claude" : "OpenAI"} · {t.purpose[m.purpose]}
                   {" · "}
-                  {m.purpose === "image"
+                  {m.unitPrice
+                    ? unitLabel(m.unitPrice, t)
+                    : m.purpose === "image"
                     ? `${usd(m.perImageMicros, 3)} ${t.perImage}`
                     : m.rate
                       ? `${usd(m.rate.inputMicrosPerMillion)} / ${usd(m.rate.outputMicrosPerMillion)} ${t.perMillion}`
@@ -191,7 +232,20 @@ function PriceForm({
     micros === undefined ? "" : String(micros / 1_000_000);
   const fields: FormField[] = [
     { name: "active", label: t.active, type: "checkbox", value: row.active },
-    ...(row.purpose === "image"
+    ...(row.unitPrice
+      ? [
+          {
+            name: "unitPrice",
+            label: row.unitPrice.unit === "audio_minute" ? t.unitMinute : t.unitCharacters,
+            type: "number" as const,
+            min: 0,
+            step: "0.000001",
+            required: true,
+            value: unitDollars(row.unitPrice),
+            hint: t.unitHint,
+          },
+        ]
+      : row.purpose === "image"
       ? [
           {
             name: "perImage",
@@ -253,7 +307,15 @@ function PriceForm({
               String(v[key] ?? "") !== "" && toMicros(v[key]) !== current;
             return put(`${path}/${encodeURIComponent(row.id)}`, {
               ...(v.active !== row.active ? { active: v.active === true } : {}),
-              ...(row.purpose === "image"
+              ...(row.unitPrice
+                ? String(v.unitPrice ?? "") !== "" &&
+                  unitMicros(row.unitPrice.unit, v.unitPrice) !== row.unitPrice.micros
+                  ? {
+                      unit: row.unitPrice.unit,
+                      unitPriceMicros: unitMicros(row.unitPrice.unit, v.unitPrice),
+                    }
+                  : {}
+                : row.purpose === "image"
                 ? changed("perImage", row.perImageMicros)
                   ? { perImageMicros: toMicros(v.perImage) }
                   : {}

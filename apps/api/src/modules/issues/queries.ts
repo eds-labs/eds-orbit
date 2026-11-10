@@ -4,6 +4,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { linksOf } from "../../platform/links/links.ts";
 import { can } from "../../platform/tenancy/permissions.ts";
 import { ISSUE_TYPE, ISSUE_TYPES, PRIORITIES, SEVERITIES } from "./common.ts";
+import { githubRequestsOf } from "./github.ts";
 import { issueView, loadIssue } from "./issues.ts";
 import { ISSUES_DIAGNOSTICS_READ } from "./permissions.ts";
 import { REPORT_SOURCES, reportView } from "./reports.ts";
@@ -177,7 +178,7 @@ export async function issueDetail(tx: DbTx, scope: Scope, id: string) {
   const issue = await loadIssue(tx, scope, id);
   const diagnostics = can(scope, ISSUES_DIAGNOSTICS_READ);
   const where = { projectId: scope.projectId, issueId: issue.id };
-  const [reports, candidates, deliveries, refs, events, links] = await Promise.all([
+  const [reports, candidates, deliveries, refs, events, links, githubRequests] = await Promise.all([
     tx.issueReport.findMany({ where, orderBy: { receivedAt: "desc" }, take: 100 }),
     tx.issueDuplicateCandidate.findMany({
       where: {
@@ -192,6 +193,7 @@ export async function issueDetail(tx: DbTx, scope: Scope, id: string) {
     tx.issueExternalRef.findMany({ where, orderBy: { createdAt: "asc" } }),
     tx.issueEvent.findMany({ where, orderBy: { createdAt: "desc" }, take: 200 }),
     linksOf(tx, scope, { type: ISSUE_TYPE, id: issue.id }),
+    githubRequestsOf(tx, scope, issue.id),
   ]);
   const others = [...new Set(candidates.map((c) => (c.issueId === issue.id ? c.candidateIssueId : c.issueId)))];
   const titles = new Map(
@@ -225,6 +227,7 @@ export async function issueDetail(tx: DbTx, scope: Scope, id: string) {
     },
     deliveries: deliveries.map(deliveryView),
     externalRefs: refs.map((r) => ({ id: r.id, system: r.system, externalId: r.externalId, url: r.url, state: r.state })),
+    githubRequests,
     timeline: events.map((e) => ({
       id: e.id,
       type: e.type,

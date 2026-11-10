@@ -2,12 +2,17 @@
 import { createContext, useContext, type ComponentType } from "react";
 import type { Route, RouteTable } from "./routes";
 import type {
+  AgentSetup,
   AttentionRenderer,
   ConnectorProvider,
   Label,
   SettingsSection,
 } from "./types";
 import type { AttentionResponse } from "@/lib/api";
+import type {
+  DriveFileActionProps,
+  DriveToolbarProps,
+} from "@/platform/drive/api";
 import type {
   ActionRequestRenderer,
   ChatExtension,
@@ -67,6 +72,13 @@ export type ShellContextValue = {
     providers: readonly ConnectorProvider[];
     extras: readonly ComponentType[];
   };
+  /** Drive page actions of the enabled modules (WebModule.drive). */
+  drive?: {
+    fileActions: readonly ComponentType<DriveFileActionProps>[];
+    toolbar: readonly ComponentType<DriveToolbarProps>[];
+  };
+  /** Guided agent setups of the enabled modules, by template key. */
+  agentSetups?: Readonly<Record<string, AgentSetup>>;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

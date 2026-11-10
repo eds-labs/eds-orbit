@@ -37,6 +37,13 @@ import {
   connectionAccess,
 } from "../../../platform/connections/connections.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
+import { publishingBackend, refuseWhileDraining } from "./backend.ts";
+import {
+  accountForChannel,
+  importOriginMedia,
+  isSocialChannel,
+  submitOriginPost,
+} from "../../social/contract.ts";
 
 /**
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a
@@ -111,7 +118,8 @@ const OPEN = ["queued", "sending", "outcome_unknown"];
 export type DraftTarget = {
   content: Awaited<ReturnType<typeof entity>>;
   c: Record<string, any>;
-  connector: Awaited<ReturnType<typeof entity>>;
+  /** Null for a native `social:` channel: no Postiz connector stands behind it. */
+  connector: Awaited<ReturnType<typeof entity>> | null;
   integration: Record<string, any>;
 };
 
@@ -163,6 +171,27 @@ export async function draftTarget(
       data(row).contentVersion === content.version,
   );
   if (done) return { done };
+  if (isSocialChannel(c.channel)) {
+    // A native Social channel needs no Postiz connector (G9); the account
+    // must belong to the project and the policy must allow the channel.
+    if ((await publishingBackend(tx, scope)) !== "social")
+      throw new DomainError("SOCIAL_CHANNEL_REQUIRES_SOCIAL_BACKEND", 409);
+    const account = await accountForChannel(tx, scope, c.channel);
+    if (!account) throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
+    const policy = await activePolicy(tx, scope);
+    if (!policy || !data(policy).channels?.includes(c.channel))
+      throw new DomainError("POLICY_CHANNEL_REQUIRED", 409);
+    return {
+      content,
+      c,
+      connector: null,
+      integration: {
+        id: c.channel,
+        name: account.handle,
+        identifier: account.platform,
+      },
+    };
+  }
   const connector = (await list(tx, scope, "connectors")).find(
     (row) =>
       data(row).provider === "postiz" && connectionVerified(data(row).status),
@@ -206,8 +235,8 @@ export async function recordDraftHandoff(
     packageHash: hash(packageData),
     integrationName: integration.name ?? null,
     integrationIdentifier: integration.identifier,
-    connectorId: connector.id,
-    connectorVersion: connector.version,
+    connectorId: connector?.id ?? null,
+    connectorVersion: connector?.version ?? null,
     requestedBy: scope.userId,
     startedAt: new Date().toISOString(),
     ...fields,
@@ -232,6 +261,8 @@ export type DraftSend = {
   text: string;
   asset: Record<string, any> | null;
   date: string;
+  /** On Social (S9): the account the draft is created for; no Postiz call. */
+  socialAccountId?: string;
 };
 
 export async function draftSend(
@@ -240,9 +271,17 @@ export async function draftSend(
   target: DraftTarget,
   date: string,
 ): Promise<DraftSend> {
-  const k = data(target.connector);
+  const k = target.connector ? data(target.connector) : {};
   const c = target.c;
-  const access = await connectionAccess(tx, scope, k);
+  const social =
+    (await publishingBackend(tx, scope)) === "social"
+      ? await accountForChannel(tx, scope, target.integration.id as string)
+      : undefined;
+  if (social === null) throw new DomainError("SOCIAL_CHANNEL_NOT_MAPPED", 409);
+  // A project on Social needs no Postiz credential for its drafts.
+  const access = social
+    ? { baseUrl: null, credential: "" }
+    : await connectionAccess(tx, scope, k);
   const asset = c.assetId
     ? data(await entity(tx, scope, "assets", c.assetId))
     : null;
@@ -261,6 +300,7 @@ export async function draftSend(
     text: finalPostText(c.body, c.targetUrl),
     asset,
     date,
+    ...(social ? { socialAccountId: social.accountId } : {}),
   };
 }
 
@@ -319,6 +359,8 @@ export async function sendDraftHandoff(
     ) => Promise<void>;
   } = {},
 ) {
+  if (send.socialAccountId)
+    return sendSocialDraft(scope, handoffId, send, deps, options);
   let remoteId: string;
   let step: "upload_media" | "create_post" = "upload_media";
   let withoutImage = options.withoutImage === true;
@@ -436,6 +478,119 @@ export async function sendDraftHandoff(
   });
 }
 
+/**
+ * A draft for a project on Social (S9): the same human-approval and image
+ * rules as for Postiz, then a timed Social draft (origin marketing) that a
+ * person schedules and approves in Social. Creating it is local, so the
+ * outcome is always known.
+ */
+async function sendSocialDraft(
+  scope: Scope,
+  handoffId: string,
+  send: DraftSend,
+  deps: DraftDeps,
+  options: {
+    withoutImage?: boolean;
+    imageFallback?: boolean;
+    after?: (
+      tx: DbTx,
+      row: Awaited<ReturnType<typeof entity>>,
+    ) => Promise<void>;
+  },
+) {
+  let withoutImage = options.withoutImage === true;
+  let imageError: string | null = null;
+  const mediaIds: string[] = [];
+  try {
+    const humanEach = await assertHumanHandoffCurrent(scope, handoffId);
+    if (humanEach && withoutImage && send.asset)
+      throw new DomainError("STALE_APPROVAL", 409);
+    try {
+      const asset = withoutImage
+        ? null
+        : await deps.readAsset(scope, send.asset);
+      await assertHumanHandoffCurrent(scope, handoffId);
+      if (humanEach && send.asset && !asset)
+        throw new DomainError("ASSET_NOT_SUPPORTED", 409);
+      if (asset)
+        mediaIds.push(
+          await importOriginMedia(scope, { bytes: asset.bytes, mime: "image/png" }),
+        );
+    } catch (error) {
+      if (humanEach) throw error;
+      if (
+        error instanceof DomainError &&
+        [
+          "STALE_APPROVAL",
+          "ASSIGNMENT_HUMAN_APPROVAL_REQUIRED",
+          "MODULE_DISABLED",
+        ].includes(error.code)
+      )
+        throw error;
+      if (!options.imageFallback) throw error;
+      imageError =
+        error instanceof DomainError ? error.message : "SOCIAL_DRAFT_IMAGE_FAILED";
+      withoutImage = true;
+      mediaIds.length = 0;
+    }
+    await assertHumanHandoffCurrent(scope, handoffId);
+    return await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await entity(tx, scope, "postiz_drafts", handoffId);
+      const h = data(row);
+      if (h.status !== "sending") return row;
+      const { postId } = await submitOriginPost(tx, scope, {
+        origin: {
+          module: "marketing",
+          type: "draft_handoff",
+          id: handoffId,
+          version: Number(h.contentVersion ?? 1),
+        },
+        accountId: send.socialAccountId!,
+        text: send.text,
+        mediaIds,
+        mode: "draft",
+        at: new Date(send.date),
+      });
+      await audit(tx, scope, "postiz_draft.accepted", handoffId, {
+        remoteId: postId,
+        backend: "social",
+      });
+      const saved = await update(tx, scope, row, {
+        ...h,
+        status: "accepted",
+        publishingBackend: "social",
+        remoteId: postId,
+        remoteType: "social_draft",
+        remoteDate: send.date,
+        withoutImage,
+        ...(imageError ? { imageError } : {}),
+        finishedAt: new Date().toISOString(),
+      });
+      await options.after?.(tx, saved);
+      return saved;
+    });
+  } catch (error) {
+    const code =
+      error instanceof DomainError ? error.message : "SOCIAL_DRAFT_FAILED";
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await entity(tx, scope, "postiz_drafts", handoffId);
+      if (data(row).status !== "sending") return row;
+      const saved = await update(tx, scope, row, {
+        ...data(row),
+        status: "failed",
+        publishingBackend: "social",
+        error: code,
+        failedStep: "create_post",
+        withoutImage,
+        ...(imageError ? { imageError } : {}),
+        finishedAt: new Date().toISOString(),
+      });
+      await options.after?.(tx, saved);
+      return saved;
+    });
+  }
+}
+
 /** A send's answer that came after its handoff left `sending`: recorded beside the state, which stays (M7). */
 async function lateResult(
   tx: DbTx,
@@ -460,6 +615,7 @@ async function prepare(
   version: number,
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  await refuseWhileDraining(tx, scope);
   if (!postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const project = await tx.project.findUniqueOrThrow({

@@ -22,6 +22,7 @@ const QUEUES = [
   "ingestion",
   "embedding",
   "reindex",
+  "knowledge_site_sync",
   "index_evaluation",
   "index_evaluation_set",
   "analytics",
@@ -30,6 +31,8 @@ const QUEUES = [
   "email_archive",
   "finance_mail_receipt",
   "finance_extract",
+  // Agent work orders (ADR 0021); their own runs are tested in agent-platform.
+  "agent_work",
 ] as const;
 
 describe.skipIf(!enabled)(
@@ -133,10 +136,20 @@ describe.skipIf(!enabled)(
         },
         // Current behaviour, pinned: a missing index generation is not recognised
         // as permanent, so the job spends all three attempts before it stops.
+        agent_work: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
+        },
         reindex: {
           status: "blocked_dependency",
           error: "INDEX_UNAVAILABLE",
           attempts: 3,
+        },
+        knowledge_site_sync: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
         },
         index_evaluation: {
           status: "blocked_dependency",

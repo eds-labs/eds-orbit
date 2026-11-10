@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
@@ -54,8 +55,9 @@ const fields = {
   assignmentPolicy: z.enum(["unassigned", "round_robin", "fixed"]),
   defaultAssigneeUserId: z.string().min(1).max(100).nullable(),
   language: z.enum(["en", "de"]),
-  // "widget_answer" follows with WP5.6, after Q-17.
-  aiMode: z.enum(["off", "draft"]),
+  // "widget_answer" follows with WP5.6, after Q-17. "agent": a configured
+  // Support agent works the inbox instead of the automatic jobs (D-15).
+  aiMode: z.enum(["off", "draft", "agent"]),
   rules: inboxRulesSchema,
 };
 const createInput = z
@@ -272,6 +274,12 @@ export async function listInboxes(tx: DbTx, scope: Scope) {
   return rows.map(inboxView);
 }
 
+/** Agent mode only while the agent platform is on (ADR 0021 D-15). */
+function assertAiMode(mode: string | undefined) {
+  if (mode === "agent" && loadConfig().ORBIT_AGENT_PLATFORM !== "true")
+    throw new DomainError("AGENT_PLATFORM_DISABLED", 409);
+}
+
 export async function createInbox(tx: DbTx, scope: Scope, raw: unknown) {
   const input = createInput.parse(raw);
   const base = {
@@ -280,6 +288,7 @@ export async function createInbox(tx: DbTx, scope: Scope, raw: unknown) {
     allowedOrigins: input.allowedOrigins ?? [],
   };
   assertChannels(base);
+  assertAiMode(input.aiMode);
   await assertCustomerContextBinding(tx, scope, input.rules);
   const row = { ...base, ...(await mailboxFields(tx, scope, base)) };
   const widgetSecret = row.channels.includes("widget")
@@ -321,6 +330,7 @@ export async function updateInbox(
     throw new DomainError("INBOX_VERSION_CONFLICT", 409);
   const next = { ...current, ...changes };
   assertChannels(next);
+  if (changes.aiMode !== current.aiMode) assertAiMode(changes.aiMode);
   await assertCustomerContextBinding(tx, scope, changes.rules, current.rules);
   const mailbox = await mailboxFields(
     tx,

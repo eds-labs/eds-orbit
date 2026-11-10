@@ -39,7 +39,10 @@ export function TelegramPanel({
   error,
   onConnect,
   onDisconnect,
+  description,
 }: {
+  /** Replaces the owner-bot text (the personal space's notices bot, ADR 0023). */
+  description?: string;
   status: TelegramStatus;
   link: LinkCode | null;
   de: boolean;
@@ -66,9 +69,10 @@ export function TelegramPanel({
       <div className="connector-body">
         <h2>Telegram</h2>
         <p>
-          {de
-            ? "Dein privater Orbit-Bot: Vorschau jedes Auftrags-Posts mit Stop, Hinweise, Tagesbericht und /pause."
-            : "Your private Orbit bot: a preview of every assignment post with Stop, notices, a daily report and /pause."}
+          {description ??
+            (de
+              ? "Dein privater Orbit-Bot: Vorschau jedes Auftrags-Posts mit Stop, Hinweise, Tagesbericht und /pause."
+              : "Your private Orbit bot: a preview of every assignment post with Stop, notices, a daily report and /pause.")}
         </p>
         <div className="detail-summary">
           <Badge

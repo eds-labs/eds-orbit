@@ -7,6 +7,7 @@ import type {
   KnowledgeDraft,
   KnowledgeSnapshot,
 } from "../../../../../packages/schemas/src/knowledge-workspace.ts";
+import { containsCredentials } from "../../../../../packages/knowledge/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import {
   create,
@@ -280,11 +281,6 @@ export function allowedRepositoryPath(path: string, paths: string[]) {
       path,
     ) &&
     paths.some((p) => (p.endsWith("/") ? path.startsWith(p) : path === p))
-  );
-}
-export function containsCredentials(text: string) {
-  return /-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})|(?:api[_-]?key|password|client[_-]?secret|access[_-]?token)\s*[:=]\s*["'][^"']{8,}["']/i.test(
-    text,
   );
 }
 export async function readRepository(

@@ -33,6 +33,7 @@ import {
 export * from "./types.js";
 export * from "./algorithms.js";
 export * from "./safe-fetch.js";
+export * from "./credentials.js";
 export * from "./extract.js";
 export * from "./indexes.js";
 export * from "./freshness.js";
@@ -108,7 +109,8 @@ async function audit(
  * impact handler invalidate its own dependent records in the same
  * transaction. Handlers run even when no evidence was affected: records can
  * reference the source directly. `contentIds` keeps its historic name in the
- * result; it is the union of what the handlers report.
+ * result; it is the union of what the handlers report. With `documentVersion`
+ * only evidence citing that version counts (null: no version, so nothing).
  */
 async function invalidate(
   tx: DbTx,
@@ -118,6 +120,7 @@ async function invalidate(
   reason: string,
   factId?: string,
   purge = false,
+  documentVersion?: { id: string | null },
 ) {
   const evidence = await tx.entity.findMany({
     where: { ...where(s), kind: "evidence" },
@@ -125,11 +128,18 @@ async function invalidate(
   const evidenceIds = new Set<string>();
   for (const e of evidence) {
     const d = e.data as unknown as EvidenceData;
-    if (
-      d.items?.some((i) => i.sourceId === sourceId) ||
-      d.facts?.some((f) => (factId ? f.id === factId : f.sourceId === sourceId))
-    ) {
+    const affected = documentVersion
+      ? d.items?.some((i) => i.documentVersionId === documentVersion.id)
+      : d.items?.some((i) => i.sourceId === sourceId) ||
+        d.facts?.some((f) =>
+          factId ? f.id === factId : f.sourceId === sourceId,
+        );
+    if (affected) {
       evidenceIds.add(e.id);
+      // Repeated runs for one source must not rewrite evidence that already
+      // carries this reason; purging still rewrites.
+      if (!purge && d.status === "invalidated" && d.gaps?.includes(reason))
+        continue;
       await revise(tx, s, e.id, {
         ...d,
         status: "invalidated",
@@ -150,6 +160,7 @@ async function invalidate(
     ...(factId ? { factId } : {}),
     purge,
     evidenceIds: [...evidenceIds],
+    ...(documentVersion ? { documentScoped: true as const } : {}),
   };
   const contentIds = new Set<string>();
   for (const handle of handlers) {
@@ -336,9 +347,11 @@ export async function ingest(
       where: { id: doc.activeVersionId },
       data: { state: "superseded" },
     });
-    const dependentFacts = await tx.entity.findMany({
-      where: { ...where(s), kind: "facts" },
-    });
+    const dependentFacts = input.documentScoped
+      ? []
+      : await tx.entity.findMany({
+          where: { ...where(s), kind: "facts" },
+        });
     for (const fact of dependentFacts) {
       const fd = fact.data as unknown as FactData;
       if (fd.sourceId === input.sourceId && fd.status === "verified")
@@ -366,6 +379,9 @@ export async function ingest(
     handlers,
     input.sourceId,
     "source_changed",
+    undefined,
+    false,
+    input.documentScoped ? { id: doc.activeVersionId } : undefined,
   );
   await tx.entity.update({
     where: { id: input.sourceId },
@@ -1525,6 +1541,47 @@ export async function revokeDocument(
     tombstoneId: tombstone.id,
   });
   return { revoked: true, impact, tombstoneId: tombstone.id };
+}
+
+/**
+ * Retires a document that its source no longer offers. Unlike
+ * `revokeDocument` this writes no tombstone and purges nothing, so the same
+ * externalId can be ingested again as a new version. Only what cites this
+ * document is affected, as for a document-scoped `ingest`.
+ */
+export async function retireDocument(
+  tx: DbTx,
+  s: Scope,
+  handlers: readonly ImpactHandler[],
+  documentId: string,
+) {
+  const document = await tx.knowledgeDocument.findFirst({
+    where: { ...where(s), id: documentId },
+  });
+  if (!document) throw new KnowledgeError("DOCUMENT_UNAVAILABLE");
+  if (!document.activeVersionId) return { retired: false };
+  await tx.documentVersion.update({
+    where: { id: document.activeVersionId },
+    data: { state: "superseded" },
+  });
+  await tx.knowledgeDocument.update({
+    where: { id: documentId },
+    data: { activeVersionId: null },
+  });
+  await invalidate(
+    tx,
+    s,
+    handlers,
+    document.sourceId,
+    "document_retired",
+    undefined,
+    false,
+    { id: document.activeVersionId },
+  );
+  await audit(tx, s, "knowledge.document_retired", documentId, {
+    versionId: document.activeVersionId,
+  });
+  return { retired: true };
 }
 export async function attachEmbeddings(
   tx: DbTx,

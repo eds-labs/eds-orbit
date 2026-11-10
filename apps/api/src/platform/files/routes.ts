@@ -58,6 +58,18 @@ const moduleOf = (scope: Scope, id: string) =>
     return moduleId;
   });
 
+/**
+ * A live file's metadata and content as the member may download it through
+ * `GET /files/:fileId`: the same module, permission and private-module checks.
+ * Modules that take an Orbit file by id (social's media import) use it so the
+ * rule exists once.
+ */
+export async function readMemberFile(member: Scope, id: string) {
+  const moduleId = await moduleOf(member, id);
+  const scope = await inModule(member, moduleId, PROJECT_READ);
+  return { moduleId, ...(await readFile(scope, id)) };
+}
+
 /** RFC 5987 `attr-char` encoding for `filename*`. */
 const extValue = (value: string) =>
   encodeURIComponent(value).replace(
@@ -145,12 +157,7 @@ export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
       };
       const id = z.uuid().parse(fileId);
       const member = await scopeFor(auth, req, projectId);
-      const scope = await inModule(
-        member,
-        await moduleOf(member, id),
-        PROJECT_READ,
-      );
-      const { file, bytes } = await readFile(scope, id);
+      const { file, bytes } = await readMemberFile(member, id);
       return reply
         .header("Content-Type", file.mime)
         .header("Content-Length", String(bytes.byteLength))

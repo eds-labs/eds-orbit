@@ -29,6 +29,9 @@ type Override = {
   active: boolean;
   rate: unknown;
   perImageMicros: number | null;
+  /** ADR 0024; rows from before the migration have neither (unit token). */
+  unit?: string;
+  unitPriceMicros?: { toString(): string } | number | null;
   verifiedAt: Date | null;
 };
 
@@ -48,6 +51,21 @@ const overrideRate = (value: unknown): Omit<Rate, "verifiedAt"> | undefined => {
 };
 
 /**
+ * A speech model's unit price override (ADR 0024): only a row whose unit is
+ * the catalogue entry's own unit counts. A row that only switched the model
+ * on or off keeps the default unit `token` and changes no price; any other
+ * unit is ignored, so a wrong unit can never price a call.
+ */
+function overrideUnitPrice(entry: CatalogEntry, row: Override) {
+  if (!entry.unitPrice || row.unit !== entry.unitPrice.unit) return undefined;
+  if (row.unitPriceMicros === null || row.unitPriceMicros === undefined) return undefined;
+  const micros = Number(row.unitPriceMicros.toString());
+  return Number.isFinite(micros) && micros >= 0
+    ? { unit: entry.unitPrice.unit, micros }
+    : undefined;
+}
+
+/**
  * The catalog with the given overrides applied, system rows before the
  * organization's: one entry per catalog model.
  */
@@ -64,12 +82,14 @@ export function mergeCatalog(overrides: Override[], now = Date.now()): CatalogMo
       const row = overrides.find((o) => o.scope === scope && o.modelId === id);
       if (!row) continue;
       const rate = overrideRate(row.rate);
-      const priced = Boolean(rate) || row.perImageMicros !== null;
+      const unitPrice = overrideUnitPrice(entry, row);
+      const priced = Boolean(rate) || row.perImageMicros !== null || Boolean(unitPrice);
       model = {
         ...model,
         active: row.active,
         ...(rate ? { rate } : {}),
         ...(row.perImageMicros !== null ? { perImageMicros: row.perImageMicros } : {}),
+        ...(unitPrice ? { unitPrice } : {}),
         ...(priced && row.verifiedAt
           ? {
               verifiedAt: row.verifiedAt.toISOString(),
@@ -120,4 +140,11 @@ export function catalogImagePrice(catalog: CatalogModel[], model: string) {
   return entry?.perImageMicros
     ? { perImageMicros: entry.perImageMicros, verifiedAt: entry.verifiedAt }
     : null;
+}
+
+/** The catalogue's speech models with their overrides (ADR 0024), for routing. */
+export function speechCatalog(catalog: CatalogModel[]) {
+  return catalog.filter(
+    (m) => m.purpose === "speech_to_text" || m.purpose === "text_to_speech",
+  );
 }

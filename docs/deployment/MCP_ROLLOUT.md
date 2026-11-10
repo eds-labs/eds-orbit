@@ -151,6 +151,8 @@ default, in addition to the existing gateway/OAuth/proposal switches. See
 not authorize enabling it or sending paid/customer/public work. New optional
 `orbit:write` and `orbit:support` scopes require explicit consent/reconnection;
 existing grants keep their existing scopes. No additional migration is needed.
+The same holds for `orbit:social` (ADR 0020, S7): a client reconnects and the
+user ticks it; the resource's allowed scopes are merged at start-up.
 
 
 ## ChatGPT CIMD method-list compatibility (2026-10-20)

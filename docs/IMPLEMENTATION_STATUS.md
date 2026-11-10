@@ -1,5 +1,377 @@
 # Implementation status
 
+## Knowledge: one row per source, grouped knowledge and plain language (2026-11-09, delivered to `main`, not live-accepted)
+
+Spec [2026-11-09-knowledge-structure-and-language-design.md](superpowers/specs/2026-11-09-knowledge-structure-and-language-design.md); behaviour in [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Package 3 of the Knowledge review. Risk medium: web only (no API change, action, migration, dependency or access-matrix change), but the main owner flow for confirming knowledge changes and bulk confirm can put many statements into use with one click.
+
+- **State:** delivered to `main` on 2026-11-09 with Mario's approval, integrated with `origin/main` at `e62decb0`. On the integrated tree: lint, typecheck, build and boundaries pass; 569 test files passed, 1 skipped; 6,259 tests passed, 7 skipped, 0 failed; browser spec 2 of 2. Web and docs only: no migration, no schema hash, no flag change. Not live-accepted: nobody has used the new pages on production data yet.
+- **Built:**
+  - One row model for every source on the Sources page (`source-rows.ts`, `source-list.tsx`): one status, one sentence, at most one primary action, the rest under "More"; a 30-day reminder for GitHub and single-page website drafts.
+  - Knowledge and To review grouped by the five topics; review cards with rights line and Adjust; bulk confirm with a bar that states its effect, partial failure handling and one refresh at the end.
+  - Plain language (source, proposal, knowledge, statement) in German and English, and a technical area with its own navigation.
+- **Verification (local, this worktree's own test database):**
+  - `pnpm lint` passes (source guard; import boundaries 0 known, none new); `pnpm typecheck` passes; `node scripts/boundaries.mjs` exit 0; `git diff --check` clean.
+  - Whole vitest suite after the final fix wave: 560 files passed, 1 skipped (561); 6,116 tests passed, 7 skipped, 0 failed (an earlier run under machine load had one unidentified failure; the rerun was clean).
+  - `pnpm build` passes.
+  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. It covers the More menu (inside the viewport, closes after a choice), bulk confirm through the UI, a partial failure answered with a stubbed 409 `VERSION_CONFLICT`, the bar in view and above the bottom navigation, that an Adjust edit is what is sent, no horizontal overflow with a long source name and quote, the technical area link and its way back, and Update on a website draft (confirm dialog, then the Use step with the preview stubbed).
+  - Impeccable detector on `apps/web/src/modules/knowledge`: 0 findings.
+- **Browser coverage gaps:** the browser spec exercises one topic only. Multi-topic grouping, the Other group, Reject, and Keep using / Remove in the Changed group are covered by unit tests, or not at all in the browser.
+- **Not verified:** production behaviour; the Knowledge flag state in production; a real GitBook or GitHub source in the new rows.
+
+## Knowledge: whole sites and a short add flow (2026-11-09, delivered to `main`, not live-accepted)
+
+Spec [2026-11-08-knowledge-sites-and-add-flow-design.md](superpowers/specs/2026-11-08-knowledge-sites-and-add-flow-design.md); behaviour and first-read steps [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md). Risk high: a background job reads outside sites and changes content automatically. No schema change, no migration, no schema hash, no new dependency. Existing flag `ORBIT_KNOWLEDGE_WORKSPACE`.
+
+- **State:** delivered to `main` on 2026-11-09 together with Knowledge package 1 (`04d5992b`, recoverable refresh, remove and edit, deep links). A push to `main` deploys; no migration, no schema hash, no flag change. Not live-accepted: the first GitBook read in production has not happened.
+- **Built:**
+  - Reading sites: same-origin `robots.txt` redirects, XML only through `fetchDiscoveryDocument`, sitemap discovery (one index level, 200 pages), Markdown with HTML fallback.
+  - Durable runs in batches of 20 (`knowledge_site_runs`, queue class `knowledge_site_sync`), weekly update (`syncEveryHours` 168, `maxAgeHours` 336), `retireDocument`, the D-6 removal guard and the attention item `knowledge_site_review`.
+  - Six owner-only actions: `knowledge-site-discover`, `knowledge-site-start`, `knowledge-site-refresh`, `knowledge-site-settings`, `knowledge-content-accept`, `knowledge-analysis-preflight`.
+  - Own task class `knowledge_analysis` (12,000 output tokens, up to 13 statements). The start button is the consent (`confirmModelUse`).
+  - New add flow (what, Content, Use, Result), GitHub App setup on `knowledge/github`, and site runs and analysis outcomes on Sources.
+- **Rulings that shape behaviour:**
+  - A run stopped by a paused source or changed generation ends `failed` with `SOURCE_INACTIVE` (R13).
+  - D-6 counts only pages missing from discovery; when it trips nothing is retired, owner exclusions included (R14).
+  - An `initial` run retires only owner exclusions (R15).
+  - Site sources use authority `official` (R16).
+  - Only AI-configuration blockers link to Settings → AI; `MODEL_USE_FORBIDDEN` links to Sources (R17).
+  - Rights stay on the Use step for all ways; for statements they are review defaults on the draft.
+- **Verification (local, this worktree's own test database):**
+  - `pnpm lint` passes (source guard; import boundaries 0 known, none new), and so does `pnpm typecheck` (API and web).
+  - Whole vitest suite on the branch before integrating `main`: 557 files passed, 1 skipped; 5,988 tests passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`).
+  - `pnpm build` passes.
+  - `apps/web/tests/knowledge-workspace.spec.ts` on the isolated stack at 1440 px and 390 px: 2 of 2 passed. The worker runs for real; `knowledge-site-discover` and `knowledge-site-start` are stubbed at the network.
+  - Design detector on `apps/web/src/modules/knowledge`: no findings.
+  - Read-only sweep of the real FamilyPlan GitBook through `discoverSite` and `readSitePage`: 74 of 74 pages clean (37 de, 37 en).
+  - Not covered: a run on the real worker against a real site (site runs are covered by integration tests with stubbed fetches), a paid model call, a real Support test question. Compose and MCP were not changed, so their conformance tests were not run.
+- **Production:** no flag changed. After deployment the owner starts the first GitBook read with "Read in content" on the existing source and checks page count, language split and a Support test question. Weekly updates can be switched off per source, and pausing a source stops a run at once. Rollback needs the pre-revert step in [KNOWLEDGE_WORKSPACE.md](KNOWLEDGE_WORKSPACE.md): remove `knowledge_analysis` from stored task routes first. Documents already read stay searchable until `maxAgeHours` passes, then the existing freshness warning appears.
+
+## Marketing posts in the native Social calendar (2026-11-09, branch `claude/marketing-social-handoff`, not merged, not deployed)
+
+The first FamilyPlan run (2026-11-09, run `a12f94ef`) did not fail: both released posts were Marketing publications waiting for their 18:30 Berlin job (`intent_created`, `test: false`, no blockers), and Social only received a post when that job ran, so its calendar stayed empty. A released post is now announced in Social within seconds (`docs/SOCIAL.md`, "Announcement"), the slot's hand-off releases that same post and keeps its time, and a publication nobody claimed in time is blocked with `SLOT_EXPIRED`. A temporary error or a worker restart gives the claim back instead of failing or leaving an unknown outcome. `marketing_campaigns` and `marketing_content` report `delivery.state`, because `completed` and `reviewed` say nothing about delivery. ADR 0020 S9 is amended. No migration.
+
+## Ads module A2: provider seam, Meta transport and money (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; on `main` since 2026-11-09, no flag)
+
+Step A2 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a2-provider-seam.md)), stacked on A1; commits `078ca199` to `2e6864ef` (and this documentation commit). Docs: [ADS.md](ADS.md), "Meta transport".
+
+- **Built:** `packages/money` (decimals-based exact arithmetic, `MoneyError`, exact helpers; `apps/api/src/modules/finance/money.ts` is a thin wrapper, Finance behaviour, currency set and error codes unchanged); `apps/api/src/modules/ads/providers/` (provider types, registry, Meta client pinned to `v27.0` with `appsecret_proof` on every call, token only in the `authorization` header, cursor-only paging, ten-row error classification, usage buckets, Meta currency offsets with the `spend_cap` read-minor/write-major asymmetry, test hook `setMetaAdsFetchForTests`); in-memory fake Graph `apps/api/tests/support/fake-meta-graph.ts`.
+- **State:** pushed to `main` on 2026-11-09; no schema change of its own, no flag; no Meta call from code or tests.
+- **Open:** Task 6 (contract tests on sanitized A0 recordings) waits for the A0 spike's groups G2 and G4; A1 Task 0 (ad-blocker test) is open and gates enabling `ORBIT_ADS`; v27.0 was re-checked on 2026-11-08 (changelog lists it as newest).
+- **Deviations:** in-memory fake instead of a server (`boundedFetch` refuses loopback); Meta currency table in the adapter; A2 stacked on A1 on one branch.
+- **Rollback:** revert the commits; nothing persists. The Finance wrapper keeps its public signatures.
+
+## Ads module A1: module skeleton (2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; on `main` since 2026-11-09, flag off)
+
+Step A1 of [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) ([step plan](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)). Docs: [ADS.md](ADS.md).
+
+- **Built:** installation switch `ORBIT_ADS` (default `false`; config, both compose files, `.env.example`, compose checks); `apps/api/src/modules/ads/` (manifest, eight permissions, gate with 404 `ADS_DISABLED`, settings, `GET /api/projects/:projectId/ads/status`); migration `202611080001_ads_core` (`AdAccount`, `AdOAuthState`, `AdSyncState`, `AdProviderThrottle`, forced RLS, no DELETE grant on `AdAccount`); boundary zones `module:ads` and `web-module:ads` and a ban on ads SDK and n8n imports; opt-in web module with six placeholder views and an ad-blocker hygiene test; tests in `ads-module`, `ads-schema`, `ads-routes`, RLS and access matrices, boundaries and web `ads.test.tsx`.
+- **State:** pushed to `main` on 2026-11-09 on Mario's go, with the schema hash below set in Coolify on his instruction; the deployment applies the migration; `ORBIT_ADS` stays off, no provider call.
+- **Schema hash for Mario's approval (production, from `sh scripts/check-pve-schema.sh --print-hash`):** `e3cb3759169fde49c7aaf6b859b7b9f0fb80e1b0164cb7e3e2eabd32f03f5dd0`. It must be approved in Coolify before any push to `main` that contains the migration.
+- **Open:** Task 0 (A-D1 ad-blocker test of `ads` in uBlock Origin, AdGuard and Brave in Mario's browsers) has no valid result yet: the checks on 2026-11-08 and 2026-11-09 ran without an active blocker (the BAIT probe loaded) and proved nothing. Mario decided on 2026-11-09 that the test gates enabling `ORBIT_ADS`, not the push to `main`. The implementation uses `ads` by a recorded ruling; the plan's rename table applies if the test says `advertising`. Next: A2 (provider seam; implemented, see above).
+- **Rollback:** revert the branch; after a deployment the tables are inert and empty while the flag is off.
+
+## Daily social automation on assignments (2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`, not merged, not deployed)
+
+Spec [2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md). Extends assignments (no parallel automation); no schema change, no migration, no new dependency.
+
+- **Built:**
+  - G1: an owner release at or after the slot fails with `SLOT_EXPIRED` (409) for all deliveries; agent-approved drafts past their slot are dropped; awaiting drafts carry `expired`, raise no release attention item and show "Abgelaufen".
+  - G2: a Marketing publication whose job runs more than 30 minutes late becomes `blocked_dependency` with `SLOT_EXPIRED` (all Marketing publications, ruling R3).
+  - G3: Social never sends more than 30 minutes late (`SOCIAL_SLOT_EXPIRED`, never retried; claim, throttle wait, after-delay retry).
+  - G4: `historyDays` (14 to 60) on assignments and the card; strategy gets `recentTopics` (bounded) and native Social posts with a coverage marker; topic holds follow it.
+  - G5: `importOriginMedia` reuses a non-archived asset with the same sha256.
+  - G6: owner retry of a failed or partial run at least 60 minutes before the open slot (route, `assignment_change` action `retry`, web button, `runRetryRefusal`); retired runs are never scheduled.
+  - G7: `GET /api/projects/:projectId/assignments/:id/detail` and the web detail view (`?assignment=<id>`).
+  - G8: owner attention items `marketing_policy_expiring` and `platform_spend_authority_expiring`, 7 days ahead.
+  - G9: `social:<accountId>` channels on the Social backend (platform-enabled check, lowercase only, refused on Postiz, listed in `marketing_policy_get` options; no web picker, ruling R5).
+- **Deviation (R2):** a failed image leaves the run `partial` (nothing delivered), not `failed` as the spec table says.
+- **Verification (local):**
+  - Lint, API and web typecheck, `node scripts/boundaries.mjs` (0 new violations) and `git diff --check` pass.
+  - Full vitest suite on this worktree's own test DB after merging `origin/main` (`c2bafb41`): 554 files passed, 1 skipped; 5618 passed, 7 skipped, 0 failed (includes `rls-matrix`, `access-matrix`, `queue-dispatch`). The merge unified the owner release refusal on `SLOT_EXPIRED` (at or after the slot) and the draft list on `state: pending | expired`.
+  - `tsc --noEmit` and `next build` pass; `pnpm db:generate` was not run (no schema change).
+  - Browser check on a synthetic fixture (worktree test DB, mocked providers, no worker, test mode, no external call): assignment detail, approvals list and counter, approval of a future slot, retry with confirmation. Direct API calls for an expired draft returned 409 `SLOT_EXPIRED` and for a replaced draft 409 `DRAFT_NOT_AWAITING_OWNER`. Not covered: a real Creative Studio image, a real Facebook or Instagram post, and the 08:00/18:30 timers in a running worker.
+  - Browser re-check on the merged code (same synthetic fixture): approvals page shows expired drafts with reject and archive only and pending drafts with release; approval moves the post to the 18:30 list; a late release returned 409 `SLOT_EXPIRED`.
+  - No flags or production configuration were changed.
+- **Production:** nothing deployed. Rollout steps 1 to 6 each need Mario's explicit approval; the first real post happens only when he releases it.
+
+## Ads module: plan and decisions (2026-11-07; documentation only, nothing implemented)
+
+Plan: [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (programme for a standalone `ads` module: Meta Ads, then ChatGPT Ads, then Google Ads; decisions A-D1–A-D19 accepted as recommended by Mario on 2026-11-07). ADR: [adr/0025-ads-module.md](adr/0025-ads-module.md) (proposed). [ADR 0008](adr/0008-action-approvals.md) gains the addendum of 2026-11-07 (F1/F2 may be proposed over MCP, chat and agents; owner decides in the web UI with recent authentication) and `plans/orbit-modularization/09-mcp-gateway.md` §6.1 follows it; both take effect with the ads steps A7 and A10. Next: step A0's spike ([guide](superpowers/plans/2026-11-07-ads-a0-spike.md): own Meta app in development mode, no spend; needs Mario), then A1. On 2026-11-08 Mario decided that the app belongs to a new Meta business portfolio "EDS Labs" with its own Page; an older Meta test app is not used. Step plans for A1 ([module skeleton](superpowers/plans/2026-11-08-ads-a1-module-skeleton.md)) and A2 ([provider seam](superpowers/plans/2026-11-08-ads-a2-provider-seam.md)) written 2026-11-08. No code, migration, flag, developer app or provider call exists.
+
+## Social media over MCP: library list, import and upload (2026-11-07, live since 19:44 UTC via `a4b25ced`)
+
+Mario's task 2026-11-07: make the native Social module's media library usable through MCP (ChatGPT, Claude) without a second media store. Docs: [SOCIAL.md](SOCIAL.md) ("Media over MCP").
+
+- **Built:** `social_media_list` (R0, `orbit:social`, `social.read`: name search, type/MIME filter, newest/oldest, cursor pages, dimensions, sizes, preview link); `social_media_import` (W0, `orbit:write` + `orbit:social`, `social.compose`: project Google Drive through Orbit's own connection, HTTPS URL through the connectors' SSRF-safe transport with checked redirects, Orbit file under the file route's read rule); `social_media_upload` (W0: inline base64 ≤ 160 KB, a client-held file via `openai/fileParams`, or a signed one-time upload session `PUT /api/public/social/media-uploads/<token>`, 15 minutes). Idempotency receipts and upload sessions are `Entity` rows; identical images are recognized by the hash of their normalized bytes. Platform additions: `OrbitTool.mcpMeta`, `readMemberFile` (shared file-route read rule), `boundedFetchWith` (response cap), exported `modelParameters`/`serviceArgs`. No migration, no new dependency, no new flag.
+- **Follow-ups done (same day):** identical concurrent calls store one image and one receipt (re-check under the project lock, losing copy's files deleted); periodic `social-media-mcp-cleanup` (sessions after a day, receipts after 30 days); read tool `social_drive_files` (Drive folder browse through Orbit's connection, `social.compose`, MCP only).
+- **Decision (Mario, 2026-11-07):** library imports and uploads run without an ActionRequest (like the native upload for editors), gated by the explicit `orbit:write` consent; drafts and publications that use the images keep their owner approval.
+- **Verification (local):** `social-media-mcp.integration.test.ts` (Tests A–E with synthetic FamilyPlan images, Drive mocked, no provider or Google call, no post published), the full suite (access matrix with the new public PUT route, unexported entity kinds `social_media_receipt`/`social_media_upload`), lint, typecheck (API and web), regenerated OpenAPI/client; `next build` not run (no web source change). Full suite after merging main: 5,529 passed, 7 skipped; 2 failures came from a Node 20 shell (child processes need Node 24) and pass under the pinned Node 24.
+- **Live acceptance (2026-11-07, Claude connector, owner token, FamilyPlan):** A: `social_media_list` finds both V2 images, `social_drive_files` finds the PNGs in `04_Website_und_Marketing/02_Social_Media_und_Kampagnen`. B: Drive import by id and by Drive link through Orbit's connection returns the existing media ids as duplicates (no second copy). C: upload session with a 1.9 MB synthetic PNG: wrong type 415, tampered token 404, upload 201, reused URL 404, `sessionId` call returns the media (test image `orbit-mcp-livetest-2026-11-07.jpg` stays in the library). D: `social_validate` passes Facebook and Instagram with different images; `social_draft_create` created owner approval request `2eb0aabe-…`, nothing saved or published. E: metadata-address and http URLs `SOCIAL_MEDIA_URL_NOT_ALLOWED`, reused key with other arguments `IDEMPOTENCY_KEY_CONFLICT`, FamilyPlan media and session from the uLiquid project `NOT_FOUND`, uLiquid list empty. Role refusals (viewer/editor) are covered by integration tests only.
+- **ChatGPT follow-up (2026-11-07 evening):** ChatGPT listed only the reads: its token lacked `orbit:write` (the grant had it), because ChatGPT asks only for the scopes its listed tools declare and discovery hid `orbit:write` tools. Discovery now assumes `orbit:write` like the content scopes; a call without it gets the `INSUFFICIENT_SCOPE` step-up challenge (`mcp-2-gateway.integration.test.ts`). `social_drive_files` failed with `GOOGLE_DRIVE_REQUEST_FAILED` when ChatGPT passed a folder name as `folderId`; it now accepts Drive folder links, a `path` of folder names, falls back from an unreadable `folderId` to a name, and answers `SOCIAL_DRIVE_FOLDER_NOT_FOUND`. All 44 MCP/access-matrix test files pass (862 tests).
+- **ChatGPT file input (2026-11-08):** `social_media_upload` advertised `file` as a nullable union of `{download_url, file_id}`, and the object refused `mime_type` and `file_name`, so it did not meet the `openai/fileParams` contract. Fixed with an MCP-only published schema (`OrbitTool.mcpParameters`); `file` alone is now enough, retries are identified by the file id (the signed URL rotates), the bytes decide the type, and a sandbox path answers `SOCIAL_MEDIA_FILE_REFERENCE_INVALID`. Deployed 2026-11-08 19:34 UTC (`353d5a13`). Live-accepted the same day after refreshing the connector's tools: an image generated in ChatGPT (1254 x 1254 px) was imported into the EDS-Labs library through `file` (`completed`, `mediaId` returned, found again with `social_media_list`, stored as a 74 KB JPEG because the library normalizes opaque PNGs). Not checked live: the refusal paths, and a by-eye comparison of the stored image.
+- **Production config:** `ORBIT_MCP_CIMD_HOSTS=chatgpt.com,claude.ai` (Mario, 2026-11-07, redeploy 19:58 UTC) so Claude connectors can sign in; DCR stays off.
+
+## Brand-true assignment banners and draft decisions (2026-11-07, branch `claude/orbit-creatives-approval-management-64303d`, not merged)
+
+Mario's report of 2026-11-07: the FamilyPlan assignment "FamilyPlan Testwoche" produced a dark fintech banner with cyan waves and glass cards (another brand's look), and the approvals page offered only "Freigeben". The plan with causes and design is in [plans/marketing-brand-banners-and-draft-decisions.md](plans/marketing-brand-banners-and-draft-decisions.md).
+
+- **Cause 1:** the legacy assignment banner (`banner: brand_landscape`, R78) used a hard-coded background prompt (`DEFAULT_BANNER_STYLE`: navy, cyan light waves, frosted glass cards) and fixed compositor colours. The owner's style notes were only appended. No asset or cache crosses projects; every lookup is project-scoped.
+- **Cause 2:** the mobile "Freigaben" tab is marketing's approvals page. Its list of assignment drafts waiting for the owner had only "Freigeben", and no backend route existed to reject, discard or archive one draft. Also, a late release moved a passed slot to later that day, and `reviewContent` could reopen rejected content.
+- **Built:**
+  - Banner art prompt from the project's brand kit (`bannerBackgroundPrompt(banner, visualIdentity)`): base tone, palette, imagery, design rules, avoid list; the owner's notes take precedence.
+  - Banner palette from the brand kit (`bannerPalette`, contrast-checked text and accent) in `renderBrandBanner`; without a palette the renderer is unchanged.
+  - Deterministic brand-tone check of the background (`brandToneCheck`) stored on each banner (`brandCheck`); a mismatch is the review finding `BANNER_BRAND_MISMATCH`, which leaves the draft for the owner.
+  - Owner decisions `reject` (optional reason), `discard` and `archive` (`pipeline/content-decisions.ts`), with routes `POST …/assignment-drafts/:id/{reject,discard,archive}` and actions `reject-content`, `discard-content` and `archive-content`. They change only the status and add audit records; nothing is deleted. An assignment draft frees its run slot.
+  - Closed content (`rejected`, `archived`) is refused by `reviewContent`, `approve` and the release (`CONTENT_CLOSED`), and blocked by preflight.
+  - A release whose slot has passed is refused (`SLOT_EXPIRED` since the daily social automation merged; the archive reason stays `SLOT_PASSED`); nothing is caught up.
+  - `GET …/assignment-drafts` returns `state` (`pending` or `expired`) and a 30-day `history` (released, rejected, archived; archived ones on request).
+  - The approvals page has status badges, all actions visible and wrapping on phones, a reject dialog with an optional reason, a discard/archive confirmation, disabled actions with an explanation for non-owners, a history section and readable refusal texts. The content detail has the same reject and discard. A link points to "App-Freigaben".
+- **Deviation:** CS-D3 ("uLiquid banner frozen byte for byte") no longer holds. uLiquid's banners now follow its own brand kit, which is dark navy/cyan per profile v3. The earlier glass-card motif belongs in uLiquid's imagery or the assignment's banner style notes, if wanted.
+- **Verification (local):**
+  - Typecheck (API and web), source guard, import boundaries, `git diff --check` and `pnpm build` pass.
+  - Full suite: 5,513 passed, 7 skipped. The 3 failures were the expected pins of the new routes and actions: access matrix, the module action list, and the `assignment-drafts` response shape. All three are updated and pass.
+  - Access matrix (security review): the four new routes refuse viewers and editors (403). Owners reach the handler, which answers 400 for the empty body, or 404 for the decision route's placeholder parameter.
+  - Creative package: 170 tests passed, plus 3 new.
+  - Banner integration tests: 25 passed, among them FamilyPlan-like light and uLiquid-like dark kits, a tone mismatch left for the owner, and another project's logo refused.
+  - Owner-release and decision integration tests: 24 passed.
+  - Web marketing tests: 155 passed.
+  - Mobile layout checked at 375 px on a static render with the app CSS: no overflow, 44 px targets.
+  - OpenAPI regenerated.
+- **Not done:** a live run on a real brand kit (a paid image, needs Mario); an end-to-end browser flow against a running stack; a tone check for Creative Studio art (it has palette-driven art and the optional vision review).
+- **Production:** nothing deployed. No migration and no flag. Rollback: revert the commit.
+
+## Google Drive page and Social Drive picker (2026-11-05, live on `main` since `b6e98e93`, follow-ups on branch `claude/dreamy-grothendieck-0cf6ec`)
+
+Decisions DB-1 to DB-4 (Mario, 2026-11-05): own Drive page in the "Project" group, images only (videos stay S3b), existing actions plus "Add to Social media", server-side ancestry with a 60 s cache. Design: [spec](superpowers/specs/2026-11-05-drive-browser-design.md), [plan](superpowers/plans/2026-11-05-drive-browser.md). Docs: [integrations/google-drive.md](integrations/google-drive.md) ("Drive page"), [SOCIAL.md](SOCIAL.md) ("From Google Drive").
+
+- **Built:** `ancestry()` with a per-process cache and `GET …/google-drive/folders`; `path`, `rootName`, `sort` and `kind` on `GET …/google-drive/files`; `POST …/social/media/from-drive`; shared web Drive tree and browser (`apps/web/src/platform/drive/`); the Drive page with `WebModule.drive` contributions (Marketing import and upload moved from the settings card, Social "Add to Social media"); the composer's Drive tab and the library's "Add from Google Drive". No migration, no new dependency, no flag.
+- **Deviations:** see the plan's ledger rulings (the post editor keeps imported images locally instead of reloading the page library; search applies on submit).
+- **Follow-ups (review minors):** one Drive metadata read per file and per Social import; grid previews from Drive thumbnails (`GET …/files/:fileId/thumbnail`); the navigation entry follows the status after a connect; search per folder; reachable tree tab stop; the tree starts closed on phones.
+- **Verification (local):** full suite, lint, typecheck and build pass; no real Google calls (Drive is mocked in tests). Deployed 2026-11-05 11:42 UTC (Coolify, `b6e98e93`); not yet checked in the browser against a real Drive.
+
+## Support and shell UI improvements (2026-11-05, branch `claude/support-ui-improvements-77a270`, not merged)
+
+Mario's list of 2026-11-05; his decisions: hide resolved and closed tickets by default, AI notes in the reader's language, external work orders on a page of their own. GitHub for Issues (WP3.10), a UI spacing audit and Google Drive (tree, Social picker) run in separate sessions.
+
+- **Built:**
+  - Support inbox: without a chosen status every view asks for `openOnly=true`; resolved and closed tickets appear only when their status is selected ("All open" / "Alle offenen").
+  - A global `select` style (border, chevron, hover, focus, disabled); scoped rules still override it. Support's ticket fields get clearer labels.
+  - Triage writes its summary in English (`bodyText`) and German (`SupportMessage.bodyTranslations.de`) in the same model call; the knowledge-gap note has a German version. The ticket timeline shows the reader's UI language; MCP, agents and exports keep the English body. Migration `202611050003_support_message_translations` (one nullable JSONB column). The contact export includes the translations.
+  - The shell renders from `app/(shell)/layout.tsx` instead of the page under `[[...route]]`, which Next.js remounted on every path: no boot screen, refetch or sidebar scroll reset per click. New pages start at the top (`useScrollTopOnNavigate`); back/forward keeps the browser's position. `scripts/boundaries.json` moves the `root:web` zone to the layout.
+  - Activity log `/p/:projectId/activity` (sidebar group Project) for external work orders, replacing the panel above Orbit Chat; `/modules` advertises `features.workOrders` (`ORBIT_MCP_TASKS`).
+- **Verification (local):** `pnpm lint`, `pnpm typecheck` and `pnpm build` pass. The full suite: 5,314 passed, 7 skipped, 1 failed (`work-pm-monitor` "at most one scan per five minutes", timing-dependent; passes 3 of 3 runs alone, untouched area). Browser check on this worktree's web server: the sidebar element and its scroll position survive navigation, new pages start at the top, back works, the inbox requests `openOnly=true`, the select style and the activity log (with injected sample data) render. Not run: Playwright (the shared dev port 4310 was taken by another stack), a live triage model call.
+- **Production:** nothing deployed. The migration needs a newly approved schema hash in Coolify before the `main` push.
+
+## Agent platform, Phase 4: proactive notices and voice (2026-11-05, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PROACTIVE` and `ORBIT_VOICE` off)
+
+Decisions D-18 (per-user Telegram in this phase), D-19 and D-20 (Mario, 2026-11-04; [ADR 0023](adr/0023-proactive-signals.md), [ADR 0024](adr/0024-speech-port-voice.md)). Plan: [Phase 4](plans/agent-platform-phase-4.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md) ("Proactive notices and briefings", "Voice"), [EMAIL_AND_NOTIFICATIONS.md](EMAIL_AND_NOTIFICATIONS.md), [MODEL_ROUTING.md](MODEL_ROUTING.md) ("Speech").
+
+- **Built:**
+  - WP4.0: ADRs 0023 and 0024.
+  - WP4.1: notification dedupe (migration `202611050001_notification_dedupe`); a delivery job with user preferences in the personal space (quiet hours, digest, severity modes); the digest e-mail through system SMTP; per-user Telegram through the owner-bot flow in the personal space. The Phase 1 failure guard is replaced while the flag is on.
+  - WP4.2: `platform/signals/` (registry, event and periodic adapters, per-project switches). The budget threshold event comes from `reserve`. Initial signals; Support and Marketing are mappings.
+  - WP4.3: `GET /api/notifications/summary`, a content-free wake-up and SSE stream with a polling fallback, the bell "All projects" tab and the bubble badge.
+  - WP4.4: briefings (personal-space scheduler, deterministic notice in a "Briefings" conversation, optional e-mail, opt-in AI summary) and the Work template `work.weekly_report`.
+  - WP4.5: speech port and OpenAI adapter (injectable fetch, no SDK), dependency-free audio duration measurement, unit prices (migration `202611050002_ai_price_units`), speech catalogue entries and the admin catalogue UI, and audio budget helpers.
+  - WP4.6/WP4.7: the transcription route (raw body, caps, nothing stored), the speech route (streamed, character cap, card titles only), voice settings, the microphone button and read aloud in the panel and page.
+  - Flags `ORBIT_PERSONAL_ASSISTANT`, `ORBIT_PROACTIVE` and `ORBIT_VOICE` are wired into the config schema, `.env.example` and both Compose files.
+- **Deviations:**
+  - The briefing summarizer runs on the bounded task host without an agent definition, because a personal space has no agents.
+  - `task_due_soon` maps the existing daily due notice.
+  - The 100 % threshold means "limit reached or the next equal reservation would not fit".
+  - Organization-level thresholds deduplicate per reserving project.
+  - `delegation_done` always writes a notice.
+  - The transcription route takes the raw body (no multipart plugin installed).
+  - `synthesize` streams.
+  - Speech routing uses the first active priced catalogue model (no persisted speech route yet).
+  - Budget codes keep their existing names.
+  - WP4.8 (realtime voice spike) was not built: it is optional, not merged and needs paid test minutes.
+- **Verification (local):** the full suite (API, worker, packages, evals, web) ran over 534 files: 5,303 passed and 7 skipped. Three Marketing tests failed (`assignment-postiz-drafts`, `assignment-shared-posts`, `marketing-reports`). They fail identically on the commit without Phase 4 when run between 00:00 and 01:00 CET, when the local day and the UTC day differ, and they passed in the Phase 3 run the same evening, so this is a time-window artifact rather than a regression. New suites: proactive signals, delivery, briefing and summary; voice, speech and audio duration; web components. Evidence per acceptance criterion is in `REQUIREMENTS_TRACEABILITY.md`.
+  - The access matrix gained 10 reviewed rows; no existing row changed.
+  - OpenAPI only adds 7 paths.
+  - API and web typecheck, boundaries, source checks and Compose checks are clean.
+  - Every speech test uses a fake adapter.
+  - Playwright (2026-11-05, local dev server on this worktree's own database):
+    - **Flags on:** `assistant-panel.spec.ts` and `chat.spec.ts` pass after one real fix (Escape did not close the panel while a reply streamed; `a11fc163`) and two spec corrections.
+    - **Flags off (as in CI), full suite:** 24 passed, 25 skipped, 4 failed. On re-run `chat.spec.ts:629` and `workspace.spec.ts:172` pass, and `navigation.spec.ts:140` passes on a fresh database. `workspace.spec.ts:944` stays red in automation: after switching to a newly created project it waits on "Loading workspace…". The same steps work by hand in the browser. No server error; not resolved here.
+  - Not run: a live STT/TTS call (needs Mario's approval), the device check on iOS Safari and Android Chrome.
+- **Before rollout:**
+  - An administrator checks and saves the speech prices; they come from the subagent's knowledge as of 2025-03 and are marked "please check".
+  - The system SMTP sender is configured for digests.
+  - Confirm that Work task titles in digest e-mails are acceptable.
+- **Production:** nothing deployed. **Migrations `202611040001` to `202611050002`: schema hash `f641f3f978fa15b05d4b750000be02b1cf4d846cd11f1445152317335cd5b234` (on `main` `469b1dae`; supersedes `de4a5324…`) must be approved in Coolify before the `main` push.** The Compose files change too (three new flags, default off).
+
+## Agent platform, Phase 3: personal Orbit Assistant (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_PERSONAL_ASSISTANT` off)
+
+Decisions D-08, D-09, D-10 as recommended; D-17 automatic memory with guardrails (Mario, 2026-11-04; [ADR 0021](adr/0021-agent-platform.md) addendum, [ADR 0022](adr/0022-personal-space-assistant.md)). Plan: [Phase 3](plans/agent-platform-phase-3.md). Docs: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md).
+
+- **Built:**
+  - WP3.0: ADR 0022.
+  - WP3.1: personal space (`Project.kind = 'personal'`, migration `202611040003_personal_space`). Only its user has access; no implicit org-owner or administrator access. It is filtered from every business list, and the organization's AI usage shows it as one sum. Spend authority is a read-only projection of the new org per-member cap, which the user cannot change. Org owners have a per-member switch. The space is kept 30 days after its user leaves (daily clean-up, restored on rejoin) and deleted with the user.
+  - WP3.2: cross-project capability layer shared with MCP (`platform/agents/project-calls.ts`: target-project authorization, uniform refusals, test-mode nested-call guard). User tools `projects_list`, `my_overview`, `pending_approvals`, `agents_list`, `agent_work_order_status`. Taint rule (`requestedBy.crossProjectContext`, `CROSS_PROJECT_CONTEXT` blocks mandate auto-approval).
+  - WP3.3: provider-neutral staged loading. A stable user-tool list plus `load_project_tools` and a focus preload of at most 6; loaded definitions are appended for OpenAI and Claude. Project mode is unchanged.
+  - WP3.4: personal mode in the chat runner (versioned instructions, project list, focus, scoped context, a gate at send and run time, page-context hints, persisted taint, per-project card checks, `steps[]`). `GET /api/assistant`.
+  - WP3.5: decision cards with `actionRequest {id, version, packageHash, decidable, inline}` on the unchanged decide route; governance and full-page types link out.
+  - WP3.6: `agent_delegate` batches (requester ∩ sponsor ∩ allowlist, fan-out ≤ 10, one requester-only, non-mandatable `platform.agent.delegate` confirmation). Notice messages (`ChatMessage.role = 'notice'`, migration `202611040004_chat_notice_role`) when a batch finished, with no model call. New MCP tasks are stored as `AgentWorkOrder (target: assistant)`; legacy `orbit_tasks` stay readable.
+  - WP3.7: personal context store and routes, deterministic screen, grounding check, `context_remember` with a "Remembered" notice and Undo, or proposal cards when automatic memory is off.
+  - WP3.8: web bubble, non-modal panel and phone sheet, `/assistant`, `/account/assistant` ("My context"), decision buttons, project badges, readable errors, org cap field and member switch. `chat.tsx` is split into a hook and views with unchanged project behaviour.
+  - WP3.9: [ORBIT_ASSISTANT.md](ORBIT_ASSISTANT.md); `ORBIT_CHAT_V1.md` points to it.
+- **Deviations:**
+  - `search`/`fetch`/`orbit_projects` stay native MCP tools (unchanged contract).
+  - `work_order_status` is named `agent_work_order_status` (the `work_` prefix belongs to the Work module).
+  - `context_list` was dropped: the context is in the prompt, and the user-tool budget stays at 8.
+  - Delegation batches are sibling work orders sharing a `batchId` instead of a parent row.
+  - `platform.agent.delegate` is not mandatable, because a mandate cannot be limited to one agent; the optional per-agent start mandate of D-06 stays a follow-up.
+- **Verification (local):** full suite (API, worker, packages, evals, web) 525 files: 5,218 passed and 7 skipped. Two characterization checks did not yet know the new user tools and a kind spelled through a constant; both were fixed and re-run (26/26). Access matrix: a new probe calls every project route of a personal space as org owner and system administrator, and none lets them in; only the 8 new routes were added to the reviewed fixture. RLS matrix passes. The membership rule is mutation-checked. API and web typecheck are clean; source and boundary checks are clean. OpenAPI only adds paths. Playwright and the browser check ran later with Phase 4 (see there). Not run: paid live turns.
+- **Before rollout:**
+  - Set the per-member cap in the test organization.
+  - Verify the production state of `ORBIT_MCP_TASKS` and the number of live MCP tasks. A code rollback after the fold-in leaves table-backed MCP tasks unreadable to the old reader.
+- **Production:** nothing deployed. **Migrations `202611040001` to `202611040004`: schema hash `de4a53246950f1c685033dbf0ce539afc46e247b9c13dcf299b21a538103b01b` (on `main` `469b1dae`; supersedes `4dfc5ec0…`) must be approved in Coolify before the `main` push.**
+
+## Agent platform, Phase 2: Support agent (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; flags off)
+
+Decisions D-11, D-15, D-16 accepted by Mario on 2026-11-04 as recommended ([ADR 0021](adr/0021-agent-platform.md) addendum). Plan: [Phase 2](plans/agent-platform-phase-2.md). Docs: [SUPPORT.md](SUPPORT.md) "Support agent", [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
+
+- **Built:**
+  - WP2.1: content-free `support.ticket.created` and `support.message.received` events, declared triggerable with an inbox/channel filter; hard-rule hits, unverified widget visitors and non-agent inboxes never start an agent.
+  - WP2.2: Support tools for agents (reads with placeholders plus platform redaction, `support_similar_tickets`, paid `support_triage_suggest`/`support_draft_generate` inside the agent's budget, `support_apply_triage`, `support_hand_off`, notes, reply drafts, ticket changes, issue reports, send as proposal only); agent actor on timeline events, notes and drafts; inbox rule excluded for agents; `support_prepare_reply` runs the draft checks for every requester.
+  - WP2.3: platform redaction and subject screening in Support's model inputs (also for `draft` inboxes); data-class provider allow-list (OpenAI only) for agent routes and the Support pipelines; erasure and retention delete the ticket's work orders and runs.
+  - WP2.4: inbox AI mode `agent` (migration `202611040002_support_inbox_agent_mode`), no automatic jobs there, manual draft kept, attention item for an uncovered agent inbox; template `support.ticket_agent`.
+  - WP2.5: issue reports as owner-approved proposals; agents never acknowledge sensitive tickets; ticket detail `agent` summary.
+  - WP2.6: web inbox AI mode, ticket agent panel, agent timeline labels, apply-triage approval renderer, attention text, guided setup for the Support template.
+  - WP2.7: scenario suite `support-agent.integration.test.ts`, unit rules, offline eval `evals/support/agent-v1.json`; the live eval scores screened sensitive cases as hand-offs.
+- **Behaviour changes for existing `draft` inboxes:** subject hard-rule screening, platform redaction before the model, provider allow-list, draft checks in MCP `support_prepare_reply`, one extra content-free domain event per ticket and customer message.
+- **Not done:** paid live agent eval (needs Mario's approval, cap USD 3); owner notification for an uncovered agent inbox (attention item only); Support-specific work-order output schema; Playwright `support-agent.spec.ts` or a browser check; `support_list_tickets` deliberately not offered to agents; query-embedding cost of an agent's draft is not attributed to the work order.
+- **Verification (local):** API, worker, package and eval tests 403 files / 4,259 passed (7 skipped); web 104 files incl. 14 new Support agent tests; after rebasing onto `origin/main` `469b1dae` the web, Support, agent, access-matrix and RLS-matrix suites passed again (131 files, 1,093 tests); API and web typecheck clean; `next build` succeeds; source and boundary checks clean; the redaction assertion is mutation-checked. OpenAPI unchanged by Phase 2 (no new routes; the ticket detail is not in the generated contract). Not run: Playwright or a browser check, a paid live eval.
+- **Before rollout:** check that no project routes `support_triage`, `support_draft` (or a Support agent's `agent_custom`) to Anthropic; D-11 would refuse those calls.
+- **Production:** nothing deployed. **Migrations `202611040001` and `202611040002`: schema hash `4dfc5ec0…62d99d` (computed after rebasing onto `469b1dae`; supersedes `5c88c46e…`) must be approved in Coolify before the `main` push.**
+
+## Agent platform, Phase 1 (2026-11-04, branch `claude/agent-platform-architecture-128114`, not merged; `ORBIT_AGENT_PLATFORM` and `ORBIT_AGENT_AUTOMATION` off)
+
+ADR [0021](adr/0021-agent-platform.md) (accepted; Mario's decisions D-01 to D-07 and D-12 to D-14 of 2026-11-04). Plans: [architecture](plans/agent-platform-architecture.md), [Phase 1](plans/agent-platform-phase-1.md). Guide: [AGENT_PLATFORM.md](AGENT_PLATFORM.md).
+
+- **Built:**
+  - WP1.1: shared capability layer for chat, MCP and the task host; behaviour unchanged except JSON-safe output caps.
+  - WP1.2: agent principal (sponsor ∩ requester ∩ allowlist, re-checked per call), central agent attribution of ActionRequests, mandate agents channel, MCP proposal quotas for delegated work orders.
+  - WP1.3: principal mode of `runStructured`; `runSpecialist` delegates to it with unchanged reservation keys; task class `agent_custom`.
+  - WP1.4: `AgentWorkOrder` table (FORCE RLS), `agent_work` run kind, `BudgetReservation.agentId`, entitlements port, definition schema, retention.
+  - WP1.5 to WP1.7: definitions service, builder catalogue, routes, work-order execution on the worker, schedule and event triggers, delegation core, failure notice.
+  - WP1.8: web agent management (`/p/:id/agents` overview, builder, versions, executions, execution detail; `/o/:orgId/agents`; sidebar entry *Agenten*; mandate form agents channel).
+  - WP1.9: Marketing specialists act on behalf of the assignment's confirming owner (**behaviour change:** a demoted or removed confirming owner blocks the specialists with `AGENT_PRINCIPAL_FORBIDDEN` and opens an exception); `agentListings` contribution and `GET /agents/managed` for module-managed agents.
+- **Not done:**
+  - A periodic retention sweep: retention runs through the owner retention action only.
+  - Organization-wide agent counting for `agentsMax`: counted per project until the entitlements table exists.
+  - Module agent templates: Support's template followed in Phase 2.
+- **Verification (local, own worktree test DB, 2026-11-04):** full `vitest run` 506 files, 5,074 tests passed (7 skipped); API and web typecheck clean; `next build` succeeds; source and boundary checks clean (0 violations); Coolify and PVE compose checks pass; OpenAPI and client regenerated (only the 18 new agent routes). Not run: Playwright e2e and a real browser check of the new pages.
+- **Before rollout:** check that every active production assignment has a `confirmation.userId` of a current owner (WP1.9 would otherwise block its specialists).
+- **Production:** nothing deployed. **Migration `202611040001_agent_platform`: the schema hash is now the one in the Phase 2 entry above (`4dfc5ec0…`), which includes Phase 2's migration.**
+
+## Social module follow-ups P3 (2026-11-03, branch `claude/social-p3` on top of `claude/social-s10`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-p3-polish.md](superpowers/plans/2026-11-03-social-p3-polish.md).
+
+- **Fixed:** the calendar keeps its grid while the same range reloads and restarts the list after a move; only the organization calendar route is exempt from the administration gate; a write verification confirmed by read-back or by the owner verifies the account; Social draft notices name Social; a draft update without a title keeps it; Facebook `/feed` answers that are no Graph error are unclear; uploads carry neutral file names; the analytics view says when X figures are off and when figures were read.
+- **Not done:** `editor_each` (needs a governance hook "decider per request"; still refused), the larger deferred items listed in the plan.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S10 (2026-11-03, branch `claude/social-s10` on top of `claude/social-s9`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s10-postiz-migration.md](superpowers/plans/2026-11-03-social-s10-postiz-migration.md). Runbook: [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md).
+
+- **Built (S10):** Postiz channel mapping, read-only history mirror, draining mode (`postiz_draining`), inventory (panel and `scripts/postiz-inventory.ts`), the "Move from Postiz" section on Social → Accounts with the backend switch.
+- **Not done (operations, each with Mario's go):** the per-project cutover (uLiquid, FamilyPlan, others) and the decommissioning of Postiz (§9.6, §9.7).
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S9 (2026-11-03, branch `claude/social-s9` on top of `claude/social-s8`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s9-marketing.md](superpowers/plans/2026-11-03-social-s9-marketing.md).
+
+- **Built (S9):** Social's contract for Marketing; Marketing's `publishingBackend` setting (owner, default `postiz`); on Social: package binding of the Social account, Social blockers and duplicates in preflight, handoff at the slot as an origin-authorized Social post, reconciliation from Social, assignment drafts as Social drafts. Postiz projects unchanged (package input pinned; Marketing suites green).
+- **Not built:** channels for projects without Postiz (`social:<accountId>` in policies and assignments), the analytics tool and history sync on Social, a web control for the switch (S10 brings the migration screens).
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S8 (2026-11-03, branch `claude/social-s8` on top of `claude/social-s7`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s8-analytics.md](superpowers/plans/2026-11-03-social-s8-analytics.md).
+
+- **Built (S8):** metric readers for Facebook, Instagram and X; periodic task `social-metrics` (six-hourly, 50 calls per project and run, 30 days, failed reads retried later); setting `xMetrics` (default off, X reads are paid); `postMetrics` for Marketing (S9); routes for one post and the last 30 days; Social → Analytics and the figures in the calendar panel. OpenAPI regenerated (also adds the P1 data-deletion status route).
+- **Not built:** retention of snapshots (24 months, spec §11), Instagram insights (needs `instagram_manage_insights`), figures in the MCP tools.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`).
+
+## Social module phase S7 (2026-11-03, branch `claude/social-s7` on top of `claude/social-p1`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s7-mcp.md](superpowers/plans/2026-11-03-social-s7-mcp.md).
+
+- **Built (S7):** five reads (`social_accounts`, `social_calendar`, `social_post_get`, `social_post_status`, `social_validate`) and five owner-decided proposals (`social_draft_create`, `social_draft_update`, `social_cancel` as W0 with mandate cost 0; `social_schedule`, `social_publish_now` as W2, never mandatable) for Orbit Chat and MCP; scope `orbit:social` in the gateway, the authorization server and the consent screen; Decisions renderers for drafts and cancellations; schedule proposals carry the exact package and their approval is the post's approval.
+- **Not built:** direct MCP publishing for owners (`mcpOwnerPublishWithoutApproval` refused), analytics tools (S8).
+- **Chat budget:** with the support, finance, Creative Studio and agents features on, the fixed part of a Claude chat leaves 24.3 KB instead of 33.3 KB with social on; with every module on, only about 6 KB (15.2 KB without social). The limit test counts only modules switched on in the test environment.
+- **Production:** nothing deployed. No migration; schema hash unchanged (`12cf3d02…`). A client needs a reconnect to get `orbit:social`.
+
+## Social module follow-ups P1 (2026-11-03, branch `claude/social-p1` on top of S5b, not merged; `ORBIT_SOCIAL` off)
+
+- **Built:** the public status page of Meta data-deletion requests (`/data-deletion?code=…`, standalone, no session; `GET /api/public/social/data-deletion/:code`, public ingress only) with self-verifying confirmation codes (no stored request); media tokens accept only the canonical spelling of their signature (the S3 test that tampered with the last characters failed about once in 256 runs); the e2e seed marks its synthetic Telegram account as checked, so the six-hourly health read (no secret) no longer flags it; `navigation.spec.ts` knows the social group on a stack seeded with `E2E_SOCIAL=1`.
+- **Verified locally:** the S6 Playwright spec `social-calendar.spec.ts` passes against the worktree's own test database (`E2E_SOCIAL=1`, `ORBIT_ADMINISTRATION=true`). In a full local run, single workspace specs time out intermittently while the fixture holds reads under the API's 600 per minute limit (the shell waits on `/api/setup`); each passes when run alone.
+- **Production:** nothing deployed. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. The Meta app's Live mode still needs a privacy policy URL (outside Orbit) and the data-deletion callback URL.
+
+## Social module phase S5b (2026-11-03, branch `claude/social-s5b` on top of S6, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s5b-facebook.md](superpowers/plans/2026-11-03-social-s5b-facebook.md).
+
+- **Built (S5b):** Facebook Page sending through an own small Graph adapter (`adapters/facebook.ts`: unpublished multipart photos, one `/feed` call, Graph error mapping, read-back from `/{page}/posts`); `facebook` allowed in `ORBIT_SOCIAL_PLATFORMS` and sendable; Facebook photo rule 4 MB; read-back of unclear sends for every platform whose sender can read back.
+- **Not built:** Facebook video and stories (S3b), link-only options (`link` parameter), first comments.
+- **Production:** nothing deployed, no live post. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. Live Facebook needs the Meta app in Live mode, `facebook` in `ORBIT_SOCIAL_PLATFORMS` and an approved write verification per Page.
+
+## Social module phase S6 (2026-11-03, branch `claude/social-s6` on top of S5, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-03-social-s6-calendar.md](superpowers/plans/2026-11-03-social-s6-calendar.md).
+
+- **Built (S6):** project calendar endpoint and post filters (accounts, platforms, origins) for the list; organization calendar across the member's readable projects; web calendar with month, week (half hours across clock changes) and list views, filters and scope in the address, preview panel, moving by drag and drop (pointer, touch, keyboard) or "Move to…" with the S-D6 approval rules and the clock-change choices; synthetic e2e seed (`E2E_SOCIAL=1`) and a gated Playwright flow.
+- **Not built:** an organization page of its own (the scope switch lives on the project calendar), Facebook sending (S5b), MCP tools (S7), analytics (S8).
+- **Not verified:** the Playwright flow `apps/web/tests/social-calendar.spec.ts` has not run against a stack (the local stack shares its database with other worktrees, which do not have the social migrations).
+- **Production:** nothing deployed. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`.
+
+## Social module phase S5 (2026-11-02, branch `claude/social-s5` on top of S4, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s5-dispatch.md](superpowers/plans/2026-11-02-social-s5-dispatch.md).
+
+- **Built (S5):** delivery gates and the new switch `ORBIT_SOCIAL_PLATFORMS`; Telegram connector albums, silent sends and link previews; `SocialProviderState` store with compare-and-set and leases; sender interface with X, Instagram (durable container workflow, quota) and Telegram adapters; queue classes `social_dispatch`, `social_deliver` (claim with fence, send outside transactions, lease expiry → `outcome_unknown`, throttles, test mode) and `social_reconcile` (Instagram processing, read-back of unknown X/Instagram sends); cancel of publishing posts, pause blocking and resume within 30 minutes, owner resolution of unclear sends; approved write verification per account; worker re-dispatch of jobs lost from Redis; web publication list, resolve buttons, posting test and renderers; events and attention.
+- **Not built:** Facebook sending (no SDK adapter; decision for S5b), calendar (S6), MCP tools (S7), analytics (S8), the health endpoint.
+- **Production:** nothing deployed, no live post was sent. No migration; the schema hash stays `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`. Going live needs, per platform: `ORBIT_SOCIAL_PLATFORMS`, live mode and external writes, and an approved write verification per account (a real post).
+
+## Social module phase S4 (2026-11-02, branch `claude/social-s4` on top of S3, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s4-posts.md](superpowers/plans/2026-11-02-social-s4-posts.md).
+
+- **Built (S4):** DST-safe local times (`platform/time/zoned-time.ts`, `posts/schedule-time.ts`); posts with base text and images and inheriting per-account variants (migration `202611020003_social_post_base`); validation per platform without network (SDK `prepareTarget` for X and Instagram text, Orbit limits for Facebook and Telegram, S3 media rules); X long posts per account; package hash; owner approvals as ActionRequests `social.post.schedule` / `social.post.publish_now` (W2, owner decides, never mandatable); schedule, publish-now, reschedule, cancel, archive; post routes; web posts list, editor and approval renderer; OpenAPI and client regenerated.
+- **Held back:** `editor_each` is refused until the platform has a per-project decider hook.
+- **Not built:** sending (S5), calendar (S6), MCP tools (S7).
+- **Production:** nothing deployed. The migration changes the approved schema hash to `12cf3d02df39280e332edba3cf7c5b35a2a1fafd09418084076e7dcdff3b49d9`; a deploy needs Mario's approval of it.
+
+## Social module phase S3 (2026-11-02, branch `claude/social-s3` on top of S2, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s3-media.md](superpowers/plans/2026-11-02-social-s3-media.md).
+
+- **Built (S3):** image preparation in `packages/creative` (`prepareSocialImage`: normalized original and an Instagram-ready JPEG rendition, metadata removed, no new dependency); table `SocialMediaAsset` (migration `202611020002_social_media`); media library service and routes (raw upload, list, inline content, alt text, archive-or-delete); platform media rules (`renditionFor`, `mediaIssues`, `carouselIssues`); signed public media URLs `GET /api/public/social/media/<token>` behind the new switch `ORBIT_SOCIAL_MEDIA_PUBLIC`; web media library view.
+- **Not built:** video (S3b), posts and the editor (S4), publishing (S5).
+- **Production:** nothing deployed. The migration changes the approved schema hash to `c5f55a419726a69ce8dcc02e5b493d0e2842c5d031192eeb491eec8a9e6c89da`; a deploy needs Mario's approval of it. Media need `ORBIT_FILES` in production.
+
+## Social module phase S2 (2026-11-02, branch `claude/social-s2` on top of S1, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-s2-accounts.md](superpowers/plans/2026-11-02-social-s2-accounts.md). Module doc with setup steps: [SOCIAL.md](SOCIAL.md).
+
+- **Built (S2):** developer apps `social.app.meta`/`social.app.x` (system connections, administration); module-managed project connections for accounts (`platform/connections/project-secrets.ts`, flag `managedByModule`); single-use OAuth state with sealed PKCE verifier; X connection through the SDK OAuth provider; Meta (Facebook Login for Business, Graph v26.0) for Pages and linked Instagram accounts; Telegram publishing channels with a separate bot (`getMe`/`getChat`/`getChatMember` added to the connector); locked X token refresh; `reconnect_required` with attention and owner notification; account list, health check, disconnect and the six-hourly health task; Meta data-deletion callback on the new provider-callback path `POST /api/callbacks/<module>/<name>`; accounts view in the web; OpenAPI and client regenerated.
+- **Dependency:** `@opencoredev/social-sdk` 0.5.0, approved by Mario on 2026-11-02 (`DEPENDENCY_RISKS.md`).
+- **Not built:** media, posts, publishing (S3–S5) and everything after; the data-deletion status page.
+- **Production:** nothing deployed; no migration in S2 (the S1 schema hash stays). Live acceptance needs the developer apps (Meta app, X app with pay-per-use credit) and a test project.
+
+## Social module phase S1 (2026-11-02, branch `claude/social-module-plan`, not merged; `ORBIT_SOCIAL` off)
+
+Plan: [superpowers/plans/2026-11-02-social-module.md](superpowers/plans/2026-11-02-social-module.md) (programme, decisions S-D1–S-D9 by Mario on 2026-11-02) and [superpowers/plans/2026-11-02-social-s1-module-skeleton.md](superpowers/plans/2026-11-02-social-s1-module-skeleton.md). ADR: [adr/0020-social-module.md](adr/0020-social-module.md) (proposed). Module doc: [SOCIAL.md](SOCIAL.md).
+
+- **Built (S1):** opt-in module `social` (manifest, seven permissions, gate, versioned settings with `owner_each` default, `GET …/social/status`, `PUT …/social/settings`); installation switch `ORBIT_SOCIAL` in config, both Compose files, `.env.example` and the Compose checks; ten `Social*` tables with forced RLS (migration `202611020001_social_core`, grants in `db-deploy.ts`); boundary zones and the `forbiddenImportPrefixes` guard against `@opencoredev/social-sdk/cloud…`; web module with an overview and five placeholder views.
+- **Not built:** platform adapters, OAuth, media, posts, dispatcher, calendar, MCP tools, analytics, Marketing integration, Postiz migration (S2–S12). No dependency was added.
+- **Production:** nothing deployed. The migration changes the approved schema hash to `a60afc352cdcac29a43ee22aa2e67fd42069739526a4dd12531133df102ca6dc` (`scripts/check-pve-schema.sh --print-hash`); a deploy needs Mario's approval of that hash in Coolify. Rollback before deploy: drop the branch; after deploy the tables stay empty and inert while the flag is off.
+
 ## Approval UX v2 and agent mandates (2026-10-28, on `main` and deployed; `ORBIT_AGENT_MANDATES` on since 2026-10-30)
 
 **Pushed to main on 2026-10-28 with Mario's approval** (fast-forward `aaed3d47..fa13f631`). The Coolify webhook deployed `fa13f631`, and the deployment finished at 17:43 UTC. Afterwards `/api/health/ready` reported database ok and worker ready, `/mcp/healthz` answered 200, and the new routes answered 401 without a session. The flag stays off, so no mandate can be granted. Live as of this deploy: the Support fix (G5), per-operation risk classes, the approval UX and the cross-project summary.
@@ -123,6 +495,15 @@ Verification (local, worktree database):
 - The e2e spec `apps/web/tests/issues.spec.ts` was not run, because it needs a stack with the flags on.
 
 **Pushed to main on 2026-10-26 with Mario's approval.** The push deploys the additive migration `202610260001_issues_core`. Before the push, `origin/main` (`925b6798`, `bd26490b`: the task class `knowledge_evaluation` next to `issue_triage`) was merged in and everything was checked again. The full suite passed with 3,908 tests, 7 skipped and 0 failed. Root and web `tsc`, the source check, boundaries, the Coolify compose check and `next build` were green, and OpenAPI was unchanged after the merge. `ORBIT_ISSUES` stays off; nothing was enabled and no paid call was made. Further rollout steps (`ORBIT_ISSUES`, `ORBIT_MODULE_ROLES`, enabling it in projects, AI triage routes and the first live run, an n8n source with `ORBIT_PUBLIC_INGRESS`, GitHub App, Sentry) each need their own approval ([ISSUES.md](ISSUES.md#rollout-runbook-each-step-needs-marios-approval)).
+
+
+### Issues, GitHub slice 1 (WP3.10a, 2026-11-05, branch `claude/jolly-haslett-d18222`)
+
+Spec: [superpowers/specs/2026-11-05-issues-github-design.md](superpowers/specs/2026-11-05-issues-github-design.md); guides: [integrations/github-app.md](integrations/github-app.md), [ISSUES.md](ISSUES.md#github).
+
+- **Implemented and tested on the branch:** the platform `github_app` connection provider and client, the issues `github` settings allow-list, preview/create/link/refresh/unlink/reconcile routes, the `issues_github` worker job with marker-based exactly-once, the owner-decided proposal `issues_propose_github_issue`, web block and settings, OpenAPI and client regenerated.
+- **Not merged, not deployed, not enabled:** `ORBIT_ISSUES_GITHUB` is off; no GitHub App exists yet, no connection or grant, no live acceptance. No migration, so no schema hash approval is needed.
+- **Not built:** inbound PR/check linking via repository webhooks (10b) and release detection (10c) are planned. Sentry and monitoring sources (WP3.14) and the vector and AI judge duplicate stages remain not built.
 
 ## Index check without JSON (2026-10-26, local)
 

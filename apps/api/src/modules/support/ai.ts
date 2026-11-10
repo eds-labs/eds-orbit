@@ -40,7 +40,11 @@ import {
   readTicketCustomerContext,
 } from "./customer-context.ts";
 import { requireSupport } from "./gate.ts";
-import { screenCustomerText, screenDraft } from "./hard-rules.ts";
+import { screenDraft } from "./hard-rules.ts";
+import { screenTicketText } from "./agent-events.ts";
+import { redact } from "../../platform/privacy/redact.ts";
+import { assertProviderAllowedForData } from "../../platform/ai/data-class.ts";
+import { currentAgentExecution } from "../../platform/agents/agent-execution.ts";
 
 // Support AI (WP5.6; 06 §3.5). Two task classes on the platform's paid-call
 // path: triage (language, category, priority, sentiment, summary) and a
@@ -95,6 +99,67 @@ export function withPlaceholders(
   );
 }
 
+/**
+ * Customer text as a model or an agent may see it: the contact's name and
+ * e-mail addresses as placeholders, then the platform redaction (phones,
+ * IBANs, cards, IPs, wallets, secrets, credential URLs). Applies to every
+ * Support model input and every agent read of customer text (ADR 0021
+ * Phase 2, plan §2.4 item 4).
+ */
+export function supportModelText(
+  text: string,
+  contact: Parameters<typeof withPlaceholders>[1],
+) {
+  return redact(withPlaceholders(text, contact)).text;
+}
+
+/** Who did something on a ticket: a person, or a configured agent's work order. */
+export type SupportActor =
+  | { kind: "user"; userId: string }
+  | {
+      kind: "ai";
+      workOrderId: string;
+      agentId: string;
+      agentRunId: string | null;
+      onBehalfOf: string;
+    };
+
+/** The agent acting in this call, from the agent execution in progress or a recorded requester. */
+export function supportActor(
+  scope: Scope,
+  requester?: {
+    kind?: string;
+    agentId?: string;
+    workOrderId?: string;
+    agentRunId?: string | null;
+    userId?: string;
+  },
+): SupportActor {
+  if (requester?.kind === "agent" && requester.agentId && requester.workOrderId)
+    return {
+      kind: "ai",
+      workOrderId: requester.workOrderId,
+      agentId: requester.agentId,
+      agentRunId: requester.agentRunId ?? null,
+      onBehalfOf: requester.userId ?? scope.userId,
+    };
+  const current = currentAgentExecution();
+  if (current)
+    return {
+      kind: "ai",
+      workOrderId: current.principal.workOrderId,
+      agentId: current.principal.agentId,
+      agentRunId: current.agentRunId,
+      onBehalfOf: current.principal.userId,
+    };
+  return { kind: "user", userId: scope.userId };
+}
+
+/** The timeline actor of an AI step: the work order when an agent ran it. */
+function aiActorId() {
+  return currentAgentExecution()?.principal.workOrderId ?? null;
+}
+
 /** Puts the contact's name back into a draft for the agent. */
 function restoreName(text: string, contact: { name?: string | null }) {
   return contact.name ? text.split(NAME).join(contact.name) : text;
@@ -107,6 +172,7 @@ const triageOutput = z
     priority: z.enum(["low", "normal", "high", "urgent"]),
     sentiment: z.enum(["negative", "neutral", "positive"]),
     summary: z.string().max(400),
+    summaryDe: z.string().max(400),
     sensitive: z.boolean(),
   })
   .strict();
@@ -141,7 +207,7 @@ const TRIAGE_INSTRUCTIONS = (categories: string[]) =>
     "You triage one support ticket for the support team.",
     RULES,
     `Pick a category from: ${categories.join(", ") || "(none configured)"}; or null.`,
-    "Suggest a priority, the customer's language (ISO code), the sentiment and a one-sentence summary.",
+    "Suggest a priority, the customer's language (ISO code), the sentiment and a one-sentence summary for the team: summary in English, summaryDe the same sentence in German, whatever the customer's language.",
     "Set sensitive to true for billing, account security, legal or trading questions.",
   ].join("\n");
 
@@ -202,14 +268,18 @@ export async function queueSupportAi(
   );
 }
 
-/** Hands the ticket to the team: AI state, event and notification. */
-async function handOff(
+/**
+ * Hands the ticket to the team: AI state, event and notification. Returns
+ * false when it was handed off already. A configured agent's hand-off names
+ * its work order as the actor.
+ */
+export async function handOff(
   tx: DbTx,
   scope: Scope,
   ticket: TicketRow,
   reason: string,
 ) {
-  if (ticket.aiState === "handed_off") return;
+  if (ticket.aiState === "handed_off") return false;
   const updated = await tx.supportTicket.update({
     where: { id: ticket.id },
     data: { aiState: "handed_off" },
@@ -218,11 +288,12 @@ async function handOff(
     ticketId: ticket.id,
     type: "handoff",
     actorKind: "ai",
-    actorId: null,
+    actorId: aiActorId(),
     before: { aiState: ticket.aiState },
     after: { aiState: "handed_off", reason },
   });
   await notifyHandoff(tx, scope, updated);
+  return true;
 }
 
 /** One paid, strict-output model call with reservation, settlement and telemetry. */
@@ -285,23 +356,33 @@ async function modelCall<T>(
         );
         const route = plan.route;
         const estimate = plan.estimateMicros;
+        // Q-12a / D-11: customer text goes to an allowed provider only, a
+        // budget fallback included; refused before anything is reserved.
+        assertProviderAllowedForData(plan.provider, "customer_personal");
         await assertDailySupportBudget(tx, scope, estimate);
+        // Inside a configured agent's turn the call counts toward its work
+        // order and month ceilings and is attributed to the agent.
+        const agentBudget = currentAgentExecution()?.budget;
+        const now = new Date();
+        if (agentBudget?.check) await agentBudget.check(tx, scope, estimate, now);
         // One key per job attempt: a retried job finds its call already
         // reserved and never pays twice (review fix 5).
+        const key = `support:${input.ticketId}:${input.task}:${input.attemptKey}`;
         const reservation = await reserve(
           tx,
           scope,
-          `support:${input.ticketId}:${input.task}:${input.attemptKey}`,
+          agentBudget ? `${agentBudget.callKey}:${key}` : key,
           CATEGORY,
           estimate,
           mandate.limits,
-          new Date(),
-          `support:${input.ticketId}`,
+          now,
+          agentBudget?.runKey ?? `support:${input.ticketId}`,
           {
             agentRunId,
             taskClass: input.taskClass,
             model: route.model,
             missionId: null,
+            ...(agentBudget?.agentId ? { agentId: agentBudget.agentId } : {}),
           },
         );
         await markTransmitted(tx, scope, reservation.id);
@@ -463,38 +544,53 @@ async function loadContext(scope: Scope, ticketId: string) {
   });
 }
 
-async function triage(scope: Scope, ticketId: string, run: RunOptions) {
+/** What a triage did, for the agent tool (content-free but for the suggested fields). */
+export type TriageOutcome =
+  | { status: "no_message" }
+  | { status: "handed_off"; reason: string }
+  | {
+      status: "suggested";
+      language: string;
+      category: string | null;
+      priority: "low" | "normal" | "high" | "urgent";
+      sentiment: "negative" | "neutral" | "positive";
+      sensitive: boolean;
+      categoryApplied: boolean;
+    };
+
+async function triage(
+  scope: Scope,
+  ticketId: string,
+  run: RunOptions,
+): Promise<TriageOutcome> {
   const ctx = await loadContext(scope, ticketId);
-  if (!ctx.message) return;
+  if (!ctx.message) return { status: "no_message" };
   // Hard rules first, for triage too: a sensitive message (for example a
-  // seed phrase) never reaches the model (review fix 4).
-  const screenedFirst = screenCustomerText(ctx.message.bodyText);
+  // seed phrase) never reaches the model (review fix 4). The subject is
+  // screened as well (T2-3).
+  const screenedFirst = screenTicketText(ctx.ticket.subject, ctx.message.bodyText);
   if (screenedFirst.sensitive) {
+    const reason = `sensitive:${screenedFirst.reasons[0]}`;
     await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       await ticketEvent(tx, scope, {
         ticketId,
         type: "ai_triage",
         actorKind: "ai",
-        actorId: null,
+        actorId: aiActorId(),
         after: {
           sensitive: true,
           reasons: screenedFirst.reasons,
           model: false,
         },
       });
-      await handOff(
-        tx,
-        scope,
-        ctx.ticket,
-        `sensitive:${screenedFirst.reasons[0]}`,
-      );
+      await handOff(tx, scope, ctx.ticket, reason);
     });
-    return;
+    return { status: "handed_off", reason };
   }
   const categories = ctx.settings.categories.map((c) => c.key);
   const content = [
-    `Subject: ${withPlaceholders(ctx.ticket.subject, ctx.contact)}`,
-    `Message: ${withPlaceholders(ctx.message.bodyText, ctx.contact)}`,
+    `Subject: ${supportModelText(ctx.ticket.subject, ctx.contact)}`,
+    `Message: ${supportModelText(ctx.message.bodyText, ctx.contact)}`,
   ].join("\n");
   const result = await modelCall(scope, {
     ticketId,
@@ -506,17 +602,18 @@ async function triage(scope: Scope, ticketId: string, run: RunOptions) {
     attemptKey: run.attemptKey,
     state: run.state,
   });
-  const screened = screenCustomerText(ctx.message.bodyText);
+  const screened = screenTicketText(ctx.ticket.subject, ctx.message.bodyText);
   const category =
     result.category && categories.includes(result.category)
       ? result.category
       : null;
-  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+  const categoryApplied = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const ticket = await tx.supportTicket.findFirstOrThrow({
       where: { id: ticketId },
     });
     // Suggestions: the category fills an empty field; priority stays the agents' call.
-    if (category && !ticket.category)
+    const fill = Boolean(category && !ticket.category);
+    if (fill)
       await tx.supportTicket.update({
         where: { id: ticketId },
         data: { category },
@@ -525,7 +622,7 @@ async function triage(scope: Scope, ticketId: string, run: RunOptions) {
       ticketId,
       type: "ai_triage",
       actorKind: "ai",
-      actorId: null,
+      actorId: aiActorId(),
       after: {
         language: result.language,
         category,
@@ -543,16 +640,113 @@ async function triage(scope: Scope, ticketId: string, run: RunOptions) {
         ticketId,
         kind: "system",
         bodyText: restoreName(result.summary, ctx.contact),
+        // The team reads the summary in its UI language (en is the body).
+        bodyTranslations: { de: restoreName(result.summaryDe, ctx.contact) },
         channel: "internal",
         visibleToCustomer: false,
+        agentRunId: currentAgentExecution()?.agentRunId ?? null,
       },
     });
     await audit(tx, scope, "support.ai.triaged", ticketId, { ticketId });
+    return fill;
   });
+  return {
+    status: "suggested",
+    language: result.language,
+    category,
+    priority: result.priority,
+    sentiment: result.sentiment,
+    sensitive: result.sensitive || screened.sensitive,
+    categoryApplied,
+  };
 }
 
 const GAP_NOTE =
   "No approved knowledge covers this question yet. Please answer it yourself; consider adding the answer to the support sources.";
+const GAP_NOTE_DE =
+  "Zu dieser Frage gibt es noch kein freigegebenes Wissen. Bitte beantworte sie selbst und ergänze die Antwort gegebenenfalls in den Support-Quellen.";
+
+/**
+ * The content language to search for this ticket: what triage recorded for
+ * the customer, when it is another of the project's content languages.
+ * Without one the search keeps the project's own language.
+ */
+async function ticketContentLanguage(scope: Scope, ticketId: string) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const [triaged, project] = await Promise.all([
+      tx.supportTicketEvent.findFirst({
+        where: { ticketId, type: "ai_triage" },
+        orderBy: { createdAt: "desc" },
+      }),
+      tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+        select: { language: true, contentLanguages: true },
+      }),
+    ]);
+    const recorded = (triaged?.after as { language?: unknown } | null)
+      ?.language;
+    if (typeof recorded !== "string") return undefined;
+    const base = recorded.toLowerCase().split(/[-_]/)[0];
+    const match = project.contentLanguages.find(
+      (l) => l.toLowerCase() === base,
+    );
+    return match === project.language ? undefined : match;
+  });
+}
+
+type DraftEvidence = {
+  status: string;
+  retrieval?: { evidenceId?: string };
+  facts?: Array<{ id: string; key: string; value: unknown }>;
+  passages?: Array<{ chunkId: string; title: string; text: string }>;
+};
+
+/**
+ * The knowledge a draft may use: searched in the customer's language, and in
+ * the project's own when that language holds no answer, so a configured
+ * language without content still gets a draft. Each search keeps its own job
+ * key and every evidence pack is noted at once for the scrub after the run.
+ */
+async function searchDraftKnowledge(
+  scope: Scope,
+  ticketId: string,
+  query: string,
+  run: RunOptions,
+) {
+  const retrievalJobKey = `support:${ticketId}:retrieval:${run.attemptKey}`;
+  const search = async (jobKey: string, options: { language?: string }) => {
+    const found = await knowledgeSearch(
+      scope,
+      { query },
+      { retrievalJobKey: jobKey, budgetRunKey: `support:${ticketId}` },
+      "support",
+      undefined,
+      options,
+    );
+    const evidence = found.result as DraftEvidence;
+    if (evidence.retrieval?.evidenceId)
+      run.state.evidenceIds.push(evidence.retrieval.evidenceId);
+    return { result: found.result, evidence };
+  };
+  const language = await ticketContentLanguage(scope, ticketId);
+  if (!language) return search(retrievalJobKey, {});
+  const inTicketLanguage = await search(retrievalJobKey, { language });
+  const { status, facts, passages } = inTicketLanguage.evidence;
+  return status === "ready" && (facts?.length || passages?.length)
+    ? inTicketLanguage
+    : search(`${retrievalJobKey}:project-language`, {});
+}
+
+/** What a draft run did, for the agent tool. */
+export type DraftOutcome =
+  | { status: "no_message" | "skipped_handed_off" }
+  | {
+      status: "stored" | "withheld";
+      draftMessageId: string | null;
+      handedOff: boolean;
+      handOffReason: string | null;
+      problems?: string[];
+    };
 
 async function storeDraft(
   scope: Scope,
@@ -560,29 +754,33 @@ async function storeDraft(
   bodyText: string,
   after: Record<string, unknown>,
   handoffReason: string | null,
-) {
-  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+  bodyTranslations?: { de: string },
+): Promise<DraftOutcome> {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const ticket = await tx.supportTicket.findFirstOrThrow({
       where: { id: ticketId },
     });
-    if (bodyText)
+    const draftMessageId = bodyText ? randomUUID() : null;
+    if (draftMessageId)
       await tx.supportMessage.create({
         data: {
-          id: randomUUID(),
+          id: draftMessageId,
           workspaceId: scope.workspaceId,
           projectId: scope.projectId,
           ticketId,
           kind: "ai_draft",
           bodyText,
+          ...(bodyTranslations ? { bodyTranslations } : {}),
           channel: "internal",
           visibleToCustomer: false,
+          agentRunId: currentAgentExecution()?.agentRunId ?? null,
         },
       });
     await ticketEvent(tx, scope, {
       ticketId,
       type: bodyText ? "ai_draft" : "ai_draft_withheld",
       actorKind: "ai",
-      actorId: null,
+      actorId: aiActorId(),
       after,
     });
     if (handoffReason) await handOff(tx, scope, ticket, handoffReason);
@@ -591,42 +789,48 @@ async function storeDraft(
       stored: Boolean(bodyText),
       handoff: Boolean(handoffReason),
     });
+    const problems = Array.isArray(after.problems) ? (after.problems as string[]) : undefined;
+    return {
+      status: draftMessageId ? "stored" : "withheld",
+      draftMessageId,
+      handedOff: Boolean(handoffReason),
+      handOffReason: handoffReason,
+      ...(problems ? { problems } : {}),
+    };
   });
 }
 
-async function draft(scope: Scope, ticketId: string, run: RunOptions) {
+async function draft(
+  scope: Scope,
+  ticketId: string,
+  run: RunOptions,
+): Promise<DraftOutcome> {
   const ctx = await loadContext(scope, ticketId);
-  if (!ctx.message) return;
-  // After a handoff only an agent's request drafts (review fix 11).
-  if (ctx.ticket.aiState === "handed_off" && !run.manual) return;
-  // Hard rules first: a sensitive question never reaches the model.
-  const screened = screenCustomerText(ctx.message.bodyText);
+  if (!ctx.message) return { status: "no_message" };
+  // After a handoff only a person's request drafts (review fix 11).
+  if (ctx.ticket.aiState === "handed_off" && !run.manual)
+    return { status: "skipped_handed_off" };
+  // Hard rules first: a sensitive question never reaches the model; the
+  // subject counts as well (T2-3).
+  const screened = screenTicketText(ctx.ticket.subject, ctx.message.bodyText);
   if (screened.sensitive) {
-    await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      handOff(tx, scope, ctx.ticket, `sensitive:${screened.reasons[0]}`),
+    const reason = `sensitive:${screened.reasons[0]}`;
+    const handedOff = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      handOff(tx, scope, ctx.ticket, reason),
     );
-    return;
+    return {
+      status: "withheld",
+      draftMessageId: null,
+      handedOff,
+      handOffReason: reason,
+    };
   }
-  const query = withPlaceholders(ctx.message.bodyText, ctx.contact).slice(
+  const query = supportModelText(ctx.message.bodyText, ctx.contact).slice(
     0,
     2000,
   );
-  const search = await knowledgeSearch(
-    scope,
-    { query },
-    {
-      retrievalJobKey: `support:${ticketId}:retrieval:${run.attemptKey}`,
-      budgetRunKey: `support:${ticketId}`,
-    },
-    "support",
-  );
-  const evidence = search.result as {
-    status: string;
-    retrieval?: { evidenceId?: string };
-    facts?: Array<{ id: string; key: string; value: unknown }>;
-    passages?: Array<{ chunkId: string; title: string; text: string }>;
-  };
-  run.state.evidenceId = evidence.retrieval?.evidenceId;
+  const search = await searchDraftKnowledge(scope, ticketId, query, run);
+  const { evidence } = search;
   const knowledgeIds = [
     ...(evidence.facts ?? []).map((f) => `fact:${f.id}`),
     ...(evidence.passages ?? []).map((p) => `chunk:${p.chunkId}`),
@@ -634,16 +838,15 @@ async function draft(scope: Scope, ticketId: string, run: RunOptions) {
   const account = await draftAccountEvidence(scope, ctx.ticket, query);
   const ids = [...knowledgeIds, ...(account?.ids ?? [])];
   // Without account facts, a draft still needs approved knowledge.
-  if (!account && (evidence.status !== "ready" || !knowledgeIds.length)) {
-    await storeDraft(
+  if (!account && (evidence.status !== "ready" || !knowledgeIds.length))
+    return storeDraft(
       scope,
       ticketId,
       GAP_NOTE,
       { evidence: "insufficient", citations: 0 },
       "insufficient_evidence",
+      { de: GAP_NOTE_DE },
     );
-    return;
-  }
   const content = [
     `Customer message: ${query}`,
     "Evidence:",
@@ -686,17 +889,15 @@ async function draft(scope: Scope, ticketId: string, run: RunOptions) {
   // An account that cannot be checked must be said so, not answered.
   if (account && !account.ok && !result.citations.includes("account:status"))
     problems.push("account_status_uncited");
-  if (problems.length) {
-    await storeDraft(
+  if (problems.length)
+    return storeDraft(
       scope,
       ticketId,
       "",
       { evidenceId: evidenceId ?? null, problems },
       `draft_withheld:${problems[0]}`,
     );
-    return;
-  }
-  await storeDraft(
+  return storeDraft(
     scope,
     ticketId,
     restoreName(result.reply, ctx.contact),
@@ -741,7 +942,7 @@ async function draftAccountEvidence(
 type RunOptions = {
   attemptKey: string;
   manual: boolean;
-  state: { paid: boolean; evidenceId?: string };
+  state: { paid: boolean; evidenceIds: string[] };
 };
 
 /**
@@ -761,11 +962,12 @@ export async function runSupportTask(
   const run: RunOptions = {
     attemptKey: input.attemptKey ?? randomUUID(),
     manual: input.manual === true,
-    state: { paid: false },
+    state: { paid: false, evidenceIds: [] },
   };
   try {
-    if (input.task === "triage") await triage(scope, input.ticketId, run);
-    else await draft(scope, input.ticketId, run);
+    return input.task === "triage"
+      ? await triage(scope, input.ticketId, run)
+      : await draft(scope, input.ticketId, run);
   } catch (error) {
     // A retried job whose retrieval was already reserved: never pay again.
     if ((error as { code?: string }).code === "RESERVATION_ALREADY_USED")
@@ -777,8 +979,8 @@ export async function runSupportTask(
       throw new DomainError("SUPPORT_TASK_NOT_RETRIED", 409);
     throw error;
   } finally {
-    if (run.state.evidenceId)
-      await scrubEvidence(scope, run.state.evidenceId).catch(() => undefined);
+    for (const evidenceId of run.state.evidenceIds)
+      await scrubEvidence(scope, evidenceId).catch(() => undefined);
   }
 }
 

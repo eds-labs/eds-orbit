@@ -395,7 +395,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ...content,
         status: "active",
         confirmation: {
-          userId: "owner",
+          userId: scope.userId,
           at: "2026-10-01T00:00:00.000Z",
           assignmentHash: assignmentHash(content),
         },

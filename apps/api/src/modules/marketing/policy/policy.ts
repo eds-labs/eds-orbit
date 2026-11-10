@@ -7,7 +7,18 @@ import {
 import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
 import { calendarConflicts } from "../publishing/calendar.ts";
 import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
+import { publishingBackend } from "../publishing/backend.ts";
+import {
+  accountForChannel,
+  publishingBlockers,
+  recentPublishedTexts,
+} from "../../social/contract.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
+import {
+  CONTENT_CLOSED,
+  contentClosed,
+  refuseClosedContent,
+} from "../pipeline/content-decisions.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "../brand/marketing-profile.ts";
 import {
@@ -69,18 +80,35 @@ export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
   );
   const assignment = await contentAssignment(tx, scope, data(content));
   const humanEach = requiresHuman(data(content), assignment);
-  const connector = (await list(tx, scope, "connectors")).find(
-    (x) =>
-      data(x).provider === "postiz" &&
-      (data(x).status === "write_verified" ||
-        (humanEach && data(x).status === "read_verified")),
-  );
+  // A project on Social (S9) binds the Social account behind the channel;
+  // a Postiz project's input stays exactly as before.
+  const social =
+    (await publishingBackend(tx, scope)) === "social"
+      ? { account: await accountForChannel(tx, scope, data(content).channel) }
+      : null;
+  const connector = social
+    ? undefined
+    : (await list(tx, scope, "connectors")).find(
+        (x) =>
+          data(x).provider === "postiz" &&
+          (data(x).status === "write_verified" ||
+            (humanEach && data(x).status === "read_verified")),
+      );
   const profile = humanEach ? await currentMarketingProfile(tx, scope) : null;
   const packageData = {
     projectId: scope.projectId,
-    connectorId: connector?.id ?? null,
-    connectorVersion: connector?.version ?? null,
-    connectorBaseUrl: connector ? data(connector).baseUrl : null,
+    ...(social
+      ? {
+          // The account, not its version: a health refusal and restore
+          // must not re-block approved posts; Social re-checks at send.
+          publishingBackend: "social",
+          socialAccountId: social.account?.accountId ?? null,
+        }
+      : {
+          connectorId: connector?.id ?? null,
+          connectorVersion: connector?.version ?? null,
+          connectorBaseUrl: connector ? data(connector).baseUrl : null,
+        }),
     contentId,
     contentVersion: content.version,
     body: data(content).body,
@@ -446,7 +474,11 @@ export async function preflight(
   const at = options.at ?? new Date(),
     pkg = await packageFor(tx, scope, contentId),
     c = data(pkg.content);
+  // On Social (S9) Social's checks replace the Postiz write checks.
+  const onSocial = "publishingBackend" in pkg.packageData;
   const blockers: string[] = [];
+  // Rejected or archived content never goes out (owner decision or review).
+  if (contentClosed(c.status)) blockers.push(CONTENT_CLOSED);
   const humanBlocker = await assignmentHumanApprovalBlocker(
     tx,
     scope,
@@ -569,6 +601,43 @@ export async function preflight(
     if (same.some((post) => !own.has(post.remoteId)))
       blockers.push("DUPLICATE_CONTENT");
   }
+  // On Social also what Social published on the channel's account (S9),
+  // except this content's own handed-over posts.
+  if (c.type === "social" && onSocial && !blockers.includes("DUPLICATE_CONTENT")) {
+    const account = await accountForChannel(tx, scope, c.channel);
+    const ownTexts = new Set(
+      [c.body, finalPostText(c.body ?? "", c.targetUrl)].map(duplicateKey),
+    );
+    const ownPosts = account
+      ? (
+          await tx.entity.findMany({
+            where: {
+              projectId: scope.projectId,
+              kind: "publications",
+              AND: [
+                { data: { path: ["contentId"], equals: contentId } },
+                { data: { path: ["publishingBackend"], equals: "social" } },
+              ],
+            },
+          })
+        )
+          .map((row) => data(row).remoteId)
+          .filter((id): id is string => typeof id === "string")
+      : [];
+    if (
+      account &&
+      (
+        await recentPublishedTexts(
+          tx,
+          scope,
+          [account.accountId],
+          CLAIM_REPEAT_WINDOW_DAYS,
+          { excludePostIds: ownPosts },
+        )
+      ).some((text) => ownTexts.has(duplicateKey(text)))
+    )
+      blockers.push("DUPLICATE_CONTENT");
+  }
 
   if ((await calendarConflicts(tx, scope, c.channel, at)).length)
     blockers.push("MANUAL_CALENDAR_BLOCK");
@@ -650,6 +719,7 @@ export async function preflight(
     if (c.type !== "social")
       blockers.push("LIVE_CONTENT_PROVIDER_CAPABILITY_NOT_CONFIGURED");
     else if (
+      !onSocial &&
       !(await resolveChannelRules(tx, scope, c.channel, c.type, !!c.assetId))
         .liveCapabilityKnown
     )
@@ -670,7 +740,13 @@ export async function preflight(
       )
         blockers.push("MISSION_LIVE_WRITE_NOT_AUTHORIZED");
     }
-    if (!connector) blockers.push("PUBLISHER_WRITE_VERIFICATION_REQUIRED");
+    if (onSocial)
+      blockers.push(
+        ...(await publishingBlockers(tx, scope, c.channel, {
+          text: finalPostText(c.body, c.targetUrl),
+        })),
+      );
+    else if (!connector) blockers.push("PUBLISHER_WRITE_VERIFICATION_REQUIRED");
     else if (
       !isAssignedPostizChannel(data(connector), c.channel) ||
       !(data(connector).writeVerifiedIntegrationIds ?? []).includes(
@@ -681,7 +757,7 @@ export async function preflight(
     )
       blockers.push("CHANNEL_WRITE_VERIFICATION_REQUIRED");
   }
-  if (!options.test && c.assetId) {
+  if (!options.test && c.assetId && !onSocial) {
     const connector = (await list(tx, scope, "connectors")).find(
       (x) =>
         data(x).provider === "postiz" && data(x).status === "write_verified",
@@ -709,6 +785,7 @@ export async function approve(
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const p = await packageFor(tx, scope, input.contentId);
+  refuseClosedContent(data(p.content));
   if (
     p.content.version !== input.version ||
     p.packageHash !== input.packageHash

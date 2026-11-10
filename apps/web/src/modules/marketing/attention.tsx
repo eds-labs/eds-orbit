@@ -81,6 +81,18 @@ export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
     }),
     SHOW,
   ),
+  marketing_policy_expiring: (item, locale) => {
+    const date = new Date(String(item.params.endAt)).toLocaleDateString(
+      locale === "de" ? "de-DE" : "en-GB",
+    );
+    return {
+      title:
+        locale === "de"
+          ? `Marketing-Richtlinie läuft am ${date} ab`
+          : `Marketing policy expires on ${date}`,
+      action: REVIEW,
+    };
+  },
   marketing_run_problem: (item, locale) => {
     const code = String(item.params.code ?? "");
     const text = runProblems[code];

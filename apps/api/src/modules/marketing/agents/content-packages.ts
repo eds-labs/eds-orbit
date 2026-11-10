@@ -1,3 +1,4 @@
+import { draftReplaced } from "./draft-state.ts";
 import { z } from "zod";
 import * as knowledgeFacts from "../../../platform/knowledge/facts.ts";
 import {
@@ -902,7 +903,7 @@ export async function advanceContentPackages(tx: DbTx, scope: Scope) {
         );
         // A reused draft belongs to another package; only its own drafts are replaced.
         if (
-          data(parent).supersededBy ||
+          draftReplaced(data(parent)) ||
           !(await isPackageDraft(tx, scope, pkg.id, parent))
         )
           continue;

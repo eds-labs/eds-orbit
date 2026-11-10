@@ -70,10 +70,13 @@ export const aiTasks = [
   { id: "pm_plan", en: "Project manager plans", de: "KI-Projektleiter: Pläne", tokens: 12000 },
   { id: "pm_analysis", en: "Project manager reports", de: "KI-Projektleiter: Berichte", tokens: 3000 },
   { id: "knowledge_evaluation", en: "Knowledge test questions", de: "Wissensprüfung: Testfragen", tokens: 6000 },
+  { id: "knowledge_analysis", en: "Knowledge analysis", de: "Wissensanalyse", tokens: 12000 },
   // Issue center (ADR 0018).
   { id: "issue_triage", en: "Issue triage", de: "Issue-Einordnung", tokens: 1500 },
   // Creative Studio: the optional vision review of a composed creative.
   { id: "creative_review", en: "Creative vision review", de: "Creative: Bildprüfung", tokens: 1500 },
+  // Agent platform (ADR 0021): work orders of configured agents.
+  { id: "agent_custom", en: "Configured agents", de: "Agenten: eigene Agenten", tokens: 3000 },
 ] as const;
 /**
  * The task classes a page offers: the Creative Studio's vision review only

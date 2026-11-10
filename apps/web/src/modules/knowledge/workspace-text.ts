@@ -1,13 +1,15 @@
 export const knowledgeCopy = {
   de: {
     title: "Projektwissen",
-    hint: "Was Orbit über dein Projekt weiß – mit nachvollziehbaren Quellen.",
+    hint: "Das hast du aus deinen Quellen bestätigt. Orbit nutzt nur dieses Wissen.",
+    sourcesHint: "Woher dein Wissen kommt und was als Nächstes zu tun ist.",
+    reviewHint:
+      "Vorschläge aus deinen Quellen. Erst nach deiner Bestätigung werden sie zu Wissen.",
     add: "Wissen hinzufügen",
     sources: "Quellen",
     review: "Zu prüfen",
-    advanced: "Erweitert",
+    technical: "Technik-Bereich",
     search: "Wissen durchsuchen",
-    all: "Alle Themen",
     description: "Beschreibung",
     audience: "Zielgruppe",
     platforms: "Plattformen",
@@ -15,7 +17,7 @@ export const knowledgeCopy = {
     limitations: "Grenzen",
     empty: "Hier entsteht dein Projektwissen",
     emptyHint:
-      "Füge eine Quelle hinzu, zum Beispiel die FamilyPlan-Dokumentation. Prüfe anschließend die vorgeschlagenen Erkenntnisse.",
+      "Füge eine Quelle hinzu, zum Beispiel die FamilyPlan-Dokumentation. Prüfe anschließend die Vorschläge.",
     accepted: "Bestätigt",
     pending: "Zu prüfen",
     needs_review: "Aktualisierung nötig",
@@ -42,10 +44,9 @@ export const knowledgeCopy = {
     noSources: "Noch keine Quellen",
     noReview: "Alles geprüft",
     noReviewHint:
-      "Neue Erkenntnisse und Änderungen erscheinen hier, sobald du eine Quelle analysierst.",
-    noMatch:
-      "Keine passenden Einträge. Ändere die Suche oder den Themenfilter.",
-    accept: "Übernehmen",
+      "Neue Vorschläge und Änderungen erscheinen hier, sobald du eine Quelle analysierst.",
+    noMatch: "Keine passenden Einträge. Ändere die Suche.",
+    accept: "Bestätigen",
     reject: "Verwerfen",
     statement: "Aussage",
     reason: "Warum vorgeschlagen?",
@@ -53,20 +54,15 @@ export const knowledgeCopy = {
     marketing: "Marketing",
     support: "Support",
     publicUse: "Für öffentliche Aussagen verwenden",
+    publicNeeded:
+      "Support und Marketing können diesen Inhalt für alles, was Kunden sehen, nur nutzen, wenn „Für öffentliche Aussagen verwenden“ eingeschaltet ist.",
     stageHint:
       "Im Code implementiert bedeutet nicht automatisch veröffentlicht oder öffentlich verfügbar.",
-    save: "Speichern und weiter",
+    save: "Speichern",
     back: "Zurück",
-    skip: "Später fortsetzen",
-    setup: "Projektwissen aufbauen",
-    step1: "Projekt beschreiben",
-    step2: "Quelle hinzufügen",
-    step3: "Auswahl prüfen",
-    step4: "Erkenntnisse prüfen",
     projectDescription: "Was ist das Projekt?",
     projectAudience: "Für wen ist es gedacht?",
     sourceName: "Name der Quelle",
-    kind: "Art der Quelle",
     manual: "Eigener Text",
     file: "Dokument",
     website: "Website",
@@ -75,14 +71,7 @@ export const knowledgeCopy = {
     url: "Adresse der Webseite",
     fileHint:
       "TXT, Markdown, HTML oder PDF; maximal 1 MB. Inhalte werden vor der Analyse geprüft.",
-    modelUse:
-      "Ausgewählte Inhalte zur KI-Analyse an den konfigurierten Modellanbieter senden",
-    modelHint:
-      "GitHub und Webseiten benötigen die KI-Analyse sowie eine bestehende Budgetfreigabe. Eigener Text kann ohne KI als Vorschlag eingereicht werden.",
-    preview: "Auswahl anzeigen",
     start: "Analyse starten",
-    previewHint:
-      "Diese Inhalte werden gelesen. Erst deine Bestätigung macht Vorschläge für Support und Marketing nutzbar.",
     partial:
       "Teilweise Auswahl: Einige Dateien konnten nicht gelesen werden. Die Analyse ist nicht vollständig.",
     files: "Ausgewählte Dateien",
@@ -114,11 +103,9 @@ export const knowledgeCopy = {
     history: "Entscheidungsverlauf",
     legacySources: "Weitere bestehende Quellen",
     library: "Dokumente und Versionen",
-    facts: "Fakten verwalten",
     health: "Diagnose",
     inspector: "Suche prüfen",
     impact: "Auswirkungen",
-    advancedImport: "Technischer Import",
     readOnly:
       "Nur Projektverantwortliche können Wissen hinzufügen und bestätigen.",
     progress: "Bearbeitungsstand",
@@ -126,19 +113,15 @@ export const knowledgeCopy = {
     unavailable:
       "Der Wissensbereich konnte nicht geladen werden. Versuche es erneut.",
     errorPrefix: "Der Schritt konnte nicht abgeschlossen werden.",
-    manualReview: "Text zur Prüfung einreichen",
     saved: "Gespeichert",
     noProposal:
-      "Keine belegbaren neuen Erkenntnisse gefunden. Ergänze weitere Quellen oder wähle zusätzliche Dateien aus.",
-    consent: "Auswahl und Verwendung prüfen",
+      "Keine belegbaren neuen Vorschläge gefunden. Ergänze weitere Quellen oder wähle zusätzliche Dateien aus.",
     legacyReview: "Bestehende Widersprüche prüfen",
     version: "Version",
     loadHistory: "Verlauf laden",
     selectRepo: "Repository auswählen",
     noRepos:
       "Keine Repositorys gefunden. Prüfe die Installation und ihre Freigaben auf GitHub.",
-    setupLater:
-      "Du kannst die Einrichtung später über „Wissen hinzufügen“ fortsetzen.",
     editProfile: "Projektbeschreibung bearbeiten",
     selectFiles: "Dateiauswahl bearbeiten",
     previewExpired:
@@ -148,16 +131,187 @@ export const knowledgeCopy = {
     omitted: "Ausgelassene Dateien",
     callbackFailed:
       "GitHub konnte nicht verbunden werden. Starte die Verbindung erneut.",
+    removed: "Entfernt",
+    paused: "Pausiert",
+    edit: "Bearbeiten",
+    remove: "Entfernen",
+    restore: "Wiederherstellen",
+    keepUsing: "Weiter verwenden",
+    saveEdit: "Änderung speichern",
+    showRemoved: "Entfernt ({n})",
+    hideRemoved: "Zurück zum aktuellen Wissen",
+    changedHint:
+      "Die Quelle hat sich geändert. Diese Aussage wird nicht verwendet, bis du entschieden hast.",
+    removeTitle: "Aussage entfernen?",
+    removeHint:
+      "Die Aussage wird nicht mehr verwendet. Du kannst sie unter „Entfernt“ wiederherstellen.",
+    removeShared:
+      "An derselben Quelle hängen {n} weitere Aussagen. Sie werden ebenfalls pausiert.",
+    refreshTitle: "Quelle neu lesen?",
+    refreshHint:
+      "Orbit liest die Quelle erneut, das kostet nichts. Hat sich der Text geändert, werden die betroffenen Aussagen pausiert, bis du unter „Zu prüfen“ entschieden hast.",
+    refreshConfirm: "Jetzt lesen",
+    neverRead: "Noch nie abgerufen",
+    neverReadEmpty:
+      "Diese Quelle enthält noch keine Inhalte und wird nirgends verwendet.",
+    neverReadHint: "Für diese Quelle gibt es noch keinen erfolgreichen Abruf.",
+    staleSource: "Veraltet",
+    staleHint:
+      "Seit {date} abgelaufen. Ihre Inhalte werden nicht mehr verwendet.",
+    expiringHint: "Ihre Inhalte werden ab {date} nicht mehr verwendet.",
+    freshSource: "Aktuell",
+    manualSource: "Manuell gepflegt",
+    rowReading: "Wird gelesen",
+    rowFailed: "Fehlgeschlagen",
+    rowWaitingOne: "1 Vorschlag wartet",
+    rowWaiting: "{n} Vorschläge warten",
+    rowNotFinished: "Nicht fertig",
+    rowNotFinishedHint:
+      "Die Einrichtung dieser Quelle ist noch nicht abgeschlossen.",
+    rowReminder: "Länger nicht gelesen",
+    rowReminderHint:
+      "Zuletzt vor {n} Tagen gelesen. Aktualisiere die Quelle, wenn sich dort etwas geändert hat.",
+    pausedHint: "Wird nicht verwendet, bis du sie fortsetzt.",
+    readContents: "Inhalte einlesen",
+    manageSource: "Inhalte verwalten",
+    pause: "Pausieren",
+    moreMenu: "Mehr",
+    rowReview: "Prüfen",
+    rowUpdate: "Aktualisieren",
+    rowContinueSetup: "Weiter einrichten",
+    removeSourceTitle: "Quelle entfernen?",
+    removeSourceHint:
+      "Die leere Quelle wird dauerhaft entfernt. Inhalte gehen dabei nicht verloren.",
+    addHint:
+      "Füge Inhalte hinzu, die Orbit für Support und Marketing verwenden darf.",
+    stepContent: "Inhalt",
+    stepUse: "Verwendung",
+    whatTitle: "Was möchtest du hinzufügen?",
+    whatManual: "Text",
+    whatManualHint: "Schreibe etwas oder füge vorhandenen Text ein.",
+    whatFile: "Dokument",
+    whatFileHint: "Lade eine TXT-, Markdown-, HTML- oder PDF-Datei hoch.",
+    whatSite: "Website oder GitBook",
+    whatSiteHint:
+      "Orbit sucht die Seiten, du wählst aus, welche gelesen werden.",
+    whatGithub: "GitHub-Repository",
+    whatGithubHint:
+      "Die KI liest ausgewählte Dateien und schlägt Aussagen vor.",
+    contentManual: "Text eingeben",
+    contentFile: "Dokument hochladen",
+    contentWebsite: "Adresse eingeben und Seiten auswählen",
+    contentGithub: "Repository auswählen",
+    continue: "Weiter",
+    findPages: "Seiten suchen",
+    findingPages: "Seiten werden gesucht …",
+    pagesTitle: "Seiten",
+    pagesSelected: "{n} von {pages} ausgewählt",
+    wholeLanguage: "{language}: alle {pages}",
+    showPages: "Einzelne Seiten anzeigen",
+    homePage: "Startseite",
+    cappedPages:
+      "Diese Website hat mehr als 200 Seiten. Angezeigt werden nur die ersten 200 Seiten, und nur diese lassen sich einlesen.",
+    singlePage:
+      "Orbit hat unter dieser Adresse nur diese eine Seite gefunden. Weitere Seiten werden nicht gelesen.",
+    incompletePages:
+      "Die Seitenübersicht ließ sich nicht vollständig lesen. In der Liste können Seiten fehlen.",
+    noPageSelected: "Wähle mindestens eine Seite aus.",
+    useTitle: "Wie soll Orbit das verwenden?",
+    recommended: "Empfohlen",
+    wayWhole: "Ganz übernehmen",
+    wayWholeHint:
+      "Der ganze Inhalt ist sofort durchsuchbar. Keine KI-Analyse und keine Kosten.",
+    wayWholeSiteHint:
+      "Alle ausgewählten Seiten werden durchsuchbar und bleiben aktuell. Keine KI-Analyse und keine Kosten.",
+    wayAi: "KI schlägt Aussagen vor",
+    wayAiHint:
+      "Die KI liest den Inhalt und schlägt einzelne Aussagen vor. Du prüfst jede, bevor sie verwendet wird. Das kostet Geld, den Betrag siehst du auf dem Startknopf.",
+    waySiteAiHint:
+      "Die KI liest die Seiten und schlägt einzelne Aussagen vor. Du prüfst jede, bevor sie verwendet wird. Möglich sind höchstens 30 Seiten und 100.000 Zeichen. Das kostet Geld, den Betrag siehst du auf dem Startknopf.",
+    aiTooManyPages:
+      "Du hast {n} Seiten ausgewählt, für die KI sind höchstens 30 möglich. Gehe zurück und wähle weniger aus.",
+    wayStatement: "Als eine Aussage prüfen",
+    wayStatementHint:
+      "Der Text wird eine einzige Aussage, die du unter „Zu prüfen“ bestätigst. Keine KI-Analyse und keine Kosten.",
+    reviewRights:
+      "Das gilt für die Aussagen, die du bestätigst. Marketing, Support und öffentliche Aussagen kannst du beim Prüfen noch ändern.",
+    modelRead: "KI-Funktionen dürfen es lesen",
+    weeklyUpdates:
+      "Jede Woche automatisch aktualisieren: geänderte Seiten ersetzen, neue aufnehmen, gelöschte entfernen. Ohne wöchentliche Updates fallen die Seiten nach 14 Tagen aus der Suche.",
+    noAudience: "Wähle mindestens Marketing oder Support aus.",
+    takeOver: "Übernehmen",
+    readPages: "{pages} einlesen",
+    submitStatement: "Zur Prüfung geben",
+    startAi: "Analyse starten · etwa {cost} · {model}",
+    underOneCent: "unter $0.01",
+    preparing: "Auswahl wird vorbereitet …",
+    checkingCost: "Kosten werden geprüft …",
+    proposalLimit: "Die KI schlägt höchstens {n} Aussagen vor.",
+    aiSettingsLink: "Zu den KI-Einstellungen",
+    sourcesLink: "Zu den Quellen",
+    contentDone: "Der Inhalt ist jetzt durchsuchbar.",
+    siteStarted: "Orbit liest jetzt {pages}. Das läuft im Hintergrund.",
+    siteAlreadyRunning:
+      "Für diese Quelle läuft bereits ein Lesevorgang. An der Quelle wurde nichts geändert.",
+    weeklySwitch:
+      "Jede Woche automatisch aktualisieren. Ohne wöchentliche Updates fallen die Seiten nach 14 Tagen aus der Suche.",
+    weeklyIsOn: "Wird jede Woche automatisch aktualisiert.",
+    weeklyIsOff: "Wird nicht automatisch aktualisiert.",
+    siteSearching: "Orbit sucht die Seiten …",
+    siteProgress: "{done} von {pages} gelesen",
+    siteSummary:
+      "Zuletzt gelesen: {pages}. Neu: {added}, geändert: {changed}, entfernt: {removed}, unverändert: {unchanged}.",
+    siteSensitive:
+      "{pages} wurden übersprungen, weil sie mögliche Zugangsdaten enthalten.",
+    siteShrankWarning:
+      "Die Website hat deutlich weniger Seiten geliefert als beim letzten Lesen. Orbit hat nichts entfernt, alle bisherigen Seiten bleiben erhalten. Prüfe, ob die Website vollständig erreichbar ist, und lies sie danach erneut.",
+    siteFailedPages:
+      "{pages} konnten nicht gelesen werden. Ihre letzte Fassung bleibt erhalten, es wurde nichts entfernt. Lies die Website später erneut oder nimm die Seiten bei der Auswahl heraus.",
+    siteFailedMore: "Weitere Seiten sind nicht aufgelistet.",
+    siteRunInactive:
+      "Das Lesen wurde angehalten, weil die Quelle pausiert oder ihre Einstellungen geändert wurden. Was bis dahin gelesen oder entfernt wurde, bleibt so. Prüfe die Quelle und lies sie danach erneut.",
+    siteRunFailed:
+      "Das Lesen der Website ist fehlgeschlagen. Es wurde nichts entfernt. Versuche es später erneut.",
+    pageFailNotFound: "Die Seite gibt es nicht mehr.",
+    pageFailTimeout: "Die Seite hat zu lange nicht geantwortet.",
+    pageFailFetch: "Die Seite ließ sich nicht abrufen.",
+    pageFailBlocked: "Die Website erlaubt das Lesen dieser Seite nicht.",
+    pageFailContent: "Aus der Seite ließ sich kein Text lesen.",
+    pageFailOther: "Die Seite ließ sich nicht lesen.",
+    analysisProposals: "{n} Vorschläge",
+    analysisCost: "Kosten {cost}",
+    analysisDropped:
+      "{n} weitere Vorschläge wurden verworfen, weil ihr Beleg nicht wörtlich im Text stand.",
+    githubNotSetUp: "GitHub ist für dieses Projekt noch nicht eingerichtet.",
+    githubSetUpLink: "GitHub einrichten",
+    notConfigured: "Noch nicht eingerichtet",
+    profileHint: "Optional. Hilft Orbit, dein Projekt richtig einzuordnen.",
+    bulkConfirm: "Auswahl bestätigen",
+    selectAll: "Alle auswählen",
+    replacedHint:
+      "Diese Quelle wurde ersetzt. Der Vorschlag kann nur noch verworfen werden.",
+    noAudienceHint: "Wähle unter „Anpassen“ mindestens Marketing oder Support.",
+    adjust: "Anpassen",
+    otherKnowledge: "Weitere",
+    changedGroup: "Geändert",
+    moreEvidence: "Mehr zum Beleg",
+    bulkCountOne: "{n} Aussage",
+    bulkCountMany: "{n} Aussagen",
+    bulkBoth: "Marketing und Support",
+    bulkPublic: "{n} öffentlich",
+    bulkResult: "{done} von {total} bestätigt",
   },
   en: {
     title: "Project knowledge",
-    hint: "What Orbit knows about your project, backed by traceable sources.",
+    hint: "What you confirmed from your sources. Orbit uses only this knowledge.",
+    sourcesHint: "Where your knowledge comes from and what to do next.",
+    reviewHint:
+      "Proposals from your sources. They become knowledge only after you confirm them.",
     add: "Add knowledge",
     sources: "Sources",
     review: "To review",
-    advanced: "Advanced",
+    technical: "Technical area",
     search: "Search knowledge",
-    all: "All topics",
     description: "Description",
     audience: "Audience",
     platforms: "Platforms",
@@ -165,7 +319,7 @@ export const knowledgeCopy = {
     limitations: "Limitations",
     empty: "Build your project knowledge here",
     emptyHint:
-      "Add a source, such as the FamilyPlan documentation. Then review the proposed findings.",
+      "Add a source, such as the FamilyPlan documentation. Then review the proposals.",
     accepted: "Confirmed",
     pending: "To review",
     needs_review: "Update needed",
@@ -192,30 +346,25 @@ export const knowledgeCopy = {
     noSources: "No sources yet",
     noReview: "Everything reviewed",
     noReviewHint:
-      "New findings and changes appear here after you analyze a source.",
-    noMatch: "No matching entries. Change the search or topic filter.",
-    accept: "Accept",
-    reject: "Discard",
+      "New proposals and changes appear here after you analyze a source.",
+    noMatch: "No matching entries. Change the search.",
+    accept: "Confirm",
+    reject: "Reject",
     statement: "Statement",
     reason: "Why suggested?",
     usage: "Usage",
     marketing: "Marketing",
     support: "Support",
     publicUse: "Allow public statements",
+    publicNeeded:
+      "Support and Marketing can only use this content in what customers see when “Allow public statements” is on.",
     stageHint:
       "Implemented in code does not automatically mean released or publicly available.",
-    save: "Save and continue",
+    save: "Save",
     back: "Back",
-    skip: "Continue later",
-    setup: "Build project knowledge",
-    step1: "Describe the project",
-    step2: "Add a source",
-    step3: "Review selection",
-    step4: "Review findings",
     projectDescription: "What is this project?",
     projectAudience: "Who is it for?",
     sourceName: "Source name",
-    kind: "Source type",
     manual: "Your own text",
     file: "Document",
     website: "Website",
@@ -224,14 +373,7 @@ export const knowledgeCopy = {
     url: "Web page address",
     fileHint:
       "TXT, Markdown, HTML or PDF; maximum 1 MB. Content is checked before analysis.",
-    modelUse:
-      "Send selected content to the configured model provider for AI analysis",
-    modelHint:
-      "GitHub and web pages require AI analysis and an existing budget mandate. Your own text can be submitted as a proposal without AI.",
-    preview: "Show selection",
     start: "Start analysis",
-    previewHint:
-      "These contents will be read. Only your confirmation makes proposals available to Support and Marketing.",
     partial:
       "Partial selection: some files could not be read. The analysis is incomplete.",
     files: "Selected files",
@@ -262,28 +404,23 @@ export const knowledgeCopy = {
     history: "Decision history",
     legacySources: "Other existing sources",
     library: "Documents and versions",
-    facts: "Manage facts",
     health: "Diagnostics",
     inspector: "Inspect search",
     impact: "Impacts",
-    advancedImport: "Technical import",
     readOnly: "Only project owners can add and confirm knowledge.",
     progress: "Progress",
     projectHome: "Project overview",
     unavailable: "Knowledge could not be loaded. Try again.",
     errorPrefix: "This step could not be completed.",
-    manualReview: "Submit text for review",
     saved: "Saved",
     noProposal:
-      "No supported new findings found. Add more sources or select additional files.",
-    consent: "Review selection and usage",
+      "No supported new proposals found. Add more sources or select additional files.",
     legacyReview: "Review existing conflicts",
     version: "Version",
     loadHistory: "Load history",
     selectRepo: "Select a repository",
     noRepos:
       "No repositories found. Check the installation and its permissions on GitHub.",
-    setupLater: "You can resume setup later using “Add knowledge”.",
     editProfile: "Edit project description",
     selectFiles: "Edit file selection",
     previewExpired: "The selection expired or changed. Create a new preview.",
@@ -291,8 +428,176 @@ export const knowledgeCopy = {
     result: "Result",
     omitted: "Skipped files",
     callbackFailed: "GitHub could not connect. Start the connection again.",
+    removed: "Removed",
+    paused: "Paused",
+    edit: "Edit",
+    remove: "Remove",
+    restore: "Restore",
+    keepUsing: "Keep using",
+    saveEdit: "Save change",
+    showRemoved: "Removed ({n})",
+    hideRemoved: "Back to current knowledge",
+    changedHint:
+      "The source has changed. This statement is not used until you decide.",
+    removeTitle: "Remove this statement?",
+    removeHint:
+      "The statement will no longer be used. You can restore it under “Removed”.",
+    removeShared:
+      "{n} more statements belong to the same source. They will be paused too.",
+    refreshTitle: "Read this source again?",
+    refreshHint:
+      "Orbit reads the source again at no cost. If the text has changed, the affected statements are paused until you decide under “To review”.",
+    refreshConfirm: "Read now",
+    neverRead: "Never read",
+    neverReadEmpty: "This source has no content yet and is not used anywhere.",
+    neverReadHint: "This source has no successful fetch yet.",
+    staleSource: "Out of date",
+    staleHint: "Expired on {date}. Its content is no longer used.",
+    expiringHint: "Its content will no longer be used from {date}.",
+    freshSource: "Up to date",
+    manualSource: "Maintained manually",
+    rowReading: "Reading",
+    rowFailed: "Failed",
+    rowWaitingOne: "1 proposal waiting",
+    rowWaiting: "{n} proposals waiting",
+    rowNotFinished: "Not finished",
+    rowNotFinishedHint: "Setting up this source is not finished yet.",
+    rowReminder: "Not read for a while",
+    rowReminderHint:
+      "Last read {n} days ago. Update the source if something changed there.",
+    pausedHint: "Not used until you resume it.",
+    readContents: "Read in content",
+    manageSource: "Manage content",
+    pause: "Pause",
+    moreMenu: "More",
+    rowReview: "Review",
+    rowUpdate: "Update",
+    rowContinueSetup: "Continue setup",
+    removeSourceTitle: "Remove this source?",
+    removeSourceHint:
+      "The empty source is removed permanently. No content is lost.",
+    addHint: "Add content that Orbit may use for Support and Marketing.",
+    stepContent: "Content",
+    stepUse: "Use",
+    whatTitle: "What do you want to add?",
+    whatManual: "Text",
+    whatManualHint: "Write something or paste existing text.",
+    whatFile: "Document",
+    whatFileHint: "Upload a TXT, Markdown, HTML or PDF file.",
+    whatSite: "Website or GitBook",
+    whatSiteHint: "Orbit finds the pages, you choose which ones are read.",
+    whatGithub: "GitHub repository",
+    whatGithubHint: "AI reads selected files and proposes statements.",
+    contentManual: "Enter text",
+    contentFile: "Upload a document",
+    contentWebsite: "Enter the address and choose pages",
+    contentGithub: "Choose a repository",
+    continue: "Continue",
+    findPages: "Find pages",
+    findingPages: "Finding pages …",
+    pagesTitle: "Pages",
+    pagesSelected: "{n} of {pages} selected",
+    wholeLanguage: "{language}: all {pages}",
+    showPages: "Show individual pages",
+    homePage: "Home page",
+    cappedPages:
+      "This website has more than 200 pages. Only the first 200 pages are shown, and only those can be read.",
+    singlePage:
+      "Orbit found only this one page at this address. No other pages will be read.",
+    incompletePages:
+      "The page overview could not be read completely. Pages may be missing from this list.",
+    noPageSelected: "Select at least one page.",
+    useTitle: "How should Orbit use this?",
+    recommended: "Recommended",
+    wayWhole: "Take over whole",
+    wayWholeHint:
+      "All of it is searchable at once. No AI analysis and no cost.",
+    wayWholeSiteHint:
+      "All selected pages become searchable and stay current. No AI analysis and no cost.",
+    wayAi: "AI proposes statements",
+    wayAiHint:
+      "AI reads the content and proposes individual statements. You review each one before it is used. This costs money; the start button shows the amount.",
+    waySiteAiHint:
+      "AI reads the pages and proposes individual statements. You review each one before it is used. At most 30 pages and 100,000 characters are possible. This costs money; the start button shows the amount.",
+    aiTooManyPages:
+      "You selected {n} pages, but AI can read at most 30. Go back and select fewer.",
+    wayStatement: "Review as one statement",
+    wayStatementHint:
+      "The text becomes a single statement that you confirm under “To review”. No AI analysis and no cost.",
+    reviewRights:
+      "This applies to the statements you confirm. You can still change Marketing, Support and public statements when you review them.",
+    modelRead: "AI features may read it",
+    weeklyUpdates:
+      "Update automatically every week: replace changed pages, add new ones, remove deleted ones. Without weekly updates the pages leave search after 14 days.",
+    noAudience: "Select Marketing or Support at least.",
+    takeOver: "Take over",
+    readPages: "Read {pages}",
+    submitStatement: "Send for review",
+    startAi: "Start analysis · about {cost} · {model}",
+    underOneCent: "under $0.01",
+    preparing: "Preparing your selection …",
+    checkingCost: "Checking the cost …",
+    proposalLimit: "AI proposes at most {n} statements.",
+    aiSettingsLink: "Go to AI settings",
+    sourcesLink: "Go to Sources",
+    contentDone: "The content is now searchable.",
+    siteStarted: "Orbit is now reading {pages}. This runs in the background.",
+    siteAlreadyRunning:
+      "A read is already running for this source. Nothing was changed on the source.",
+    weeklySwitch:
+      "Update automatically every week. Without weekly updates the pages leave search after 14 days.",
+    weeklyIsOn: "Updated automatically every week.",
+    weeklyIsOff: "Not updated automatically.",
+    siteSearching: "Orbit is finding the pages …",
+    siteProgress: "{done} of {pages} read",
+    siteSummary:
+      "Last read: {pages}. New: {added}, changed: {changed}, removed: {removed}, unchanged: {unchanged}.",
+    siteSensitive: "{pages} skipped because they may contain credentials.",
+    siteShrankWarning:
+      "The website returned far fewer pages than at the last read. Orbit removed nothing, and all pages read before stay in place. Check that the website is fully reachable, then read it again.",
+    siteFailedPages:
+      "{pages} could not be read. Their last version stays in place and nothing was removed. Read the website again later, or take those pages out of the selection.",
+    siteFailedMore: "Further pages are not listed.",
+    siteRunInactive:
+      "Reading was stopped because the source was paused or its settings changed. What was read or removed up to that point stays as it is. Check the source, then read it again.",
+    siteRunFailed:
+      "Reading the website failed. Nothing was removed. Try again later.",
+    pageFailNotFound: "The page no longer exists.",
+    pageFailTimeout: "The page took too long to respond.",
+    pageFailFetch: "The page could not be fetched.",
+    pageFailBlocked: "The website does not allow reading this page.",
+    pageFailContent: "No text could be read from the page.",
+    pageFailOther: "The page could not be read.",
+    analysisProposals: "{n} proposals",
+    analysisCost: "Cost {cost}",
+    analysisDropped:
+      "{n} more proposals were dropped because their evidence was not word for word in the text.",
+    githubNotSetUp: "GitHub has not been set up for this project yet.",
+    githubSetUpLink: "Set up GitHub",
+    notConfigured: "Not set up yet",
+    profileHint: "Optional. Helps Orbit understand your project.",
+    bulkConfirm: "Confirm selection",
+    selectAll: "Select all",
+    replacedHint:
+      "This source was replaced. The proposal can only be rejected.",
+    noAudienceHint: "Under Adjust, choose at least Marketing or Support.",
+    adjust: "Adjust",
+    otherKnowledge: "Other",
+    changedGroup: "Changed",
+    moreEvidence: "More about the evidence",
+    bulkCountOne: "{n} statement",
+    bulkCountMany: "{n} statements",
+    bulkBoth: "Marketing and Support",
+    bulkPublic: "{n} public",
+    bulkResult: "{done} of {total} confirmed",
   },
 } as const;
 export type KnowledgeCopy = { [K in keyof typeof knowledgeCopy.en]: string };
 export const workspaceStatus = (status: string, t: KnowledgeCopy) =>
   status in t ? t[status as keyof KnowledgeCopy] : status;
+
+/** "1 Seite" / "1 page", never "1 Seiten": the one place page counts get their noun. */
+export const pageCount = (n: number, locale: string) =>
+  locale === "de"
+    ? `${n} ${n === 1 ? "Seite" : "Seiten"}`
+    : `${n} ${n === 1 ? "page" : "pages"}`;

@@ -1,11 +1,14 @@
+import { refuseWhileDraining } from "../publishing/backend.ts";
 import { summarizeMetrics } from "../analytics/metric-report.ts";
 import { finishMissionRun } from "./planning.ts";
+import { refuseClosedContent } from "./content-decisions.ts";
 import {
   authorize,
   PROJECT_OWN,
 } from "../../../platform/tenancy/permissions.ts";
 import { assertMissionDraftOwner } from "../agents/mission-owner.ts";
 import { reportBlockedPost } from "../agents/notifications.ts";
+import { SLOT_EXPIRED } from "../agents/veto.ts";
 import { randomUUID } from "node:crypto";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
@@ -403,6 +406,8 @@ export async function publishIntent(
   const c = await entity(tx, scope, "content", input.contentId);
   if (c.version !== input.version)
     throw new DomainError("VERSION_CONFLICT", 409);
+  // Moving to Social (S10): Postiz finishes what it has, takes nothing new.
+  await refuseWhileDraining(tx, scope);
   const effectiveSchedule = input.scheduledAt ?? data(c).scheduledAt;
   const at = effectiveSchedule ? new Date(effectiveSchedule) : new Date();
   if (!Number.isFinite(at.valueOf()) || at.valueOf() < Date.now() - 1000)
@@ -515,6 +520,9 @@ async function vetoWindowBlocker(
     c.agentReview != null && c.humanReviewedBodyHash !== hash(c.body);
   return agentReviewedOnly ? "VETO_DEADLINE_REQUIRED" : null;
 }
+/** How long after its slot a publication job may still start (G2). */
+export const SLOT_GRACE_MS = 30 * 60_000;
+
 export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
   const pub = await entity(tx, scope, "publications", pubId),
     v = data(pub);
@@ -530,6 +538,16 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
   )
     return { send: false, pub };
   if (new Date(v.scheduledAt) > new Date()) throw new DomainError("NOT_DUE");
+  if (Date.now() - Date.parse(v.scheduledAt) > SLOT_GRACE_MS) {
+    const expired = await update(tx, scope, pub, {
+      ...v,
+      status: "blocked_dependency",
+      blockers: [SLOT_EXPIRED],
+    });
+    await exception(tx, scope, "PUBLISH_PREFLIGHT_BLOCKED", pub.id);
+    await reportBlockedPost(tx, scope, pub.id, v, [SLOT_EXPIRED]);
+    return { send: false, pub: expired };
+  }
   const vetoBlocker = await vetoWindowBlocker(tx, scope, v);
   if (vetoBlocker) {
     const blocked = await update(tx, scope, pub, {
@@ -580,6 +598,32 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
         publicationId: pub.id,
       });
   return { send: true, pub: claimed, content: p.content };
+}
+/**
+ * Gives a claim back when nothing was handed over (Social's hand-off commits
+ * in one transaction, so a publication still `sending` without a remote id
+ * made no post): the publication waits for its job again and the approvals
+ * the claim consumed count again. Never for an external write that may have
+ * happened. False when the claim is no longer this one (`fence`).
+ */
+export async function releasePublicationClaim(
+  tx: DbTx,
+  scope: Scope,
+  pubId: string,
+  fence?: string,
+): Promise<boolean> {
+  const pub = await entity(tx, scope, "publications", pubId),
+    v = data(pub);
+  if (v.status !== "sending" || v.remoteId || (fence && v.fence !== fence))
+    return false;
+  for (const a of await list(tx, scope, "approvals"))
+    if (data(a).status === "consumed" && data(a).publicationId === pub.id) {
+      const { publicationId: _publication, ...approval } = data(a);
+      await update(tx, scope, a, { ...approval, status: "approved" });
+    }
+  const { fence: _fence, handoffAt: _handoffAt, ...rest } = v;
+  await update(tx, scope, pub, { ...rest, status: "intent_created" });
+  return true;
 }
 export async function finishPublication(
   tx: DbTx,
@@ -679,6 +723,8 @@ export async function reviewContent(
   humanConfirm = false,
 ) {
   let c = await entity(tx, scope, "content", id);
+  // A rejected or archived draft stays closed: a review cannot reopen it.
+  refuseClosedContent(data(c));
   if (c.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   if (humanConfirm) {
     authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");

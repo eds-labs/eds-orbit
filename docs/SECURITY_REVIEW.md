@@ -1,6 +1,23 @@
 # Security Review
 
 
+## Social media library and public media URLs (ADR 0020, S3, prepared 2026-11-02, local only)
+
+- **Uploads:** raw body checked for session, module, `social.compose` and content type before it is read; size and quota by the platform file storage; types png/jpeg/webp by their signature before any decoder runs (the declared `x-file-type` only gives video a clear error); at most two images decoded at a time per process (503 `SOCIAL_MEDIA_BUSY`); images are re-encoded by sharp with a 40-megapixel input limit, `failOn: "warning"`, first frame only, metadata (EXIF/GPS) removed. Files are encrypted and private to the module (no generic `/files` access).
+- **Serving to members:** inline with `nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `private, no-store`; only the project's own assets.
+- **Public media route:** `GET /api/public/social/media/<token>`; token = project, publication and file ids, expiry, 128-bit HMAC-SHA256 with an HKDF key from `AUTH_SECRET`; constant-time comparison; served only while the publication is `claimed`/`sending`/`processing` and only a rendition of one of its media; uniform 404; no listing; 120 requests per minute per address; audited without content. Off unless `ORBIT_PUBLIC_INGRESS` and `ORBIT_SOCIAL_MEDIA_PUBLIC`.
+- **Open:** a token stays valid for its two hours while the publication is being sent (no single use, Meta may fetch more than once); review before enabling the switch.
+
+## Social accounts and OAuth (ADR 0020, S2, prepared 2026-11-02, local only)
+
+- **Tokens:** account tokens, Page tokens, bot tokens and developer-app secrets are sealed `ConnectionSecret`s (key ring); the business role only reads them through a project grant; writes go through `platform/connections/project-secrets.ts` on the auth role with an advisory lock and a system audit without secrets. No route, audit, notification or error returns a token (tests scan responses, audits and errors).
+- **OAuth state:** `<projectId>.<32 random bytes>`, only its SHA-256 stored, single use (conditional claim), bound to member, project and platform, ten minutes; the PKCE verifier is sealed. The callback needs the owner's session (cookie `SameSite=Lax`, GET) and consumes the state before any token exchange; errors redirect with codes only.
+- **Outbound calls:** every provider call goes through the bounded transport (`https`, public addresses, size and time limits, no redirects), the SDK included (`fetch` injected). Meta's code exchange carries the app secret in the query, as Meta documents; all other reads send tokens as bearer headers.
+- **Telegram:** the publishing bot must differ from the project's Orbit bot; the module never calls update or webhook methods, so the owner bot's webhook is untouched.
+- **New public path:** `POST /api/callbacks/<module>/<name>` (exempt from the origin check, gated by `ORBIT_PUBLIC_INGRESS`). The only route is Meta's data-deletion callback: HMAC-SHA256 over the payload with a granted Meta app secret (constant-time comparison), `issued_at` within a day, body ≤ 16 KB, 30 requests per minute per address; it can only disconnect accounts.
+- **Dependency:** `@opencoredev/social-sdk` 0.5.0 (exact pin; see `DEPENDENCY_RISKS.md`); managed providers are refused by lint and pinned by a test.
+- **Open:** independent review before the first deployment; live acceptance with real developer apps in a test project.
+
 ## Approval UX v2 and agent mandates (ADR 0019, prepared 2026-10-28, local only)
 
 - **Scope:** a standing, owner-granted authorization for internal action types (`W0`, `C1`, `C2` only). Hard floors are code constants, and a test pins the mandatable list. Granting is web-only for owners (`ui_only`), with no MCP or assistant tool. Every automatic approval goes through the unchanged `decideActionRequest` (role, hash, version, expiry, MCP grant guard, revalidation, single use) and is audited without the payload.

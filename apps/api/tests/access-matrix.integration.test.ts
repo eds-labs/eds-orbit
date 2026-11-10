@@ -7,6 +7,8 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { registeredActionNames } from "../src/platform/modules/contributions.ts";
+import { moduleRegistry } from "../src/modules/registry.ts";
+import { ensurePersonalSpace } from "../src/platform/assistant/personal-space.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 // Rerun with UPDATE_ACCESS_MATRIX=1 to rewrite the expectation after an
@@ -33,6 +35,10 @@ Object.assign(process.env, {
   ORBIT_WORK: "true",
   // Issue center (ADR 0018): routes exist; the project never enables it.
   ORBIT_ISSUES: "true",
+  // Social module (ADR 0020): routes exist; the project never enables it.
+  ORBIT_SOCIAL: "true",
+  // Ads module (ADR 0025): routes exist; the project never enables it.
+  ORBIT_ADS: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
@@ -53,6 +59,14 @@ Object.assign(process.env, {
   ORBIT_CREATIVE_STUDIO: "true",
   // Agent mandates (ADR 0019): owner-only routes; nothing is granted here.
   ORBIT_AGENT_MANDATES: "true",
+  // Agent platform (ADR 0021): routes answer 404 while it is off.
+  ORBIT_AGENT_PLATFORM: "true",
+  // Personal spaces (ADR 0022): probed for org owners and administrators.
+  ORBIT_PERSONAL_ASSISTANT: "true",
+  // Proactive layer (ADR 0023): preferences, summary, stream, signal switches.
+  ORBIT_PROACTIVE: "true",
+  // Voice (ADR 0024): routes answer 404 while it is off; nothing reaches a provider.
+  ORBIT_VOICE: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
@@ -80,13 +94,28 @@ const PUBLIC_ROUTES = [
   "GET /api/health/postiz",
   "GET /api/health/ready",
   "GET /api/setup",
+  // Social OAuth callback (ADR 0020): it checks the state's shape first (400
+  // here, without one) and then needs the owner's session (401/403, pinned
+  // in social-oauth-routes.integration.test.ts).
+  "GET /api/social/oauth/callback/{app}",
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
+  // A module's provider callback (ADR 0020): Meta's signed data-deletion
+  // request; without a valid signature it is refused (400).
+  "POST /api/callbacks/social/meta-data-deletion",
   // Signed provider webhooks (WP4.2a): the signature authenticates.
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
   // The support widget's public API (WP5.4): the key, its allowed origins and
   // a bearer session authenticate; a made-up key answers 404 for everybody.
+  // The status of a Meta data-deletion request (ADR 0020): the signed
+  // confirmation code authenticates; any other code answers 404.
+  "GET /api/public/social/data-deletion/{code}",
+  // Signed social media for platforms (ADR 0020, S3): the token authenticates.
+  "GET /api/public/social/media/{token}",
+  // Social upload sessions (MCP social_media_upload): the signed one-time
+  // token authenticates; a made-up token answers 404 before the body is read.
+  "PUT /api/public/social/media-uploads/{token}",
   "GET /api/public/support/{publicKey}/conversations",
   "GET /api/public/support/{publicKey}/messages",
   "GET /api/public/support/{publicKey}/stream",
@@ -137,7 +166,9 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
   const users: string[] = [];
   const workspaces: string[] = [];
   const cookies: Partial<Record<Role, string>> = {};
-  let workspaceId: string, projectId: string;
+  let workspaceId: string, projectId: string, personalId: string;
+  // Who reached the editor's personal space, per project route (ADR 0022).
+  const personal: Record<string, Partial<Record<Role, string>>> = {};
   const origin = process.env.APP_ORIGIN!;
   const actual: Record<string, Record<Role, string>> = {};
   // A fresh documentation address per request: no request shares a rate-limit bucket.
@@ -159,10 +190,10 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
   }
 
   /** Concrete requests for one route template. */
-  function expand(method: string, template: string) {
+  function expand(method: string, template: string, project = projectId) {
     const fill = (path: string) =>
       path
-        .replaceAll("{projectId}", projectId)
+        .replaceAll("{projectId}", project)
         .replaceAll("{workspaceId}", workspaceId)
         .replace(/\{[A-Za-z]+Id\}|\{id\}/g, () => randomUUID());
     if (template.endsWith("/{collection}"))
@@ -293,6 +324,23 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
           ),
       )
       .sort((x, y) => x.key.localeCompare(y.key));
+    // The editor's personal space, probed before anything else: its own user
+    // may read it, the org owner and a system administrator are strangers.
+    personalId = (
+      await ensurePersonalSpace(workspaceId, accounts.editor!.id, moduleRegistry())
+    ).projectId;
+    const personalRequests = Object.entries(spec.paths)
+      .filter(([template]) => template.startsWith("/api/projects/{projectId}"))
+      .flatMap(([template, methods]) =>
+        Object.keys(methods)
+          .map((m) => m.toUpperCase())
+          .flatMap((method) =>
+            expand(method, template, personalId).map((r) => ({ ...r, method })),
+          ),
+      );
+    for (const role of ["owner", "sysadmin"] as const)
+      for (const r of personalRequests)
+        (personal[r.key] ??= {})[role] = await call(role, r.method, r.url);
     // Least privileged first; the owner's writes (pause included) come last.
     for (const role of ROLES)
       for (const r of requests)
@@ -370,6 +418,20 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
           !["not_found", "unauthenticated"].includes(roles.sysadmin),
       )
       .map(([key, roles]) => `${key}: ${roles.sysadmin}`);
+    expect(reached).toEqual([]);
+  });
+
+  it("treats org owners and system administrators as strangers in a personal space", () => {
+    expect(Object.keys(personal).length).toBeGreaterThan(100);
+    const reached = Object.entries(personal).flatMap(([key, roles]) =>
+      (["owner", "sysadmin"] as const)
+        .filter(
+          (role) =>
+            !PRE_AUTH_VALIDATION.includes(key) &&
+            !["not_found", "unauthenticated"].includes(roles[role]!),
+        )
+        .map((role) => `${key} [${role}]: ${roles[role]}`),
+    );
     expect(reached).toEqual([]);
   });
 

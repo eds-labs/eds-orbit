@@ -1,4 +1,4 @@
-import { scoped } from "../../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
 import { enabledModules } from "../modules/enforcement.ts";
@@ -79,6 +79,40 @@ async function contributed<T>(moduleId: string, read: () => Promise<T>) {
   }
 }
 
+/** Whether a module counts for the member: enabled and not hidden from them. */
+function usableModules(scope: Scope, enabled: ReadonlySet<string> | undefined) {
+  const hidden = hiddenModules(scope);
+  return (moduleId: string) =>
+    ownerEnabled(moduleId, enabled) && !hidden.includes(moduleId);
+}
+
+/**
+ * The enabled modules' attention items for the member, each read with the
+ * member's role in its module, in the caller's project transaction; the
+ * platform's own items are not among them. Unsorted.
+ */
+export async function moduleAttentionItems(
+  tx: DbTx,
+  scope: Scope,
+  now: Date,
+  known?: { enabled: ReadonlySet<string> | undefined },
+): Promise<AttentionItem[]> {
+  const usable = usableModules(
+    scope,
+    known ? known.enabled : await enabledModules(tx, scope),
+  );
+  const items: AttentionItem[] = [];
+  for (const [moduleId, contribution] of registeredAttention()) {
+    if (!usable(moduleId)) continue;
+    items.push(
+      ...(await contributed(moduleId, () =>
+        contribution(tx, moduleScope(scope, moduleId), now),
+      )),
+    );
+  }
+  return items;
+}
+
 /**
  * What needs the member's attention in the project: every enabled module the
  * member may use, each read with the member's role in that module, plus the
@@ -100,19 +134,11 @@ export async function projectAttention(
     });
     if (!project) throw new DomainError("NOT_FOUND", 404);
     const enabled = await enabledModules(tx, scope);
-    const hidden = hiddenModules(scope);
-    const usable = (moduleId: string) =>
-      ownerEnabled(moduleId, enabled) && !hidden.includes(moduleId);
-    const items: AttentionItem[] = [];
+    const usable = usableModules(scope, enabled);
+    const items: AttentionItem[] = await moduleAttentionItems(tx, scope, now, {
+      enabled,
+    });
     let mode: AttentionStatus["mode"];
-    for (const [moduleId, contribution] of registeredAttention()) {
-      if (!usable(moduleId)) continue;
-      items.push(
-        ...(await contributed(moduleId, () =>
-          contribution(tx, moduleScope(scope, moduleId), now),
-        )),
-      );
-    }
     for (const [moduleId, contribution] of registeredAttentionStatus()) {
       if (!usable(moduleId)) continue;
       const part = await contributed(moduleId, () =>

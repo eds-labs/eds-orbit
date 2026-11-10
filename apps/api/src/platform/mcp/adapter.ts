@@ -33,7 +33,17 @@ import {
   registeredTools,
 } from "../modules/contributions.ts";
 import { DomainError } from "../shared.ts";
-import { moduleScope } from "../tenancy/module-roles.ts";
+import {
+  executeCapability,
+  validateCapabilityArgs,
+} from "../agents/capabilities.ts";
+import {
+  adaptsToProjectArgument,
+  inProjectCall,
+  PROJECT_ID_PARAM,
+  projectBoundParameters,
+  splitProjectArgument,
+} from "../agents/project-calls.ts";
 import {
   codeResult,
   internalFailure,
@@ -70,8 +80,8 @@ export { MCP_OUTPUT_LIMIT_BYTES };
 export const MAX_TOOL_INPUT_ELEMENTS = 1000;
 /** How long a tool call may take before the client gets TIMEOUT (D-M3-11). */
 export const MCP_TOOL_TIMEOUT_MS = 25_000;
-/** The argument the adapter adds to every project-bound tool. */
-const PROJECT_ID = "projectId";
+/** The argument the adapter adds to every project-bound tool (agents/project-calls.ts). */
+const PROJECT_ID = PROJECT_ID_PARAM;
 
 /**
  * One finished tools/call, for audit, telemetry and rate limits (Task 4).
@@ -226,14 +236,7 @@ export function toolAnnotations(
 
 /** The tool's parameters plus `projectId`, strict; optional with a single project. */
 function inputSchemaFor(tool: OrbitTool, singleProject: boolean) {
-  const projectId = z.uuid();
-  return z.strictObject({
-    ...tool.parameters.shape,
-    [PROJECT_ID]:
-      singleProject && !tool.mcpProjectRequired
-        ? projectId.optional()
-        : projectId,
-  });
+  return projectBoundParameters(tool, { optional: singleProject });
 }
 
 /**
@@ -254,9 +257,7 @@ async function registryToolsFor(principal: McpPrincipal): Promise<OrbitTool[]> {
     );
     for (const tool of tools) byName.set(tool.name, tool);
   }
-  return [...byName.values()].filter(
-    (tool) => !(PROJECT_ID in tool.parameters.shape),
-  );
+  return [...byName.values()].filter(adaptsToProjectArgument);
 }
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -539,21 +540,20 @@ async function executeRegistryTool(
   toolName: string,
 ): Promise<unknown> {
   const { principal } = state;
-  const { [PROJECT_ID]: requested, ...rest } = args;
-  const projectId =
-    typeof requested === "string"
-      ? requested
-      : principal.projectIds.length === 1
-        ? principal.projectIds[0]!
-        : undefined;
-  if (!projectId) throw new DomainError("PROJECT_REQUIRED", 400);
+  const { projectId, rest } = splitProjectArgument(
+    args,
+    principal.projectIds.length === 1 ? principal.projectIds[0]! : undefined,
+  );
   // Audit rows go to the project only when it is one of the grant's.
   attributeCall(principal, call, projectId);
   // Authorization, the run and the execution all read the project (each
   // `scoped()` call locks it): one of its slots holds them (R-10). A BUSY
-  // call starts no run.
+  // call starts no run. The call is the one target-project call of its
+  // chain (agents/project-calls.ts): it never runs inside another's.
   return state.projectSlots.run(projectId, () =>
-    executeInProject(state, tool, rest, call, toolName, projectId),
+    inProjectCall(projectId, () =>
+      executeInProject(state, tool, rest, call, toolName, projectId),
+    ),
   );
 }
 
@@ -567,7 +567,13 @@ async function executeInProject(
   projectId: string,
 ): Promise<unknown> {
   const { principal, requestId } = state;
-  if ((tool.mcpScopes ?? []).some((scope) => !principal.scopes.has(scope))) {
+  // The scopes discovery assumed: the content scopes and `orbit:write`
+  // (visibility.ts). A missing one is an OAuth step-up, not a refusal.
+  const needed = [
+    ...(requiredScope(tool) === "orbit:write" ? ["orbit:write"] : []),
+    ...(tool.mcpScopes ?? []),
+  ];
+  if (needed.some((scope) => !principal.scopes.has(scope))) {
     // Recheck the requested project before asking for OAuth step-up. A tool
     // discovered in another project cannot disclose or authorize this one.
     const discovered = (
@@ -575,7 +581,7 @@ async function executeInProject(
     ).find((candidate) => candidate.name === tool.name);
     if (!discovered) throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
     throw new McpScopeRequiredError(
-      [...new Set([...principal.scopes, ...(tool.mcpScopes ?? [])])],
+      [...new Set([...principal.scopes, ...needed])],
       state.resource,
     );
   }
@@ -584,9 +590,9 @@ async function executeInProject(
     tool.name,
     projectId,
   );
-  // Object-level rules of the tool's own schema apply too; asynchronously,
-  // so async refinements run instead of throwing.
-  const input = await allowed.parameters.parseAsync(rest);
+  // Object-level rules of the tool's own schema apply too, on the host and
+  // before any quota place or run is taken (capabilities.ts).
+  const input = await validateCapabilityArgs(allowed, rest);
   // A proposal tool runs only inside the quotas of the user, client and
   // workspace (D-M4-8, D-M5-8): a re-selection, a new grant id, keeps them.
   const proposing = allowed.risk === "P_proposal";
@@ -605,10 +611,11 @@ async function executeInProject(
   const agentRunId = await startCallRun(state, call, toolName, projectId);
   let output: unknown;
   try {
-    ({ output, images: call.images } = await allowed.execute(
+    // The tool runs with the member's role in its module (capabilities.ts).
+    ({ output, images: call.images } = await executeCapability(
+      allowed,
       {
-        // The tool runs with the member's role in its module (as chat-runner).
-        scope: moduleScope(scope, registeredToolOwner(allowed.name)),
+        scope,
         runId: agentRunId ?? requestId,
         conversationId: `mcp:${requestId}`,
         callIndex: 0,
@@ -818,6 +825,7 @@ export async function mcpServerFor(
       scopes: tool.mcpScopes,
       inputSchema: inputSchemaFor(tool, single),
       outputSchema,
+      ...(tool.mcpMeta ? { meta: tool.mcpMeta } : {}),
       run: (args, call) =>
         executeRegistryTool(principalState, tool, args, call, name),
     });

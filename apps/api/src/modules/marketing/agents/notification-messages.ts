@@ -1,3 +1,5 @@
+import { draftReplaced } from "./draft-state.ts";
+import { publishingBackend } from "../publishing/backend.ts";
 import { runOperation } from "./run-operation.ts";
 import { runDeliverables } from "./veto.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -28,6 +30,7 @@ import {
   runProblems,
   SLOT_UNAVAILABLE,
 } from "./assignment-runs.ts";
+import { SLOT_EXPIRED } from "./veto.ts";
 import { budgetMonthStart } from "../../budget.ts";
 import { localDate } from "./scheduling.ts";
 
@@ -223,7 +226,7 @@ async function needsOwner(
   // The agent approved it, but only the owner's release counts (R71).
   if (c.agentReview?.taskId === taskId) {
     // Released, replaced or otherwise decided meanwhile: nothing left to ask.
-    if (c.status !== "needs_review" || c.supersededBy) return { skip: "STALE" };
+    if (c.status !== "needs_review" || draftReplaced(c)) return { skip: "STALE" };
     const mission = c.missionId
       ? data(await maybe(() => entity(tx, scope, "missions", c.missionId)))
       : {};
@@ -242,7 +245,7 @@ async function needsOwner(
         (c.delivery ??
           confirmedDelivery(assignment) ??
           deliveryOf(assignment)) === "postiz_draft"
-          ? "Orbit hat ihn geprüft. Er geht erst als Entwurf an Postiz, wenn du ihn in Orbit freigibst."
+          ? `Orbit hat ihn geprüft. Er geht erst als Entwurf an ${(await publishingBackend(tx, scope)) === "social" ? "Social" : "Postiz"}, wenn du ihn in Orbit freigibst.`
           : "Orbit hat ihn geprüft. Er geht erst raus, wenn du ihn in Orbit freigibst.",
       ].join("\n"),
       [openButton()],
@@ -284,11 +287,13 @@ async function dropped(
   const reason =
     entry.code === SLOT_UNAVAILABLE
       ? "Kein freier Slot an dem Tag"
-      : entry.code === "POSTIZ_DRAFTS_DISABLED"
-        ? "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS)"
-        : entry.code === "AGENT_REVIEW_NOT_ACCEPTED"
-          ? "Die Agenten-Freigabe gilt nicht mehr (Freigabe-Schalter aus oder Bot getrennt); der Entwurf geht nicht an Postiz"
-          : entry.code;
+      : entry.code === SLOT_EXPIRED
+        ? "Der Termin ist vorbei"
+        : entry.code === "POSTIZ_DRAFTS_DISABLED"
+          ? "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS)"
+          : entry.code === "AGENT_REVIEW_NOT_ACCEPTED"
+            ? "Die Agenten-Freigabe gilt nicht mehr (Freigabe-Schalter aus oder Bot getrennt); der Entwurf geht nicht an Postiz"
+            : entry.code;
   return plain(
     [
       "Beitrag entfällt",
@@ -388,9 +393,11 @@ const FACT_CODES = [
 const reasonText = (code: string) =>
   code === SLOT_UNAVAILABLE
     ? "kein freier Slot an dem Tag"
-    : FACT_CODES.includes(code)
-      ? `Fakten fehlen (${code})`
-      : code;
+    : code === SLOT_EXPIRED
+      ? "der Termin ist vorbei"
+      : FACT_CODES.includes(code)
+        ? `Fakten fehlen (${code})`
+        : code;
 
 /**
  * Deliverables that got no slot: of a new run (`ref` is the run id) or of a
@@ -506,7 +513,13 @@ async function blocked(
   const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
   const p = data(pubRow);
   if (!pubRow || p.status !== "blocked_dependency") return { skip: "STALE" };
-  const why = ((p.blockers ?? []) as unknown[]).map(String);
+  const why = ((p.blockers ?? []) as unknown[])
+    .map(String)
+    .map((code) =>
+      code === SLOT_EXPIRED
+        ? "Der Termin war schon vorbei (mehr als 30 Minuten)"
+        : code,
+    );
   return plain(
     [
       "Beitrag blockiert",
@@ -577,14 +590,19 @@ async function postizError(
   // The post moved on (published after all, withdrawn, ...): the error is no longer true.
   if (!["failed", "outcome_unknown"].includes(p.status))
     return { skip: "STALE" };
+  // A post handed to Social (S9) is checked there, not in Postiz.
+  const where = p.publishingBackend === "social" ? "Social" : "Postiz";
   return plain(
     [
-      "Postiz-Fehler",
+      `${where}-Fehler`,
       `Kanal: ${await channelName(tx, scope, p.channel)}`,
       `Zeit: ${when(p.scheduledAt, timezone)}`,
       p.status === "outcome_unknown"
-        ? "Ergebnis unklar. Bitte in Postiz prüfen, bevor etwas erneut gesendet wird."
-        : "Der Beitrag wurde nicht veröffentlicht.",
+        ? `Ergebnis unklar. Bitte in ${where} prüfen, bevor etwas erneut gesendet wird.`
+        : // Social's lateness limit (D-3), like SLOT_EXPIRED on Marketing's side.
+          p.reason === "SOCIAL_SLOT_EXPIRED"
+          ? "Der Beitrag wurde nicht veröffentlicht, weil der geplante Zeitpunkt mehr als 30 Minuten vorbei war."
+          : "Der Beitrag wurde nicht veröffentlicht.",
     ].join("\n"),
   );
 }
@@ -600,12 +618,15 @@ async function postizDraftUnknown(
   const h = data(row);
   // Resolved meanwhile, or never unclear: nothing to check.
   if (!row || h.status !== "outcome_unknown") return { skip: "STALE" };
+  // A project on Social (S9) has its drafts in Social.
+  const where =
+    (await publishingBackend(tx, scope)) === "social" ? "Social" : "Postiz";
   return plain(
     [
-      "Postiz-Fehler beim Entwurf",
+      `${where}-Fehler beim Entwurf`,
       `Kanal: ${await channelName(tx, scope, h.integrationId)}`,
       `Zeit: ${when(h.slotAt ?? h.remoteDate, timezone)}`,
-      "Ergebnis unklar. Bitte in Postiz prüfen, ob der Entwurf existiert, und das in Orbit festhalten. Orbit sendet ihn nicht erneut.",
+      `Ergebnis unklar. Bitte in ${where} prüfen, ob der Entwurf existiert, und das in Orbit festhalten. Orbit sendet ihn nicht erneut.`,
     ].join("\n"),
     [openButton()],
   );
@@ -630,13 +651,17 @@ async function postizDraft(
     h.assetId && !h.withoutImage
       ? data(await maybe(() => entity(tx, scope, "assets", h.assetId)))
       : null;
+  // A project on Social (S9) gets its drafts in Orbit's Social module.
+  const where = h.publishingBackend === "social" ? "Social" : "Postiz";
   const header = [
-    `Entwurf in Postiz angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
-    "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
+    `Entwurf in ${where} angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
+    where === "Social"
+      ? "Orbit veröffentlicht ihn erst, wenn du ihn in Social freigibst."
+      : "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
     // The image failed before any post request; the draft went without it (M10).
     ...(h.imageError
       ? [
-          "Ohne Bild: Das Bild konnte nicht an Postiz übergeben werden. Füge es in Postiz selbst hinzu, falls nötig.",
+          `Ohne Bild: Das Bild konnte nicht an ${where} übergeben werden. Füge es in ${where} selbst hinzu, falls nötig.`,
         ]
       : []),
   ].join("\n");

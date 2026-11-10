@@ -34,7 +34,9 @@ import {
 } from "../src/platform/modules/contributions.ts";
 import { saveSpendPolicy } from "../src/platform/ai/spend-policy.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
-import { create, data, entity } from "../src/shared.ts";
+import { create, data, entity, update } from "../src/shared.ts";
+import { executeAgentCapability } from "../src/platform/agents/capabilities.ts";
+import type { AgentPrincipal } from "../src/platform/agents/principal.ts";
 import { lumoraProfile } from "./support/creative-profile.ts";
 import {
   createPackageProject,
@@ -86,6 +88,7 @@ describe.skipIf(!enabled)("Agent mandates", () => {
     ORBIT_MCP_PROPOSALS: "true",
     ORBIT_MCP_TASKS: "false",
     ORBIT_AGENT_MANDATES: "true",
+    ORBIT_AGENT_PLATFORM: "true",
   };
   const image = vi.mocked(generateImage);
   const runIn = <T>(work: (tx: DbTx) => Promise<T>) =>
@@ -315,7 +318,13 @@ describe.skipIf(!enabled)("Agent mandates", () => {
         "marketing.mcp.marketing_create_campaign",
         "marketing.mcp.marketing_update_campaign",
         "support.mcp.support_add_note",
+        // ADR 0021 D-16: priority, category and tags only, for named agents.
+        "support.mcp.support_apply_triage",
         "support.mcp.support_prepare_reply",
+        // Social drafts and cancelling a planned post change nothing outside (S7).
+        "social.mcp.social_cancel",
+        "social.mcp.social_draft_create",
+        "social.mcp.social_draft_update",
         "work.mcp.work_propose_comment",
         "work.mcp.work_propose_initiative",
         "work.mcp.work_propose_task_update",
@@ -333,6 +342,11 @@ describe.skipIf(!enabled)("Agent mandates", () => {
       "platform.task.start",
       "support.mcp.support_send_reply",
       "platform.mcp.ai_spend_policy_update",
+      // Publishing a social post is public (S7).
+      "social.mcp.social_schedule",
+      "social.mcp.social_publish_now",
+      "social.post.schedule",
+      "social.post.publish_now",
     ])
       expect(registeredActionTypes().get(never)?.mandate, never).toBeUndefined();
     // Tools with a direct external effect are never mandatable.
@@ -681,5 +695,186 @@ describe.skipIf(!enabled)("Agent mandates", () => {
       decision: { channel: "web" },
     });
     expect(data(await requestRow(row.id)).authorization).toBeUndefined();
+  });
+  // ADR 0021: configured agents. A test-only agent exposure of the preview
+  // tool stands in for an agent-exposed tool; the agent definition is a
+  // plain entity (the builder lands in WP1.5).
+  async function agentFixture(status = "active", version = 1) {
+    const row = await runIn((tx) =>
+      create(tx, p.owner, "agent_definitions", {
+        status,
+        active: null,
+        draft: null,
+        activation: {
+          sponsorUserId: p.owner.userId,
+          activatedAt: new Date().toISOString(),
+          version,
+          configHash: "fixture",
+        },
+      }),
+    );
+    return row;
+  }
+  const agentTool = () => {
+    const tool = registeredTools().find((t) => t.name === CREATE)!;
+    return {
+      ...tool,
+      exposure: { ...tool.exposure, agent: true },
+      catalog: {
+        title: { en: "Preview", de: "Vorschau" },
+        summary: { en: "Preview.", de: "Vorschau." },
+      },
+    };
+  };
+  const agentPrincipal = (agentId: string, extra: Partial<AgentPrincipal> = {}): AgentPrincipal => ({
+    kind: "agent",
+    userId: p.owner.userId,
+    agentId,
+    agentVersion: 1,
+    workOrderId: randomUUID(),
+    depth: 0,
+    allow: {
+      tools: new Set([CREATE]),
+      modules: new Set(["marketing"]),
+      mode: "draft",
+      knowledge: null,
+    },
+    ceilingMicros: 1_000_000,
+    ...extra,
+  });
+  const asAgent = (principal: AgentPrincipal, args: object) =>
+    executeAgentCapability(
+      principal,
+      agentTool(),
+      { scope: p.owner, runId: randomUUID(), conversationId: randomUUID(), callIndex: 1 },
+      args,
+    ) as Promise<{ output: any }>;
+  const actionRequestCount = () =>
+    runIn((tx) =>
+      tx.entity.count({ where: { projectId: p.owner.projectId, kind: "action_requests" } }),
+    );
+
+  it("ADR 0021: covers a configured agent only when the mandate names it, at its active version", async () => {
+    const agent = await agentFixture();
+    // An assistant/MCP mandate never covers a configured agent.
+    await grant({ assistant: true, mcp: true });
+    const uncovered = (await asAgent(agentPrincipal(agent.id), free())).output;
+    expect(uncovered.status).toBe("pending");
+    expect(await reasons(uncovered.actionRequestId)).toEqual(["AGENT_NOT_COVERED"]);
+    // The request names the agent, whatever requester the tool built.
+    expect(data(await requestRow(uncovered.actionRequestId)).requestedBy).toMatchObject({
+      kind: "agent",
+      userId: p.owner.userId,
+      agentId: agent.id,
+      agentVersion: 1,
+    });
+
+    // The agents channel names its agents and needs one.
+    await expect(grant({ agents: true, agentIds: [] })).rejects.toMatchObject({
+      code: "AGENT_MANDATE_INVALID",
+    });
+    await expect(grant({ agents: true, agentIds: [randomUUID()] })).rejects.toMatchObject({
+      code: "AGENT_NOT_FOUND",
+    });
+    await grant({ assistant: false, mcp: false, agents: true, agentIds: [agent.id] });
+    expect((await asAgent(agentPrincipal(agent.id), free())).output).toMatchObject({
+      status: "consumed",
+      approvedBy: "mandate",
+    });
+    // Another agent, or the member's own assistant, is not named.
+    const other = await agentFixture();
+    const byOther = (await asAgent(agentPrincipal(other.id), free())).output;
+    expect(await reasons(byOther.actionRequestId)).toEqual(["AGENT_NOT_COVERED"]);
+    const inApp = (await assistant(p.owner, free())).output;
+    expect(await reasons(inApp.actionRequestId)).toEqual(["CHANNEL_NOT_COVERED"]);
+
+    // A new activated version or a paused agent is no longer covered.
+    await runIn(async (tx) => {
+      const row = await entity(tx, p.owner, "agent_definitions", agent.id);
+      await update(tx, p.owner, row, {
+        ...data(row),
+        activation: { ...data(row).activation, version: 2 },
+      });
+    });
+    const stale = (await asAgent(agentPrincipal(agent.id), free())).output;
+    expect(await reasons(stale.actionRequestId)).toEqual(["AGENT_VERSION_CHANGED"]);
+    await runIn(async (tx) => {
+      const row = await entity(tx, p.owner, "agent_definitions", agent.id);
+      await update(tx, p.owner, row, { ...data(row), status: "paused" });
+    });
+    const paused = (await asAgent(agentPrincipal(agent.id, { agentVersion: 2 }), free())).output;
+    expect(await reasons(paused.actionRequestId)).toEqual(["AGENT_NOT_ACTIVE"]);
+
+    // Without the agent platform the channel covers nothing and cannot be granted.
+    process.env.ORBIT_AGENT_PLATFORM = "false";
+    try {
+      expect(await reasons(paused.actionRequestId)).toEqual(["AGENT_PLATFORM_DISABLED"]);
+      await expect(grant({ agents: true, agentIds: [agent.id] })).rejects.toMatchObject({
+        code: "AGENT_PLATFORM_DISABLED",
+      });
+    } finally {
+      process.env.ORBIT_AGENT_PLATFORM = "true";
+    }
+    await revokeAll();
+  });
+
+  it("ADR 0021: an agent's tool call runs only within its principal, and nothing runs on a refusal", async () => {
+    const agent = await agentFixture();
+    const before = await actionRequestCount();
+    const refused = async (principal: AgentPrincipal) =>
+      expect(asAgent(principal, free())).rejects.toMatchObject({
+        code: "AGENT_PRINCIPAL_FORBIDDEN",
+      });
+    // Not allow-listed, a mode that does not propose, a module outside the allowlist.
+    await refused(agentPrincipal(agent.id, { allow: { ...agentPrincipal(agent.id).allow, tools: new Set() } }));
+    await refused(agentPrincipal(agent.id, { allow: { ...agentPrincipal(agent.id).allow, mode: "read" } }));
+    await refused(agentPrincipal(agent.id, { allow: { ...agentPrincipal(agent.id).allow, modules: new Set(["work"]) } }));
+    // A sponsor or requester without the permission (a viewer) stops the call.
+    await refused(agentPrincipal(agent.id, { userId: p.viewer.userId }));
+    await refused(agentPrincipal(agent.id, { requesterUserId: p.viewer.userId }));
+    await refused(agentPrincipal(agent.id, { requesterUserId: randomUUID() }));
+    // A tool without the agent exposure is never run for an agent.
+    await expect(
+      executeAgentCapability(
+        agentPrincipal(agent.id),
+        registeredTools().find((t) => t.name === CREATE)!,
+        { scope: p.owner, runId: randomUUID(), conversationId: randomUUID(), callIndex: 1 },
+        free(),
+      ),
+    ).rejects.toMatchObject({ code: "AGENT_PRINCIPAL_FORBIDDEN" });
+    expect(await actionRequestCount()).toBe(before);
+  });
+
+  it("ADR 0021: a pending agent request fails at decision when its requester lost the right (scenario D)", async () => {
+    const agent = await agentFixture();
+    const proposed = (
+      await asAgent(agentPrincipal(agent.id, { requesterUserId: p.editor.userId }), free())
+    ).output;
+    expect(proposed.status).toBe("pending");
+    expect(data(await requestRow(proposed.actionRequestId)).requestedBy).toMatchObject({
+      requesterUserId: p.editor.userId,
+    });
+    await authDb.projectMember.update({
+      where: { projectId_userId: { projectId: p.owner.projectId, userId: p.editor.userId } },
+      data: { role: "viewer" },
+    });
+    try {
+      const row = await requestRow(proposed.actionRequestId);
+      await expect(
+        runIn((tx) =>
+          decideActionRequest(tx, p.owner, row.id, {
+            version: row.version,
+            packageHash: data(row).packageHash,
+            decision: "approve",
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+      expect(data(await requestRow(row.id)).status).toBe("pending");
+    } finally {
+      await authDb.projectMember.update({
+        where: { projectId_userId: { projectId: p.owner.projectId, userId: p.editor.userId } },
+        data: { role: "editor" },
+      });
+    }
   });
 });

@@ -8,11 +8,14 @@ vi.mock("next/navigation", () => ({
 // Every resource a view reads, by a part of its path; a path without an
 // entry answers 404, as a route of a switched-off module does.
 const answers = vi.hoisted(() => ({}) as Record<string, unknown>);
+// Every path a view asked for, in order.
+const requested = vi.hoisted(() => [] as string[]);
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
     useResource: (path: string | null) => {
+      if (path) requested.push(path);
       const key = Object.keys(answers)
         .sort((a, b) => b.length - a.length)
         .find((part) => path?.includes(part));
@@ -34,9 +37,11 @@ import { WorkspaceContext } from "@/components/workspace-context";
 import { webRegistry } from "@/modules/registry";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { projectHref, routeTable } from "@/platform/shell/routes";
-import { hours, query, type Issue, type IssueDetail, type Overview } from "./api";
+import { hours, query, type GithubStatus, type Issue, type IssueDetail, type Overview } from "./api";
+import { issuesDecisionRenderer } from "./action-requests";
+import { GithubSettings, issuesSettings, withComponentRepository } from "./settings";
 import { issuesAttention } from "./attention";
-import { IssueDetailView } from "./detail";
+import { GithubBlock, IssueDetailView, reconcileNote } from "./detail";
 import { issuesText } from "./labels";
 import { IssuesHome, IssuesOverview } from "./overview";
 
@@ -161,6 +166,7 @@ describe("issue center web (ADR 0018)", () => {
       progress: { tasks: 1, done: 1, restricted: 0 },
       deliveries: [],
       externalRefs: [],
+      githubRequests: [],
       timeline: [],
       permissions: { diagnostics: false },
     };
@@ -183,5 +189,172 @@ describe("issue center web (ADR 0018)", () => {
       "2 kritische Issues offen",
     );
     expect(issuesText("de").status.fix_ready).toBe("Fix bereit");
+  });
+
+  describe("GitHub block and settings (WP3.10a)", () => {
+    const reset = () => {
+      for (const key of Object.keys(answers)) delete answers[key];
+      requested.length = 0;
+    };
+    const status: GithubStatus = {
+      connected: true,
+      account: "orbit-app",
+      repositories: [{ key: "web", fullName: "o/web" }],
+      available: [
+        { fullName: "o/web", private: true, archived: false },
+        { fullName: "o/site", private: false, archived: false },
+        { fullName: "o/old", private: true, archived: true },
+      ],
+    };
+    const detail = (extra: Partial<IssueDetail> = {}, shareReviewed = true): IssueDetail => ({
+      issue: issue({ shareReviewed, status: "confirmed" }),
+      reports: [],
+      duplicateCandidates: [],
+      links: [],
+      progress: { tasks: 0, done: 0, restricted: 0 },
+      deliveries: [],
+      externalRefs: [],
+      githubRequests: [],
+      timeline: [],
+      permissions: { diagnostics: false },
+      ...extra,
+    });
+    const ref = { id: "x1", system: "github", externalId: "o/web#7", url: "https://github.com/o/web/issues/7", state: "open" };
+
+    it("renders a linked ref with its state", () => {
+      reset();
+      answers["/github/status"] = status;
+      const html = render(<GithubBlock issue={detail({ externalRefs: [ref] })} canManage />, { locale: "de" });
+      expect(html).toContain("o/web#7");
+      expect(html).toContain("Offen");
+      expect(html).toContain("Aktualisieren");
+      expect(html).toContain("Lösen");
+    });
+
+    it("shows a non-owner no buttons", () => {
+      reset();
+      const html = render(<GithubBlock issue={detail({ externalRefs: [ref] })} canManage={false} />, { locale: "de" });
+      expect(html).toContain("o/web#7");
+      expect(html).not.toContain("<button");
+    });
+
+    it("renders nothing while the status route answers 404", () => {
+      reset();
+      expect(render(<GithubBlock issue={detail()} canManage />)).toBe("");
+    });
+
+    it("disables creating until the share review is done", () => {
+      reset();
+      answers["/github/status"] = status;
+      answers["/issues/settings"] = { settings: { components: [], github: status }, version: 1 };
+      const html = render(<GithubBlock issue={detail({}, false)} canManage />, { locale: "de" });
+      expect(html).toContain("Erst zum Teilen freigeben");
+      expect(html).toMatch(/<button[^>]*disabled[^>]*>GitHub-Issue erstellen/);
+    });
+
+    it("offers reconcile and no blind re-create for an unclear request", () => {
+      reset();
+      answers["/github/status"] = status;
+      const request = { id: "q1", status: "outcome_unknown" as const, repository: "o/web", code: "JOB_OUTCOME_UNKNOWN", externalId: null, requestedAt: "2026-11-05T10:00:00.000Z" };
+      const html = render(<GithubBlock issue={detail({ githubRequests: [request] })} canManage />, { locale: "de" });
+      expect(html).toContain("Abgleichen");
+      expect(html).not.toContain("GitHub-Issue erstellen");
+      const queued = render(<GithubBlock issue={detail({ githubRequests: [{ ...request, status: "queued", code: null }] })} canManage />, { locale: "de" });
+      expect(queued).toContain("Wird angelegt");
+      expect(queued).not.toContain("GitHub-Issue erstellen");
+    });
+
+    it("disables public and archived repositories in the settings picker", () => {
+      const draft = { github: { repositories: status.repositories } } as never;
+      const html = renderToStaticMarkup(
+        <WorkspaceContext.Provider value={{ locale: "de" } as never}>
+          <GithubSettings draft={draft} onChange={() => {}} status={status} />
+        </WorkspaceContext.Provider>,
+      );
+      expect(html).toContain("Nur private Repositories");
+      expect(html).toContain("o/site");
+      expect(html).toMatch(/<button[^>]*disabled[^>]*>Hinzufügen[\s\S]*?o\/old/);
+      expect(html).toContain("o/web");
+      expect(html).toContain("GitHub-App");
+      expect(html).toContain("orbit-app");
+    });
+
+    it("asks GitHub for the installation's repositories only in the settings", () => {
+      reset();
+      answers["/github/status"] = status;
+      render(<GithubBlock issue={detail({ externalRefs: [ref] })} canManage />);
+      const fromDetail = requested.filter((p) => p.includes("/github/status"));
+      expect(fromDetail).toEqual(["/projects/p1/issues/github/status"]);
+      reset();
+      const Section = () => issuesSettings[0]!.useSection()?.content ?? null;
+      render(<Section />);
+      expect(requested.filter((p) => p.includes("/github/status"))).toEqual(["/projects/p1/issues/github/status?available=1"]);
+    });
+
+    it("chooses each component's default repository from the allow-list", () => {
+      const components = [
+        { key: "frontend", label: { en: "Web", de: "Web" }, repository: "web" },
+        { key: "backend", label: { en: "API", de: "API" }, repository: "former_work_key" },
+        { key: "docs", label: { en: "Docs", de: "Doku" } },
+      ];
+      const draft = { components, github: { repositories: status.repositories } } as never;
+      const html = renderToStaticMarkup(
+        <WorkspaceContext.Provider value={{ locale: "de" } as never}>
+          <GithubSettings draft={draft} onChange={() => {}} status={status} />
+        </WorkspaceContext.Provider>,
+      );
+      expect(html).toContain("Standard-Repository je Komponente");
+      // One select per component: "none" plus the allow-list keys.
+      expect(html.match(/<select/g)).toHaveLength(3);
+      expect(html).toMatch(/aria-label="Standard-Repository: frontend"[\s\S]*?<option value="web" selected="">web · o\/web<\/option>/);
+      // A stored key that is not on the allow-list shows as none.
+      expect(html).toMatch(/aria-label="Standard-Repository: backend"[\s\S]*?<option value="" selected="">Keines<\/option>/);
+      expect(withComponentRepository(components, "docs", "web")[2]).toEqual({ key: "docs", label: { en: "Docs", de: "Doku" }, repository: "web" });
+      expect(withComponentRepository(components, "frontend", "")[0]).toEqual({ key: "frontend", label: { en: "Web", de: "Web" } });
+      expect(withComponentRepository(components, "frontend", "")[1]).toBe(components[1]);
+    });
+
+    it("labels the GitHub refusals and hints when reconcile found nothing yet", () => {
+      for (const locale of ["en", "de"] as const) {
+        const g = issuesText(locale).github;
+        for (const code of ["ISSUES_VERSION_CONFLICT", "ISSUES_NOT_CONFIRMED", "GITHUB_APP_INVALID", "ISSUES_NOT_FOUND", "ISSUES_DISABLED", "VERSION_CONFLICT", "PROJECT_PAUSED"])
+          expect(g.errors[code], `${locale} ${code}`).toBeTruthy();
+        expect(reconcileNote({ status: "done" }, g)).toBeNull();
+      }
+      expect(reconcileNote({ status: "outcome_unknown" }, issuesText("en").github)).toBe("Not found yet — try again in a few minutes");
+      expect(reconcileNote({ status: "outcome_unknown" }, issuesText("de").github)).toBe(
+        "Noch nicht gefunden – bitte in einigen Minuten erneut abgleichen",
+      );
+    });
+
+    it("shows the exact text and repository on the approval card", () => {
+      const item = {
+        actionType: "issues.mcp.issues_propose_github_issue",
+        summary: {
+          operation: { kind: "issue_github", number: 7, repository: "web" },
+          preview: { repository: "o/web", title: "Checkout fails", body: "Paying ends\nwith an error." },
+        },
+      };
+      expect(issuesDecisionRenderer.accepts(item as never)).toBe(true);
+      const Card = issuesDecisionRenderer.component;
+      const html = renderToStaticMarkup(<Card item={item as never} de pending={false} decide={() => {}} />);
+      expect(html).toContain("o/web");
+      expect(html).toContain("Checkout fails");
+      expect(html).toContain("Paying ends");
+      expect(html).toContain("GitHub-Issue");
+      // Without a preview the repository key still shows.
+      const bare = { ...item, summary: { operation: item.summary.operation } };
+      expect(renderToStaticMarkup(<Card item={bare as never} de pending={false} decide={() => {}} />)).toContain("web");
+    });
+
+    it("reads GitHub history events by their action", () => {
+      reset();
+      answers["/issues/issues/i1"] = detail({
+        timeline: [{ id: "e1", type: "github", actorKind: "user", actorId: "u1", after: { action: "linked", repository: "o/web" }, createdAt: "2026-11-05T10:00:00.000Z" }],
+      });
+      const html = render(<IssueDetailView issueId="i1" onBack={() => {}} onChanged={() => {}} onOpen={() => {}} />, { locale: "de" });
+      expect(html).toContain("GitHub-Issue verknüpft");
+      expect(html).not.toContain(">github");
+    });
   });
 });

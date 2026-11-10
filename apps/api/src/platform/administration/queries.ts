@@ -50,8 +50,8 @@ export async function overview() {
     authDb.user.count({ where: { banned: true } }),
     authDb.user.count({ where: { role: "admin", banned: false } }),
     authDb.workspace.count(),
-    authDb.project.count(),
-    authDb.project.count({ where: { paused: true } }),
+    authDb.project.count({ where: { kind: { not: "personal" } } }),
+    authDb.project.count({ where: { paused: true, kind: { not: "personal" } } }),
     authDb.invitation.count({
       where: { acceptedAt: null, revokedAt: null, expiresAt: { gt: now } },
     }),
@@ -98,7 +98,12 @@ export async function listUsers(raw: unknown) {
     where,
     select: {
       ...userSummary,
-      _count: { select: { memberships: true, projectMemberships: true } },
+      _count: {
+        select: {
+          memberships: true,
+          projectMemberships: { where: { project: { kind: { not: "personal" } } } },
+        },
+      },
     },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     take: PAGE + 1,
@@ -129,6 +134,7 @@ export async function userDetail(userId: string) {
         },
       },
       projectMemberships: {
+        where: { project: { kind: { not: "personal" } } },
         select: {
           role: true,
           workspaceId: true,
@@ -203,7 +209,12 @@ export async function listOrganizations(raw: unknown) {
       id: true,
       name: true,
       createdAt: true,
-      _count: { select: { members: true, projects: true } },
+      _count: {
+        select: {
+          members: true,
+          projects: { where: { kind: { not: "personal" } } },
+        },
+      },
       members: { where: { role: "owner" }, select: { userId: true } },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -231,10 +242,12 @@ export async function organizationDetail(workspaceId: string) {
       members: {
         select: {
           role: true,
+          assistantEnabled: true,
           user: { select: { id: true, name: true, email: true, banned: true } },
         },
       },
       projects: {
+        where: { kind: { not: "personal" } },
         select: {
           id: true,
           name: true,
@@ -264,6 +277,7 @@ export async function organizationDetail(workspaceId: string) {
       .map((m) => ({
         ...m.user,
         role: m.role === "owner" ? "owner" : "member",
+        assistantEnabled: m.assistantEnabled,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     projects: workspace.projects.map((p) => ({
@@ -353,6 +367,8 @@ export async function listProjects(raw: unknown) {
   const input = projectListInput.parse(raw ?? {});
   const rows = await authDb.project.findMany({
     where: {
+      // Personal spaces are user-private (ADR 0022): counted, never listed.
+      kind: { not: "personal" },
       ...(input.query
         ? { name: { contains: input.query, mode: "insensitive" } }
         : {}),
