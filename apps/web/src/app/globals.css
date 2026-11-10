@@ -1456,10 +1456,15 @@ th {
   gap: 12px 20px;
   margin-bottom: 14px;
 }
+/* The current version and the history summary take the panel inset; the
+   history table stays full width. */
+.policy-current {
+  padding-inline: var(--panel-inset, 21px);
+}
 /* Padding, not flex: a flex summary loses its disclosure marker. */
 .policy-history > summary {
   cursor: pointer;
-  padding: 12px 0;
+  padding: 12px var(--panel-inset, 21px);
   line-height: 20px;
   font-weight: 550;
   color: #304b63;
@@ -4062,6 +4067,11 @@ body:has(dialog[open]) {
 .capability-readiness .data-row {
   padding-inline: 21px;
 }
+/* The headings of the AI budget levels and usage lists, at the row inset. */
+.capability-readiness > .field-heading,
+.ai-usage-list > .field-heading {
+  margin: 14px var(--panel-inset, 21px) -6px;
+}
 @media (max-width: 640px) {
   .index-generation > div:first-child,
   .calendar-block-row > div:first-child {
@@ -5263,10 +5273,43 @@ details.approval-lane[open] > summary::after {
   align-items: center;
   gap: 4px 8px;
 }
+/* Stop and its note sit on the row of the version they act on and wrap
+   under it on narrow screens (QA 2026-11-10). */
 .approval-variant-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.approval-variant-controls:has(> .alert) {
   flex-basis: 100%;
-  display: grid;
-  gap: 4px;
+}
+.approval-variant-controls > .form-actions {
+  margin: 0;
+}
+.approval-variant-controls > .panel-note {
+  padding: 0;
+}
+/* Content rows of a lane share the panel inset with its head; their
+   divider stays full width. Collapsible lanes pad themselves. */
+section.approval-list > .approval-content-item {
+  padding-inline: var(--panel-inset, 21px);
+}
+section.panel.approval-list > .approval-content-item:last-child {
+  padding-bottom: var(--panel-inset-block, 18px);
+}
+section.approval-list > .form-actions.approval-actions {
+  margin-inline: var(--panel-inset, 21px);
+}
+section.panel.approval-list > .form-actions.approval-actions:last-child {
+  margin-bottom: var(--panel-inset-block, 18px);
+}
+.approval-list > .panel-head + .panel-note {
+  padding-top: 0;
+}
+details.approval-lane > .panel-note {
+  padding-inline: 0;
+  padding-top: 4px;
 }
 .approval-variant-controls:empty {
   display: none;

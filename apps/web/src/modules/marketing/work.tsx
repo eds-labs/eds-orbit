@@ -2111,12 +2111,13 @@ export function ApprovalInbox() {
                 note,
                 link: socialLink,
                 focus,
-                controls: (item) => {
+                controls: (item, channel) => {
                   // A Postiz draft hand-off has no Stop; its note says enough.
                   const upcoming = upcomingOf(item);
                   return upcoming && upcoming.delivery !== "postiz_draft" ? (
                     <UpcomingPostControls
                       item={upcoming}
+                      stopLabel={`Stop – ${channel}`}
                       de={de}
                       timezone={project.timezone}
                       canStop={canEdit}

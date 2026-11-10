@@ -290,6 +290,13 @@ describe("approvals page in lanes (WP3)", () => {
     expect(releasedLane).toContain("social/posts?post=s-fb");
     expect(releasedLane).toContain("social/posts?post=s-ig");
     expect(releasedLane).toContain("In Social öffnen");
+    // Two "In Social öffnen" links, told apart by their channel.
+    expect(releasedLane).toContain(
+      'aria-label="In Social öffnen – @familyplan.app · Instagram"',
+    );
+    expect(releasedLane).toContain(
+      'aria-label="In Social öffnen – FamilyPlan · Facebook"',
+    );
     // The post's state, not the content's review status.
     expect(releasedLane.slice(0, releasedLane.indexOf("Verlauf"))).toContain(
       ">Geplant<",
@@ -314,7 +321,7 @@ describe("approvals page in lanes (WP3)", () => {
       "Das ist der Post, den du aus Social geöffnet hast.",
     );
     expect(html).toContain('id="publication-p-ig"');
-    expect(html).toContain("approval-item is-focused");
+    expect(html).toContain("approval-content-item is-focused");
     search.value = "publication=not-here";
     expect(render(<ApprovalInbox />)).toContain(
       "Der aus Social geöffnete Post steht hier nicht mehr",
@@ -371,6 +378,7 @@ describe("approvals page in lanes (WP3)", () => {
       // Stop sits under the Facebook version; the owner's release is named once.
       expect(pair).toMatch(/FamilyPlan · Facebook[\s\S]*>Stop</);
       expect(pair.match(/>Stop</g)).toHaveLength(1);
+      expect(pair).toContain('aria-label="Stop – FamilyPlan · Facebook"');
       expect(pair).not.toContain("Vom Owner freigegeben – kein Veto-Fenster.");
       // The unlisted one is under "Upcoming posts" with its deadline.
       expect(released).toContain("Anstehende Posts");

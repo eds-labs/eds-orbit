@@ -606,7 +606,7 @@ function UsageList({
   label?: (key: string) => string;
 }) {
   return (
-    <div>
+    <div className="ai-usage-list">
       <h3 className="field-heading">{title}</h3>
       {rows.slice(0, 10).map((row) => (
         <div className="data-row" key={row.key}>

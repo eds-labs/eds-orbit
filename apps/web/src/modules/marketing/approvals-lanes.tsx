@@ -4,6 +4,7 @@ import { value, when, type Entity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { Status } from "@/components/ui/primitives";
 import { AppLink } from "@/platform/ui/app-link";
+import { platformName } from "@/platform/ui/platform-mark";
 import { groupByBase, type LaneItem } from "./approval-lists";
 import { ChannelLabel, channelInfo, type ChannelEntry } from "./channel-names";
 import { marketingText } from "./labels";
@@ -98,6 +99,23 @@ export function releaseNote(
   return notes;
 }
 
+/**
+ * A channel in words for accessible names ("@familyplan · Instagram"), so
+ * the same control on two channel rows ("Stop", "Open in Social") is told
+ * apart by a screen reader.
+ */
+export function channelWords(
+  channel: unknown,
+  channels: ReadonlyMap<string, ChannelEntry>,
+  locale: Locale,
+): string {
+  const info = channelInfo(channel, channels, locale);
+  const platform = platformName(info.platform);
+  return platform && platform !== info.label
+    ? `${info.label} · ${platform}`
+    : info.label;
+}
+
 /** One lane: a section with a heading, or a collapsed one (details) with its count. */
 export function Lane({
   id,
@@ -177,8 +195,8 @@ export function ContentLaneList({
   link?: (item: LaneItem) => { href: string; label: string } | null;
   /** The publication id opened from Social (`?publication=`), if any. */
   focus?: string | null;
-  /** Actions under a version (Stop of a released post). */
-  controls?: (item: LaneItem) => ReactNode;
+  /** Actions beside a version (Stop of a released post), given the channel in words. */
+  controls?: (item: LaneItem, channel: string) => ReactNode;
 }) {
   return (
     <>
@@ -189,7 +207,7 @@ export function ContentLaneList({
         return (
           <article
             key={group.baseId}
-            className={`approval-item${group.items.some(focused) ? " is-focused" : ""}`}
+            className={`approval-item approval-content-item${group.items.some(focused) ? " is-focused" : ""}`}
           >
             <p className="approval-item-meta">
               <button className="row-button" onClick={() => onSelect(lead)}>
@@ -200,6 +218,11 @@ export function ContentLaneList({
               {group.items.map((item) => {
                 const target = link?.(item) ?? null;
                 const slot = note ? releaseSlot(item) : null;
+                const channel = channelWords(
+                  item.content.data.channel,
+                  channels,
+                  locale,
+                );
                 return (
                   <li
                     key={item.content.id}
@@ -231,13 +254,17 @@ export function ContentLaneList({
                       </span>
                     ))}
                     {target && (
-                      <AppLink className="text-link" href={target.href}>
+                      <AppLink
+                        className="text-link"
+                        href={target.href}
+                        aria-label={`${target.label} – ${channel}`}
+                      >
                         {target.label}
                       </AppLink>
                     )}
                     {controls && (
                       <div className="approval-variant-controls">
-                        {controls(item)}
+                        {controls(item, channel)}
                       </div>
                     )}
                   </li>

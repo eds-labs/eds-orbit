@@ -650,6 +650,7 @@ export function UpcomingPostControls({
   onStop,
   now = Date.now(),
   compact = false,
+  stopLabel,
 }: {
   item: UpcomingPost;
   de: boolean;
@@ -660,6 +661,8 @@ export function UpcomingPostControls({
   onStop: (post: UpcomingPost) => void;
   now?: number;
   compact?: boolean;
+  /** The Stop button's accessible name when several are listed, e.g. "Stop – Instagram". */
+  stopLabel?: string;
 }) {
   const locale = de ? "de" : "en";
   if (item.delivery === "postiz_draft")
@@ -699,6 +702,7 @@ export function UpcomingPostControls({
               size="sm"
               variant="destructive"
               disabled={pending}
+              aria-label={stopLabel}
               onClick={() => onStop(item)}
             >
               Stop
