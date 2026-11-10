@@ -535,7 +535,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       "orbit.browser.status",
     );
     await expect(page.locator(".evidence-result")).toContainText(
-      "lexical_degraded",
+      "Keyword search only",
     );
     // Zero budgets: this mandate authorizes only the isolated deterministic executor, never paid APIs.
     await checkedPost(page.request, `/api/projects/${projectId}/policies`, {
@@ -689,7 +689,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .getByRole("button", { name: "Revoke source", exact: true })
       .click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.locator(".source-row")).toContainText("revoked");
+    await expect(page.locator(".source-row")).toContainText("Revoked");
     // A revoked source purges its content: nothing is left to review, so
     // the draft is archived (2026-10-19) instead of waiting as needs_review.
     const after = await page.request.get(`/api/projects/${projectId}/content`);

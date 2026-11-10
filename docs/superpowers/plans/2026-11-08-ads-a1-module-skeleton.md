@@ -197,7 +197,7 @@ Then the `DO $$ … FOREACH t IN ARRAY [...] LOOP` block from `202611020001_soci
 
 - [ ] **Step 1: Write the failing tests** — `classify("apps/api/src/modules/ads/gate.ts", zones)` is `"module:ads"`, `classify("apps/web/src/modules/ads/overview.tsx", zones)` is `"web-module:ads"`, and `classify("apps/api/src/modules/workflow.ts", zones)` stays `"module:marketing"`; in `describe("checkForbiddenImportPrefixes")` an `import "facebook-nodejs-business-sdk"` and a dynamic `import("google-ads-api/build")` in a `module:ads` file are both reported, while `import "@orbit/connectors"` is not.
 - [ ] **Step 2: Run and see them fail** — `pnpm exec vitest run scripts/boundaries.test.mjs` → FAIL.
-- [ ] **Step 3: Implement** the zones and prefixes. Before committing, `rg -n "from ['\"](facebook-nodejs-business-sdk|google-ads-|n8n-|@n8n/)" apps packages scripts` returns nothing.
+- [ ] **Step 3: Implement** the zones and prefixes. Before committing, `rg -n "from .(facebook-nodejs-business-sdk|google-ads-|n8n-|@n8n/)" apps packages scripts` returns nothing.
 - [ ] **Step 4: Verify** — the test passes; `node scripts/source-check.mjs` (part of `pnpm lint`) passes with an unchanged empty `baseline`.
 - [ ] **Step 5: Commit** — `git commit -m "chore(ads): module zones and a ban on ads SDKs and intermediaries"`
 

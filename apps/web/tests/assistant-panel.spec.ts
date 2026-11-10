@@ -173,9 +173,14 @@ test("on a phone the bubble stays above the bottom bar without horizontal scroll
   ];
   expect(bubbleBox!.y + bubbleBox!.height).toBeLessThanOrEqual(navBox!.y);
   await bubble.click();
-  await expect(
-    page.getByRole("dialog", { name: "Orbit Assistant" }),
-  ).toBeVisible();
+  const panel = page.getByRole("dialog", { name: "Orbit Assistant" });
+  await expect(panel).toBeVisible();
+  // The panel focuses its composer, and the bottom bar gives way while the
+  // composer has the focus: a phone keyboard would lift it over the sheet.
+  const composer = panel.getByLabel("Message the assistant");
+  await expect(composer).toBeFocused();
+  await expect(nav).toBeHidden();
+  await composer.blur();
   await expect(nav).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,

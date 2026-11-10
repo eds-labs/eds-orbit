@@ -26,7 +26,7 @@ Done by a person with administration access, never by an agent. Administration â
 - Secret: **one JSON string**, pasted into the connection's single secret field:
 
   ```
-  {"appId": "...", "appSlug": "...", "installationId": "...", "privateKey": "-----BEGIN RSA PRIVATE KEY-----..."}
+  {"appId": "...", "appSlug": "...", "installationId": "...", "privateKey": "<contents of the .pem file>"}
   ```
 
   The field is a single-line password input and drops line breaks. Real line breaks inside a JSON string are invalid JSON anyway, so paste the key either as one line (the field turns the line breaks of a copied `.pem` into spaces; Orbit restores them) or with each line break written as `\n`. Orbit rebuilds the original PEM from both forms. Do not paste the key anywhere else, and never into documentation, chat or tickets.

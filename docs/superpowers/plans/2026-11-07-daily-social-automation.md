@@ -43,7 +43,7 @@ Pins existing behaviour the feature relies on (spec tests 1, 3, 4, 8, 9, 10), so
 - Create: `apps/api/tests/daily-social-automation.integration.test.ts`
 
 **Interfaces:**
-- Consumes: `planAssignmentRuns(tx, scope, now)` (`modules/marketing/agents/assignment-runs.ts:444`), `releaseAssignmentDraft` (`agents/owner-release.ts:117`), `dispatchPublication` (`publishing/publisher.ts`), helpers in `tests/support/package-project.ts` and `tests/support/assignment-review.ts` (as used in `assignment-owner-release.integration.test.ts` and `marketing-social-backend.integration.test.ts`).
+- Consumes: `planAssignmentRuns(tx, scope, now)` (`modules/marketing/agents/assignment-runs.ts:444`), `releaseAssignmentDraft` (`agents/owner-release.ts:117`), `dispatchPublication` (`publishing/publisher.ts`), helpers in `apps/api/tests/support/package-project.ts` and `apps/api/tests/support/assignment-review.ts` (as used in `assignment-owner-release.integration.test.ts` and `marketing-social-backend.integration.test.ts`).
 - Produces: a test harness `dailyProject()` in this file (FamilyPlan-like project on Social with a Facebook and an Instagram account mapped to two channels, policy `assisted`, assignment `daily`, `times:["18:30"]`, `leadMinutes:630`, `delivery:"publish"`, `approvalMode:"human_each"`, `creative:{artPer:"run"}`) reused by Tasks 1, 2, 6, 7.
 
 - [ ] **Step 1: Set up the worktree**
