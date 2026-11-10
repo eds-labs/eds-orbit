@@ -1,6 +1,6 @@
 # Webmail operator runbook
 
-Roundcube as a client of Orbit's mailboxes ([ADR 0026](../adr/0026-webmail-module.md)). **Nothing here is deployed yet.** The push to `main`, the schema hash in Coolify, DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval. See [COOLIFY.md](COOLIFY.md) for how production builds and how schema approval works.
+Roundcube as a client of Orbit's mailboxes ([ADR 0026](../adr/0026-webmail-module.md)). **The code is on `main` since 2026-11-10 with `ORBIT_WEBMAIL` off and `ORBIT_WEBMAIL_REPLICAS` at 0; enabling is blocked by the failed network check below.** DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval. See [COOLIFY.md](COOLIFY.md) for how production builds and how schema approval works.
 
 ## Services
 
@@ -122,6 +122,17 @@ The `orbit` skin follows the browser's dark mode, using a palette derived from O
 ## Rollout checks on a real Coolify instance
 
 The test stack cannot prove these. Record each result before setting `ORBIT_WEBMAIL=true`.
+
+### Results on production, 2026-11-10 (Coolify 4.6, Docker 29.9, Compose 5.6)
+
+**The network check failed, so `ORBIT_WEBMAIL` stays off and `ORBIT_WEBMAIL_REPLICAS` is back at 0.**
+
+- **`deploy.replicas`: pass.** At 0 no webmail container existed. At 1 the deployment created `webmail-db`, `webmail-bridge` and `webmail`, all healthy, and Roundcube initialised its schema. Back at 0 all three were removed.
+- **Network isolation: fail.** Run inside the `webmail` container through a temporary Coolify scheduled task (since deleted), with `fsockopen` by service name: `api:4311`, `web:4310`, `mcp:4312`, `postgres:5432` and `redis:6379` were all reachable. The container had three IPv4 interfaces, while the Compose file gives it two networks: Coolify attaches every service of a Compose application to the application's own network as well. That network is shared by every Orbit service, so the "Connect to Predefined Network" setting, which adds the shared `coolify` network, is not the cause and switching it off cannot fix it.
+- **Domain and TLS: not reached.** The DNS record `webmail.orbit.eds-labs.io` resolved to the server, but the domain had not been stored on the `webmail` service, so Traefik had no router for it (503, Traefik default certificate). The service kept the domain Coolify generated, `http://webmail-<application uuid>.<server ip>.sslip.io`, so Roundcube was publicly reachable over plain HTTP from 06:25 to 07:20 UTC with the flag off: it answered with its 403 "open from Orbit" page, the bridge was health-only and no session could start.
+- **Traefik route, Safari: not reached.**
+
+Before the next attempt, the three services need an isolation Coolify cannot undo: run `webmail` and `webmail-db` as their own Coolify resource joined to the bridge through one external network that only the bridge shares, or enforce it with host firewall rules. Either is an architecture change with its own review. Replace the generated domain on `webmail` before setting the replicas to 1 again.
 
 **Domain and TLS.** `curl -sSI "$WEBMAIL_ORIGIN/"` gives `403` over a valid certificate, with `Content-Security-Policy` containing `frame-ancestors 'self' <APP_ORIGIN>` and no `X-Frame-Options`. The origin must be a sibling of Orbit's host and must not be served under it.
 

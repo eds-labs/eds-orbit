@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted by Mario on 2026-11-09 for local implementation. Delivered to `main` on 2026-11-10 with his approval of the push and the schema hash, with `ORBIT_WEBMAIL` off and no webmail container running. DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval.
+Accepted by Mario on 2026-11-09 for local implementation. Delivered to `main` on 2026-11-10 with his approval of the push and the schema hash, with `ORBIT_WEBMAIL` off and no webmail container running. The production network check failed the same day: Coolify attaches every Compose service to the application's own network, which defeats decision 3 and the network split behind decision 1 (`docs/deployment/WEBMAIL.md`, "Results on production"). Enabling waits for an isolation change with its own review. DNS and TLS for the webmail host, production secrets, `ORBIT_WEBMAIL`, `ORBIT_WEBMAIL_REPLICAS` and any mail to real recipients each need their own approval.
 
 Extends [ADR 0009](0009-modular-platform.md) (module contracts). Mailbox ownership between Support and Finance stays as defined by `apps/api/src/platform/email/ownership.ts`.
 
