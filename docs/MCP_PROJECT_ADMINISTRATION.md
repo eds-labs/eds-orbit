@@ -23,7 +23,7 @@ These tools extend [project configuration over MCP](MCP_PROJECT_CONFIGURATION.md
 | `integration_verify` | `orbit:read` | owners | marketing | Runs a provider's read-only check (Postiz, Matomo or Drive) and records the verified state. Publishes nothing. |
 | `knowledge_evaluation_get` | `orbit:read` | members | knowledge | Reads the live RAG gate: valid or not and why, index generations with embedding coverage and metrics (recall@10, MRR, forbidden hits, missed cases), runs, sources missing from search, requirements and paid mandate. |
 | `knowledge_evaluate` | `orbit:propose` | owners | knowledge | Proposes one step of the official live evaluation. |
-| `project_readiness_get` | `orbit:read` | members | marketing | Reads every action's state and each blocker with code, cause, affected actions, fix, resolution, the tools that fix it and its check status. |
+| `project_readiness_get` | `orbit:read` | members | marketing | Reads the publishing backend, every action's state and each blocker with code, cause, affected actions, fix, resolution, the tools that fix it and its check status. |
 
 `integration_verify` is a read: a check only reads from the provider and records what it can do. It still needs the owner role, the same role as the `connector-health` action in Orbit.
 
@@ -100,6 +100,17 @@ The steps, in order:
 
 ### `project_readiness_get`
 
+The result names the project's `publishingBackend` (`postiz`, `postiz_draining` or `social`). Readiness follows what preflight checks on that backend (details in [SOCIAL_POSTIZ_MIGRATION.md](SOCIAL_POSTIZ_MIGRATION.md#readiness-and-the-postiz-queue-watch-per-backend)):
+
+- `postiz`: unchanged. `publish_draft`, `publish_schedule` and `publish_live` equal `postiz_draft`, `postiz_schedule` and `postiz_live`.
+- `postiz_draining`: the Postiz checks stay, and `PUBLISHING_BACKEND_DRAINING` (resolution `orbit`) blocks every Postiz and publish action. Its `details.postizBacklog` counts what Postiz still holds unsettled.
+- `social`: no Postiz code appears. Social's codes for the policy channels take their place, each with cause, fix and resolution in the catalog:
+  - `SOCIAL_DISABLED`, `SOCIAL_CHANNEL_NOT_MAPPED`, `SOCIAL_ACCOUNT_NOT_ACTIVE`, `SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED`: resolution `orbit`;
+  - `SOCIAL_PLATFORM_NOT_AVAILABLE`, `SOCIAL_MEDIA_PUBLIC_REQUIRED`: resolution `operator`.
+  The `postiz_*` actions are `not_configured` (`PUBLISHING_BACKEND_SOCIAL`). `POLICY_CHANNELS_REQUIRED` then asks for `social:<accountId>` or mapped channels.
+
+New action keys are appended after the existing ones. `marketing_project_status` returns `readiness.publishingBackend` (optional in its output schema). On Social it also lists the connected accounts as `social:<accountId>` channels in `availableChannels`.
+
 Each blocker has these fields:
 
 - `code`, `cause`, `fix`;
@@ -112,7 +123,7 @@ Each blocker has these fields:
   - `unavailable`;
 - `automatable` and `tools`: whether a tool can fix it, and which;
 - `check`;
-- `details`: the evaluation's reasons, for `LIVE_RAG_EVAL_REQUIRED`.
+- `details`: the evaluation's reasons, for `LIVE_RAG_EVAL_REQUIRED`; the Postiz backlog (`postizBacklog`), for `PUBLISHING_BACKEND_DRAINING`.
 
 The tool never changes a check. A blocker clears only when its own check passes.
 
@@ -149,6 +160,6 @@ The tool never changes a check. A blocker clears only when its own check passes.
 ## Limits
 
 - **Google Drive.** Connecting Drive needs the owner's Google consent in a browser (Orbit → Settings → Integrations); a folder named like the project becomes the root on connect. Choosing another root also stays in Orbit: it calls Google inside its own transactions, which an approval cannot run.
-- **Postiz write verification** stays in Orbit (a real test post). Without it, `postiz_live`/`postiz_schedule` stay blocked by design; `postiz_draft` needs only assigned channels and `ENABLE_POSTIZ_DRAFTS`.
+- **Postiz write verification** stays in Orbit (a real test post). Without it, `postiz_live`/`postiz_schedule` stay blocked by design; `postiz_draft` needs only assigned channels and `ENABLE_POSTIZ_DRAFTS`. On Social, verifying posting on an account is the same kind of owner step (Social → Accounts → "Verify posting"); without it `publish_schedule`/`publish_live` stay blocked (`SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED`).
 - **Live RAG evaluation.** The client must supply 60 to 120 evaluation cases with chunk ids (FamilyPlan: `evals/knowledge/familyplan-knowledge-2026-10-24.v1.json`). Building and evaluating need an embedding model with a price and an OpenAI key for the project. `knowledge_evaluation_get` and the knowledge search tools provide them. Building and evaluating cost money under the policy's paid budget.
 - **Granting central connections.** Grants of AI keys or Matomo to a project, and AI profiles, stay in the administration. MCP binds only what is granted, and hands out free Postiz channels to organization owners.
