@@ -235,6 +235,46 @@ describe("approvals page in lanes (WP3)", () => {
     expect(html).toContain("an denen nichts mehr hängt");
   });
 
+  it("moves an assignment draft whose mission slot passed to cleanup, as the server does", () => {
+    seed();
+    search.value = "";
+    const content = answers["/content?"] as { items: unknown[] };
+    answers["/content?"] = {
+      items: [
+        ...content.items,
+        row("content", "c-draft", {
+          title: "Verpasster Termin",
+          status: "needs_review",
+          channel: FB,
+          type: "social",
+          assignmentRunId: "run-1",
+          missionId: "mission-1",
+        }),
+      ],
+    };
+    answers["/missions?"] = {
+      items: [
+        row("missions", "mission-1", {
+          title: "Abendbeitrag",
+          plannedSlotAt: "2026-11-08T17:30:00.000Z",
+        }),
+      ],
+    };
+    try {
+      const html = render(<ApprovalInbox />);
+      const between = (from: string, to: string) =>
+        html.slice(html.indexOf(from), html.indexOf(to));
+      const open = between("Offene Aktionen", "approvals-cleanup-title");
+      expect(open).not.toContain("Verpasster Termin");
+      expect(open).toContain('lane-count">(1)<');
+      expect(
+        between("approvals-cleanup-title", "approvals-reviewed-title"),
+      ).toContain("Verpasster Termin");
+    } finally {
+      delete answers["/missions?"];
+    }
+  });
+
   it("shows the released 09.11 pair once, released by the owner, with its Social posts", () => {
     seed();
     search.value = "";

@@ -110,8 +110,8 @@ export type LaneItem = {
 
 /**
  * Sorts content into lanes with its publications and Postiz drafts. An
- * assignment draft counts as expired once its slot passed (the slot the
- * drafts list names, else the row's own `scheduledAt`).
+ * assignment draft counts as expired once its slot passed (`slots`, see
+ * approvalSlots, else the row's own `scheduledAt`).
  */
 export function approvalLanes(
   content: Entity[],
@@ -165,6 +165,32 @@ export function approvalLanes(
         }),
       };
     });
+}
+
+/**
+ * Each assignment draft's slot as the server reads it (expiredDraftIds in
+ * apps/api/src/modules/marketing/agents/draft-state.ts): its mission's
+ * `plannedSlotAt`, overlaid by the slot the drafts list names. A row with
+ * neither falls back to its own `scheduledAt` in approvalLanes.
+ */
+export function approvalSlots(
+  content: Entity[],
+  missions: Entity[],
+  drafts: ReadonlyArray<{ id: string; slotAt?: string | null }>,
+): Map<string, string> {
+  const planned = new Map(
+    missions
+      .filter((m) => typeof m.data.plannedSlotAt === "string")
+      .map((m) => [m.id, String(m.data.plannedSlotAt)]),
+  );
+  const slots = new Map<string, string>();
+  for (const c of content) {
+    const slot = planned.get(String(c.data.missionId ?? ""));
+    if (typeof c.data.assignmentRunId === "string" && slot)
+      slots.set(c.id, slot);
+  }
+  for (const d of drafts) if (d.slotAt) slots.set(d.id, d.slotAt);
+  return slots;
 }
 
 /** Items grouped by their original (R76 copies with it), in first-seen order. */

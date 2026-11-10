@@ -4,6 +4,7 @@ import { contentLanguageOptions } from "@/platform/project-settings/project-conf
 import { AppLink } from "@/platform/ui/app-link";
 import {
   approvalLanes,
+  approvalSlots,
   groupByBase,
   hasActiveHandoff,
   openExceptions,
@@ -1824,7 +1825,8 @@ export function ApprovalInbox() {
   const content = useCollection("content"),
     exceptions = useCollection("exceptions"),
     publications = useCollection("publications"),
-    postizDrafts = useCollection("postiz_drafts");
+    postizDrafts = useCollection("postiz_drafts"),
+    missions = useCollection("missions");
   const channels = useChannelDirectory();
   const agent = useAssignmentApprovals();
   const studio = shell?.features?.creativeStudio === true;
@@ -1834,7 +1836,14 @@ export function ApprovalInbox() {
     content.data?.items ?? [],
     publications.data?.items ?? [],
     postizDrafts.data?.items ?? [],
-    { slots: new Map(agent.drafts.map((d) => [d.id, d.slotAt])) },
+    {
+      // The server's slot: the mission's planned slot, then the drafts list.
+      slots: approvalSlots(
+        content.data?.items ?? [],
+        missions.data?.items ?? [],
+        agent.drafts,
+      ),
+    },
   );
   // Assignment drafts have their own release list; their rows are not repeated.
   const drafted = new Set(agent.drafts.map((d) => d.id));

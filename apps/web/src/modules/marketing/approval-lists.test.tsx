@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   approvalLanes,
+  approvalSlots,
   groupByBase,
   openExceptions,
   pausedPosts,
@@ -147,6 +148,46 @@ describe("approval lanes of the page", () => {
     expect(
       approvalLanes([draft], [], [], { now, slots }).map((i) => i.lane),
     ).toEqual(["cleanup"]);
+  });
+
+  it("reads a draft's slot from its mission like the server, the drafts list first", () => {
+    // No scheduledAt and not in the drafts list: only the mission knows the slot.
+    const fromMission = row("m", {
+      status: "needs_review",
+      assignmentRunId: "r1",
+      missionId: "mission-1",
+    });
+    const listed = row("l", {
+      status: "needs_review",
+      assignmentRunId: "r1",
+      missionId: "mission-1",
+    });
+    const ordinary = row("o", {
+      status: "needs_review",
+      missionId: "mission-1",
+    });
+    const missions = [
+      row("mission-1", { plannedSlotAt: "2026-10-06T09:00:00Z" }),
+    ];
+    const slots = approvalSlots([fromMission, listed, ordinary], missions, [
+      { id: "l", slotAt: "2026-10-07T09:00:00Z" },
+    ]);
+    expect([...slots.entries()]).toEqual([
+      ["m", "2026-10-06T09:00:00Z"],
+      ["l", "2026-10-07T09:00:00Z"],
+    ]);
+    expect(
+      Object.fromEntries(
+        approvalLanes([fromMission, listed, ordinary], [], [], {
+          now,
+          slots,
+        }).map((i) => [i.content.id, i.lane]),
+      ),
+    ).toEqual({ m: "cleanup", l: "open", o: "open" });
+    // Without the mission the draft would have stayed an open action.
+    expect(
+      approvalLanes([fromMission], [], [], { now }).map((i) => i.lane),
+    ).toEqual(["open"]);
   });
 
   it("groups channel copies with their original, the original first", () => {
