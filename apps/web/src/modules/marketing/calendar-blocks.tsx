@@ -28,10 +28,7 @@ export function CalendarBlocks({ items }: { items: Entity[] }) {
   const mutation = useMutation(refresh);
   const active = items.filter((b) => b.data.status === "active");
   return (
-    <section
-      className="panel administration-panel"
-      aria-labelledby={headingId}
-    >
+    <section className="panel administration-panel" aria-labelledby={headingId}>
       <div className="panel-head">
         <div>
           <h2 id={headingId}>{words.heading}</h2>

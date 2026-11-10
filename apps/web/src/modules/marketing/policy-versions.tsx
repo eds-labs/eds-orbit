@@ -123,9 +123,19 @@ function Period({
 }) {
   return (
     <>
-      <Time iso={row.startAt} locale={locale} timezone={timezone} dateOnly={dateOnly} />
+      <Time
+        iso={row.startAt}
+        locale={locale}
+        timezone={timezone}
+        dateOnly={dateOnly}
+      />
       {" – "}
-      <Time iso={row.endAt} locale={locale} timezone={timezone} dateOnly={dateOnly} />
+      <Time
+        iso={row.endAt}
+        locale={locale}
+        timezone={timezone}
+        dateOnly={dateOnly}
+      />
     </>
   );
 }
@@ -139,7 +149,8 @@ export function PolicyVersions({ items }: { items: Entity[] }) {
   const rows = policyVersionRows(items, now);
   const current = rows.find((row) => row.current);
   const tz = project.timezone;
-  const mode = (row: PolicyVersionRow) => (row.mode ? modeLabel(row.mode, t) : "—");
+  const mode = (row: PolicyVersionRow) =>
+    row.mode ? modeLabel(row.mode, t) : "—";
   return (
     <div className="policy-versions">
       {current ? (
@@ -147,7 +158,8 @@ export function PolicyVersions({ items }: { items: Entity[] }) {
           <dl className="detail-grid">
             <dt>{words.current}</dt>
             <dd>
-              v{current.number} <StateBadge state={current.state} locale={locale} />
+              v{current.number}{" "}
+              <StateBadge state={current.state} locale={locale} />
             </dd>
             <dt>{words.mode}</dt>
             <dd>{mode(current)}</dd>
@@ -198,13 +210,26 @@ export function PolicyVersions({ items }: { items: Entity[] }) {
                       <StateBadge state={row.state} locale={locale} />
                     </td>
                     <td>
-                      <Period row={row} locale={locale} timezone={tz} dateOnly />
+                      <Period
+                        row={row}
+                        locale={locale}
+                        timezone={tz}
+                        dateOnly
+                      />
                     </td>
                     <td>
-                      <Time iso={row.activatedAt} locale={locale} timezone={tz} />
+                      <Time
+                        iso={row.activatedAt}
+                        locale={locale}
+                        timezone={tz}
+                      />
                     </td>
                     <td>
-                      <Time iso={row.replacedAt} locale={locale} timezone={tz} />
+                      <Time
+                        iso={row.replacedAt}
+                        locale={locale}
+                        timezone={tz}
+                      />
                     </td>
                     <td>
                       <Button

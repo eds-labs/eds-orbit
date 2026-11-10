@@ -198,7 +198,9 @@ describe("policy settings in German", () => {
 
   it("marks up the history table for assistive technology", () => {
     const html = render(<PolicyVersions items={six()} />);
-    expect(html).toContain("<caption>Alle Richtlinienversionen, neueste zuerst</caption>");
+    expect(html).toContain(
+      "<caption>Alle Richtlinienversionen, neueste zuerst</caption>",
+    );
     expect(html).toContain('<th scope="col">Version</th>');
     expect(html).toContain('<th scope="row">v6</th>');
     expect(html).toContain('<th scope="row">v1</th>');

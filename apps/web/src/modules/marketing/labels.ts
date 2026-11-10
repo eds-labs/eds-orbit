@@ -36,7 +36,8 @@ const en = {
     minInterval: "Minimum spacing",
     minutes: (n: number) => `${n} min`,
     quietHours: "Quiet hours",
-    budgetNote: "The AI budget is not part of this policy. It applies to every module and is set under",
+    budgetNote:
+      "The AI budget is not part of this policy. It applies to every module and is set under",
     budgetLink: "Settings → AI & budget",
   },
   contentTypes: {
@@ -63,7 +64,12 @@ const en = {
     confirm: "I approve this exact version, its channels and dates.",
     save: "Save policy version",
     budgetPrefix: "AI budget:",
-    budgetLimits: (daily: string, monthly: string, perRun: string, until: string) =>
+    budgetLimits: (
+      daily: string,
+      monthly: string,
+      perRun: string,
+      until: string,
+    ) =>
       `${daily} per day, ${monthly} per month, ${perRun} per run, until ${until}`,
     budgetUnpaid: " (paid use not allowed)",
     budgetNotSet: "not set, so no paid AI runs.",
@@ -168,7 +174,12 @@ const de: MarketingText = {
     confirm: "Ich gebe genau diese Version mit ihren Kanälen und Zeiten frei.",
     save: "Richtlinienversion speichern",
     budgetPrefix: "KI-Budget:",
-    budgetLimits: (daily: string, monthly: string, perRun: string, until: string) =>
+    budgetLimits: (
+      daily: string,
+      monthly: string,
+      perRun: string,
+      until: string,
+    ) =>
       `${daily} pro Tag, ${monthly} pro Monat, ${perRun} pro Lauf, bis ${until}`,
     budgetUnpaid: " (bezahlte Nutzung nicht erlaubt)",
     budgetNotSet: "nicht festgelegt, daher laufen keine bezahlten KI-Aufrufe.",

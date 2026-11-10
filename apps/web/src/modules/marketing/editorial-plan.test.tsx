@@ -78,7 +78,11 @@ function shell(social: boolean): ShellContextValue {
     table,
     platformNav: [],
     homeSections: [],
-    hrefOf: (key) => projectHref(P, table.routes.find((r) => r.key === key)!),
+    hrefOf: (key) =>
+      projectHref(
+        P,
+        table.routes.find((r) => r.key === key)!,
+      ),
     chat: [],
     actionRequests: {},
     attention: { loading: false },
