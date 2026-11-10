@@ -89,12 +89,9 @@ describe("approval lanes of the page", () => {
     postiz: unknown[] = [],
   ) =>
     Object.fromEntries(
-      approvalLanes(
-        content as never,
-        publications as never,
-        postiz as never,
-        { now },
-      ).map((i) => [i.content.id, i.lane]),
+      approvalLanes(content as never, publications as never, postiz as never, {
+        now,
+      }).map((i) => [i.content.id, i.lane]),
     );
 
   it("sorts released, reviewed, open, expired and replaced rows apart", () => {

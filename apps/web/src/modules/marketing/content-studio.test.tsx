@@ -29,17 +29,62 @@ const row = (
     data: { type: "social", ...data },
   }) as Entity;
 const directory = new Map<string, ChannelEntry>([
-  [FB, { id: FB, name: "FamilyPlan", platform: "facebook", source: "social", active: true }],
-  [IG, { id: IG, name: "@familyplan.app", platform: "instagram", source: "social", active: true }],
-  ["postiz-li", { id: "postiz-li", name: "EDS Labs", platform: "linkedin-page", source: "postiz", active: true }],
+  [
+    FB,
+    {
+      id: FB,
+      name: "FamilyPlan",
+      platform: "facebook",
+      source: "social",
+      active: true,
+    },
+  ],
+  [
+    IG,
+    {
+      id: IG,
+      name: "@familyplan.app",
+      platform: "instagram",
+      source: "social",
+      active: true,
+    },
+  ],
+  [
+    "postiz-li",
+    {
+      id: "postiz-li",
+      name: "EDS Labs",
+      platform: "linkedin-page",
+      source: "postiz",
+      active: true,
+    },
+  ],
 ]);
 
 describe("Content Studio groups (WP3)", () => {
   const items = [
-    row("ig", { title: "Familienabend", channel: IG, status: "reviewed", sharedFrom: { contentId: "fb" } }, "2026-11-09T09:00:00.000Z"),
+    row(
+      "ig",
+      {
+        title: "Familienabend",
+        channel: IG,
+        status: "reviewed",
+        sharedFrom: { contentId: "fb" },
+      },
+      "2026-11-09T09:00:00.000Z",
+    ),
     row("fb", { title: "Familienabend", channel: FB, status: "reviewed" }),
-    row("old", { title: "Familienabend v1", channel: FB, status: "needs_review", supersededBy: "fb" }),
-    row("li", { title: "Release notes", channel: "postiz-li", status: "draft" }),
+    row("old", {
+      title: "Familienabend v1",
+      channel: FB,
+      status: "needs_review",
+      supersededBy: "fb",
+    }),
+    row("li", {
+      title: "Release notes",
+      channel: "postiz-li",
+      status: "draft",
+    }),
     row("lost", { title: "Old account", channel: GONE, status: "draft" }),
   ];
 
@@ -53,7 +98,12 @@ describe("Content Studio groups (WP3)", () => {
     ]);
     expect(groups[0]!.lead.id).toBe("fb");
     const all = contentGroups(items, { showReplaced: true });
-    expect(all.groups.map((g) => g.baseId)).toEqual(["fb", "old", "li", "lost"]);
+    expect(all.groups.map((g) => g.baseId)).toEqual([
+      "fb",
+      "old",
+      "li",
+      "lost",
+    ]);
   });
 
   it("names channels by name and platform, never by their stored id", () => {
@@ -77,7 +127,9 @@ describe("Content Studio groups (WP3)", () => {
     expect(html.match(/Geprüft/g)?.length).toBe(2);
     // A Postiz channel by name with its platform and mark.
     expect(html).toContain("EDS Labs · LinkedIn");
-    expect(html).toContain('class="platform-mark platform-mark-linkedin" aria-hidden="true"');
+    expect(html).toContain(
+      'class="platform-mark platform-mark-linkedin" aria-hidden="true"',
+    );
     // An unknown account: a readable fallback, the id only as a title.
     expect(html).toContain("Kanal ohne Namen");
     expect(html).toContain(`title="${GONE}"`);
@@ -98,7 +150,10 @@ describe("Content Studio groups (WP3)", () => {
       id: FB,
     });
     expect(channelInfo("postiz-li", directory, "en").platform).toBe("linkedin");
-    expect(channelInfo("linkedin", directory, "en")).toMatchObject({ label: "LinkedIn", known: true });
+    expect(channelInfo("linkedin", directory, "en")).toMatchObject({
+      label: "LinkedIn",
+      known: true,
+    });
     expect(channelInfo(GONE, directory, "en")).toEqual({
       label: "Unnamed channel",
       platform: null,
@@ -110,7 +165,9 @@ describe("Content Studio groups (WP3)", () => {
     expect(channelInfo(IG, nameless, "de").label).toBe("Instagram");
     // The label names the platform once, not twice.
     expect(
-      renderToStaticMarkup(<ChannelLabel info={channelInfo(IG, nameless, "de")} />),
+      renderToStaticMarkup(
+        <ChannelLabel info={channelInfo(IG, nameless, "de")} />,
+      ),
     ).not.toContain("Instagram · Instagram");
   });
 

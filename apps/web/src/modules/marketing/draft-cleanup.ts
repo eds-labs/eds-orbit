@@ -143,7 +143,8 @@ const itemReasonText: Record<KeepReason, { de: string; en: string }> = {
 /** What happens to one draft of a preview, in words. */
 export function cleanupItemText(item: CleanupItem, locale: Locale) {
   const de = locale === "de";
-  if (item.action === "archive") return de ? "Wird archiviert" : "Will be archived";
+  if (item.action === "archive")
+    return de ? "Wird archiviert" : "Will be archived";
   const text = item.reason ? itemReasonText[item.reason] : undefined;
   return text ? text[de ? "de" : "en"] : de ? "Bleibt" : "Stays";
 }

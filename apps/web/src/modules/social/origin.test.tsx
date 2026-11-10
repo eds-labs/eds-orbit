@@ -73,7 +73,10 @@ function render(
   });
   const shell = {
     hrefOf: (key: string) =>
-      projectHref(project.id, table.routes.find((r) => r.key === key)!),
+      projectHref(
+        project.id,
+        table.routes.find((r) => r.key === key)!,
+      ),
     modules: [module("social"), ...(marketing ? [module("marketing")] : [])],
     table,
   } as unknown as ShellContextValue;
@@ -124,7 +127,9 @@ const announced = {
 
 describe("where a Social post came from (WP3)", () => {
   it("reads the kind from originRef, else from the origin", () => {
-    expect(originKind({ origin: "marketing", originRef: announced.originRef })).toBe("marketing");
+    expect(
+      originKind({ origin: "marketing", originRef: announced.originRef }),
+    ).toBe("marketing");
     expect(
       originKind({
         origin: "marketing",
@@ -167,12 +172,26 @@ describe("where a Social post came from (WP3)", () => {
     });
     expect(
       originView({ origin: "legacy_postiz", approvalState: "none" }, "en"),
-    ).toEqual({ origin: "Taken over from Postiz", approval: null, publicationId: null });
+    ).toEqual({
+      origin: "Taken over from Postiz",
+      approval: null,
+      publicationId: null,
+    });
     expect(
-      originView({ origin: "manual", originRef: null, approvalState: "pending" }, "en"),
-    ).toEqual({ origin: null, approval: "Approval requested", publicationId: null });
+      originView(
+        { origin: "manual", originRef: null, approvalState: "pending" },
+        "en",
+      ),
+    ).toEqual({
+      origin: null,
+      approval: "Approval requested",
+      publicationId: null,
+    });
     expect(
-      originView({ origin: "manual", originRef: null, approvalState: "none" }, "en"),
+      originView(
+        { origin: "manual", originRef: null, approvalState: "none" },
+        "en",
+      ),
     ).toEqual({ origin: null, approval: null, publicationId: null });
   });
 
@@ -181,7 +200,9 @@ describe("where a Social post came from (WP3)", () => {
     answers["/social/posts"] = { items: [announced], nextCursor: null };
     const html = render(<PostsView />);
     expect(html).toContain("Freigegeben über Marketing");
-    expect(html).not.toMatch(/Wartet auf Freigabe|Freigabe abgelehnt|Freigabe angefragt|nicht freigegeben/i);
+    expect(html).not.toMatch(
+      /Wartet auf Freigabe|Freigabe abgelehnt|Freigabe angefragt|nicht freigegeben/i,
+    );
     expect(html).toContain(`approvals?publication=${PUBLICATION}`);
     expect(html).toContain("In den Marketing-Freigaben ansehen");
     // Without Marketing for the member, the words stay and the link goes.
@@ -199,7 +220,12 @@ describe("where a Social post came from (WP3)", () => {
       baseText: "Familienabend planen",
       baseMedia: [],
       schedule,
-      approval: { state: "none", requestId: null, approvedAt: null, approvedBy: null },
+      approval: {
+        state: "none",
+        requestId: null,
+        approvedAt: null,
+        approvedBy: null,
+      },
       packageHash: null,
       origin: "marketing",
       originRef: announced.originRef,
@@ -234,7 +260,12 @@ describe("where a Social post came from (WP3)", () => {
       projectId: project.id,
     } as unknown as CalendarItem;
     const html = render(
-      <PostDrawer item={item} scope="project" onClose={() => {}} onMove={() => {}} />,
+      <PostDrawer
+        item={item}
+        scope="project"
+        onClose={() => {}}
+        onMove={() => {}}
+      />,
     );
     expect(html).toContain("Freigegeben über Marketing");
     expect(html).not.toContain("worker");
@@ -244,7 +275,16 @@ describe("where a Social post came from (WP3)", () => {
   it("keeps a native post's approval words", () => {
     search.value = "";
     answers["/social/posts"] = {
-      items: [{ ...announced, id: "n1", origin: "manual", originRef: null, approvalState: "pending", readOnly: false }],
+      items: [
+        {
+          ...announced,
+          id: "n1",
+          origin: "manual",
+          originRef: null,
+          approvalState: "pending",
+          readOnly: false,
+        },
+      ],
       nextCursor: null,
     };
     const html = render(<PostsView />, { locale: "en" });

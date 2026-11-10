@@ -60,7 +60,9 @@ export function DraftCleanupView({
   const items = preview?.items ?? [];
   return (
     <>
-      <p className="panel-note">{marketingText(locale).approvals.cleanupHint}</p>
+      <p className="panel-note">
+        {marketingText(locale).approvals.cleanupHint}
+      </p>
       <div className="form-actions approval-actions">
         <Button variant="outline" disabled={pending} onClick={onPreview}>
           {de ? "Alte Entwürfe archivieren" : "Archive old drafts"}

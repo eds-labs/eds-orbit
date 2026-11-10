@@ -6,11 +6,7 @@ import type { Locale } from "@/lib/i18n";
 import { fieldLabel } from "@/lib/field-text";
 import { Badge, Button, Status } from "@/components/ui/primitives";
 import { baseContentId } from "./approval-lists";
-import {
-  ChannelLabel,
-  channelInfo,
-  type ChannelEntry,
-} from "./channel-names";
+import { ChannelLabel, channelInfo, type ChannelEntry } from "./channel-names";
 import { marketingText } from "./labels";
 
 // Content Studio rows (WP3, 2026-11-10): one row per post with its channel

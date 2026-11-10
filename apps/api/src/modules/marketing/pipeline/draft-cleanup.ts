@@ -203,7 +203,11 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
     missionKind(missionById.get(String(data(row).missionId)));
   // Each draft by name: what the cleanup does with it and why it stays.
   // Title and channel only, never the text; the audit gets the counts alone.
-  const itemOf = (row: Row, action: "archive" | "keep", reason?: KeepReason) => {
+  const itemOf = (
+    row: Row,
+    action: "archive" | "keep",
+    reason?: KeepReason,
+  ) => {
     const v = data(row);
     return {
       contentId: row.id,

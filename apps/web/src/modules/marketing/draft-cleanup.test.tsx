@@ -360,7 +360,13 @@ describe("DraftCleanup", () => {
     for (const reason of KEEP_REASONS)
       expect(
         cleanupItemText(
-          { contentId: "x", title: null, channel: null, action: "keep", reason },
+          {
+            contentId: "x",
+            title: null,
+            channel: null,
+            action: "keep",
+            reason,
+          },
           "en",
         ),
       ).toMatch(/^Stays: /);

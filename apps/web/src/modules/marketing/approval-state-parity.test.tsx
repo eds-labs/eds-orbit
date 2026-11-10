@@ -129,7 +129,9 @@ describe("approval state parity (server and web)", () => {
   });
 
   it("applies the rules in their order", () => {
-    const pending = [{ kind: "publication" as const, status: "intent_created" }];
+    const pending = [
+      { kind: "publication" as const, status: "intent_created" },
+    ];
     // Replaced wins over a hand-off and over expiry.
     expect(
       approvalLane(

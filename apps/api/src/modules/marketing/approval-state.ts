@@ -43,7 +43,8 @@ export const OPEN_REVIEW_STATUSES = [
  * Derived at read time from the row and its hand-offs; nothing is written,
  * so a released row's version (bound by its package hash) never changes.
  */
-export type ApprovalLane = "open" | "reviewed" | "released" | "cleanup" | "history";
+export type ApprovalLane =
+  "open" | "reviewed" | "released" | "cleanup" | "history";
 
 /** A publication or Postiz draft of the content, as the lane reads it. */
 export type LaneHandoff = {

@@ -155,8 +155,7 @@ const en = {
       "Their slot passed and is not caught up: reject or archive them, or archive all old drafts at once.",
     releasedByYou: (date: string) => `Released by you on ${date}`,
     releasedByOwner: (date: string) => `Released by an owner on ${date}`,
-    releasedByAgent:
-      "Released by the review agent after the veto window",
+    releasedByAgent: "Released by the review agent after the veto window",
     scheduled: "Scheduled",
     heldInSocial: "Announced in Social; it goes out at its slot",
     postizDraft: "Handed to Postiz as a draft",
@@ -307,7 +306,8 @@ const de: MarketingText = {
       "Freigegebene Posts mit ihrem Termin. Sie brauchen keine Entscheidung mehr; einen anstehenden kannst du noch stoppen.",
     releasedEmpty: "Nichts ist freigegeben oder geplant.",
     history: "Verlauf",
-    historyIntro: "Veröffentlichte, ersetzte, abgelehnte und archivierte Inhalte.",
+    historyIntro:
+      "Veröffentlichte, ersetzte, abgelehnte und archivierte Inhalte.",
     historyNewest: (n: number) => `Die ${n} neuesten werden gezeigt.`,
     decisions: "Entscheidungen zu Auftragsentwürfen",
     decisionsIntro: "Was der Owner in den letzten 30 Tagen entschieden hat.",
@@ -319,8 +319,7 @@ const de: MarketingText = {
       "Ihr Termin ist vorbei und wird nicht nachgeholt: lehne sie ab oder archiviere sie – oder archiviere alle alten Entwürfe auf einmal.",
     releasedByYou: (date: string) => `Von dir freigegeben am ${date}`,
     releasedByOwner: (date: string) => `Von einem Owner freigegeben am ${date}`,
-    releasedByAgent:
-      "Vom Review-Agenten nach dem Veto-Fenster freigegeben",
+    releasedByAgent: "Vom Review-Agenten nach dem Veto-Fenster freigegeben",
     scheduled: "Eingeplant",
     heldInSocial: "In Social angekündigt; geht zum Termin raus",
     postizDraft: "Als Entwurf an Postiz übergeben",
