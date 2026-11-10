@@ -155,7 +155,8 @@ describe.skipIf(!enabled)("settle-unknown-reservations", () => {
       valid([a.id, b.id, old.id], { note: "Checked the OpenAI invoice for October." }),
     );
     expect(result).toMatchObject({ settled: 3, micros: "1800000" });
-    expect(result.reservationIds.sort()).toEqual([old.id, a.id, b.id].sort());
+    // Oldest first: the order the rows were read and settled in.
+    expect(result.reservationIds).toEqual([old.id, a.id, b.id]);
     const after = await rows();
     for (const row of [a, b, old])
       expect(after.get(row.id)).toEqual(
