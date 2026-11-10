@@ -4,6 +4,8 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { assetTools } from "../brand/asset-tools.ts";
 import { projectReadiness } from "../../../platform/governance/readiness.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { publishingBackend } from "../publishing/backend.ts";
+import { socialChannels } from "../../social/contract.ts";
 import { data, DomainError, list } from "../../../shared.ts";
 import { requireSpendMandate } from "../../../platform/ai/spend-mandate.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
@@ -47,14 +49,25 @@ export async function runReadTool(
       });
       const policies = await list(tx, scope, "policies");
       const active = policies.find((p) => data(p).active);
-      const availableChannels = (await list(tx, scope, "connectors"))
-        .filter((row) => data(row).provider === "postiz")
-        .flatMap((row) => assignedPostizChannels(data(row)))
-        .map((channel: any) => ({
-          id: String(channel.id),
-          name: clipped(channel.name, 120),
-          provider: clipped(channel.identifier, 50),
-        }));
+      const backend = await publishingBackend(tx, scope);
+      const availableChannels = [
+        ...(await list(tx, scope, "connectors"))
+          .filter((row) => data(row).provider === "postiz")
+          .flatMap((row) => assignedPostizChannels(data(row)))
+          .map((channel: any) => ({
+            id: String(channel.id),
+            name: clipped(channel.name, 120),
+            provider: clipped(channel.identifier, 50),
+          })),
+        // On Social its connected accounts are channels too (as in the policy options).
+        ...(backend === "social"
+          ? (await socialChannels(tx, scope)).map((channel) => ({
+              id: channel.id,
+              name: clipped(channel.handle, 120),
+              provider: clipped(channel.platform, 50),
+            }))
+          : []),
+      ];
       const approvals = (await list(tx, scope, "approvals"))
         .filter((a) => data(a).status === "pending")
         .slice(0, 15)
@@ -144,6 +157,7 @@ export async function runReadTool(
             state: state.state,
             blockers: state.blockers,
             actions: state.actions,
+            publishingBackend: backend,
           },
         },
         cards: [

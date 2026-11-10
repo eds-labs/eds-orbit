@@ -20,6 +20,7 @@ import {
   readTools,
 } from "../src/modules/marketing/tools/read-tools.ts";
 import { readinessActions } from "../src/modules/marketing/readiness/action-readiness.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { createMailInbox } from "./fixtures/mailbox.ts";
 import { createTicket } from "../src/modules/support/tickets.ts";
 import {
@@ -632,6 +633,86 @@ describe.skipIf(!enabled)(
         expect(Date.parse(mcpNow) - Date.parse(assistantNow)).toBeLessThan(
           30_000,
         );
+      });
+
+      it("on the Social backend lists the accounts as channels and stays schema-valid (WP1)", async () => {
+        const alpha = ownerScope("Alpha");
+        await withEnv({ ORBIT_SOCIAL: "true" }, async () => {
+          const accountId = randomUUID();
+          await inProject("Alpha", async (tx) => {
+            await tx.projectModule.create({
+              data: {
+                workspaceId,
+                projectId: project.Alpha,
+                moduleId: "social",
+                enabled: true,
+                moduleVersion: "0.1.0",
+                changedBy: ids.owner,
+              },
+            });
+            await tx.socialAccount.create({
+              data: {
+                id: accountId,
+                workspaceId,
+                projectId: project.Alpha,
+                connectionId: randomUUID(),
+                platform: "x",
+                externalId: "registry-x",
+                handle: "@registry_x",
+                displayName: "Registry X",
+                capability: "write_verified",
+                legacyPostizIntegrationId: "x-test",
+                createdBy: ids.owner,
+              },
+            });
+            await forcePublishingBackend(tx, alpha, "social");
+          });
+          try {
+            const result = (await call("marketing_project_status", {}))
+              .result;
+            expect(result.isError).toBeFalsy();
+            const status = projectStatusOutput.parse(result.structuredContent);
+            expect(status.readiness.publishingBackend).toBe("social");
+            expect(status.availableChannels).toEqual([
+              { id: "x-test", name: "Registry X", provider: "x" },
+              { id: `social:${accountId}`, name: "@registry_x", provider: "x" },
+            ]);
+            expect(status.readiness.blockers).not.toContain(
+              "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+            );
+            expect(status.readiness.actions.postiz_live).toEqual({
+              state: "not_configured",
+              effect: "external",
+              blockers: ["PUBLISHING_BACKEND_SOCIAL"],
+            });
+            expect(Object.keys(status.readiness.actions)).toEqual([
+              ...readinessActions,
+            ]);
+          } finally {
+            await inProject("Alpha", async (tx) => {
+              await forcePublishingBackend(tx, alpha, "postiz");
+              await tx.projectModule.update({
+                where: {
+                  workspaceId_projectId_moduleId: {
+                    workspaceId,
+                    projectId: project.Alpha,
+                    moduleId: "social",
+                  },
+                },
+                data: { enabled: false },
+              });
+            });
+          }
+        });
+        // Back on Postiz: only the Postiz channels, as before.
+        const status = projectStatusOutput.parse(
+          (await call("marketing_project_status", {})).result
+            .structuredContent,
+        );
+        expect(status.readiness.publishingBackend).toBe("postiz");
+        expect(status.availableChannels).toEqual([
+          { id: "x-test", name: "Registry X", provider: "x" },
+        ]);
       });
 
       it("answers a project without marketing data with empty parts", async () => {
