@@ -155,6 +155,9 @@ const en = {
     back: "All posts",
     empty: "No posts yet.",
     readOnly: "You can read this post; only owners and editors change it.",
+    heldByOrigin:
+      "Marketing holds this post: it goes out at the slot released there. Change or stop it in Marketing's approvals.",
+    closedToChanges: "This post can no longer be changed here.",
     notPlanned: "No time set",
     status: {
       draft: "Draft",
@@ -543,6 +546,9 @@ const de: SocialText = {
     back: "Alle Beiträge",
     empty: "Noch keine Beiträge.",
     readOnly: "Du kannst diesen Beitrag lesen; ändern dürfen ihn nur Owner und Editoren.",
+    heldByOrigin:
+      "Marketing hält diesen Beitrag: Er geht zum dort freigegebenen Termin raus. Ändern oder stoppen kannst du ihn in den Marketing-Freigaben.",
+    closedToChanges: "Dieser Beitrag lässt sich hier nicht mehr ändern.",
     notPlanned: "Keine Zeit festgelegt",
     status: {
       draft: "Entwurf",

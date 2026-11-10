@@ -39,7 +39,8 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { projectHref, routeTable } from "@/platform/shell/routes";
-import { PostsView } from "./posts/posts-view";
+import { PostsView, readOnlyNote, scheduleText } from "./posts/posts-view";
+import { socialText } from "./labels";
 import { PostDrawer } from "./calendar/drawer";
 import { originKind, originView } from "./origin";
 import type { CalendarItem } from "./api";
@@ -241,6 +242,38 @@ describe("where a Social post came from (WP3)", () => {
     const html = render(<PostsView />, { locale: "en" });
     expect(html).toContain("Released through Marketing");
     expect(html).toContain("View in Marketing approvals");
+    // The owner reads that Marketing holds it, not "only owners and editors".
+    expect(html).toContain("Marketing holds this post");
+    expect(html).not.toContain("only owners and editors change it");
+    // The time in the member's locale, not ISO.
+    expect(html).toContain("Nov 9, 2026, 6:30");
+    expect(html).not.toContain("2026-11-09 18:30");
+  });
+
+  it("words a closed post by why it is closed, and its time by locale", () => {
+    const t = socialText("de").posts;
+    expect(readOnlyNote(announced, t)).toBe(t.heldByOrigin);
+    expect(t.heldByOrigin).toContain("Marketing-Freigaben");
+    expect(
+      readOnlyNote({ ...announced, origin: "legacy_postiz", originRef: null }, t),
+    ).toBe(t.closedToChanges);
+    expect(
+      readOnlyNote({ ...announced, readOnly: false, originRef: null }, t),
+    ).toBe(t.readOnly);
+    expect(scheduleText(schedule as never, "—", "de", "Europe/Berlin")).toBe(
+      "09.11.2026, 18:30",
+    );
+    expect(scheduleText(schedule as never, "—", "de", "UTC")).toBe(
+      "09.11.2026, 18:30 (Europe/Berlin)",
+    );
+    expect(
+      scheduleText(
+        { ...schedule, at: null, local: null } as never,
+        "Keine Zeit",
+        "de",
+        "Europe/Berlin",
+      ),
+    ).toBe("Keine Zeit");
   });
 
   it("names the origin in the calendar drawer and hides the hand-off's approval", () => {
