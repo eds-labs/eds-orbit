@@ -431,6 +431,147 @@ suite("isolated index generations / synthetic SQL mechanics only", () => {
     await run((tx) => setSourceAudiences(tx, s, privateSource, ["all"]));
     expect(await items()).toEqual([publicChunk]);
   });
+  it("keeps evidence from a live-evaluated generation valid after a switch", async () => {
+    // Spec 2026-11-10-evidence-across-index-generations: evidence from another
+    // generation passes only if that generation's stored evaluation passed,
+    // is live, belongs to its manifest and was at most 30 days old when the
+    // evidence was created; every item check still applies.
+    const DAY = 86400000;
+    const evaluationOf = async (id: string) =>
+      (
+        await run((tx) =>
+          tx.knowledgeIndex.findUniqueOrThrow({ where: { id } }),
+        )
+      ).evaluation as Record<string, unknown>;
+    const before = {
+      small: await evaluationOf(smallId),
+      large: await evaluationOf(largeId),
+    };
+    const writeEvaluation = (id: string, evaluation: Record<string, unknown>) =>
+      run((tx) =>
+        tx.knowledgeIndex.update({
+          where: { id },
+          data: { evaluation: evaluation as never },
+        }),
+      );
+    const setEvaluation = async (id: string, patch: Record<string, unknown>) =>
+      writeEvaluation(id, { ...(await evaluationOf(id)), ...patch });
+    const markLive = (id: string, executedAt: Date) =>
+      setEvaluation(id, {
+        provenance: "live",
+        executedAt: executedAt.toISOString(),
+      });
+    const reasons = async (id: string) =>
+      (await run((tx) => validateEvidence(tx, s, id))).reasons;
+    const cloneEvidence = (patch: (d: EvidenceData) => unknown) =>
+      run((tx) =>
+        tx.entity.create({
+          data: {
+            workspaceId: s.workspaceId,
+            projectId: s.projectId,
+            kind: "evidence",
+            data: patch(structuredClone(evidenceData) as EvidenceData) as never,
+          },
+        }),
+      );
+    const smallActive = async () =>
+      (await run((tx) => getActiveIndex(tx, s))).id === smallId;
+    let evidenceData: EvidenceData;
+    try {
+      expect(await smallActive()).toBe(true);
+      await markLive(smallId, new Date(Date.now() - DAY));
+      const ev = await run((tx) =>
+        retrieve(tx, s, {
+          query: "INDEXGEN728",
+          purpose: "public",
+          queryVector: vector(1536),
+          profile: EMBEDDING_PROFILE,
+        }),
+      );
+      evidenceData = ev.data as unknown as EvidenceData;
+      expect(evidenceData.indexId).toBe(smallId);
+      const created = Date.parse(evidenceData.createdAt);
+      // A live-evaluated origin survives the switch to another generation.
+      await markLive(largeId, new Date(Date.now() - 3600000));
+      await run((tx) =>
+        rollbackIndexGeneration(tx, s, largeId, {
+          allowSyntheticForTest: true,
+        }),
+      );
+      expect(await run((tx) => validateEvidence(tx, s, ev.id))).toEqual({
+        valid: true,
+        reasons: [],
+      });
+      // A broken citation keeps its own reason.
+      const brokenCitation = await cloneEvidence((d) => {
+        d.items[0]!.chunkId = randomUUID();
+        return d;
+      });
+      expect(await reasons(brokenCitation.id)).toContain("chunk_unavailable");
+      expect(await reasons(brokenCitation.id)).not.toContain(
+        "index_generation_changed",
+      );
+      // The origin's evaluation was older than 30 days at creation.
+      await setEvaluation(smallId, {
+        executedAt: new Date(created - 31 * DAY).toISOString(),
+      });
+      expect(await reasons(ev.id)).toContain("index_generation_changed");
+      // The origin was evaluated only after the evidence was created.
+      await setEvaluation(smallId, {
+        executedAt: new Date(created + 60000).toISOString(),
+      });
+      expect(await reasons(ev.id)).toContain("index_generation_changed");
+      // A malformed record fails closed.
+      await setEvaluation(smallId, { executedAt: "not-a-date" });
+      expect(await reasons(ev.id)).toContain("index_generation_changed");
+      // The record belongs to another manifest.
+      await markLive(smallId, new Date(Date.now() - DAY));
+      await setEvaluation(smallId, { manifestHash: "other" });
+      expect(await reasons(ev.id)).toContain("index_generation_changed");
+      // A synthetic evaluation never qualifies.
+      await writeEvaluation(smallId, {
+        ...before.small,
+        provenance: "synthetic_test",
+        executedAt: new Date(Date.now() - DAY).toISOString(),
+      });
+      expect(await reasons(ev.id)).toContain("index_generation_changed");
+      await markLive(smallId, new Date(Date.now() - DAY));
+      // Evidence without a creation time fails closed.
+      const undated = await cloneEvidence((d) => {
+        delete (d as Partial<EvidenceData>).createdAt;
+        return d;
+      });
+      expect(await reasons(undated.id)).toContain("index_generation_changed");
+      // An unknown origin index fails closed.
+      const unknownOrigin = await cloneEvidence((d) => ({
+        ...d,
+        indexId: randomUUID(),
+      }));
+      expect(await reasons(unknownOrigin.id)).toContain(
+        "index_generation_changed",
+      );
+      // Rolling back to the origin keeps the evidence valid.
+      await run((tx) =>
+        rollbackIndexGeneration(tx, s, smallId, {
+          allowSyntheticForTest: true,
+        }),
+      );
+      expect((await run((tx) => validateEvidence(tx, s, ev.id))).valid).toBe(
+        true,
+      );
+    } finally {
+      if (!(await smallActive())) {
+        await markLive(smallId, new Date(Date.now() - DAY));
+        await run((tx) =>
+          rollbackIndexGeneration(tx, s, smallId, {
+            allowSyntheticForTest: true,
+          }),
+        );
+      }
+      await writeEvaluation(smallId, before.small);
+      await writeEvaluation(largeId, before.large);
+    }
+  });
   it("revocation purges every vector generation and prevents stale build activation or rollback", async () => {
     const building = await run((tx) => beginIndexBuild(tx, s, LARGE));
     const phase = async () =>

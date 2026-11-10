@@ -1,5 +1,13 @@
 # Implementation status
 
+## Knowledge: evidence survives index activation (2026-11-10, branch `claude/live-rag-eval-error-3b5651`, not on `main`)
+
+Spec [2026-11-10-evidence-across-index-generations-design.md](superpowers/specs/2026-11-10-evidence-across-index-generations-design.md), plan [2026-11-10-evidence-across-index-generations.md](superpowers/plans/2026-11-10-evidence-across-index-generations.md). Risk medium: relaxes a shared integrity check; no schema, migration, provider call or flag.
+
+- **Cause:** on 2026-11-10 activating FamilyPlan index generation 5 made every pending draft fail with `EVIDENCE_INVALID` (`index_generation_changed`), although nothing it cited had changed.
+- **Change:** `validateEvidence` accepts evidence from a non-active generation when `evidenceOriginEvaluated` holds (passed, `live`, own manifest, at most 30 days old at creation). Item checks and the `LIVE_RAG_EVAL_REQUIRED` publication gate are unchanged.
+- **Verification:** see the branch's final report; production not changed.
+
 ## Webmail module: Roundcube and mail-to-ticket (2026-11-09, branch `claude/roundcube-webmail-ticket-integration-a2dd99`; on `main` and `ORBIT_WEBMAIL` on since 2026-11-10, no grants yet, not live-accepted)
 
 [ADR 0026](adr/0026-webmail-module.md), contract [plans/WEBMAIL.md](plans/WEBMAIL.md), rollout [deployment/WEBMAIL.md](deployment/WEBMAIL.md), proof of concept `infra/webmail/poc/REPORT.md`. Risk high: mail credentials, auth, a migration and a new internet-facing service. Environment: production code path present, nothing enabled.
