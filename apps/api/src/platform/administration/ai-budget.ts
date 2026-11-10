@@ -1,17 +1,12 @@
-import {
-  authDb,
-  scoped,
-  type DbTx,
-  type Prisma,
-} from "../../../../../packages/db/src/index.ts";
+import { authDb, type Prisma } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { aiCostSummary } from "../ai/ai-usage.ts";
+import { derivedLimits } from "../ai/spend-mandate.ts";
 import {
-  activeSpendPolicyRecord,
-  derivedLimits,
-  requireSpendMandate,
-} from "../ai/spend-mandate.ts";
-import { reservationMonth } from "../attention/platform-items.ts";
+  personalSpaceMonth,
+  projectSpendAuthority,
+  type LimitState,
+} from "../ai/org-budget-levels.ts";
 import { personalAssistantEnabled } from "../assistant/personal-space.ts";
 import {
   aiOrgBudgetEnabled,
@@ -28,57 +23,11 @@ import { systemAudit } from "./audit.ts";
 // "Budget" and "Verbrauch" of an organization's AI area (plans/
 // ai-central-management.md, phase C; decision D-6: organization owners).
 // The budget is control plane; the usage is read project by project inside
-// each project's own transaction, so row-level security stays as it is.
+// each project's own transaction by the AI platform (org-budget-levels.ts,
+// ai-usage.ts), so row-level security stays as it is.
 
-/** off: saved but not applied; not_set: no limit; active: applied now. */
-export type LimitState = "off" | "not_set" | "active";
+export type { LimitState };
 type Origin = { by: { id: string; name: string } | null; at: string } | null;
-
-/**
- * The spending authority of one business project as the organization page
- * shows it (plan 2026-11-10 WP2 B): read inside the project's own scoped
- * transaction, so row-level security stays as it is; limits, this month's
- * spend and who activated it. Nothing is written.
- */
-async function projectLimit(tx: DbTx, scope: Scope, now: Date) {
-  const record = await activeSpendPolicyRecord(tx, scope);
-  let mandate: Awaited<ReturnType<typeof requireSpendMandate>> | null = null;
-  let problem: string | null = null;
-  try {
-    mandate = await requireSpendMandate(tx, scope);
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    problem = code === "POLICY_REQUIRED" ? null : (code ?? "POLICY_INVALID");
-  }
-  const limits = mandate?.limits ?? null;
-  const state: LimitState | "expired" | "invalid" = problem
-    ? "invalid"
-    : !limits
-      ? "not_set"
-      : !limits.approvedPaidTests || !limits.monthlyBudgetMicros
-        ? "off"
-        : now < new Date(limits.startAt) || now >= new Date(limits.endAt)
-          ? "expired"
-          : "active";
-  const stored = record ? (record.data as Record<string, unknown>) : null;
-  return {
-    state,
-    source: mandate?.source ?? ("none" as const),
-    monthlyBudgetMicros: limits?.monthlyBudgetMicros ?? null,
-    dailyBudgetMicros: limits?.dailyBudgetMicros ?? null,
-    perRunBudgetMicros: limits?.perRunBudgetMicros ?? null,
-    endAt: limits?.endAt ?? null,
-    spentMicros: (await reservationMonth(tx, scope, now)).spentMicros,
-    activatedBy:
-      mandate?.source === "platform" && typeof stored?.activatedBy === "string"
-        ? stored.activatedBy
-        : null,
-    activatedAt:
-      mandate?.source === "platform" && typeof stored?.activatedAt === "string"
-        ? stored.activatedAt
-        : record?.createdAt.toISOString() ?? null,
-  };
-}
 
 /**
  * The organization's three budget levels (WP2 B): its monthly limit, the
@@ -98,18 +47,17 @@ async function budgetLevels(
     select: { id: true, name: true, kind: true },
     orderBy: { createdAt: "asc" },
   });
-  const usage = { spentMicros: 0, unknownMicros: 0, count: 0, spaces: 0 };
+  // The month's reservations of all personal spaces as one sum; how many
+  // calls they made is the usage page's (organizationAiUsage).
+  const usage = { spentMicros: 0, unknownMicros: 0, spaces: 0 };
   const perProject = [];
   for (const project of projects) {
-    const scope = {
-      workspaceId,
-      projectId: project.id,
-      userId: actorId,
-      role: "owner",
-    } as Scope;
     if (project.kind === "personal") {
-      const month = await scoped(workspaceId, project.id, (tx) =>
-        reservationMonth(tx, scope, now),
+      const month = await personalSpaceMonth(
+        workspaceId,
+        project.id,
+        actorId,
+        now,
       );
       usage.spentMicros += month.spentMicros;
       usage.unknownMicros += month.unknown?.micros ?? 0;
@@ -119,7 +67,7 @@ async function budgetLevels(
     perProject.push({
       projectId: project.id,
       name: project.name,
-      ...(await scoped(workspaceId, project.id, (tx) => projectLimit(tx, scope, now))),
+      ...(await projectSpendAuthority(workspaceId, project.id, actorId, now)),
     });
   }
   const userIds = [
@@ -138,7 +86,10 @@ async function budgetLevels(
       : []
     ).map((u) => [u.id, u.name]),
   );
-  const origin = (by: string | null | undefined, at: Date | string | null | undefined): Origin =>
+  const origin = (
+    by: string | null | undefined,
+    at: Date | string | null | undefined,
+  ): Origin =>
     at
       ? {
           by: by ? { id: by, name: names.get(by) ?? "—" } : null,
@@ -146,7 +97,9 @@ async function budgetLevels(
         }
       : null;
   const cap = budget?.assistantPerUserMonthlyMicros ?? null;
-  const budgetOrigin = budget ? origin(budget.updatedBy, budget.updatedAt) : null;
+  const budgetOrigin = budget
+    ? origin(budget.updatedBy, budget.updatedAt)
+    : null;
   const organizationState: LimitState =
     budget?.monthlyMicros == null
       ? "not_set"
@@ -210,7 +163,13 @@ export async function organizationAiBudgetView(
           updatedAt: budget.updatedAt,
         }
       : null,
-    levels: await budgetLevels(workspaceId, actorId, budget, spend.total.spentMicros, now),
+    levels: await budgetLevels(
+      workspaceId,
+      actorId,
+      budget,
+      spend.total.spentMicros,
+      now,
+    ),
     spend: {
       ...spend.total,
       level: budgetLevel(spend.total.spentMicros, budget?.monthlyMicros),
@@ -237,9 +196,12 @@ export async function saveOrganizationAiBudget(
 ) {
   const input = organizationAiBudgetInput.parse(raw);
   await authDb.$transaction(async (tx) => {
-    const current = await tx.organizationAiBudget.findFirst({ where: { workspaceId } });
+    const current = await tx.organizationAiBudget.findFirst({
+      where: { workspaceId },
+    });
     const fields = {
-      monthlyMicros: input.monthlyMicros === null ? null : BigInt(input.monthlyMicros),
+      monthlyMicros:
+        input.monthlyMicros === null ? null : BigInt(input.monthlyMicros),
       ...(input.assistantPerUserMonthlyMicros === undefined
         ? {}
         : {
@@ -258,7 +220,9 @@ export async function saveOrganizationAiBudget(
           where: { id: current.id },
           data: { ...fields, version: { increment: 1 } },
         })
-      : await tx.organizationAiBudget.create({ data: { workspaceId, ...fields } });
+      : await tx.organizationAiBudget.create({
+          data: { workspaceId, ...fields },
+        });
     await systemAudit(
       {
         actorId,
@@ -271,7 +235,10 @@ export async function saveOrganizationAiBudget(
           monthlyMicros: input.monthlyMicros,
           ...(input.assistantPerUserMonthlyMicros === undefined
             ? {}
-            : { assistantPerUserMonthlyMicros: input.assistantPerUserMonthlyMicros }),
+            : {
+                assistantPerUserMonthlyMicros:
+                  input.assistantPerUserMonthlyMicros,
+              }),
           providers: Object.keys(input.providerCaps),
         },
       },
@@ -289,20 +256,37 @@ type CostRow = {
   count: number;
 };
 const total = (row: CostRow) =>
-  Number(row.reservedMicros) + Number(row.settledMicros) + Number(row.unknownMicros);
+  Number(row.reservedMicros) +
+  Number(row.settledMicros) +
+  Number(row.unknownMicros);
 
 /** Adds rows of the same key: the organization's view across projects. */
-function merge(target: Map<string, { spentMicros: number; unknownMicros: number; count: number }>, rows: CostRow[]) {
+function merge(
+  target: Map<
+    string,
+    { spentMicros: number; unknownMicros: number; count: number }
+  >,
+  rows: CostRow[],
+) {
   for (const row of rows) {
     const key = row.key ?? "—";
-    const acc = target.get(key) ?? { spentMicros: 0, unknownMicros: 0, count: 0 };
+    const acc = target.get(key) ?? {
+      spentMicros: 0,
+      unknownMicros: 0,
+      count: 0,
+    };
     acc.spentMicros += total(row);
     acc.unknownMicros += Number(row.unknownMicros);
     acc.count += row.count;
     target.set(key, acc);
   }
 }
-const sorted = (map: Map<string, { spentMicros: number; unknownMicros: number; count: number }>) =>
+const sorted = (
+  map: Map<
+    string,
+    { spentMicros: number; unknownMicros: number; count: number }
+  >,
+) =>
   [...map.entries()]
     .map(([key, v]) => ({ key, ...v }))
     .sort((a, b) => b.spentMicros - a.spentMicros);
@@ -312,7 +296,10 @@ const sorted = (map: Map<string, { spentMicros: number; unknownMicros: number; c
  * provider, model and task, with unclear outcomes per project (settled in
  * the project's own AI settings after checking the provider's billing).
  */
-export async function organizationAiUsage(workspaceId: string, now = new Date()) {
+export async function organizationAiUsage(
+  workspaceId: string,
+  now = new Date(),
+) {
   const projects = await authDb.project.findMany({
     where: { workspaceId },
     select: { id: true, name: true, kind: true },
@@ -321,14 +308,25 @@ export async function organizationAiUsage(workspaceId: string, now = new Date())
   // Personal spaces count towards every total but are shown as one sum,
   // never per user (ADR 0022).
   const assistants = { spentMicros: 0, unknownMicros: 0, count: 0, spaces: 0 };
-  const byProvider = new Map<string, { spentMicros: number; unknownMicros: number; count: number }>();
-  const byModel = new Map<string, { spentMicros: number; unknownMicros: number; count: number }>();
-  const byTask = new Map<string, { spentMicros: number; unknownMicros: number; count: number }>();
+  const byProvider = new Map<
+    string,
+    { spentMicros: number; unknownMicros: number; count: number }
+  >();
+  const byModel = new Map<
+    string,
+    { spentMicros: number; unknownMicros: number; count: number }
+  >();
+  const byTask = new Map<
+    string,
+    { spentMicros: number; unknownMicros: number; count: number }
+  >();
   const perProject = [];
   for (const project of projects) {
     const scope = { workspaceId, projectId: project.id } as Scope;
     const query = (groupBy: "provider" | "model" | "taskClass") =>
-      aiCostSummary(scope, { groupBy, to: now.toISOString() }).then((r) => r.rows);
+      aiCostSummary(scope, { groupBy, to: now.toISOString() }).then(
+        (r) => r.rows,
+      );
     const [providers, models, tasks] = await Promise.all([
       query("provider"),
       query("model"),

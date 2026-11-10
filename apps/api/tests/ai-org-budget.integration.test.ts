@@ -58,9 +58,19 @@ describe.skipIf(!enabled)("AI organization budget", () => {
   };
   const book = (s: Scope, amount: number, model?: string) =>
     run(s, (tx) =>
-      reserve(tx, s, `org-test:${randomUUID()}`, "test", amount, ignored, new Date(), undefined, {
-        ...(model ? { model } : {}),
-      }),
+      reserve(
+        tx,
+        s,
+        `org-test:${randomUUID()}`,
+        "test",
+        amount,
+        ignored,
+        new Date(),
+        undefined,
+        {
+          ...(model ? { model } : {}),
+        },
+      ),
     );
   const counters = () =>
     authDb.organizationSpendCounter.findMany({
@@ -68,7 +78,10 @@ describe.skipIf(!enabled)("AI organization budget", () => {
     });
   const counter = async (key: string) => {
     const row = (await counters()).find((c) => c.scopeKey === key);
-    return { reserved: Number(row?.reservedMicros ?? 0), settled: Number(row?.settledMicros ?? 0) };
+    return {
+      reserved: Number(row?.reservedMicros ?? 0),
+      settled: Number(row?.settledMicros ?? 0),
+    };
   };
 
   beforeAll(async () => {
@@ -91,10 +104,20 @@ describe.skipIf(!enabled)("AI organization budget", () => {
         authDb.project.create({ data: { workspaceId: workspace.id, name } }),
       ),
     );
-    a = { workspaceId: workspace.id, projectId: one!.id, userId: created.user.id, role: "owner" };
+    a = {
+      workspaceId: workspace.id,
+      projectId: one!.id,
+      userId: created.user.id,
+      role: "owner",
+    };
     b = { ...a, projectId: two!.id };
     for (const s of [a, b])
-      await run(s, (tx) => saveSpendPolicy(tx, s, { profile: "monthly", monthlyBudgetMicros: 50 * USD }));
+      await run(s, (tx) =>
+        saveSpendPolicy(tx, s, {
+          profile: "monthly",
+          monthlyBudgetMicros: 50 * USD,
+        }),
+      );
     const signIn = await app.inject({
       method: "POST",
       url: "/api/auth/sign-in/email",
@@ -103,7 +126,9 @@ describe.skipIf(!enabled)("AI organization budget", () => {
     });
     expect(signIn.statusCode).toBe(200);
     const set = signIn.headers["set-cookie"];
-    cookie = (Array.isArray(set) ? set : [set]).map((v) => v!.split(";")[0]).join("; ");
+    cookie = (Array.isArray(set) ? set : [set])
+      .map((v) => v!.split(";")[0])
+      .join("; ");
   });
   afterEach(() => {
     delete process.env.ORBIT_AI_ORG_BUDGET;
@@ -117,24 +142,43 @@ describe.skipIf(!enabled)("AI organization budget", () => {
 
   it("derives day and run limits from a monthly amount (D-4)", () => {
     const now = new Date("2026-10-25T12:00:00Z");
-    expect(spendPolicyFields({ profile: "monthly", monthlyBudgetMicros: 10 * USD }, now)).toMatchObject({
+    expect(
+      spendPolicyFields(
+        { profile: "monthly", monthlyBudgetMicros: 10 * USD },
+        now,
+      ),
+    ).toMatchObject({
       profile: "monthly",
       approvedPaidUse: true,
       dailyBudgetMicros: USD,
       perRunBudgetMicros: USD,
       endAt: "2027-10-25T12:00:00.000Z",
     });
-    expect(spendPolicyFields({ profile: "monthly", monthlyBudgetMicros: 50 * USD }, now)).toMatchObject({
+    expect(
+      spendPolicyFields(
+        { profile: "monthly", monthlyBudgetMicros: 50 * USD },
+        now,
+      ),
+    ).toMatchObject({
       dailyBudgetMicros: 5 * USD,
       perRunBudgetMicros: 2 * USD,
     });
     expect(
       spendPolicyFields(
-        { profile: "monthly", monthlyBudgetMicros: 50 * USD, perRunBudgetMicros: 3 * USD },
+        {
+          profile: "monthly",
+          monthlyBudgetMicros: 50 * USD,
+          perRunBudgetMicros: 3 * USD,
+        },
         now,
       ),
-    ).toMatchObject({ dailyBudgetMicros: 5 * USD, perRunBudgetMicros: 3 * USD });
-    expect(spendPolicyFields({ profile: "monthly", monthlyBudgetMicros: 0 }, now)).toMatchObject({
+    ).toMatchObject({
+      dailyBudgetMicros: 5 * USD,
+      perRunBudgetMicros: 3 * USD,
+    });
+    expect(
+      spendPolicyFields({ profile: "monthly", monthlyBudgetMicros: 0 }, now),
+    ).toMatchObject({
       approvedPaidUse: false,
     });
   });
@@ -166,11 +210,20 @@ describe.skipIf(!enabled)("AI organization budget", () => {
     expect(none.orgProvider).toBe("none");
     expect(await counter("total")).toEqual({ reserved: 350_000, settled: 0 });
     await run(b, (tx) => settle(tx, b, claude.id, 150_000));
-    expect(await counter("anthropic")).toEqual({ reserved: 0, settled: 150_000 });
-    expect(await counter("total")).toEqual({ reserved: 150_000, settled: 150_000 });
+    expect(await counter("anthropic")).toEqual({
+      reserved: 0,
+      settled: 150_000,
+    });
+    expect(await counter("total")).toEqual({
+      reserved: 150_000,
+      settled: 150_000,
+    });
     // An unclear outcome stays reserved.
     await run(a, (tx) => settle(tx, a, none.id, null));
-    expect(await counter("total")).toEqual({ reserved: 150_000, settled: 150_000 });
+    expect(await counter("total")).toEqual({
+      reserved: 150_000,
+      settled: 150_000,
+    });
   });
 
   it("stops at the organization's monthly budget and provider caps", async () => {
@@ -184,7 +237,10 @@ describe.skipIf(!enabled)("AI organization budget", () => {
       code: "ORG_PROVIDER_BUDGET_EXCEEDED",
     });
     // A refused reservation adds nothing.
-    expect(await counter("anthropic")).toEqual({ reserved: 0, settled: 150_000 });
+    expect(await counter("anthropic")).toEqual({
+      reserved: 0,
+      settled: 150_000,
+    });
     await book(a, 900_000, "gpt-6-luna");
     await expect(book(b, 200_000, "gpt-6-luna")).rejects.toMatchObject({
       code: "ORG_AI_BUDGET_EXCEEDED",
@@ -194,7 +250,9 @@ describe.skipIf(!enabled)("AI organization budget", () => {
       monthlyMicros: 1_300_000,
       spentMicros: 1_200_000,
       level: "warn2",
-      providers: { anthropic: { capMicros: 400_000, spentMicros: 150_000, level: "ok" } },
+      providers: {
+        anthropic: { capMicros: 400_000, spentMicros: 150_000, level: "ok" },
+      },
     });
   });
 
@@ -244,7 +302,11 @@ describe.skipIf(!enabled)("AI organization budget", () => {
     expect(body.providers.map((p: { key: string }) => p.key)).toEqual(
       expect.arrayContaining(["openai", "anthropic"]),
     );
-    expect(body.projects.find((p: { projectId: string }) => p.projectId === a.projectId)).toMatchObject({
+    expect(
+      body.projects.find(
+        (p: { projectId: string }) => p.projectId === a.projectId,
+      ),
+    ).toMatchObject({
       unknownMicros: 50_000,
     });
     const anonymous = await app.inject({
@@ -267,7 +329,8 @@ describe.skipIf(!enabled)("AI organization budget", () => {
     };
     // A personal space counts as one sum, never per user.
     const personal = {
-      id: (await ensurePersonalSpace(a.workspaceId, a.userId, moduleRegistry())).projectId,
+      id: (await ensurePersonalSpace(a.workspaceId, a.userId, moduleRegistry()))
+        .projectId,
     };
     await saveOrganizationAiBudget(a.userId, a.workspaceId, {
       monthlyMicros: 200 * USD,
@@ -286,13 +349,27 @@ describe.skipIf(!enabled)("AI organization budget", () => {
       state: "not_set",
       capMicros: null,
       perAnswerMicros: null,
-      usage: { spaces: 1 },
     });
-    expect(levels.projects.map((p: { projectId: string }) => p.projectId).sort()).toEqual(
-      [a.projectId, b.projectId].sort(),
-    );
-    expect(levels.projects.some((p: { projectId: string }) => p.projectId === personal.id)).toBe(false);
-    expect(levels.projects.find((p: { projectId: string }) => p.projectId === a.projectId)).toMatchObject({
+    // One sum over the personal spaces: spend and unclear part, no per-user
+    // or call count (the usage page counts calls).
+    expect(levels.assistant.usage).toEqual({
+      spentMicros: 0,
+      unknownMicros: 0,
+      spaces: 1,
+    });
+    expect(
+      levels.projects.map((p: { projectId: string }) => p.projectId).sort(),
+    ).toEqual([a.projectId, b.projectId].sort());
+    expect(
+      levels.projects.some(
+        (p: { projectId: string }) => p.projectId === personal.id,
+      ),
+    ).toBe(false);
+    expect(
+      levels.projects.find(
+        (p: { projectId: string }) => p.projectId === a.projectId,
+      ),
+    ).toMatchObject({
       state: "active",
       source: "platform",
       monthlyBudgetMicros: 50 * USD,
@@ -317,7 +394,11 @@ describe.skipIf(!enabled)("AI organization budget", () => {
       perDayMicros: 500_000,
       perAnswerMicros: 500_000,
     });
-    expect(levels.projects.find((p: { projectId: string }) => p.projectId === b.projectId).state).toBe("off");
+    expect(
+      levels.projects.find(
+        (p: { projectId: string }) => p.projectId === b.projectId,
+      ).state,
+    ).toBe("off");
     await saveOrganizationAiBudget(a.userId, a.workspaceId, {
       monthlyMicros: 10 * USD,
       assistantPerUserMonthlyMicros: 0,
@@ -343,7 +424,9 @@ describe.skipIf(!enabled)("AI organization budget", () => {
     const password = randomBytes(24).toString("base64url");
     const signedIn = async (name: string) => {
       const email = `${randomUUID()}@example.invalid`;
-      const created = await makeAuth().api.signUpEmail({ body: { email, name, password } });
+      const created = await makeAuth().api.signUpEmail({
+        body: { email, name, password },
+      });
       users.push(created.user.id);
       const r = await app.inject({
         method: "POST",
@@ -355,7 +438,9 @@ describe.skipIf(!enabled)("AI organization budget", () => {
       const set = r.headers["set-cookie"];
       return {
         id: created.user.id,
-        cookie: (Array.isArray(set) ? set : [set]).map((v) => v!.split(";")[0]).join("; "),
+        cookie: (Array.isArray(set) ? set : [set])
+          .map((v) => v!.split(";")[0])
+          .join("; "),
       };
     };
     const member = await signedIn("Synthetic budget member");
@@ -363,7 +448,10 @@ describe.skipIf(!enabled)("AI organization budget", () => {
       data: { workspaceId: a.workspaceId, userId: member.id, role: "viewer" },
     });
     const admin = await signedIn("Synthetic budget administrator");
-    await authDb.user.update({ where: { id: admin.id }, data: { role: "admin" } });
+    await authDb.user.update({
+      where: { id: admin.id },
+      data: { role: "admin" },
+    });
     for (const path of ["ai/budget", "ai/usage"])
       for (const who of [member, admin]) {
         const r = await app.inject({
