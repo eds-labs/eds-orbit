@@ -51,14 +51,27 @@ export function autopilotAllowedBy(settings: MarketingSettings): boolean {
 }
 
 /**
- * Whether autopilot may release posts without the owner's approval of
- * each package on the project's backend: always on Postiz, on Social only
- * with the owner's switch, never while Postiz drains. Policy activation
- * and preflight both ask this, so turning the switch off makes pending
- * autopilot posts wait for an approval.
+ * Whether live autopilot may be activated on the project's backend: always
+ * on Postiz, on Social only with the owner's switch, never while Postiz
+ * drains (savePolicy asks this).
  */
 export async function autopilotAllowedOnBackend(tx: DbTx, scope: Scope): Promise<boolean> {
   return autopilotAllowedBy((await readMarketingSettings(tx, scope)).settings);
+}
+
+/**
+ * Whether an active autopilot may release a post without the owner's
+ * approval of its package: on Social only with the owner's switch. Postiz
+ * and a Postiz drain keep their behaviour, so posts Postiz still finishes
+ * are not held. Preflight and the generation job ask this, so turning the
+ * switch off makes pending autopilot posts on Social wait for an approval.
+ */
+export function autopilotReleaseAllowedBy(settings: MarketingSettings): boolean {
+  return settings.publishingBackend !== "social" || settings.socialAutopilot === true;
+}
+
+export async function autopilotReleaseAllowedOnBackend(tx: DbTx, scope: Scope): Promise<boolean> {
+  return autopilotReleaseAllowedBy((await readMarketingSettings(tx, scope)).settings);
 }
 
 const socialAutopilotOn = (settings: MarketingSettings) =>

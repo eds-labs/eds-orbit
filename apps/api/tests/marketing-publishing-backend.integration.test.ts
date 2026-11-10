@@ -4,6 +4,7 @@ import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { data, exception, list } from "../src/shared.ts";
 import {
   autopilotAllowedOnBackend,
+  autopilotReleaseAllowedOnBackend,
   publishingBackend,
   readMarketingSettings,
   saveMarketingSettings,
@@ -121,6 +122,7 @@ describe.skipIf(!enabled)("marketing publishing backend", () => {
         (a) => [a.actorId, a.metadata],
       );
     const allowed = () => p.run((tx) => autopilotAllowedOnBackend(tx, p.owner));
+    const releases = () => p.run((tx) => autopilotReleaseAllowedOnBackend(tx, p.owner));
 
     it("reads settings saved before the switch existed as off", async () => {
       await p.run((tx) => forcePublishingBackend(tx, p.owner, "social"));
@@ -134,7 +136,15 @@ describe.skipIf(!enabled)("marketing publishing backend", () => {
       // A stored switch counts only on Social.
       await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz_draining", { socialAutopilot: true }));
       expect(await allowed()).toBe(false);
+      // Releasing a post of an active autopilot: held only on Social without
+      // the switch; Postiz and a Postiz drain keep their behaviour.
+      expect(await releases()).toBe(true);
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "social"));
+      expect(await releases()).toBe(false);
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "social", { socialAutopilot: true }));
+      expect(await releases()).toBe(true);
       await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz"));
+      expect(await releases()).toBe(true);
     });
 
     it("turns on only on Social, by the owner, audited without content; leaving Social turns it off", async () => {

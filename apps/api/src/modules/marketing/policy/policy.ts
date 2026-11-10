@@ -8,7 +8,7 @@ import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
 import { calendarConflicts } from "../publishing/calendar.ts";
 import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
 import {
-  autopilotAllowedOnBackend,
+  autopilotReleaseAllowedOnBackend,
   publishingBackend,
 } from "../publishing/backend.ts";
 import {
@@ -71,8 +71,8 @@ export async function activePolicy(tx: DbTx, scope: Scope) {
 }
 /**
  * Whether a post under the policy mode needs the owner's approval of its
- * exact package: in assisted mode, and in autopilot where the backend does
- * not allow it (Social without the owner's switch, Postiz draining). So
+ * exact package: in assisted mode, and in autopilot on Social without the
+ * owner's switch (Postiz and a Postiz drain keep their behaviour). So
  * turning the switch off holds pending autopilot posts at their claim, and
  * an owner's release records the approval it then needs.
  */
@@ -83,7 +83,7 @@ export async function packageApprovalRequired(
 ) {
   return (
     mode === "assisted" ||
-    (mode === "autopilot" && !(await autopilotAllowedOnBackend(tx, scope)))
+    (mode === "autopilot" && !(await autopilotReleaseAllowedOnBackend(tx, scope)))
   );
 }
 export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {

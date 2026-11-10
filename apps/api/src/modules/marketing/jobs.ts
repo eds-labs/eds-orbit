@@ -7,7 +7,7 @@ import {
   reviewContent,
 } from "./pipeline/workflow.ts";
 import { generateMissionLive } from "./pipeline/generation.ts";
-import { autopilotAllowedOnBackend } from "./publishing/backend.ts";
+import { autopilotReleaseAllowedOnBackend } from "./publishing/backend.ts";
 import {
   dispatchPublication,
   reconcilePublication,
@@ -102,7 +102,7 @@ export const marketingJobs: JobDef[] = [
             }
             // Through Social only with the owner's autopilot switch; without
             // it the reviewed post waits for the owner's release.
-            if (!(await autopilotAllowedOnBackend(tx, scope))) {
+            if (!(await autopilotReleaseAllowedOnBackend(tx, scope))) {
               await exception(
                 tx,
                 scope,

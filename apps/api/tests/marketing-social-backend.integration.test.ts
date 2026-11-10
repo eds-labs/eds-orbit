@@ -840,8 +840,9 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         expect(await blockers({ ignoreApproval: true })).not.toContain("APPROVAL_REQUIRED");
         await backend("social", { socialAutopilot: true });
         expect(await blockers()).not.toContain("APPROVAL_REQUIRED");
-        await backend("postiz_draining", { socialAutopilot: true });
-        expect(await blockers()).toContain("APPROVAL_REQUIRED");
+        // A Postiz drain keeps Postiz's behaviour: what Postiz still finishes is not held.
+        await backend("postiz_draining");
+        expect(await blockers()).not.toContain("APPROVAL_REQUIRED");
         // Without the switch the owner's approval of the exact package releases the post.
         await backend("social");
         const pkg = await run((tx) => packageFor(tx, project.owner, contentId));
