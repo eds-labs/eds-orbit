@@ -58,6 +58,28 @@ export async function socialChannels(
   return rows.map((row) => ({ id: `social:${row.id}`, platform: row.platform as SocialPlatform, handle: row.handle }));
 }
 
+/**
+ * Every account of the project as a `social:<accountId>` channel, the
+ * disconnected ones marked: names for content that already refers to them.
+ * Read-only; a disconnected account never becomes a channel again here.
+ */
+export async function socialChannelDirectory(
+  tx: DbTx,
+  scope: Scope,
+): Promise<Array<{ id: string; platform: SocialPlatform; handle: string; disabled: boolean }>> {
+  const rows = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId },
+    select: { id: true, platform: true, handle: true, status: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  return rows.map((row) => ({
+    id: `social:${row.id}`,
+    platform: row.platform as SocialPlatform,
+    handle: row.handle,
+    disabled: row.status === "disabled",
+  }));
+}
+
 /** The handle of each of the project's connected accounts by its `social:<accountId>` reference. */
 export async function socialChannelHandles(tx: DbTx, scope: Scope): Promise<Map<string, string>> {
   return new Map((await socialChannels(tx, scope)).map((c) => [c.id, c.handle]));
