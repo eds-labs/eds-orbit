@@ -90,6 +90,17 @@ Migration `202610250006_ai_organization_budget` adds two tables and the nullable
   3. Choose a quiet moment: a call settled while its project is seeded may stay counted as reserved until the month ends.
 - **Setting it.** Organization owners set the budget under Organisation → Integrationen → KI-Budget. "Vorschlag übernehmen" fills in the sum of the projects' own provider budgets as provider caps.
 - **Rollback.** Set the flag to `false`. Nothing is counted or checked any more; the stored budgets and counters stay unused.
+- **What the page shows (2026-11-10).** Three blocks, each with its state (off / not set / active) and who set it when: the organization limit ("saved, not applied" while the flag is off), the personal assistant's cap per member (anchor `#assistant-budget`; it applies whether or not the flag is on, with the derived limits per day and per answer and all personal spaces' usage as one sum, never per member) and each business project's own spending authority, read inside that project's scoped transaction. `GET /api/organizations/:id/ai/budget` returns them as `levels`; owners only, as before.
+
+## AI cost diagnosis and unclear reservations (2026-11-10)
+
+Operations shows this UTC month's AI figures: settled spend, and what is still open, split into live calls in flight, stale reservations and unclear outcomes (the dashboard's `budget`, one grouped query). Below it the cost diagnosis lists every open reservation of every month: `GET /api/projects/:projectId/ai-reservations` (owners and editors, like `/ai-cost`; `?state=all|open|unknown`, 50 per page with `cursor`). Each row has the module, provider and model, the run (id, kind, status, error code), reserved and settled amounts, `providerConfirmed` (a span recorded a provider answer; the response id itself is never returned) and a derived status with the next step:
+
+- `reserved` / `in_flight`: a live call; its run settles or releases it.
+- `stale`: still `reserved` or `in_flight`, but its run ended or it is older than 15 minutes (the longest job lease, 6 minutes for work orders, plus the worker's 5-minute recovery interval plus 4 minutes margin; `STALE_AFTER_MS` in `platform/ai/reservation-diagnosis.ts`, pinned against the registered leases). It keeps counting at the reserved amount. Nothing sweeps it yet; check the run.
+- `unknown`: the provider never confirmed the outcome (for example a timeout after transmission). It counts at the reserved amount and is never settled automatically.
+
+To settle unclear rows, the owner checks the provider's billing and selects them in the diagnosis; the dialog needs a reason and an explicit confirmation. The owner action `settle-unknown-reservations` takes `{ reservationIds: [1..100], reason: "provider_invoice_checked" | "provider_dashboard_checked" | "other", note?: ≤300 characters, confirm: true }`. It acts only on `unknown` rows of this project (any month) and refuses the whole request when a named row is in another state (`RESERVATION_NOT_UNKNOWN`) or not in the project (`RESERVATION_MISSING`). Each row is settled at its reserved amount with a state-guarded update; grant and organization counters of the row's own month move only for rows that changed, so a repeated or concurrent call never moves them twice. Owners only (editors get `FORBIDDEN`). The audit `budget.unknown_reservations_settled` records the ids, the reason, count, amount and the note's length, never the note's text. The months' totals do not change.
 
 ## Model routes and generation evals
 
