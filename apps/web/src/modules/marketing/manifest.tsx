@@ -2,7 +2,7 @@ import { MarketingPlansPage } from "./plans-page";
 import { planReviewRenderer, planActivationRenderer } from "./plan-card";
 import {
   Brain,
-  CalendarDays,
+  CalendarRange,
   ChartNoAxesColumn,
   ClipboardList,
   FileText,
@@ -34,6 +34,7 @@ import { MarketingHomeCard } from "./home";
 import { AddToLibraryAction, UploadToDriveToolbar } from "./drive/drive-actions";
 import { AssignmentsPage } from "./assignments-page";
 import { MarketingOverview } from "./overview";
+import { marketingText } from "./labels";
 
 const label = (key: keyof typeof labels.en): Label => ({
   en: labels.en[key],
@@ -48,8 +49,8 @@ export const marketingWeb: WebModule = {
   id: "marketing",
   displayName: { en: "Marketing", de: "Marketing" },
   description: {
-    en: "Missions, content, calendar, assets and results.",
-    de: "Missionen, Inhalte, Kalender, Assets und Ergebnisse.",
+    en: "Missions, content, editorial plan, assets and results.",
+    de: "Missionen, Inhalte, Redaktionsplan, Assets und Ergebnisse.",
   },
   home: MarketingHomeCard,
   homeOrder: 10,
@@ -128,10 +129,20 @@ export const marketingWeb: WebModule = {
       legacyPaths: ["/content"],
     },
     {
+      // The editorial plan (WP5, 2026-11-10): it plans content items, the
+      // Social calendar publishes. Key, path and legacy path stay as they
+      // were, so stored links and the route table keep working.
       key: "calendar",
       path: "calendar",
       component: CalendarView,
-      nav: { label: label("calendar"), icon: CalendarDays, order: 40 },
+      nav: {
+        label: {
+          en: marketingText("en").calendar.title,
+          de: marketingText("de").calendar.title,
+        },
+        icon: CalendarRange,
+        order: 40,
+      },
       legacyPaths: ["/calendar"],
     },
     {

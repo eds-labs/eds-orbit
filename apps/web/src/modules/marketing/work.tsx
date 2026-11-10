@@ -4,6 +4,7 @@ import { contentLanguageOptions } from "@/platform/project-settings/project-conf
 import { AppLink } from "@/platform/ui/app-link";
 import { openExceptions, pausedPosts } from "./approval-lists";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
+import { marketingText } from "./labels";
 import { APPROVAL_STATUSES, approvalItems } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
 import {
@@ -1803,8 +1804,21 @@ export function ApprovalInbox() {
     </>
   );
 }
+/**
+ * The editorial plan (route key `calendar`, WP5 2026-11-10): content items
+ * planned by month and the owner's blocked periods. It publishes nothing;
+ * with the Social module on, it links to the Social calendar (by route key,
+ * no import of that module).
+ */
 export function CalendarView() {
   const { t, locale, project } = useWorkspace();
+  const words = marketingText(locale).calendar;
+  const shell = useContext(ShellContext);
+  const socialCalendar = shell?.modules.some(
+    (m) => m.id === "social" && m.enabled && m.access !== "none",
+  )
+    ? shell.hrefOf("social.calendar")
+    : null;
   const resource = useCollection("content");
   const blocks = useCollection("calendar_blocks");
   const handoffs = useCollection("postiz_drafts");
@@ -1850,20 +1864,25 @@ export function CalendarView() {
   return (
     <>
       <PageHead
-        title={t("calendar")}
-        description={`${locale === "de" ? "Planung und Inhalte teilen denselben Datenstand." : "Your schedule and content share one source of truth."} ${project.timezone}`}
+        title={words.title}
+        description={words.description(project.timezone)}
       >
         <Input
-          aria-label="Calendar month"
+          aria-label={words.month}
           type="month"
           value={month}
           onChange={(e) => setMonth(e.target.value)}
         />
       </PageHead>
       <Alert>
-        {locale === "de"
-          ? "Termine bearbeitest du über das Inhaltsformular – vollständig per Tastatur. Jede Änderung hebt veraltete Freigaben auf."
-          : "Edit a schedule through the content form, fully accessible by keyboard. Changes invalidate outdated approvals."}
+        <p>{words.scheduleHint}</p>
+        {socialCalendar && (
+          <p>
+            <AppLink className="text-link" href={socialCalendar}>
+              {words.socialLink}
+            </AppLink>
+          </p>
+        )}
       </Alert>
       <ResourceError
         error={resource.error || blocks.error}
@@ -1876,7 +1895,7 @@ export function CalendarView() {
       {resource.loading ? (
         <Loading />
       ) : (
-        <section className="panel calendar-list">
+        <section className="panel calendar-list" aria-label={words.items}>
           {items.length ? (
             items
               .sort((a, b) =>
@@ -1907,7 +1926,7 @@ export function CalendarView() {
                   {(blocks.data?.items || []).some((block) =>
                     calendarBlockConflicts(block, e),
                   ) ? (
-                    <Badge tone="danger">Calendar conflict</Badge>
+                    <Badge tone="danger">{words.conflict}</Badge>
                   ) : (
                     <Status value={e.data.status} />
                   )}
@@ -1917,16 +1936,8 @@ export function CalendarView() {
           ) : (
             <Empty
               icon={CalendarDays}
-              title={
-                locale === "de"
-                  ? "Noch keine geplanten Inhalte"
-                  : "No content scheduled this month"
-              }
-              description={
-                locale === "de"
-                  ? "Öffne einen Entwurf und wähle einen Termin."
-                  : "Open a draft and choose its schedule."
-              }
+              title={words.emptyTitle}
+              description={words.emptyText}
             >
               <Button asChild variant="outline">
                 <AppLink href="/content">{t("content")}</AppLink>

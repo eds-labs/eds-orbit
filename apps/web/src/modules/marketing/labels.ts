@@ -71,6 +71,39 @@ const en = {
     budgetLink: "Settings → AI & budget",
     budgetKept: "; this policy keeps it unchanged.",
   },
+  // The editorial plan (the page at marketing/calendar): it plans content
+  // items; the Social calendar publishes.
+  calendar: {
+    title: "Editorial plan",
+    description: (timezone: string) =>
+      `Plans content items by month. Nothing is published from here. Times in ${timezone}.`,
+    month: "Month",
+    scheduleHint:
+      "Edit a schedule through the content form, fully accessible by keyboard. Changes invalidate outdated approvals.",
+    socialLink: "Publications in the Social calendar",
+    items: "Planned content items",
+    conflict: "Conflicts with a blocked period",
+    emptyTitle: "No content scheduled this month",
+    emptyText: "Open a draft and choose its schedule.",
+  },
+  blocks: {
+    heading: "Blocked periods",
+    intro:
+      "Nothing is published in a blocked period. Orbit checks blocks again right before publishing; releasing one does not restore outdated approvals.",
+    add: "Add blocked period",
+    blocked: "Blocked",
+    allChannels: "All channels",
+    release: "Release",
+    releaseLabel: (title: string) => `Release blocked period ${title}`,
+    empty:
+      "No blocked periods. The policy's quotas, spacing and quiet hours still apply.",
+    title: "Title",
+    channels: "Channels, comma separated (empty means all)",
+    startAt: "Starts (browser local time)",
+    endAt: "Ends (browser local time)",
+    reason: "Reason",
+    submit: "Block this period",
+  },
 };
 
 export type MarketingText = typeof en;
@@ -142,6 +175,37 @@ const de: MarketingText = {
     budgetScope: "Es gilt für alle Module und wird festgelegt unter",
     budgetLink: "Einstellungen → KI & Budget",
     budgetKept: "; diese Richtlinie lässt es unverändert.",
+  },
+  calendar: {
+    title: "Redaktionsplan",
+    description: (timezone: string) =>
+      `Plant Inhalte nach Monat. Von hier wird nichts veröffentlicht. Zeiten in ${timezone}.`,
+    month: "Monat",
+    scheduleHint:
+      "Termine bearbeitest du über das Inhaltsformular – vollständig per Tastatur. Jede Änderung hebt veraltete Freigaben auf.",
+    socialLink: "Veröffentlichungen im Social-Kalender",
+    items: "Geplante Inhalte",
+    conflict: "Kollidiert mit einer Sperrzeit",
+    emptyTitle: "Noch keine geplanten Inhalte",
+    emptyText: "Öffne einen Entwurf und wähle einen Termin.",
+  },
+  blocks: {
+    heading: "Sperrzeiten",
+    intro:
+      "In einer Sperrzeit wird nichts veröffentlicht. Orbit prüft Sperrzeiten direkt vor dem Veröffentlichen erneut; das Aufheben stellt veraltete Freigaben nicht wieder her.",
+    add: "Sperrzeit hinzufügen",
+    blocked: "Gesperrt",
+    allChannels: "Alle Kanäle",
+    release: "Aufheben",
+    releaseLabel: (title: string) => `Sperrzeit ${title} aufheben`,
+    empty:
+      "Keine Sperrzeiten. Kontingente, Mindestabstände und Ruhezeiten der Richtlinie gelten weiterhin.",
+    title: "Bezeichnung",
+    channels: "Kanäle, durch Komma getrennt (leer heißt alle)",
+    startAt: "Beginnt (Ortszeit des Browsers)",
+    endAt: "Endet (Ortszeit des Browsers)",
+    reason: "Grund",
+    submit: "Diesen Zeitraum sperren",
   },
 };
 
