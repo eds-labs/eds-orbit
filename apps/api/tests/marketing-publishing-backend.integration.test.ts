@@ -3,10 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import { data, exception, list } from "../src/shared.ts";
 import {
+  autopilotAllowedOnBackend,
   publishingBackend,
   readMarketingSettings,
   saveMarketingSettings,
 } from "../src/modules/marketing/publishing/backend.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
 import { createSocialProject } from "./support/social-project.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
@@ -107,5 +109,84 @@ describe.skipIf(!enabled)("marketing publishing backend", () => {
     expect(rolledBack.filter((e) => e.status === "open").map((e) => e.code)).toEqual(["REMOTE_POST_MISSING"]);
     expect(await resolvedAudits()).toHaveLength(1);
     expect(await sent()).toEqual(start);
+  });
+
+  describe("autopilot through Social (owner's per-project switch)", () => {
+    const save = async (settings: Record<string, unknown>, scope = p.owner) => {
+      const current = await p.run((tx) => readMarketingSettings(tx, p.owner));
+      return p.run((tx) => saveMarketingSettings(tx, scope, settings, current.version));
+    };
+    const switchAudits = async () =>
+      (await p.run((tx) => tx.auditEvent.findMany({ where: { projectId: p.owner.projectId, action: "marketing.social_autopilot_changed" }, orderBy: { createdAt: "asc" } }))).map(
+        (a) => [a.actorId, a.metadata],
+      );
+    const allowed = () => p.run((tx) => autopilotAllowedOnBackend(tx, p.owner));
+
+    it("reads settings saved before the switch existed as off", async () => {
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "social"));
+      const read = await p.run((tx) => readMarketingSettings(tx, p.owner));
+      expect(read.settings).toEqual({ publishingBackend: "social" });
+      expect(await allowed()).toBe(false);
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz"));
+      expect(await allowed()).toBe(true);
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz_draining"));
+      expect(await allowed()).toBe(false);
+      // A stored switch counts only on Social.
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz_draining", { socialAutopilot: true }));
+      expect(await allowed()).toBe(false);
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz"));
+    });
+
+    it("turns on only on Social, by the owner, audited without content; leaving Social turns it off", async () => {
+      const before = await switchAudits();
+      await expect(save({ publishingBackend: "postiz", socialAutopilot: true })).rejects.toMatchObject({
+        code: "SOCIAL_AUTOPILOT_REQUIRES_SOCIAL",
+        status: 409,
+      });
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz_draining"));
+      await expect(save({ publishingBackend: "postiz_draining", socialAutopilot: true })).rejects.toThrow("SOCIAL_AUTOPILOT_REQUIRES_SOCIAL");
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "social"));
+      for (const member of [p.editor, p.viewer])
+        await expect(save({ publishingBackend: "social", socialAutopilot: true }, member)).rejects.toThrow("OWNER_REQUIRED");
+      expect(await switchAudits()).toEqual(before);
+
+      const on = await save({ publishingBackend: "social", socialAutopilot: true });
+      expect(on.settings).toEqual({ publishingBackend: "social", socialAutopilot: true });
+      expect(await allowed()).toBe(true);
+      // Saving the same value again records no change.
+      await save({ publishingBackend: "social", socialAutopilot: true });
+      expect((await switchAudits()).slice(before.length)).toEqual([[p.owner.userId, { from: false, to: true }]]);
+
+      // The owner turns it off.
+      await save({ publishingBackend: "social", socialAutopilot: false });
+      expect(await allowed()).toBe(false);
+      await save({ publishingBackend: "social", socialAutopilot: true });
+
+      // Leaving Social turns it off, also when the client sends the old value along.
+      const left = await save({ publishingBackend: "postiz", socialAutopilot: true });
+      expect(left.settings).toEqual({ publishingBackend: "postiz", socialAutopilot: false });
+      expect(await allowed()).toBe(true);
+      // Back on Social it stays off until the owner turns it on again.
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "social"));
+      expect(await allowed()).toBe(false);
+      await save({ publishingBackend: "social", socialAutopilot: true });
+      // An older client that omits the field turns it off (full replace).
+      const omitted = await save({ publishingBackend: "social" });
+      expect(omitted.settings).toEqual({ publishingBackend: "social" });
+      expect(await allowed()).toBe(false);
+      expect((await switchAudits()).slice(before.length).map(([, metadata]) => metadata)).toEqual([
+        { from: false, to: true },
+        { from: true, to: false },
+        { from: false, to: true },
+        { from: true, to: false },
+        { from: false, to: true },
+        { from: true, to: false },
+      ]);
+      const backendAudits = await p.run((tx) =>
+        tx.auditEvent.findMany({ where: { projectId: p.owner.projectId, action: "marketing.publishing_backend_changed" }, orderBy: { createdAt: "desc" }, take: 1 }),
+      );
+      expect(backendAudits[0]!.metadata).toEqual({ from: "social", to: "postiz" });
+      await p.run((tx) => forcePublishingBackend(tx, p.owner, "postiz"));
+    });
   });
 });
