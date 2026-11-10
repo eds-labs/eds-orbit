@@ -1,6 +1,6 @@
 # Implementation status
 
-## Knowledge: evidence survives index activation (2026-11-10, branch `claude/live-rag-eval-error-3b5651`, not on `main`)
+## Knowledge: evidence survives index activation (2026-11-10, branch `claude/live-rag-eval-error-3b5651`; delivered to `main`, not live-accepted)
 
 Spec [2026-11-10-evidence-across-index-generations-design.md](superpowers/specs/2026-11-10-evidence-across-index-generations-design.md), plan [2026-11-10-evidence-across-index-generations.md](superpowers/plans/2026-11-10-evidence-across-index-generations.md). Risk medium: relaxes a shared integrity check; no schema, migration, provider call or flag.
 
