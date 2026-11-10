@@ -19,7 +19,7 @@ import {
 } from "./approvals-lanes";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import { marketingText } from "./labels";
-import { exceptionText } from "@/lib/exception-text";
+import { exceptionText, hasExceptionText } from "@/lib/exception-text";
 import { APPROVAL_STATUSES } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
 import { ContentGroupRows, contentGroups } from "./content-studio";
@@ -1770,18 +1770,24 @@ function PausedPublications() {
 const HISTORY_LIMIT = 50;
 /**
  * An open exception in words (plan 2026-11-10, WP2 D): what happened, why
- * and what to do, with the setting that resolves it. A stored title or
- * message wins; a code without its own text keeps showing the code. The
- * raw code stays readable under "Technical details".
+ * and what to do, with the setting that resolves it. A code with its own
+ * text speaks the member's language even when the server stored an English
+ * title or message (the Postiz queue watch does); a stored title or message
+ * is shown only for codes without one, and a code without either keeps
+ * showing the code. The raw code stays readable under "Technical details".
  */
 function ExceptionWords({ exception }: { exception: Entity }) {
   const { locale } = useWorkspace();
   const de = locale === "de";
   const code = value(exception, "code", "");
   const text = exceptionText(locale, code);
-  const title = value(exception, "title", "") || text.title;
-  const stored =
-    value(exception, "message", "") || value(exception, "reason", "");
+  const known = hasExceptionText(code);
+  const title = known
+    ? text.title
+    : value(exception, "title", "") || text.title;
+  const stored = known
+    ? ""
+    : value(exception, "message", "") || value(exception, "reason", "");
   const cause = stored || text.cause;
   return (
     <>

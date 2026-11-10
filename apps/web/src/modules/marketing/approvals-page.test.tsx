@@ -421,6 +421,50 @@ describe("open exceptions in words (WP2 D)", () => {
     expect(html).not.toContain("<p>—</p>");
   });
 
+  it("speaks German for a known code even when the server stored English", () => {
+    seed();
+    search.value = "";
+    answers["/exceptions?"] = {
+      items: [
+        row("exceptions", "x-queue", {
+          code: "POSTIZ_QUEUE_CHECK_FAILED",
+          status: "open",
+          count: 1354,
+          lastSeenAt: "2026-11-07T16:17:00.000Z",
+          // As the Postiz queue watch stores it (postiz-queue-watch.ts).
+          title: "Orbit cannot read the Postiz queue",
+          message:
+            "The scheduled Postiz queue check failed. Check that Postiz is reachable and the connector token is valid.",
+        }),
+      ],
+    };
+    const html = render(<ApprovalInbox />);
+    expect(html).toContain("Orbit kann die Postiz-Warteschlange nicht lesen");
+    expect(html).toContain("Prüfen, ob Postiz erreichbar");
+    expect(html).toContain("/settings?section=integrations");
+    expect(html).not.toContain("Orbit cannot read the Postiz queue");
+    expect(html).not.toContain("The scheduled Postiz queue check failed");
+    expect(html).toContain("<code>POSTIZ_QUEUE_CHECK_FAILED</code>");
+  });
+
+  it("keeps a stored text for a code without its own", () => {
+    seed();
+    search.value = "";
+    answers["/exceptions?"] = {
+      items: [
+        row("exceptions", "x-custom", {
+          code: "SOMETHING_NEW",
+          status: "open",
+          title: "A server title",
+          message: "A server message.",
+        }),
+      ],
+    };
+    const html = render(<ApprovalInbox />);
+    expect(html).toContain("<strong>A server title</strong>");
+    expect(html).toContain("A server message.");
+  });
+
   it("keeps an unknown code as its title", () => {
     seed();
     search.value = "";
