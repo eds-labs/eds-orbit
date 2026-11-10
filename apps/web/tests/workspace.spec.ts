@@ -417,11 +417,12 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     const assetCard = page.locator(".asset-card").filter({
       hasText: "Browser visual asset",
     });
-    await expect(assetCard).toContainText("reference");
+    // The tile shows the status as a localized label ("Reference").
+    await expect(assetCard).toContainText("reference", { ignoreCase: true });
     await assetCard
       .getByRole("button", { name: "Approve rights & use" })
       .click();
-    await expect(assetCard).toContainText("approved");
+    await expect(assetCard).toContainText("approved", { ignoreCase: true });
     const visualAssets = await (
       await page.request.get(`/api/projects/${projectId}/assets`)
     ).json();
