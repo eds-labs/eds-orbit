@@ -110,6 +110,8 @@ Nothing was pushed, deployed or changed in production. No migration, no schema h
 - **Live autopilot on Social:** currently refused by design. Allowing it would let released posts go out without a per-post release. Keep refused (default) or allow, and under which conditions.
 - **Cleanup of published content:** it archives content whose post is already published, which removes it from the novelty check (existing behaviour).
 
+**Decision 2026-11-10: per-project switch.** Mario chose an owner-controlled switch per project instead of a global rule: "Autopilot through Social" under Settings → Publishing rules (Marketing setting `socialAutopilot`, off by default, only on the `social` backend, turned off when the project leaves Social, audited `marketing.social_autopilot_changed`). With it, live autopilot can be activated on Social and its posts go out without per-post approval; budget, policy channels, quiet hours, daily limits, blocked periods, verified Social accounts and the live evaluation still apply. Without it, activation is refused (`AUTOPILOT_ON_SOCIAL_NOT_APPROVED`, always while Postiz drains) and preflight falls back to per-post approval, so turning the switch off holds pending autopilot posts at their claim. Autopilot posts get no stop window yet: the existing veto window is bound to assignment runs, and extending it to autopilot is a separate change.
+
 ### Open points
 
 - Pre-existing: `/dashboard` still gives viewers `reservedMicros`, `spentMicros` and the limits (ruling R26 says hide); finance extraction has no data-class check; stale in-flight reservations are shown, not swept; calls that never left (`PAID_CALL_NOT_AUTHORIZED`) are booked as unknown; the assets collection view sends `prompt` and `providerUsage` to viewers.
