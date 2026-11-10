@@ -5259,6 +5259,14 @@ details.approval-lane[open] > summary::after {
   align-items: center;
   gap: 4px 8px;
 }
+.approval-variant-controls {
+  flex-basis: 100%;
+  display: grid;
+  gap: 4px;
+}
+.approval-variant-controls:empty {
+  display: none;
+}
 .approval-item.is-focused {
   outline: 2px solid var(--ring);
   outline-offset: 4px;

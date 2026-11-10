@@ -165,6 +165,7 @@ export function ContentLaneList({
   note,
   link,
   focus,
+  controls,
 }: {
   items: LaneItem[];
   channels: ReadonlyMap<string, ChannelEntry>;
@@ -176,6 +177,8 @@ export function ContentLaneList({
   link?: (item: LaneItem) => { href: string; label: string } | null;
   /** The publication id opened from Social (`?publication=`), if any. */
   focus?: string | null;
+  /** Actions under a version (Stop of a released post). */
+  controls?: (item: LaneItem) => ReactNode;
 }) {
   return (
     <>
@@ -231,6 +234,11 @@ export function ContentLaneList({
                       <AppLink className="text-link" href={target.href}>
                         {target.label}
                       </AppLink>
+                    )}
+                    {controls && (
+                      <div className="approval-variant-controls">
+                        {controls(item)}
+                      </div>
                     )}
                   </li>
                 );

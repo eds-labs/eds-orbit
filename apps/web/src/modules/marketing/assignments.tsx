@@ -634,6 +634,82 @@ function draftNote(status: string, de: boolean) {
     : "Being handed to Postiz as a draft. Orbit does not publish it – you publish it yourself in Postiz.";
 }
 
+/**
+ * What still can be done about one upcoming post: its veto deadline (or
+ * the owner's release, which has none) and Stop until the hand-off; for a
+ * Postiz draft delivery, what happens to it. `compact` leaves out the
+ * owner-release sentence where the release is already named.
+ */
+export function UpcomingPostControls({
+  item,
+  de,
+  timezone,
+  canStop,
+  pending,
+  handedOver,
+  onStop,
+  now = Date.now(),
+  compact = false,
+}: {
+  item: UpcomingPost;
+  de: boolean;
+  timezone: string;
+  canStop: boolean;
+  pending: boolean;
+  handedOver: string[];
+  onStop: (post: UpcomingPost) => void;
+  now?: number;
+  compact?: boolean;
+}) {
+  const locale = de ? "de" : "en";
+  if (item.delivery === "postiz_draft")
+    return <p className="panel-note">{draftNote(item.status, de)}</p>;
+  return (
+    <>
+      {item.vetoDeadline === null ? (
+        // Released by the owner: no veto window, Stop works until the handoff.
+        compact ? null : (
+          <p className="panel-note">
+            {de
+              ? "Vom Owner freigegeben – kein Veto-Fenster."
+              : "Released by the owner – no veto window."}
+          </p>
+        )
+      ) : Date.parse(item.vetoDeadline) <= now ? (
+        // Past the deadline but not claimed yet: Stop still works until the handoff.
+        <p className="panel-note">
+          {de
+            ? "Frist abgelaufen – die Übergabe an Postiz steht bevor."
+            : "Deadline passed – the handoff to Postiz is imminent."}
+        </p>
+      ) : (
+        <p className="panel-note">
+          {de ? "Stop möglich bis" : "Stop possible until"}{" "}
+          <time dateTime={item.vetoDeadline}>
+            {when(item.vetoDeadline, locale, timezone)}
+          </time>
+        </p>
+      )}
+      {handedOver.includes(item.id) ? (
+        <Alert kind="warning">{HANDED_OVER[de ? 1 : 0]}</Alert>
+      ) : (
+        canStop && (
+          <div className="form-actions">
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={pending}
+              onClick={() => onStop(item)}
+            >
+              Stop
+            </Button>
+          </div>
+        )
+      )}
+    </>
+  );
+}
+
 /** Upcoming assignment posts with their veto deadline and Stop. */
 export function UpcomingPostList({
   items,
@@ -701,44 +777,16 @@ export function UpcomingPostList({
               )}
             </p>
             <pre className="approval-item-body">{item.excerpt}</pre>
-            {item.vetoDeadline === null ? (
-              // Released by the owner: no veto window, Stop works until the handoff.
-              <p className="panel-note">
-                {de
-                  ? "Vom Owner freigegeben – kein Veto-Fenster."
-                  : "Released by the owner – no veto window."}
-              </p>
-            ) : Date.parse(item.vetoDeadline) <= now ? (
-              // Past the deadline but not claimed yet: Stop still works until the handoff.
-              <p className="panel-note">
-                {de
-                  ? "Frist abgelaufen – die Übergabe an Postiz steht bevor."
-                  : "Deadline passed – the handoff to Postiz is imminent."}
-              </p>
-            ) : (
-              <p className="panel-note">
-                {de ? "Stop möglich bis" : "Stop possible until"}{" "}
-                <time dateTime={item.vetoDeadline}>
-                  {when(item.vetoDeadline, locale, timezone)}
-                </time>
-              </p>
-            )}
-            {handedOver.includes(item.id) ? (
-              <Alert kind="warning">{HANDED_OVER[de ? 1 : 0]}</Alert>
-            ) : (
-              canStop && (
-                <div className="form-actions">
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={pending}
-                    onClick={() => onStop(item)}
-                  >
-                    Stop
-                  </Button>
-                </div>
-              )
-            )}
+            <UpcomingPostControls
+              item={item}
+              de={de}
+              timezone={timezone}
+              canStop={canStop}
+              pending={pending}
+              handedOver={handedOver}
+              onStop={onStop}
+              now={now}
+            />
           </article>
         ),
       )}
@@ -782,8 +830,8 @@ const DECISION_ERRORS: Record<string, [string, string]> = {
     "This draft was already rejected or archived and can no longer be published.",
   ],
   DRAFT_HAS_PUBLICATION: [
-    "Dieser Entwurf ist bereits eingeplant. Stoppe den geplanten Post unter „Anstehende Posts“.",
-    "This draft is already scheduled. Stop the planned post under “Upcoming posts”.",
+    "Dieser Entwurf ist bereits eingeplant. Stoppe den geplanten Post unter „Freigegeben & geplant“.",
+    "This draft is already scheduled. Stop the planned post under “Released & scheduled”.",
   ],
   DRAFT_NOT_DECIDABLE: [
     "Dieser Entwurf wartet nicht mehr auf eine Entscheidung.",

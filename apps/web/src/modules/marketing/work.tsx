@@ -95,6 +95,7 @@ import {
   AwaitingOwnerDraftList,
   decisionErrorText,
   draftGroups,
+  UpcomingPostControls,
   UpcomingPostList,
   useAssignmentApprovals,
   type AwaitingOwnerDraft,
@@ -1802,17 +1803,25 @@ export function ApprovalInbox() {
     (d) => (d.state ?? "pending") === "pending",
   );
   const expired = agent.drafts.filter((d) => d.state === "expired");
-  const upcoming = new Set(agent.posts.map((p) => p.id));
   const lane = (name: string) =>
     items.filter((i) => i.lane === name && !drafted.has(i.content.id));
   const open = lane("open");
   const reviewed = lane("reviewed");
-  // A post with Stop under "Upcoming posts" is not listed twice.
-  const released = items.filter(
-    (i) =>
-      i.lane === "released" &&
-      ![...i.publications, ...i.postizDrafts].some((h) => upcoming.has(h.id)),
+  const released = items.filter((i) => i.lane === "released");
+  // The upcoming post behind a released version (its Stop and veto note).
+  const upcomingOf = (item: LaneItem) =>
+    agent.posts.find((post) =>
+      [...item.publications, ...item.postizDrafts].some(
+        (h) => h.id === post.id,
+      ),
+    ) ?? null;
+  const shown = new Set(
+    released.flatMap((i) =>
+      [...i.publications, ...i.postizDrafts].map((h) => h.id),
+    ),
   );
+  // Upcoming posts whose content is not listed keep their own list.
+  const unlisted = agent.posts.filter((post) => !shown.has(post.id));
   const cleanup = lane("cleanup");
   const historyAll = items
     .filter((i) => i.lane === "history")
@@ -1828,7 +1837,7 @@ export function ApprovalInbox() {
     groups(open) +
     exceptionRows.length +
     paused.length;
-  const releasedCount = groups(released) + agent.posts.length;
+  const releasedCount = groups(released) + unlisted.length;
   const focusLane = focus
     ? items.find((i) => i.publications.some((p) => p.id === focus))?.lane
     : undefined;
@@ -2039,9 +2048,9 @@ export function ApprovalInbox() {
             {focus && focusLane === "released" && (
               <Alert>{words.focused}</Alert>
             )}
-            {agent.posts.length > 0 && (
+            {unlisted.length > 0 && (
               <UpcomingPostList
-                items={agent.posts}
+                items={unlisted}
                 de={de}
                 timezone={project.timezone}
                 canStop={canEdit}
@@ -2051,7 +2060,27 @@ export function ApprovalInbox() {
               />
             )}
             {released.length > 0 &&
-              list(released, { note, link: socialLink, focus })}
+              list(released, {
+                note,
+                link: socialLink,
+                focus,
+                controls: (item) => {
+                  // A Postiz draft hand-off has no Stop; its note says enough.
+                  const upcoming = upcomingOf(item);
+                  return upcoming && upcoming.delivery !== "postiz_draft" ? (
+                    <UpcomingPostControls
+                      item={upcoming}
+                      de={de}
+                      timezone={project.timezone}
+                      canStop={canEdit}
+                      pending={agent.mutation.pending}
+                      handedOver={agent.handedOver}
+                      onStop={agent.stop}
+                      compact
+                    />
+                  ) : null;
+                },
+              })}
             {releasedCount === 0 && (
               <p className="panel-note">{words.releasedEmpty}</p>
             )}

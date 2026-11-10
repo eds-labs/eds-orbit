@@ -294,6 +294,55 @@ describe("approvals page in lanes (WP3)", () => {
       expect(html).toContain(heading);
     expect(html).toContain("Released by you on");
   });
+
+  it("offers Stop on the released post itself while Orbit still holds it", () => {
+    seed();
+    search.value = "";
+    const upcoming = (id: string, vetoDeadline: string | null) => ({
+      id,
+      version: 3,
+      status: "intent_created",
+      reason: null,
+      channel: FB,
+      channelName: "FamilyPlan",
+      scheduledAt: slot,
+      vetoDeadline,
+      excerpt: "Familienabend planen",
+      assignmentId: "a1",
+      assignmentName: "Daily social",
+      ownerReleased: vetoDeadline === null,
+      delivery: "publish",
+    });
+    answers["/assignment-posts"] = {
+      items: [
+        upcoming("p-fb", null),
+        // A post whose content is not listed keeps its own list.
+        upcoming("p-unlisted", new Date(Date.now() + 3_600_000).toISOString()),
+      ],
+    };
+    answers["/assignment-drafts"] = { items: [], history: [] };
+    try {
+      const html = render(<ApprovalInbox />);
+      const released = html.slice(
+        html.indexOf("Freigegeben &amp; geplant"),
+        html.indexOf("approvals-history-title"),
+      );
+      const pair = released.slice(released.indexOf(">Familienabend<"));
+      // Stop sits under the Facebook version; the owner's release is named once.
+      expect(pair).toMatch(/FamilyPlan · Facebook[\s\S]*>Stop</);
+      expect(pair.match(/>Stop</g)).toHaveLength(1);
+      expect(pair).not.toContain("Vom Owner freigegeben – kein Veto-Fenster.");
+      // The unlisted one is under "Upcoming posts" with its deadline.
+      expect(released).toContain("Anstehende Posts");
+      expect(released).toContain("Stop möglich bis");
+      expect(released).toMatch(
+        /Freigegeben &amp; geplant<span class="lane-count">\(2\)/,
+      );
+    } finally {
+      delete answers["/assignment-posts"];
+      delete answers["/assignment-drafts"];
+    }
+  });
 });
 
 describe("draft decisions in the detail view", () => {
