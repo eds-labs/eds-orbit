@@ -1438,6 +1438,31 @@ th {
   padding: 13px 20px;
   white-space: nowrap;
 }
+/* Localized headers print as written ("Aktualisiert", not "Aktualisiert Am"). */
+.table-plain-head th {
+  text-transform: none;
+}
+/* The policy versions (WP5): a visible caption and the active row marked. */
+.policy-versions caption {
+  caption-side: top;
+  text-align: left;
+  padding: 0 20px 10px;
+  color: #60738a;
+  font-size: 12px;
+}
+.policy-versions tr[aria-current="true"] td,
+.policy-versions tr[aria-current="true"] th {
+  background: #f1f7ff;
+}
+.policy-versions tbody th {
+  font-weight: 600;
+  color: #182e43;
+  text-align: left;
+  padding: 15px 20px;
+  border-bottom: 1px solid #e9f0f7;
+  background: transparent;
+  font-size: 13px;
+}
 td {
   padding: 15px 20px;
   border-bottom: 1px solid #e9f0f7;
