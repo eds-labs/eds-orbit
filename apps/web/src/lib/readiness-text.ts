@@ -106,6 +106,8 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
       "Posting to a policy channel's platform is not switched on.",
     SOCIAL_MEDIA_PUBLIC_REQUIRED:
       "Instagram needs public media links, which are switched off.",
+    AUTOPILOT_ON_SOCIAL_NOT_APPROVED:
+      "Live autopilot through Social is not approved yet (the owner's decision is pending).",
     EXECUTION_MODE_TEST: "Orbit runs in test mode; live posts are off.",
     EXTERNAL_WRITES_DISABLED: "External writes are switched off.",
     MATOMO_READ_VERIFICATION_REQUIRED: "Connect and verify Matomo.",
@@ -158,6 +160,8 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
       "Das Posten auf der Plattform eines Policy-Kanals ist nicht eingeschaltet.",
     SOCIAL_MEDIA_PUBLIC_REQUIRED:
       "Instagram braucht öffentliche Medien-Links, die ausgeschaltet sind.",
+    AUTOPILOT_ON_SOCIAL_NOT_APPROVED:
+      "Live-Autopilot über Social ist noch nicht freigegeben (Entscheidung des Owners ausstehend).",
     EXECUTION_MODE_TEST: "Orbit läuft im Testmodus; Liveposts sind aus.",
     EXTERNAL_WRITES_DISABLED: "Externe Schreibzugriffe sind ausgeschaltet.",
     MATOMO_READ_VERIFICATION_REQUIRED: "Matomo verbinden und prüfen.",
@@ -173,4 +177,22 @@ export function actionLabel(locale: Locale, action: string) {
 
 export function blockerReason(locale: Locale, code: string) {
   return blockerReasons[locale][code] ?? code.replaceAll("_", " ");
+}
+
+/**
+ * A refused live activation (`LIVE_ACTIVATION_BLOCKED:<code>,<code>` from a
+ * policy save) in words; any other message unchanged.
+ */
+export function activationErrorText(
+  locale: Locale,
+  message: string | null,
+): string | null {
+  const prefix = "LIVE_ACTIVATION_BLOCKED:";
+  if (!message?.startsWith(prefix)) return message;
+  return message
+    .slice(prefix.length)
+    .split(",")
+    .filter(Boolean)
+    .map((code) => blockerReason(locale, code))
+    .join(" ");
 }

@@ -12,7 +12,7 @@ import { submitOriginPost } from "../src/modules/social/contract.ts";
 import { packageFor, preflight } from "../src/modules/marketing/policy/policy.ts";
 import { assertAssignedSocialChannels } from "../src/modules/marketing/publishing/postiz-assignment.ts";
 import { resolveChannelRules } from "../src/modules/marketing/publishing/channel-rules.ts";
-import { readPolicy } from "../src/modules/marketing/policy/policy-admin.ts";
+import { readPolicy, savePolicy } from "../src/modules/marketing/policy/policy-admin.ts";
 import { channelNames } from "../src/modules/marketing/agents/assignment-overview.ts";
 import { channelDirectory } from "../src/modules/marketing/publishing/channel-directory.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
@@ -628,6 +628,58 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         expect(admin.blockers.find((b) => b.code === "SOCIAL_PLATFORM_NOT_AVAILABLE")).toMatchObject({ resolution: "operator", automatable: false });
       } finally {
         await backend("postiz");
+      }
+      expect(await sent()).toEqual(start);
+    });
+
+    it("refuses live autopilot on Social until the owner decides; nothing is saved and Postiz is unchanged", async () => {
+      live();
+      const start = await sent();
+      const stored = () =>
+        run(async (tx) => ({
+          policies: (await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "policies" }, select: { id: true, version: true } })).sort((a, b) => a.id.localeCompare(b.id)),
+          mode: (await tx.project.findUniqueOrThrow({ where: { id: project.owner.projectId }, select: { mode: true } })).mode,
+          audits: await tx.auditEvent.count({ where: { projectId: project.owner.projectId, action: "policies.create" } }),
+        }));
+      const active = await run(async (tx) => (await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "policies" } })).find((p) => data(p).active)!);
+      const { active: _a, activatedAt: _at, activatedBy: _by, ...fields } = data(active) as Record<string, unknown>;
+      const save = (mode: string) => run((tx) => savePolicy(tx, project.owner, { ...fields, mode }));
+      const before = await stored();
+      for (const value of ["social", "postiz_draining"] as const) {
+        await backend(value);
+        try {
+          await expect(save("autopilot")).rejects.toMatchObject({
+            code: "LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED",
+            status: 409,
+          });
+          expect(await stored()).toEqual(before);
+          // Not a readiness blocker: an assisted project on Social is not
+          // shown a missing configuration.
+          expect((await state()).blockers).not.toContain("AUTOPILOT_ON_SOCIAL_NOT_APPROVED");
+        } finally {
+          await backend("postiz");
+        }
+      }
+      // Postiz: the readiness refusal as before, without the Social code.
+      const postizRefusal = await save("autopilot").catch((error: { code?: string }) => error);
+      expect(postizRefusal).toMatchObject({ status: 409 });
+      expect((postizRefusal as { code: string }).code).toMatch(/^LIVE_ACTIVATION_BLOCKED:/);
+      expect((postizRefusal as { code: string }).code).not.toContain("AUTOPILOT_ON_SOCIAL_NOT_APPROVED");
+      expect(await stored()).toEqual(before);
+      // In test mode the policy saves on Social as before.
+      process.env.EXECUTION_MODE = "test";
+      await backend("social");
+      try {
+        const row = await save("autopilot");
+        expect(data(row)).toMatchObject({ mode: "autopilot", active: true });
+      } finally {
+        await backend("postiz");
+        await run(async (tx) => {
+          const rows = await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "policies" } });
+          for (const row of rows)
+            await tx.entity.update({ where: { id: row.id }, data: { data: { ...data(row), active: row.id === active.id } } });
+          await tx.project.update({ where: { id: project.owner.projectId }, data: { mode: before.mode } });
+        });
       }
       expect(await sent()).toEqual(start);
     });

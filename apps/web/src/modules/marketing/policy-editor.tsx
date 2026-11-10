@@ -26,6 +26,7 @@ import {
 } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { modeLabel } from "@/lib/i18n";
+import { activationErrorText } from "@/lib/readiness-text";
 import { marketingText } from "./labels";
 type SpendLimits = {
   startAt: string;
@@ -115,7 +116,11 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
     },
   ];
   return (
-    <Modal title={words.title} description={words.description} onClose={onClose}>
+    <Modal
+      title={words.title}
+      description={words.description}
+      onClose={onClose}
+    >
       <Alert>
         {words.budgetPrefix}{" "}
         {limits
@@ -133,7 +138,7 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
       <DataForm
         fields={fields}
         pending={mutation.pending || spend.loading}
-        error={mutation.error}
+        error={activationErrorText(locale, mutation.error)}
         t={t}
         submitLabel={words.save}
         onCancel={onClose}

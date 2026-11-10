@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel, actionOrder, blockerReason } from "./readiness-text";
+import {
+  actionLabel,
+  actionOrder,
+  activationErrorText,
+  blockerReason,
+} from "./readiness-text";
 import { READINESS_BLOCKERS } from "../../../api/src/modules/marketing/readiness/blocker-catalog";
 import { readinessActions } from "../../../api/src/modules/marketing/readiness/action-readiness";
 
@@ -53,5 +58,26 @@ describe("readiness wording (server and web)", () => {
     expect(blockerReason("en", "PUBLISHING_BACKEND_DRAINING")).toMatch(
       /Postiz/,
     );
+  });
+
+  it("words a refused live activation and leaves other errors as they are", () => {
+    expect(
+      activationErrorText(
+        "de",
+        "LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED",
+      ),
+    ).toBe(
+      "Live-Autopilot über Social ist noch nicht freigegeben (Entscheidung des Owners ausstehend).",
+    );
+    expect(
+      activationErrorText(
+        "en",
+        "LIVE_ACTIVATION_BLOCKED:PROJECT_PAUSED,EXECUTION_MODE_TEST",
+      ),
+    ).toBe(
+      "The project is paused. Orbit runs in test mode; live posts are off.",
+    );
+    expect(activationErrorText("en", "OWNER_REQUIRED")).toBe("OWNER_REQUIRED");
+    expect(activationErrorText("en", null)).toBeNull();
   });
 });
