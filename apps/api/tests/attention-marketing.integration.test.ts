@@ -23,6 +23,7 @@ const enabled = Boolean(
 
 const HOUR = 3_600_000;
 const CHANNEL = "x-attention";
+const CHANNEL_IG = "ig-attention";
 
 /**
  * The marketing module's attention items (UI restructure §4.1): assignment
@@ -109,6 +110,60 @@ describe.skipIf(!enabled)("marketing attention items", () => {
         missionId: mission.id,
       });
       return { draftId: draft.id, assignmentId: assignment.id };
+    });
+
+  /**
+   * A draft and its copy for a second channel (R76): both wait for the
+   * owner, one release button each, one thing to decide.
+   */
+  const awaitingPair = async (slotAt: string) =>
+    run(async (tx) => {
+      const body = {
+        name: "Shared post",
+        kind: "standing",
+        schedule: {
+          rhythm: "daily",
+          weekdays: [],
+          times: ["10:00"],
+          leadMinutes: 360,
+        },
+        contentType: "social",
+        channels: [CHANNEL, CHANNEL_IG],
+      };
+      const assignment = await create(tx, owner, "assignments", {
+        ...body,
+        status: "active",
+        confirmation: {
+          userId: owner.userId,
+          at: "2026-10-01T00:00:00.000Z",
+          assignmentHash: assignmentHash(body),
+        },
+      });
+      const runRow = await create(tx, owner, "assignment_runs", {
+        assignmentId: assignment.id,
+        status: "running",
+        date: slotAt.slice(0, 10),
+        slots: [],
+        steps: [],
+      });
+      const draft = async (channel: string, sharedFrom?: string) => {
+        const mission = await create(tx, owner, "missions", {
+          plannedSlotAt: slotAt,
+        });
+        return create(tx, owner, "content", {
+          status: "needs_review",
+          type: "social",
+          channel,
+          body: "SECRET-BODY must never reach the attention response",
+          assignmentId: assignment.id,
+          assignmentRunId: runRow.id,
+          missionId: mission.id,
+          ...(sharedFrom ? { sharedFrom: { contentId: sharedFrom } } : {}),
+        });
+      };
+      const base = await draft(CHANNEL);
+      const copy = await draft(CHANNEL_IG, base.id);
+      return { baseId: base.id, copyId: copy.id };
     });
 
   /** An assignment with a monthly budget and one run that has spent `spent` this month. */
@@ -260,8 +315,14 @@ describe.skipIf(!enabled)("marketing attention items", () => {
             identifier: "x",
             disabled: false,
           },
+          {
+            id: CHANNEL_IG,
+            name: "Synthetic IG",
+            identifier: "instagram",
+            disabled: false,
+          },
         ],
-        assignedIntegrationIds: [CHANNEL],
+        assignedIntegrationIds: [CHANNEL, CHANNEL_IG],
       }),
     );
     for (const who of ["owner", "viewer", "editor"] as const) {
@@ -454,6 +515,102 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     expect(
       items.find((i) => i.kind === "marketing_content_review"),
     ).toMatchObject({ count: 2 });
+  });
+
+  it("a Facebook/Instagram pair is one release item and counts once", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    const slotAt = inHours(3);
+    const { baseId } = await awaitingPair(slotAt);
+    const items = await marketingItems();
+    expect(items.filter((i) => i.kind === "marketing_draft_release")).toEqual([
+      expect.objectContaining({
+        id: `marketing:draft:${baseId}`,
+        dueAt: slotAt,
+        params: {
+          assignmentName: "Shared post",
+          channelName: "Synthetic X · Synthetic IG",
+          slotAt,
+        },
+      }),
+    ]);
+    expect(items.some((i) => i.kind === "marketing_content_review")).toBe(
+      false,
+    );
+    expect((await attention()).counts.approvals).toBe(1);
+    // A member who releases nothing sees the pair as one item to review.
+    expect(
+      (await marketingItems("editor")).find(
+        (i) => i.kind === "marketing_content_review",
+      ),
+    ).toMatchObject({ count: 1 });
+  });
+
+  it("reviewed content is not counted, released or not", async () => {
+    await content({ status: "reviewed" });
+    const released = await content({ status: "reviewed" });
+    await run((tx) =>
+      create(tx, owner, "publications", {
+        contentId: released.id,
+        status: "published",
+        scheduledAt: inHours(-2),
+      }),
+    );
+    expect(
+      (await marketingItems()).some(
+        (i) => i.kind === "marketing_content_review",
+      ),
+    ).toBe(false);
+    expect((await attention()).counts.approvals ?? 0).toBe(0);
+  });
+
+  it("a released draft with its slot ahead is neither a release item nor counted", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    const slotAt = inHours(3);
+    const { draftId } = await awaitingDraft(slotAt);
+    // The owner's release reviews the draft and books its publication.
+    await run(async (tx) => {
+      const row = await tx.entity.findUniqueOrThrow({ where: { id: draftId } });
+      await tx.entity.update({
+        where: { id: draftId },
+        data: {
+          data: {
+            ...(row.data as Record<string, unknown>),
+            status: "reviewed",
+            ownerReleasedAt: new Date().toISOString(),
+          },
+        },
+      });
+      await create(tx, owner, "publications", {
+        contentId: draftId,
+        status: "intent_created",
+        scheduledAt: slotAt,
+        ownerReleasedAt: new Date().toISOString(),
+      });
+    });
+    // Content in an open status that a live publication holds is not open either.
+    const held = await content({ status: "needs_review" });
+    await run((tx) =>
+      create(tx, owner, "publications", {
+        contentId: held.id,
+        status: "intent_created",
+        scheduledAt: slotAt,
+      }),
+    );
+    // A canceled publication holds nothing: that row waits again.
+    const stopped = await content({ status: "review" });
+    await run((tx) =>
+      create(tx, owner, "publications", {
+        contentId: stopped.id,
+        status: "canceled",
+        scheduledAt: slotAt,
+      }),
+    );
+    const items = await marketingItems();
+    expect(items.some((i) => i.kind === "marketing_draft_release")).toBe(false);
+    expect(
+      items.find((i) => i.kind === "marketing_content_review"),
+    ).toMatchObject({ count: 1 });
+    expect((await attention()).counts.approvals).toBe(1);
   });
 
   it("an editor gets no draft item; the review count includes the draft", async () => {
