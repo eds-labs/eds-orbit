@@ -209,9 +209,16 @@ export async function saveGeneratedAsset(
       },
     ));
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const current = await tx.entity.findUniqueOrThrow({
-      where: { id: assetId },
+    // The project explicitly, not only through row-level security.
+    const current = await tx.entity.findFirst({
+      where: {
+        id: assetId,
+        kind: "assets",
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+      },
     });
+    if (!current) throw new DomainError("NOT_FOUND", 404);
     const storageRow = await one(tx, scope, "drive_storage");
     if (
       storageRow &&
@@ -376,7 +383,15 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
 }
 export async function markSyncFailed(scope: Scope, assetId: string) {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const row = await tx.entity.findUniqueOrThrow({ where: { id: assetId } });
+    const row = await tx.entity.findFirst({
+      where: {
+        id: assetId,
+        kind: "assets",
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+      },
+    });
+    if (!row) throw new DomainError("NOT_FOUND", 404);
     const attempts = Math.min(5, Number(data(row).driveRetryAttempts ?? 0) + 1);
     return update(tx, scope, row, {
       ...data(row),

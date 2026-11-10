@@ -7,6 +7,7 @@ import {
   mediaAssetByFile,
   mediaContent,
   removeMedia,
+  searchMedia,
   updateMedia,
   uploadMedia,
   withMediaSlot,
@@ -156,6 +157,9 @@ describe.skipIf(!enabled)("social media library", () => {
     expect(await removeMedia(p.editor, view.id)).toEqual({ id: view.id, removed: "archived" });
     const listed = await p.run((tx) => listMedia(tx, p.viewer));
     expect(listed.items.map((i) => i.id)).not.toContain(view.id);
+    // Nor in a search of outside clients (social_media_list), even by its name.
+    const found = await p.run((tx) => searchMedia(tx, p.viewer, { query: view.name.slice(0, 8), limit: 100 }));
+    expect(found.items.map((i) => i.id)).not.toContain(view.id);
     expect((await mediaContent(p.viewer, view.id, "original")).bytes.length).toBeGreaterThan(0);
     expect(await p.run((tx) => mediaAssetByFile(tx, p.owner, asset.jpegFileId))).toMatchObject({ id: view.id });
   });
@@ -163,6 +167,18 @@ describe.skipIf(!enabled)("social media library", () => {
   it("never serves another project's image", async () => {
     const view = await uploadMedia(p.editor, { bytes: await image("png", 300, 300), mime: "image/png" });
     await expect(mediaContent(other.viewer, view.id, "original")).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
+    await expect(mediaContent(other.viewer, view.id, "jpeg")).rejects.toMatchObject({ code: "NOT_FOUND", status: 404 });
+    await expect(
+      other.run((tx) => updateMedia(tx, other.editor, view.id, { altText: "Not yours", version: 1 })),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(removeMedia(other.owner, view.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const listed = await other.run((tx) => searchMedia(tx, other.viewer, { limit: 100 }));
+    expect(listed.items.map((i) => i.id)).not.toContain(view.id);
+    // Untouched in its own project.
+    expect(await p.run((tx) => tx.socialMediaAsset.findUniqueOrThrow({ where: { id: view.id } }))).toMatchObject({
+      version: 1,
+      altText: null,
+      archivedAt: null,
+    });
   });
 });

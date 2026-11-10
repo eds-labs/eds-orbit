@@ -417,11 +417,12 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     const assetCard = page.locator(".asset-card").filter({
       hasText: "Browser visual asset",
     });
-    await expect(assetCard).toContainText("Reference");
+    // The tile shows the status as a localized label ("Reference").
+    await expect(assetCard).toContainText("reference", { ignoreCase: true });
     await assetCard
       .getByRole("button", { name: "Approve rights & use" })
       .click();
-    await expect(assetCard).toContainText("Approved");
+    await expect(assetCard).toContainText("approved", { ignoreCase: true });
     const visualAssets = await (
       await page.request.get(`/api/projects/${projectId}/assets`)
     ).json();
@@ -627,7 +628,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog.getByRole("button", { name: "Close dialog" }).click();
     dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Review", exact: true }).click();
-    await expect(dialog.locator(".detail-summary")).toContainText("Reviewed");
+    await expect(dialog.locator(".detail-summary")).toContainText("reviewed");
     await dialog.getByRole("button", { name: "Create social variant" }).click();
     await dialog
       .getByLabel("Variant title")
@@ -1089,29 +1090,24 @@ test("editable local brief, private community groups, calendar blocks and owner 
     fullPage: true,
   });
   await open(page, projectId, "calendar");
-  // The editorial plan's blocked periods (WP5: formerly calendar blocks).
-  await page.getByRole("button", { name: "Add blocked period" }).click();
+  await page.getByRole("button", { name: "Add calendar block" }).click();
   dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Title").fill("Synthetic editorial blackout");
+  await dialog.getByLabel("Block title").fill("Synthetic editorial blackout");
   await dialog
-    .getByLabel("Starts")
+    .getByLabel("Block starts")
     .fill(localDate(new Date(Date.now() + 3600_000)));
   await dialog
-    .getByLabel("Ends")
+    .getByLabel("Block ends")
     .fill(localDate(new Date(Date.now() + 7200_000)));
   await dialog
     .getByLabel("Reason")
     .fill("Synthetic operator acceptance interval");
-  await dialog.getByRole("button", { name: "Block this period" }).click();
+  await dialog.getByRole("button", { name: "Block this interval" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".calendar-block-row")).toContainText(
     "Synthetic editorial blackout",
   );
-  await page
-    .getByRole("button", {
-      name: "Release blocked period Synthetic editorial blackout",
-    })
-    .click();
+  await page.getByRole("button", { name: "Release block" }).click();
   await expect(page.locator(".calendar-block-row")).toHaveCount(0);
   const fact = await checkedPost(
     page.request,

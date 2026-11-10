@@ -78,13 +78,17 @@ export const socialAccountsTool = readOperation({
   ...shared,
   name: "social_accounts",
   description:
-    "The project's social accounts (X, Facebook Pages, Instagram, Telegram channels): status, posting verified, longest text.",
+    "The project's social accounts (X, Facebook Pages, Instagram, Telegram channels): status, posting verified, longest text. Disconnected ones are only in archivedAccounts (no posting target).",
   input: z.object({}).strict(),
   permission: SOCIAL_READ,
   async run(tx, scope) {
     const { items } = await listAccounts(tx, scope);
+    // Disconnected accounts stay for the history of their posts (WP4): they
+    // are no posting target, so they are listed apart with their names only.
+    const live = items.filter((a) => a.status !== "disabled");
+    const archived = items.filter((a) => a.status === "disabled");
     return {
-      items: items.map((a) => ({
+      items: live.map((a) => ({
         accountId: a.id,
         platform: a.platform,
         handle: a.handle,
@@ -93,6 +97,14 @@ export const socialAccountsTool = readOperation({
         capability: a.capability,
         lastCheckCode: a.lastCheckCode,
         textLimit: textLimit(a.platform, a.settings),
+      })),
+      archivedAccounts: archived.map((a) => ({
+        accountId: a.id,
+        platform: a.platform,
+        handle: a.handle,
+        displayName: a.displayName,
+        status: a.status,
+        disabledAt: a.disabledAt,
       })),
     };
   },

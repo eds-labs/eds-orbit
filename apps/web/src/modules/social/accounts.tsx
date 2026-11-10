@@ -20,6 +20,36 @@ function codeOf(error: unknown) {
   return error instanceof ApiError ? error.code : "REQUEST_FAILED";
 }
 
+/** The display name, when it says more than the handle (e.g. a Page name). */
+function otherName(account: Pick<SocialAccount, "handle" | "displayName">) {
+  const plain = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
+  return account.displayName && plain(account.displayName) !== plain(account.handle) ? account.displayName : null;
+}
+
+/**
+ * A disconnected account (WP4): kept for the history of its posts, shown
+ * read-only in the archive, never with an action.
+ */
+function ArchivedAccountRow({ account }: { account: SocialAccount }) {
+  const { locale } = useWorkspace();
+  const text = socialText(locale);
+  const name = otherName(account);
+  return (
+    <li className="work-settings-row">
+      <div>
+        <strong>{account.handle}</strong>
+        {name && <span className="social-account-name"> · {name}</span>} <span>{text.platform[account.platform]}</span>{" "}
+        <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>
+        {account.disabledAt && (
+          <p className="field-hint">
+            {text.accounts.disconnectedOn}: {new Date(account.disabledAt).toLocaleString(locale)}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function TelegramChannelForm({ onDone }: { onDone: (message: string) => void }) {
   const { project, locale } = useWorkspace();
   const t = socialText(locale).accounts;
@@ -98,10 +128,12 @@ function AccountRow({
   const needsImage = account.platform === "instagram";
   const library = useResource<SocialMediaList>(verifying && needsImage ? socialPath(project.id, "/media") : null);
   const verifyId = `social-verify-${account.id}`;
+  const name = otherName(account);
   return (
     <li className="work-settings-row">
       <div>
-        <strong>{account.handle}</strong> <span>{text.platform[account.platform]}</span>{" "}
+        <strong>{account.handle}</strong>
+        {name && <span className="social-account-name"> · {name}</span>} <span>{text.platform[account.platform]}</span>{" "}
         <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>{" "}
         {account.capability === "write_verified" && <Badge tone="success">{t.verified}</Badge>}
         <p className="field-hint">
@@ -219,6 +251,9 @@ export function AccountsView() {
   const t = socialText(locale).accounts;
   const params = useSearchParams();
   const accounts = useResource<SocialAccounts>(socialPath(project.id, "/accounts"));
+  // Disconnected accounts stay for their history (WP4): apart, collapsed.
+  const live = accounts.data?.items.filter((account) => account.status !== "disabled") ?? [];
+  const archived = accounts.data?.items.filter((account) => account.status === "disabled") ?? [];
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [telegram, setTelegram] = useState(false);
   const [disconnecting, setDisconnecting] = useState<SocialAccount | null>(null);
@@ -319,9 +354,9 @@ export function AccountsView() {
       )}
       <ResourceError error={accounts.error} retry={accounts.refresh} />
       {accounts.data &&
-        (accounts.data.items.length ? (
+        (live.length ? (
           <ul className="settings-rows">
-            {accounts.data.items.map((account) => (
+            {live.map((account) => (
               <AccountRow
                 key={account.id}
                 account={account}
@@ -337,6 +372,17 @@ export function AccountsView() {
         ) : (
           <Empty title={t.empty} />
         ))}
+      {archived.length > 0 && (
+        <details className="social-archived-accounts">
+          <summary>{t.archivedTitle(archived.length)}</summary>
+          <p className="field-hint">{t.archivedHint}</p>
+          <ul className="settings-rows">
+            {archived.map((account) => (
+              <ArchivedAccountRow key={account.id} account={account} />
+            ))}
+          </ul>
+        </details>
+      )}
       <PostizMigration />
       {disconnecting && (
         <Modal title={t.confirmTitle(disconnecting.handle)} description={t.confirmBody} onClose={() => setDisconnecting(null)}>
