@@ -613,6 +613,14 @@ describe.skipIf(!enabled)("Project administration over MCP", () => {
     const pending = await run((tx) =>
       create(tx, s, "publications", { channel: FACEBOOK, status: "scheduled_remote", scheduledAt: new Date().toISOString(), test: false }),
     );
+    // What a publish attempt would leave behind; reading readiness sends nothing.
+    const sent = () =>
+      run(async (tx) => ({
+        publications: await tx.entity.count({ where: { projectId: s.projectId, kind: "publications" } }),
+        socialPublications: await tx.socialPublication.count({ where: { projectId: s.projectId } }),
+        outbox: await tx.outbox.count({ where: { projectId: s.projectId } }),
+      }));
+    const start = await sent();
     try {
       const onPostiz = await read("project_readiness_get");
       expect(onPostiz.publishingBackend).toBe("postiz");
@@ -645,6 +653,7 @@ describe.skipIf(!enabled)("Project administration over MCP", () => {
         resolution: "orbit",
       });
       expect(draining.blockers.map((b: { code: string }) => b.code)).toContain("PUBLISHER_WRITE_VERIFICATION_REQUIRED");
+      expect(await sent()).toEqual(start);
     } finally {
       await run(async (tx) => {
         await tx.entity.update({ where: { id: pending.id }, data: { data: { ...data(pending), status: "canceled" } } });

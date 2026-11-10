@@ -667,6 +667,17 @@ describe.skipIf(!enabled)(
             });
             await forcePublishingBackend(tx, alpha, "social");
           });
+          // A status read sends nothing.
+          const sent = () =>
+            inProject("Alpha", async (tx) => ({
+              publications: await tx.entity.count({
+                where: { projectId: project.Alpha, kind: "publications" },
+              }),
+              socialPublications: await tx.socialPublication.count({
+                where: { projectId: project.Alpha },
+              }),
+            }));
+          const start = await sent();
           try {
             const result = (await call("marketing_project_status", {}))
               .result;
@@ -688,6 +699,7 @@ describe.skipIf(!enabled)(
             expect(Object.keys(status.readiness.actions)).toEqual([
               ...readinessActions,
             ]);
+            expect(await sent()).toEqual(start);
           } finally {
             await inProject("Alpha", async (tx) => {
               await forcePublishingBackend(tx, alpha, "postiz");

@@ -71,6 +71,14 @@ describe.skipIf(!enabled)("marketing publishing backend", () => {
       p.run(async (tx) => (await list(tx, p.owner, "exceptions")).map((e): Record<string, any> => ({ ...data(e), id: e.id })));
     const resolvedAudits = () =>
       p.run((tx) => tx.auditEvent.findMany({ where: { projectId: p.owner.projectId, action: "marketing.postiz_queue_notice_resolved" } }));
+    // What a publish attempt would leave behind; none may happen here.
+    const sent = () =>
+      p.run(async (tx) => ({
+        publications: await tx.entity.count({ where: { projectId: p.owner.projectId, kind: "publications" } }),
+        socialPublications: await tx.socialPublication.count({ where: { projectId: p.owner.projectId } }),
+        outbox: await tx.outbox.count({ where: { projectId: p.owner.projectId } }),
+      }));
+    const start = await sent();
     await save("postiz");
     // A queue notice the stopped watch left open, and a notice of another kind.
     const stalled = await p.run((tx) => exception(tx, p.owner, "POSTIZ_QUEUE_STALLED", randomUUID()));
@@ -98,5 +106,6 @@ describe.skipIf(!enabled)("marketing publishing backend", () => {
     expect(rolledBack.find((e) => e.id === stalled.id)).toMatchObject({ status: "resolved" });
     expect(rolledBack.filter((e) => e.status === "open").map((e) => e.code)).toEqual(["REMOTE_POST_MISSING"]);
     expect(await resolvedAudits()).toHaveLength(1);
+    expect(await sent()).toEqual(start);
   });
 });
