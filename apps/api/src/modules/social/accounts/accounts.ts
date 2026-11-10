@@ -61,12 +61,12 @@ export async function updateAccountSettings(
   if (input.settings.xLongPosts !== undefined && row.platform !== "x")
     throw new DomainError("SOCIAL_SETTING_INVALID", 422);
   const changed = await tx.socialAccount.updateMany({
-    where: { id: row.id, version: input.version },
+    where: { id: row.id, projectId: scope.projectId, version: input.version },
     data: { settings: { ...(row.settings as Settings), ...input.settings }, version: { increment: 1 } },
   });
   if (changed.count !== 1) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   await audit(tx, scope, "social.account.settings_changed", row.id, { keys });
-  return accountView(await tx.socialAccount.findUniqueOrThrow({ where: { id: row.id } }));
+  return accountView(await tx.socialAccount.findFirstOrThrow({ where: { id: row.id, projectId: scope.projectId } }));
 }
 
 /** Best effort: X forgets the token. A failure changes nothing. */
@@ -129,7 +129,11 @@ export async function disableAccount(
   }
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const changed = await tx.socialAccount.updateMany({
-      where: { id: account.id, ...(input.version !== undefined ? { version: input.version } : {}) },
+      where: {
+        id: account.id,
+        projectId: scope.projectId,
+        ...(input.version !== undefined ? { version: input.version } : {}),
+      },
       data: { status: "disabled", disabledAt: new Date(), version: { increment: 1 } },
     });
     if (changed.count !== 1) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
