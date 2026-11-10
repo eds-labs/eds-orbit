@@ -23,7 +23,21 @@ const mocked = vi.hoisted(() => ({
   requests: [] as any[],
   // The next answer stops at the output limit.
   truncated: false,
+  // A task class whose planned provider is forced (D-11 tests).
+  forceAnthropic: null as string | null,
 }));
+vi.mock("../src/platform/ai/call-plan.ts", async (original) => {
+  const real = await original<typeof import("../src/platform/ai/call-plan.ts")>();
+  return {
+    ...real,
+    planCall: async (...args: Parameters<typeof real.planCall>) => {
+      const plan = await real.planCall(...args);
+      return mocked.forceAnthropic === args[2]
+        ? { ...plan, provider: "anthropic" as const }
+        : plan;
+    },
+  };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
   respond: vi.fn(async (request: any) => {
@@ -118,6 +132,7 @@ describe.skipIf(!enabled)("structured runs", () => {
     mocked.replies.length = 0;
     mocked.requests.length = 0;
     mocked.truncated = false;
+    mocked.forceAnthropic = null;
   });
   afterAll(async () => {
     await project?.cleanup();
@@ -175,6 +190,29 @@ describe.skipIf(!enabled)("structured runs", () => {
     // The job's retry uses the same call key: nothing is sent.
     expect(await runStructured(scope(), s)).toMatchObject({ status: "outcome_unknown" });
     expect(mocked.requests).toHaveLength(1);
+  });
+
+  it("D-11: blocks customer data on a Claude route with zero reservations and runs it on OpenAI (WP2 D)", async () => {
+    const claude = spec({ dataClass: "customer_personal" });
+    mocked.forceAnthropic = "pm_analysis";
+    expect(await runStructured(scope(), claude)).toMatchObject({
+      status: "blocked",
+      code: "AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA",
+      costMicros: 0,
+    });
+    expect(mocked.requests).toHaveLength(0);
+    expect(await reservations(claude.budget.callKey)).toEqual([]);
+    // Financial data likewise; internal data is not bound to a provider.
+    const financial = spec({ dataClass: "financial" });
+    expect(await runStructured(scope(), financial)).toMatchObject({
+      code: "AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA",
+    });
+    expect(await reservations(financial.budget.callKey)).toEqual([]);
+    mocked.forceAnthropic = null;
+    const openai = spec({ dataClass: "customer_personal" });
+    mocked.replies.push(message({ summary: "done", count: 1 }));
+    expect(await runStructured(scope(), openai)).toMatchObject({ status: "ok" });
+    expect((await reservations(openai.budget.callKey)).map((r) => r.state)).toEqual(["settled"]);
   });
 
   it("blocks oversized input and the caller's own ceiling before any reservation", async () => {

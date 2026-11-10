@@ -11,7 +11,7 @@ import {
   publicEntity,
   update,
 } from "../shared.ts";
-import { budgetMonthStart } from "../ai/budget.ts";
+import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import {
   saveAiConfiguration,
   saveAiProviderConfiguration,
@@ -47,6 +47,22 @@ import {
   sharedTransaction,
   type ActionHandler,
 } from "./actions.ts";
+
+/** Why an owner settles unclear reservations (WP2 C); no free text is stored. */
+export const SETTLE_REASONS = [
+  "provider_invoice_checked",
+  "provider_dashboard_checked",
+  "other",
+] as const;
+export const settleUnknownReservationsInput = z
+  .object({
+    reservationIds: z.array(z.uuid()).min(1).max(100),
+    reason: z.enum(SETTLE_REASONS),
+    /** The owner's own note; only its length is audited. */
+    note: z.string().trim().max(300).optional(),
+    confirm: z.literal(true),
+  })
+  .strict();
 
 /** The platform's project actions (WP2.1f), moved unchanged from server.ts. */
 export const platformActions: Record<string, ActionHandler> = {
@@ -193,38 +209,69 @@ export const platformActions: Record<string, ActionHandler> = {
   "connector-health": ownTransaction(async ({ scope, input }) =>
     publicEntity(await checkProjectConnection(scope, input.connectorId)),
   ),
-  // Settles the budget month's reservations whose outcome stayed unclear at
-  // their reserved amount, the ceiling the month already counts. The owner
-  // confirms this after checking the provider's billing; the attention item
-  // "AI cost unclear" then clears. Audited with the count and amount.
-  "settle-unknown-reservations": sharedTransaction(async (tx, { scope }) => {
+  // Settles reservations whose outcome stayed unclear at their reserved
+  // amount, the ceiling their month already counts (plan 2026-11-10 WP2 C).
+  // The owner names each reservation, the reason (after checking the
+  // provider's billing) and confirms; any month, this project only. Only
+  // rows still `unknown` change, guarded in the update itself, and counters
+  // move only for rows that changed, so a repeated or concurrent call never
+  // moves them twice. A row in any other state refuses the whole request.
+  // Audited content-free: ids, reason, count, amount, the note's length.
+  "settle-unknown-reservations": sharedTransaction(async (tx, { scope, input }) => {
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+    // `confirm: true` is required by the schema; nothing settles without it.
+    const { reservationIds, reason, note } =
+      settleUnknownReservationsInput.parse(input);
+    const ids = [...new Set(reservationIds)];
     const rows = await tx.budgetReservation.findMany({
       where: {
         workspaceId: scope.workspaceId,
         projectId: scope.projectId,
-        state: "unknown",
-        createdAt: { gte: budgetMonthStart(new Date()) },
+        id: { in: ids },
       },
+      orderBy: { createdAt: "asc" },
     });
+    if (rows.length !== ids.length)
+      throw new DomainError("RESERVATION_MISSING", 404);
+    if (rows.some((row) => row.state !== "unknown"))
+      throw new DomainError("RESERVATION_NOT_UNKNOWN", 409);
     let micros = 0n;
+    const settled: string[] = [];
     for (const row of rows) {
-      await settleOnGrant(tx, row, row.amountMicros);
-      await settleOnOrganization(tx, row, row.amountMicros);
-      await tx.budgetReservation.update({
-        where: { id: row.id },
+      const changed = await tx.budgetReservation.updateMany({
+        where: {
+          id: row.id,
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          state: "unknown",
+        },
         data: { state: "settled", settledMicros: row.amountMicros },
       });
+      if (changed.count !== 1) continue;
+      await settleOnGrant(tx, row, row.amountMicros);
+      await settleOnOrganization(tx, row, row.amountMicros);
       micros += row.amountMicros;
+      settled.push(row.id);
     }
-    if (rows.length)
+    if (settled.length)
       await audit(
         tx,
         scope,
         "budget.unknown_reservations_settled",
         scope.projectId,
-        { count: rows.length, micros: micros.toString() },
+        {
+          count: settled.length,
+          micros: micros.toString(),
+          reservationIds: settled,
+          reason,
+          noteLength: note?.length ?? 0,
+        },
       );
-    return { settled: rows.length, micros: micros.toString() };
+    return {
+      settled: settled.length,
+      micros: micros.toString(),
+      reservationIds: settled,
+    };
   }),
   "resolve-exception": sharedTransaction(async (tx, { scope, input }) => {
     const e = await entity(

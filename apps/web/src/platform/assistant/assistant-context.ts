@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext } from "react";
-import type { Project } from "@/lib/api";
+import type { Identity, Project } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import type { AssistantStatus } from "./api";
 import type { AssistantConversation } from "./use-assistant-conversation";
@@ -36,6 +36,10 @@ export type AssistantContextValue = {
   setBubbleHidden(hidden: boolean): void;
   /** A reply finished while the panel was closed. */
   unseen: boolean;
+  /** The signed-in member: role and flags for the budget notice (WP2 A). */
+  identity?: Identity;
+  /** Reads the assistant's status again (e.g. after the cap was set). */
+  refreshStatus?: () => void;
 };
 
 export const AssistantContext = createContext<AssistantContextValue | null>(

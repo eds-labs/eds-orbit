@@ -108,6 +108,14 @@ Settings → AI & budget and `ai_models_get` show this as `capabilities: { text,
 
 **Fallback.** Off by default. With `fallback.onProviderBudgetStop: "openai"` saved by the owner, a call the Anthropic budget would stop before transmission is routed to the task class's OpenAI tier model instead (verified and priced, or the stop stands); the span is named `messages.create (fallback)` / `responses.stream (fallback)` and the reservation records the OpenAI model. A transmitted call is never retried on another provider.
 
+**Data-class block (2026-11-10).** Personal customer data and financial data go only to the providers of the code allow-list in `apps/api/src/platform/ai/data-class.ts` (`customer_personal` and `financial`: OpenAI only, ADR 0021 D-11; pinned by `apps/api/tests/data-class.unit.test.ts`). The check runs after the call plan and before `reserve`: a Support triage or draft on a Claude route, or a structured run whose tools return customer data, stops with `AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA`, and nothing is sent or reserved. There is no automatic switch: an explicit route never falls back, and the owner fallback above applies only to a budget stop. The block names the setting to change instead:
+
+- Settings → AI & budget lists the effective routes the block would refuse (`routesNotAllowedForData` in the configuration view, next to `routesWithoutKey`; read only). Support triage and draft are refused at call time; `finance_extraction` is listed as not yet enforced (follow-up).
+- The exception on the approvals page and the attention item read "AI provider not allowed for customer data": nothing was sent; set the route to a verified OpenAI model (Task routes). The text comes from `apps/web/src/lib/exception-text.ts`.
+- A configured agent's failure notice to its sponsor says the same and keeps the code.
+
+The Claude suggestion above routes `support_triage` to `claude-haiku-5-5`; applying it to a project with Support makes Support AI stop with this code until the two Support routes point to OpenAI.
+
 **Not used.** Dynamic web-search filtering, the batch API, the 1-hour cache, task budgets, fast mode, images and embeddings on Anthropic.
 
 Verify live with `scripts/anthropic-smoke.ts` (one Haiku call, at most 64 output tokens; needs `ANTHROPIC_API_KEY` in the shell, never in the repository).

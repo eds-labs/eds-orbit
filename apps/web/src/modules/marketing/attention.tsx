@@ -1,4 +1,5 @@
 import type { AttentionRenderer, Label } from "@/platform/shell/types";
+import { exceptionText, hasExceptionText } from "@/lib/exception-text";
 
 // The marketing module's attention texts (UI restructure §4.3). Params carry
 // names, codes and times only, never a post body; the home page shows the
@@ -55,6 +56,20 @@ export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
     const de = locale === "de";
     // One item per code (R19); the resources it affects are a param.
     const affected = Number(item.params.affected ?? 0);
+    const affects =
+      affected > 0 ? (de ? `betrifft ${affected}` : `affects ${affected}`) : "";
+    // A known code reads as what happened and what to do (WP2 D); an
+    // unknown one keeps the code, so nothing is hidden.
+    if (hasExceptionText(code)) {
+      const text = exceptionText(locale, code);
+      return {
+        title: text.title,
+        detail: [text.cause, text.action, affects, `(${code})`]
+          .filter(Boolean)
+          .join(" "),
+        action: { en: "Check", de: "Prüfen" },
+      };
+    }
     return {
       title: `${
         code.endsWith("_OUTCOME_UNKNOWN")
@@ -65,12 +80,7 @@ export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
             ? "Offene Ausnahme"
             : "Open exception"
       } · ${code || "—"}`,
-      detail:
-        affected > 0
-          ? de
-            ? `betrifft ${affected}`
-            : `affects ${affected}`
-          : undefined,
+      detail: affects || undefined,
       action: { en: "Check", de: "Prüfen" },
     };
   },

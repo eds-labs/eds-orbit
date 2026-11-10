@@ -168,6 +168,8 @@ export function AssistantProvider({
     bubbleHidden,
     setBubbleHidden,
     unseen,
+    identity,
+    refreshStatus: status.refresh,
   };
   const onPage = pathname === ASSISTANT_PAGE;
   return (
