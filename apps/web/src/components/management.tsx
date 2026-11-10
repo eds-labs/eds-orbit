@@ -78,6 +78,7 @@ import {
   ResourceError,
   useCollection,
 } from "@/platform/ui/collection";
+import { capabilityLabel, liveBlockerText } from "@/lib/capability-text";
 export function Connectors() {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const resource = useCollection("connectors");
@@ -661,12 +662,14 @@ export function ProjectSettings() {
                       ([name, capability]) => (
                         <div className="data-row" key={name}>
                           <div>
-                            <strong>
-                              {name.charAt(0).toUpperCase() + name.slice(1)}
-                            </strong>
+                            <strong>{capabilityLabel(locale, name)}</strong>
+                            {/* A sentence; the raw code only as a tooltip. */}
                             {capability.liveBlocker && (
-                              <p>
-                                {capability.liveBlocker.replaceAll("_", " ")}
+                              <p title={capability.liveBlocker}>
+                                {liveBlockerText(
+                                  locale,
+                                  capability.liveBlocker,
+                                )}
                               </p>
                             )}
                           </div>
