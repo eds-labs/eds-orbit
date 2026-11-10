@@ -42,6 +42,8 @@ const SETTLED_CONTENT = [
   "failed",
 ];
 const REASON = "OWNER_CLEANUP";
+/** Drafts a preview names one by one; the counts cover all of them. */
+export const PREVIEW_ITEM_LIMIT = 200;
 const ARCHIVE_FIELDS = [
   "statusBeforeArchive",
   "archivedAt",
@@ -199,10 +201,28 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
   }
   const contentKind = (row: Row) =>
     missionKind(missionById.get(String(data(row).missionId)));
+  // Each draft by name: what the cleanup does with it and why it stays.
+  // Title and channel only, never the text; the audit gets the counts alone.
+  const itemOf = (row: Row, action: "archive" | "keep", reason?: KeepReason) => {
+    const v = data(row);
+    return {
+      contentId: row.id,
+      title: typeof v.title === "string" ? v.title : null,
+      channel: typeof v.channel === "string" ? v.channel : null,
+      action,
+      ...(reason ? { reason } : {}),
+    };
+  };
+  const items = [
+    ...kept.map((k) => itemOf(k.row, "keep", k.reason)),
+    ...archive.map((row) => itemOf(row, "archive")),
+  ];
   const kinds = ["autopilot", "package", "other"] as const;
   return {
     archive,
     missionArchive,
+    items: items.slice(0, PREVIEW_ITEM_LIMIT),
+    truncated: items.length > PREVIEW_ITEM_LIMIT,
     summary: {
       content: {
         total: archive.length,
@@ -244,8 +264,10 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
  * Postiz drafts, action requests, jobs, costs and audits stay untouched.
  * Drafts tied to a publication that may still go out, a Postiz draft whose
  * outcome is open, an open decision or an active assignment run are kept.
- * `preview` only counts; the real run needs `confirm` and the counts the
- * owner saw, and refuses with CLEANUP_CHANGED when a fresh plan differs.
+ * `preview` only counts, and names the drafts (title, channel, archive or
+ * keep with the reason; at most PREVIEW_ITEM_LIMIT, `truncated` beyond);
+ * the real run needs `confirm` and the counts the owner saw, and refuses
+ * with CLEANUP_CHANGED when a fresh plan differs.
  */
 export async function archiveOldDrafts(tx: DbTx, scope: Scope, raw: unknown) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
@@ -256,7 +278,12 @@ export async function archiveOldDrafts(tx: DbTx, scope: Scope, raw: unknown) {
     cleanupId,
     ...planned.summary,
   });
-  if (input.preview) return answer(null);
+  if (input.preview)
+    return {
+      ...answer(null),
+      items: planned.items,
+      truncated: planned.truncated,
+    };
   if (input.confirm !== true || !input.expected)
     throw new DomainError("CLEANUP_CONFIRMATION_REQUIRED", 409);
   const { summary } = planned;

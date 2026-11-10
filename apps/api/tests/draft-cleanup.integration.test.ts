@@ -21,6 +21,7 @@ import { create, data, list } from "../src/shared.ts";
 import {
   archiveOldDrafts,
   DRAFT_STATUSES,
+  PREVIEW_ITEM_LIMIT,
   restoreDraftCleanup,
 } from "../src/modules/draft-cleanup.ts";
 
@@ -329,11 +330,44 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
       preview: true,
     });
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({
+    const { items, truncated, ...summary } = r.json();
+    expect(summary).toEqual({
       preview: true,
       cleanupId: null,
       ...expectedSummary,
     });
+    expect(truncated).toBe(false);
+    expect(items).toHaveLength(
+      expectedSummary.content.total + expectedSummary.kept.total,
+    );
+    // Each draft by name, with what happens to it and why it stays.
+    const byId = new Map(
+      (items as Array<{ contentId: string }>).map((i) => [i.contentId, i]),
+    );
+    const seeded = await run((tx) => list(tx, owner, "content"));
+    const titleOf = (id: string) =>
+      data(seeded.find((row) => row.id === id)!).title;
+    expect(
+      [...byId.values()].every(
+        (i) => (i as { title: unknown }).title === titleOf(i.contentId),
+      ),
+    ).toBe(true);
+    const reasons = (items as Array<{ action: string; reason?: string }>)
+      .filter((i) => i.action === "keep")
+      .map((i) => i.reason)
+      .sort();
+    expect(reasons).toEqual(
+      Object.entries(expectedSummary.kept.byReason)
+        .flatMap(([reason, n]) => Array(n).fill(reason))
+        .sort(),
+    );
+    expect(
+      (items as Array<{ action: string; reason?: string }>)
+        .filter((i) => i.action === "archive")
+        .every((i) => i.reason === undefined),
+    ).toBe(true);
+    // Never the text of a draft.
+    expect(JSON.stringify(items)).not.toContain("Text");
     expect(await versions()).toEqual(before);
     const audits = await run((tx) =>
       tx.auditEvent.count({
@@ -554,6 +588,40 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
       content: 0,
       missions: 0,
     });
+  });
+
+  it("names at most PREVIEW_ITEM_LIMIT drafts and says when there are more", async () => {
+    await run(async (tx) => {
+      for (let i = 0; i <= PREVIEW_ITEM_LIMIT; i++)
+        await create(tx, owner, "content", {
+          title: `Old draft ${i}`,
+          status: "draft",
+          channel: "social:00000000-0000-4000-8000-000000000000",
+          body: "Text",
+        });
+    });
+    const preview = await cleanup({ preview: true });
+    expect(preview.content.total).toBe(PREVIEW_ITEM_LIMIT + 1);
+    expect(preview.items).toHaveLength(PREVIEW_ITEM_LIMIT);
+    expect(preview.truncated).toBe(true);
+    expect(preview.items[0]).toEqual({
+      contentId: expect.any(String),
+      title: expect.stringMatching(/^Old draft \d+$/),
+      channel: "social:00000000-0000-4000-8000-000000000000",
+      action: "archive",
+    });
+    // The run answers with the counts; the audit records counts only.
+    const result = await cleanup({
+      confirm: true,
+      expected: { content: PREVIEW_ITEM_LIMIT + 1, missions: 0, kept: 0 },
+    });
+    expect(result).not.toHaveProperty("items");
+    const audit = await run((tx) =>
+      tx.auditEvent.findFirstOrThrow({
+        where: { projectId: owner.projectId, action: "drafts.cleaned_up" },
+      }),
+    );
+    expect(JSON.stringify(audit)).not.toContain("Old draft");
   });
 
   it("refuses editors and viewers with OWNER_REQUIRED", async () => {
