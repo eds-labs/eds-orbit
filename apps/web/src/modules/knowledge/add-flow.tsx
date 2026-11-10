@@ -190,7 +190,15 @@ export function initialFlow(
       s.id === params?.get("site") &&
       ["gitbook", "website"].includes(String(s.data.type)),
   );
-  const prefill = source ? siteDefaults(source) : null;
+  // The page choice is kept apart: the rights are sent to the strict start
+  // action as they are, and an extra key would fail its validation.
+  let prefill: Rights | null = null;
+  let storedExcluded: string[] = [];
+  if (source) {
+    const { excluded, ...rights } = siteDefaults(source);
+    prefill = rights;
+    storedExcluded = excluded;
+  }
   const github = params?.get("github") === "connected";
   // A preview alone names no content: only its analysis can be started.
   const kind: Kind = source
@@ -233,7 +241,7 @@ export function initialFlow(
     previewId,
     sourceId: source?.id ?? null,
     rights: prefill ?? { ...defaultRights(kind), ...input?.rights },
-    excluded: new Set(prefill?.excluded),
+    excluded: new Set(storedExcluded),
     sourceLanguage: source ? String(source.data.language ?? "") : "",
     outcome: runId ? ({ kind: "analysis", runId } as Outcome) : null,
   };

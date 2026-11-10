@@ -1779,6 +1779,30 @@ describe("add flow", () => {
         ]).rights.publicUse,
       ).toBe(false);
     });
+    it("keeps exclusions out of the rights the start action receives", () => {
+      // The start action is strict: any extra key fails its validation.
+      const flow = flowOf([
+        {
+          id: "g",
+          data: {
+            name: "Hilfe",
+            type: "gitbook",
+            site: {
+              rootUrl: "https://x.test/hilfe",
+              excludedPages: ["https://x.test/hilfe/alt"],
+            },
+          },
+        },
+      ]);
+      expect(Object.keys(flow.rights).sort()).toEqual([
+        "autoUpdate",
+        "marketing",
+        "modelUse",
+        "publicUse",
+        "support",
+      ]);
+      expect([...flow.excluded]).toEqual(["https://x.test/hilfe/alt"]);
+    });
     it("starts a website draft from the site default, a stored choice from itself", () => {
       const row = (input: Record<string, unknown>) => ({
         id: "d",
