@@ -342,15 +342,16 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     );
     // Each draft by name, with what happens to it and why it stays.
     const byId = new Map(
-      (items as Array<{ contentId: string }>).map((i) => [i.contentId, i]),
+      (items as Array<{ contentId: string; title: unknown }>).map((i) => [
+        i.contentId,
+        i,
+      ]),
     );
     const seeded = await run((tx) => list(tx, owner, "content"));
     const titleOf = (id: string) =>
       data(seeded.find((row) => row.id === id)!).title;
     expect(
-      [...byId.values()].every(
-        (i) => (i as { title: unknown }).title === titleOf(i.contentId),
-      ),
+      [...byId.values()].every((i) => i.title === titleOf(i.contentId)),
     ).toBe(true);
     const reasons = (items as Array<{ action: string; reason?: string }>)
       .filter((i) => i.action === "keep")
@@ -604,7 +605,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     expect(preview.content.total).toBe(PREVIEW_ITEM_LIMIT + 1);
     expect(preview.items).toHaveLength(PREVIEW_ITEM_LIMIT);
     expect(preview.truncated).toBe(true);
-    expect(preview.items[0]).toEqual({
+    expect(preview.items?.[0]).toEqual({
       contentId: expect.any(String),
       title: expect.stringMatching(/^Old draft \d+$/),
       channel: "social:00000000-0000-4000-8000-000000000000",

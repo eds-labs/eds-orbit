@@ -422,9 +422,10 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     const preview = await h.run((tx) =>
       archiveOldDrafts(tx, project.owner, { preview: true }),
     );
-    expect(
-      preview.items.find((i: { contentId: string }) => i.contentId === row.id),
-    ).toMatchObject({ action: "keep", reason: "HAS_OPEN_PUBLICATION" });
+    expect(preview.items?.find((i) => i.contentId === row.id)).toMatchObject({
+      action: "keep",
+      reason: "HAS_OPEN_PUBLICATION",
+    });
     const unchanged = await after();
     expect(unchanged.version).toBe(row.version);
     expect(unchanged).toEqual(row);

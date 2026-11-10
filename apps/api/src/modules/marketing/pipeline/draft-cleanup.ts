@@ -277,7 +277,15 @@ export async function archiveOldDrafts(tx: DbTx, scope: Scope, raw: unknown) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = draftCleanupInput.parse(raw);
   const planned = await plan(tx, scope);
-  const answer = (cleanupId: string | null) => ({
+  // Only a preview names the drafts; a run answers with the counts.
+  const answer = (
+    cleanupId: string | null,
+  ): typeof planned.summary & {
+    preview: boolean;
+    cleanupId: string | null;
+    items?: typeof planned.items;
+    truncated?: boolean;
+  } => ({
     preview: input.preview,
     cleanupId,
     ...planned.summary,
