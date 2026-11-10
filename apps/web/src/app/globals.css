@@ -1418,6 +1418,10 @@ pre {
   font-size: 12px;
 }
 .table-wrap {
+  /* The containing block of absolutely positioned cell content (.sr-only
+     headers): without it they escape the scroll box and widen the page
+     (horizontal scroll at 390px, QA 2026-11-10). */
+  position: relative;
   overflow: auto;
   max-width: 100%;
   background: #fff;
