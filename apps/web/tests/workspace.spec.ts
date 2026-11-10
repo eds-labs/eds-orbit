@@ -417,11 +417,11 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     const assetCard = page.locator(".asset-card").filter({
       hasText: "Browser visual asset",
     });
-    await expect(assetCard).toContainText("reference");
+    await expect(assetCard).toContainText("Reference");
     await assetCard
       .getByRole("button", { name: "Approve rights & use" })
       .click();
-    await expect(assetCard).toContainText("approved");
+    await expect(assetCard).toContainText("Approved");
     const visualAssets = await (
       await page.request.get(`/api/projects/${projectId}/assets`)
     ).json();
@@ -627,7 +627,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog.getByRole("button", { name: "Close dialog" }).click();
     dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Review", exact: true }).click();
-    await expect(dialog.locator(".detail-summary")).toContainText("reviewed");
+    await expect(dialog.locator(".detail-summary")).toContainText("Reviewed");
     await dialog.getByRole("button", { name: "Create social variant" }).click();
     await dialog
       .getByLabel("Variant title")
