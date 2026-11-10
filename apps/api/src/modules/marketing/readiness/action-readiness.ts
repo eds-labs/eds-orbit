@@ -3,6 +3,12 @@
  * that action, so internal drafting is not reported as blocked by publisher
  * or live-write prerequisites. Live actions are never ready in test mode, so
  * mock or test receipts cannot be read as real live capability.
+ *
+ * Publishing follows the project's backend (ADR 0020, S9/S10): `publish_*`
+ * is publishing wherever the project publishes (equal to `postiz_*` on
+ * Postiz, Social's checks on Social); `postiz_*` keeps its Postiz meaning
+ * and is not configured on Social. While Postiz drains, new work for it is
+ * refused (refuseWhileDraining), so its actions are blocked.
  */
 export const readinessActions = [
   "chat",
@@ -19,6 +25,10 @@ export const readinessActions = [
   "blog_live",
   "newsletter_live",
   "ads_live",
+  // Appended: clients may rely on the order above.
+  "publish_draft",
+  "publish_schedule",
+  "publish_live",
 ] as const;
 export type ReadinessAction = (typeof readinessActions)[number];
 export type ActionState = "ready" | "blocked" | "not_configured";
@@ -54,6 +64,13 @@ export type ReadinessInputs = {
   postizWriteVerified: boolean;
   postizChannelWriteVerified: boolean;
   matomoReadVerified: boolean;
+  // backend.ts's PublishingBackend, spelled out so this file stays free of
+  // imports (the web's wording test reads readinessActions from it).
+  publishingBackend: "postiz" | "postiz_draining" | "social";
+  // On Social, what stops a Social draft and a post on the policy channels
+  // (codes readiness.ts derives from Social's checks); empty otherwise.
+  socialDraftBlockers: string[];
+  socialPublishBlockers: string[];
 };
 
 function result(
@@ -100,6 +117,50 @@ export function actionReadiness(
     i.driveReconnectRequired &&
     "GOOGLE_DRIVE_RECONNECT_REQUIRED";
   const publishDrive = i.publishingUsesDriveAssets && driveReconnect;
+  const draining =
+    i.publishingBackend === "postiz_draining" && "PUBLISHING_BACKEND_DRAINING";
+  const onSocial = i.publishingBackend === "social";
+  const postiz = {
+    draft: result(
+      "external",
+      [
+        paused,
+        ...postizBase,
+        !i.postizDraftsEnabled && "POSTIZ_DRAFTS_DISABLED",
+        draining,
+      ],
+      ["POSTIZ_NOT_CONNECTED", "POSTIZ_DRAFTS_DISABLED"],
+    ),
+    schedule: result(
+      "external",
+      [paused, ...postizWrite, publishDrive, ...live, draining],
+      ["POSTIZ_NOT_CONNECTED"],
+    ),
+    live: result(
+      "external",
+      [paused, ...postizWrite, publishDrive, ...live, draining],
+      ["POSTIZ_NOT_CONNECTED"],
+    ),
+  };
+  // On Social nothing goes to Postiz: its actions are not configured there.
+  const notOnPostiz = () =>
+    result(
+      "external",
+      [paused, "PUBLISHING_BACKEND_SOCIAL"],
+      ["PUBLISHING_BACKEND_SOCIAL"],
+    );
+  // Social's channel checks plus what every post needs (live mode, external
+  // writes, Drive images readable at the hand-off).
+  const socialPublish = () =>
+    result(
+      "external",
+      [paused, ...i.socialPublishBlockers, publishDrive, ...live],
+      ["SOCIAL_DISABLED"],
+    );
+  const copy = (value: ActionReadiness): ActionReadiness => ({
+    ...value,
+    blockers: [...value.blockers],
+  });
   return {
     chat: result(
       "internal",
@@ -150,25 +211,9 @@ export function actionReadiness(
     ),
     internal_review: result("internal", [paused]),
     export: result("internal", [paused]),
-    postiz_draft: result(
-      "external",
-      [
-        paused,
-        ...postizBase,
-        !i.postizDraftsEnabled && "POSTIZ_DRAFTS_DISABLED",
-      ],
-      ["POSTIZ_NOT_CONNECTED", "POSTIZ_DRAFTS_DISABLED"],
-    ),
-    postiz_schedule: result(
-      "external",
-      [paused, ...postizWrite, publishDrive, ...live],
-      ["POSTIZ_NOT_CONNECTED"],
-    ),
-    postiz_live: result(
-      "external",
-      [paused, ...postizWrite, publishDrive, ...live],
-      ["POSTIZ_NOT_CONNECTED"],
-    ),
+    postiz_draft: onSocial ? notOnPostiz() : postiz.draft,
+    postiz_schedule: onSocial ? notOnPostiz() : postiz.schedule,
+    postiz_live: onSocial ? notOnPostiz() : postiz.live,
     matomo: result(
       "internal",
       [paused, !i.matomoReadVerified && "MATOMO_READ_VERIFICATION_REQUIRED"],
@@ -189,5 +234,20 @@ export function actionReadiness(
       [paused, "ADS_WRITE_MANDATE_NOT_CONFIGURED"],
       ["ADS_WRITE_MANDATE_NOT_CONFIGURED"],
     ),
+    // Social drafts use the same handoff, so ENABLE_POSTIZ_DRAFTS gates them
+    // too (postiz-draft.ts); validation never blocks saving a draft.
+    publish_draft: onSocial
+      ? result(
+          "external",
+          [
+            paused,
+            !i.postizDraftsEnabled && "POSTIZ_DRAFTS_DISABLED",
+            ...i.socialDraftBlockers,
+          ],
+          ["POSTIZ_DRAFTS_DISABLED", "SOCIAL_DISABLED"],
+        )
+      : copy(postiz.draft),
+    publish_schedule: onSocial ? socialPublish() : copy(postiz.schedule),
+    publish_live: onSocial ? socialPublish() : copy(postiz.live),
   };
 }

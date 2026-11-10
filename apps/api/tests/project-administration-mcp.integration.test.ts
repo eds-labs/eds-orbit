@@ -14,6 +14,7 @@ import {
 import { saveAiProfile } from "../src/platform/administration/ai-profiles.ts";
 import { create, data, entity } from "../src/shared.ts";
 import type { McpPrincipal } from "../src/platform/mcp/principal.ts";
+import { forcePublishingBackend } from "./support/marketing-backend.ts";
 
 // Project administration over MCP (docs/MCP_PROJECT_ADMINISTRATION.md),
 // end to end on a project set up like FamilyPlan: a Marketing profile, no
@@ -574,6 +575,88 @@ describe.skipIf(!enabled)("Project administration over MCP", () => {
     );
     // Assisted: every post still needs the owner's package approval.
     expect((await read("marketing_policy_get")).approvalMode).toBe("human_each");
+  });
+
+  it("reads readiness per publishing backend: Social's codes on Social, the drain with its backlog", async () => {
+    const s = family.owner;
+    const run = <T>(work: Parameters<typeof scoped<T>>[2]) => scoped(s.workspaceId, s.projectId, work);
+    const postizCodes = [
+      "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+      "CHANNEL_WRITE_VERIFICATION_REQUIRED",
+      "POSTIZ_NOT_CONNECTED",
+      "POSTIZ_CHANNELS_NOT_ASSIGNED",
+    ];
+    const social = process.env.ORBIT_SOCIAL;
+    process.env.ORBIT_SOCIAL = "true";
+    // Facebook is mapped to an account whose posting is not verified yet;
+    // Instagram has no account.
+    await run(async (tx) => {
+      await tx.projectModule.create({
+        data: { workspaceId: s.workspaceId, projectId: s.projectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: s.userId },
+      });
+      await tx.socialAccount.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          connectionId: randomUUID(),
+          platform: "facebook",
+          externalId: "synthetic-page",
+          handle: "familyplan.synthetic",
+          displayName: "FamilyPlan synthetic",
+          capability: "read_verified",
+          legacyPostizIntegrationId: FACEBOOK,
+          createdBy: s.userId,
+        },
+      });
+    });
+    const pending = await run((tx) =>
+      create(tx, s, "publications", { channel: FACEBOOK, status: "scheduled_remote", scheduledAt: new Date().toISOString(), test: false }),
+    );
+    try {
+      const onPostiz = await read("project_readiness_get");
+      expect(onPostiz.publishingBackend).toBe("postiz");
+      expect(onPostiz.blockers.map((b: { code: string }) => b.code)).toContain("PUBLISHER_WRITE_VERIFICATION_REQUIRED");
+
+      await run((tx) => tx.entity.update({ where: { id: pending.id }, data: { data: { ...data(pending), status: "canceled" } } }));
+      await run((tx) => forcePublishingBackend(tx, s, "social"));
+      const onSocial = await read("project_readiness_get");
+      const codes = onSocial.blockers.map((b: { code: string }) => b.code);
+      expect(onSocial.publishingBackend).toBe("social");
+      for (const code of postizCodes) expect(codes).not.toContain(code);
+      // Test mode: an unverified account still blocks, as Postiz's write check does.
+      expect(codes).toEqual(expect.arrayContaining(["SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED", "SOCIAL_CHANNEL_NOT_MAPPED"]));
+      expect(onSocial.blockers.find((b: { code: string }) => b.code === "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED")).toMatchObject({
+        resolution: "orbit",
+        automatable: false,
+        affects: expect.arrayContaining(["publish_schedule", "publish_live"]),
+      });
+      expect(onSocial.blockers.find((b: { code: string }) => b.code === "SOCIAL_CHANNEL_NOT_MAPPED").affects).toEqual(
+        expect.arrayContaining(["publish_draft"]),
+      );
+      expect(onSocial.actions.postiz_live).toMatchObject({ state: "not_configured", blockers: ["PUBLISHING_BACKEND_SOCIAL"] });
+
+      await run((tx) => tx.entity.update({ where: { id: pending.id }, data: { data: { ...data(pending), status: "scheduled_remote" } } }));
+      await run((tx) => forcePublishingBackend(tx, s, "postiz_draining"));
+      const draining = await read("project_readiness_get");
+      expect(draining.publishingBackend).toBe("postiz_draining");
+      expect(draining.blockers.find((b: { code: string }) => b.code === "PUBLISHING_BACKEND_DRAINING")).toMatchObject({
+        details: { postizBacklog: 1 },
+        resolution: "orbit",
+      });
+      expect(draining.blockers.map((b: { code: string }) => b.code)).toContain("PUBLISHER_WRITE_VERIFICATION_REQUIRED");
+    } finally {
+      await run(async (tx) => {
+        await tx.entity.update({ where: { id: pending.id }, data: { data: { ...data(pending), status: "canceled" } } });
+        await forcePublishingBackend(tx, s, "postiz");
+        await tx.projectModule.update({
+          where: { workspaceId_projectId_moduleId: { workspaceId: s.workspaceId, projectId: s.projectId, moduleId: "social" } },
+          data: { enabled: false },
+        });
+      });
+      if (social === undefined) delete process.env.ORBIT_SOCIAL;
+      else process.env.ORBIT_SOCIAL = social;
+    }
   });
 
   it("keeps tenants apart and changes to owners", async () => {

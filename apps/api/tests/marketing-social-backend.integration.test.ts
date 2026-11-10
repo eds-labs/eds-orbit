@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
-import { create, data, entity } from "../src/shared.ts";
+import { create, data, entity, update } from "../src/shared.ts";
+import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
+import { readReadiness } from "../src/modules/marketing/readiness/readiness-admin.ts";
+import { readinessActions } from "../src/modules/marketing/readiness/action-readiness.ts";
 import { reconcilePublication } from "../src/modules/marketing/publishing/publisher.ts";
 import { publishIntent } from "../src/modules/marketing/pipeline/workflow.ts";
 import { bookPostizDraft } from "../src/modules/marketing/agents/draft-delivery.ts";
@@ -12,7 +15,7 @@ import { resolveChannelRules } from "../src/modules/marketing/publishing/channel
 import { readPolicy } from "../src/modules/marketing/policy/policy-admin.ts";
 import { channelNames } from "../src/modules/marketing/agents/assignment-overview.ts";
 import { forcePublishingBackend } from "./support/marketing-backend.ts";
-import { createPackageProject, X } from "./support/package-project.ts";
+import { createPackageProject, TELEGRAM, X } from "./support/package-project.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 
@@ -434,6 +437,199 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
         delete process.env.ORBIT_CREATIVE_STUDIO;
         await run((tx) => tx.socialAccount.delete({ where: { id: instagram } }));
       }
+    });
+  });
+
+  /**
+   * Readiness mirrors preflight per backend (WP1): Postiz exactly as before,
+   * Social's channel checks on Social, the drain plus Postiz's checks while
+   * draining. Reading readiness never sends anything.
+   */
+  describe("readiness per publishing backend", () => {
+    const POSTIZ_CODES = [
+      "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+      "CHANNEL_WRITE_VERIFICATION_REQUIRED",
+      "POSTIZ_NOT_CONNECTED",
+      "POSTIZ_CHANNELS_NOT_ASSIGNED",
+    ];
+    const ENV = ["EXECUTION_MODE", "ENABLE_EXTERNAL_WRITES", "ENABLE_POSTIZ_DRAFTS", "ORBIT_SOCIAL_PLATFORMS", "ORBIT_SOCIAL"];
+    let before: Record<string, string | undefined> = {};
+    let telegramId = "";
+    const state = () => run((tx) => readiness(tx, project.owner));
+    const social = (codes: string[]) => codes.filter((code) => code.startsWith("SOCIAL_"));
+    const postiz = (codes: string[]) => codes.filter((code) => POSTIZ_CODES.includes(code));
+    // What a publish attempt would leave behind.
+    const sent = () =>
+      run(async (tx) => ({
+        publications: await tx.entity.count({ where: { projectId: project.owner.projectId, kind: "publications" } }),
+        socialPublications: await tx.socialPublication.count({ where: { projectId: project.owner.projectId } }),
+        outbox: await tx.outbox.count({ where: { projectId: project.owner.projectId } }),
+      }));
+    const live = () => Object.assign(process.env, { EXECUTION_MODE: "live", ENABLE_EXTERNAL_WRITES: "true", ENABLE_POSTIZ_DRAFTS: "true", ORBIT_SOCIAL_PLATFORMS: "x,telegram" });
+
+    beforeAll(async () => {
+      before = Object.fromEntries(ENV.map((key) => [key, process.env[key]]));
+      telegramId = await run(async (tx) => {
+        await tx.socialAccount.update({ where: { id: accountId }, data: { legacyPostizIntegrationId: X, status: "active", capability: "write_verified" } });
+        const account = await tx.socialAccount.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            connectionId: randomUUID(),
+            platform: "telegram",
+            externalId: "-1001",
+            handle: "@orbit_tg",
+            displayName: "Orbit Telegram",
+            capability: "write_verified",
+            legacyPostizIntegrationId: TELEGRAM,
+            createdBy: project.owner.userId,
+          },
+        });
+        return account.id;
+      });
+    });
+    afterEach(() => {
+      for (const key of ENV)
+        if (before[key] === undefined) delete process.env[key];
+        else process.env[key] = before[key];
+    });
+
+    it("postiz: stays exactly as before (pinned) and publish_* equals postiz_*", async () => {
+      Object.assign(process.env, { EXECUTION_MODE: "test", ENABLE_EXTERNAL_WRITES: "false" });
+      delete process.env.ENABLE_POSTIZ_DRAFTS;
+      const start = await sent();
+      const r = await state();
+      // Observed on the code before the backend split: the same values.
+      expect(r.state).toBe("test_ready");
+      expect(r.blockers).toEqual(["LIVE_RAG_EVAL_REQUIRED", "PUBLISHER_WRITE_VERIFICATION_REQUIRED", "EXTERNAL_WRITES_DISABLED"]);
+      const write = ["PUBLISHER_WRITE_VERIFICATION_REQUIRED", "CHANNEL_WRITE_VERIFICATION_REQUIRED", "EXECUTION_MODE_TEST", "EXTERNAL_WRITES_DISABLED"];
+      expect(r.actions.postiz_draft).toEqual({ state: "not_configured", effect: "external", blockers: ["POSTIZ_DRAFTS_DISABLED"] });
+      expect(r.actions.postiz_schedule).toEqual({ state: "blocked", effect: "external", blockers: write });
+      expect(r.actions.postiz_live).toEqual({ state: "blocked", effect: "external", blockers: write });
+      expect(r.capabilities.social).toEqual({ state: "test_ready" });
+      expect(Object.keys(r.actions)).toEqual([...readinessActions]);
+      expect(r.actions.publish_draft).toEqual(r.actions.postiz_draft);
+      expect(r.actions.publish_schedule).toEqual(r.actions.postiz_schedule);
+      expect(r.actions.publish_live).toEqual(r.actions.postiz_live);
+      expect(r.publishing).toEqual({ backend: "postiz", postizBacklog: 0 });
+      expect((await run((tx) => readReadiness(tx, project.owner))).publishingBackend).toBe("postiz");
+      expect(await sent()).toEqual(start);
+    });
+
+    it("social: Social's checks replace every Postiz code", async () => {
+      live();
+      const start = await sent();
+      await backend("social");
+      try {
+        const r = await state();
+        expect(postiz(r.blockers)).toEqual([]);
+        expect(social(r.blockers)).toEqual([]);
+        expect(r.publishing).toEqual({ backend: "social", postizBacklog: 0 });
+        for (const action of ["publish_draft", "publish_schedule", "publish_live"] as const)
+          expect(r.actions[action]).toMatchObject({ state: "ready", blockers: [] });
+        for (const action of ["postiz_draft", "postiz_schedule", "postiz_live"] as const)
+          expect(r.actions[action]).toEqual({ state: "not_configured", effect: "external", blockers: ["PUBLISHING_BACKEND_SOCIAL"] });
+        for (const value of Object.values(r.actions)) expect(postiz(value.blockers)).toEqual([]);
+        const admin = await run((tx) => readReadiness(tx, project.owner));
+        expect(admin.publishingBackend).toBe("social");
+        expect(postiz(admin.blockers.map((b) => b.code))).toEqual([]);
+        expect(admin.blockers.find((b) => b.code === "PUBLISHING_BACKEND_SOCIAL")).toMatchObject({
+          resolution: "orbit",
+          affects: ["postiz_draft", "postiz_schedule", "postiz_live"],
+        });
+      } finally {
+        await backend("postiz");
+      }
+      expect(await sent()).toEqual(start);
+    });
+
+    it("social: an unverified, inactive or unmapped account, a platform or module that is off name their codes", async () => {
+      live();
+      const start = await sent();
+      const policyRow = await run(async (tx) => (await tx.entity.findMany({ where: { projectId: project.owner.projectId, kind: "policies" } })).find((p) => data(p).active)!);
+      await backend("social");
+      try {
+        await run((tx) => tx.socialAccount.update({ where: { id: telegramId }, data: { capability: "read_verified" } }));
+        let r = await state();
+        expect(social(r.blockers)).toEqual(["SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED"]);
+        expect(r.actions.publish_live.blockers).toEqual(["SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED"]);
+        // A Social draft needs no verified posting.
+        expect(r.actions.publish_draft).toMatchObject({ state: "ready", blockers: [] });
+        // Test mode: still a blocker, as the Postiz write verification always is.
+        process.env.EXECUTION_MODE = "test";
+        r = await state();
+        expect(social(r.blockers)).toEqual(["SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED"]);
+        expect(r.actions.publish_schedule.blockers).toEqual(["SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED", "EXECUTION_MODE_TEST"]);
+        process.env.EXECUTION_MODE = "live";
+        await run((tx) => tx.socialAccount.update({ where: { id: telegramId }, data: { capability: "write_verified", status: "reconnect_required" } }));
+        expect(social((await state()).blockers)).toEqual(["SOCIAL_ACCOUNT_NOT_ACTIVE"]);
+        await run((tx) => tx.socialAccount.update({ where: { id: telegramId }, data: { status: "active", legacyPostizIntegrationId: null } }));
+        r = await state();
+        expect(social(r.blockers)).toEqual(["SOCIAL_CHANNEL_NOT_MAPPED"]);
+        expect(r.actions.publish_draft.blockers).toEqual(["SOCIAL_CHANNEL_NOT_MAPPED"]);
+        await run((tx) => tx.socialAccount.update({ where: { id: telegramId }, data: { legacyPostizIntegrationId: TELEGRAM } }));
+        process.env.ORBIT_SOCIAL_PLATFORMS = "x";
+        expect(social((await state()).blockers)).toEqual(["SOCIAL_PLATFORM_NOT_AVAILABLE"]);
+        process.env.ORBIT_SOCIAL_PLATFORMS = "x,telegram";
+        delete process.env.ORBIT_SOCIAL;
+        r = await state();
+        expect(social(r.blockers)).toEqual(["SOCIAL_DISABLED"]);
+        expect(r.actions.publish_live).toMatchObject({ state: "not_configured", blockers: ["SOCIAL_DISABLED"] });
+        process.env.ORBIT_SOCIAL = "true";
+        await run((tx) => tx.entity.update({ where: { id: policyRow.id }, data: { data: { ...data(policyRow), channels: [] } } }));
+        r = await state();
+        expect(r.blockers).toContain("POLICY_CHANNELS_REQUIRED");
+        expect(social(r.blockers)).toEqual([]);
+        // Every code over MCP comes with its cause and fix.
+        await run((tx) => tx.socialAccount.update({ where: { id: telegramId }, data: { capability: "read_verified" } }));
+        const admin = await run((tx) => readReadiness(tx, project.owner));
+        expect(admin.blockers.filter((b) => b.cause === "See the code.")).toEqual([]);
+        expect(admin.blockers.find((b) => b.code === "POLICY_CHANNELS_REQUIRED")!.fix).toContain("social:<accountId>");
+      } finally {
+        await run(async (tx) => {
+          await tx.entity.update({ where: { id: policyRow.id }, data: { data: data(policyRow) } });
+          await tx.socialAccount.update({ where: { id: telegramId }, data: { capability: "write_verified", status: "active", legacyPostizIntegrationId: TELEGRAM } });
+        });
+        await backend("postiz");
+      }
+      process.env.ORBIT_SOCIAL_PLATFORMS = "x";
+      await backend("social");
+      try {
+        const admin = await run((tx) => readReadiness(tx, project.owner));
+        expect(admin.blockers.find((b) => b.code === "SOCIAL_PLATFORM_NOT_AVAILABLE")).toMatchObject({ resolution: "operator", automatable: false });
+      } finally {
+        await backend("postiz");
+      }
+      expect(await sent()).toEqual(start);
+    });
+
+    it("postiz_draining: the drain with Postiz's backlog, and the Postiz checks stay", async () => {
+      const pending = await run((tx) =>
+        create(tx, project.owner, "publications", { contentId, channel: X, status: "scheduled_remote", scheduledAt: new Date().toISOString(), test: false }),
+      );
+      const start = await sent();
+      await backend("postiz_draining");
+      try {
+        const r = await state();
+        expect(r.publishing).toEqual({ backend: "postiz_draining", postizBacklog: 1 });
+        expect(r.blockers).toEqual(expect.arrayContaining(["PUBLISHING_BACKEND_DRAINING", "PUBLISHER_WRITE_VERIFICATION_REQUIRED"]));
+        expect(social(r.blockers)).toEqual([]);
+        for (const action of ["postiz_draft", "postiz_schedule", "postiz_live", "publish_draft", "publish_schedule", "publish_live"] as const)
+          expect(r.actions[action].blockers).toContain("PUBLISHING_BACKEND_DRAINING");
+        expect(r.actions.publish_schedule).toEqual(r.actions.postiz_schedule);
+        const admin = await run((tx) => readReadiness(tx, project.owner));
+        expect(admin.publishingBackend).toBe("postiz_draining");
+        expect(admin.blockers.find((b) => b.code === "PUBLISHING_BACKEND_DRAINING")).toMatchObject({
+          details: { postizBacklog: 1 },
+          resolution: "orbit",
+          affects: expect.arrayContaining(["publish_schedule", "postiz_draft"]),
+        });
+      } finally {
+        await backend("postiz");
+        await run(async (tx) => update(tx, project.owner, await entity(tx, project.owner, "publications", pending.id), { ...data(pending), status: "canceled" }));
+      }
+      expect(await sent()).toEqual(start);
     });
   });
 });
