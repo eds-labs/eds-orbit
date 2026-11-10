@@ -304,4 +304,55 @@ describe.skipIf(!enabled)("GET /api/projects/:id/ai-reservations", () => {
     });
     expect(bad.statusCode).toBe(400);
   });
+
+  it("gives the dashboard's spend split to editors, not to viewers (ruling R26)", async () => {
+    // Same shape as the add-member action: workspace viewer plus a project role.
+    const member = async (role: "editor" | "viewer", ip: string) => {
+      const email = `${randomUUID()}@example.invalid`;
+      const password = randomBytes(24).toString("base64url");
+      const created = await makeAuth().api.signUpEmail({
+        body: { email, name: `Synthetic ${role}`, password },
+      });
+      users.push(created.user.id);
+      await authDb.workspaceMember.create({
+        data: { workspaceId: a.workspaceId, userId: created.user.id, role: "viewer" },
+      });
+      await authDb.projectMember.create({
+        data: { workspaceId: a.workspaceId, projectId: a.projectId, userId: created.user.id, role },
+      });
+      const signIn = await app.inject({
+        method: "POST",
+        url: "/api/auth/sign-in/email",
+        headers: { origin, [CLIENT_IP_HEADER]: ip },
+        payload: { email, password },
+      });
+      expect(signIn.statusCode).toBe(200);
+      const set = signIn.headers["set-cookie"];
+      return (Array.isArray(set) ? set : [set]).map((v) => v!.split(";")[0]).join("; ");
+    };
+    const budget = async (memberCookie: string) => {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/projects/${a.projectId}/dashboard`,
+        headers: { origin, cookie: memberCookie },
+      });
+      expect(response.statusCode).toBe(200);
+      return response.json().budget as Record<string, unknown>;
+    };
+    const split = ["periodStart", "inFlightMicros", "staleMicros", "unknownMicros"];
+    const editor = await budget(await member("editor", "198.18.9.4"));
+    expect(editor).toMatchObject({
+      periodStart: expect.any(String),
+      inFlightMicros: 100_000,
+      staleMicros: 200_000,
+      unknownMicros: 100_000,
+    });
+    const viewer = await budget(await member("viewer", "198.18.9.5"));
+    for (const key of split) expect(viewer).not.toHaveProperty(key);
+    // The fields viewers had before stay as they were (a follow-up).
+    expect(Object.keys(viewer).sort()).toEqual(
+      ["dailyLimitMicros", "monthlyLimitMicros", "reservedMicros", "spentMicros"],
+    );
+    expect(viewer.reservedMicros).toBe(editor.reservedMicros);
+  });
 });

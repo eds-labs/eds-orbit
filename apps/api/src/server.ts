@@ -898,13 +898,19 @@ export async function buildServer(
           : [],
         jobs: await list(tx, scope, "jobs"),
         budget: {
-          periodStart: month.periodStart,
           // Open this month: in flight + stale + unclear.
           reservedMicros: month.reservedMicros,
           spentMicros: month.settledMicros,
-          inFlightMicros: month.inFlightMicros,
-          staleMicros: month.staleMicros,
-          unknownMicros: month.unknownMicros,
+          // The split is for owners and editors only, the level of
+          // /ai-cost (ruling R26 hides AI spend from viewers).
+          ...(can(scope, PROJECT_WRITE)
+            ? {
+                periodStart: month.periodStart,
+                inFlightMicros: month.inFlightMicros,
+                staleMicros: month.staleMicros,
+                unknownMicros: month.unknownMicros,
+              }
+            : {}),
           // The platform's spending authority wins (ADR 0015).
           dailyLimitMicros:
             platformLimits?.dailyBudgetMicros ??

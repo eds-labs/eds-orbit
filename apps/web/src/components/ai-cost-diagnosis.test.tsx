@@ -158,7 +158,7 @@ describe("the operations band", () => {
     expect(operationsBudget(budget, "en").split).toBe(
       "in flight $0.10 · stale $0.20 · unclear $0.10",
     );
-    // An older API without the split keeps the totals only.
+    // A viewer (no split since R26) or an older API keeps the totals only.
     expect(
       operationsBudget({ reservedMicros: 5, spentMicros: 0 }, "en"),
     ).toMatchObject({ since: null, split: null });
