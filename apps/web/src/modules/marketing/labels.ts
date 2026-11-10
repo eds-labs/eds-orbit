@@ -124,8 +124,9 @@ const en = {
     showReplaced: (n: number) => `Show replaced versions (${n})`,
     replaced: "Replaced",
     variants: (n: number) => `${n} channels`,
-    expand: (title: string) => `Show the channels of ${title}`,
+    expand: (title: string) => `show the channels of ${title}`,
     open: (title: string) => `Open ${title}`,
+    openColumn: "Open",
   },
   approvals: {
     open: "Open actions",
@@ -289,6 +290,7 @@ const de: MarketingText = {
     variants: (n: number) => `${n} Kanäle`,
     expand: (title: string) => `Kanäle von ${title} anzeigen`,
     open: (title: string) => `${title} öffnen`,
+    openColumn: "Öffnen",
   },
   approvals: {
     open: "Offene Aktionen",

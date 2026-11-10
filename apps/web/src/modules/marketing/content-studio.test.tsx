@@ -122,7 +122,14 @@ describe("Content Studio groups (WP3)", () => {
     expect(html.match(/>Familienabend</g)).toHaveLength(1);
     expect(html).toContain("2 Kanäle");
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain("Kanäle von Familienabend anzeigen");
+    // The button's name keeps its visible words and says what it opens.
+    expect(html).toContain(
+      '2 Kanäle<span class="sr-only">: Kanäle von Familienabend anzeigen</span>',
+    );
+    // The toggle carries both platforms' marks.
+    expect(html).toMatch(
+      /platform-mark-facebook.*platform-mark-instagram.*2 Kanäle/,
+    );
     // Both variant statuses stay visible on the group row.
     expect(html.match(/Geprüft/g)?.length).toBe(2);
     // A Postiz channel by name with its platform and mark.

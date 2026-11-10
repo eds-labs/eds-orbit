@@ -7,6 +7,7 @@ import { fieldLabel } from "@/lib/field-text";
 import { Badge, Button, Status } from "@/components/ui/primitives";
 import { baseContentId } from "./approval-lists";
 import { ChannelLabel, channelInfo, type ChannelEntry } from "./channel-names";
+import { PlatformMark } from "@/platform/ui/platform-mark";
 import { marketingText } from "./labels";
 
 // Content Studio rows (WP3, 2026-11-10): one row per post with its channel
@@ -87,7 +88,7 @@ export function ContentGroupRows({
             <th scope="col">{fieldLabel(locale, "status")}</th>
             <th scope="col">{fieldLabel(locale, "updatedAt")}</th>
             <th scope="col">
-              <span className="sr-only">{words.open("")}</span>
+              <span className="sr-only">{words.openColumn}</span>
             </th>
           </tr>
         </thead>
@@ -121,7 +122,6 @@ export function ContentGroupRows({
                         size="sm"
                         className="content-group-toggle"
                         aria-expanded={expanded}
-                        aria-label={words.expand(name)}
                         onClick={() =>
                           setOpen((ids) =>
                             expanded
@@ -131,7 +131,17 @@ export function ContentGroupRows({
                         }
                       >
                         {expanded ? <ChevronDown /> : <ChevronRight />}
+                        {group.variants.map((row) => (
+                          <PlatformMark
+                            key={row.id}
+                            platform={
+                              channelInfo(row.data.channel, channels, locale)
+                                .platform
+                            }
+                          />
+                        ))}
                         {words.variants(group.variants.length)}
+                        <span className="sr-only">: {words.expand(name)}</span>
                       </Button>
                     ) : (
                       channel(group.lead)
