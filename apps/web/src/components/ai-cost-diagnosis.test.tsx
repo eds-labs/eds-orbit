@@ -6,10 +6,12 @@ import {
   diagnosisVisible,
   settleBody,
   settleFields,
+  settleReady,
   type ReservationItem,
   type ReservationPage,
 } from "./ai-cost-diagnosis";
 import { operationsBudget, operationsText } from "./operations-text";
+import { DataForm } from "@/platform/ui/form";
 
 const item = (over: Partial<ReservationItem>): ReservationItem => ({
   id: "r1",
@@ -111,16 +113,45 @@ describe("AI cost diagnosis (WP2 C)", () => {
       confirm: true,
     });
     const fields = settleFields(diagnosisText("en"));
-    expect(fields.map((f) => [f.name, f.required ?? false])).toEqual([
-      ["reason", true],
-      ["note", false],
-      ["confirm", true],
+    // One note field, optional for a checked invoice or dashboard and
+    // required for another reason.
+    expect(fields.map((f) => [f.name, f.required ?? false, f.showWhen?.values ?? null])).toEqual([
+      ["reason", true, null],
+      ["note", false, ["provider_invoice_checked", "provider_dashboard_checked"]],
+      ["note", true, ["other"]],
+      ["confirm", true, null],
     ]);
     expect(fields[0]!.options!.map((o) => o.value)).toEqual([
       "provider_invoice_checked",
       "provider_dashboard_checked",
       "other",
     ]);
+  });
+
+  it("keeps the action disabled for another reason until a note is given", () => {
+    expect(settleReady({ reason: "provider_invoice_checked", note: "", confirm: true })).toBe(true);
+    expect(settleReady({ reason: "other", note: "", confirm: true })).toBe(false);
+    expect(settleReady({ reason: "other", note: "   ", confirm: true })).toBe(false);
+    expect(settleReady({ reason: "other", note: "Checked by phone", confirm: true })).toBe(true);
+    const t = diagnosisText("de");
+    const form = (reason: string) =>
+      renderToStaticMarkup(
+        <DataForm
+          fields={settleFields(t).map((f) => (f.name === "reason" ? { ...f, value: reason } : f))}
+          pending={false}
+          submitLabel={t.submit}
+          canSubmit={settleReady}
+          onSubmit={() => {}}
+        />,
+      );
+    const other = form("other");
+    expect(other).toContain(t.noteRequired);
+    expect(other).toContain(t.noteRequiredHint);
+    expect(other).toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
+    const invoice = form("provider_invoice_checked");
+    expect(invoice).toContain(t.note);
+    expect(invoice).not.toContain(t.noteRequiredHint);
+    expect(invoice).not.toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
   });
 
   it("shows nothing without open rows or unclear amounts", () => {

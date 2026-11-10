@@ -184,7 +184,7 @@ describe.skipIf(!enabled)("settle-unknown-reservations", () => {
     expect(JSON.stringify(entry!.metadata)).not.toContain("invoice for");
   });
 
-  it("needs ids, a known reason and confirm:true", async () => {
+  it("needs ids, a known reason, a note for other and confirm:true", async () => {
     const a = await reservation("unknown", 100_000, new Date());
     for (const input of [
       {},
@@ -198,8 +198,18 @@ describe.skipIf(!enabled)("settle-unknown-reservations", () => {
       valid(["not-a-uuid"]),
     ])
       await expect(settle(input)).rejects.toThrow();
+    // "Other" needs a note that is not blank: a validation error naming it.
+    for (const note of [undefined, "", "   "])
+      await expect(settle(valid([a.id], { reason: "other", note }))).rejects.toMatchObject({
+        name: "ZodError",
+        issues: [expect.objectContaining({ code: "custom", path: ["note"], message: "SETTLE_NOTE_REQUIRED" })],
+      });
     expect((await rows()).get(a.id)!.state).toBe("unknown");
     expect(await audits()).toHaveLength(0);
+    // With a note it settles; only the note's length is audited.
+    await settle(valid([a.id], { reason: "other", note: " Checked by phone " }));
+    expect((await rows()).get(a.id)!.state).toBe("settled");
+    expect((await audits())[0]!.metadata).toMatchObject({ reason: "other", noteLength: 16 });
   });
 
   it("refuses rows in flight, settled or released and changes nothing", async () => {

@@ -10,7 +10,12 @@ import {
   when,
 } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import {
+  DataForm,
+  str,
+  type FormField,
+  type FormValues,
+} from "@/platform/ui/form";
 import { Alert, Badge, Button, Modal } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 
@@ -113,6 +118,9 @@ const texts = {
     },
     note: "Note (optional, up to 300 characters)",
     noteHint: "Orbit records only that a note was given (its length), not its text.",
+    noteRequired: "Note (required for another reason, up to 300 characters)",
+    noteRequiredHint:
+      "Say what you checked: the action stays disabled until a note is given. Orbit records only its length, not its text.",
     confirm: "I checked the provider's billing for these reservations.",
     submit: "Take over as settled",
     settledNotice: (n: number) => `${n} ${n === 1 ? "reservation" : "reservations"} taken over as settled.`,
@@ -173,6 +181,9 @@ const texts = {
     },
     note: "Notiz (optional, bis 300 Zeichen)",
     noteHint: "Orbit speichert nur, dass eine Notiz gegeben wurde (ihre Länge), nicht ihren Text.",
+    noteRequired: "Notiz (bei anderem Grund nötig, bis 300 Zeichen)",
+    noteRequiredHint:
+      "Beschreibe, was du geprüft hast: ohne Notiz bleibt die Übernahme gesperrt. Orbit speichert nur ihre Länge, nicht ihren Text.",
     confirm: "Ich habe die Abrechnung des Anbieters für diese Reservierungen geprüft.",
     submit: "Als abgerechnet übernehmen",
     settledNotice: (n: number) =>
@@ -327,8 +338,14 @@ export function AiCostDiagnosisView({
   );
 }
 
-/** The fields of the settle confirmation: reason, note, explicit confirmation. */
+/**
+ * The fields of the settle confirmation: reason, note, explicit
+ * confirmation. The note is optional for a checked invoice or dashboard
+ * and required for another reason (one field, its label and hint follow
+ * the reason).
+ */
 export function settleFields(t: DiagnosisText): FormField[] {
+  const checked = SETTLE_REASONS.filter((reason) => reason !== "other");
   return [
     {
       name: "reason",
@@ -338,9 +355,30 @@ export function settleFields(t: DiagnosisText): FormField[] {
       value: "provider_invoice_checked",
       options: SETTLE_REASONS.map((value) => ({ value, label: t.reasons[value] })),
     },
-    { name: "note", label: t.note, type: "textarea", hint: t.noteHint },
+    {
+      name: "note",
+      label: t.note,
+      type: "textarea",
+      hint: t.noteHint,
+      max: 300,
+      showWhen: { name: "reason", values: [...checked] },
+    },
+    {
+      name: "note",
+      label: t.noteRequired,
+      type: "textarea",
+      hint: t.noteRequiredHint,
+      max: 300,
+      required: true,
+      showWhen: { name: "reason", values: ["other"] },
+    },
     { name: "confirm", label: t.confirm, type: "checkbox", required: true, value: false },
   ];
+}
+
+/** Whether the form may be sent: another reason needs a note that is not blank. */
+export function settleReady(values: FormValues) {
+  return str(values, "reason") !== "other" || str(values, "note") !== "";
 }
 
 export function AiCostDiagnosis() {
@@ -417,10 +455,12 @@ export function AiCostDiagnosis() {
             pending={mutation.pending}
             error={mutation.error}
             submitLabel={t.submit}
+            canSubmit={settleReady}
             onCancel={() => setConfirming(false)}
             onSubmit={(values) =>
-              // The server needs confirm:true; it is sent only once checked.
-              values.confirm !== true
+              // The server needs confirm:true; it is sent only once checked,
+              // and another reason only with a note.
+              values.confirm !== true || !settleReady(values)
                 ? undefined
                 : mutation
                 .run(() =>

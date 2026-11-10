@@ -58,11 +58,20 @@ export const settleUnknownReservationsInput = z
   .object({
     reservationIds: z.array(z.uuid()).min(1).max(100),
     reason: z.enum(SETTLE_REASONS),
-    /** The owner's own note; only its length is audited. */
+    /** The owner's own note; only its length is audited. Required for `other`. */
     note: z.string().trim().max(300).optional(),
     confirm: z.literal(true),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    // "Other" says nothing by itself: the owner names what was checked.
+    if (value.reason === "other" && !value.note)
+      ctx.addIssue({
+        code: "custom",
+        path: ["note"],
+        message: "SETTLE_NOTE_REQUIRED",
+      });
+  });
 
 /** The platform's project actions (WP2.1f), moved unchanged from server.ts. */
 export const platformActions: Record<string, ActionHandler> = {
