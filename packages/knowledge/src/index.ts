@@ -37,7 +37,11 @@ export * from "./credentials.js";
 export * from "./extract.js";
 export * from "./indexes.js";
 export * from "./freshness.js";
-import { getActiveIndex, assertActiveEmbeddingProfile } from "./indexes.js";
+import {
+  getActiveIndex,
+  assertActiveEmbeddingProfile,
+  evidenceOriginEvaluated,
+} from "./indexes.js";
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 const where = (s: Scope) => ({
@@ -910,7 +914,13 @@ export async function validateEvidence(
   const d = e.data as unknown as EvidenceData;
   const reasons: string[] = [];
   const point = new Date(at);
-  if (d.indexId && (await getActiveIndex(tx, s)).id !== d.indexId)
+  // Another generation is fine when it was live-evaluated at creation; the
+  // item checks below still cover every change to what the evidence cites.
+  if (
+    d.indexId &&
+    (await getActiveIndex(tx, s)).id !== d.indexId &&
+    !(await evidenceOriginEvaluated(tx, s, d.indexId, d.createdAt))
+  )
     reasons.push("index_generation_changed");
   if (d.status !== "ready" || d.purpose !== "public")
     reasons.push("evidence_not_public_ready");

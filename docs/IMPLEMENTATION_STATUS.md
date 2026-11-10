@@ -1,5 +1,14 @@
 # Implementation status
 
+## Knowledge: evidence survives index activation (2026-11-10, branch `claude/live-rag-eval-error-3b5651`; delivered to `main`, not live-accepted)
+
+Spec [2026-11-10-evidence-across-index-generations-design.md](superpowers/specs/2026-11-10-evidence-across-index-generations-design.md), plan [2026-11-10-evidence-across-index-generations.md](superpowers/plans/2026-11-10-evidence-across-index-generations.md). Risk medium: relaxes a shared integrity check; no schema, migration, provider call or flag.
+
+- **Cause:** on 2026-11-10 activating FamilyPlan index generation 5 made every pending draft fail with `EVIDENCE_INVALID` (`index_generation_changed`), although nothing it cited had changed.
+- **Change:** `validateEvidence` accepts evidence from a non-active generation when `evidenceOriginEvaluated` holds (passed, `live`, own manifest, at most 30 days old at creation). Item checks and the `LIVE_RAG_EVAL_REQUIRED` publication gate are unchanged.
+- **Verification (local, this worktree's own test database, implementation `199ef870`):** new integration test with 11 cases (switch, rollback, broken citation, expired, later or malformed evaluation, other manifest, synthetic, undated evidence, unknown origin) RED before and GREEN after the change; marketing, knowledge, `rls-matrix` and `access-matrix` suites 516/516; whole vitest suite 582 files passed, 1 skipped, 6,731 tests passed, 7 skipped, 0 failed; `pnpm lint` (import boundaries 0 known, none new), `pnpm typecheck` and `pnpm build` pass. Independent review: no critical findings. Known edge: evidence created while the active generation's evaluation had expired fails after the next activation (open owner decision).
+- **Production:** not changed; a push to `main` needs Mario's approval (no schema hash needed).
+
 ## Marketing, Social, AI budget and project UX consolidation (2026-11-10, branch `claude/eds-orbit-tasks-13129a`; on `main` `6789f835` and deployed 2026-11-10 18:56 UTC, not live-accepted)
 
 Plan, findings and decisions: [plans/2026-11-10-marketing-social-budget-consolidation.md](plans/2026-11-10-marketing-social-budget-consolidation.md) (owner task package of 2026-11-09 with eight FamilyPlan screenshots). Risk high (AI cost and settlement, authorization of new reads, publishing readiness), no migration, no new dependency, no flag. Environment: local; nothing changed in production.

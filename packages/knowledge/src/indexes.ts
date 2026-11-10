@@ -499,6 +499,41 @@ function currentEvaluationConfig(
     at.getTime() - when <= EVALUATION_MAX_AGE_MS,
   );
 }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * Whether evidence retrieved from `indexId`, which is no longer the active
+ * generation, still came from a quality-gated retriever: that generation's
+ * stored evaluation passed, is live, belongs to its manifest and was at most
+ * 30 days old when the evidence was created. Malformed or missing records
+ * fail closed. `activatedAt` is not checked because a rollback overwrites it.
+ * Spec: docs/superpowers/specs/2026-11-10-evidence-across-index-generations-design.md
+ */
+export async function evidenceOriginEvaluated(
+  tx: DbTx,
+  s: Scope,
+  indexId: string,
+  evidenceCreatedAt: string,
+): Promise<boolean> {
+  if (!UUID.test(indexId)) return false;
+  const origin = await tx.knowledgeIndex.findFirst({
+    where: { ...where(s), id: indexId },
+  });
+  const e = origin?.evaluation as Record<string, unknown> | null | undefined;
+  const created =
+    typeof evidenceCreatedAt === "string" ? Date.parse(evidenceCreatedAt) : NaN;
+  const executed =
+    typeof e?.executedAt === "string" ? Date.parse(e.executedAt) : NaN;
+  return Boolean(
+    origin &&
+    e?.passed === true &&
+    e.provenance === "live" &&
+    e.manifestHash === origin.manifestHash &&
+    Number.isFinite(created) &&
+    Number.isFinite(executed) &&
+    executed <= created &&
+    created - executed <= EVALUATION_MAX_AGE_MS,
+  );
+}
 /** Runtime release gate: actual current corpus/config/receipts, never an environment assertion. */
 export async function validateActiveIndexEvaluation(
   tx: DbTx,
