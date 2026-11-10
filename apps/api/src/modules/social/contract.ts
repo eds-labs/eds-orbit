@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { effectiveRole } from "../../platform/tenancy/module-roles.ts";
 import { localOf } from "../../platform/time/zoned-time.ts";
 import { audit, DomainError } from "../../shared.ts";
 import type { SocialPlatform } from "./accounts/store.ts";
@@ -62,11 +63,14 @@ export async function socialChannels(
  * Every account of the project as a `social:<accountId>` channel, the
  * disconnected ones marked: names for content that already refers to them.
  * Read-only; a disconnected account never becomes a channel again here.
+ * Empty while Social is off for the project or the member's Social role is
+ * `none`: another module's read never reveals Social's handles.
  */
 export async function socialChannelDirectory(
   tx: DbTx,
   scope: Scope,
 ): Promise<Array<{ id: string; platform: SocialPlatform; handle: string; disabled: boolean }>> {
+  if (effectiveRole(scope, "social") === "none" || !(await socialActive(tx, scope))) return [];
   const rows = await tx.socialAccount.findMany({
     where: { projectId: scope.projectId },
     select: { id: true, platform: true, handle: true, status: true },

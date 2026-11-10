@@ -419,6 +419,36 @@ describe.skipIf(!enabled)("marketing publishing through Social", () => {
       }
     });
 
+    it("leaves Social's accounts out while Social is off or the member's Social role is none", async () => {
+      const social = (entries: Array<{ source: string }>) => entries.filter((e) => e.source === "social");
+      const postizOnly = (entries: Array<{ source: string }>) => entries.filter((e) => e.source === "postiz");
+      const full = await run((tx) => channelDirectory(tx, project.viewer));
+      expect(social(full)).not.toEqual([]);
+      // Hidden from a member whose Social role is none; Postiz names stay.
+      const hidden = await run((tx) => channelDirectory(tx, { ...project.viewer, moduleRoles: { social: "none" } }));
+      expect(social(hidden)).toEqual([]);
+      expect(hidden).toEqual(postizOnly(full));
+      expect(JSON.stringify(hidden)).not.toContain("@orbit_x");
+      // An owner always keeps the role.
+      expect(social(await run((tx) => channelDirectory(tx, { ...project.owner, moduleRoles: { social: "none" } })))).not.toEqual([]);
+      // Off for the installation or for the project.
+      delete process.env.ORBIT_SOCIAL;
+      try {
+        expect(social(await run((tx) => channelDirectory(tx, project.owner)))).toEqual([]);
+      } finally {
+        process.env.ORBIT_SOCIAL = "true";
+      }
+      const where = { workspaceId_projectId_moduleId: { workspaceId: project.owner.workspaceId, projectId: project.owner.projectId, moduleId: "social" } };
+      await run((tx) => tx.projectModule.update({ where, data: { enabled: false } }));
+      try {
+        const off = await run((tx) => channelDirectory(tx, project.owner));
+        expect(social(off)).toEqual([]);
+        expect(off).toEqual(postizOnly(full));
+      } finally {
+        await run((tx) => tx.projectModule.update({ where, data: { enabled: true } }));
+      }
+    });
+
     it("lists the project's Social accounts as assignable policy channels on the Social backend only", async () => {
       const ids = async () => (await run((tx) => readPolicy(tx, project.owner))).options.channels.map((c: { id: string }) => c.id);
       expect(await ids()).not.toContain(`social:${accountId}`);
