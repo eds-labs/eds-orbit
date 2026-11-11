@@ -5,8 +5,8 @@ import {
   needsAdministratorConfirmation,
 } from "@/platform/administration/organization-manager";
 import { resolveSection, validateSections, visibleSections } from "../registry";
-import { AiLinkPanel } from "./ai-link";
-import { adminLinkInCenter, systemSections } from "./system";
+import type { Identity } from "@/lib/api";
+import { adminLinkInCenter, SYSTEM_AI_SETTINGS_HREF, systemSections } from "./system";
 
 describe("system scope", () => {
   it("registers valid sections", () => {
@@ -112,11 +112,18 @@ describe("system scope", () => {
   });
 
   it("points AI settings to the current page, in both languages", () => {
-    const en = renderToStaticMarkup(<AiLinkPanel href="/admin/ai" locale="en" />);
+    expect(SYSTEM_AI_SETTINGS_HREF).toBe("/admin/ai");
+    const ai = systemSections.find((s) => s.area === "ai" && s.id === "overview")!;
+    const props = {
+      scope: { kind: "system" } as const,
+      identity: {} as Identity,
+      hrefOf: () => "",
+    };
+    const en = renderToStaticMarkup(<ai.component {...props} locale="en" />);
     expect(en).toContain("AI standards, models and prices are still edited");
-    expect(en).toContain('href="/admin/ai"');
+    expect(en).toContain(`href="${SYSTEM_AI_SETTINGS_HREF}"`);
     expect(en).toContain("Open AI settings");
-    const de = renderToStaticMarkup(<AiLinkPanel href="/admin/ai" locale="de" />);
+    const de = renderToStaticMarkup(<ai.component {...props} locale="de" />);
     expect(de).toContain("KI-Einstellungen öffnen");
   });
 });

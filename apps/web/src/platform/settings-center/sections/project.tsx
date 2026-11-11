@@ -21,7 +21,10 @@ import {
 } from "@/platform/project-settings/project-configuration";
 import { groupedModules } from "@/platform/shell/nav-groups";
 import { ShellContext } from "@/platform/shell/shell-context";
-import { settingsSectionHref } from "@/platform/shell/settings-nav";
+import {
+  platformSettingsTabs,
+  settingsSectionHref,
+} from "@/platform/shell/settings-nav";
 import { ResourceError } from "@/platform/ui/collection";
 import { adaptModuleSections, visibleSections } from "../registry";
 import { backLink, scopeTitle } from "../scope-links";
@@ -40,15 +43,10 @@ import { AiLinkPanel } from "./ai-link";
  * section on one of them (webmail on "integrations") becomes the module's
  * own "settings" section.
  */
-export const PLATFORM_TAB_KEYS = [
-  "project",
-  "members",
-  "integrations",
-  "ai",
-  "retention",
-  "modules",
-  "apps",
-] as const;
+export const PLATFORM_TAB_KEYS: readonly string[] = platformSettingsTabs({
+  isOwner: true,
+  connectedApps: true,
+}).map((tab) => tab.key);
 
 function SummarySection() {
   const { project, revision } = useWorkspace();
@@ -95,10 +93,13 @@ function ConnectionsSection() {
   return <Connectors embedded />;
 }
 
+/** The AI section of the project's settings page, where the forms stay for now. */
+export const projectAiSettingsHref = (settingsHref: string) =>
+  settingsSectionHref(settingsHref, "ai");
+
 function AiSection({ locale }: SectionProps) {
   const shell = useContext(ShellContext);
-  // The AI forms stay on the project settings page for now.
-  const href = settingsSectionHref(shell?.hrefOf("settings") ?? "", "ai");
+  const href = projectAiSettingsHref(shell?.hrefOf("settings") ?? "");
   return <AiLinkPanel href={href} locale={locale} />;
 }
 

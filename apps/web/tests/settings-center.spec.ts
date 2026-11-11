@@ -280,6 +280,8 @@ test.describe("settings center", () => {
       ["/admin", "Administration", 1],
       [`/o/${org().id}/settings`, org().name, 2],
       [`/p/${project().id}/settings?section=members`, /.+/, 1],
+      // Connectors renders embedded in the center; its own page keeps its head.
+      [`/p/${project().id}/connectors`, "Connectors", 1],
       ["/account", /.+/, 1],
     ];
     for (const [url, name, level] of pages) {

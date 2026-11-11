@@ -94,8 +94,11 @@ function ConnectionsSection({ locale }: SectionProps) {
   return <Integrations locale={locale} />;
 }
 
+/** The page where the system's AI settings are still edited. */
+export const SYSTEM_AI_SETTINGS_HREF = adminHref("ai");
+
 function AiSection({ locale }: SectionProps) {
-  return <AiLinkPanel href={adminHref("ai")} locale={locale} />;
+  return <AiLinkPanel href={SYSTEM_AI_SETTINGS_HREF} locale={locale} />;
 }
 
 function McpSection({ locale }: SectionProps) {

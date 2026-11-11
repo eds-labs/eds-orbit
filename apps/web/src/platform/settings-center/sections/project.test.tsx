@@ -11,6 +11,7 @@ import {
   collectSettingsTabs,
   groupSettings,
   platformSettingsTabs,
+  settingsSectionHref,
 } from "@/platform/shell/settings-nav";
 import type { SettingsSection } from "@/platform/shell/types";
 import {
@@ -24,6 +25,7 @@ import { ScopeView } from "../scope-view";
 import type { ManagementCapabilities, ManageScope, ManageTarget } from "../types";
 import {
   PLATFORM_TAB_KEYS,
+  projectAiSettingsHref,
   projectModuleSections,
   projectSections,
   ProjectScopeView,
@@ -112,16 +114,19 @@ describe("project scope", () => {
     expect(keys([])).toEqual([]);
   });
 
-  it("names the platform's own setting tabs", () => {
-    expect(PLATFORM_TAB_KEYS).toEqual([
-      "project",
-      "members",
-      "integrations",
-      "ai",
-      "retention",
-      "modules",
-      "apps",
-    ]);
+  it("names every tab the platform's settings page can offer", () => {
+    const offered = platformSettingsTabs({ isOwner: true, connectedApps: true });
+    for (const tab of offered) expect(PLATFORM_TAB_KEYS).toContain(tab.key);
+    expect(PLATFORM_TAB_KEYS).toHaveLength(offered.length);
+  });
+
+  it("points AI settings to the AI section of the project's settings page", () => {
+    expect(projectAiSettingsHref("/p/a%2Fb/settings")).toBe(
+      settingsSectionHref("/p/a%2Fb/settings", "ai"),
+    );
+    expect(projectAiSettingsHref("/p/a%2Fb/settings")).toBe(
+      "/p/a%2Fb/settings?section=ai",
+    );
   });
 });
 
@@ -423,6 +428,16 @@ describe("ProjectScopeView", () => {
     expect(page.indexOf("alpha-notice")).toBeLessThan(page.indexOf("alpha-content"));
     expect(page).toContain("<h2>Alpha tab</h2>");
     expect(page).toContain("<p>About alpha</p>");
+  });
+
+  it("links its AI section to the project's own settings page", () => {
+    const ai = projectSections.find((s) => s.area === "ai" && s.id === "overview")!;
+    const page = renderToStaticMarkup(
+      <ShellContext.Provider value={shell}>
+        <ai.component scope={scope} locale="en" identity={props.identity} hrefOf={() => ""} />
+      </ShellContext.Provider>,
+    );
+    expect(page).toContain(`href="${projectAiSettingsHref("/p/p1/settings")}"`);
   });
 
   it("lets an unknown module address fall to not available", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { Identity } from "@/lib/api";
 import { validateSections, visibleSections } from "../registry";
 import { AiLinkPanel } from "./ai-link";
 import {
@@ -46,15 +47,24 @@ describe("organization scope", () => {
       expect(forbidden).not.toContain(s.id);
     // The pointer panel is the only AI content besides the read-only usage.
     const html = renderToStaticMarkup(
-      <AiLinkPanel href="/o/x/settings" locale="en" />,
+      <AiLinkPanel href={organizationPaths("x").aiSettings} locale="en" />,
     );
     expect(html).not.toContain("<form");
   });
 
   it("links the AI panel to the organization's settings page with an encoded id", () => {
+    const ai = organizationSections.find(
+      (s) => s.area === "ai" && s.id === "overview",
+    )!;
     const html = renderToStaticMarkup(
-      <AiLinkPanel href="/o/a%2Fb/settings" locale="en" />,
+      <ai.component
+        scope={{ kind: "organization", organizationId: "a/b" }}
+        locale="en"
+        identity={{} as Identity}
+        hrefOf={() => ""}
+      />,
     );
+    expect(html).toContain(`href="${organizationPaths("a/b").aiSettings}"`);
     expect(html).toContain('href="/o/a%2Fb/settings"');
   });
 
