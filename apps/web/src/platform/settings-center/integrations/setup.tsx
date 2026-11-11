@@ -4,7 +4,7 @@ import { useContext, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { collectionPath, useResource, type Entity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
-import { Button, Empty } from "@/components/ui/primitives";
+import { Badge, Button, Empty } from "@/components/ui/primitives";
 import { GrantedConnections } from "@/components/granted-connections";
 import { useWorkspace } from "@/components/workspace-context";
 import { Integrations } from "@/platform/administration/admin-area";
@@ -99,34 +99,33 @@ export function SetupStepsView({
   return (
     <section className="integration-setup">
       <h2>{labelOf(entry, locale)}</h2>
-      <ol aria-label={text("setupTitle")}>
+      <ol className="setup-steps" aria-label={text("setupTitle")}>
         {steps.map((s, index) => {
           const label = text(STEP_LABEL[s.id]);
           const who = text(WHO_LABEL[s.who]);
           const others = s.observable && !s.done && !s.mine;
+          // The status as words; the tone only supports them.
+          const [tone, status] = !s.observable
+            ? (["neutral", text("stepInProject")] as const)
+            : s.done
+              ? (["success", text("stepDone")] as const)
+              : s.mine
+                ? (["blue", text("stepYours")] as const)
+                : (["neutral", `${text("stepOthers")} ${who}`] as const);
           return (
             <li key={s.id} aria-current={index === current ? "step" : undefined}>
-              <strong>{label}</strong>
-              {others ? null : <span> · {who}</span>}{" "}
-              {!s.observable ? (
-                <span>{text("stepInProject")}</span>
-              ) : s.done ? (
-                <span>{text("stepDone")}</span>
-              ) : s.mine ? (
-                <span>{text("stepYours")}</span>
-              ) : (
-                <span>
-                  {text("stepOthers")} {who}
-                  {s.href ? (
-                    <>
-                      {" "}
-                      <Link href={s.href} aria-label={`${text("openStep")}: ${label}`}>
-                        {text("openStep")}
-                      </Link>
-                    </>
-                  ) : null}
-                </span>
-              )}
+              <span className="setup-step-text">
+                <strong>{label}</strong>
+                {others ? null : <span className="setup-step-who">{who}</span>}
+              </span>
+              <span className="setup-step-status">
+                <Badge tone={tone}>{status}</Badge>
+                {s.href ? (
+                  <Link href={s.href} aria-label={`${text("openStep")}: ${label}`}>
+                    {text("openStep")}
+                  </Link>
+                ) : null}
+              </span>
             </li>
           );
         })}
@@ -137,7 +136,7 @@ export function SetupStepsView({
           {text("refreshState")}
         </Button>
       ) : null}
-      {workbench}
+      <div className="integration-setup-workbench">{workbench}</div>
     </section>
   );
 }

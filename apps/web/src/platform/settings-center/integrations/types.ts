@@ -73,6 +73,12 @@ export type EnvironmentStatus = {
   connectionsCutover: string[];
 };
 
+/**
+ * Why a card has no Manage link: the server environment sets it, another
+ * scope's central connections manage it, or a module owns it.
+ */
+export type ManageNote = "module" | "organization" | "server";
+
 /** One record shown on a card. */
 export type CardRecord = {
   key: string;

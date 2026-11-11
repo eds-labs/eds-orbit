@@ -10,6 +10,7 @@ import {
   environmentRows,
   gate,
   manageHrefOf,
+  manageNote,
   organizationRecords,
   OrganizationCatalog,
   OrganizationProjects,
@@ -77,8 +78,16 @@ const ORG_OWNER = capsOf({
 const ADMIN_CAPS = capsOf({ system: ["system.overview", "system.connections"] });
 
 describe("setupHrefOf", () => {
+  // Social shown with its accounts section; Marketing contributes postiz to Connectors.
   const href = (id: string, scope: ManageScope, caps: ManagementCapabilities | undefined) =>
-    setupHrefOf(byId(id), { entries: catalog, scope, hrefOf: hrefIn(scope), caps });
+    setupHrefOf(byId(id), {
+      entries: catalog,
+      scope,
+      hrefOf: hrefIn(scope),
+      caps,
+      moduleSections: [{ id: "social/accounts", providers: ["social.account.x"] }],
+      connectorProviders: scope.kind === "project" ? ["postiz"] : [],
+    });
 
   it("offers set up in a project only to a member with a step of their own", () => {
     for (const id of ["postiz", "social.account.x", "email"]) {
@@ -98,6 +107,23 @@ describe("setupHrefOf", () => {
     expect(href("openai", organization, ORG_OWNER)).toBe("/manage/o/w1/integrations/setup/openai");
     expect(href("openai", organization, asProject("owner"))).toBeNull();
     expect(href("openai", system, ORG_OWNER)).toBeNull();
+  });
+
+  it("offers set up in a project only where the setup page has a place to act", () => {
+    // Project-only and no page here manages it: the setup page would show nothing to do.
+    expect(href("knowledge_github", project, ORG_OWNER)).toBeNull();
+    expect(href("knowledge_github", project, asProject("owner"))).toBeNull();
+    // Central storage: the grant and bind path is on the setup page.
+    expect(href("postiz", project, ORG_OWNER)).toBe("/manage/p/p1/integrations/setup/postiz");
+    expect(href("email", project, asProject("owner"))).toBe("/manage/p/p1/integrations/setup/email");
+    // Marketing hidden still leaves postiz its central path.
+    expect(
+      setupHrefOf(byId("postiz"), { entries: catalog, scope: project, hrefOf: hrefIn(project), caps: ORG_OWNER, moduleSections: [], connectorProviders: [] }),
+    ).toBe("/manage/p/p1/integrations/setup/postiz");
+    // Social hidden: project-only and nothing manages it here.
+    expect(
+      setupHrefOf(byId("social.account.x"), { entries: catalog, scope: project, hrefOf: hrefIn(project), caps: ORG_OWNER, moduleSections: [], connectorProviders: [] }),
+    ).toBeNull();
   });
 
   it("never offers what the scope cannot set up", () => {
@@ -248,7 +274,44 @@ describe("manageHrefOf", () => {
     // Project-only storage is never managed centrally.
     expect(manageHrefOf(byId("social.account.x"), ctx(organization, []))).toBeNull();
   });
-  // A null link renders managedInModule and no Manage link: provider-card.test.tsx.
+  // A null link renders the note of manageNote and no Manage link: provider-card.test.tsx.
+});
+
+describe("manageNote", () => {
+  const ctx = (scope: ManageScope, moduleSections: ReadonlyArray<{ id: string; providers?: readonly string[] }> = []) => ({
+    scope,
+    hrefOf: hrefIn(scope),
+    moduleSections,
+    connectorProviders: scope.kind === "project" ? ["postiz"] : [],
+  });
+  const issuesWebhook = entry({ id: "issues_webhook", category: "development", authType: "webhook_secret", scopes: ["project"], storage: ["project"], owner: "issues" });
+
+  it("names why a card has no Manage link, per scope", () => {
+    // Set on the server: the installation's environment.
+    expect(manageNote(byId("system_mail"), ctx(system))).toBe("server");
+    // A central-only entry in a project is the organization's.
+    expect(manageNote(byId("openai"), ctx(project))).toBe("organization");
+    // An organization-only provider seen from the system.
+    expect(manageNote(byId("n8n"), ctx(system))).toBe("organization");
+    // Module-owned, no section here.
+    expect(manageNote(issuesWebhook, ctx(project))).toBe("module");
+    expect(manageNote(byId("knowledge_github"), ctx(project))).toBe("module");
+    expect(manageNote(byId("social.account.x"), ctx(project))).toBe("module");
+  });
+
+  it("is null exactly where a Manage link exists", () => {
+    for (const scope of [system, organization, project])
+      for (const e of catalog) {
+        const sections = [{ id: "social/accounts", providers: ["social.account.x"] }];
+        const link = manageHrefOf(e, ctx(scope, sections));
+        expect(manageNote(e, ctx(scope, sections)) === null, `${e.id} in ${scope.kind}`).toBe(link !== null);
+      }
+  });
+
+  it("does not break on a value of a newer API", () => {
+    const odd = { ...entry({ id: "future" }), storage: "vault", scopes: null } as unknown as CatalogEntry;
+    expect(manageNote(odd, ctx(project))).toBe("module");
+  });
 });
 
 const environment: EnvironmentStatus = {
@@ -272,15 +335,23 @@ const allOff: EnvironmentStatus = {
 
 describe("environment panel", () => {
   it("lists the seven rows", () => {
+    const ok = (text: string) => ({ text, tone: "success" });
+    const off = (text: string) => ({ text, tone: "neutral" });
     expect(environmentRows(environment, "en")).toEqual([
-      { key: "envRedis", label: t("envRedis"), value: `${t("configured")} · ${t("unreachable")}` },
-      { key: "envFiles", label: t("envFiles"), value: t("configured") },
-      { key: "envDriveApp", label: t("envDriveApp"), value: t("missing") },
-      { key: "envAiKeys", label: t("envAiKeys"), value: `OpenAI: ${t("configured")} · Anthropic: ${t("missing")}` },
-      { key: "envKeyRing", label: t("envKeyRing"), value: t("configured") },
-      { key: "envMcp", label: t("envMcp"), value: "oauth, gateway" },
-      { key: "envCutover", label: t("envCutover"), value: "openai, email" },
+      // Configured but not reachable is the one state that needs attention.
+      { key: "envRedis", label: t("envRedis"), value: `${t("configured")} · ${t("unreachable")}`, badges: [ok(t("configured")), { text: t("unreachable"), tone: "danger" }] },
+      { key: "envFiles", label: t("envFiles"), value: t("configured"), badges: [ok(t("configured"))] },
+      { key: "envDriveApp", label: t("envDriveApp"), value: t("missing"), badges: [off(t("missing"))] },
+      { key: "envAiKeys", label: t("envAiKeys"), value: `OpenAI: ${t("configured")} · Anthropic: ${t("missing")}`, badges: [ok(`OpenAI: ${t("configured")}`), off(`Anthropic: ${t("missing")}`)] },
+      { key: "envKeyRing", label: t("envKeyRing"), value: t("configured"), badges: [ok(t("configured"))] },
+      // Lists are names, not states: plain text.
+      { key: "envMcp", label: t("envMcp"), value: "oauth, gateway", badges: [] },
+      { key: "envCutover", label: t("envCutover"), value: "openai, email", badges: [] },
     ]);
+    const reachable = environmentRows({ ...environment, redis: { configured: true, reachable: true } }, "en");
+    expect(reachable[0]!.badges).toEqual([ok(t("configured")), ok(t("reachable"))]);
+    // Not configured and not reachable is just missing, not an error.
+    expect(environmentRows(allOff, "en")[0]!.badges).toEqual([off(t("missing")), off(t("unreachable"))]);
   });
 
   it("says none and missing when everything is off", () => {
@@ -311,6 +382,11 @@ describe("environment panel", () => {
     expect(html).toContain("<dl");
     expect(html.match(/<dt>/g)).toHaveLength(7);
     expect(html).toContain(`<dd>oauth, gateway</dd>`);
+    // Each state is a badge with its word; the list lays out name and state side by side.
+    expect(html).toContain('class="integration-env"');
+    expect(html).toContain(`<span class="badge badge-success">${t("configured")}</span>`);
+    expect(html).toContain(`<span class="badge badge-danger">${t("unreachable")}</span>`);
+    expect(html).toContain(`<span class="badge badge-neutral">Anthropic: ${t("missing")}</span>`);
     const de = integrationText("de");
     const htmlDe = renderToStaticMarkup(<EnvironmentPanel environment={allOff} locale="de" />);
     expect(htmlDe).toContain(`<h2>${de("environmentTitle")}</h2>`);

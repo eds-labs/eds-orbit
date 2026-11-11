@@ -2,7 +2,7 @@
 import { useContext, type ReactNode } from "react";
 import { useResource } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
-import { Loading } from "@/components/ui/primitives";
+import { Badge, Loading } from "@/components/ui/primitives";
 import { at } from "@/platform/administration/texts";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { ResourceError } from "@/platform/ui/collection";
@@ -17,7 +17,7 @@ import { catalogGroups, CatalogView, inScope } from "./catalog";
 import { integrationPaths } from "./paths";
 import { StateBadge } from "./state";
 import { hasOwnStep, setupOffers } from "./steps";
-import { integrationText } from "./texts";
+import { integrationText, type IntegrationTextKey } from "./texts";
 import {
   INTEGRATION_CATEGORIES,
   type CardRecord,
@@ -26,6 +26,7 @@ import {
   type IntegrationAuthType,
   type IntegrationCategory,
   type IntegrationState,
+  type ManageNote,
   type OrganizationIntegrations,
   type ProjectIntegration,
 } from "./types";
@@ -218,55 +219,102 @@ export function manageHrefOf(
   }
 }
 
+type ManageContext = Parameters<typeof manageHrefOf>[1];
+
+/**
+ * Why a card has no Manage link, or null when it has one. Computed from
+ * manageHrefOf so the link and the note cannot disagree (ledger P3-R26 V1):
+ * the server environment sets it; a central connection another scope
+ * manages (central-only in a project, a provider without system scope in the
+ * system) is the organization's; everything else is owned by a module with
+ * no section here.
+ */
+export function manageNote(entry: CatalogEntry, ctx: ManageContext): ManageNote | null {
+  if (manageHrefOf(entry, ctx) !== null) return null;
+  // A value of a newer API must not break the page.
+  const storage: readonly string[] = Array.isArray(entry.storage) ? entry.storage : [];
+  const scopes: readonly string[] = Array.isArray(entry.scopes) ? entry.scopes : [];
+  if (storage.includes("environment")) return "server";
+  const central = storage.includes("central");
+  if (ctx.scope.kind === "project" && central && !storage.includes("project"))
+    return "organization";
+  if (ctx.scope.kind === "system" && central && !scopes.includes("system"))
+    return "organization";
+  return "module";
+}
+
 /**
  * The guided setup of a card: only for what the scope's setup offers, and
- * only for a member with a step of their own there (a viewer gets none). The
+ * only for a member with a step of their own there (a viewer gets none). In
+ * a project the setup page must also have a place to act: the grant and bind
+ * path of a central entry, or a page that manages it (ledger P3-R26 V6). The
  * setup address itself stays open to every member of the scope.
  */
 export function setupHrefOf(
   entry: CatalogEntry,
-  ctx: {
+  ctx: ManageContext & {
     entries: readonly CatalogEntry[];
-    scope: ManageScope;
-    hrefOf(area: string, ...rest: string[]): string;
     caps: ManagementCapabilities | null | undefined;
   },
 ): string | null {
   const offered = setupOffers(ctx.entries, ctx.scope.kind).some((e) => e.id === entry.id);
+  const actionable =
+    ctx.scope.kind !== "project" ||
+    (Array.isArray(entry.storage) && entry.storage.includes("central")) ||
+    manageHrefOf(entry, ctx) !== null;
   // hrefOf encodes every segment (manageHref).
-  return offered && hasOwnStep(entry, ctx.scope, ctx.caps)
+  return offered && actionable && hasOwnStep(entry, ctx.scope, ctx.caps)
     ? ctx.hrefOf("integrations", "setup", entry.id)
     : null;
 }
 
-/** The rows of the environment panel; a missing part reads as off. */
+type EnvironmentBadge = { text: string; tone: "success" | "neutral" | "danger" };
+
+/**
+ * The rows of the environment panel; a missing part reads as off. `value` is
+ * the row as one line; `badges` are its states (empty for a list of names).
+ */
 export function environmentRows(
   environment: EnvironmentStatus,
   locale: Locale,
-): Array<{ key: string; label: string; value: string }> {
+): Array<{ key: string; label: string; value: string; badges: EnvironmentBadge[] }> {
   const text = integrationText(locale);
-  const set = (value: boolean | undefined) => text(value ? "configured" : "missing");
+  const set = (value: boolean | undefined, name?: string): EnvironmentBadge => {
+    const word = text(value ? "configured" : "missing");
+    return { text: name ? `${name}: ${word}` : word, tone: value ? "success" : "neutral" };
+  };
   const list = (values: readonly string[]) =>
     values.length ? values.join(", ") : text("none");
   const mcp = Object.entries(environment.mcp ?? {})
     .filter(([, on]) => on === true)
     .map(([name]) => name);
-  const rows = [
-    [
-      "envRedis",
-      `${set(environment.redis?.configured)} · ${text(environment.redis?.reachable ? "reachable" : "unreachable")}`,
-    ],
-    ["envFiles", set(environment.files?.configured)],
-    ["envDriveApp", set(environment.googleDriveApp?.configured)],
+  const redis = environment.redis;
+  // Only configured but not reachable needs attention; unset is just missing.
+  const reach: EnvironmentBadge = {
+    text: text(redis?.reachable ? "reachable" : "unreachable"),
+    tone: redis?.reachable ? "success" : redis?.configured ? "danger" : "neutral",
+  };
+  const rows: Array<[string, EnvironmentBadge[] | string]> = [
+    ["envRedis", [set(redis?.configured), reach]],
+    ["envFiles", [set(environment.files?.configured)]],
+    ["envDriveApp", [set(environment.googleDriveApp?.configured)]],
     [
       "envAiKeys",
-      `OpenAI: ${set(environment.aiFallbackKeys?.openai)} · Anthropic: ${set(environment.aiFallbackKeys?.anthropic)}`,
+      [
+        set(environment.aiFallbackKeys?.openai, "OpenAI"),
+        set(environment.aiFallbackKeys?.anthropic, "Anthropic"),
+      ],
     ],
-    ["envKeyRing", set(environment.credentialKeys?.ring)],
+    ["envKeyRing", [set(environment.credentialKeys?.ring)]],
     ["envMcp", list(mcp)],
     ["envCutover", list(environment.connectionsCutover ?? [])],
-  ] as const;
-  return rows.map(([key, value]) => ({ key, label: text(key), value }));
+  ];
+  return rows.map(([key, parts]) => ({
+    key,
+    label: text(key as IntegrationTextKey),
+    value: typeof parts === "string" ? parts : parts.map((b) => b.text).join(" · "),
+    badges: typeof parts === "string" ? [] : parts,
+  }));
 }
 
 export function EnvironmentPanel({
@@ -278,14 +326,22 @@ export function EnvironmentPanel({
 }) {
   const text = integrationText(locale);
   return (
-    <section className="panel">
+    <section className="panel integration-env-panel">
       <h2>{text("environmentTitle")}</h2>
       <p>{text("environmentBody")}</p>
-      <dl>
+      <dl className="integration-env">
         {environmentRows(environment, locale).map((row) => (
           <div key={row.key}>
             <dt>{row.label}</dt>
-            <dd>{row.value}</dd>
+            <dd>
+              {row.badges.length === 0
+                ? row.value
+                : row.badges.map((b) => (
+                    <Badge key={b.text} tone={b.tone}>
+                      {b.text}
+                    </Badge>
+                  ))}
+            </dd>
           </div>
         ))}
       </dl>
@@ -395,13 +451,15 @@ function ScopeCatalogView({
   locale: Locale;
 }) {
   const { groups, unavailable } = scopeCatalog(entries, scope.kind, records);
+  const manage = { scope, hrefOf, moduleSections, connectorProviders };
   return (
     <CatalogView
       groups={groups}
       unavailable={unavailable}
       recordsOf={(id) => records.get(id) ?? []}
-      manageHrefOf={(entry) => manageHrefOf(entry, { scope, hrefOf, moduleSections, connectorProviders })}
-      setupHrefOf={(entry) => setupHrefOf(entry, { entries, scope, hrefOf, caps })}
+      manageHrefOf={(entry) => manageHrefOf(entry, manage)}
+      manageNoteOf={(entry) => manageNote(entry, manage)}
+      setupHrefOf={(entry) => setupHrefOf(entry, { ...manage, entries, caps })}
       extra={extra}
       locale={locale}
     />

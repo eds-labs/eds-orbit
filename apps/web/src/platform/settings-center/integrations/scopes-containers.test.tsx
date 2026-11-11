@@ -191,8 +191,21 @@ describe("ProjectCatalog", () => {
     expect(viewer).not.toContain("/integrations/setup/");
     expect(viewer).toContain("@orbit");
     expect(viewer).toContain(stateLabel("ready", "en"));
-    const owner = renderToStaticMarkup(<ProjectCatalog {...props(scope, asRole("owner"))} />);
+    // The Social section manages the accounts: the setup page has a place to act.
+    const shell = {
+      integrations: [
+        { moduleId: "social", id: "accounts", label: { en: "S", de: "S" }, description: { en: "S", de: "S" }, order: 0, providers: ["social.account.x"], component: () => null },
+      ],
+    } as unknown as ShellContextValue;
+    const owner = renderToStaticMarkup(
+      <ShellContext.Provider value={shell}>
+        <ProjectCatalog {...props(scope, asRole("owner"))} />
+      </ShellContext.Provider>,
+    );
     expect(owner).toContain('href="/manage/p/p1/integrations/setup/social.account.x"');
+    // Without it, nothing on the setup page acts on a project-only entry (P3-R26 V6).
+    const hidden = renderToStaticMarkup(<ProjectCatalog {...props(scope, asRole("owner"))} />);
+    expect(hidden).not.toContain("/integrations/setup/social.account.x");
   });
 
   it("links a module's connector provider to connections only while the module contributes it", () => {

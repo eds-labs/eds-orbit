@@ -52,8 +52,21 @@ export function setupSteps(input: {
     (who === "admin" && role.admin) ||
     (who === "owner" && role.organizationOwner) ||
     (who === "projectOwner" && (role.projectOwner || role.organizationOwner));
+  // Where a step is done: an owner's in the organization, a project owner's in
+  // the project, an administrator's in the system; "anyone" here.
+  const doneIn = (who: SetupWho): ScopeKind =>
+    who === "owner" ? "organization" : who === "projectOwner" ? "project" : who === "admin" ? "system" : scope;
+  // A link leads to where the step is done when that is another scope the
+  // member may open, whoever's step it is (ledger P3-R26 V5); a step done in
+  // this scope has none.
   const linkOf = (who: SetupWho) =>
-    who === "owner" ? links.organization : who === "projectOwner" ? links.project : null;
+    doneIn(who) === scope
+      ? null
+      : who === "owner"
+        ? links.organization
+        : who === "projectOwner"
+          ? links.project
+          : null;
   const step = (
     id: SetupStepId,
     who: SetupWho,
@@ -66,7 +79,7 @@ export function setupSteps(input: {
       who,
       done: observable && done,
       mine,
-      href: mine ? null : linkOf(who),
+      href: linkOf(who),
       observable,
     };
   };
@@ -127,9 +140,9 @@ export function setupRole(
  * Where another scope's steps are done. Only a project has one organization
  * to point to, and only when the member may open its setup; the member is
  * already in the project, and the system and an organization have no single
- * target. Today the organization link exists only when the member owns the
- * organization, whose steps are then their own; the "Open" link is for roles
- * that may open the organization without owning it.
+ * target. The organization link exists only when the member owns the
+ * organization: its steps are then their own, done there, and "Open" leads
+ * to them.
  */
 export function setupLinks(
   scope: ManageScope,

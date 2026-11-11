@@ -55,6 +55,7 @@ describe("CatalogView", () => {
         unavailable={[entries[4]!]}
         recordsOf={() => []}
         manageHrefOf={() => "/manage/x"}
+        manageNoteOf={() => null}
         setupHrefOf={() => "/manage/y"}
         extra={<p>EXTRA-PANEL</p>}
         locale="en"
@@ -82,11 +83,29 @@ describe("CatalogView", () => {
 
   it("renders in German", () => {
     const html = renderToStaticMarkup(
-      <CatalogView groups={[]} unavailable={[]} recordsOf={() => []} manageHrefOf={() => null} setupHrefOf={() => null} locale="de" />,
+      <CatalogView groups={[]} unavailable={[]} recordsOf={() => []} manageHrefOf={() => null} manageNoteOf={() => "module"} setupHrefOf={() => null} locale="de" />,
     );
     expect(html).toContain(integrationText("de")("notAvailableYet"));
     expect(html).toContain("TikTok");
     expect(html).toContain("MCP-Server anderer Anbieter");
+  });
+});
+
+describe("CatalogView notes", () => {
+  it("shows on each card the note the scope computed for it", () => {
+    const html = renderToStaticMarkup(
+      <CatalogView
+        groups={catalogGroups(entries, "system")}
+        unavailable={[]}
+        recordsOf={() => []}
+        manageHrefOf={() => null}
+        manageNoteOf={() => "organization"}
+        setupHrefOf={() => null}
+        locale="en"
+      />,
+    );
+    expect(html).toContain(t("managedInOrganization"));
+    expect(html).not.toContain(t("managedInModule"));
   });
 });
 

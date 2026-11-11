@@ -125,7 +125,27 @@ describe("setupSteps", () => {
     for (const id of ["assign", "validate"]) {
       expect(own[id]).toMatchObject({ who: "projectOwner", mine: true, href: null });
     }
-    expect(steps({ role: { ...NONE, organizationOwner: true } }).every((s) => s.mine && s.href === null)).toBe(true);
+    // An organization owner holds every step; the owner's are done in the organization.
+    const owner = byId(steps({ role: { ...NONE, organizationOwner: true } }));
+    expect(Object.values(owner).every((s) => s.mine)).toBe(true);
+    for (const id of ["configure", "check", "authorize"]) expect(owner[id]!.href).toBe(LINKS.organization);
+    for (const id of ["choose", "assign", "validate"]) expect(owner[id]!.href).toBeNull();
+  });
+
+  it("links a step to the scope where it is done, whoever's it is (P3-R26 V5)", () => {
+    const orgOwner = { ...NONE, organizationOwner: true, projectOwner: true };
+    // A project owner who does not own the organization may not open it: no link.
+    const projectOwnerOnly = byId(steps({ links: { organization: null, project: null } }));
+    for (const id of ["configure", "check", "authorize"])
+      expect(projectOwnerOnly[id]).toMatchObject({ who: "owner", mine: false, href: null });
+    // Done in the project itself: no link, even with an organization link at hand.
+    const own = byId(steps({ role: orgOwner, entry: xAccount }));
+    expect([own.configure!.href, own.check!.href]).toEqual([null, null]);
+    const stored = byId(steps({ role: orgOwner, projectStored: true }));
+    expect([stored.configure!.href, stored.check!.href]).toEqual([null, null]);
+    // In the organization its own steps are done right there.
+    const organization = byId(steps({ scope: "organization", role: orgOwner }));
+    expect(Object.values(organization).every((s) => s.href === null)).toBe(true);
   });
 
   it("gives configure and check of a project-only entry to the project owner", () => {
@@ -194,6 +214,39 @@ describe("SetupStepsView", () => {
     const de = view(steps(), "de");
     expect(de).toContain(integrationText("de")("stepYours"));
     expect(de).toContain(integrationText("de")("whoOwner"));
+  });
+
+  it("links an organization owner's own steps to the organization and shows each status as a badge", () => {
+    const html = view(steps({ role: { ...NONE, organizationOwner: true, projectOwner: true }, states: ["verified"] }));
+    expect(html).toContain('class="setup-steps"');
+    const items = html.split("<li").slice(1);
+    const authorize = items.find((item) => item.includes(t("stepAuthorize")))!;
+    expect(authorize).toContain('aria-current="step"');
+    expect(authorize).toContain(`<span class="badge badge-blue">${t("stepYours")}</span>`);
+    expect(authorize).toContain(`href="${LINKS.organization}"`);
+    expect(authorize).toContain(`aria-label="${t("openStep")}: ${t("stepAuthorize")}"`);
+    expect(authorize).toContain(`<span class="setup-step-who">${t("whoOwner")}</span>`);
+    const configure = items.find((item) => item.includes(t("stepConfigure")))!;
+    expect(configure).toContain(`<span class="badge badge-success">${t("stepDone")}</span>`);
+    // Assign is done in the project itself: no link.
+    const assign = items.find((item) => item.includes(t("stepAssign")))!;
+    expect(assign).not.toContain("href=");
+    expect(assign).toContain(`<span class="badge badge-blue">${t("stepYours")}</span>`);
+  });
+
+  it("shows another role's step and an unobserved one as neutral badges", () => {
+    const others = view(steps({ links: { organization: null, project: null } }));
+    expect(others).toContain(`<span class="badge badge-neutral">${t("stepOthers")} ${t("whoOwner")}</span>`);
+    const system = renderToStaticMarkup(
+      <SetupStepsView entry={postiz} steps={steps({ scope: "system", role: { ...NONE, admin: true }, links: { organization: null, project: null } })} locale="en" workbench={null} />,
+    );
+    expect(system).toContain(`<span class="badge badge-neutral">${t("stepInProject")}</span>`);
+  });
+
+  it("keeps the refresh control and the workbench apart from the list", () => {
+    const html = view(steps());
+    expect(html).toContain('class="integration-setup-workbench"');
+    expect(html.indexOf(t("refreshState"))).toBeLessThan(html.indexOf('class="integration-setup-workbench"'));
   });
 
   it("offers no link for a step whose scope the member cannot open", () => {

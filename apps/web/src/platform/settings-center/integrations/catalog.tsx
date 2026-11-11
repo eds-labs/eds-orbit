@@ -9,6 +9,7 @@ import {
   type CardRecord,
   type CatalogEntry,
   type IntegrationCategory,
+  type ManageNote,
 } from "./types";
 
 /** Planned integrations that have no provider yet; never shown as usable. */
@@ -95,6 +96,7 @@ export function CatalogView({
   unavailable,
   recordsOf,
   manageHrefOf,
+  manageNoteOf,
   setupHrefOf,
   extra,
   locale,
@@ -104,6 +106,8 @@ export function CatalogView({
   unavailable: readonly CatalogEntry[];
   recordsOf(entryId: string): readonly CardRecord[];
   manageHrefOf(entry: CatalogEntry): string | null;
+  /** Why a card has no Manage link (scopes.tsx `manageNote`). */
+  manageNoteOf(entry: CatalogEntry): ManageNote | null;
   setupHrefOf(entry: CatalogEntry): string | null;
   /** Environment panel (system scope). */
   extra?: ReactNode;
@@ -123,6 +127,7 @@ export function CatalogView({
                 entry={entry}
                 records={recordsOf(entry.id)}
                 manageHref={manageHrefOf(entry)}
+                manageNote={manageNoteOf(entry)}
                 setupHref={setupHrefOf(entry)}
                 locale={locale}
               />
@@ -140,6 +145,7 @@ export function CatalogView({
               entry={entry}
               records={[]}
               manageHref={null}
+              manageNote={null}
               setupHref={null}
               locale={locale}
             />
