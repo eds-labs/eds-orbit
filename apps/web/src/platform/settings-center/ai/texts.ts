@@ -72,6 +72,36 @@ const en = {
   ceilingsNone: "No module of this project sets an AI ceiling.",
   ceilingOff: "switched off",
   openSetting: "Open setting",
+  affectedOrgProfile:
+    "Applies to {following} projects that follow the standard and {unsaved} without own AI settings; {own} projects with their own choice keep the values they set. Saving changes the route version of all {total} projects of this organization: running AI work there stops before its next paid call.",
+  affectedOrgCatalog:
+    "Prices and switches here apply to all {total} projects of this organization where the project sets no price of its own.",
+  affectedSystemProfile:
+    "Applies to every project whose organization and own settings leave a value open. Saving changes the route version of all {total} projects and of every personal space: running AI work stops before its next paid call.",
+  affectedSystemCatalog:
+    "Prices and switches here apply to every organization and project that sets no price of its own ({total} projects).",
+  catalogOff:
+    "The central price catalog is not switched on for this installation; projects use their own and the profiles' prices. Saved changes apply once it is.",
+  projectsIntro:
+    "Which projects follow the organization's AI settings and which set their own.",
+  projectsEmpty: "This organization has no projects yet.",
+  projectsUnreadable:
+    "{count} projects could not be read and are missing from this list.",
+  colProject: "Project",
+  colChoice: "Model choice",
+  colKeys: "Own keys",
+  colOverrides: "Set by the project",
+  colAuthority: "Spending authority",
+  choiceUnsaved: "No own settings",
+  choiceCustom: "Own settings",
+  choicePreset: "Own level",
+  choiceOrganization: "Organization standard",
+  none: "none",
+  authorityNone: "not set",
+  authorityActive: "active",
+  authorityExpired: "expired",
+  authorityOff: "off",
+  authorityInvalid: "invalid",
 };
 
 export type AiTextKey = keyof typeof en;
@@ -147,6 +177,36 @@ const de: Record<AiTextKey, string> = {
   ceilingsNone: "Kein Modul dieses Projekts legt eine KI-Obergrenze fest.",
   ceilingOff: "ausgeschaltet",
   openSetting: "Einstellung öffnen",
+  affectedOrgProfile:
+    "Gilt für {following} Projekte, die dem Standard folgen, und {unsaved} ohne eigene KI-Einstellungen; {own} Projekte mit eigener Wahl behalten ihre gesetzten Werte. Speichern ändert die Routen-Version aller {total} Projekte dieser Organisation: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+  affectedOrgCatalog:
+    "Preise und Schalter hier gelten für alle {total} Projekte dieser Organisation, sofern ein Projekt keinen eigenen Preis festlegt.",
+  affectedSystemProfile:
+    "Gilt für jedes Projekt, dessen Organisation und eigene Einstellungen einen Wert offen lassen. Speichern ändert die Routen-Version aller {total} Projekte und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
+  affectedSystemCatalog:
+    "Preise und Schalter hier gelten für jede Organisation und jedes Projekt ohne eigenen Preis ({total} Projekte).",
+  catalogOff:
+    "Der zentrale Preiskatalog ist für diese Installation nicht eingeschaltet; Projekte nutzen ihre eigenen Preise und die der Profile. Gespeicherte Änderungen gelten, sobald er eingeschaltet ist.",
+  projectsIntro:
+    "Welche Projekte den KI-Einstellungen der Organisation folgen und welche eigene festlegen.",
+  projectsEmpty: "Diese Organisation hat noch keine Projekte.",
+  projectsUnreadable:
+    "{count} Projekte konnten nicht gelesen werden und fehlen in dieser Liste.",
+  colProject: "Projekt",
+  colChoice: "Modellwahl",
+  colKeys: "Eigene Schlüssel",
+  colOverrides: "Vom Projekt festgelegt",
+  colAuthority: "Ausgabenfreigabe",
+  choiceUnsaved: "Keine eigenen Einstellungen",
+  choiceCustom: "Eigene Einstellungen",
+  choicePreset: "Eigene Stufe",
+  choiceOrganization: "Organisationsstandard",
+  none: "keine",
+  authorityNone: "nicht festgelegt",
+  authorityActive: "aktiv",
+  authorityExpired: "abgelaufen",
+  authorityOff: "aus",
+  authorityInvalid: "ungültig",
 };
 
 export const AI_TEXTS: Record<Locale, Partial<Record<AiTextKey, string>>> = {
@@ -158,3 +218,31 @@ export const AI_TEXTS: Record<Locale, Partial<Record<AiTextKey, string>>> = {
 export function aiText(locale: Locale) {
   return (key: AiTextKey): string => AI_TEXTS[locale]?.[key] || en[key] || key;
 }
+
+/**
+ * Labels and descriptions of the AI sections the organization and the system
+ * scope share.
+ */
+export const AI_SECTION_TEXT = {
+  standard: {
+    label: { en: "Standard models", de: "Standard-Modelle" },
+    description: {
+      en: "One provider and level for every project that follows the standard.",
+      de: "Ein Anbieter und eine Stufe für jedes Projekt, das dem Standard folgt.",
+    },
+  },
+  models: {
+    label: { en: "Models and prices", de: "Modelle und Preise" },
+    description: {
+      en: "Which catalog models are on and what they cost.",
+      de: "Welche Katalogmodelle an sind und was sie kosten.",
+    },
+  },
+  advanced: {
+    label: { en: "AI profile", de: "KI-Profil" },
+    description: {
+      en: "The raw profile: verified models, routes, prices and provider budgets.",
+      de: "Das Rohprofil: geprüfte Modelle, Routen, Preise und Anbieter-Budgets.",
+    },
+  },
+} as const;

@@ -26,9 +26,6 @@ const en = {
   backToOrganization: "Back to organization",
   backToProject: "Back to project",
   backToList: "Back",
-  aiLinkBody:
-    "AI standards, models and prices are still edited on the current page. They move here once their forms save safely.",
-  aiLinkAction: "Open AI settings",
   orgMembers: "Members",
   orgProjects: "Projects",
   orgOpenMembers: "Manage members and projects",
@@ -55,9 +52,6 @@ const de: Record<CenterTextKey, string> = {
   backToOrganization: "Zurück zur Organisation",
   backToProject: "Zurück zum Projekt",
   backToList: "Zurück",
-  aiLinkBody:
-    "KI-Standards, Modelle und Preise werden noch auf der bisherigen Seite bearbeitet. Sie ziehen hierher um, sobald ihre Formulare sicher speichern.",
-  aiLinkAction: "KI-Einstellungen öffnen",
   orgMembers: "Mitglieder",
   orgProjects: "Projekte",
   orgOpenMembers: "Mitglieder und Projekte verwalten",

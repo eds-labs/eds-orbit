@@ -8,6 +8,7 @@ import {
   OPENAI_TIERS,
   READINESS_REASONS,
   ROUTING_MODES,
+  SPENDING_AUTHORITY_STATES,
 } from "./types";
 
 // The web copy of the effective AI view must equal the API's: the same value
@@ -18,6 +19,10 @@ const effective = readFileSync(
 );
 const configuration = readFileSync(
   "apps/api/src/platform/ai/effective-configuration.ts",
+  "utf8",
+);
+const projects = readFileSync(
+  "apps/api/src/platform/management/ai-projects.ts",
   "utf8",
 );
 const web = readFileSync(
@@ -100,5 +105,41 @@ describe("effective AI vocabulary", () => {
     };
     expect(connection(effective)).toEqual(["label", "status", "disabled"]);
     expect(connection(web)).toEqual(connection(effective));
+  });
+});
+
+describe("organization AI projects vocabulary", () => {
+  /** Top-level field names of a type, exported or not. */
+  const entryFields = (source: string, name: string) => {
+    const match = new RegExp(
+      `(?:export )?type ${name} = \\{\\n([\\s\\S]*?)\\n\\};`,
+    ).exec(source);
+    expect(match, `${name} not found`).not.toBeNull();
+    return [...match![1]!.matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1]!);
+  };
+  const inline = (source: string, field: string) => {
+    const match = new RegExp(`\\n {2}${field}: \\{([^}]*)\\}`).exec(source);
+    expect(match, `${field} not found`).not.toBeNull();
+    return [...match![1]!.matchAll(/(\w+)\??:/g)].map((m) => m[1]!);
+  };
+
+  it("matches the API's spending authority states", () => {
+    expect([...SPENDING_AUTHORITY_STATES]).toEqual(
+      union(projects, "SpendingAuthorityState"),
+    );
+  });
+
+  it("names the same fields as the API's answer and project entry", () => {
+    const answer = entryFields(projects, "OrganizationAiProjects");
+    expect(answer).toEqual(["routingApplied", "projects", "unreadable"]);
+    expect(entryFields(web, "OrganizationAiProjects")).toEqual(answer);
+    const entry = entryFields(projects, "AiProjectEntry");
+    expect(entry.length).toBeGreaterThan(4);
+    expect(entryFields(web, "AiProjectEntry")).toEqual(entry);
+    for (const field of ["ownKeys", "overrides"]) {
+      const api = inline(projects, field);
+      expect(api.length, field).toBeGreaterThan(2);
+      expect(inline(web, field), field).toEqual(api);
+    }
   });
 });

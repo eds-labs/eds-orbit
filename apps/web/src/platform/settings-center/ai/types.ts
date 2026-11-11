@@ -1,6 +1,7 @@
 // Mirror of the effective AI view of apps/api
 // (platform/management/ai-effective.ts and RoutingMode of
-// platform/ai/effective-configuration.ts). The web app never imports server
+// platform/ai/effective-configuration.ts) and of the organization's AI
+// projects list (platform/management/ai-projects.ts). The web app never imports server
 // code, so the shapes are copied by hand; types.test.tsx fails when the value
 // lists or the field names drift.
 
@@ -117,4 +118,31 @@ export type ProjectAiEffective = {
   keys: Record<KeyName, KeyTrace>;
   providerBudgets: Record<Provider, Traced<ProviderBudgetValue>>;
   readiness: Record<Provider, ProviderReadiness>;
+};
+
+export const SPENDING_AUTHORITY_STATES = [
+  "none",
+  "active",
+  "expired",
+  "off",
+  "invalid",
+] as const;
+export type SpendingAuthorityState = (typeof SPENDING_AUTHORITY_STATES)[number];
+
+type AiProjectEntry = {
+  projectId: string;
+  name: string;
+  routingMode: RoutingMode;
+  ownKeys: { openai: boolean; image: boolean; anthropic: boolean };
+  overrides: { models: boolean; routes: boolean; prices: boolean; providerBudgets: boolean };
+  spendingAuthority: SpendingAuthorityState;
+};
+
+/** GET /management/organizations/:workspaceId/ai/projects. */
+export type OrganizationAiProjects = {
+  /** Whether the runtime applies a saved routing mode (ORBIT_AI_DEFAULTS). */
+  routingApplied: boolean;
+  projects: AiProjectEntry[];
+  /** Projects whose read failed and that are missing from `projects` (0 normally). */
+  unreadable: number;
 };
