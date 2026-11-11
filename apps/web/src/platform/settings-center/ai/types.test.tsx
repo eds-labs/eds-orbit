@@ -72,4 +72,33 @@ describe("effective AI vocabulary", () => {
       expect(fields(web, name), name).toEqual(api);
     }
   });
+
+  it("names the same members of exceptions and of a key's connection", () => {
+    const members = (block: string) =>
+      [...block.matchAll(/(\w+)\??:/g)].map((m) => m[1]!);
+    const exceptionsApi =
+      /export function projectAiExceptions\([\s\S]*?\): \{([\s\S]*?)\n\} \{/.exec(
+        configuration,
+      );
+    expect(exceptionsApi, "projectAiExceptions not found").not.toBeNull();
+    const exceptionsWeb = /\n {2}exceptions: \{([\s\S]*?)\n {2}\};/.exec(web);
+    expect(exceptionsWeb, "web exceptions not found").not.toBeNull();
+    const api = members(exceptionsApi![1]!);
+    expect(api).toEqual([
+      "models",
+      "routes",
+      "prices",
+      "providerBudgets",
+      "keys",
+    ]);
+    expect(members(exceptionsWeb![1]!)).toEqual(api);
+
+    const connection = (source: string) => {
+      const match = /\n {2}connection: \{([^}]*)\} \| null;/.exec(source);
+      expect(match, "connection not found").not.toBeNull();
+      return members(match![1]!);
+    };
+    expect(connection(effective)).toEqual(["label", "status", "disabled"]);
+    expect(connection(web)).toEqual(connection(effective));
+  });
 });

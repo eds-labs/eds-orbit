@@ -32,6 +32,8 @@ const en = {
   readyStored: "Key available",
   readyVerified: "Key checked",
   readyReady: "Ready for text",
+  markYes: "yes",
+  markNo: "no",
   reasonNoKey: "No key for this provider.",
   reasonProjectKey:
     "The project's own key cannot be checked; only central connections are checked.",
@@ -103,6 +105,8 @@ const de: Record<AiTextKey, string> = {
   readyStored: "Schlüssel vorhanden",
   readyVerified: "Schlüssel geprüft",
   readyReady: "Bereit für Text",
+  markYes: "ja",
+  markNo: "nein",
   reasonNoKey: "Kein Schlüssel für diesen Anbieter.",
   reasonProjectKey:
     "Der eigene Schlüssel des Projekts kann nicht geprüft werden; geprüft werden nur zentrale Verbindungen.",

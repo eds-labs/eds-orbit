@@ -102,7 +102,8 @@ function fixture(over: Partial<ProjectAiEffective> = {}): ProjectAiEffective {
         origin: "organization",
       },
     },
-    fallback: { stored: "none", effective: "openai", origin: "organization" },
+    // As the API returns it: a saved row always defines the fallback.
+    fallback: { stored: "openai", effective: "openai", origin: "project" },
     imageModel: {
       stored: "gpt-image-fixture",
       effective: "gpt-image-fixture",
@@ -274,23 +275,26 @@ describe("EffectiveAiView", () => {
         },
       }),
     );
-    expect(none).toContain("No exceptions: every value is inherited.");
+    // Nothing listed, but the fallback, image model and Claude key still come
+    // from the project: no claim that every value is inherited.
+    expect(none).not.toContain("No exceptions");
+    expect(none).not.toContain("Set by this project:");
   });
 
   it("shows the three readiness marks and the reasons", () => {
     const html = render(fixture());
     const claude = rowOf(html, "project&#x27;s own key cannot be checked");
     expect(claude).toMatch(
-      /data-ok="true"[^>]*><span aria-hidden="true">[✓–] <\/span>Key available/,
+      /data-ok="true"[^>]*><span aria-hidden="true">[✓–] <\/span>Key available<span class="sr-only">: yes<\/span>/,
     );
     expect(claude).toMatch(
-      /data-ok="false"[^>]*><span aria-hidden="true">[✓–] <\/span>Key checked/,
+      /data-ok="false"[^>]*><span aria-hidden="true">[✓–] <\/span>Key checked<span class="sr-only">: no<\/span>/,
     );
     expect(claude).toMatch(
-      /data-ok="true"[^>]*><span aria-hidden="true">[✓–] <\/span>Ready for text/,
+      /data-ok="true"[^>]*><span aria-hidden="true">[✓–] <\/span>Ready for text<span class="sr-only">: yes<\/span>/,
     );
     expect(rowOf(html, "No text task uses this provider.")).toMatch(
-      /data-ok="true"[^>]*><span aria-hidden="true">[✓–] <\/span>Key checked/,
+      /data-ok="true"[^>]*><span aria-hidden="true">[✓–] <\/span>Key checked<span class="sr-only">: yes<\/span>/,
     );
     const unknown = render(
       fixture({
@@ -315,11 +319,106 @@ describe("EffectiveAiView", () => {
     expect(unknown).toContain("The connection is disabled.");
   });
 
+  it("reads each mark's state in German too", () => {
+    const html = render(fixture(), "de");
+    expect(html).toContain(
+      'Schlüssel geprüft<span class="sr-only">: nein</span>',
+    );
+    expect(html).toContain(
+      'Schlüssel vorhanden<span class="sr-only">: ja</span>',
+    );
+  });
+
   it("links to the sections that change the values", () => {
     const html = render(fixture());
     expect(html).toContain(`href="${hrefOf("ai", "models")}"`);
     expect(html).toContain(`href="${hrefOf("ai", "providers")}"`);
     expect(html).toContain(`href="${hrefOf("ai", "budget")}"`);
     expect(hrefOf("ai", "models")).toBe("/manage/p/p1/ai/models");
+  });
+});
+
+describe("exceptions follow the API's exceptions (P4-R7)", () => {
+  const nothing = {
+    models: false,
+    routes: false,
+    prices: false,
+    providerBudgets: false,
+    keys: [],
+  };
+  // A project on the standard that set nothing of its own: the API still
+  // reports the fallback as the project's, as every saved row defines it.
+  const following = () =>
+    fixture({
+      exceptions: nothing,
+      taskRoutes: { chat_operator: notExplicit },
+      keys: {
+        ...fixture().keys,
+        anthropic: {
+          stored: false,
+          effective: false,
+          origin: null,
+          connection: null,
+        },
+      },
+    });
+
+  it("marks no exception and claims none inherited for a project that set nothing", () => {
+    const html = render(following());
+    expect(rowOf(html, "When the Claude budget is stopped")).toContain(
+      "This project",
+    );
+    expect(html).not.toContain("Exception");
+    expect(html).not.toContain("No exceptions");
+    expect(html).not.toContain("Set by this project:");
+  });
+
+  it("says no exceptions when every value is inherited", () => {
+    const inherited = following();
+    const html = render(
+      fixture({
+        ...inherited,
+        routingMode: "unsaved",
+        standardSource: null,
+        fallback: { stored: null, effective: "none", origin: "system" },
+        imageModel: {
+          stored: null,
+          effective: "gpt-image-fixture",
+          origin: "organization",
+        },
+      }),
+    );
+    expect(html).not.toContain("This project");
+    expect(html).toContain("No exceptions: every value is inherited.");
+  });
+
+  it("marks an override route of the standard but not the project's own fallback", () => {
+    const html = render(fixture({ exceptions: { ...nothing, routes: true } }));
+    expect(rowOf(html, "Social drafts")).toContain("Exception");
+    const fallback = rowOf(html, "When the Claude budget is stopped");
+    expect(fallback).toContain("This project");
+    expect(fallback).not.toContain("Exception");
+    expect(rowOf(html, "Image key")).not.toContain("Exception");
+    // The Claude key is the project's own but not listed: no exception.
+    expect(rowOf(html, "Claude key")).not.toContain("Exception");
+  });
+
+  it("marks budgets and keys only when listed", () => {
+    const html = render(
+      fixture({
+        providerBudgets: {
+          openai: {
+            stored: budget,
+            effective: budget,
+            origin: "project",
+          },
+          anthropic: { stored: null, effective: null, origin: null },
+        },
+        exceptions: { ...nothing, providerBudgets: true, keys: ["anthropic"] },
+      }),
+    );
+    expect(rowOf(html, "Budget OpenAI")).toContain("Exception");
+    expect(rowOf(html, "Claude key")).toContain("Exception");
+    expect(rowOf(html, "Image model")).not.toContain("Exception");
   });
 });

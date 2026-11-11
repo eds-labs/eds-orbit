@@ -72,12 +72,24 @@ const ownSettingsApply = (data: ProjectAiEffective) =>
   (!data.routingApplied &&
     (data.routingMode === "preset" || data.routingMode === "organization"));
 
-function Mark({ ok, children }: { ok: boolean; children: ReactNode }) {
+/** A readiness mark; the state is also text, so it is read out ("Key checked: no"). */
+function Mark({
+  ok,
+  label,
+  locale,
+}: {
+  ok: boolean;
+  label: string;
+  locale: Locale;
+}) {
   return (
     <span className={`badge badge-${ok ? "success" : "neutral"}`} data-ok={ok}>
       {/* A glyph, not an icon: the global svg size does not fit a badge. */}
       <span aria-hidden="true">{ok ? "✓ " : "– "}</span>
-      {children}
+      {label}
+      <span className="sr-only">
+        : {aiText(locale)(ok ? "markYes" : "markNo")}
+      </span>
     </span>
   );
 }
@@ -121,6 +133,12 @@ export function EffectiveAiView({
     label: string;
     value: ReactNode;
     origin: AiOrigin | null;
+    /**
+     * The row is a part the API lists in `exceptions` (P4-R7). Other rows
+     * may still come from the project: a saved row always defines the
+     * fallback, for example, without that being a departure.
+     */
+    listed?: boolean;
     /** A sentence across the row instead of a value. */
     note?: true;
   }> = [];
@@ -174,6 +192,7 @@ export function EffectiveAiView({
           ? effective.error
           : `${effective.model}${effective.reasoningEffort ? ` · ${effective.reasoningEffort}` : ""}`,
       origin: route.origin,
+      listed: data.exceptions.routes,
     });
   }
   rows.push({
@@ -226,6 +245,7 @@ export function EffectiveAiView({
       label: keyLabel(name),
       value: keyValue(key),
       origin: key.origin,
+      listed: data.exceptions.keys.includes(name),
     });
   }
   for (const name of AI_PROVIDERS) {
@@ -237,8 +257,17 @@ export function EffectiveAiView({
         ? `${usd(budget.effective.monthlyMicros)} ${t("perMonth")}`
         : t("notSet"),
       origin: budget?.origin ?? null,
+      listed: data.exceptions.providerBudgets,
     });
   }
+  // "Every value is inherited" holds only when no value comes from the
+  // project either; otherwise the rows say where each comes from.
+  const exceptionsLine =
+    parts.length > 0
+      ? `${t("exceptionsList")} ${parts.join(", ")}`
+      : rows.some((row) => row.origin === "project")
+        ? null
+        : t("exceptionsNone");
 
   return (
     <>
@@ -257,11 +286,7 @@ export function EffectiveAiView({
           data.routingMode === "organization") ? (
           <Alert kind="info">{t("routingOff")}</Alert>
         ) : null}
-        <p className="panel-note">
-          {parts.length === 0
-            ? t("exceptionsNone")
-            : `${t("exceptionsList")} ${parts.join(", ")}`}
-        </p>
+        {exceptionsLine ? <p className="panel-note">{exceptionsLine}</p> : null}
       </section>
       <section className="panel">
         <div className="panel-head">
@@ -279,9 +304,21 @@ export function EffectiveAiView({
                   <tr key={name}>
                     <th scope="row">{provider(name)}</th>
                     <td>
-                      <Mark ok={ready.stored}>{t("readyStored")}</Mark>{" "}
-                      <Mark ok={ready.verified}>{t("readyVerified")}</Mark>{" "}
-                      <Mark ok={ready.ready}>{t("readyReady")}</Mark>
+                      <Mark
+                        ok={ready.stored}
+                        label={t("readyStored")}
+                        locale={locale}
+                      />{" "}
+                      <Mark
+                        ok={ready.verified}
+                        label={t("readyVerified")}
+                        locale={locale}
+                      />{" "}
+                      <Mark
+                        ok={ready.ready}
+                        label={t("readyReady")}
+                        locale={locale}
+                      />
                     </td>
                     <td>{ready.reasons.map(reason).join(" ")}</td>
                   </tr>
@@ -323,7 +360,11 @@ export function EffectiveAiView({
                     <td>
                       <OriginBadge
                         origin={row.origin}
-                        exception={row.origin === "project" && !own}
+                        exception={
+                          row.origin === "project" &&
+                          row.listed === true &&
+                          !own
+                        }
                         locale={locale}
                       />
                     </td>
