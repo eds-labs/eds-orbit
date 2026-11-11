@@ -251,6 +251,43 @@ describe("SettingsNav", () => {
   });
 });
 
+describe("SettingsNav placeholder", () => {
+  const groups = groupSettings(
+    collectSettingsTabs(owner, contributed),
+    modules,
+  );
+  const nav = (value: string, placeholder?: string) =>
+    renderToStaticMarkup(
+      <SettingsNav
+        groups={groups}
+        value={value}
+        hrefOf={(key) => `/p/p1/settings?section=${key}`}
+        onSelect={() => {}}
+        locale="en"
+        placeholder={placeholder}
+      />,
+    );
+
+  it("leads the select with the placeholder when no section is open", () => {
+    expect(nav("", "Choose a section")).toContain(
+      '<option value="" disabled="" selected="">Choose a section</option>',
+    );
+    expect(nav("nope", "Choose a section")).toContain(
+      '<option value="" disabled="" selected="">Choose a section</option>',
+    );
+  });
+
+  it("leaves the placeholder out while a section is open", () => {
+    const html = nav("brand", "Choose a section");
+    expect(html).not.toContain("Choose a section");
+    expect(html).toBe(nav("brand"));
+  });
+
+  it("renders no placeholder without the prop", () => {
+    expect(nav("")).not.toContain('<option value=""');
+  });
+});
+
 describe("module settings links in the sidebar", () => {
   const table = routeTable(webRegistry);
   const hrefOf = (r: Route) => projectHref("p1", r);

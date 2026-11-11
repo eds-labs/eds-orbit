@@ -146,8 +146,11 @@ export function SettingsCenterView({
               description={section.description[locale]}
             />
           )}
-          {/* Mounted views keep their own PageHead, one level below the scope's h1. */}
-          <PageHeadLevel.Provider value="h2">
+          {/* Mounted views keep their own PageHead, one level below the scope's h1.
+              Keyed by the address: another id of the same section (a second
+              organization or user, reached through history) or the next
+              advanced section starts with fresh state and a closed disclosure. */}
+          <PageHeadLevel.Provider value="h2" key={at}>
             {section.advanced ? (
               <details>
                 <summary>{t("advanced")}</summary>
@@ -233,6 +236,7 @@ export function SettingsCenterView({
           hrefOf={hrefOf}
           onSelect={(key) => go(hrefOf(key))}
           locale={locale}
+          placeholder={t("chooseSection")}
         />
         <div className="settings-content">
           {notices}

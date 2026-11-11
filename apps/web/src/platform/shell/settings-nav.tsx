@@ -166,7 +166,9 @@ const plainClick = (e: MouseEvent) =>
  * The section list: a labelled nav with one heading per group and the open
  * section marked current; below 760 px the same sections as a select (CSS
  * shows one of the two). Links keep their URL for a new tab; a plain click
- * calls onSelect, which replaces the URL in place.
+ * calls onSelect, which replaces the URL in place. With a `placeholder`, a
+ * page that opens no section (value matching no tab) leads the select with it,
+ * so the select names no section as open and every section can be chosen.
  */
 export function SettingsNav({
   groups,
@@ -174,14 +176,19 @@ export function SettingsNav({
   hrefOf,
   onSelect,
   locale,
+  placeholder,
 }: {
   groups: readonly SettingsGroup[];
   value: string;
   hrefOf: (key: string) => string;
   onSelect(key: string): void;
   locale: Locale;
+  placeholder?: string;
 }) {
   const text = labels[locale];
+  const showPlaceholder =
+    placeholder !== undefined &&
+    !groups.some((group) => group.tabs.some((tab) => tab.key === value));
   return (
     <>
       <nav className="settings-nav" aria-label={text.settingsSections}>
@@ -219,9 +226,14 @@ export function SettingsNav({
         <select
           className="input"
           id="settings-section"
-          value={value}
+          value={showPlaceholder ? "" : value}
           onChange={(e) => onSelect(e.target.value)}
         >
+          {showPlaceholder && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
           {groups.map((group) => (
             <optgroup key={group.id} label={group.label[locale]}>
               {group.tabs.map((tab) => (

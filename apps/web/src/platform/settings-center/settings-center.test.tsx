@@ -99,6 +99,7 @@ describe("SettingsCenterView", () => {
     expect(html).toContain('<a class="back-link" href="/">← Back to Orbit</a>');
     expect(html).toMatch(/<label for="manage-search" class="field-label">Search settings<\/label>/);
     expect(html).toContain('type="search"');
+    expect(html).not.toContain("Choose a section");
   });
 
   it("links a section named like its area by the short address and marks it there", () => {
@@ -127,6 +128,10 @@ describe("SettingsCenterView", () => {
     expect(html).toContain('href="/manage/system/users/invitations"');
     expect(html).not.toContain("marker-");
     expect(html).not.toContain('aria-current="page"');
+    // The phone select names no section as open.
+    expect(html).toContain(
+      '<option value="" disabled="" selected="">Choose a section</option>',
+    );
   });
 
   it("shows the not-available notice for a hidden or unknown section", () => {
@@ -136,6 +141,9 @@ describe("SettingsCenterView", () => {
       "This page does not exist or your role does not include it.",
     );
     expect(hidden).not.toContain("marker-");
+    expect(hidden).toContain(
+      '<option value="" disabled="" selected="">Choose a section</option>',
+    );
     // Without the capability the MCP section is hidden, not shown.
     const withoutMcp = render({ area: "mcp" }, ["system.overview", "system.users"]);
     expect(withoutMcp).toContain("Not available");

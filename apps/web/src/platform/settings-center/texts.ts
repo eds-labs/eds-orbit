@@ -17,6 +17,7 @@ const en = {
   searchLabel: "Search settings",
   searchEmpty: "No setting matches.",
   advanced: "Advanced",
+  chooseSection: "Choose a section",
   notPermittedTitle: "Not available",
   notPermittedBody:
     "This page does not exist or your role does not include it.",
@@ -45,6 +46,7 @@ const de: Record<CenterTextKey, string> = {
   searchLabel: "Einstellungen suchen",
   searchEmpty: "Keine Einstellung passt dazu.",
   advanced: "Erweitert",
+  chooseSection: "Abschnitt wählen",
   notPermittedTitle: "Nicht verfügbar",
   notPermittedBody:
     "Diese Seite gibt es nicht oder deine Rolle umfasst sie nicht.",
