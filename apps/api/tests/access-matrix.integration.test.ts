@@ -104,6 +104,10 @@ const PUBLIC_ROUTES = [
   // here, without one) and then needs the owner's session (401/403, pinned
   // in social-oauth-routes.integration.test.ts).
   "GET /api/social/oauth/callback/{app}",
+  // Ads OAuth callback (ADR 0025): the state's shape is checked first (400
+  // here, without one), then the owner's session who started the flow (pinned
+  // in ads-oauth.integration.test.ts).
+  "GET /api/ads/oauth/callback/{provider}",
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
