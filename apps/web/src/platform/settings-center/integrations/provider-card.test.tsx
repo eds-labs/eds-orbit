@@ -72,6 +72,9 @@ describe("ProviderCard", () => {
     );
     expect(html).not.toMatch(/<a[\s>]/);
     expect(html).toContain(t("switchedOff"));
+    expect(html).not.toContain("<li");
+    expect(html).not.toContain(stateLabel("ready", "en"));
+    expect(html).not.toContain("Main account");
     expect(html).not.toContain(t("manage"));
     expect(html).not.toContain(t("setUp"));
   });
@@ -82,5 +85,22 @@ describe("ProviderCard", () => {
     );
     expect(html).toContain(t("managedInModule"));
     expect(html).not.toMatch(/<a[\s>]/);
+  });
+});
+
+describe("ProviderCard with unknown vocabulary", () => {
+  it("renders the raw values in the meta line", () => {
+    const html = renderToStaticMarkup(
+      <ProviderCard
+        entry={{ ...entry, category: "quantum" as never, authType: "telepathy" as never, storage: ["vault" as never] }}
+        records={[]}
+        manageHref={null}
+        setupHref={null}
+        locale="en"
+      />,
+    );
+    expect(html).toContain("quantum");
+    expect(html).toContain("telepathy");
+    expect(html).toContain("vault");
   });
 });

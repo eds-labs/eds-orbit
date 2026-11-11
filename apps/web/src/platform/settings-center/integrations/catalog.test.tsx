@@ -89,3 +89,17 @@ describe("CatalogView", () => {
     expect(html).toContain("MCP-Server anderer Anbieter");
   });
 });
+
+describe("catalogGroups with an unknown category", () => {
+  it("keeps the entry in other, after the known ones", () => {
+    const groups = catalogGroups(
+      [
+        entry({ id: "future", category: "quantum" as never, scopes: ["system"] }),
+        entry({ id: "known", category: "other", scopes: ["system"] }),
+      ],
+      "system",
+    );
+    expect(groups.map((g) => g.category)).toEqual(["other"]);
+    expect(groups[0]!.entries.map((e) => e.id)).toEqual(["known", "future"]);
+  });
+});

@@ -49,9 +49,16 @@ export function catalogGroups(
   scope: ScopeKind,
 ): Array<{ category: IntegrationCategory; entries: CatalogEntry[] }> {
   const visible = entries.filter((e) => e.available && inScope(e, scope));
+  const known = (e: CatalogEntry) =>
+    (INTEGRATION_CATEGORIES as readonly string[]).includes(e.category);
   return INTEGRATION_CATEGORIES.map((category) => ({
     category,
-    entries: visible.filter((e) => e.category === category),
+    entries: [
+      ...visible.filter((e) => e.category === category),
+      // A category newer than this build must not hide the entry; it joins
+      // "other" after the known ones.
+      ...(category === "other" ? visible.filter((e) => !known(e)) : []),
+    ],
   })).filter((group) => group.entries.length > 0);
 }
 

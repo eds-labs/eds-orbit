@@ -44,3 +44,14 @@ describe("integration texts", () => {
     expect(stateLabel("needs_attention", "de")).not.toBe(stateLabel("needs_attention", "en"));
   });
 });
+
+describe("unknown vocabulary", () => {
+  it("returns the raw value instead of throwing", () => {
+    for (const locale of ["en", "de"] as const) {
+      expect(stateLabel("future_state" as never, locale)).toBe("future_state");
+      expect(categoryLabel("future_cat" as never, locale)).toBe("future_cat");
+      expect(authTypeLabel("future_auth" as never, locale)).toBe("future_auth");
+      expect(storageLabel("future_store" as never, locale)).toBe("future_store");
+    }
+  });
+});

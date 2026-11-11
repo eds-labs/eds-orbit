@@ -23,3 +23,12 @@ describe("StateBadge", () => {
     expect(stateTone.disabled).toBe("neutral");
   });
 });
+
+describe("StateBadge with an unknown state", () => {
+  it("renders the raw value in the neutral tone", () => {
+    const html = renderToStaticMarkup(<StateBadge state={"future_state" as never} locale="en" />);
+    expect(html).toContain("future_state");
+    expect(html).toContain("badge-neutral");
+    expect(html).not.toContain("badge-success");
+  });
+});

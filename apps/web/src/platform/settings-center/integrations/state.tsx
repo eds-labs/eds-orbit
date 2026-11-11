@@ -24,5 +24,5 @@ export function StateBadge({
   state: IntegrationState;
   locale: Locale;
 }) {
-  return <Badge tone={stateTone[state]}>{stateLabel(state, locale)}</Badge>;
+  return <Badge tone={Object.hasOwn(stateTone, state) ? stateTone[state] : "neutral"}>{stateLabel(state, locale)}</Badge>;
 }

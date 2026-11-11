@@ -82,7 +82,16 @@ export function integrationText(locale: Locale) {
     INTEGRATION_TEXTS[locale]?.[key] || en[key] || key;
 }
 
-const pick = (label: Label, locale: Locale) => label[locale] || label.en;
+// A deployed API can be newer than this web build (or an open tab), so a value
+// outside the known lists shows as itself instead of breaking the page.
+const pick = (
+  labels: Record<string, Label>,
+  value: string,
+  locale: Locale,
+): string => {
+  const label = Object.hasOwn(labels, value) ? labels[value] : undefined;
+  return label ? label[locale] || label.en : value;
+};
 
 const STATES: Record<IntegrationState, Label> = {
   not_set_up: { en: "Not set up", de: "Nicht eingerichtet" },
@@ -123,10 +132,10 @@ const STORAGES: Record<IntegrationStorage, Label> = {
 };
 
 export const stateLabel = (state: IntegrationState, locale: Locale) =>
-  pick(STATES[state], locale);
+  pick(STATES, state, locale);
 export const categoryLabel = (category: IntegrationCategory, locale: Locale) =>
-  pick(CATEGORIES[category], locale);
+  pick(CATEGORIES, category, locale);
 export const authTypeLabel = (authType: IntegrationAuthType, locale: Locale) =>
-  pick(AUTH_TYPES[authType], locale);
+  pick(AUTH_TYPES, authType, locale);
 export const storageLabel = (storage: IntegrationStorage, locale: Locale) =>
-  pick(STORAGES[storage], locale);
+  pick(STORAGES, storage, locale);
