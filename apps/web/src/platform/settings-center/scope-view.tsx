@@ -2,6 +2,7 @@
 import type { Identity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { visibleSections } from "./registry";
+import { organizationSections } from "./sections/organization";
 import { systemSections } from "./sections/system";
 import { SettingsCenterView } from "./settings-center";
 import { centerText } from "./texts";
@@ -44,8 +45,8 @@ export function backLink(
   return { href: "/", label: text("backToApp") };
 }
 
-// Organization, project and account sections come with later tasks; until
-// then their overview says nothing is available.
+// Project sections come with a later task; until then its overview says
+// nothing is available.
 const NO_SECTIONS: readonly ResolvedSection[] = [];
 
 /**
@@ -75,7 +76,9 @@ export function ScopeView({
   const sections =
     scope.kind === "system"
       ? visibleSections(systemSections, "system", capabilities)
-      : NO_SECTIONS;
+      : scope.kind === "organization"
+        ? visibleSections(organizationSections, "organization", capabilities)
+        : NO_SECTIONS;
   return (
     <SettingsCenterView
       scope={scope}
