@@ -109,10 +109,10 @@ describe("organization AI projects", () => {
 
   it("says how many projects could not be read", () => {
     const html = view({ ...fixture, unreadable: 2 });
-    expect(html).toContain("2 projects could not be read and are missing from this list.");
+    expect(html).toContain("Projects that could not be read and are missing from this list: 2.");
     expect(html.indexOf("could not be read")).toBeLessThan(html.indexOf("<table"));
     const empty = view({ routingApplied: true, unreadable: 1, projects: [] }, "de");
-    expect(empty).toContain("1 Projekte konnten nicht gelesen werden und fehlen in dieser Liste.");
+    expect(empty).toContain("Projekte, die nicht gelesen werden konnten und in dieser Liste fehlen: 1.");
   });
 
   it("says the choices are saved ones while standard models are off", () => {

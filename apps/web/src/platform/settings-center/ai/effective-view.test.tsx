@@ -281,6 +281,26 @@ describe("EffectiveAiView", () => {
     expect(none).not.toContain("Set by this project:");
   });
 
+  it("says when neither the organization nor Orbit has set a standard (P4-R12)", () => {
+    const none = render(fixture({ standardSource: null }));
+    expect(none).toContain(
+      "Neither the organization nor Orbit has set a standard yet; the table below shows what applies until then.",
+    );
+    expect(none.indexOf("Follows the organization")).toBeLessThan(none.indexOf("Neither the organization"));
+    expect(render(fixture({ standardSource: null }), "de")).toContain(
+      "Weder die Organisation noch Orbit hat bisher einen Standard festgelegt",
+    );
+    for (const source of ["organization", "system"] as const)
+      expect(render(fixture({ standardSource: source }))).not.toContain("Neither the organization");
+    // While no standard applies, routingOff explains instead.
+    expect(render(fixture({ standardSource: null, routingApplied: false }))).not.toContain(
+      "Neither the organization",
+    );
+    expect(render(fixture({ routingMode: "custom", standardSource: null }))).not.toContain(
+      "Neither the organization",
+    );
+  });
+
   it("shows the three readiness marks and the reasons", () => {
     const html = render(fixture());
     const claude = rowOf(html, "project&#x27;s own key cannot be checked");

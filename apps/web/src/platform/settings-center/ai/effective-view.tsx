@@ -279,6 +279,13 @@ export function EffectiveAiView({
             data.standardSource === "system" ? (
               <p>{t("standardFromSystem")}</p>
             ) : null}
+            {/* No standard anywhere: the origins below say what applies instead.
+                Only while the standard applies; otherwise routingOff explains. */}
+            {data.routingMode === "organization" &&
+            data.routingApplied &&
+            data.standardSource === null ? (
+              <p>{t("standardNone")}</p>
+            ) : null}
           </div>
         </div>
         {!data.routingApplied &&

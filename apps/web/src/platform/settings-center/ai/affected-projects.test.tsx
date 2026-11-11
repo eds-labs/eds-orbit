@@ -12,9 +12,9 @@ const counts = { total: 6, following: 1, unsaved: 2, own: 3 };
 describe("affected projects", () => {
   it("fills the counts into the organization's profile notice", () => {
     expect(affectedText("affectedOrgProfile", { following: 1, unsaved: 2, own: 3, total: 6 }, "en"))
-      .toBe("Applies to 1 projects that follow the standard and 2 without own AI settings; 3 projects with their own choice keep the values they set. Saving changes the route version of all 6 projects of this organization: running AI work there stops before its next paid call.");
+      .toBe("Applies to projects that follow the standard (1) and to projects without own AI settings (2); projects with their own choice (3) keep the values they set. Saving changes the route version of every project of this organization (6): running AI work there stops before its next paid call.");
     expect(affectedText("affectedOrgCatalog", { total: 6 }, "de")).toBe(
-      "Preise und Schalter hier gelten für alle 6 Projekte dieser Organisation, sofern ein Projekt keinen eigenen Preis festlegt.",
+      "Preise und Schalter hier gelten für jedes Projekt dieser Organisation (6), das keinen eigenen Preis festlegt.",
     );
   });
 
@@ -42,16 +42,16 @@ describe("affected projects", () => {
     const org = renderToStaticMarkup(
       <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} locale="en" />,
     );
-    expect(org).toContain("Applies to 1 projects that follow the standard and 2 without own AI settings; 3 projects");
-    expect(org).toContain("route version of all 6 projects of this organization");
+    expect(org).toContain("Applies to projects that follow the standard (1) and to projects without own AI settings (2); projects with their own choice (3)");
+    expect(org).toContain("route version of every project of this organization (6)");
     const system = renderToStaticMarkup(
       <AffectedProjectsNotice scope="system" kind="profile" total={9} locale="de" />,
     );
-    expect(system).toContain("Routen-Version aller 9 Projekte und jedes persönlichen Bereichs");
+    expect(system).toContain("Routen-Version jedes Projekts (9) und jedes persönlichen Bereichs");
     const prices = renderToStaticMarkup(
       <AffectedProjectsNotice scope="system" kind="catalog" total={9} locale="en" />,
     );
-    expect(prices).toContain("that sets no price of its own (9 projects).");
+    expect(prices).toContain("that sets no price of its own (projects: 9).");
   });
 
   it("adds the unreadable projects to the organization's notices, whose counts are then too low", () => {
@@ -59,7 +59,7 @@ describe("affected projects", () => {
       const html = renderToStaticMarkup(
         <AffectedProjectsNotice scope="organization" kind={kind} counts={counts} unreadable={2} locale="en" />,
       );
-      expect(html).toContain(". 2 projects could not be read and are missing from this list.");
+      expect(html).toContain(". Projects that could not be read and are missing from this list: 2.");
       const clean = renderToStaticMarkup(
         <AffectedProjectsNotice scope="organization" kind={kind} counts={counts} unreadable={0} locale="en" />,
       );
@@ -87,9 +87,9 @@ describe("affected projects", () => {
     const off = renderToStaticMarkup(
       <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} standardApplies={false} unreadable={1} locale="en" />,
     );
-    expect(off).toContain("Saving changes the route version of all 6 projects of this organization");
+    expect(off).toContain("Saving changes the route version of every project of this organization (6)");
     expect(off).not.toContain("follow the standard");
-    expect(off).toContain(". 1 projects could not be read and are missing from this list.");
+    expect(off).toContain(". Projects that could not be read and are missing from this list: 1.");
   });
 
   it("says only the route version change for the system's standard while standard models are off", () => {
@@ -97,7 +97,7 @@ describe("affected projects", () => {
       <AffectedProjectsNotice scope="system" kind="profile" total={9} standardApplies={false} locale="en" />,
     );
     expect(off).toContain(
-      "Saving changes the route version of all 9 projects and of every personal space: running AI work stops before its next paid call.",
+      "Saving changes the route version of every project (9) and of every personal space: running AI work stops before its next paid call.",
     );
     expect(off).not.toContain("Applies to every project");
     const on = renderToStaticMarkup(
@@ -131,6 +131,8 @@ describe("affected projects", () => {
       const html = renderToStaticMarkup(notice);
       expect(html).toMatch(/\d/);
       expect(html).not.toContain("{");
+      // Count-neutral (P4-R11): a count never stands before a plural noun.
+      expect(html).not.toMatch(/\d+ (projects|Projekte)\b/);
     }
   });
 });

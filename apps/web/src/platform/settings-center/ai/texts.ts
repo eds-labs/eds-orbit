@@ -19,6 +19,8 @@ const en = {
   modeOrganization: "Follows the organization's standard.",
   standardFromSystem:
     "The organization has set no standard, so Orbit's standard applies.",
+  standardNone:
+    "Neither the organization nor Orbit has set a standard yet; the table below shows what applies until then.",
   routingOff:
     "Standard models and presets are not switched on for this installation, so the project's own settings apply until they are.",
   exceptionsNone: "No exceptions: every value is inherited.",
@@ -73,24 +75,24 @@ const en = {
   ceilingOff: "switched off",
   openSetting: "Open setting",
   affectedOrgProfile:
-    "Applies to {following} projects that follow the standard and {unsaved} without own AI settings; {own} projects with their own choice keep the values they set. Saving changes the route version of all {total} projects of this organization: running AI work there stops before its next paid call.",
+    "Applies to projects that follow the standard ({following}) and to projects without own AI settings ({unsaved}); projects with their own choice ({own}) keep the values they set. Saving changes the route version of every project of this organization ({total}): running AI work there stops before its next paid call.",
   affectedOrgRouteOnly:
-    "Saving changes the route version of all {total} projects of this organization: running AI work there stops before its next paid call.",
+    "Saving changes the route version of every project of this organization ({total}): running AI work there stops before its next paid call.",
   affectedOrgCatalog:
-    "Prices and switches here apply to all {total} projects of this organization where the project sets no price of its own.",
+    "Prices and switches here apply to every project of this organization ({total}) that sets no price of its own.",
   affectedSystemProfile:
-    "Applies to every project whose organization and own settings leave a value open. Saving changes the route version of all {total} projects and of every personal space: running AI work stops before its next paid call.",
+    "Applies to every project whose organization and own settings leave a value open. Saving changes the route version of every project ({total}) and of every personal space: running AI work stops before its next paid call.",
   affectedSystemRouteOnly:
-    "Saving changes the route version of all {total} projects and of every personal space: running AI work stops before its next paid call.",
+    "Saving changes the route version of every project ({total}) and of every personal space: running AI work stops before its next paid call.",
   affectedSystemCatalog:
-    "Prices and switches here apply to every organization and project that sets no price of its own ({total} projects).",
+    "Prices and switches here apply to every organization and project that sets no price of its own (projects: {total}).",
   catalogOff:
     "The central price catalog is not switched on for this installation; projects use their own and the profiles' prices. Saved changes apply once it is.",
   projectsIntro:
     "Which projects follow the organization's AI settings and which set their own.",
   projectsEmpty: "This organization has no projects yet.",
   projectsUnreadable:
-    "{count} projects could not be read and are missing from this list.",
+    "Projects that could not be read and are missing from this list: {count}.",
   colProject: "Project",
   colChoice: "Model choice",
   colKeys: "Own keys",
@@ -126,6 +128,8 @@ const de: Record<AiTextKey, string> = {
   modeOrganization: "Folgt dem Standard der Organisation.",
   standardFromSystem:
     "Die Organisation hat keinen Standard festgelegt, daher gilt der Orbit-Standard.",
+  standardNone:
+    "Weder die Organisation noch Orbit hat bisher einen Standard festgelegt; die Tabelle unten zeigt, was bis dahin gilt.",
   routingOff:
     "Standard-Modelle und Stufen sind für diese Installation nicht eingeschaltet, daher gelten bis dahin die eigenen Einstellungen des Projekts.",
   exceptionsNone: "Keine Ausnahmen: Jeder Wert ist übernommen.",
@@ -182,24 +186,24 @@ const de: Record<AiTextKey, string> = {
   ceilingOff: "ausgeschaltet",
   openSetting: "Einstellung öffnen",
   affectedOrgProfile:
-    "Gilt für {following} Projekte, die dem Standard folgen, und {unsaved} ohne eigene KI-Einstellungen; {own} Projekte mit eigener Wahl behalten ihre gesetzten Werte. Speichern ändert die Routen-Version aller {total} Projekte dieser Organisation: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+    "Gilt für Projekte, die dem Standard folgen ({following}), und für Projekte ohne eigene KI-Einstellungen ({unsaved}); Projekte mit eigener Wahl ({own}) behalten ihre gesetzten Werte. Speichern ändert die Routen-Version jedes Projekts dieser Organisation ({total}): Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedOrgRouteOnly:
-    "Speichern ändert die Routen-Version aller {total} Projekte dieser Organisation: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+    "Speichern ändert die Routen-Version jedes Projekts dieser Organisation ({total}): Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedOrgCatalog:
-    "Preise und Schalter hier gelten für alle {total} Projekte dieser Organisation, sofern ein Projekt keinen eigenen Preis festlegt.",
+    "Preise und Schalter hier gelten für jedes Projekt dieser Organisation ({total}), das keinen eigenen Preis festlegt.",
   affectedSystemProfile:
-    "Gilt für jedes Projekt, dessen Organisation und eigene Einstellungen einen Wert offen lassen. Speichern ändert die Routen-Version aller {total} Projekte und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
+    "Gilt für jedes Projekt, dessen Organisation und eigene Einstellungen einen Wert offen lassen. Speichern ändert die Routen-Version jedes Projekts ({total}) und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedSystemRouteOnly:
-    "Speichern ändert die Routen-Version aller {total} Projekte und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
+    "Speichern ändert die Routen-Version jedes Projekts ({total}) und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedSystemCatalog:
-    "Preise und Schalter hier gelten für jede Organisation und jedes Projekt ohne eigenen Preis ({total} Projekte).",
+    "Preise und Schalter hier gelten für jede Organisation und jedes Projekt ohne eigenen Preis (Projekte: {total}).",
   catalogOff:
     "Der zentrale Preiskatalog ist für diese Installation nicht eingeschaltet; Projekte nutzen ihre eigenen Preise und die der Profile. Gespeicherte Änderungen gelten, sobald er eingeschaltet ist.",
   projectsIntro:
     "Welche Projekte den KI-Einstellungen der Organisation folgen und welche eigene festlegen.",
   projectsEmpty: "Diese Organisation hat noch keine Projekte.",
   projectsUnreadable:
-    "{count} Projekte konnten nicht gelesen werden und fehlen in dieser Liste.",
+    "Projekte, die nicht gelesen werden konnten und in dieser Liste fehlen: {count}.",
   colProject: "Projekt",
   colChoice: "Modellwahl",
   colKeys: "Eigene Schlüssel",

@@ -7791,6 +7791,13 @@ a.support-row {
   font-size: 13px;
   color: var(--muted-foreground);
 }
+/* A project's name heads its row as stored: the header cell style
+   capitalizes every word, which would rename "Orbit acceptance project". */
+.ai-projects-table tbody th {
+  text-transform: none;
+  background: transparent;
+  font-size: inherit;
+}
 @media (max-width: 760px) {
   .manage-toolbar {
     grid-template-columns: minmax(0, 1fr);

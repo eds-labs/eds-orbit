@@ -119,7 +119,7 @@ export function OrganizationAiProjectsView({
         <p className="panel-note">{t("projectsEmpty")}</p>
       ) : (
         <div className="table-wrap">
-          <table>
+          <table className="ai-projects-table">
             <thead>
               <tr>
                 <th scope="col">{t("colProject")}</th>
