@@ -101,4 +101,27 @@ describe("dataClassRouteWarning", () => {
     expect(text).not.toContain("AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA");
     expect(dataClassRouteWarning("en", [])).toBeNull();
   });
+
+});
+
+describe("creative authority codes", () => {
+  it("are explained in both languages", () => {
+    const codes = [
+      "CREATIVE_AUTHORITY_OFF",
+      "CREATIVE_NOT_FOUND",
+      "CREATIVE_NOT_USABLE",
+      "CREATIVE_RENDITION_NOT_ON_POST",
+      "CREATIVE_VISION_REVIEW_REQUIRED",
+      "CREATIVE_VISION_NOT_PASSED",
+      "CREATIVE_RENDITION_NOT_REVIEWED",
+      "CREATIVE_QA_NEEDS_OWNER",
+    ];
+    for (const code of codes) {
+      expect(hasExceptionText(code)).toBe(true);
+      expect(exceptionText("de", code).title).not.toBe(code);
+      expect(exceptionText("en", code).action).toBeTruthy();
+    }
+    expect(exceptionText("de", "CREATIVE_VISION_REVIEW_REQUIRED").title).toContain("Bildprüfung");
+    expect(exceptionText("en", "CREATIVE_VISION_REVIEW_REQUIRED").title).toContain("vision review");
+  });
 });

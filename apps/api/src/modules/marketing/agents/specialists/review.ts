@@ -28,6 +28,7 @@ import { errorCode } from "../../../telemetry.ts";
 import {
   bodyLinkProblems,
   confirmedHash,
+  creativeAuthorityProblem,
   withinConfirmation,
   type AgentReview,
 } from "../agent-review.ts";
@@ -1121,9 +1122,15 @@ async function approve(
   });
   // Without a linked Telegram chat the agent review does not count and the owner reviews (spec §6).
   const result = await checkClaims(tx, scope, contentId);
+  // Why the approval cannot stand in for the owner's when the post carries a
+  // creative (a code, never content); the owner's list names it.
+  const authorityProblem = result.valid
+    ? null
+    : await creativeAuthorityProblem(tx, scope, v);
   await update(tx, scope, reviewed, {
     ...data(reviewed),
     status: result.valid ? "reviewed" : "needs_review",
+    agentAuthorityProblem: authorityProblem,
     review: result,
     // The approval is the review task's, never the worker's user.
     reviewedBy: `agent:${task.id}`,

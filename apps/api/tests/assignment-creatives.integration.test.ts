@@ -105,6 +105,11 @@ import {
   creativeAuthorityProblem,
   type CreativeAuthorityCode,
 } from "../src/modules/agents/agent-review.ts";
+import {
+  draftDecisionHistory,
+  draftsAwaitingOwner,
+} from "../src/modules/marketing/agents/assignment-overview.ts";
+import { releaseAssignmentDraft } from "../src/modules/marketing/agents/owner-release.ts";
 import { CREATIVES } from "../src/modules/marketing/creative/store.ts";
 import { recomposeCreative } from "../src/modules/marketing/creative/pipeline.ts";
 import { composeRunCreatives } from "../src/modules/marketing/creative/assignment.ts";
@@ -906,6 +911,65 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     await setCreative((r) => r);
     expect(await authorityProblem(draft)).toBeNull();
     expect(await accepted(draft)).toBe(true);
+  });
+
+  /** The owner's list of drafts as the route serves it. */
+  const waitingDrafts = () =>
+    h.run((tx) => draftsAwaitingOwner(tx, project.owner));
+
+  it("stores why an agent-approved creative waits for the owner", async () => {
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
+    await linkBot();
+    await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    expect(draft!.status).toBe("needs_review");
+    expect(draft!.agentAuthorityProblem).toBe("CREATIVE_AUTHORITY_OFF");
+    const items = (await waitingDrafts()) as Array<Record<string, any>>;
+    const item = items.find((i) => i.id === draft!.id)!;
+    expect(item.state).toBe("pending");
+    expect(item.waitingReason).toBe("CREATIVE_AUTHORITY_OFF");
+  });
+
+  it("makes no vision call while the brand kit has the vision review off", async () => {
+    process.env.ORBIT_AGENT_REVIEW_CREATIVES = "true";
+    await linkBot();
+    await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    // Only the review model was called: no request carries an image.
+    expect(provider.requests).toHaveLength(1);
+    expect(JSON.stringify(provider.requests)).not.toContain("input_image");
+    const [draft] = await contents();
+    expect(draft!.status).toBe("needs_review");
+    expect(draft!.agentAuthorityProblem).toBe(
+      "CREATIVE_VISION_REVIEW_REQUIRED",
+    );
+  });
+
+  it("shows no waiting reason once the owner released the draft", async () => {
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
+    await linkBot();
+    await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    expect(draft!.agentAuthorityProblem).toBe("CREATIVE_AUTHORITY_OFF");
+    await h.run((tx) =>
+      releaseAssignmentDraft(tx, project.owner, draft!.id, draft!.version),
+    );
+    const pending = (await waitingDrafts()) as Array<Record<string, any>>;
+    expect(pending.find((i) => i.id === draft!.id)).toBeUndefined();
+    const history = (await h.run((tx) =>
+      draftDecisionHistory(tx, project.owner),
+    )) as Array<Record<string, any>>;
+    const released = history.find((i) => i.id === draft!.id)!;
+    expect(released.state).toBe("released");
+    expect(released.waitingReason ?? null).toBeNull();
   });
 
   it("keeps the review authority flag above the creative flag", async () => {

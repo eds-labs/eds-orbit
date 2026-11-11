@@ -1,6 +1,7 @@
 "use client";
 import { RunOperationView, type RunOperation } from "./run-operation";
 import { AppLink } from "@/platform/ui/app-link";
+import { ExceptionWords } from "./exception-words";
 import { useContext, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { AssignmentDetail } from "./assignment-detail";
@@ -119,6 +120,9 @@ export type AwaitingOwnerDraft = {
   assignmentId: string;
   assignmentName: string | null;
   agentApproved: boolean;
+  // Why the review agent's approval does not stand in for the owner's (a
+  // code, pending drafts only); absent or null: no reason recorded.
+  waitingReason?: string | null;
   problems: string[];
   // What the release does: schedule the post or book a Postiz draft (R73).
   delivery?: "publish" | "postiz_draft";
@@ -1126,6 +1130,11 @@ export function AwaitingOwnerDraftList({
                 ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
                 : "The review agent left this draft to you."}
         </p>
+        {state === "pending" && item.waitingReason && (
+          <div className="panel-note approval-waiting-reason">
+            <ExceptionWords code={item.waitingReason} />
+          </div>
+        )}
       </>
     );
   };
