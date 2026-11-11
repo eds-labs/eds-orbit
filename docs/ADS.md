@@ -4,6 +4,8 @@ The ads module is meant to connect a project's ad accounts and manage paid adver
 
 State on 2026-11-09: **step A1 (module skeleton) is on `main`.** `ORBIT_ADS` is off. The module has a manifest, permissions, gate, settings, one status route, four empty tables and six placeholder views. It connects no ad account and calls no provider; accounts, campaigns and reports come in later steps (A2 onward).
 
+State on 2026-11-11: **step A3 (Meta connection and ad accounts) is implemented and tested locally on branch `claude/eds-orbit-ads-module-plan-3228d2`; not pushed, not merged, not deployed.** `ORBIT_ADS` stays off. No migration (schema hash unchanged), no new flag, no new dependency. See "Meta connection and ad accounts (A3)" below. Nothing has been checked against live Meta yet (A0 questions Q20–Q24 below).
+
 Open: Task 0 of the A1 plan (the A-D1 ad-blocker test of the module id `ads` in uBlock Origin, AdGuard and Brave) has no valid result yet. The checks on 2026-11-08 and 2026-11-09 ran without an active blocker (the BAIT probe loaded), so they proved nothing. Mario decided on 2026-11-09 that the test gates enabling `ORBIT_ADS`, not the push to `main`; a browser counts only when its BAIT rows are red. The implementation uses `ads` by a recorded ruling; if the test shows blocking, the plan's rename table switches id and path to `advertising` before the flag goes on.
 
 ## Switching it on
@@ -97,17 +99,75 @@ A write with outcome `unknown` is never retried automatically; it needs reconcil
 - Usage headers on failed answers are read only for rate-limit rows; A4 decides whether to record them for every failure.
 - An insights page larger than 8 MB fails as `RESPONSE_TOO_LARGE` (not retryable); A4 lowers `limit` for oversized pages.
 
+## Meta connection and ad accounts (A3)
+
+Code: `apps/api/src/modules/ads/accounts/` (`app`, `connect`, `oauth-state`, `vault`, `accounts`, `account-settings`, `health`, `cleanup`, `data-deletion`, `providers`); web: `apps/web/src/modules/ads/accounts.tsx` and `account-picker.tsx`. Status: implemented and tested locally, not pushed.
+
+**Admin setup (before the first connect).**
+
+1. Create the Meta app and its Facebook Login for Business configuration as in the A0 spike plan §2.2 (new app in the business portfolio "EDS Labs", not the Social app). The ads configuration carries the `ads_management` and `ads_read` permissions. For reporting-only installations the configuration may grant only `ads_read`: the accounts then stay `read_verified` and no write capability is ever offered (least privilege, plan §11).
+2. Register the redirect URI `<APP_ORIGIN>/api/ads/oauth/callback/meta` (the route is `/api/ads/oauth/callback/:provider`).
+3. Register the data-deletion callback URL `<APP_ORIGIN>/api/callbacks/ads/meta-data-deletion`. It needs `ORBIT_PUBLIC_INGRESS=true`.
+4. In the administration add the system connection `ads.app.meta` (secret fields `appId`, `appSecret`, `configId`) and grant it to the organization or project for purpose `ads_oauth` and module `ads`. Until it is granted, a project owner sees "not granted" and cannot connect.
+
+**Providers.** `ads.app.meta` is the system connection (purpose `ads_oauth`, module `ads`). `ads.account.meta` is the module-managed project connection (purpose `ads_manage`) that holds one user's token and the accounts it granted; members never edit it in the generic connection list.
+
+**OAuth.** Facebook Login for Business with `config_id`; the state is a one-time `AdOAuthState` row. The code is exchanged by a POST with a form body (A0 Q20). Identity and scopes come from `GET /me` and `GET /me/permissions` with the user's own token (Bearer plus `appsecret_proof`); there is no `debug_token` call, so the token never appears in a URL. A token answer with `expires_in` is a user token (60 days; a short-lived token is exchanged for a long-lived one); an answer without it is a system-user token with no expiry. After the callback the owner sees up to 20 granted accounts and assigns them.
+
+**One connection per (project, Meta user, app).** A reconnect by the same Meta user rotates the sealed secret and re-reads up to 20 accounts.
+
+**One project per ad account and organization.** The claim lives in the connection config (`assignedAdAccounts`) through the platform helpers `claimExclusiveConfigValue` and `releaseExclusiveConfigValue` (`apps/api/src/platform/connections/project-secrets.ts`, advisory lock per organization and value), because the auth role cannot read `AdAccount` across projects. A disabled connection keeps its claims; only revocation frees them. Unlinking keeps the `AdAccount` row (`status = unlinked`, sync-state deleted, claim released); the connection is revoked when no non-unlinked account uses it. `revokeProjectConnection` has a new optional `forget` flag, used only by the data-deletion path (label "Meta (deleted)", `metaUserId` set to null).
+
+**Account settings.** DSA fields `dsaBeneficiary` and `dsaPayor` (enforced from A8) and the `writesEnabled` switch. The switch is stored and audited now but has no effect until A7; turning it on needs capability `write_ready` and status `active`.
+
+**Health.** Periodic task `ads-account-health` every 6 hours (10 accounts and 30 seconds per project and run): an expired token becomes `reconnect_required` without a call; a warning goes out 14 days before expiry, once per expiry date; a refused token or a lost ads permission flips all accounts of the connection once with one owner notification; outages (transient, rate limit) only record health and never notify; `reconnect_required` accounts are probed too and restored when readable again. Clean-up task `ads-oauth-state-cleanup`: old OAuth states, connections without accounts after 24 hours, stale claims. Audit rows and notifications carry codes only: no token, account name or provider message.
+
+**Data deletion.** `POST /api/callbacks/ads/meta-data-deletion` (signed request, HMAC-SHA256) unlinks every account of that Meta user's ads connections in every organization, revokes those connections with `forget`, and answers `{url, confirmation_code}`. `GET /api/public/ads/data-deletion/:code` shows the status; the web page is `/data-deletion/ads`. The code is self-verifying (key info `orbit-ads-data-deletion-v1`), so no request and no personal data are stored. Both routes need `ORBIT_PUBLIC_INGRESS=true`. **While `ORBIT_ADS` is off both answer 404 `ADS_DISABLED`**, so Meta's deletion requests cannot reach stored ad tokens while the flag is off: switch the flag on (or revoke the connections by hand) before relying on the callback.
+
+**Tokens.** Sealed `ConnectionSecret`s only; no route, audit, notification, event or error returns a token (leak-scan tests cover every OAuth flow).
+
+**Open.**
+
+- A0 questions Q20–Q24 (below) decide the live behaviour; the fallbacks are one-function changes.
+- Mario's legal wording check of the German and English texts of the data-deletion status page is open.
+- Follow-up for Social (not changed in A3): Social keeps the person's name and id on revoked Social connections after a deletion request; Ads clears them with `forget`.
+- Independent security review before the first production use (SECURITY_REVIEW.md, A12).
+
+### A0 dependencies of A3 (answered before live check L1)
+
+| Assumption in A3 | A0 question | Fallback |
+|---|---|---|
+| `POST /oauth/access_token` with a form body works for the code and the long-lived exchange | Q20 | GET with query |
+| User tokens answer with `expires_in`; a system-user token from configuration B answers without it | Q2, Q21 | change `tokenTypeOf` |
+| `GET /me/permissions` returns `{data: [{permission, status}]}` with the user token | Q22 | read scopes from `debug_token` with the token in a POST body |
+| Ad accounts expose `user_tasks` (`MANAGE`, `ADVERTISE`, `ANALYZE`) | Q23 | drop the field; capability from scopes only |
+| `appsecret_proof` is accepted with the app token for the app check | Q13 | check the app with `GET /{appId}` without proof |
+| The `user_id` in Meta's `signed_request` equals `GET /me` `id` of a user token | Q24 | also match `businessId` grants |
+| Meta accepts a `localhost` redirect for the unpublished app | Q14 | test on a preview host |
+
 ## Routes
 
 | Route | Permission |
 |---|---|
 | `GET /api/projects/:projectId/ads/status` | `ads.read` |
+| `GET /api/projects/:projectId/ads/accounts` | `ads.read` |
+| `GET /api/projects/:projectId/ads/connections` | `ads.accounts.manage` |
+| `POST /api/projects/:projectId/ads/connections/meta/connect` | `ads.accounts.manage` |
+| `GET /api/projects/:projectId/ads/connections/:connectionId/available-accounts` | `ads.accounts.manage` |
+| `POST /api/projects/:projectId/ads/connections/:connectionId/revoke` | `ads.accounts.manage` |
+| `POST /api/projects/:projectId/ads/accounts` (assign an available account) | `ads.accounts.manage` |
+| `PATCH /api/projects/:projectId/ads/accounts/:accountId` (DSA fields, write switch) | `ads.accounts.manage` |
+| `POST /api/projects/:projectId/ads/accounts/:accountId/unlink` | `ads.accounts.manage` |
+| `POST /api/projects/:projectId/ads/accounts/:accountId/check` | `ads.accounts.manage` |
+| `GET /api/ads/oauth/callback/:provider` | OAuth state (no session role) |
+| `POST /api/callbacks/ads/meta-data-deletion` | signed request, `ORBIT_PUBLIC_INGRESS` |
+| `GET /api/public/ads/data-deletion/:code` | self-verifying code, `ORBIT_PUBLIC_INGRESS` |
 
-It returns module version, settings and settings version.
+The status route returns module version, settings and settings version.
 
 ## Web
 
-`apps/web/src/modules/ads/`: editor-only (`minAccess: "editor"`), opt-in, group order 13 (after Social). Six placeholder views (overview, campaigns, ad units, creatives, performance, accounts) with English and German empty-state texts.
+`apps/web/src/modules/ads/`: editor-only (`minAccess: "editor"`), opt-in, group order 13 (after Social). Six views (overview, campaigns, ad units, creatives, performance, accounts); since A3 the accounts view is "Konten & Verbindungen" (owners connect, assign, edit DSA fields, toggle the inert write switch, check, reconnect and unlink; editors see the list read-only; viewers see nothing); the others stay placeholders with English and German empty-state texts. Public status page `/data-deletion/ads`.
 
 ## Rollout and rollback
 
