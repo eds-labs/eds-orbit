@@ -232,7 +232,8 @@ export function adaptModuleSections(
     if (entry) entry.parts.push(c);
     else joined.set(id, { moduleId, parts: [c] });
   }
-  // Modules in the shell's (sidebar) order; one unknown to it goes last.
+  // Modules in the order of `modules` (the caller passes the sidebar's);
+  // one missing from it goes last.
   const rank = (moduleId: string) => {
     const index = modules.findIndex((m) => m.id === moduleId);
     return index === -1 ? modules.length : index;

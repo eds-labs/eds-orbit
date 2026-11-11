@@ -19,6 +19,7 @@ import {
   ContentLanguagesPanel,
   ProfileLinksPanel,
 } from "@/platform/project-settings/project-configuration";
+import { groupedModules } from "@/platform/shell/nav-groups";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { ResourceError } from "@/platform/ui/collection";
@@ -208,6 +209,27 @@ export const projectSections: readonly ManagementSection[] = [
   },
 ];
 
+type ShellModuleLike = Parameters<typeof adaptModuleSections>[1][number] & {
+  enabled: boolean;
+  groupOrder?: number;
+};
+
+/**
+ * The module sections of the project scope and their notices, the module
+ * groups in the sidebar's order (groupedModules: by groupOrder, ties in
+ * registry order), as the old settings page lists them.
+ */
+export function projectModuleSections(
+  contributed: Parameters<typeof adaptModuleSections>[0],
+  modules: readonly ShellModuleLike[],
+) {
+  return adaptModuleSections(
+    contributed,
+    groupedModules(modules),
+    PLATFORM_TAB_KEYS,
+  );
+}
+
 /**
  * The project scope: the platform's sections the member's capabilities allow,
  * then the sections of the modules shown for the project. The module hooks
@@ -230,7 +252,7 @@ export function ProjectScopeView({
     shown: section.useSection(),
   }));
   const modules = shell?.modules ?? [];
-  const adapted = adaptModuleSections(contributed, modules, PLATFORM_TAB_KEYS);
+  const adapted = projectModuleSections(contributed, modules);
   const sections = [
     ...visibleSections(projectSections, "project", capabilities),
     ...adapted.sections,

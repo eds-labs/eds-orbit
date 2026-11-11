@@ -7,6 +7,11 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
+import {
+  collectSettingsTabs,
+  groupSettings,
+  platformSettingsTabs,
+} from "@/platform/shell/settings-nav";
 import type { SettingsSection } from "@/platform/shell/types";
 import {
   adaptModuleSections,
@@ -17,7 +22,12 @@ import {
 } from "../registry";
 import { ScopeView } from "../scope-view";
 import type { ManagementCapabilities, ManageScope, ManageTarget } from "../types";
-import { PLATFORM_TAB_KEYS, projectSections, ProjectScopeView } from "./project";
+import {
+  PLATFORM_TAB_KEYS,
+  projectModuleSections,
+  projectSections,
+  ProjectScopeView,
+} from "./project";
 
 const keys = (caps: Parameters<typeof visibleSections>[2]) =>
   visibleSections(projectSections, "project", caps).map(
@@ -304,6 +314,43 @@ describe("adaptModuleSections", () => {
     expect(resolveSection(all, "modules", ["finance"])?.section).toBe(finance);
     // The platform's switches stay the area's first section.
     expect(resolveSection(all, "modules", [])?.section.id).toBe("switches");
+  });
+});
+
+describe("projectModuleSections", () => {
+  it("orders the module groups like the sidebar and the old settings page", () => {
+    // The real modules, all enabled, with their real groupOrder values.
+    const modules = webRegistry.modules.map((m) => ({ ...m, enabled: true }));
+    const contributed = webRegistry.modules.flatMap((m) =>
+      (m.settings ?? []).map((section) => ({
+        section: {
+          ...section,
+          tab: { ...section.tab, group: section.tab.group ?? m.id },
+        },
+        shown: { content: null } as Shown,
+      })),
+    );
+    const center = navGroups(
+      projectModuleSections(contributed, modules).sections,
+      "project",
+      () => undefined,
+    )
+      .map((g) => g.id)
+      .filter((id) => modules.some((m) => m.id === id));
+    const old = groupSettings(
+      collectSettingsTabs(
+        platformSettingsTabs({ isOwner: true, connectedApps: true }),
+        contributed.map(({ section, shown }) => ({ tab: section.tab, shown })),
+      ),
+      modules,
+    )
+      .map((g) => g.id)
+      .filter((id) => modules.some((m) => m.id === id));
+    expect(center.length).toBeGreaterThan(1);
+    // A module whose only section joins a platform tab on the old page (webmail
+    // on "integrations") has no group there; every other one is in the same
+    // order.
+    expect(center.filter((id) => old.includes(id))).toEqual(old);
   });
 });
 
