@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 const answers = vi.hoisted(() => ({}) as Record<string, unknown>);
+const requested = vi.hoisted(() => [] as Array<string | null>);
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
-    useResource: (path: string | null) => ({
+    useResource: (path: string | null) => (requested.push(path), {
       data: path ? (answers[path] ?? null) : null,
       error: null,
       loading: false,
@@ -63,5 +64,14 @@ describe("granted connections", () => {
     // Workflow runs belong to no granted provider of a setup.
     expect(html).not.toContain("content.published");
     expect(renderToStaticMarkup(<GrantedConnections connectors={connectors} provider="tiktok" />)).toBe("");
+  });
+
+  it("requests the workflow runs only without a provider", () => {
+    requested.length = 0;
+    renderToStaticMarkup(<GrantedConnections connectors={connectors} provider="github_app" />);
+    expect(requested).toEqual(["/projects/p1/connections", null]);
+    requested.length = 0;
+    renderToStaticMarkup(<GrantedConnections connectors={connectors} />);
+    expect(requested).toEqual(["/projects/p1/connections", "/projects/p1/workflow-runs"]);
   });
 });

@@ -52,6 +52,11 @@ export type SetupStep = {
   done: boolean;
   mine: boolean;
   href: string | null;
+  /**
+   * Whether this scope can see the step's result. A step that is not
+   * observable is never done and never current; it follows in the project.
+   */
+  observable: boolean;
 };
 type SetupRole = { admin: boolean; organizationOwner: boolean; projectOwner: boolean };
 
@@ -63,18 +68,17 @@ export function setupSteps(input: {
   states: readonly IntegrationState[];
   granted: boolean;
   bound: boolean;
+  /** Project scope: a record of this provider with scope "project" exists; else false. */
+  projectStored: boolean;
   links: { organization: string | null; project: string | null };
 }): SetupStep[] {
-  const { scope, entry, role, states, granted, bound, links } = input;
-  const storage = storageOf(entry);
+  const { scope, entry, role, states, granted, bound, projectStored, links } = input;
+  const central = storageOf(entry).includes("central");
+  // A project runs a project-only entry, or its own record of an entry with
+  // both storages, without anything from the organization (ledger P3-R22).
+  const ownRecord = scope === "project" && (!central || projectStored);
   const configureWho: SetupWho =
-    scope === "system"
-      ? "admin"
-      : scope === "organization"
-        ? "owner"
-        : storage.includes("project") && !storage.includes("central")
-          ? "projectOwner"
-          : "owner";
+    scope === "system" ? "admin" : ownRecord ? "projectOwner" : "owner";
   const covers = (who: SetupWho) =>
     who === "anyone" ||
     (who === "admin" && role.admin) ||
@@ -82,19 +86,35 @@ export function setupSteps(input: {
     (who === "projectOwner" && (role.projectOwner || role.organizationOwner));
   const linkOf = (who: SetupWho) =>
     who === "owner" ? links.organization : who === "projectOwner" ? links.project : null;
-  const step = (id: SetupStepId, who: SetupWho, done: boolean): SetupStep => {
+  const step = (
+    id: SetupStepId,
+    who: SetupWho,
+    done: boolean,
+    observable = true,
+  ): SetupStep => {
     const mine = covers(who);
-    return { id, who, done, mine, href: mine ? null : linkOf(who) };
+    return {
+      id,
+      who,
+      done: observable && done,
+      mine,
+      href: mine ? null : linkOf(who),
+      observable,
+    };
   };
   // A state newer than this build counts as set up, never as checked.
   const some = (...wanted: string[]) => states.some((s) => wanted.includes(s));
+  // A system administrator does not see project bindings (by design), and an
+  // organization sees bindings but not a project's final check.
   return [
     step("choose", "anyone", true),
     step("configure", configureWho, states.some((s) => s !== "not_set_up")),
     step("check", configureWho, some("verified", "ready")),
-    step("authorize", scope === "system" ? "admin" : "owner", granted),
-    step("assign", "projectOwner", bound),
-    step("validate", "projectOwner", some("ready")),
+    ...(central && !ownRecord
+      ? [step("authorize", scope === "system" ? "admin" : "owner", granted)]
+      : []),
+    step("assign", "projectOwner", bound, scope !== "system"),
+    step("validate", "projectOwner", some("ready"), scope === "project"),
   ];
 }
 
@@ -104,7 +124,9 @@ export function setupSteps(input: {
  * capabilities). `system.connections` only system administrators;
  * `organization.connections` only owners of that organization;
  * `project.members` only project owners (an organization owner is owner of
- * every project of it), never editors or viewers.
+ * every project of it), never editors or viewers. With ORBIT_ADMINISTRATION
+ * off the server lists no organization at all, so an organization owner then
+ * reads here as a project owner only.
  */
 export function setupRole(
   scope: ManageScope,
@@ -137,7 +159,9 @@ export function setupRole(
  * Where another scope's steps are done. Only a project has one organization
  * to point to, and only when the member may open its setup; the member is
  * already in the project, and the system and an organization have no single
- * target.
+ * target. Today the organization link exists only when the member owns the
+ * organization, whose steps are then their own; the "Open" link is for roles
+ * that may open the organization without owning it.
  */
 export function setupLinks(
   scope: ManageScope,
@@ -202,7 +226,7 @@ export function SetupStepsView({
   onRefresh?: () => void;
 }) {
   const text = integrationText(locale);
-  const current = steps.findIndex((s) => !s.done);
+  const current = steps.findIndex((s) => s.observable && !s.done);
   return (
     <section className="integration-setup">
       <h2>{labelOf(entry, locale)}</h2>
@@ -210,12 +234,14 @@ export function SetupStepsView({
         {steps.map((s, index) => {
           const label = text(STEP_LABEL[s.id]);
           const who = text(WHO_LABEL[s.who]);
-          const others = !s.done && !s.mine;
+          const others = s.observable && !s.done && !s.mine;
           return (
             <li key={s.id} aria-current={index === current ? "step" : undefined}>
               <strong>{label}</strong>
               {others ? null : <span> · {who}</span>}{" "}
-              {s.done ? (
+              {!s.observable ? (
+                <span>{text("stepInProject")}</span>
+              ) : s.done ? (
                 <span>{text("stepDone")}</span>
               ) : s.mine ? (
                 <span>{text("stepYours")}</span>
@@ -279,6 +305,13 @@ function OfferList({
   );
 }
 
+/** One refresh of every resource the steps are built from; null is skipped. */
+export function refreshAll(
+  resources: ReadonlyArray<{ refresh(): void } | null>,
+): () => void {
+  return () => resources.forEach((r) => r?.refresh());
+}
+
 type CatalogAnswer = { items: CatalogEntry[] };
 /** The admin list also says how many grants a connection has. */
 type SystemConnection = AdminConnection & { activeGrants?: number };
@@ -309,6 +342,7 @@ export function SystemSetup({ scope, id, locale, hrefOf, caps }: SectionProps) {
         states: statesOf(systemRecords(items), entry.id),
         granted: items.some((c) => c.provider === entry.id && (c.activeGrants ?? 0) > 0),
         bound: false,
+        projectStored: false,
         links: setupLinks(scope, entry.id, caps),
       })}
       locale={locale}
@@ -342,6 +376,7 @@ export function OrganizationSetup({ scope, id, locale, identity, hrefOf, caps }:
         states: statesOf(organizationRecords(usage.data!, locale), entry.id),
         granted: own.some((c) => (c.projects ?? []).length > 0),
         bound: own.some((c) => (c.projects ?? []).some((p) => p.bound)),
+        projectStored: false,
         links: setupLinks(scope, entry.id, caps),
       })}
       locale={locale}
@@ -395,15 +430,14 @@ export function ProjectSetup({ scope, id, locale, hrefOf, caps }: SectionProps) 
         entry,
         role: setupRole(scope, caps),
         states: statesOf(projectRecords(records.data!.items), entry.id),
-        granted: own.some((i) => i.scope === "central"),
+        // A disabled or revoked grant does not count as authorized.
+        granted: own.some((i) => i.scope === "central" && i.state !== "disabled"),
         bound: own.some((i) => i.state === "ready"),
+        projectStored: own.some((i) => i.scope === "project"),
         links: setupLinks(scope, entry.id, caps),
       })}
       locale={locale}
-      onRefresh={() => {
-        records.refresh();
-        if (central) connectors.refresh();
-      }}
+      onRefresh={refreshAll([records, central ? connectors : null])}
       workbench={
         <>
           {central ? (

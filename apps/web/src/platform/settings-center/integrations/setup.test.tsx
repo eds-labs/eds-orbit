@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 // Every answer a container reads, by its exact path; a path without an entry
 // fails, so a test sees the error state instead of steps from part of the data.
 const answers = vi.hoisted(() => ({}) as Record<string, unknown>);
-const refreshed = vi.hoisted(() => [] as string[]);
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
@@ -14,7 +13,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
         data: found ?? null,
         error: found === undefined && path ? new Error(`failed ${path}`) : null,
         loading: false,
-        refresh: () => refreshed.push(String(path)),
+        refresh: () => {},
       };
     },
   };
@@ -43,6 +42,7 @@ vi.mock("@/components/granted-connections", () => ({
   ),
 }));
 
+import { isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity } from "@/lib/api";
 import { WorkspaceContext, type WorkspaceContextValue } from "@/components/workspace-context";
@@ -53,6 +53,7 @@ import type { ManagementCapabilities, ManageScope, SectionProps } from "../types
 import {
   OrganizationSetup,
   ProjectSetup,
+  refreshAll,
   setupLinks,
   setupOffers,
   setupRole,
@@ -96,6 +97,7 @@ const steps = (over: Partial<Parameters<typeof setupSteps>[0]> = {}) =>
     states: [],
     granted: false,
     bound: false,
+    projectStored: false,
     links: LINKS,
     ...over,
   });
@@ -130,7 +132,8 @@ describe("setupSteps", () => {
     const own = byId(steps({ entry: xAccount }));
     expect(own.configure).toMatchObject({ who: "projectOwner", mine: true });
     expect(own.check).toMatchObject({ who: "projectOwner", mine: true });
-    expect(own.authorize).toMatchObject({ who: "owner", mine: false });
+    // Nothing of the organization's to authorize for a project-only entry.
+    expect(own.authorize).toBeUndefined();
   });
 
   it("gives the system's steps to the administrator and the organization's to the owner", () => {
@@ -138,7 +141,7 @@ describe("setupSteps", () => {
     expect([system.configure!.who, system.check!.who, system.authorize!.who]).toEqual(["admin", "admin", "admin"]);
     expect(system.configure!.mine).toBe(true);
     // Project steps have no single project to link to from the system.
-    expect(system.assign).toMatchObject({ who: "projectOwner", mine: false, href: null });
+    expect(system.assign).toMatchObject({ who: "projectOwner", mine: false, href: null, observable: false });
     const organization = byId(steps({ scope: "organization", role: { ...NONE, organizationOwner: true }, links: { organization: null, project: null } }));
     expect([organization.configure!.who, organization.authorize!.who]).toEqual(["owner", "owner"]);
     expect(organization.assign).toMatchObject({ who: "projectOwner", mine: true });
@@ -200,6 +203,99 @@ describe("SetupStepsView", () => {
   });
 });
 
+// Realistic entries of ledger P3-R22: what applies and what the scope can see.
+const mailbox = entry({ id: "email", label: { en: "Mailbox", de: "Postfach" }, category: "email", authType: "password", scopes: ["project"], storage: ["project"] });
+const current = (list: readonly SetupStep[]) => list.findIndex((s) => s.observable && !s.done);
+
+describe("setupSteps: only what applies and what the scope can see", () => {
+  it("emits no authorize step for a mailbox after a successful check, and nothing stays open", () => {
+    const list = steps({ entry: mailbox, states: ["ready"], projectStored: true, bound: true });
+    expect(list.map((s) => s.id)).toEqual(["choose", "configure", "check", "assign", "validate"]);
+    expect(list.every((s) => s.observable && s.done)).toBe(true);
+    expect(current(list)).toBe(-1);
+  });
+
+  it("gives Postiz on the project's own record to the project owner, without an authorize step", () => {
+    const own = byId(steps({ projectStored: true, states: ["verified"] }));
+    expect(own.authorize).toBeUndefined();
+    expect(own.configure).toMatchObject({ who: "projectOwner", mine: true, done: true });
+    expect(own.check).toMatchObject({ who: "projectOwner", mine: true, done: true });
+  });
+
+  it("leaves assign and validate unobserved in the system, with no current step once its own are done", () => {
+    const list = steps({ scope: "system", role: { ...NONE, admin: true }, states: ["verified"], granted: true, links: { organization: null, project: null } });
+    const own = byId(list);
+    expect(own.assign).toMatchObject({ observable: false, done: false });
+    expect(own.validate).toMatchObject({ observable: false, done: false });
+    expect([own.configure!.done, own.check!.done, own.authorize!.done]).toEqual([true, true, true]);
+    expect(current(list)).toBe(-1);
+    // Even a ready record does not make an unobserved step done.
+    expect(byId(steps({ scope: "system", role: { ...NONE, admin: true }, states: ["ready"], bound: true })).validate!.done).toBe(false);
+  });
+
+  it("observes assign but not validate in the organization", () => {
+    const own = byId(steps({ scope: "organization", role: { ...NONE, organizationOwner: true }, states: ["ready"], granted: true, bound: true }));
+    expect(own.assign).toMatchObject({ observable: true, done: true });
+    expect(own.validate).toMatchObject({ observable: false, done: false });
+  });
+
+  it("shows an unobserved step as following in the project, with one or no current step", () => {
+    const render = (list: readonly SetupStep[]) =>
+      renderToStaticMarkup(<SetupStepsView entry={postiz} steps={list} locale="en" workbench={null} />);
+    const system = render(steps({ scope: "system", role: { ...NONE, admin: true }, states: ["verified"], granted: true }));
+    const items = system.split("<li").slice(1);
+    for (const item of items.slice(4)) {
+      expect(item).toContain(t("stepInProject"));
+      expect(item).toContain(t("whoProjectOwner"));
+      expect(item).not.toContain(t("stepOthers"));
+      expect(item).not.toContain("href=");
+      expect(item).not.toContain("aria-current");
+    }
+    expect(system).not.toContain("aria-current");
+    const open = render(steps({ scope: "system", role: { ...NONE, admin: true }, states: ["stored"] }));
+    expect(open.match(/aria-current="step"/g)).toHaveLength(1);
+    expect(render(steps({ entry: mailbox, states: ["ready"], projectStored: true, bound: true }))).not.toContain("aria-current");
+    expect(integrationText("de")("stepInProject")).not.toBe(t("stepInProject"));
+  });
+});
+
+/** The first element in a rendered tree whose props match. */
+function findElement(node: ReactNode, match: (props: Record<string, unknown>) => boolean): Record<string, unknown> | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findElement(child, match);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (!isValidElement(node)) return null;
+  const props = node.props as Record<string, unknown>;
+  if (match(props)) return props;
+  return findElement(props.children as ReactNode, match);
+}
+
+describe("refresh", () => {
+  it("wires the view's refresh control to onRefresh", () => {
+    const calls: string[] = [];
+    const onRefresh = () => calls.push("refresh");
+    const tree = SetupStepsView({ entry: postiz, steps: steps(), locale: "en", workbench: null, onRefresh });
+    const control = findElement(tree, (p) => typeof p.onClick === "function");
+    expect(control).not.toBeNull();
+    (control!.onClick as () => void)();
+    expect(calls).toEqual(["refresh"]);
+  });
+
+  it("refreshes every resource the steps are built from, skipping absent ones", () => {
+    const calls: string[] = [];
+    const resource = (name: string) => ({ refresh: () => calls.push(name) });
+    refreshAll([resource("records"), resource("connectors")])();
+    expect(calls).toEqual(["records", "connectors"]);
+    calls.length = 0;
+    refreshAll([resource("records"), null])();
+    expect(calls).toEqual(["records"]);
+  });
+});
+
 const caps = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
   stage: "preview",
   system: [],
@@ -245,7 +341,6 @@ describe("setupLinks", () => {
 const reset = (next: Record<string, unknown>) => {
   for (const key of Object.keys(answers)) delete answers[key];
   Object.assign(answers, next);
-  refreshed.length = 0;
 };
 const identity = {
   user: { id: "u1", name: "Ada", email: "ada@example.invalid" },
@@ -300,8 +395,10 @@ describe("SystemSetup", () => {
     expect(html).toContain('data-workbench="system"');
     expect(html).toContain('data-provider="postiz"');
     const items = html.split("<li").slice(1);
-    // Verified and granted: assign (no single project here) is the first open step.
-    expect(items.findIndex((item) => item.includes('aria-current="step"'))).toBe(4);
+    // Verified and granted: what follows happens in the projects, out of sight here.
+    expect(items).toHaveLength(6);
+    expect(html).not.toContain("aria-current");
+    expect(html.match(new RegExp(t("stepInProject"), "g"))).toHaveLength(2);
   });
 
   it("refuses an address that is not offered here, without a workbench", () => {
@@ -341,9 +438,9 @@ describe("OrganizationSetup", () => {
     expect(html).toContain('data-mode="owner"');
     // Only this organization's projects can receive a grant.
     expect(html).toContain('data-targets="p1"');
-    // Verified, granted and bound; only the validation is open.
-    const items = html.split("<li").slice(1);
-    expect(items.findIndex((item) => item.includes('aria-current="step"'))).toBe(5);
+    // Verified, granted and bound; the validation follows in the project.
+    expect(html).not.toContain("aria-current");
+    expect(html.match(new RegExp(t("stepInProject"), "g"))).toHaveLength(1);
   });
 
   it("refuses an address that is not offered here, without a workbench", () => {
@@ -389,6 +486,22 @@ describe("ProjectSetup", () => {
     expect(html).toContain(t("manage"));
     // Ready and central: every step done.
     expect(html).not.toContain("aria-current");
+  });
+
+  it("does not read a disabled central grant as authorized", () => {
+    const authorize = (state: string) => {
+      reset({
+        ...project,
+        "/management/projects/p1/integrations": {
+          items: [{ id: "i1", provider: "postiz", label: "Postiz", category: "social", scope: "central", state, checkedAt: null, group: null }],
+        },
+      });
+      const html = render("postiz", caps({ organizations: [ORG], projects: [ownerProject] }));
+      return html.split("<li").slice(1).find((item) => item.includes(t("stepAuthorize")))!;
+    };
+    expect(authorize("verified")).toContain(t("stepDone"));
+    expect(authorize("disabled")).not.toContain(t("stepDone"));
+    expect(authorize("disabled")).toContain(t("stepYours"));
   });
 
   it("says a module manages a project entry no page here manages", () => {

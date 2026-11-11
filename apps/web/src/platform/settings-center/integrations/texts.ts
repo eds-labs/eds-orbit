@@ -55,6 +55,7 @@ const en = {
   openStep: "Open",
   refreshState: "Refresh state",
   chooseProviderHint: "Choose what to set up.",
+  stepInProject: "Follows in the project",
 };
 
 export type IntegrationTextKey = keyof typeof en;
@@ -103,6 +104,7 @@ const de: Record<IntegrationTextKey, string> = {
   openStep: "Öffnen",
   refreshState: "Zustand aktualisieren",
   chooseProviderHint: "Wähle, was du einrichten möchtest.",
+  stepInProject: "Folgt im Projekt",
 };
 
 export const INTEGRATION_TEXTS: Record<

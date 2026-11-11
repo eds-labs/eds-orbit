@@ -20,8 +20,8 @@ type Granted = {
  * 0013). An owner binds one instead of entering a key; the project keeps
  * its own settings (channels, site, verification) and runs the usual check.
  * Shown only while central connections are on. `provider` (the guided
- * setup) shows only that provider's grants, from the same answer, and leaves
- * out the workflow runs, which belong to no such provider.
+ * setup) shows only that provider's grants, from the same answer, and does
+ * not request the workflow runs, which belong to no such provider.
  */
 export function GrantedConnections({
   connectors,
@@ -44,11 +44,11 @@ export function GrantedConnections({
       (provider === undefined || g.provider === provider),
   );
   const runs = useResource<{ items: Run[] }>(
-    identity.connections
+    identity.connections && provider === undefined
       ? `/projects/${encodeURIComponent(project.id)}/workflow-runs`
       : null,
   );
-  const recent = provider === undefined ? (runs.data?.items ?? []) : [];
+  const recent = runs.data?.items ?? [];
   if (!identity.connections || (!items.length && !recent.length)) return null;
   return (
     <section className="connector">
