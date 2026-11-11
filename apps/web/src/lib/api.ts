@@ -39,6 +39,8 @@ export type Identity = {
   connections?: boolean;
   /** Organization knowledge libraries (ORBIT_KNOWLEDGE_SHARES). */
   knowledgeShares?: boolean;
+  /** Stage of the settings center at /manage (ORBIT_SETTINGS_CENTER). */
+  settingsCenter?: "off" | "preview" | "on";
 };
 export type Dashboard = {
   project: Project;

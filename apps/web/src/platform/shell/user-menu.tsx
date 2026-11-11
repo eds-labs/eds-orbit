@@ -1,7 +1,13 @@
 "use client";
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import { Building2, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import {
+  Building2,
+  LogOut,
+  Settings,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 import type { Identity } from "@/lib/api";
 import type { Text } from "@/lib/i18n";
 
@@ -24,6 +30,11 @@ export function userMenuEntries(
       ? `/o/${encodeURIComponent(organization.id)}/settings`
       : null,
     admin: Boolean(identity.systemAdmin),
+    // The settings center, while its flag is in preview or on.
+    manage:
+      identity.settingsCenter === "preview" || identity.settingsCenter === "on"
+        ? "/manage"
+        : null,
   };
 }
 
@@ -75,6 +86,12 @@ export function UserMenu({
           <strong>{name}</strong>
           <small>{identity.user.email}</small>
         </div>
+        {entries.manage && (
+          <Link role="menuitem" href={entries.manage} className="user-menu-item">
+            <Settings aria-hidden />
+            {t("manageTitle")}
+          </Link>
+        )}
         {entries.account && (
           <Link role="menuitem" href="/account" className="user-menu-item">
             <UserRound aria-hidden />
