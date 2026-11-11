@@ -1,5 +1,16 @@
 # Implementation status
 
+## System & Administration V2, phase 2: settings center frame (2026-11-11, branch `claude/system-management-v2`; local only, not on `main`, not deployed)
+
+Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §7, implementation plan [2026-11-11-settings-center-phase-2.md](superpowers/plans/2026-11-11-settings-center-phase-2.md), [ADR 0027](adr/0027-settings-center.md). No schema, migration, dependency or role change. Environment: local.
+
+- **Built:** rollout flag `ORBIT_SETTINGS_CENTER` (`off` default, `preview`, `on`; reported in `/api/me`); `GET /api/management/capabilities` (what the member may manage per scope, 404 while the flag is off); the web place `/manage` with four scopes: system (`/manage/system`, administrators), organization (`/manage/o/:id`, owners), project (`/manage/p/:id`, by project role and module access) and account (`/manage/me`). Each scope has a frame with scope switcher, search, grouped section list and overview cards; the sections mount the existing panels unchanged, the AI areas link to the current AI pages. Module settings appear under `p/:id/modules/<module>` while the module is on. In `preview` the only change to existing UI is the account-menu entry "Administration & settings". A system administrator acting in an organization confirms every change that grants access ("Assign this role as system administrator?", D-8); the old `/admin` page is unchanged.
+- **Verification (local, this worktree's own database seeded by `scripts/seed-e2e.ts`, stack with `ORBIT_ADMINISTRATION`, `ORBIT_ACCOUNT`, `ORBIT_CONNECTIONS`, `ORBIT_MODULES` and `ORBIT_SETTINGS_CENTER=preview`):** Playwright `apps/web/tests/settings-center.spec.ts` 10 of 10 passed (four scopes through the menu and the switcher, section by address with `aria-current`, search, foreign project and unknown section, a disabled module's sections hidden, old pages, 390 × 844 and 768 × 1024 without horizontal scroll, keyboard order, German, D-8 confirmation in the center and none on `/admin`). The D-8 test failed as expected with the confirmation removed. Settings center and user-menu unit tests 13 files, 94 tests passed; `tsc --noEmit` (root and web) and the source and boundary check pass. Viewer and editor visibility is covered by `apps/api/tests/management-capabilities.integration.test.ts` and the unit tests, not in the browser (the seeded user is owner and administrator).
+- Whole suite and build: run by the controller, see below.
+- **Not in phase 2:** redirects of old addresses, the integrations catalog, the central AI area, the organization pause and the split of the account page. `on` behaves like `preview` until then.
+- **Production:** nothing changed. A push to `main` and each flag stage (`preview`, `on`) need Mario's approval.
+- **Rollback:** set `ORBIT_SETTINGS_CENTER` back to `off`; no data or schema to undo.
+
 ## Administration: a project owner sees only their project's part of an invitation (2026-11-11, branch `claude/tenancy-pause-invitations`; delivered to `main`, not live-accepted)
 
 Found while planning System & Administration V2 (finding F-13). Risk high (tenant metadata in an administration route); no schema, migration, flag or dependency.

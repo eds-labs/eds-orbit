@@ -368,6 +368,8 @@ Acceptance: Mario decided D-1 to D-9 on 2026-11-11.
 
 ## 7. Phase 2: settings center frame
 
+Status (2026-11-11): implemented locally on branch `claude/system-management-v2`; not on `main`, not deployed.
+
 Implementation plan: [2026-11-11-settings-center-phase-2.md](../superpowers/plans/2026-11-11-settings-center-phase-2.md).
 
 | WP | Work | Tests |
