@@ -351,13 +351,33 @@ describe.skipIf(!enabled)("ads account health and clean-up", () => {
       await assign(project, used, "act_1");
       await age(old, "createdAt", 25 * HOUR);
       await age(used, "createdAt", 30 * HOUR);
-      const due = await project.run((tx) => adsOAuthStateCleanup.nextDueAt!(tx, project.owner));
+      const revoked = async (id: string) => (await authDb.connection.findUniqueOrThrow({ where: { id } })).revokedAt !== null;
+      // Changed less than ten minutes ago (a claim in flight, say): not yet.
+      let due = await project.run((tx) => adsOAuthStateCleanup.nextDueAt!(tx, project.owner));
+      expect(due!.getTime()).toBeGreaterThan(Date.now() + 5 * 60_000);
+      await adsOAuthStateCleanup.run(project.owner);
+      expect(await revoked(old)).toBe(false);
+      for (const id of [old, young, used]) await age(id, "updatedAt", HOUR);
+      due = await project.run((tx) => adsOAuthStateCleanup.nextDueAt!(tx, project.owner));
       expect(due!.getTime()).toBeLessThanOrEqual(Date.now());
       await adsOAuthStateCleanup.run(project.owner);
-      const revoked = async (id: string) => (await authDb.connection.findUniqueOrThrow({ where: { id } })).revokedAt !== null;
       expect([await revoked(old), await revoked(young), await revoked(used)]).toEqual([true, false, false]);
+      const forgotten = await authDb.connection.findUniqueOrThrow({ where: { id: old } });
+      expect([forgotten.label, (forgotten.config as Record<string, unknown>).metaUserId]).toEqual(["Meta (deleted)", null]);
       const next = await project.run((tx) => adsOAuthStateCleanup.nextDueAt!(tx, project.owner));
       expect(next!.getTime()).toBeGreaterThan(Date.now() + 22 * HOUR);
+    });
+
+    it("does not revoke an unused connection that holds a claim", async () => {
+      const project = await track();
+      const connection = await connectMeta(project, "u-claim");
+      // An assignment in flight: claimed, no row yet.
+      await patchConfig(connection, { assignedAdAccounts: ["act_7"] });
+      await age(connection, "createdAt", 25 * HOUR);
+      await age(connection, "updatedAt", HOUR);
+      const result = await adsOAuthStateCleanup.run(project.owner);
+      expect(result?.status).toBe("removed 0 states, revoked 0, released 1");
+      expect((await authDb.connection.findUniqueOrThrow({ where: { id: connection } })).revokedAt).toBeNull();
     });
 
     it("releases a claim that no account row backs, and keeps one that does", async () => {

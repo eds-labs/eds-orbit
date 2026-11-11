@@ -287,14 +287,20 @@ export async function assignAdAccount(
         amountSpentMicros: read.amountSpentMicros,
         writesEnabled: fresh || capability === "read_verified" || read.status !== "active" ? false : existing!.writesEnabled,
       };
-      const row = existing
-        ? await tx.adAccount.update({
-            where: { projectId_id: { projectId: scope.projectId, id: existing.id } },
-            data: { ...facts, version: { increment: 1 } },
-          })
-        : await tx.adAccount.create({
-            data: { id: randomUUID(), workspaceId: scope.workspaceId, projectId: scope.projectId, provider: "meta", externalId: read.externalId, createdBy: scope.userId, ...facts },
-          });
+      let row: Row;
+      if (existing) {
+        // Only the row as it was read: a change in between is a conflict.
+        const changed = await tx.adAccount.updateMany({
+          where: { projectId: scope.projectId, id: existing.id, version: existing.version },
+          data: { ...facts, version: { increment: 1 } },
+        });
+        if (changed.count !== 1) throw new DomainError("ADS_VERSION_CONFLICT", 409);
+        row = await tx.adAccount.findFirstOrThrow({ where: { projectId: scope.projectId, id: existing.id } });
+      } else {
+        row = await tx.adAccount.create({
+          data: { id: randomUUID(), workspaceId: scope.workspaceId, projectId: scope.projectId, provider: "meta", externalId: read.externalId, createdBy: scope.userId, ...facts },
+        });
+      }
       await tx.adSyncState.upsert({
         where: { projectId_accountId_stream: { projectId: scope.projectId, accountId: row.id, stream: "health" } },
         create: {
@@ -326,9 +332,23 @@ export async function assignAdAccount(
     }
     throw error;
   }
+  // The connection may have been revoked or disabled after the claim (its
+  // revocation did not see the row yet): then the row must not stay active.
+  if (!(await connectionActive(scope, input.connectionId))) {
+    await unlinkForRevoke(scope, outcome.view.id);
+    await release(scope, input.connectionId, read.externalId);
+    if (outcome.movedFrom) await release(scope, outcome.movedFrom, read.externalId);
+    throw new DomainError("ADS_ACCOUNT_RECONNECT_REQUIRED", 409);
+  }
   if (outcome.movedFrom) await release(scope, outcome.movedFrom, read.externalId);
   return outcome.view;
 }
+
+/** The project's connection is neither revoked nor disabled. */
+const connectionActive = async (scope: Scope, connectionId: string) =>
+  (await authDb.connection.count({
+    where: { id: connectionId, provider: PROVIDER, workspaceId: scope.workspaceId, projectId: scope.projectId, revokedAt: null, disabledAt: null },
+  })) === 1;
 
 export async function updateAdAccount(
   tx: DbTx,
@@ -385,9 +405,27 @@ const connectionUnused = (scope: Scope, connectionId: string) =>
     (await tx.adAccount.count({ where: { projectId: scope.projectId, connectionId, status: { not: "unlinked" } } })) === 0,
   );
 
-/** Revokes and forgets the person; a connection that is already revoked is done. */
-const revokeConnection = (scope: Scope, connectionId: string, reason: string) =>
-  revokeProjectConnection(scope, { moduleId: MODULE, connectionId, reason, forget: FORGET_PERSON }).catch(quietNotFound);
+/**
+ * Revokes and forgets the person; true when the connection is revoked now
+ * (one that is already revoked counts). `unusedOnly`: an "unused"
+ * revocation, which leaves the connection alone while any claim is held on
+ * it (an assignment in flight has claimed but not yet written its row).
+ */
+async function revokeConnection(scope: Scope, connectionId: string, reason: string, options: { unusedOnly?: boolean } = {}) {
+  try {
+    const result = await revokeProjectConnection(scope, {
+      moduleId: MODULE,
+      connectionId,
+      reason,
+      forget: FORGET_PERSON,
+      ...(options.unusedOnly ? { onlyIfConfigEmpty: CLAIM_KEY } : {}),
+    });
+    return result.revoked;
+  } catch (error) {
+    if (isCode(error, "NOT_FOUND")) return true;
+    throw error;
+  }
+}
 
 export async function unlinkAdAccount(
   scope: Scope,
@@ -397,8 +435,8 @@ export async function unlinkAdAccount(
   const done = await markUnlinked(scope, accountId, input.version);
   await release(scope, done.connectionId, done.externalId);
   const unused = await connectionUnused(scope, done.connectionId);
-  if (unused) await revokeConnection(scope, done.connectionId, "no_accounts");
-  return { id: accountId, status: "unlinked", connectionRevoked: unused };
+  const revoked = unused && (await revokeConnection(scope, done.connectionId, "no_accounts", { unusedOnly: true }));
+  return { id: accountId, status: "unlinked", connectionRevoked: revoked };
 }
 
 /**

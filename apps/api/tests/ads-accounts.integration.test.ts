@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { authDb, closeDatabase, jsonSafe, scoped } from "../../../packages/db/src/index.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
@@ -11,6 +11,23 @@ import { createFakeMetaGraph, graphError } from "./support/fake-meta-graph.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 const fake = createFakeMetaGraph();
+
+// Test seam: `afterClaim` runs once, right after the next claim on its
+// connection (an assignment has claimed and not yet written its row).
+const seams = vi.hoisted(() => ({ afterClaim: null as null | { connectionId: string; run: () => Promise<void> } }));
+vi.mock("../src/platform/connections/project-secrets.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/platform/connections/project-secrets.ts")>();
+  return {
+    ...actual,
+    claimExclusiveConfigValue: async (...args: Parameters<typeof actual.claimExclusiveConfigValue>) => {
+      await actual.claimExclusiveConfigValue(...args);
+      const hook = seams.afterClaim;
+      if (hook?.connectionId !== args[1].connectionId) return;
+      seams.afterClaim = null;
+      await hook.run();
+    },
+  };
+});
 const CODE = "authorization-code-ads-0002";
 
 type World = { accounts: Record<string, unknown>[] };
@@ -141,6 +158,9 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
         return found ? { json: found } : graphError(403, 200);
       });
     p = await track();
+  });
+  beforeEach(() => {
+    seams.afterClaim = null;
   });
   afterAll(async () => {
     setMetaAdsFetchForTests(null);
@@ -403,6 +423,71 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
     expect((await authDb.connectionSecret.findMany({ where: { connectionId: connection } })).every((s) => s.ciphertext === "")).toBe(true);
     expect((await assign(b, cb, "act_1")).statusCode).toBe(200);
     expect((await api(q, "owner", "POST", `/ads/connections/${connection}/revoke`)).statusCode).toBe(404);
+  });
+
+  it("an unlink of the last account leaves the connection while an assignment holds a claim on it", async () => {
+    const q = await track();
+    const connection = await connectMeta(q);
+    const first = (await assign(q, connection, "act_1")).json();
+    let unlinked: { connectionRevoked: boolean } | null = null;
+    // The owner unlinks act_1 after the assignment of act_3 claimed it and before its row exists.
+    seams.afterClaim = {
+      connectionId: connection,
+      run: async () => {
+        const version = (await rows(q)).accounts.find((a) => a.id === first.id)!.version;
+        unlinked = (await api(q, "owner", "POST", `/ads/accounts/${first.id}/unlink`, { version })).json();
+      },
+    };
+    const second = await assign(q, connection, "act_3");
+    expect(seams.afterClaim).toBeNull();
+    expect(unlinked).toEqual({ id: first.id, status: "unlinked", connectionRevoked: false });
+    expect([second.statusCode, second.json().status]).toEqual([200, "active"]);
+    const row = await authDb.connection.findUniqueOrThrow({ where: { id: connection } });
+    expect([row.revokedAt, row.label]).toEqual([null, "Meta: Synthetic Meta User"]);
+    expect((await configOf(connection)).assignedAdAccounts).toEqual(["act_3"]);
+    expect((await rows(q)).accounts.map((a) => [a.externalId, a.status])).toEqual([["act_1", "unlinked"], ["act_3", "active"]]);
+  });
+
+  it("an assignment racing an owner revoke ends unlinked, and no live connection keeps the claim", async () => {
+    const q = await track();
+    const b = await sibling(q);
+    const cb = await connectMeta(b);
+    const connection = await connectMeta(q);
+    seams.afterClaim = {
+      connectionId: connection,
+      run: async () => {
+        // The revocation sees no row of act_1 yet and revokes the connection.
+        expect((await api(q, "owner", "POST", `/ads/connections/${connection}/revoke`)).json()).toEqual({ id: connection, accountsUnlinked: 0 });
+      },
+    };
+    const raced = await assign(q, connection, "act_1");
+    expect([raced.statusCode, code(raced)]).toEqual([409, "ADS_ACCOUNT_RECONNECT_REQUIRED"]);
+    const state = await rows(q);
+    expect(state.accounts.map((a) => [a.externalId, a.status, a.writesEnabled])).toEqual([["act_1", "unlinked", false]]);
+    expect(state.health).toHaveLength(0);
+    expect(state.audit.map((a) => a.action).filter((a) => a !== "ads.account.connected")).toEqual(["ads.account.assigned", "ads.account.unlinked"]);
+    expect(await authDb.connection.count({ where: { id: connection, revokedAt: null } })).toBe(0);
+    const live = await authDb.connection.findMany({
+      where: { workspaceId: q.workspaceId, provider: "ads.account.meta", revokedAt: null },
+      select: { config: true },
+    });
+    expect(live.flatMap((c) => (c.config as { assignedAdAccounts: string[] }).assignedAdAccounts)).not.toContain("act_1");
+    // Nothing blocks the account for the sibling project.
+    expect((await assign(b, cb, "act_1")).statusCode).toBe(200);
+  });
+
+  it("an assignment racing an admin disable ends unlinked and releases its claim", async () => {
+    const q = await track();
+    const connection = await connectMeta(q);
+    seams.afterClaim = {
+      connectionId: connection,
+      run: async () => void (await authDb.connection.update({ where: { id: connection }, data: { disabledAt: new Date() } })),
+    };
+    const raced = await assign(q, connection, "act_1");
+    expect([raced.statusCode, code(raced)]).toEqual([409, "ADS_ACCOUNT_RECONNECT_REQUIRED"]);
+    expect((await rows(q)).accounts.map((a) => a.status)).toEqual(["unlinked"]);
+    expect((await rows(q)).health).toHaveLength(0);
+    expect((await configOf(connection)).assignedAdAccounts).toEqual([]);
   });
 
   it("goes end to end over HTTP: connect, list connections and accounts, assign, read as editor", async () => {

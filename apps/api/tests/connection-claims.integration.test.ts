@@ -121,6 +121,25 @@ describe.skipIf(!enabled)("exclusive connection config claims", () => {
     ).rejects.toMatchObject({ code: "CONNECTION_FORGET_INVALID" });
   });
 
+  it("onlyIfConfigEmpty revokes only while the key holds no value", async () => {
+    const held = await connection(a);
+    await claim(a, held, "act_held");
+    await expect(revokeProjectConnection(a, { ...held, reason: "unused", onlyIfConfigEmpty: KEY })).resolves.toEqual({ revoked: false });
+    const kept = await authDb.connection.findUniqueOrThrow({ where: { id: held.connectionId } });
+    expect([kept.revokedAt, kept.version]).toEqual([null, 2]);
+    expect(await authDb.systemAuditEvent.count({ where: { targetId: held.connectionId, action: "connection.revoked" } })).toBe(0);
+    // Released: the key is an empty array now, so the revocation goes ahead.
+    await releaseExclusiveConfigValue(a, { ...held, key: KEY, value: "act_held" });
+    await expect(revokeProjectConnection(a, { ...held, reason: "unused", onlyIfConfigEmpty: KEY })).resolves.toEqual({ revoked: true });
+    expect((await authDb.connection.findUniqueOrThrow({ where: { id: held.connectionId } })).revokedAt).not.toBeNull();
+    // A key that is absent counts as empty; without the option nothing is checked.
+    const bare = await connection(a);
+    await expect(revokeProjectConnection(a, { ...bare, reason: "unused", onlyIfConfigEmpty: KEY })).resolves.toEqual({ revoked: true });
+    const plain = await connection(a);
+    await claim(a, plain, "act_plain");
+    await expect(revokeProjectConnection(a, { ...plain, reason: "owner" })).resolves.toEqual({ revoked: true });
+  });
+
   it("a disabled connection keeps its claim and cannot take new ones", async () => {
     const [ca, cb] = [await connection(a), await connection(b)];
     await claim(a, ca, "act_x");

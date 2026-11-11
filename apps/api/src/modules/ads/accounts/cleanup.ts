@@ -7,15 +7,17 @@ import { adsActive } from "../gate.ts";
 import { FORGET_PERSON } from "./vault.ts";
 
 // Clean-up (ADR 0025, A3): OAuth states that expired more than a day ago go;
-// a Meta connection that no ad account uses is revoked after 24 hours (its
-// token is wiped); a claim on an ad account that no row backs is released
-// (a crash between the unlink steps, or a failed release after a move).
+// a Meta connection that no ad account uses and that holds no claim is
+// revoked 24 hours after its creation and 10 minutes after its last change
+// (its token is wiped, the person forgotten); a claim on an ad account that
+// no row backs is released (a crash between the unlink steps, or a failed
+// release after a move).
 
 const PROVIDER = "ads.account.meta";
 const MODULE = "ads";
 const CLAIM_KEY = "assignedAdAccounts";
 const DAY_MS = 24 * 3_600_000;
-/** A claim is added just before its account row; younger connections are left alone. */
+/** A claim is added just before its account row; connections changed more recently are left alone. */
 const CLAIM_GRACE_MS = 10 * 60_000;
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
@@ -43,7 +45,11 @@ async function inspect(tx: DbTx, scope: Scope) {
   return { unused, stale };
 }
 
-/** Hourly: removes old OAuth states, unused connections and claims no account backs. */
+/**
+ * Due-driven (nextDueAt names the next state, connection or claim to handle;
+ * the worker also runs it on its other passes of the project): removes old
+ * OAuth states, unused connections and claims no account backs.
+ */
 export const adsOAuthStateCleanup: PeriodicTask = {
   name: "ads-oauth-state-cleanup",
   async nextDueAt(tx, scope) {
@@ -56,7 +62,7 @@ export const adsOAuthStateCleanup: PeriodicTask = {
     });
     if (state) times.push(state.expiresAt.getTime() + DAY_MS);
     const { unused, stale } = await inspect(tx, scope);
-    if (unused.length > 0) times.push(Math.min(...unused.map((c) => c.createdAt.getTime())) + DAY_MS);
+    if (unused.length > 0) times.push(Math.min(...unused.map((c) => Math.max(c.createdAt.getTime() + DAY_MS, c.updatedAt.getTime() + CLAIM_GRACE_MS))));
     if (stale.length > 0) times.push(Math.min(...stale.map((s) => s.updatedAt.getTime())) + CLAIM_GRACE_MS);
     return times.length > 0 ? new Date(Math.min(...times)) : null;
   },
@@ -74,10 +80,19 @@ export const adsOAuthStateCleanup: PeriodicTask = {
     let revoked = 0;
     const gone = new Set<string>();
     for (const c of plan.unused) {
-      if (c.createdAt.getTime() > now - DAY_MS) continue;
-      await revokeProjectConnection(system, { moduleId: MODULE, connectionId: c.id, reason: "unused", forget: FORGET_PERSON }).catch(quietNotFound);
+      // A claim in flight (or just released) updates the connection: wait.
+      if (c.createdAt.getTime() > now - DAY_MS || c.updatedAt.getTime() > now - CLAIM_GRACE_MS) continue;
+      // Not while it holds a claim: an assignment may be writing its row.
+      const result = await revokeProjectConnection(system, {
+        moduleId: MODULE,
+        connectionId: c.id,
+        reason: "unused",
+        forget: FORGET_PERSON,
+        onlyIfConfigEmpty: CLAIM_KEY,
+      }).catch(quietNotFound);
+      if (result?.revoked === false) continue;
       gone.add(c.id);
-      revoked++;
+      if (result) revoked++;
     }
     let released = 0;
     for (const s of plan.stale) {

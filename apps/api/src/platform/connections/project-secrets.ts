@@ -12,9 +12,14 @@ import { openSecret, sealSecret } from "./secrets.ts";
 // project grant makes them readable inside the project's transaction
 // (central.ts connectionSecret). Secret updates take an advisory lock per
 // connection, so concurrent token refreshes run one after the other.
-// Lock order: a caller may hold a project transaction when it takes the
+// Lock order: the claim lock (claimExclusiveConfigValue), then the
+// connection lock. A caller may hold a project transaction when it takes the
 // connection lock, but `work` must never open one (scoped() waits for the
 // project-wide lock while this auth connection and the lock are held).
+// Calling claimExclusiveConfigValue or releaseExclusiveConfigValue from
+// inside `work` on the same connection waits for the connection lock this
+// call holds, until the 45 s transaction timeout. A `config` returned from
+// `work` is merged over the stored one: it overwrites claim keys it names.
 
 export type JsonConfig = Record<string, string | number | boolean | null | string[]>;
 
@@ -282,7 +287,12 @@ export async function releaseExclusiveConfigValue(scope: Scope, input: ClaimInpu
   }, TX);
 }
 
-/** Revokes the connection, retires its secrets and ends the project grant. */
+/**
+ * Revokes the connection, retires its secrets and ends the project grant.
+ * With `onlyIfConfigEmpty`, the connection is left alone (`revoked: false`)
+ * while `config[key]` is a non-empty array, checked under the connection
+ * lock: an "unused" revocation cannot race a claim taken just before it.
+ */
 export async function revokeProjectConnection(
   scope: Scope,
   input: {
@@ -290,13 +300,14 @@ export async function revokeProjectConnection(
     connectionId: string;
     reason: string;
     /**
-     * A data-deletion request: in the same transaction the label becomes
-     * this neutral one and the listed config keys become null, so the
-     * revoked row no longer names the person. Other config keys stay.
+     * In the same transaction the label becomes this neutral one and the
+     * listed config keys become null, so the revoked row no longer names
+     * the person. Other config keys stay.
      */
     forget?: { label: string; configKeys: string[] };
+    onlyIfConfigEmpty?: string;
   },
-): Promise<void> {
+): Promise<{ revoked: boolean }> {
   const forget = input.forget;
   if (
     forget &&
@@ -306,11 +317,15 @@ export async function revokeProjectConnection(
       forget.configKeys.some((k) => k.length < 1))
   )
     throw new DomainError("CONNECTION_FORGET_INVALID", 400);
-  await authDb.$transaction(async (atx) => {
+  return authDb.$transaction(async (atx) => {
     await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project-secret:${input.connectionId}`}))`;
     const connection = await owned(atx, scope, input);
-    const now = new Date();
     const kept = (connection.config ?? {}) as Record<string, unknown>;
+    if (input.onlyIfConfigEmpty !== undefined) {
+      const held = kept[input.onlyIfConfigEmpty];
+      if (Array.isArray(held) && held.length > 0) return { revoked: false };
+    }
+    const now = new Date();
     await atx.connection.update({
       where: { id: connection.id },
       data: {
@@ -353,6 +368,7 @@ export async function revokeProjectConnection(
       },
       atx,
     );
+    return { revoked: true };
   }, TX);
 }
 
