@@ -13,7 +13,8 @@ import {
   when,
 } from "@/lib/api";
 import { Alert, Badge, Button, Modal, Status } from "./ui/primitives";
-import { DataForm } from "@/platform/ui/form";
+import { DataForm, type FormField } from "@/platform/ui/form";
+import type { Locale } from "@/lib/i18n";
 import { useWorkspace } from "./workspace-context";
 
 type Inbound = { checkedAt: string | null; lastError: string | null } | null;
@@ -48,14 +49,315 @@ export function emailConnectBody(v: Record<string, unknown>) {
   };
 }
 
-export function EmailConnection() {
+type ServerTls = "implicit" | "starttls";
+export type MailServerPreset = {
+  smtpHost: string;
+  smtpPort: number;
+  smtpTls: ServerTls;
+  imapHost: string;
+  imapPort: number;
+  imapTls: ServerTls;
+};
+
+/** The SMTP host as a grouping key: trimmed, case-insensitive. */
+const hostKey = (data: Record<string, unknown>) =>
+  String(data.smtpHost ?? "")
+    .trim()
+    .toLowerCase();
+
+/**
+ * Mailboxes by SMTP host, hosts in first-connected order, mailboxes in the
+ * order received. A group shows the spelling of its first mailbox. A mailbox
+ * without an SMTP host lands in a last group with an empty host, never lost.
+ * The preset of a group is the server settings of its first mailbox and
+ * nothing else: no user name, address or password.
+ */
+export function serverGroups<
+  T extends { connection: { data: Record<string, unknown> } },
+>(
+  mailboxes: readonly T[],
+): Array<{ host: string; preset: MailServerPreset; mailboxes: T[] }> {
+  const groups = new Map<
+    string,
+    { host: string; preset: MailServerPreset; mailboxes: T[] }
+  >();
+  for (const m of mailboxes) {
+    const data = m.connection.data;
+    const key = hostKey(data);
+    let group = groups.get(key);
+    if (!group) {
+      const tls = (value: unknown): ServerTls =>
+        value === "starttls" ? "starttls" : "implicit";
+      group = {
+        host: String(data.smtpHost ?? "").trim(),
+        preset: {
+          smtpHost: String(data.smtpHost ?? "").trim(),
+          smtpPort: Number(data.smtpPort) || 465,
+          smtpTls: tls(data.smtpTls),
+          imapHost: String(data.imapHost ?? "").trim(),
+          imapPort: Number(data.imapPort) || 993,
+          imapTls: tls(data.imapTls),
+        },
+        mailboxes: [],
+      };
+      groups.set(key, group);
+    }
+    group.mailboxes.push(m);
+  }
+  // The group without a host goes last, under the card's general heading.
+  const all = [...groups.values()];
+  return [...all.filter((g) => g.host), ...all.filter((g) => !g.host)];
+}
+
+/** The form fields of a mailbox; a preset fills host, port and TLS of a new one. */
+export function mailboxFields(
+  current: Record<string, any> | null,
+  locale: Locale,
+  preset?: MailServerPreset,
+): FormField[] {
+  const de = locale === "de";
+  const c = current ?? undefined;
+  const p = c ? undefined : preset;
+  const tls = [
+    { value: "implicit", label: "TLS (implicit)" },
+    { value: "starttls", label: "STARTTLS" },
+  ];
+  return [
+    {
+      name: "fromAddress",
+      label: de ? "Adresse" : "Address",
+      type: "email",
+      required: true,
+      value: c?.fromAddress ?? "",
+    },
+    {
+      name: "fromName",
+      label: de ? "Absendername" : "Sender name",
+      value: c?.fromName ?? "",
+    },
+    {
+      name: "username",
+      label: de ? "Benutzername" : "User name",
+      required: true,
+      value: c?.username ?? "",
+    },
+    {
+      name: "password",
+      label: de ? "Passwort" : "Password",
+      type: "password",
+      required: true,
+    },
+    {
+      name: "smtpHost",
+      label: de ? "SMTP-Server" : "SMTP server",
+      required: true,
+      value: c?.smtpHost ?? p?.smtpHost ?? "",
+      heading: "SMTP",
+    },
+    {
+      name: "smtpPort",
+      label: de ? "SMTP-Port" : "SMTP port",
+      type: "number",
+      value: c?.smtpPort ?? p?.smtpPort ?? 465,
+    },
+    {
+      name: "smtpTls",
+      label: de ? "SMTP-Sicherheit" : "SMTP security",
+      type: "select",
+      value: c?.smtpTls ?? p?.smtpTls ?? "implicit",
+      options: tls,
+    },
+    {
+      name: "imapHost",
+      label: de ? "IMAP-Server" : "IMAP server",
+      required: true,
+      value: c?.imapHost ?? p?.imapHost ?? "",
+      heading: "IMAP",
+    },
+    {
+      name: "imapPort",
+      label: de ? "IMAP-Port" : "IMAP port",
+      type: "number",
+      value: c?.imapPort ?? p?.imapPort ?? 993,
+    },
+    {
+      name: "imapTls",
+      label: de ? "IMAP-Sicherheit" : "IMAP security",
+      type: "select",
+      value: c?.imapTls ?? p?.imapTls ?? "implicit",
+      options: tls,
+    },
+  ];
+}
+
+type MailboxEntry = NonNullable<EmailStatus["mailboxes"]>[number];
+
+/** One mailbox row; the same markup in the flat and the grouped list. */
+function MailboxRow({
+  m,
+  de,
+  locale,
+  timezone,
+  pending,
+  onCheck,
+  onEdit,
+  onRemove,
+}: {
+  m: MailboxEntry;
+  de: boolean;
+  locale: Locale;
+  timezone: string;
+  pending: boolean;
+  onCheck: (m: MailboxEntry) => void;
+  onEdit: (m: MailboxEntry) => void;
+  onRemove: (m: MailboxEntry) => void;
+}) {
+  return (
+    <li>
+      <div className="detail-summary">
+        <Status value={m.connection.data.status || "not_configured"} />
+        <strong>{m.connection.data.fromAddress}</strong>
+        {m.default && <Badge tone="blue">{de ? "Standard" : "Default"}</Badge>}
+        {m.inUse > 0 && (
+          <span>
+            {de
+              ? `Von ${m.inUse} Posteingang genutzt`
+              : `Used by ${m.inUse} inbox${m.inUse > 1 ? "es" : ""}`}
+          </span>
+        )}
+      </div>
+      {m.inbound && (
+        <small>
+          {de ? "Zuletzt abgerufen: " : "Last fetched: "}
+          {when(m.inbound.checkedAt, locale, timezone)}
+          {m.inbound.lastError ? ` · ${m.inbound.lastError}` : ""}
+        </small>
+      )}
+      <span className="mailbox-actions">
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={pending}
+          onClick={() => onCheck(m)}
+        >
+          <RefreshCw data-icon="inline-start" />
+          {de ? "Anmeldung prüfen" : "Check login"}
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => onEdit(m)}>
+          {de ? "Ändern" : "Update"}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={pending || m.inUse > 0}
+          title={
+            m.inUse > 0
+              ? de
+                ? "Erst den Posteingang auf ein anderes Postfach umstellen oder archivieren."
+                : "Move its inbox to another mailbox or archive it first."
+              : undefined
+          }
+          onClick={() => onRemove(m)}
+        >
+          <Trash2 data-icon="inline-start" />
+          {de ? "Entfernen" : "Remove"}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+/**
+ * The mailbox rows. Flat by default (the old page); with `groupByServer` one
+ * h3 per mail server, each group ending in a button for a new mailbox on that
+ * server. The h3 sits under the card's h2 on both pages.
+ */
+export function MailboxList({
+  mailboxes,
+  groupByServer = false,
+  de,
+  locale,
+  timezone,
+  pending,
+  onCheck,
+  onEdit,
+  onRemove,
+  onAddOnServer,
+}: {
+  mailboxes: readonly MailboxEntry[];
+  groupByServer?: boolean;
+  de: boolean;
+  locale: Locale;
+  timezone: string;
+  pending: boolean;
+  onCheck: (m: MailboxEntry) => void;
+  onEdit: (m: MailboxEntry) => void;
+  onRemove: (m: MailboxEntry) => void;
+  onAddOnServer: (preset: MailServerPreset) => void;
+}) {
+  const rows = (list: readonly MailboxEntry[]) => (
+    <ul className="mailbox-rows">
+      {list.map((m) => (
+        <MailboxRow
+          key={m.connection.id}
+          m={m}
+          de={de}
+          locale={locale}
+          timezone={timezone}
+          pending={pending}
+          onCheck={onCheck}
+          onEdit={onEdit}
+          onRemove={onRemove}
+        />
+      ))}
+    </ul>
+  );
+  if (!groupByServer) return rows(mailboxes);
+  return (
+    <>
+      {serverGroups(mailboxes).map((group) => (
+        <div className="mailbox-group" key={group.host || "no-host"}>
+          {group.host ? (
+            <h3>
+              {de ? "Mailserver " : "Mail server "}
+              {group.host}
+            </h3>
+          ) : null}
+          {rows(group.mailboxes)}
+          {group.host ? (
+            <Button
+              size="sm"
+              variant="outline"
+              aria-label={`${de ? "Postfach auf diesem Server hinzufügen" : "Add mailbox on this server"} ${group.host}`}
+              onClick={() => onAddOnServer(group.preset)}
+            >
+              <Plus data-icon="inline-start" />
+              {de
+                ? "Postfach auf diesem Server hinzufügen"
+                : "Add mailbox on this server"}
+            </Button>
+          ) : null}
+        </div>
+      ))}
+    </>
+  );
+}
+
+export function EmailConnection({
+  groupByServer = false,
+}: {
+  /** The settings center groups the mailboxes by mail server; the old page does not. */
+  groupByServer?: boolean;
+} = {}) {
   const { project, isOwner, locale, t } = useWorkspace();
   const de = locale === "de";
   const status = useResource<EmailStatus>(
     isOwner ? collectionPath(project.id, "email") : null,
   );
   // The mailbox being edited ("new" adds one), or none.
-  const [open, setOpen] = useState<Connection | "new" | null>(null);
+  const [open, setOpen] = useState<
+    Connection | "new" | { preset: MailServerPreset } | null
+  >(null);
   const mutation = useMutation(() => {
     setOpen(null);
     status.refresh();
@@ -74,11 +376,11 @@ export function EmailConnection() {
           },
         ]
       : []);
-  const c = open && open !== "new" ? open.data : undefined;
-  const tls = [
-    { value: "implicit", label: "TLS (implicit)" },
-    { value: "starttls", label: "STARTTLS" },
-  ];
+  // A new mailbox on a known server carries that server's preset; an edit
+  // carries the mailbox itself.
+  const object = open !== null && open !== "new" ? open : null;
+  const preset = object && "preset" in object ? object.preset : undefined;
+  const c = object && "data" in object ? object.data : undefined;
   return (
     <section className="connector">
       <div className="connector-mark">
@@ -105,86 +407,37 @@ export function EmailConnection() {
             <Status value="not_configured" />
           </div>
         )}
-        <ul className="mailbox-rows">
-          {mailboxes.map((m) => (
-            <li key={m.connection.id}>
-              <div className="detail-summary">
-                <Status value={m.connection.data.status || "not_configured"} />
-                <strong>{m.connection.data.fromAddress}</strong>
-                {m.default && (
-                  <Badge tone="blue">{de ? "Standard" : "Default"}</Badge>
-                )}
-                {m.inUse > 0 && (
-                  <span>
-                    {de
-                      ? `Von ${m.inUse} Posteingang genutzt`
-                      : `Used by ${m.inUse} inbox${m.inUse > 1 ? "es" : ""}`}
-                  </span>
-                )}
-              </div>
-              {m.inbound && (
-                <small>
-                  {de ? "Zuletzt abgerufen: " : "Last fetched: "}
-                  {when(m.inbound.checkedAt, locale, project.timezone)}
-                  {m.inbound.lastError ? ` · ${m.inbound.lastError}` : ""}
-                </small>
-              )}
-              <span className="mailbox-actions">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={mutation.pending}
-                  onClick={() =>
-                    mutation.run(() =>
-                      action(project.id, "connector-health", {
-                        connectorId: m.connection.id,
-                      }),
-                    )
-                  }
-                >
-                  <RefreshCw data-icon="inline-start" />
-                  {de ? "Anmeldung prüfen" : "Check login"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setOpen(m.connection)}
-                >
-                  {de ? "Ändern" : "Update"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={mutation.pending || m.inUse > 0}
-                  title={
-                    m.inUse > 0
-                      ? de
-                        ? "Erst den Posteingang auf ein anderes Postfach umstellen oder archivieren."
-                        : "Move its inbox to another mailbox or archive it first."
-                      : undefined
-                  }
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        de
-                          ? `Postfach ${m.connection.data.fromAddress} entfernen? Orbit ruft es dann nicht mehr ab und sendet nicht mehr darüber.`
-                          : `Remove the mailbox ${m.connection.data.fromAddress}? Orbit stops fetching and sending through it.`,
-                      )
-                    )
-                      mutation.run(() =>
-                        action(project.id, "email-disconnect", {
-                          connectorId: m.connection.id,
-                        }),
-                      );
-                  }}
-                >
-                  <Trash2 data-icon="inline-start" />
-                  {de ? "Entfernen" : "Remove"}
-                </Button>
-              </span>
-            </li>
-          ))}
-        </ul>
+        <MailboxList
+          mailboxes={mailboxes}
+          groupByServer={groupByServer}
+          de={de}
+          locale={locale}
+          timezone={project.timezone}
+          pending={mutation.pending}
+          onCheck={(m) =>
+            mutation.run(() =>
+              action(project.id, "connector-health", {
+                connectorId: m.connection.id,
+              }),
+            )
+          }
+          onEdit={(m) => setOpen(m.connection)}
+          onRemove={(m) => {
+            if (
+              window.confirm(
+                de
+                  ? `Postfach ${m.connection.data.fromAddress} entfernen? Orbit ruft es dann nicht mehr ab und sendet nicht mehr darüber.`
+                  : `Remove the mailbox ${m.connection.data.fromAddress}? Orbit stops fetching and sending through it.`,
+              )
+            )
+              mutation.run(() =>
+                action(project.id, "email-disconnect", {
+                  connectorId: m.connection.id,
+                }),
+              );
+          }}
+          onAddOnServer={(preset) => setOpen({ preset })}
+        />
       </div>
       <div className="connector-actions">
         <Button variant="outline" onClick={() => setOpen("new")}>
@@ -202,7 +455,7 @@ export function EmailConnection() {
       {open && (
         <Modal
           title={
-            open === "new"
+            open === "new" || preset
               ? de
                 ? "Postfach verbinden"
                 : "Connect mailbox"
@@ -216,72 +469,7 @@ export function EmailConnection() {
           onClose={() => setOpen(null)}
         >
           <DataForm
-            fields={[
-              {
-                name: "fromAddress",
-                label: de ? "Adresse" : "Address",
-                type: "email",
-                required: true,
-                value: c?.fromAddress ?? "",
-              },
-              {
-                name: "fromName",
-                label: de ? "Absendername" : "Sender name",
-                value: c?.fromName ?? "",
-              },
-              {
-                name: "username",
-                label: de ? "Benutzername" : "User name",
-                required: true,
-                value: c?.username ?? "",
-              },
-              {
-                name: "password",
-                label: de ? "Passwort" : "Password",
-                type: "password",
-                required: true,
-              },
-              {
-                name: "smtpHost",
-                label: de ? "SMTP-Server" : "SMTP server",
-                required: true,
-                value: c?.smtpHost ?? "",
-                heading: "SMTP",
-              },
-              {
-                name: "smtpPort",
-                label: de ? "SMTP-Port" : "SMTP port",
-                type: "number",
-                value: c?.smtpPort ?? 465,
-              },
-              {
-                name: "smtpTls",
-                label: de ? "SMTP-Sicherheit" : "SMTP security",
-                type: "select",
-                value: c?.smtpTls ?? "implicit",
-                options: tls,
-              },
-              {
-                name: "imapHost",
-                label: de ? "IMAP-Server" : "IMAP server",
-                required: true,
-                value: c?.imapHost ?? "",
-                heading: "IMAP",
-              },
-              {
-                name: "imapPort",
-                label: de ? "IMAP-Port" : "IMAP port",
-                type: "number",
-                value: c?.imapPort ?? 993,
-              },
-              {
-                name: "imapTls",
-                label: de ? "IMAP-Sicherheit" : "IMAP security",
-                type: "select",
-                value: c?.imapTls ?? "implicit",
-                options: tls,
-              },
-            ]}
+            fields={mailboxFields(c ?? null, locale, preset)}
             pending={mutation.pending}
             error={mutation.error}
             t={t}

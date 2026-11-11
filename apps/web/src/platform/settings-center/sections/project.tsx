@@ -99,7 +99,7 @@ function SwitchesSection() {
 }
 
 function ConnectionsSection() {
-  return <Connectors embedded />;
+  return <Connectors embedded groupMailboxes />;
 }
 
 /** The AI section of the project's settings page, where the forms stay for now. */
