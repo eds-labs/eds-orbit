@@ -325,6 +325,47 @@ describe("Web route registry", () => {
     expect(locate(`/admin/users/${P}/x`, table)).toEqual({ kind: "notFound" });
   });
 
+  it("knows the settings center and reserves /manage", () => {
+    expect(locate("/manage", table)).toEqual({
+      kind: "manage",
+      target: { scope: null, area: null, rest: [] },
+    });
+    const place = locate("/manage/p/p%201/ai", table);
+    expect(place).toEqual({
+      kind: "manage",
+      target: {
+        scope: { kind: "project", projectId: "p 1" },
+        area: "ai",
+        rest: [],
+      },
+    });
+    expect(locate("/manage/x", table)).toEqual({ kind: "notFound" });
+    const view = (key: string, path: string) => ({
+      key,
+      path,
+      component: () => null,
+    });
+    expect(() =>
+      routeTable({
+        platform: [view("home", ""), view("m", "manage")],
+        modules: [],
+      }),
+    ).toThrow(/WEB_ROUTES_INVALID/);
+    expect(() =>
+      routeTable({
+        platform: [view("home", "")],
+        modules: [
+          {
+            id: "manage",
+            displayName: { en: "m", de: "m" },
+            description: { en: "m", de: "m" },
+            views: [view("manage-root", "")],
+          },
+        ],
+      }),
+    ).toThrow(/WEB_ROUTES_INVALID/);
+  });
+
   it("rewrites only in-app legacy links and keeps query and hash", () => {
     expect(rewriteLegacyHref(table, P, "/settings?googleDrive=ready")).toBe(
       `${href("settings")}?googleDrive=ready`,
