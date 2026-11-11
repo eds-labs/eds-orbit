@@ -19,6 +19,7 @@ import {
   CATALOG_SECTION,
   SystemCatalog,
 } from "../integrations/scopes";
+import { SETUP_SECTION, SystemSetup } from "../integrations/setup";
 import { centerText } from "../texts";
 import type { ManagementSection, SectionProps } from "../types";
 import { AiLinkPanel } from "./ai-link";
@@ -191,6 +192,17 @@ export const systemSections: readonly ManagementSection[] = [
     capability: "system.connections",
     ...CATALOG_SECTION,
     component: SystemCatalog,
+  },
+  {
+    id: "setup",
+    scope: "system",
+    area: "integrations",
+    // After the catalog, before the panels it guides through.
+    order: -5,
+    capability: "system.connections",
+    takesId: true,
+    ...SETUP_SECTION,
+    component: SystemSetup,
   },
   {
     id: "connections",

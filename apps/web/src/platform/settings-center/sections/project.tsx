@@ -30,6 +30,7 @@ import {
   CATALOG_SECTION,
   ProjectCatalog,
 } from "../integrations/scopes";
+import { SETUP_SECTION, ProjectSetup } from "../integrations/setup";
 import {
   adaptIntegrationSections,
   adaptModuleSections,
@@ -173,6 +174,17 @@ export const projectSections: readonly ManagementSection[] = [
     capability: "project.integrations",
     ...CATALOG_SECTION,
     component: ProjectCatalog,
+  },
+  {
+    id: "setup",
+    scope: "project",
+    area: "integrations",
+    // After the catalog, before the panels it guides through.
+    order: -5,
+    capability: "project.integrations",
+    takesId: true,
+    ...SETUP_SECTION,
+    component: ProjectSetup,
   },
   {
     id: "connections",

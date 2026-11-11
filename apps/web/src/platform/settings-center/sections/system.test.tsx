@@ -40,6 +40,7 @@ describe("system scope", () => {
       "organizations/organizations",
       "organizations/projects",
       "integrations/integrations",
+      "integrations/setup",
       "integrations/connections",
       "ai/overview",
       "mcp/clients",
@@ -58,7 +59,15 @@ describe("system scope", () => {
     expect(visibleSections(systemSections, "system", ["system.users"]).some((s) => s.area === "integrations")).toBe(false);
   });
 
-  it("passes an id only to users and organizations", () => {
+  it("opens a provider's setup by address and refuses an unknown one", () => {
+    const list = visibleSections(systemSections, "system", ["system.connections"]);
+    expect(resolveSection(list, "integrations", ["setup", "postiz"])).toMatchObject({ section: { id: "setup" }, id: "postiz" });
+    expect(resolveSection(list, "integrations", ["setup"])).toMatchObject({ section: { id: "setup" }, id: undefined });
+    expect(resolveSection(list, "integrations", ["setup", "postiz", "extra"])).toBeNull();
+    expect(list.find((s) => s.id === "setup")?.label).toEqual({ en: "Set up an integration", de: "Integration einrichten" });
+  });
+
+  it("passes an id only to users, organizations and the setup", () => {
     const all = visibleSections(systemSections, "system", [
       "system.overview",
       "system.users",
@@ -71,6 +80,7 @@ describe("system scope", () => {
     expect(all.filter((s) => s.takesId).map((s) => `${s.area}/${s.id}`)).toEqual([
       "users/users",
       "organizations/organizations",
+      "integrations/setup",
     ]);
     expect(resolveSection(all, "users", ["u1"])).toMatchObject({
       section: { id: "users" },
@@ -122,7 +132,9 @@ describe("system scope", () => {
     expect(own).not.toContain("ai/overview");
     // The catalog has no page head of its own; the frame shows the section's.
     expect(own).not.toContain("integrations/integrations");
-    expect(own).toHaveLength(systemSections.length - 2);
+    // Nor has the guided setup; its step list sits under the section head.
+    expect(own).not.toContain("integrations/setup");
+    expect(own).toHaveLength(systemSections.length - 3);
   });
 
   it("points AI settings to the current page, in both languages", () => {

@@ -29,6 +29,7 @@ describe("organization scope", () => {
     expect(base).toEqual(["overview/summary", "members/members"]);
     expect(keys(["organization.connections"])).toEqual([
       "integrations/integrations",
+      "integrations/setup",
       "integrations/connections",
     ]);
     expect(keys(["organization.ai"])).toEqual(["ai/usage", "ai/overview"]);
@@ -75,6 +76,14 @@ describe("organization scope", () => {
     expect(lead?.section.id).toBe("integrations");
     expect(sectionPath(lead!.section)).toEqual(["integrations"]);
     expect(resolveSection(list, "integrations", ["connections"])?.section.id).toBe("connections");
+  });
+
+  it("opens a provider's setup by address and refuses an unknown one", () => {
+    const list = visibleSections(organizationSections, "organization", ["organization.connections"]);
+    expect(resolveSection(list, "integrations", ["setup", "postiz"])).toMatchObject({ section: { id: "setup" }, id: "postiz" });
+    expect(resolveSection(list, "integrations", ["setup"])).toMatchObject({ section: { id: "setup" }, id: undefined });
+    expect(resolveSection(list, "integrations", ["setup", "postiz", "extra"])).toBeNull();
+    expect(list.find((s) => s.id === "setup")?.label).toEqual({ en: "Set up an integration", de: "Integration einrichten" });
   });
 
   it("reads the organization from the scope", () => {

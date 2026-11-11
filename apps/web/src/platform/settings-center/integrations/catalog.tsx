@@ -44,6 +44,33 @@ export const inScope = (entry: CatalogEntry, scope: ScopeKind): boolean => {
   }
 };
 
+/**
+ * What the guided setup offers in a scope: available entries the scope can
+ * configure itself. A planned provider without code is never in the catalog,
+ * so it never gets a setup.
+ */
+export function setupOffers(
+  entries: readonly CatalogEntry[],
+  scope: ScopeKind,
+): CatalogEntry[] {
+  return entries.filter((e) => {
+    // A value of a newer API must not break the page; it just offers nothing.
+    const scopes: readonly string[] = Array.isArray(e.scopes) ? e.scopes : [];
+    const storage: readonly string[] = Array.isArray(e.storage) ? e.storage : [];
+    if (!e.available) return false;
+    switch (scope) {
+      case "system":
+        return scopes.includes("system");
+      case "organization":
+        return scopes.includes("workspace");
+      case "project":
+        return scopes.includes("project") && !storage.includes("environment");
+      default:
+        return false;
+    }
+  });
+}
+
 /** Available entries of the scope grouped by category, in vocabulary order. */
 export function catalogGroups(
   entries: readonly CatalogEntry[],

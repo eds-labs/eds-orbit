@@ -8,7 +8,7 @@ import { ShellContext } from "@/platform/shell/shell-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { integrationSectionId } from "../registry";
 import type { ManageScope, ScopeKind, SectionProps } from "../types";
-import { catalogGroups, CatalogView, inScope } from "./catalog";
+import { catalogGroups, CatalogView, inScope, setupOffers } from "./catalog";
 import { integrationPaths } from "./paths";
 import { StateBadge } from "./state";
 import { integrationText } from "./texts";
@@ -212,8 +212,20 @@ export function manageHrefOf(
   }
 }
 
-/** The guided setup (Task 10); none yet. */
-const setupHrefOf = (): string | null => null;
+/** The guided setup of a card, only for what the scope's setup offers. */
+export function setupHrefOf(
+  entry: CatalogEntry,
+  ctx: {
+    entries: readonly CatalogEntry[];
+    scope: ManageScope;
+    hrefOf(area: string, ...rest: string[]): string;
+  },
+): string | null {
+  // hrefOf encodes every segment (manageHref).
+  return setupOffers(ctx.entries, ctx.scope.kind).some((e) => e.id === entry.id)
+    ? ctx.hrefOf("integrations", "setup", entry.id)
+    : null;
+}
 
 /** The rows of the environment panel; a missing part reads as off. */
 export function environmentRows(
@@ -375,7 +387,7 @@ function ScopeCatalogView({
       unavailable={unavailable}
       recordsOf={(id) => records.get(id) ?? []}
       manageHrefOf={(entry) => manageHrefOf(entry, { scope, hrefOf, moduleSections, connectorProviders })}
-      setupHrefOf={setupHrefOf}
+      setupHrefOf={(entry) => setupHrefOf(entry, { entries, scope, hrefOf })}
       extra={extra}
       locale={locale}
     />

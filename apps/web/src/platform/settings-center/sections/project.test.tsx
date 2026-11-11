@@ -101,6 +101,7 @@ describe("project scope", () => {
       "profile/profile",
       "modules/switches",
       "integrations/integrations",
+      "integrations/setup",
       "integrations/connections",
       "integrations/google-drive",
     ]);
@@ -110,6 +111,7 @@ describe("project scope", () => {
       "members/members",
       "modules/switches",
       "integrations/integrations",
+      "integrations/setup",
       "integrations/connections",
       "integrations/google-drive",
       "ai/overview",
@@ -127,6 +129,14 @@ describe("project scope", () => {
     expect(resolveSection(list, "integrations", ["google-drive"])?.section.id).toBe("google-drive");
   });
 
+  it("opens a provider's setup by address and refuses an unknown one", () => {
+    const list = visibleSections(projectSections, "project", [...VIEWER]);
+    expect(resolveSection(list, "integrations", ["setup", "postiz"])).toMatchObject({ section: { id: "setup" }, id: "postiz" });
+    expect(resolveSection(list, "integrations", ["setup"])).toMatchObject({ section: { id: "setup" }, id: undefined });
+    expect(resolveSection(list, "integrations", ["setup", "postiz", "extra"])).toBeNull();
+    expect(list.find((s) => s.id === "setup")?.label).toEqual({ en: "Set up an integration", de: "Integration einrichten" });
+  });
+
   it("places the Social accounts section of the real registry under Integrations", () => {
     const social = webRegistry.modules.find((m) => m.id === "social")!;
     const contributed = (social.integrations ?? []).map((c) => ({ ...c, moduleId: social.id }));
@@ -141,6 +151,7 @@ describe("project scope", () => {
     const group = navGroups(all, "project", () => undefined).find((g) => g.id === "integrations")!;
     expect(group.sections.map((s) => s.id)).toEqual([
       "integrations",
+      "setup",
       "connections",
       "google-drive",
       "social/accounts",

@@ -87,6 +87,20 @@ describe("SystemCatalog", () => {
     expect(html).toContain("System e-mail");
   });
 
+  it("offers the guided setup only for what the scope can set up", () => {
+    reset({
+      "/management/integrations/catalog": { items },
+      "/admin/connections": { items: [] },
+      "/admin/overview": { system: { environment } },
+    });
+    const html = renderToStaticMarkup(<SystemCatalog {...props({ kind: "system" })} />);
+    const card = (id: string) => html.slice(html.indexOf(`data-provider="${id}"`)).split("</article>")[0]!;
+    expect(card("openai")).toContain('href="/manage/system/integrations/setup/openai"');
+    expect(card("openai")).toContain(t("setUp"));
+    // Set on the server: nothing to set up here.
+    expect(card("system_mail")).not.toContain(t("setUp"));
+  });
+
   it("shows the error with a retry when one request fails", () => {
     reset({
       "/management/integrations/catalog": { items },

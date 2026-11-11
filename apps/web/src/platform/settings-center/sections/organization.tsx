@@ -13,6 +13,7 @@ import {
   CATALOG_SECTION,
   OrganizationCatalog,
 } from "../integrations/scopes";
+import { SETUP_SECTION, OrganizationSetup } from "../integrations/setup";
 import { centerText } from "../texts";
 import type { ManageScope, ManagementSection, SectionProps } from "../types";
 import { AiLinkPanel } from "./ai-link";
@@ -187,6 +188,17 @@ export const organizationSections: readonly ManagementSection[] = [
     capability: "organization.connections",
     ...CATALOG_SECTION,
     component: OrganizationCatalog,
+  },
+  {
+    id: "setup",
+    scope: "organization",
+    area: "integrations",
+    // After the catalog, before the panels it guides through.
+    order: -5,
+    capability: "organization.connections",
+    takesId: true,
+    ...SETUP_SECTION,
+    component: OrganizationSetup,
   },
   {
     id: "connections",

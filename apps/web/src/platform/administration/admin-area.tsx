@@ -176,7 +176,14 @@ export function AdminArea({
   );
 }
 
-export function Integrations({ locale }: { locale: Locale }) {
+/** `provider` narrows the panel to one provider (the guided setup). */
+export function Integrations({
+  locale,
+  provider,
+}: {
+  locale: Locale;
+  provider?: string;
+}) {
   const de = locale === "de";
   const orgs = useResource<Page<{ id: string; name: string }>>("/admin/organizations");
   return (
@@ -194,6 +201,7 @@ export function Integrations({ locale }: { locale: Locale }) {
         mode="admin"
         locale={locale}
         targets={orgs.data?.items ?? []}
+        provider={provider}
       />
     </>
   );

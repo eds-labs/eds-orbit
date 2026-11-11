@@ -73,6 +73,11 @@ export type SectionProps = {
   id?: string;
   locale: Locale;
   identity: Identity;
+  /**
+   * The capabilities answer the frame already holds, for display hints only
+   * (e.g. whose step a setup step is); every write keeps its server check.
+   */
+  caps?: ManagementCapabilities;
   /** Address of another section of the same scope. */
   hrefOf(area: string, ...rest: string[]): string;
 };
