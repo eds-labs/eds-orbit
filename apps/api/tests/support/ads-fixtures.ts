@@ -80,7 +80,7 @@ export async function createAdsProject(options: { name?: string; app?: App; enab
     cookies,
     run,
     /** A request to the project's API as the given member. */
-    call: (who: keyof typeof ids, method: "GET" | "POST" | "PUT", url: string, payload?: object) => {
+    call: (who: keyof typeof ids, method: "GET" | "POST" | "PUT" | "PATCH", url: string, payload?: object) => {
       if (!options.app) throw new Error("createAdsProject needs `app` for HTTP calls");
       return options.app.inject({
         method,
