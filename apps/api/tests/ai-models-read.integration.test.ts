@@ -79,6 +79,11 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
   let workspaceId: string;
   let granted: Scope, own: Scope, editor: Scope;
   let connectionId: string;
+  // The system AI profile is global and other test files leave data in it;
+  // the tests below describe a database without one, so the row is set aside
+  // here and put back exactly as it was in afterAll.
+  type SystemProfileRow = NonNullable<Awaited<ReturnType<typeof authDb.aiProfile.findFirst>>>;
+  let systemBefore: SystemProfileRow | null | undefined;
 
   async function user() {
     const row = await authDb.user.create({
@@ -89,6 +94,8 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
   }
 
   beforeAll(async () => {
+    systemBefore = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
+    await authDb.aiProfile.deleteMany({ where: { scope: "system" } });
     const ownerId = await user();
     const workspace = await authDb.workspace.create({
       data: { name: "Synthetic AI read", members: { create: { userId: ownerId, role: "owner" } } },
@@ -153,6 +160,10 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
   });
 
   afterAll(async () => {
+    if (systemBefore !== undefined) {
+      await authDb.aiProfile.deleteMany({ where: { scope: "system" } });
+      if (systemBefore) await authDb.aiProfile.create({ data: { ...systemBefore, data: systemBefore.data as object } });
+    }
     if (workspaceId) {
       await authDb.aiProfile.deleteMany({ where: { workspaceId } });
       await authDb.connection.deleteMany({ where: { workspaceId } });
@@ -174,11 +185,11 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
       pricedModels: Object.keys(d.rateCard ?? {}),
     };
   };
-  // Another test file may leave an empty system profile behind; the
-  // effective values below assume it adds nothing.
+  // The system profile row is set aside for this file (beforeAll), so the
+  // effective values below see no system profile at all.
   async function systemProfile() {
     const row = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
-    expect(row?.data ?? {}).toEqual({});
+    expect(row).toBeNull();
     return profileView(row);
   }
   const organizationProfile = async () =>
@@ -373,10 +384,9 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
       routingApplied: false,
       layers: { standardImageModel: undefined },
     });
-    // With or without a system profile row (a fresh database has none).
-    const systemRow = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
-    expect(systemRow?.data ?? {}).toEqual({});
-    expect(state.layers!.system).toEqual(systemLayerFor(systemRow));
+    // No system profile row exists for this file (beforeAll).
+    expect(await authDb.aiProfile.findFirst({ where: { scope: "system" } })).toBeNull();
+    expect(state.layers!.system).toEqual(systemLayerFor(null));
     expect(state.layers!.organization).toMatchObject({ defaultProvider: "anthropic" });
     expect(Object.keys(state.grants)).toEqual(["openaiText", "openaiImage"]);
     expect(routingModeOf(state.stored)).toBe("unsaved");

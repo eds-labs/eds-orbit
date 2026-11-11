@@ -443,8 +443,10 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
     failed: `sk-synthetic-${randomBytes(16).toString("hex")}`,
   };
   const CHECKED_LABEL = "Synthetic checked OpenAI";
-  // The system AI profile is global; other test files expect it as it was.
-  let systemBefore: { id: string; data: unknown; version: number } | null | undefined;
+  // The system AI profile is global. Its row is set aside for this file (the
+  // fixtures assume no system profile is in force) and put back in afterAll.
+  type SystemProfileRow = NonNullable<Awaited<ReturnType<typeof authDb.aiProfile.findFirst>>>;
+  let systemBefore: SystemProfileRow | null | undefined;
 
   const ip = () => `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
   async function signUp(name: string) {
@@ -501,19 +503,18 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
     await authDb.connection.update({ where: { id: created.id }, data: { status } });
     return created.id;
   }
+  /** The state every test starts from: no system profile row. */
+  const removeSystemProfile = () => authDb.aiProfile.deleteMany({ where: { scope: "system" } });
+  /** Puts the recorded original row back, whatever a test left behind. */
   async function restoreSystemProfile() {
     if (systemBefore === undefined) return;
-    if (systemBefore === null) await authDb.aiProfile.deleteMany({ where: { scope: "system" } });
-    else
-      await authDb.aiProfile.update({
-        where: { id: systemBefore.id },
-        data: { data: systemBefore.data as object, version: systemBefore.version },
-      });
+    await removeSystemProfile();
+    if (systemBefore) await authDb.aiProfile.create({ data: { ...systemBefore, data: systemBefore.data as object } });
   }
 
   beforeAll(async () => {
-    const row = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
-    systemBefore = row ? { id: row.id, data: row.data, version: row.version } : null;
+    systemBefore = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
+    await removeSystemProfile();
     app = await buildServer();
     for (const key of ["owner", "projectOwner", "editor", "outsider", "sysadmin"] as const)
       people[key] = await signUp(`Synthetic ${key}`);
@@ -659,7 +660,7 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
       const body = await effective(fx.system);
       expect(body.tiers.openai.fast).toEqual({ stored: null, effective: "sys-fast", origin: "system" });
     } finally {
-      await restoreSystemProfile();
+      await removeSystemProfile();
     }
   });
 
