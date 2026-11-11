@@ -527,6 +527,47 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     expect(JSON.stringify(body)).not.toContain("Beta access");
   });
 
+  it("serves the waiting reason of a pending draft on the drafts route", async () => {
+    const assignment = await confirmed();
+    const { content } = await run(async (tx) => {
+      const slotAt = new Date(Date.now() + 6 * 3600000).toISOString();
+      const runRow = await create(tx, project.owner, "assignment_runs", {
+        status: "done",
+      });
+      const mission = await create(tx, project.owner, "missions", {
+        title: "Mission",
+        status: "ready",
+        plannedSlotAt: slotAt,
+      });
+      const common = {
+        title: "Beta post",
+        type: "social",
+        channel: X,
+        status: "needs_review",
+        body: "Beta access is open for product teams.",
+        scheduledAt: slotAt,
+        assignmentId: assignment.id,
+        assignmentRunId: runRow.id,
+        missionId: mission.id,
+      };
+      return {
+        content: await create(tx, project.owner, "content", {
+          ...common,
+          agentReview: { taskId: randomUUID() },
+          agentAuthorityProblem: "CREATIVE_AUTHORITY_OFF",
+        }),
+      };
+    });
+    const r = await request("viewer", "GET", "assignment-drafts");
+    expect(r.statusCode).toBe(200);
+    const item = r.json().items.find((i: any) => i.id === content.id);
+    expect(item).toMatchObject({
+      state: "pending",
+      agentApproved: true,
+      waitingReason: "CREATIVE_AUTHORITY_OFF",
+    });
+  });
+
   it("lets only the owner release an assignment draft and lists drafts to every member", async () => {
     const assignment = await confirmed();
     let r = await request("viewer", "GET", "assignment-drafts");

@@ -1010,6 +1010,8 @@ async function leaveForOwner(
   await update(tx, scope, row, {
     ...rest,
     status: "needs_review",
+    // The agent did not approve this draft: no earlier reason applies.
+    agentAuthorityProblem: null,
     agentReviewDecision: decision,
   });
   await audit(tx, scope, "content.agent_review_left_for_owner", contentId, {

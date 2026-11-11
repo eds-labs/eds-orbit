@@ -950,6 +950,31 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     );
   });
 
+  it("shows no waiting reason for a draft the agent no longer approves", async () => {
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
+    await linkBot();
+    await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    const listed = async () =>
+      ((await waitingDrafts()) as Array<Record<string, any>>).find(
+        (i) => i.id === draft!.id,
+      )!;
+    expect((await listed()).waitingReason).toBe("CREATIVE_AUTHORITY_OFF");
+    // A stale code without the agent's approval (a re-review handed it back,
+    // or the owner edited it) is not shown.
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "content", draft!.id);
+      const { agentReview: _agentReview, ...rest } = data(row);
+      await update(tx, project.owner, row, rest);
+    });
+    const stale = await listed();
+    expect(stale.agentApproved).toBe(false);
+    expect(stale.waitingReason).toBeNull();
+  });
+
   it("shows no waiting reason once the owner released the draft", async () => {
     delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
     await linkBot();

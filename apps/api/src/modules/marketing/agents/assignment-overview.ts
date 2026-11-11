@@ -510,9 +510,9 @@ export async function draftsAwaitingOwner(
       // The review agent approved the text; only its authority was missing.
       agentApproved: Boolean(d.agentReview),
       // Why the review agent's approval of a creative post does not stand
-      // in for the owner's: a code, only on a pending draft.
+      // in for the owner's: a code, only on a pending draft that still carries the agent's approval.
       waitingReason:
-        !expired && typeof d.agentAuthorityProblem === "string"
+        !expired && d.agentReview && typeof d.agentAuthorityProblem === "string"
           ? d.agentAuthorityProblem
           : null,
       problems: [
