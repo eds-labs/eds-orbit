@@ -371,6 +371,40 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
     }
   });
 
+  it("keeps the later contributions when one fails in the database", async () => {
+    // The first registered contribution (knowledge) runs an invalid query, which
+    // would abort the whole read transaction without a savepoint.
+    const entry = registeredProjectIntegrations()[0]!;
+    expect(entry[0]).toBe("knowledge");
+    const original = entry[1];
+    entry[1] = async (tx) => {
+      await tx.$queryRawUnsafe("select * from no_such_table_for_test");
+      return [];
+    };
+    try {
+      const ids = (await items(p.owner)).map((i) => i.id);
+      expect(ids).toContain(`social:${f.socialAccount}`);
+      expect(ids.some((id) => id.startsWith("knowledge_github"))).toBe(false);
+    } finally {
+      entry[1] = original;
+    }
+  });
+
+  it("hides the generic rows of a module the member may not use", async () => {
+    const marketing = [`connection:${f.postiz}`, `connection:${f.matomo}`, `connector:${f.slackRow}`, `connector:${f.postizRow}`];
+    await authDb.projectMemberModuleRole.create({
+      data: { workspaceId: orgId, projectId, userId: p.viewer.id, moduleId: "marketing", role: "none", changedBy: p.owner.id },
+    });
+    try {
+      const ids = (await items(p.viewer)).map((i) => i.id);
+      for (const id of marketing) expect(ids).not.toContain(id);
+      expect(ids).toContain(`connector:${f.mailboxRow}`);
+      expect((await items(p.editor)).map((i) => i.id)).toContain(`connection:${f.postiz}`);
+    } finally {
+      await authDb.projectMemberModuleRole.deleteMany({ where: { projectId, userId: p.viewer.id } });
+    }
+  });
+
   it("answers 404 to non-members and to a system administrator who is not a member", async () => {
     const url = `/api/management/projects/${projectId}/integrations`;
     expect((await get(url, p.outsider)).statusCode).toBe(404);
@@ -380,19 +414,31 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
   });
 
   it("maps revoked, disabled, failed and reconnect_required", async () => {
-    await authDb.connection.update({ where: { id: f.matomo }, data: { status: "failed" } });
-    expect(byId(await items(p.owner), `connection:${f.matomo}`)?.state).toBe("needs_attention");
-    await authDb.connection.update({ where: { id: f.postiz }, data: { disabledAt: new Date() } });
-    await authDb.connectionGrant.update({ where: { id: f.matomoGrant }, data: { revokedAt: new Date(), revokedBy: p.owner.id } });
-    await inProject((tx) =>
-      tx.socialAccount.update({ where: { id: f.socialAccount }, data: { status: "reconnect_required" } }),
-    );
-    const list = await items(p.owner);
-    expect(byId(list, `connection:${f.postiz}`)).toBeUndefined();
-    expect(byId(list, `connector:${f.postizRow}`)).toMatchObject({ provider: "postiz", label: "Postiz", scope: "central", state: "disabled" });
-    expect(list.some((i) => i.id.includes(f.matomo))).toBe(false);
-    expect(byId(list, `social:${f.socialAccount}`)?.state).toBe("needs_attention");
-    for (const id of [`connector:${f.postizRow}`, `social:${f.socialAccount}`])
-      expect(byId(list, id)?.state).not.toBe("ready");
+    try {
+      await authDb.connection.update({ where: { id: f.matomo }, data: { status: "failed" } });
+      expect(byId(await items(p.owner), `connection:${f.matomo}`)?.state).toBe("needs_attention");
+      await authDb.connection.update({ where: { id: f.postiz }, data: { disabledAt: new Date() } });
+      await authDb.connectionGrant.update({ where: { id: f.matomoGrant }, data: { revokedAt: new Date(), revokedBy: p.owner.id } });
+      await inProject((tx) =>
+        tx.socialAccount.update({ where: { id: f.socialAccount }, data: { status: "reconnect_required" } }),
+      );
+      const list = await items(p.owner);
+      expect(byId(list, `connection:${f.postiz}`)).toBeUndefined();
+      expect(byId(list, `connector:${f.postizRow}`)).toMatchObject({ provider: "postiz", label: "Postiz", scope: "central", state: "disabled" });
+      expect(list.some((i) => i.id.includes(f.matomo))).toBe(false);
+      expect(byId(list, `social:${f.socialAccount}`)?.state).toBe("needs_attention");
+      for (const id of [`connector:${f.postizRow}`, `social:${f.socialAccount}`])
+        expect(byId(list, id)?.state).not.toBe("ready");
+    } finally {
+      // Later cases (organization usage) build on the original fixtures.
+      await authDb.connection.update({ where: { id: f.matomo }, data: { status: "read_verified" } });
+      await authDb.connection.update({ where: { id: f.postiz }, data: { disabledAt: null } });
+      await authDb.connectionGrant.update({ where: { id: f.matomoGrant }, data: { revokedAt: null, revokedBy: null } });
+      await inProject((tx) => tx.socialAccount.update({ where: { id: f.socialAccount }, data: { status: "active" } }));
+    }
+    const restored = await items(p.owner);
+    expect(byId(restored, `connection:${f.postiz}`)?.state).toBe("ready");
+    expect(byId(restored, `connection:${f.matomo}`)?.state).toBe("verified");
+    expect(byId(restored, `social:${f.socialAccount}`)?.state).toBe("ready");
   });
 });

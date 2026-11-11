@@ -112,6 +112,9 @@ export async function projectIntegrationRecords(
         provider: g.connection.provider,
         label: g.connection.label,
         scope: "central",
+        // false holds only because this read runs as the business role under
+        // the RLS policy connection_use, which hides disabled and revoked
+        // connections; a caller on authDb must not reuse this.
         state: integrationState({
           kind: "central",
           status: g.connection.status,
@@ -203,13 +206,19 @@ export async function projectIntegrationRecords(
 
   // Module contributions, each with the member's role in its module. One that
   // throws is left out: the list is an overview, and the module's own page
-  // still shows the failure.
-  for (const [moduleId, contribution] of registeredProjectIntegrations()) {
+  // still shows the failure. Each runs in its own savepoint, so a failed query
+  // (which aborts the Postgres transaction) does not take the later ones with
+  // it. The savepoint name is generated here, never from input.
+  for (const [index, [moduleId, contribution]] of registeredProjectIntegrations().entries()) {
     if (!usable(moduleId)) continue;
+    const savepoint = `integration_${index}`;
     let items;
+    await tx.$executeRawUnsafe(`SAVEPOINT ${savepoint}`);
     try {
       items = await contribution(tx, moduleScope(scope, moduleId));
+      await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${savepoint}`);
     } catch (error) {
+      await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`);
       onFailure?.(moduleId, error);
       continue;
     }
