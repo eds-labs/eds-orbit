@@ -475,9 +475,9 @@ test.describe("settings center", () => {
   const connectionRow = (page: Page, label: string) =>
     page.getByRole("row").filter({ hasText: label });
   /**
-   * The project's "Granted connections" card (the innermost section with that
-   * heading; the setup's own section holds it too). One active grant per
-   * provider here.
+   * The project's "Granted connections" card on its connections section, and
+   * the row of one granted connection in it (the card lists every grant of
+   * the project).
    */
   const grantedCard = (page: Page) =>
     page
@@ -485,6 +485,24 @@ test.describe("settings center", () => {
       .locator("section")
       .filter({ has: page.getByRole("heading", { name: "Granted connections", exact: true }) })
       .last();
+  const grantedRow = (page: Page, label: string) =>
+    grantedCard(page).locator(".data-row").filter({ hasText: label });
+  /**
+   * Follows the setup page's one link to the section that edits the entry
+   * (owner decision of 2026-11-11: the setup mounts no form) and checks
+   * where it leads.
+   */
+  async function openEditSection(page: Page, entryLabel: string, path: string) {
+    const link = page
+      .getByRole("main")
+      .getByRole("link", { name: `Manage: ${entryLabel}`, exact: true });
+    await expect(link).toHaveAttribute("href", path);
+    // The setup page itself offers no form or panel.
+    await expect(page.getByRole("button", { name: "Add connection", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Bind", exact: true })).toHaveCount(0);
+    await link.click();
+    await expect(page).toHaveURL((url) => url.pathname === path);
+  }
 
   const can = {
     systemConnections: () => caps.system.includes("system.connections"),
@@ -647,7 +665,7 @@ test.describe("settings center", () => {
     };
   }
 
-  /** Adds a connection through the setup's own form; answers its id. */
+  /** Adds a connection in the open connections section; answers its id. */
   async function addConnection(
     page: Page,
     provider: string,
@@ -656,9 +674,8 @@ test.describe("settings center", () => {
   ) {
     await page.getByRole("button", { name: "Add connection", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Add connection" });
-    // The guided setup offers only its provider, already chosen.
-    const select = dialog.getByLabel(/^Provider/);
-    await expect(select.locator("option")).toHaveText([provider]);
+    // The connections section offers every provider of its level.
+    await dialog.getByLabel(/^Provider/).selectOption({ label: provider });
     await dialog.getByLabel(/^Label/).fill(label);
     await dialog.getByLabel(/^Base URL/).fill(baseUrl);
     await dialog.getByLabel(/^API key or token/).fill(DUMMY_KEY);
@@ -758,9 +775,16 @@ test.describe("settings center", () => {
         `${new URL(url, origin).pathname}/setup/postiz`,
       );
       if (name === "project") {
-        // A central-only provider is managed where its connection lives.
         const openai = card(page, "OpenAI");
-        await expect(openai.getByText("Managed in the organization.", { exact: true })).toBeVisible();
+        if (connectionsOn) {
+          // A central-only provider is managed where its connection lives.
+          await expect(openai.getByText("Managed in the organization.", { exact: true })).toBeVisible();
+        } else {
+          // Without central connections there is no such page: switched off.
+          await expect(planned.locator('[data-provider="openai"]')).toBeVisible();
+          await expect(openai.getByText("Switched off in this installation.", { exact: true })).toBeVisible();
+          await expect(openai.getByText("Managed in the organization.", { exact: true })).toHaveCount(0);
+        }
         await expect(openai.getByRole("link")).toHaveCount(0);
       }
       if (name === "system") {
@@ -800,9 +824,13 @@ test.describe("settings center", () => {
     const checks = await answerChecks(page);
     const label = `Matomo e2e ${RUN}`;
     const orgSetup = `/manage/o/${org().id}/integrations/setup/matomo`;
+    const orgConnections = `/manage/o/${org().id}/integrations/connections`;
+    const projectSetup = `/manage/p/${target.id}/integrations/setup/matomo`;
+    const projectConnections = `/manage/p/${target.id}/integrations/connections`;
 
-    await page.goto(orgSetup);
+    await page.goto(orgConnections);
     await removeLeftovers(page, /^Matomo (e2e|key check) /);
+    await page.goto(orgSetup);
     await expect(
       page.getByRole("main").getByRole("heading", { name: "Matomo", exact: true }),
     ).toBeVisible();
@@ -815,34 +843,41 @@ test.describe("settings center", () => {
     // An organization cannot see a project's final check.
     await expect(step(page, "Validate")).toContainText("Follows in the project");
 
+    // Every write happens in the organization's connections section.
+    await openEditSection(page, "Matomo", orgConnections);
     const id = await addConnection(page, "Matomo", label, "https://matomo.example.invalid");
     const row = connectionRow(page, label);
     await row.getByRole("button", { name: "Check", exact: true }).click();
     await expect(row).toContainText("read verified");
-    await page.getByRole("button", { name: "Refresh state" }).click();
+    await page.goto(orgSetup);
     await expect(step(page, "Check")).toContainText("Done");
     await expect(step(page, "Authorize organization and projects")).toHaveAttribute(
       "aria-current",
       "step",
     );
 
-    await row.getByRole("button", { name: "Grants", exact: true }).click();
+    await openEditSection(page, "Matomo", orgConnections);
+    await connectionRow(page, label).getByRole("button", { name: "Grants", exact: true }).click();
     const grants = page.getByRole("dialog", { name: `Grants · ${label}` });
     await grants.getByLabel(/^Project/).selectOption({ label: target.name });
     await grants.getByRole("button", { name: "Grant", exact: true }).click();
     await expect(grants.getByRole("row").filter({ hasText: target.name })).toBeVisible();
     await grants.getByRole("button", { name: "Close dialog" }).click();
+    await page.goto(orgSetup);
     await page.getByRole("button", { name: "Refresh state" }).click();
     await expect(step(page, "Authorize organization and projects")).toContainText("Done");
     await expect(step(page, "Assign account or channel")).toHaveAttribute("aria-current", "step");
 
-    // The project binds the granted connection instead of entering a key.
-    await page.goto(`/manage/p/${target.id}/integrations/setup/matomo`);
-    const granted = grantedCard(page);
-    await expect(granted).toContainText(label);
+    // The project binds the granted connection in its connections section
+    // instead of entering a key.
+    await page.goto(projectSetup);
+    await openEditSection(page, "Matomo", projectConnections);
+    const granted = grantedRow(page, label);
+    await expect(granted).toBeVisible();
     await granted.getByRole("button", { name: "Bind", exact: true }).click();
     await expect(granted.getByText("bound", { exact: true })).toBeVisible();
     checks.bound(target.id, id);
+    await page.goto(projectSetup);
     await page.getByRole("button", { name: "Refresh state" }).click();
     for (const name of [
       "Configure connection or developer app",
@@ -864,7 +899,7 @@ test.describe("settings center", () => {
     ).toContainText(`Used by: ${target.name} (bound)`);
 
     // Leave the organization as it was: grant revoked, connection removed.
-    await page.goto(orgSetup);
+    await page.goto(orgConnections);
     await removeConnection(page, label);
   });
 
@@ -878,15 +913,22 @@ test.describe("settings center", () => {
     const checks = await answerChecks(page);
     const label = `Postiz e2e ${RUN}`;
     const systemSetup = "/manage/system/integrations/setup/postiz";
+    const systemConnections = "/manage/system/integrations/connections";
+    const orgSetup = `/manage/o/${org().id}/integrations/setup/postiz`;
+    const orgConnections = `/manage/o/${org().id}/integrations/connections`;
+    const projectSetup = `/manage/p/${target.id}/integrations/setup/postiz`;
+    const projectConnections = `/manage/p/${target.id}/integrations/connections`;
 
-    await page.goto(systemSetup);
+    await page.goto(systemConnections);
     await removeLeftovers(page, /^Postiz e2e /);
+    await page.goto(systemSetup);
     await expect(
       page.getByRole("main").getByRole("heading", { name: "Postiz", exact: true }),
     ).toBeVisible();
     // The system cannot see project bindings: those steps follow there.
     await expect(step(page, "Assign account or channel")).toContainText("Follows in the project");
     await expect(step(page, "Validate")).toContainText("Follows in the project");
+    await openEditSection(page, "Postiz", systemConnections);
     const id = await addConnection(page, "Postiz", label, "https://postiz.example.invalid");
     const row = connectionRow(page, label);
     await row.getByRole("button", { name: "Check", exact: true }).click();
@@ -898,6 +940,7 @@ test.describe("settings center", () => {
     await grants.getByRole("button", { name: "Grant", exact: true }).click();
     await expect(grants.getByRole("row").filter({ hasText: org().name })).toBeVisible();
     await grants.getByRole("button", { name: "Close dialog" }).click();
+    await page.goto(systemSetup);
     await page.getByRole("button", { name: "Refresh state" }).click();
     for (const name of [
       "Configure connection or developer app",
@@ -908,7 +951,8 @@ test.describe("settings center", () => {
     await expect(steps(page).locator("[aria-current=step]")).toHaveCount(0);
 
     // The organization owner grants the system connection on to the project.
-    await page.goto(`/manage/o/${org().id}/integrations/setup/postiz`);
+    await page.goto(orgSetup);
+    await openEditSection(page, "Postiz", orgConnections);
     const orgRow = connectionRow(page, label);
     await expect(orgRow).toContainText("System");
     await orgRow.getByRole("button", { name: "Grants", exact: true }).click();
@@ -917,10 +961,11 @@ test.describe("settings center", () => {
     await orgGrants.getByRole("button", { name: "Grant", exact: true }).click();
     await expect(orgGrants.getByRole("row").filter({ hasText: target.name })).toBeVisible();
     await orgGrants.getByRole("button", { name: "Close dialog" }).click();
+    await page.goto(orgSetup);
     await page.getByRole("button", { name: "Refresh state" }).click();
     await expect(step(page, "Authorize organization and projects")).toContainText("Done");
 
-    await page.goto(`/manage/p/${target.id}/integrations/setup/postiz`);
+    await page.goto(projectSetup);
     // The organization owner's steps lead to where they are done.
     for (const name of [
       "Configure connection or developer app",
@@ -930,13 +975,15 @@ test.describe("settings center", () => {
       await expect(
         step(page, name).getByRole("link", { name: `Open: ${name}`, exact: true }),
         name,
-      ).toHaveAttribute("href", `/manage/o/${org().id}/integrations/setup/postiz`);
-    const granted = grantedCard(page);
-    await expect(granted).toContainText(label);
+      ).toHaveAttribute("href", orgSetup);
+    await openEditSection(page, "Postiz", projectConnections);
+    const granted = grantedRow(page, label);
+    await expect(granted).toBeVisible();
     await expect(granted).toContainText("System");
     await granted.getByRole("button", { name: "Bind", exact: true }).click();
     await expect(granted.getByText("bound", { exact: true })).toBeVisible();
     checks.bound(target.id, id);
+    await page.goto(projectSetup);
     await page.getByRole("button", { name: "Refresh state" }).click();
     await expect(step(page, "Validate")).toContainText("Done");
     await expect(steps(page).locator("[aria-current=step]")).toHaveCount(0);
@@ -947,7 +994,7 @@ test.describe("settings center", () => {
     ).toContainText("Ready");
 
     // Revoking the organization's grant ends the project's grant with it.
-    await page.goto(systemSetup);
+    await page.goto(systemConnections);
     await removeConnection(page, label);
   });
 
@@ -963,7 +1010,9 @@ test.describe("settings center", () => {
     await gateSetup(page, { projectId: target.id });
     const label = `Matomo key check ${RUN}`;
     const orgSetup = `/manage/o/${org().id}/integrations/setup/matomo`;
+    const orgConnections = `/manage/o/${org().id}/integrations/connections`;
     await page.goto(orgSetup);
+    await openEditSection(page, "Matomo", orgConnections);
     await addConnection(page, "Matomo", label, "https://matomo.example.invalid");
     const row = connectionRow(page, label);
     await row.getByRole("button", { name: "Grants", exact: true }).click();
@@ -973,16 +1022,21 @@ test.describe("settings center", () => {
     await expect(grants.getByRole("row").filter({ hasText: target.name })).toBeVisible();
     await grants.getByRole("button", { name: "Close dialog" }).click();
 
+    // The setup pages list no connection (they link to the section that
+    // does); every page must still never show the key.
+    const setupPages = [`/manage/p/${target.id}/integrations/setup/matomo`, orgSetup];
     for (const url of [
       `/manage/p/${target.id}/integrations`,
-      `/manage/p/${target.id}/integrations/setup/matomo`,
+      setupPages[0]!,
       `/manage/p/${target.id}/integrations/connections`,
       `/manage/o/${org().id}/integrations`,
-      orgSetup,
-      `/manage/o/${org().id}/integrations/connections`,
+      setupPages[1]!,
+      orgConnections,
     ]) {
       await page.goto(url);
-      await expect(page.getByText(label).first(), url).toBeVisible();
+      if (setupPages.includes(url))
+        await expect(steps(page), url).toBeVisible();
+      else await expect(page.getByText(label).first(), url).toBeVisible();
       expect(await page.locator("body").innerText(), url).not.toContain(DUMMY_KEY);
       expect(await page.content(), url).not.toContain(DUMMY_KEY);
     }
@@ -992,7 +1046,7 @@ test.describe("settings center", () => {
       card(page, "Matomo").getByRole("listitem").filter({ hasText: label }),
     ).toContainText("Stored, not checked");
 
-    await page.goto(orgSetup);
+    await page.goto(orgConnections);
     await removeConnection(page, label);
   });
 
@@ -1059,10 +1113,14 @@ test.describe("settings center", () => {
     expect((await put("marketing", false)).status(), "marketing off").toBe(200);
     try {
       await page.goto(`/manage/p/${id}/integrations`);
-      await expect(card(page, "Matomo")).toContainText("Managed in its module.");
+      // The project cannot use Matomo then: no card at all, and its setup
+      // address is not available.
       await expect(
-        card(page, "Matomo").getByRole("link", { name: "Manage", exact: true }),
-      ).toHaveCount(0);
+        page.getByRole("heading", { name: "All integrations", exact: true }),
+      ).toBeVisible();
+      await expect(card(page, "Matomo")).toHaveCount(0);
+      await page.goto(`/manage/p/${id}/integrations/setup/matomo`);
+      await expect(page.getByText("Not available", { exact: true })).toBeVisible();
     } finally {
       expect((await put("marketing", true)).ok(), "marketing switched back on").toBe(true);
     }

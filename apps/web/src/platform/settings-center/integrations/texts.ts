@@ -1,6 +1,7 @@
 import type { Locale } from "@/lib/i18n";
 import type { Label } from "@/platform/shell/types";
 import type {
+  EnvironmentStatus,
   IntegrationAuthType,
   IntegrationCategory,
   IntegrationState,
@@ -171,6 +172,20 @@ const STORAGES: Record<IntegrationStorage, Label> = {
   environment: { en: "Server environment", de: "Serverumgebung" },
 };
 
+// The switches of the environment's `mcp` object; a key from a newer API
+// shows as itself.
+const MCP_SWITCHES: Record<keyof EnvironmentStatus["mcp"], Label> = {
+  oauth: { en: "OAuth sign-in", de: "OAuth-Anmeldung" },
+  gateway: { en: "Gateway", de: "Gateway" },
+  dcr: { en: "Dynamic client registration", de: "Dynamische Client-Registrierung" },
+  tasks: { en: "Work orders", de: "Arbeitsaufträge" },
+  proposals: { en: "Proposals", de: "Vorschläge" },
+  projectConfiguration: { en: "Project configuration", de: "Projektkonfiguration" },
+  projectAdministration: { en: "Project administration", de: "Projektverwaltung" },
+};
+
+export const mcpSwitchLabel = (key: string, locale: Locale) =>
+  pick(MCP_SWITCHES, key, locale);
 export const stateLabel = (state: IntegrationState, locale: Locale) =>
   pick(STATES, state, locale);
 export const categoryLabel = (category: IntegrationCategory, locale: Locale) =>

@@ -176,37 +176,24 @@ export function AdminArea({
   );
 }
 
-/**
- * `provider` narrows the panel to one provider (the guided setup), whose
- * entry heading then stands for this page head.
- */
-export function Integrations({
-  locale,
-  provider,
-}: {
-  locale: Locale;
-  provider?: string;
-}) {
+export function Integrations({ locale }: { locale: Locale }) {
   const de = locale === "de";
   const orgs = useResource<Page<{ id: string; name: string }>>("/admin/organizations");
   return (
     <>
-      {provider === undefined && (
-        <PageHead
-          title={de ? "Integrationen" : "Integrations"}
-          description={
-            de
-              ? "Zentrale Verbindungen wie KI-Anbieter. Infrastruktur-Geheimnisse (Datenbank, Speicher, System-E-Mail) bleiben in der Umgebung und erscheinen nur als Status in der Übersicht."
-              : "Central connections such as AI providers. Infrastructure secrets (database, storage, system e-mail) stay in the environment and appear only as status on the overview."
-          }
-        />
-      )}
+      <PageHead
+        title={de ? "Integrationen" : "Integrations"}
+        description={
+          de
+            ? "Zentrale Verbindungen wie KI-Anbieter. Infrastruktur-Geheimnisse (Datenbank, Speicher, System-E-Mail) bleiben in der Umgebung und erscheinen nur als Status in der Übersicht."
+            : "Central connections such as AI providers. Infrastructure secrets (database, storage, system e-mail) stay in the environment and appear only as status on the overview."
+        }
+      />
       <ConnectionsPanel
         base="/admin/connections"
         mode="admin"
         locale={locale}
         targets={orgs.data?.items ?? []}
-        provider={provider}
       />
     </>
   );

@@ -13,11 +13,11 @@ import type {
   ScopeKind,
   SectionProps,
 } from "../types";
-import { catalogGroups, CatalogView, inScope } from "./catalog";
+import { catalogGroups, CatalogView, centralPath, inScope, scopesOf, storageOf } from "./catalog";
 import { integrationPaths } from "./paths";
 import { StateBadge } from "./state";
 import { hasOwnStep, setupOffers } from "./steps";
-import { integrationText, type IntegrationTextKey } from "./texts";
+import { integrationText, mcpSwitchLabel, type IntegrationTextKey } from "./texts";
 import {
   INTEGRATION_CATEGORIES,
   type CardRecord,
@@ -29,6 +29,7 @@ import {
   type ManageNote,
   type OrganizationIntegrations,
   type ProjectIntegration,
+  type ProjectIntegrationsAnswer,
 } from "./types";
 
 // The catalog section of the system, organization and project scope: thin
@@ -132,17 +133,22 @@ const categoryRank = (category: string): number => {
  * provider has no card in the scope still gets one, so nothing set up
  * vanishes: the catalog entry if the provider is known (shown although the
  * scope's catalog leaves it out), else a card named after the record.
+ * `omitted` are catalog ids the member cannot use here (the project answer's
+ * `unavailable`): they get no card at all, neither in a group nor as
+ * switched off, so no card says "Not set up" for what the member cannot see.
  */
 export function scopeCatalog(
   entries: readonly CatalogEntry[],
   scope: ScopeKind,
   records: Records,
+  omitted: readonly string[] = [],
 ): { groups: ReturnType<typeof catalogGroups>; unavailable: CatalogEntry[] } {
-  const groups = catalogGroups(entries, scope).map((g) => ({
+  const listed = entries.filter((e) => !omitted.includes(e.id));
+  const groups = catalogGroups(listed, scope).map((g) => ({
     ...g,
     entries: [...g.entries],
   }));
-  const unavailable = entries.filter((e) => !e.available && inScope(e, scope));
+  const unavailable = listed.filter((e) => !e.available && inScope(e, scope));
   const shown = new Set([
     ...groups.flatMap((g) => g.entries.map((e) => e.id)),
     ...unavailable.map((e) => e.id),
@@ -199,21 +205,23 @@ export function manageHrefOf(
   // Its page stays in the Knowledge module until phase 5.
   if (entry.id === "knowledge_github") return null;
   const connections = () => ctx.hrefOf("integrations", "connections");
+  const storage = storageOf(entry);
+  const scopes = scopesOf(entry);
   switch (ctx.scope.kind) {
     case "project":
       if (entry.id === "google_drive") return ctx.hrefOf("integrations", "google-drive");
-      if (!entry.storage.includes("project")) return null;
+      // The Connectors page lists the project's own connections and the
+      // granted ones with their bind action.
+      if (!storage.includes("project")) return null;
       return entry.owner === "platform" || ctx.connectorProviders.includes(entry.id)
         ? connections()
         : null;
+    // The central connections pages exist only where the installation can
+    // use the central path (ORBIT_CONNECTIONS, the cutover).
     case "organization":
-      return entry.storage.includes("central") && entry.scopes.includes("workspace")
-        ? connections()
-        : null;
+      return centralPath(entry) && scopes.includes("workspace") ? connections() : null;
     case "system":
-      return entry.storage.includes("central") && entry.scopes.includes("system")
-        ? connections()
-        : null;
+      return centralPath(entry) && scopes.includes("system") ? connections() : null;
     default:
       return null;
   }
@@ -224,44 +232,43 @@ type ManageContext = Parameters<typeof manageHrefOf>[1];
 /**
  * Why a card has no Manage link, or null when it has one. Computed from
  * manageHrefOf so the link and the note cannot disagree (ledger P3-R26 V1):
- * the server environment sets it; a central connection another scope
+ * the server environment sets it; a usable central connection another scope
  * manages (central-only in a project, a provider without system scope in the
  * system) is the organization's; everything else is owned by a module with
  * no section here.
  */
 export function manageNote(entry: CatalogEntry, ctx: ManageContext): ManageNote | null {
   if (manageHrefOf(entry, ctx) !== null) return null;
-  // A value of a newer API must not break the page.
-  const storage: readonly string[] = Array.isArray(entry.storage) ? entry.storage : [];
-  const scopes: readonly string[] = Array.isArray(entry.scopes) ? entry.scopes : [];
+  const storage = storageOf(entry);
   if (storage.includes("environment")) return "server";
-  const central = storage.includes("central");
+  const central = centralPath(entry);
   if (ctx.scope.kind === "project" && central && !storage.includes("project"))
     return "organization";
-  if (ctx.scope.kind === "system" && central && !scopes.includes("system"))
+  if (ctx.scope.kind === "system" && central && !scopesOf(entry).includes("system"))
     return "organization";
   return "module";
 }
 
 /**
  * The guided setup of a card: only for what the scope's setup offers, and
- * only for a member with a step of their own there (a viewer gets none). In
- * a project the setup page must also have a place to act: the grant and bind
- * path of a central entry, or a page that manages it (ledger P3-R26 V6). The
- * setup address itself stays open to every member of the scope.
+ * only for a member with a step of their own there (a viewer gets none). The
+ * setup page must also have a place to act: its one link to the section that
+ * edits the entry, which is manageHrefOf (ledger P3-R26 V6, owner decision of
+ * 2026-11-11). The setup address itself stays open to every member of the
+ * scope. `unavailable`: the project answer's ids the member cannot use.
  */
 export function setupHrefOf(
   entry: CatalogEntry,
   ctx: ManageContext & {
     entries: readonly CatalogEntry[];
     caps: ManagementCapabilities | null | undefined;
+    unavailable?: readonly string[];
   },
 ): string | null {
-  const offered = setupOffers(ctx.entries, ctx.scope.kind).some((e) => e.id === entry.id);
-  const actionable =
-    ctx.scope.kind !== "project" ||
-    (Array.isArray(entry.storage) && entry.storage.includes("central")) ||
-    manageHrefOf(entry, ctx) !== null;
+  const offered = setupOffers(ctx.entries, ctx.scope.kind, ctx.unavailable).some(
+    (e) => e.id === entry.id,
+  );
+  const actionable = manageHrefOf(entry, ctx) !== null;
   // hrefOf encodes every segment (manageHref).
   return offered && actionable && hasOwnStep(entry, ctx.scope, ctx.caps)
     ? ctx.hrefOf("integrations", "setup", entry.id)
@@ -287,7 +294,7 @@ export function environmentRows(
     values.length ? values.join(", ") : text("none");
   const mcp = Object.entries(environment.mcp ?? {})
     .filter(([, on]) => on === true)
-    .map(([name]) => name);
+    .map(([name]) => mcpSwitchLabel(name, locale));
   const redis = environment.redis;
   // Only configured but not reachable needs attention; unset is just missing.
   const reach: EnvironmentBadge = {
@@ -327,7 +334,7 @@ export function EnvironmentPanel({
   const text = integrationText(locale);
   return (
     <section className="panel integration-env-panel">
-      <h2>{text("environmentTitle")}</h2>
+      <h3>{text("environmentTitle")}</h3>
       <p>{text("environmentBody")}</p>
       <dl className="integration-env">
         {environmentRows(environment, locale).map((row) => (
@@ -365,8 +372,8 @@ export function OrganizationProjects({
     return shown === "—" ? text("neverChecked") : shown;
   };
   return (
-    <section>
-      <h2>{text("projectsTitle")}</h2>
+    <section className="integration-projects">
+      <h3>{text("projectsTitle")}</h3>
       {projects.length === 0 ? <p>{text("none")}</p> : null}
       {projects.map((project) => (
         <table key={project.id}>
@@ -433,6 +440,7 @@ function ScopeCatalogView({
   scope,
   entries,
   records,
+  unavailable = [],
   moduleSections = [],
   connectorProviders = [],
   hrefOf,
@@ -443,6 +451,8 @@ function ScopeCatalogView({
   scope: ManageScope;
   entries: readonly CatalogEntry[];
   records: Records;
+  /** Catalog ids the member cannot use here; no card for them. */
+  unavailable?: readonly string[];
   moduleSections?: ReadonlyArray<{ id: string; providers?: readonly string[] }>;
   connectorProviders?: readonly string[];
   hrefOf: SectionProps["hrefOf"];
@@ -450,16 +460,16 @@ function ScopeCatalogView({
   extra?: ReactNode;
   locale: Locale;
 }) {
-  const { groups, unavailable } = scopeCatalog(entries, scope.kind, records);
+  const { groups, unavailable: switchedOff } = scopeCatalog(entries, scope.kind, records, unavailable);
   const manage = { scope, hrefOf, moduleSections, connectorProviders };
   return (
     <CatalogView
       groups={groups}
-      unavailable={unavailable}
+      unavailable={switchedOff}
       recordsOf={(id) => records.get(id) ?? []}
       manageHrefOf={(entry) => manageHrefOf(entry, manage)}
       manageNoteOf={(entry) => manageNote(entry, manage)}
-      setupHrefOf={(entry) => setupHrefOf(entry, { ...manage, entries, caps })}
+      setupHrefOf={(entry) => setupHrefOf(entry, { ...manage, entries, caps, unavailable })}
       extra={extra}
       locale={locale}
     />
@@ -506,7 +516,7 @@ export function OrganizationCatalog({ scope, locale, hrefOf, caps }: SectionProp
         entries={catalog.data!.items}
         records={organizationRecords(usage.data!, locale)}
         hrefOf={hrefOf}
-      caps={caps}
+        caps={caps}
         locale={locale}
       />
       <OrganizationProjects
@@ -521,7 +531,7 @@ export function OrganizationCatalog({ scope, locale, hrefOf, caps }: SectionProp
 export function ProjectCatalog({ scope, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
   const catalog = useResource<CatalogAnswer>(paths.catalog);
-  const records = useResource<{ items: ProjectIntegration[] }>(paths.records);
+  const records = useResource<ProjectIntegrationsAnswer>(paths.records);
   // The integration sections of the modules shown for the project.
   const shell = useContext(ShellContext);
   const moduleSections = (shell?.integrations ?? []).map((c) => ({
@@ -537,6 +547,7 @@ export function ProjectCatalog({ scope, locale, hrefOf, caps }: SectionProps) {
       scope={scope}
       entries={catalog.data!.items}
       records={projectRecords(records.data!.items)}
+      unavailable={records.data!.unavailable ?? []}
       moduleSections={moduleSections}
       connectorProviders={connectorProviders}
       hrefOf={hrefOf}

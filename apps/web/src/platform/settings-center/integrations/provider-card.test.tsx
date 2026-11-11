@@ -26,7 +26,8 @@ describe("ProviderCard", () => {
     const empty = renderToStaticMarkup(
       <ProviderCard entry={entry} records={[]} manageHref={null} manageNote="module" setupHref={null} locale="en" />,
     );
-    expect(empty).toContain("<h3");
+    // Cards sit below the h3 of their category.
+    expect(empty).toContain("<h4>Postiz</h4>");
     expect(empty).toContain("Postiz");
     expect(empty).toContain(stateLabel("not_set_up", "en"));
     expect(empty).not.toContain("<li");

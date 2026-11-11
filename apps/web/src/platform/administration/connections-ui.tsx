@@ -137,21 +137,15 @@ function appFields(
 /**
  * The fields of "Add connection": developer apps ask for each key on its
  * own and show their callback URL; other providers keep one secret field.
- * `preset` (the guided setup) offers only that provider, already chosen.
  */
 export function createFields(
   providers: Provider[],
   mode: "admin" | "owner",
   locale: Locale,
   origin: string,
-  preset?: string,
 ): FormField[] {
   const de = locale === "de";
-  const offered = providers.filter(
-    (p) =>
-      p.scopes.includes(mode === "admin" ? "system" : "workspace") &&
-      (preset === undefined || p.id === preset),
-  );
+  const offered = providers.filter((p) => p.scopes.includes(mode === "admin" ? "system" : "workspace"));
   const plain = {
     name: "provider",
     values: ["", ...offered.filter((p) => !p.secretFields?.length).map((p) => p.id)],
@@ -163,7 +157,6 @@ export function createFields(
       type: "select",
       required: true,
       options: offered.map((p) => ({ value: p.id, label: p.label[locale] })),
-      ...(preset === undefined ? {} : { value: preset }),
     },
     { name: "label", label: de ? "Bezeichnung" : "Label", required: true },
     {
@@ -354,7 +347,6 @@ export function ConnectionsPanel({
   mode,
   locale,
   targets,
-  provider,
 }: {
   /** "/admin/connections" or "/organizations/:id/connections". */
   base: string;
@@ -362,11 +354,6 @@ export function ConnectionsPanel({
   locale: Locale;
   /** Organizations (admin) or projects (owner) a grant can go to. */
   targets: Array<{ id: string; name: string }>;
-  /**
-   * The guided setup: list and create form show only this provider, from
-   * the same answer (no request parameter). Absent, nothing is narrowed.
-   */
-  provider?: string;
 }) {
   const de = locale === "de";
   const list = useResource<{ items: Connection[]; providers: Provider[] }>(base);
@@ -379,11 +366,7 @@ export function ConnectionsPanel({
   if (list.loading && !list.data)
     return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!list.data) return <ResourceError error={list.error} retry={list.refresh} />;
-  const { providers } = list.data;
-  const items =
-    provider === undefined
-      ? list.data.items
-      : list.data.items.filter((c) => c.provider === provider);
+  const { items, providers } = list.data;
   const providerName = (id: string) =>
     providers.find((p) => p.id === id)?.label[locale] ?? id;
   const own = (c: Connection) => (mode === "admin" ? c.scope === "system" : c.scope === "workspace");
@@ -557,7 +540,7 @@ export function ConnectionsPanel({
           onClose={() => setCreating(false)}
         >
           <DataForm
-            fields={createFields(providers, mode, locale, browserOrigin(), provider)}
+            fields={createFields(providers, mode, locale, browserOrigin())}
             pending={action.pending}
             error={errorText(action.error, locale)}
             submitLabel={de ? "Anlegen" : "Add"}

@@ -113,17 +113,38 @@ describe("setupHrefOf", () => {
     // Project-only and no page here manages it: the setup page would show nothing to do.
     expect(href("knowledge_github", project, ORG_OWNER)).toBeNull();
     expect(href("knowledge_github", project, asProject("owner"))).toBeNull();
-    // Central storage: the grant and bind path is on the setup page.
+    // The Connectors page holds the granted connections and the bind action.
     expect(href("postiz", project, ORG_OWNER)).toBe("/manage/p/p1/integrations/setup/postiz");
     expect(href("email", project, asProject("owner"))).toBe("/manage/p/p1/integrations/setup/email");
-    // Marketing hidden still leaves postiz its central path.
+    // Marketing hidden: no section here edits postiz, so the setup page has no link.
     expect(
       setupHrefOf(byId("postiz"), { entries: catalog, scope: project, hrefOf: hrefIn(project), caps: ORG_OWNER, moduleSections: [], connectorProviders: [] }),
-    ).toBe("/manage/p/p1/integrations/setup/postiz");
+    ).toBeNull();
     // Social hidden: project-only and nothing manages it here.
     expect(
       setupHrefOf(byId("social.account.x"), { entries: catalog, scope: project, hrefOf: hrefIn(project), caps: ORG_OWNER, moduleSections: [], connectorProviders: [] }),
     ).toBeNull();
+  });
+
+  it("never offers what the member cannot use in the project", () => {
+    const ctx = (unavailable: string[]) => ({
+      entries: catalog, scope: project, hrefOf: hrefIn(project), caps: ORG_OWNER,
+      moduleSections: [{ id: "social/accounts", providers: ["social.account.x"] }], connectorProviders: ["postiz"], unavailable,
+    });
+    expect(setupHrefOf(byId("postiz"), ctx(["postiz"]))).toBeNull();
+    expect(setupHrefOf(byId("social.account.x"), ctx(["postiz"]))).not.toBeNull();
+  });
+
+  it("offers central setups only where the installation can use the central path", () => {
+    const off = catalog.map((e) => (e.storage.includes("central") ? { ...e, centralUsable: false } : e));
+    const ctx = (scope: ManageScope, caps: ManagementCapabilities) => ({
+      entries: off, scope, hrefOf: hrefIn(scope), caps, moduleSections: [], connectorProviders: scope.kind === "project" ? ["postiz"] : [],
+    });
+    const of = (id: string) => off.find((e) => e.id === id)!;
+    expect(setupHrefOf(of("openai"), ctx(system, ADMIN_CAPS))).toBeNull();
+    expect(setupHrefOf(of("postiz"), ctx(organization, ORG_OWNER))).toBeNull();
+    // Postiz in the project runs on the project's own connection.
+    expect(setupHrefOf(of("postiz"), ctx(project, asProject("owner")))).toBe("/manage/p/p1/integrations/setup/postiz");
   });
 
   it("never offers what the scope cannot set up", () => {
@@ -196,6 +217,14 @@ describe("record builders", () => {
 });
 
 describe("scopeCatalog", () => {
+  it("gives no card at all to an entry the member cannot use", () => {
+    const { groups, unavailable } = scopeCatalog(catalog, "project", new Map(), ["postiz", "switched_off", "email"]);
+    const ids = groups.flatMap((g) => g.entries.map((e) => e.id));
+    for (const id of ["postiz", "switched_off", "email"]) expect(ids).not.toContain(id);
+    expect(unavailable).toEqual([]);
+    expect(ids).toContain("social.account.x");
+  });
+
   it("is catalogGroups plus the scope's switched-off entries when every record has a card", () => {
     const records = projectRecords([
       { id: "d1", provider: "google_drive", label: "Google Drive", category: "google", scope: "project", state: "ready", checkedAt: null, group: null },
@@ -274,6 +303,21 @@ describe("manageHrefOf", () => {
     // Project-only storage is never managed centrally.
     expect(manageHrefOf(byId("social.account.x"), ctx(organization, []))).toBeNull();
   });
+
+  it("links the central connections pages only where the installation can use them", () => {
+    const off = (id: string) => ({ ...byId(id), centralUsable: false });
+    expect(manageHrefOf(off("openai"), ctx(system))).toBeNull();
+    expect(manageHrefOf(off("openai"), ctx(organization))).toBeNull();
+    expect(manageHrefOf(off("postiz"), ctx(organization))).toBeNull();
+    // The project's own Postiz connection is still on the Connectors page.
+    expect(manageHrefOf(off("postiz"), ctx(project))).toBe("/manage/p/p1/integrations/connections");
+  });
+
+  it("does not throw on a malformed entry and gives it no link", () => {
+    // Neither value has an includes method.
+    const odd = { ...entry({ id: "future" }), storage: { central: true }, scopes: 7 } as unknown as CatalogEntry;
+    for (const scope of [system, organization, project]) expect(manageHrefOf(odd, ctx(scope, []))).toBeNull();
+  });
   // A null link renders the note of manageNote and no Manage link: provider-card.test.tsx.
 });
 
@@ -297,6 +341,16 @@ describe("manageNote", () => {
     expect(manageNote(issuesWebhook, ctx(project))).toBe("module");
     expect(manageNote(byId("knowledge_github"), ctx(project))).toBe("module");
     expect(manageNote(byId("social.account.x"), ctx(project))).toBe("module");
+  });
+
+  it("names the organization only for a central path the installation can use", () => {
+    // OpenAI while central connections are off: it shows as switched off,
+    // never as "Managed in the organization."
+    const openaiOff = { ...byId("openai"), centralUsable: false, available: false };
+    expect(manageNote(openaiOff, ctx(project))).toBe("module");
+    expect(manageNote({ ...byId("n8n"), centralUsable: false }, ctx(system))).toBe("module");
+    // Postiz without its cutover and with Marketing hidden: module, not organization.
+    expect(manageNote({ ...byId("postiz"), centralUsable: false }, { ...ctx(project), connectorProviders: [] })).toBe("module");
   });
 
   it("is null exactly where a Manage link exists", () => {
@@ -345,7 +399,7 @@ describe("environment panel", () => {
       { key: "envAiKeys", label: t("envAiKeys"), value: `OpenAI: ${t("configured")} · Anthropic: ${t("missing")}`, badges: [ok(`OpenAI: ${t("configured")}`), off(`Anthropic: ${t("missing")}`)] },
       { key: "envKeyRing", label: t("envKeyRing"), value: t("configured"), badges: [ok(t("configured"))] },
       // Lists are names, not states: plain text.
-      { key: "envMcp", label: t("envMcp"), value: "oauth, gateway", badges: [] },
+      { key: "envMcp", label: t("envMcp"), value: "OAuth sign-in, Gateway", badges: [] },
       { key: "envCutover", label: t("envCutover"), value: "openai, email", badges: [] },
     ]);
     const reachable = environmentRows({ ...environment, redis: { configured: true, reachable: true } }, "en");
@@ -367,6 +421,20 @@ describe("environment panel", () => {
     ]);
   });
 
+  it("names the MCP switches, and shows an unknown one as itself", () => {
+    const every = Object.fromEntries(Object.keys(environment.mcp).map((k) => [k, true])) as EnvironmentStatus["mcp"];
+    const row = (env: EnvironmentStatus, locale: "en" | "de") =>
+      environmentRows(env, locale).find((r) => r.key === "envMcp")!.value;
+    expect(row({ ...environment, mcp: every }, "en")).toBe(
+      "OAuth sign-in, Gateway, Dynamic client registration, Work orders, Proposals, Project configuration, Project administration",
+    );
+    expect(row({ ...environment, mcp: every }, "de")).toBe(
+      "OAuth-Anmeldung, Gateway, Dynamische Client-Registrierung, Arbeitsaufträge, Vorschläge, Projektkonfiguration, Projektverwaltung",
+    );
+    const newer = { ...environment, mcp: { ...environment.mcp, quantumLink: true } } as EnvironmentStatus;
+    expect(row(newer, "en")).toBe("OAuth sign-in, Gateway, quantumLink");
+  });
+
   it("does not break on an answer missing parts", () => {
     const partial = { redis: { configured: true, reachable: true } } as unknown as EnvironmentStatus;
     const rows = environmentRows(partial, "en");
@@ -377,11 +445,11 @@ describe("environment panel", () => {
 
   it("renders a heading, the body and a definition list, in German too", () => {
     const html = renderToStaticMarkup(<EnvironmentPanel environment={environment} locale="en" />);
-    expect(html).toContain(`<h2>${t("environmentTitle")}</h2>`);
+    expect(html).toContain(`<h3>${t("environmentTitle")}</h3>`);
     expect(html).toContain(t("environmentBody"));
     expect(html).toContain("<dl");
     expect(html.match(/<dt>/g)).toHaveLength(7);
-    expect(html).toContain(`<dd>oauth, gateway</dd>`);
+    expect(html).toContain(`<dd>OAuth sign-in, Gateway</dd>`);
     // Each state is a badge with its word; the list lays out name and state side by side.
     expect(html).toContain('class="integration-env"');
     expect(html).toContain(`<span class="badge badge-success">${t("configured")}</span>`);
@@ -389,7 +457,7 @@ describe("environment panel", () => {
     expect(html).toContain(`<span class="badge badge-neutral">Anthropic: ${t("missing")}</span>`);
     const de = integrationText("de");
     const htmlDe = renderToStaticMarkup(<EnvironmentPanel environment={allOff} locale="de" />);
-    expect(htmlDe).toContain(`<h2>${de("environmentTitle")}</h2>`);
+    expect(htmlDe).toContain(`<h3>${de("environmentTitle")}</h3>`);
     expect(htmlDe).toContain(`<dd>${de("none")}</dd>`);
   });
 });
@@ -414,7 +482,7 @@ describe("organization projects", () => {
     const html = renderToStaticMarkup(
       <OrganizationProjects projects={usage.projects} catalog={catalog} locale="en" />,
     );
-    expect(html).toContain(`<h2>${t("projectsTitle")}</h2>`);
+    expect(html).toContain(`<h3>${t("projectsTitle")}</h3>`);
     expect(html.match(/<table/g)).toHaveLength(2);
     expect(html).toContain("<caption>Alpha</caption>");
     expect(html).toContain("<caption>Beta</caption>");
@@ -433,7 +501,7 @@ describe("organization projects", () => {
 
   it("says none when the organization has no projects", () => {
     const html = renderToStaticMarkup(<OrganizationProjects projects={[]} catalog={catalog} locale="en" />);
-    expect(html).toContain(`<h2>${t("projectsTitle")}</h2>`);
+    expect(html).toContain(`<h3>${t("projectsTitle")}</h3>`);
     expect(html).not.toContain("<table");
     expect(html).toContain(`<p>${t("none")}</p>`);
   });

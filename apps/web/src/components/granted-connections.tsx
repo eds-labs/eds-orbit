@@ -19,16 +19,12 @@ type Granted = {
  * Connections the organization or the system granted to this project (ADR
  * 0013). An owner binds one instead of entering a key; the project keeps
  * its own settings (channels, site, verification) and runs the usual check.
- * Shown only while central connections are on. `provider` (the guided
- * setup) shows only that provider's grants, from the same answer, and does
- * not request the workflow runs, which belong to no such provider.
+ * Shown only while central connections are on.
  */
 export function GrantedConnections({
   connectors,
-  provider,
 }: {
   connectors: Entity[];
-  provider?: string;
 }) {
   const { project, isOwner, identity, locale, refresh } = useWorkspace();
   const de = locale === "de";
@@ -39,12 +35,10 @@ export function GrantedConnections({
   );
   const bind = useMutation(refresh);
   const items = (granted.data?.items ?? []).filter(
-    (g) =>
-      !["openai", "anthropic", "n8n"].includes(g.provider) &&
-      (provider === undefined || g.provider === provider),
+    (g) => !["openai", "anthropic", "n8n"].includes(g.provider),
   );
   const runs = useResource<{ items: Run[] }>(
-    identity.connections && provider === undefined
+    identity.connections
       ? `/projects/${encodeURIComponent(project.id)}/workflow-runs`
       : null,
   );

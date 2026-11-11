@@ -12,7 +12,7 @@ import {
 } from "./texts";
 import type { CardRecord, CatalogEntry, ManageNote } from "./types";
 
-const NOTE_TEXT: Record<ManageNote, IntegrationTextKey> = {
+export const NOTE_TEXT: Record<ManageNote, IntegrationTextKey> = {
   module: "managedInModule",
   organization: "managedInOrganization",
   server: "managedOnServer",
@@ -58,7 +58,7 @@ export function ProviderCard({
 
   return (
     <article className="integration-card" data-provider={entry.id}>
-      <h3>{entry.label[locale] || entry.label.en}</h3>
+      <h4>{entry.label[locale] || entry.label.en}</h4>
       <p className="integration-meta">{meta}</p>
       {!entry.available ? (
         <p>{text("switchedOff")}</p>

@@ -24,21 +24,37 @@ export const NOT_AVAILABLE_YET: ReadonlyArray<{ id: string; label: Label }> = [
   },
 ];
 
+// A value of a newer API must not break the page: a non-array counts as empty.
+export const storageOf = (entry: CatalogEntry): readonly string[] =>
+  Array.isArray(entry.storage) ? entry.storage : [];
+export const scopesOf = (entry: CatalogEntry): readonly string[] =>
+  Array.isArray(entry.scopes) ? entry.scopes : [];
+
+/**
+ * Whether a member can act on the entry's central connections here: central
+ * storage that this installation can use (`centralUsable`; absent in an older
+ * answer counts as usable). An entry with central and project storage whose
+ * central path is off behaves exactly like a project-only entry.
+ */
+export const centralPath = (entry: CatalogEntry): boolean =>
+  storageOf(entry).includes("central") && entry.centralUsable !== false;
+
 /** Whether the scope lists the entry at all, available or not. */
 export const inScope = (entry: CatalogEntry, scope: ScopeKind): boolean => {
-  const environment = entry.storage.includes("environment");
+  const scopes = scopesOf(entry);
+  const environment = storageOf(entry).includes("environment");
   switch (scope) {
     // Installation items belong to the system only; organizations and
     // projects never list them.
     case "system":
-      return entry.scopes.includes("system") || environment;
+      return scopes.includes("system") || environment;
     case "organization":
-      return !environment && entry.scopes.includes("workspace");
+      return !environment && scopes.includes("workspace");
     // A granted AI key or GitHub App shows its state in the project too.
     case "project":
       return (
         !environment &&
-        (entry.scopes.includes("project") || entry.scopes.includes("workspace"))
+        (scopes.includes("project") || scopes.includes("workspace"))
       );
     default:
       return false;
@@ -47,23 +63,27 @@ export const inScope = (entry: CatalogEntry, scope: ScopeKind): boolean => {
 
 /**
  * What the guided setup offers in a scope: available entries the scope can
- * configure itself. A planned provider without code is never in the catalog,
- * so it never gets a setup.
+ * configure itself. The system and an organization configure central
+ * connections, so only where the installation can use them; a project never
+ * gets an entry the member cannot use there (`unavailable` of the project
+ * answer). A planned provider without code is never in the catalog, so it
+ * never gets a setup.
  */
 export function setupOffers(
   entries: readonly CatalogEntry[],
   scope: ScopeKind,
+  unavailable: readonly string[] = [],
 ): CatalogEntry[] {
   return entries.filter((e) => {
     // A value of a newer API must not break the page; it just offers nothing.
-    const scopes: readonly string[] = Array.isArray(e.scopes) ? e.scopes : [];
-    const storage: readonly string[] = Array.isArray(e.storage) ? e.storage : [];
-    if (!e.available) return false;
+    const scopes = scopesOf(e);
+    const storage = storageOf(e);
+    if (!e.available || unavailable.includes(e.id)) return false;
     switch (scope) {
       case "system":
-        return scopes.includes("system");
+        return scopes.includes("system") && centralPath(e);
       case "organization":
-        return scopes.includes("workspace");
+        return scopes.includes("workspace") && centralPath(e);
       case "project":
         return scopes.includes("project") && !storage.includes("environment");
       default:
@@ -119,7 +139,7 @@ export function CatalogView({
       {extra}
       {groups.map((group) => (
         <section key={group.category}>
-          <h2>{categoryLabel(group.category, locale)}</h2>
+          <h3>{categoryLabel(group.category, locale)}</h3>
           <div className="integration-grid">
             {group.entries.map((entry) => (
               <ProviderCard
@@ -136,7 +156,7 @@ export function CatalogView({
         </section>
       ))}
       <section>
-        <h2>{text("notAvailableYet")}</h2>
+        <h3>{text("notAvailableYet")}</h3>
         <div className="integration-grid">
           {unavailable.map((entry) => (
             // An unavailable entry's card says it is switched off and offers nothing.
@@ -152,7 +172,7 @@ export function CatalogView({
           ))}
           {NOT_AVAILABLE_YET.map((item) => (
             <article className="integration-card" key={item.id} data-provider={item.id}>
-              <h3>{item.label[locale] || item.label.en}</h3>
+              <h4>{item.label[locale] || item.label.en}</h4>
               <p>{text("notAvailableBody")}</p>
             </article>
           ))}

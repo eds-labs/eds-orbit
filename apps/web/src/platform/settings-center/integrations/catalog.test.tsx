@@ -62,7 +62,12 @@ describe("CatalogView", () => {
       />,
     );
     expect(html).toContain("EXTRA-PANEL");
-    expect(html).toContain(`>${categoryLabel("social", "en")}</h2>`);
+    // One level below the frame's section title (h2); cards one level below that.
+    expect(html).toContain(`<h3>${categoryLabel("social", "en")}</h3>`);
+    expect(html).toContain(`<h3>${t("notAvailableYet")}</h3>`);
+    expect(html).toContain("<h4>TikTok</h4>");
+    expect(html).toContain("<h4>postiz</h4>");
+    expect(html).not.toContain("<h2");
     expect(html).toContain(t("notAvailableYet"));
     for (const item of NOT_AVAILABLE_YET) expect(html).toContain(item.label.en);
     expect(html).toContain(t("notAvailableBody"));

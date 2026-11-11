@@ -24,8 +24,25 @@ export type CatalogEntry = {
   checkable: boolean;
   storage: IntegrationStorage[];
   available: boolean;
+  /**
+   * Whether its central connections work in this installation (connections
+   * on and, with project storage, the provider's cutover). Optional so an
+   * older API answer still renders: absent counts as true for an entry with
+   * central storage (`centralPath` in steps.ts).
+   */
+  centralUsable?: boolean;
   /** "platform" or the module id. */
   owner: string;
+};
+
+/** GET /management/projects/:projectId/integrations. */
+export type ProjectIntegrationsAnswer = {
+  items: ProjectIntegration[];
+  /**
+   * Catalog ids this member cannot use in the project (module off or
+   * hidden, owner-only state). Optional for an older API answer.
+   */
+  unavailable?: string[];
 };
 
 export type ProjectIntegration = {

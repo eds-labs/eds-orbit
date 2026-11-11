@@ -79,7 +79,7 @@ describe("SystemCatalog", () => {
       "/admin/overview": { system: { environment } },
     });
     const html = renderToStaticMarkup(<SystemCatalog {...props({ kind: "system" })} />);
-    expect(html).toContain(`<h2>${t("environmentTitle")}</h2>`);
+    expect(html).toContain(`<h3>${t("environmentTitle")}</h3>`);
     expect(html.indexOf(t("environmentTitle"))).toBeLessThan(html.indexOf("integration-card"));
     expect(html).toContain("OpenAI main");
     expect(html).toContain("OpenAI backup");
@@ -133,7 +133,7 @@ describe("OrganizationCatalog", () => {
       <OrganizationCatalog {...props({ kind: "organization", organizationId: "w1" })} />,
     );
     expect(html).toContain(`${t("usedBy")}: Alpha (${t("bound")}), Beta (${t("grantedNotBound")})`);
-    expect(html).toContain(`<h2>${t("projectsTitle")}</h2>`);
+    expect(html).toContain(`<h3>${t("projectsTitle")}</h3>`);
     expect(html).toContain("<caption>Alpha</caption>");
     expect(html).toContain('href="/manage/o/w1/integrations/connections"');
     // Installation items never show in an organization.
@@ -206,6 +206,36 @@ describe("ProjectCatalog", () => {
     // Without it, nothing on the setup page acts on a project-only entry (P3-R26 V6).
     const hidden = renderToStaticMarkup(<ProjectCatalog {...props(scope, asRole("owner"))} />);
     expect(hidden).not.toContain("/integrations/setup/social.account.x");
+  });
+
+  it("leaves out every card the member cannot use, and keeps the mailbox", () => {
+    // A member with Marketing role none: the server names its entries unavailable.
+    const marketing = (id: string, label: string) =>
+      entry({ id, label: { en: label, de: label }, category: id === "matomo" ? "analytics" : "social", scopes: ["project", "workspace", "system"], storage: ["central", "project"], owner: "marketing" });
+    reset({
+      "/management/integrations/catalog": {
+        items: [
+          ...items,
+          marketing("postiz", "Postiz"),
+          marketing("matomo", "Matomo"),
+          entry({ id: "slack", label: { en: "Slack", de: "Slack" }, category: "other", scopes: ["project"], storage: ["project"], owner: "marketing" }),
+          entry({ id: "email", label: { en: "E-mail mailbox", de: "E-Mail-Postfach" }, category: "email", authType: "password", scopes: ["project"], storage: ["project"] }),
+          entry({ id: "knowledge_github", label: { en: "GitHub for Knowledge", de: "GitHub für Wissen" }, category: "development", scopes: ["project"], storage: ["project"], owner: "knowledge" }),
+        ],
+      },
+      "/management/projects/p1/integrations": { items: [], unavailable: ["knowledge_github", "matomo", "postiz", "slack"] },
+    });
+    const scope: ManageScope = { kind: "project", projectId: "p1" };
+    const html = renderToStaticMarkup(<ProjectCatalog {...props(scope)} />);
+    for (const id of ["postiz", "matomo", "slack", "knowledge_github"]) expect(html).not.toContain(`data-provider="${id}"`);
+    for (const label of ["Postiz", "Matomo", "Slack", "GitHub for Knowledge"]) expect(html).not.toContain(`>${label}<`);
+    expect(html).toContain('data-provider="email"');
+    // Without the field (an older API) every card is there, as before.
+    reset({
+      "/management/integrations/catalog": { items: [...items, marketing("postiz", "Postiz")] },
+      "/management/projects/p1/integrations": { items: [] },
+    });
+    expect(renderToStaticMarkup(<ProjectCatalog {...props(scope)} />)).toContain('data-provider="postiz"');
   });
 
   it("links a module's connector provider to connections only while the module contributes it", () => {

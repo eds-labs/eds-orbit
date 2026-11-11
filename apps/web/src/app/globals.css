@@ -9720,13 +9720,31 @@ button.drive-file-name {
   }
 }
 
-/* Integrations center: provider catalog, cards and guided setup steps. */
-.integration-catalog > section > h2 {
+/* Integrations center: provider catalog, cards and guided setup steps. The
+   frame's section title is the h2; group and panel headings are h3 at the
+   h2 size, card headings h4 at the h3 size. */
+.integration-catalog > section > h3,
+.integration-projects > h3,
+.integration-env-panel > h3,
+.integration-setup > h3 {
+  font-size: 19px;
+  line-height: 1.4;
+  font-weight: 680;
+}
+.integration-catalog > section > h3 {
   /* The page's section rhythm: space above each group, a smaller gap below. */
   margin: 28px 0 12px;
 }
-.integration-catalog > section:first-child > h2 {
+.integration-catalog > section:first-child > h3 {
   margin-top: 0;
+}
+.integration-projects > h3 {
+  margin: 28px 0 12px;
+}
+.integration-card > h4 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
 }
 .integration-grid {
   display: grid;
@@ -9831,11 +9849,9 @@ button.drive-file-name {
 .integration-setup > button {
   justify-self: start;
 }
-.integration-setup-workbench {
-  min-width: 0;
-}
-.integration-setup-workbench:empty {
-  display: none;
+.integration-setup-action {
+  justify-self: start;
+  color: var(--muted-foreground);
 }
 .setup-steps {
   counter-reset: setup-step;

@@ -18,7 +18,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { DataForm } from "@/platform/ui/form";
 import { ConnectionsPanel, OrganizationGrantForm, createFields, grantRequests, secretOf } from "./connections-ui";
 import { errorText } from "./texts";
-import { Integrations } from "./admin-area";
 
 const xApp = {
   id: "social.app.x",
@@ -160,69 +159,3 @@ describe("connections panel", () => {
   });
 });
 
-/**
- * The guided setup narrows the existing panel to one provider; without the
- * prop both old pages keep the full list and form.
- */
-describe("provider narrowing", () => {
-  const postiz = { id: "postiz", label: { en: "Postiz", de: "Postiz" }, scopes: ["system", "workspace"], purposes: ["social"], checkable: true };
-  const matomo = { id: "matomo", label: { en: "Matomo", de: "Matomo" }, scopes: ["workspace"], purposes: ["analytics"], checkable: true };
-  const owned = (id: string, provider: string) => ({ ...connection(id, provider), scope: "workspace" });
-
-  it("limits the create form to a preset provider", () => {
-    const fields = createFields([openai, postiz, matomo], "owner", "en", "https://orbit.example", "matomo");
-    const provider = fields.find((f) => f.name === "provider")!;
-    expect(provider.options!.map((o) => o.value)).toEqual(["matomo"]);
-    expect(provider.value).toBe("matomo");
-  });
-
-  it("keeps the full form without a preset", () => {
-    const all = createFields([openai, postiz, matomo, xApp], "admin", "en", "https://orbit.example");
-    const provider = all.find((f) => f.name === "provider")!;
-    expect(provider.options!.map((o) => o.value)).toEqual(["openai", "postiz", "social.app.x"]);
-    expect(provider).not.toHaveProperty("value");
-    expect(createFields([openai, postiz, matomo, xApp], "admin", "en", "https://orbit.example", undefined)).toStrictEqual(all);
-  });
-
-  it("lists only the provider's connections with the prop and all of them without it", () => {
-    list.value = { items: [owned("c1", "postiz"), owned("c2", "matomo")], providers: [postiz, matomo] };
-    const render = (provider?: string) =>
-      renderToStaticMarkup(
-        <ConnectionsPanel base="/organizations/w1/connections" mode="owner" locale="en" targets={[]} provider={provider} />,
-      );
-    const plain = renderToStaticMarkup(
-      <ConnectionsPanel base="/organizations/w1/connections" mode="owner" locale="en" targets={[]} />,
-    );
-    expect(render(undefined)).toBe(plain);
-    expect(plain).toContain("postiz");
-    expect(plain).toContain("matomo");
-    const narrowed = render("matomo");
-    expect(narrowed).toContain(">matomo<");
-    expect(narrowed).not.toContain(">postiz<");
-    expect(render("tiktok")).toContain("No connections yet.");
-  });
-});
-
-describe("system integrations page", () => {
-  it("passes the provider through and renders as before without it", () => {
-    list.value = null;
-    list.byPath["/admin/organizations"] = { items: [] };
-    list.byPath["/admin/connections"] = {
-      items: [connection("c1", "openai"), connection("c2", "social.app.x")],
-      providers: [openai, xApp],
-    };
-    const plain = renderToStaticMarkup(<Integrations locale="en" />);
-    expect(renderToStaticMarkup(<Integrations locale="en" provider={undefined} />)).toBe(plain);
-    expect(plain).toContain(">openai<");
-    expect(plain).toContain(">social.app.x<");
-    const narrowed = renderToStaticMarkup(<Integrations locale="en" provider="openai" />);
-    expect(narrowed).toContain(">openai<");
-    // Inside the guided setup the entry's heading stands for the page head.
-    expect(plain).toContain("page-head");
-    expect(narrowed).not.toContain("page-head");
-    expect(narrowed).not.toContain("Infrastructure secrets");
-    expect(narrowed).not.toContain(">social.app.x<");
-    delete list.byPath["/admin/organizations"];
-    delete list.byPath["/admin/connections"];
-  });
-});

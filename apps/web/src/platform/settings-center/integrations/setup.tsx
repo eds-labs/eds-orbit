@@ -1,37 +1,29 @@
 "use client";
 import Link from "next/link";
-import { useContext, type ReactNode } from "react";
+import { useContext } from "react";
 import { RefreshCw } from "lucide-react";
-import { collectionPath, useResource, type Entity } from "@/lib/api";
+import { useResource } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { Badge, Button, Empty } from "@/components/ui/primitives";
-import { GrantedConnections } from "@/components/granted-connections";
-import { useWorkspace } from "@/components/workspace-context";
-import { Integrations } from "@/platform/administration/admin-area";
-import { ConnectionsPanel } from "@/platform/administration/connections-ui";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { integrationSectionId } from "../registry";
 import { centerText } from "../texts";
-import type {
-  ManageScope,
-  ManagementCapabilities,
-  ScopeKind,
-  SectionProps,
-} from "../types";
+import type { SectionProps } from "../types";
 import {
   setupLinks,
   setupOffers,
   setupRole,
   setupSteps,
-  storageOf,
   type SetupStep,
   type SetupStepId,
   type SetupWho,
 } from "./steps";
 import { integrationPaths } from "./paths";
+import { NOTE_TEXT } from "./provider-card";
 import {
   gate,
   manageHrefOf,
+  manageNote,
   organizationRecords,
   projectRecords,
   systemRecords,
@@ -41,14 +33,16 @@ import { integrationText, type IntegrationTextKey } from "./texts";
 import type {
   CatalogEntry,
   IntegrationState,
+  ManageNote,
   OrganizationIntegrations,
-  ProjectIntegration,
+  ProjectIntegrationsAnswer,
 } from "./types";
 
 // The guided setup (ADR 0027, phase 3): a step list per provider that says
-// what is done and whose step is next, above the existing connection panels.
-// It adds no write path: every write is the mounted panel's own form and the
-// server's own check. Roles here are display hints only.
+// what is done and whose step is next, with one link to the section that
+// edits the entry. It mounts no form: every setting has one canonical place
+// (the connections section, the Drive section or a module's section; owner
+// decision of 2026-11-11). Roles here are display hints only.
 
 export {
   hasOwnStep,
@@ -61,6 +55,9 @@ export {
   type SetupStepId,
   type SetupWho,
 } from "./steps";
+
+/** Where the entry is edited: a section address, else why there is none. */
+export type SetupAction = { href: string | null; note: ManageNote | null };
 
 const STEP_LABEL: Record<SetupStepId, IntegrationTextKey> = {
   choose: "stepChoose",
@@ -83,25 +80,26 @@ export function SetupStepsView({
   entry,
   steps,
   locale,
-  workbench,
+  action,
   onRefresh,
 }: {
   entry: CatalogEntry;
   steps: readonly SetupStep[];
   locale: Locale;
-  /** The existing panels, mounted once below the steps. */
-  workbench: ReactNode;
+  /** The one link below the steps to the section that edits the entry. */
+  action: SetupAction;
   /** Re-requests the records the steps are built from. */
   onRefresh?: () => void;
 }) {
   const text = integrationText(locale);
+  const label = labelOf(entry, locale);
   const current = steps.findIndex((s) => s.observable && !s.done);
   return (
     <section className="integration-setup">
-      <h2>{labelOf(entry, locale)}</h2>
+      <h3>{label}</h3>
       <ol className="setup-steps" aria-label={text("setupTitle")}>
         {steps.map((s, index) => {
-          const label = text(STEP_LABEL[s.id]);
+          const stepLabel = text(STEP_LABEL[s.id]);
           const who = text(WHO_LABEL[s.who]);
           const others = s.observable && !s.done && !s.mine;
           // The status as words; the tone only supports them.
@@ -115,13 +113,13 @@ export function SetupStepsView({
           return (
             <li key={s.id} aria-current={index === current ? "step" : undefined}>
               <span className="setup-step-text">
-                <strong>{label}</strong>
+                <strong>{stepLabel}</strong>
                 {others ? null : <span className="setup-step-who">{who}</span>}
               </span>
               <span className="setup-step-status">
                 <Badge tone={tone}>{status}</Badge>
                 {s.href ? (
-                  <Link href={s.href} aria-label={`${text("openStep")}: ${label}`}>
+                  <Link href={s.href} aria-label={`${text("openStep")}: ${stepLabel}`}>
                     {text("openStep")}
                   </Link>
                 ) : null}
@@ -136,7 +134,17 @@ export function SetupStepsView({
           {text("refreshState")}
         </Button>
       ) : null}
-      <div className="integration-setup-workbench">{workbench}</div>
+      {action.href !== null ? (
+        <div className="integration-setup-action">
+          <Button asChild variant="outline">
+            <Link href={action.href} aria-label={`${text("manage")}: ${label}`}>
+              {text("manage")}
+            </Link>
+          </Button>
+        </div>
+      ) : action.note !== null && Object.hasOwn(NOTE_TEXT, action.note) ? (
+        <p className="integration-setup-action">{text(NOTE_TEXT[action.note])}</p>
+      ) : null}
     </section>
   );
 }
@@ -173,13 +181,6 @@ function OfferList({
   );
 }
 
-/** One refresh of every resource the steps are built from; null is skipped. */
-export function refreshAll(
-  resources: ReadonlyArray<{ refresh(): void } | null>,
-): () => void {
-  return () => resources.forEach((r) => r?.refresh());
-}
-
 type CatalogAnswer = { items: CatalogEntry[] };
 /** The admin list also says how many grants a connection has. */
 type SystemConnection = AdminConnection & { activeGrants?: number };
@@ -188,6 +189,14 @@ const statesOf = (
   records: ReadonlyMap<string, ReadonlyArray<{ state: IntegrationState }>>,
   id: string,
 ) => (records.get(id) ?? []).map((r) => r.state);
+
+/** The section that edits the entry in the scope, or why there is none. */
+function actionOf(
+  entry: CatalogEntry,
+  ctx: Parameters<typeof manageHrefOf>[1],
+): SetupAction {
+  return { href: manageHrefOf(entry, ctx), note: manageNote(entry, ctx) };
+}
 
 export function SystemSetup({ scope, id, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
@@ -215,12 +224,12 @@ export function SystemSetup({ scope, id, locale, hrefOf, caps }: SectionProps) {
       })}
       locale={locale}
       onRefresh={connections.refresh}
-      workbench={<Integrations locale={locale} provider={entry.id} />}
+      action={actionOf(entry, { scope, hrefOf, moduleSections: [], connectorProviders: [] })}
     />
   );
 }
 
-export function OrganizationSetup({ scope, id, locale, identity, hrefOf, caps }: SectionProps) {
+export function OrganizationSetup({ scope, id, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
   const catalog = useResource<CatalogAnswer>(paths.catalog);
   const usage = useResource<OrganizationIntegrations>(paths.records);
@@ -231,9 +240,6 @@ export function OrganizationSetup({ scope, id, locale, identity, hrefOf, caps }:
   const entry = offers.find((e) => e.id === id);
   if (!entry || scope.kind !== "organization") return <NotAvailable locale={locale} />;
   const own = (usage.data!.connections ?? []).filter((c) => c.provider === entry.id);
-  const projects = identity.projects
-    .filter((p) => p.workspaceId === scope.organizationId)
-    .map((p) => ({ id: p.id, name: p.name }));
   return (
     <SetupStepsView
       entry={entry}
@@ -249,47 +255,30 @@ export function OrganizationSetup({ scope, id, locale, identity, hrefOf, caps }:
       })}
       locale={locale}
       onRefresh={usage.refresh}
-      workbench={
-        <ConnectionsPanel
-          base={paths.connections!}
-          mode="owner"
-          locale={locale}
-          targets={projects}
-          provider={entry.id}
-        />
-      }
+      action={actionOf(entry, { scope, hrefOf, moduleSections: [], connectorProviders: [] })}
     />
   );
 }
 
 export function ProjectSetup({ scope, id, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
-  const { project, revision } = useWorkspace();
   const catalog = useResource<CatalogAnswer>(paths.catalog);
-  const records = useResource<{ items: ProjectIntegration[] }>(paths.records);
-  const offers = catalog.data ? setupOffers(catalog.data.items, "project") : [];
-  const entry = id === undefined ? undefined : offers.find((e) => e.id === id);
-  const central = entry ? storageOf(entry).includes("central") : false;
-  // The Connectors page's own request: GrantedConnections shows a grant as
-  // bound from it, and a bind refreshes the workspace revision.
-  const connectors = useResource<{ items: Entity[] }>(
-    central ? collectionPath(project.id, `connectors?revision=${revision}`) : null,
-  );
+  const records = useResource<ProjectIntegrationsAnswer>(paths.records);
   const shell = useContext(ShellContext);
   const moduleSections = (shell?.integrations ?? []).map((c) => ({
     id: integrationSectionId(c),
     providers: c.providers,
   }));
   const connectorProviders = (shell?.connectors?.providers ?? []).map((p) => p.id);
-  const waiting = gate(central ? [catalog, records, connectors] : [catalog, records]);
+  const waiting = gate([catalog, records]);
   if (waiting) return waiting;
+  // Never an entry the member cannot use in the project (hidden or off
+  // module, owner-only state): its address reads as not available.
+  const offers = setupOffers(catalog.data!.items, "project", records.data!.unavailable ?? []);
   if (id === undefined) return <OfferList offers={offers} locale={locale} hrefOf={hrefOf} />;
+  const entry = offers.find((e) => e.id === id);
   if (!entry) return <NotAvailable locale={locale} />;
-  const text = integrationText(locale);
   const own = records.data!.items.filter((i) => i.provider === entry.id);
-  const manage = storageOf(entry).includes("project")
-    ? manageHrefOf(entry, { scope, hrefOf, moduleSections, connectorProviders })
-    : undefined;
   return (
     <SetupStepsView
       entry={entry}
@@ -305,24 +294,8 @@ export function ProjectSetup({ scope, id, locale, hrefOf, caps }: SectionProps) 
         links: setupLinks(scope, entry.id, caps),
       })}
       locale={locale}
-      onRefresh={refreshAll([records, central ? connectors : null])}
-      workbench={
-        <>
-          {central ? (
-            <GrantedConnections
-              connectors={connectors.data?.items ?? []}
-              provider={entry.id}
-            />
-          ) : null}
-          {manage === undefined ? null : manage === null ? (
-            <p>{text("managedInModule")}</p>
-          ) : (
-            <Button asChild variant="outline">
-              <Link href={manage}>{text("manage")}</Link>
-            </Button>
-          )}
-        </>
-      }
+      onRefresh={records.refresh}
+      action={actionOf(entry, { scope, hrefOf, moduleSections, connectorProviders })}
     />
   );
 }

@@ -18,8 +18,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
     },
   };
 });
-// The workbench panels are the existing ones; here they only show which
-// provider they were narrowed to.
+// The old connection panels must never be mounted by the setup (owner
+// decision of 2026-11-11: one canonical place). If one were, these stand-ins
+// would leave a data-workbench marker in the markup.
 vi.mock("@/platform/administration/admin-area", () => ({
   Integrations: ({ provider }: { provider?: string }) => (
     <div data-workbench="system" data-provider={provider} />
@@ -45,7 +46,6 @@ vi.mock("@/components/granted-connections", () => ({
 import { isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity } from "@/lib/api";
-import { WorkspaceContext, type WorkspaceContextValue } from "@/components/workspace-context";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { manageHref } from "../routes";
 import { centerText } from "../texts";
@@ -53,7 +53,6 @@ import type { ManagementCapabilities, ManageScope, SectionProps } from "../types
 import {
   OrganizationSetup,
   ProjectSetup,
-  refreshAll,
   setupLinks,
   setupOffers,
   setupRole,
@@ -82,6 +81,10 @@ const xAccount = entry({ id: "social.account.x", label: { en: "X account", de: "
 const systemMail = entry({ id: "system_mail", category: "email", authType: "environment", storage: ["environment"] });
 const off = entry({ id: "off_provider", scopes: ["system", "workspace", "project"], storage: ["central", "project"], available: false });
 const entries = [postiz, openai, xAccount, systemMail, off];
+// The same entries as an installation without central connections reports them.
+const postizProjectOnly: CatalogEntry = { ...postiz, centralUsable: false };
+const openaiOff: CatalogEntry = { ...openai, centralUsable: false, available: false };
+const ACTION = { href: "/manage/p/p1/integrations/connections", note: null };
 
 const t = integrationText("en");
 const c = centerText("en");
@@ -111,6 +114,21 @@ describe("setupOffers", () => {
     expect(ids(setupOffers(entries, "account"))).toEqual([]);
     // A project entry stored in the environment is the installation's, not the project's.
     expect(ids(setupOffers([entry({ id: "e", scopes: ["project"], storage: ["environment"] })], "project"))).toEqual([]);
+  });
+
+  it("offers central setups only where the installation can use the central path", () => {
+    const noCentral = [postizProjectOnly, openaiOff, xAccount];
+    expect(ids(setupOffers(noCentral, "system"))).toEqual([]);
+    expect(ids(setupOffers(noCentral, "organization"))).toEqual([]);
+    // Postiz keeps its project storage.
+    expect(ids(setupOffers(noCentral, "project"))).toEqual(["postiz", "social.account.x"]);
+    // An older answer without the field keeps today's offers.
+    expect(ids(setupOffers([postiz], "system"))).toEqual(["postiz"]);
+  });
+
+  it("never offers in a project what the member cannot use there", () => {
+    expect(ids(setupOffers(entries, "project", ["postiz"]))).toEqual(["social.account.x"]);
+    expect(ids(setupOffers(entries, "project", ["postiz", "social.account.x"]))).toEqual([]);
   });
 });
 
@@ -152,8 +170,19 @@ describe("setupSteps", () => {
     const own = byId(steps({ entry: xAccount }));
     expect(own.configure).toMatchObject({ who: "projectOwner", mine: true });
     expect(own.check).toMatchObject({ who: "projectOwner", mine: true });
-    // Nothing of the organization's to authorize for a project-only entry.
+    // Nothing of the organization's to authorize, nothing to assign.
     expect(own.authorize).toBeUndefined();
+    expect(steps({ entry: xAccount }).map((s) => s.id)).toEqual(["choose", "configure", "check", "validate"]);
+  });
+
+  it("treats an entry whose central path is off as project-only (P3-R28)", () => {
+    const list = steps({ entry: postizProjectOnly, role: { ...NONE, organizationOwner: true, projectOwner: true } });
+    expect(list.map((s) => s.id)).toEqual(["choose", "configure", "check", "validate"]);
+    const own = byId(list);
+    expect(own.configure).toMatchObject({ who: "projectOwner", mine: true, href: null });
+    expect(own.check).toMatchObject({ who: "projectOwner", mine: true, href: null });
+    // An older answer without the field keeps the central path.
+    expect(steps({ entry: postiz }).map((s) => s.id)).toContain("authorize");
   });
 
   it("gives the system's steps to the administrator and the organization's to the owner", () => {
@@ -188,7 +217,7 @@ describe("setupSteps", () => {
 describe("SetupStepsView", () => {
   const view = (list: readonly SetupStep[], locale: "en" | "de" = "en") =>
     renderToStaticMarkup(
-      <SetupStepsView entry={postiz} steps={list} locale={locale} workbench={<p>WORKBENCH</p>} onRefresh={() => {}} />,
+      <SetupStepsView entry={postiz} steps={list} locale={locale} action={ACTION} onRefresh={() => {}} />,
     );
 
   it("marks the first open step as current", () => {
@@ -203,14 +232,15 @@ describe("SetupStepsView", () => {
   it("says in words who does each step and links another role's step by its name", () => {
     const html = view(steps());
     expect(html).toContain("<ol");
-    expect(html).toContain("<h2>Postiz</h2>");
+    // One level below the frame's section title (h2).
+    expect(html).toContain("<h3>Postiz</h3>");
     expect(html).toContain(t("stepDone"));
     expect(html).toContain(t("stepYours"));
     expect(html).toContain(`${t("stepOthers")} ${t("whoOwner")}`);
     expect(html).toContain(`href="${LINKS.organization}"`);
     expect(html).toContain(`aria-label="${t("openStep")}: ${t("stepConfigure")}"`);
     expect(html).toContain(t("refreshState"));
-    expect(html.indexOf("</ol>")).toBeLessThan(html.indexOf("WORKBENCH"));
+    expect(html.indexOf("</ol>")).toBeLessThan(html.indexOf(`href="${ACTION.href}"`));
     const de = view(steps(), "de");
     expect(de).toContain(integrationText("de")("stepYours"));
     expect(de).toContain(integrationText("de")("whoOwner"));
@@ -238,15 +268,34 @@ describe("SetupStepsView", () => {
     const others = view(steps({ links: { organization: null, project: null } }));
     expect(others).toContain(`<span class="badge badge-neutral">${t("stepOthers")} ${t("whoOwner")}</span>`);
     const system = renderToStaticMarkup(
-      <SetupStepsView entry={postiz} steps={steps({ scope: "system", role: { ...NONE, admin: true }, links: { organization: null, project: null } })} locale="en" workbench={null} />,
+      <SetupStepsView entry={postiz} steps={steps({ scope: "system", role: { ...NONE, admin: true }, links: { organization: null, project: null } })} locale="en" action={ACTION} />,
     );
     expect(system).toContain(`<span class="badge badge-neutral">${t("stepInProject")}</span>`);
   });
 
-  it("keeps the refresh control and the workbench apart from the list", () => {
+  it("ends with one link to the section that edits the entry, after the refresh control", () => {
     const html = view(steps());
-    expect(html).toContain('class="integration-setup-workbench"');
-    expect(html.indexOf(t("refreshState"))).toBeLessThan(html.indexOf('class="integration-setup-workbench"'));
+    expect(html.match(new RegExp(`href="${ACTION.href}"`, "g"))).toHaveLength(1);
+    expect(html).toContain(`aria-label="${t("manage")}: Postiz"`);
+    expect(html).toContain(`>${t("manage")}</a>`);
+    expect(html.indexOf(t("refreshState"))).toBeLessThan(html.indexOf(`href="${ACTION.href}"`));
+    // No form, no panel: the section behind the link is the one place to edit it.
+    expect(html).not.toContain("<form");
+    expect(html).not.toContain("data-workbench");
+    const de = view(steps(), "de");
+    expect(de).toContain(`aria-label="${integrationText("de")("manage")}: Postiz"`);
+  });
+
+  it("says why there is no link when no section here edits the entry", () => {
+    const html = renderToStaticMarkup(
+      <SetupStepsView entry={xAccount} steps={steps({ entry: xAccount })} locale="en" action={{ href: null, note: "module" }} />,
+    );
+    expect(html).toContain(t("managedInModule"));
+    expect(html).not.toContain(`>${t("manage")}<`);
+    const none = renderToStaticMarkup(
+      <SetupStepsView entry={xAccount} steps={steps({ entry: xAccount })} locale="en" action={{ href: null, note: null }} />,
+    );
+    expect(none).not.toContain(t("managedInModule"));
   });
 
   it("offers no link for a step whose scope the member cannot open", () => {
@@ -261,9 +310,9 @@ const mailbox = entry({ id: "email", label: { en: "Mailbox", de: "Postfach" }, c
 const current = (list: readonly SetupStep[]) => list.findIndex((s) => s.observable && !s.done);
 
 describe("setupSteps: only what applies and what the scope can see", () => {
-  it("emits no authorize step for a mailbox after a successful check, and nothing stays open", () => {
+  it("emits no authorize or assign step for a mailbox after a successful check, and nothing stays open", () => {
     const list = steps({ entry: mailbox, states: ["ready"], projectStored: true, bound: true });
-    expect(list.map((s) => s.id)).toEqual(["choose", "configure", "check", "assign", "validate"]);
+    expect(list.map((s) => s.id)).toEqual(["choose", "configure", "check", "validate"]);
     expect(list.every((s) => s.observable && s.done)).toBe(true);
     expect(current(list)).toBe(-1);
   });
@@ -271,6 +320,7 @@ describe("setupSteps: only what applies and what the scope can see", () => {
   it("gives Postiz on the project's own record to the project owner, without an authorize step", () => {
     const own = byId(steps({ projectStored: true, states: ["verified"] }));
     expect(own.authorize).toBeUndefined();
+    expect(own.assign).toBeUndefined();
     expect(own.configure).toMatchObject({ who: "projectOwner", mine: true, done: true });
     expect(own.check).toMatchObject({ who: "projectOwner", mine: true, done: true });
   });
@@ -294,9 +344,10 @@ describe("setupSteps: only what applies and what the scope can see", () => {
 
   it("shows an unobserved step as following in the project, with one or no current step", () => {
     const render = (list: readonly SetupStep[]) =>
-      renderToStaticMarkup(<SetupStepsView entry={postiz} steps={list} locale="en" workbench={null} />);
+      renderToStaticMarkup(<SetupStepsView entry={postiz} steps={list} locale="en" action={ACTION} />);
     const system = render(steps({ scope: "system", role: { ...NONE, admin: true }, states: ["verified"], granted: true }));
-    const items = system.split("<li").slice(1);
+    // The list only: the page's own link follows after it.
+    const items = system.slice(0, system.indexOf("</ol>")).split("<li").slice(1);
     for (const item of items.slice(4)) {
       expect(item).toContain(t("stepInProject"));
       expect(item).toContain(t("whoProjectOwner"));
@@ -331,21 +382,11 @@ describe("refresh", () => {
   it("wires the view's refresh control to onRefresh", () => {
     const calls: string[] = [];
     const onRefresh = () => calls.push("refresh");
-    const tree = SetupStepsView({ entry: postiz, steps: steps(), locale: "en", workbench: null, onRefresh });
+    const tree = SetupStepsView({ entry: postiz, steps: steps(), locale: "en", action: ACTION, onRefresh });
     const control = findElement(tree, (p) => typeof p.onClick === "function");
     expect(control).not.toBeNull();
     (control!.onClick as () => void)();
     expect(calls).toEqual(["refresh"]);
-  });
-
-  it("refreshes every resource the steps are built from, skipping absent ones", () => {
-    const calls: string[] = [];
-    const resource = (name: string) => ({ refresh: () => calls.push(name) });
-    refreshAll([resource("records"), resource("connectors")])();
-    expect(calls).toEqual(["records", "connectors"]);
-    calls.length = 0;
-    refreshAll([resource("records"), null])();
-    expect(calls).toEqual(["records"]);
   });
 });
 
@@ -417,6 +458,15 @@ const notAvailable = (html: string) => {
   expect(html).toContain(c("notPermittedTitle"));
   expect(html).not.toContain("data-workbench");
   expect(html).not.toContain("<ol");
+  expect(html).not.toContain(`>${t("manage")}<`);
+};
+/** The one link of a setup page: its address, and no mounted panel or form. */
+const linksOnlyTo = (html: string, href: string) => {
+  expect(html.match(/<a [^>]*aria-label="[^"]*"[^>]*>/g)?.filter((a) => a.includes(`${t("manage")}:`))).toEqual([
+    expect.stringContaining(`href="${href}"`),
+  ]);
+  expect(html).not.toContain("data-workbench");
+  expect(html).not.toContain("<form");
 };
 // Unknown, another scope's entry, switched off, and a planned provider without code.
 const REFUSED = { system: ["nope", "social.account.x", "off_provider", "tiktok"], organization: ["nope", "social.account.x", "off_provider", "tiktok"], project: ["nope", "openai", "off_provider", "tiktok"] };
@@ -442,11 +492,10 @@ describe("SystemSetup", () => {
     expect(html).not.toContain("data-workbench");
   });
 
-  it("shows the steps from the connections and the narrowed workbench", () => {
+  it("shows the steps from the connections and links the system connections section", () => {
     reset(system);
     const html = renderToStaticMarkup(<SystemSetup {...props({ kind: "system" }, "postiz", ADMIN)} />);
-    expect(html).toContain('data-workbench="system"');
-    expect(html).toContain('data-provider="postiz"');
+    linksOnlyTo(html, "/manage/system/integrations/connections");
     const items = html.split("<li").slice(1);
     // Verified and granted: what follows happens in the projects, out of sight here.
     expect(items).toHaveLength(6);
@@ -454,11 +503,15 @@ describe("SystemSetup", () => {
     expect(html.match(new RegExp(t("stepInProject"), "g"))).toHaveLength(2);
   });
 
-  it("refuses an address that is not offered here, without a workbench", () => {
+  it("refuses an address that is not offered here, without a link", () => {
     for (const id of REFUSED.system) {
       reset(system);
       notAvailable(renderToStaticMarkup(<SystemSetup {...props({ kind: "system" }, id, ADMIN)} />));
     }
+    // Without central connections in the installation there is nothing to set up here.
+    reset({ ...system, "/management/integrations/catalog": { items: [postizProjectOnly, openaiOff] } });
+    for (const id of ["postiz", "openai"])
+      notAvailable(renderToStaticMarkup(<SystemSetup {...props({ kind: "system" }, id, ADMIN)} />));
   });
 
   it("shows the error with a retry instead of steps from part of the data", () => {
@@ -482,21 +535,16 @@ describe("OrganizationSetup", () => {
   };
   const owner = caps({ organizations: [ORG] });
 
-  it("shows the steps and the owner's connections narrowed to the provider", () => {
+  it("shows the steps and links the organization's connections section", () => {
     reset(organization);
     const html = renderToStaticMarkup(<OrganizationSetup {...props(ORGANIZATION, "postiz", owner)} />);
-    expect(html).toContain('data-workbench="organization"');
-    expect(html).toContain('data-provider="postiz"');
-    expect(html).toContain('data-base="/organizations/w1/connections"');
-    expect(html).toContain('data-mode="owner"');
-    // Only this organization's projects can receive a grant.
-    expect(html).toContain('data-targets="p1"');
+    linksOnlyTo(html, "/manage/o/w1/integrations/connections");
     // Verified, granted and bound; the validation follows in the project.
     expect(html).not.toContain("aria-current");
     expect(html.match(new RegExp(t("stepInProject"), "g"))).toHaveLength(1);
   });
 
-  it("refuses an address that is not offered here, without a workbench", () => {
+  it("refuses an address that is not offered here, without a link", () => {
     for (const id of REFUSED.organization) {
       reset(organization);
       notAvailable(renderToStaticMarkup(<OrganizationSetup {...props(ORGANIZATION, id, owner)} />));
@@ -512,31 +560,23 @@ describe("ProjectSetup", () => {
         { id: "i1", provider: "postiz", label: "Postiz", category: "social", scope: "central", state: "ready", checkedAt: null, group: null },
       ],
     },
-    "/projects/p1/connectors?revision=3": { items: [{ id: "k1", data: {} }] },
   };
   const shell = {
     integrations: [],
     connectors: { providers: [], extras: [] },
   } as unknown as ShellContextValue;
-  const workspace = { project: { id: "p1" }, revision: 3 } as unknown as WorkspaceContextValue;
   const render = (id: string | undefined, capabilities: ManagementCapabilities) =>
     renderToStaticMarkup(
       <ShellContext.Provider value={shell}>
-        <WorkspaceContext.Provider value={workspace}>
-          <ProjectSetup {...props(PROJECT, id, capabilities)} />
-        </WorkspaceContext.Provider>
+        <ProjectSetup {...props(PROJECT, id, capabilities)} />
       </ShellContext.Provider>,
     );
 
-  it("binds a central entry in the granted connections and links the project's own page", () => {
+  it("links a central entry to the project's connections section, where it is bound", () => {
     reset(project);
     const html = render("postiz", caps({ projects: [ownerProject] }));
-    expect(html).toContain('data-workbench="project"');
-    expect(html).toContain('data-provider="postiz"');
-    expect(html).toContain('data-connectors="1"');
-    // Project-stored too: the Connectors page manages it.
-    expect(html).toContain(`href="${manageHref(PROJECT, "integrations", "connections")}"`);
-    expect(html).toContain(t("manage"));
+    // The Connectors page holds the granted connections and their bind action.
+    linksOnlyTo(html, manageHref(PROJECT, "integrations", "connections"));
     // Ready and central: every step done.
     expect(html).not.toContain("aria-current");
   });
@@ -562,13 +602,26 @@ describe("ProjectSetup", () => {
     const html = render("social.account.x", caps({ projects: [ownerProject] }));
     expect(html).toContain(t("managedInModule"));
     expect(html).not.toContain("data-workbench");
+    expect(html).not.toContain(`>${t("manage")}<`);
     expect(html).toContain("<ol");
   });
 
-  it("refuses an address that is not offered here, without a workbench", () => {
+  it("refuses an address that is not offered here, without a link", () => {
     for (const id of REFUSED.project) {
       reset(project);
       notAvailable(render(id, caps({ projects: [ownerProject] })));
     }
+  });
+
+  it("shows not available for an entry the member cannot use in the project", () => {
+    // Marketing hidden from the member, or an owner-only entry for an editor.
+    reset({
+      ...project,
+      "/management/projects/p1/integrations": { items: [], unavailable: ["postiz", "social.account.x"] },
+    });
+    for (const id of ["postiz", "social.account.x"]) notAvailable(render(id, caps({ projects: [ownerProject] })));
+    const list = render(undefined, caps({ projects: [ownerProject] }));
+    expect(list).not.toContain("setup/postiz");
+    expect(list).not.toContain("setup/social.account.x");
   });
 });

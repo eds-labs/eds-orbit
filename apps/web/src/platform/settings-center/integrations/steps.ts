@@ -1,16 +1,12 @@
 import { manageHref } from "../routes";
 import type { ManageScope, ManagementCapabilities, ScopeKind } from "../types";
-import { setupOffers } from "./catalog";
+import { centralPath, setupOffers } from "./catalog";
 import type { CatalogEntry, IntegrationState } from "./types";
 
 // The pure rules of the guided setup: which steps an entry has in a scope,
 // whose they are and whether they are done. The setup page and the catalog's
 // "Set up" link both read them, so there is one rule table. Display hints
 // only: every write keeps its server check.
-
-// A value of a newer API must not break the page.
-export const storageOf = (entry: CatalogEntry): readonly string[] =>
-  Array.isArray(entry.storage) ? entry.storage : [];
 
 export type SetupStepId = "choose" | "configure" | "check" | "authorize" | "assign" | "validate";
 export type SetupWho = "admin" | "owner" | "projectOwner" | "anyone";
@@ -41,10 +37,15 @@ export function setupSteps(input: {
   links: { organization: string | null; project: string | null };
 }): SetupStep[] {
   const { scope, entry, role, states, granted, bound, projectStored, links } = input;
-  const central = storageOf(entry).includes("central");
+  // Central storage counts only where the installation can use it: an entry
+  // whose central path is off is a project-only entry here (ledger P3-R28).
+  const central = centralPath(entry);
   // A project runs a project-only entry, or its own record of an entry with
   // both storages, without anything from the organization (ledger P3-R22).
   const ownRecord = scope === "project" && (!central || projectStored);
+  // Authorize and assign belong to the central path only; a project's own
+  // record is configured, checked and validated in the project.
+  const onCentralPath = central && !ownRecord;
   const configureWho: SetupWho =
     scope === "system" ? "admin" : ownRecord ? "projectOwner" : "owner";
   const covers = (who: SetupWho) =>
@@ -91,10 +92,12 @@ export function setupSteps(input: {
     step("choose", "anyone", true),
     step("configure", configureWho, states.some((s) => s !== "not_set_up")),
     step("check", configureWho, some("verified", "ready")),
-    ...(central && !ownRecord
-      ? [step("authorize", scope === "system" ? "admin" : "owner", granted)]
+    ...(onCentralPath
+      ? [
+          step("authorize", scope === "system" ? "admin" : "owner", granted),
+          step("assign", "projectOwner", bound, scope !== "system"),
+        ]
       : []),
-    step("assign", "projectOwner", bound, scope !== "system"),
     step("validate", "projectOwner", some("ready"), scope === "project"),
   ];
 }
