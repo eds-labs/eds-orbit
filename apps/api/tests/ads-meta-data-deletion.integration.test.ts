@@ -15,10 +15,12 @@ const PATH = "/api/callbacks/ads/meta-data-deletion";
 
 // Test seams on the platform calls the revocation makes: `afterRelease` runs
 // once, after the next claim release on its connection (between two
-// accounts of one revocation); `failRevoke` makes the revocation of that
-// connection fail.
+// accounts of one revocation); `afterRevoke` runs once, after the next
+// revocation of one of its connections (before the request reaches the
+// next connection); `failRevoke` makes the revocation of that connection fail.
 const seams = vi.hoisted(() => ({
   afterRelease: null as null | { connectionId: string; run: () => Promise<void> },
+  afterRevoke: null as null | { connectionIds: string[]; run: (revoked: string) => Promise<void> },
   failRevoke: null as string | null,
 }));
 vi.mock("../src/platform/connections/project-secrets.ts", async (importOriginal) => {
@@ -34,7 +36,13 @@ vi.mock("../src/platform/connections/project-secrets.ts", async (importOriginal)
     },
     revokeProjectConnection: async (...args: Parameters<typeof actual.revokeProjectConnection>) => {
       if (seams.failRevoke === args[1].connectionId) throw new Error("forced database failure");
-      return actual.revokeProjectConnection(...args);
+      const result = await actual.revokeProjectConnection(...args);
+      const hook = seams.afterRevoke;
+      if (hook?.connectionIds.includes(args[1].connectionId)) {
+        seams.afterRevoke = null;
+        await hook.run(args[1].connectionId);
+      }
+      return result;
     },
   };
 });
@@ -128,6 +136,7 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
   });
   beforeEach(() => {
     seams.afterRelease = null;
+    seams.afterRevoke = null;
     seams.failRevoke = null;
     process.env.ORBIT_SOCIAL = "true";
     process.env.ORBIT_ADS = "true";
@@ -220,6 +229,33 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
     const audits = (await auditOf(a)).filter((row) => (row.metadata as { confirmationCode?: string }).confirmationCode === response.json().confirmation_code);
     expect(meanwhile).not.toBe("");
     expect(audits.map((row) => row.resourceId)).toEqual([[first.accountId, second.id].find((id) => id !== meanwhile)]);
+  });
+
+  it("finishes the request when an owner revokes one of the connections meanwhile", async () => {
+    const user = `meta-user-${randomUUID()}`;
+    const one = await linked(a, await appOf(a), "act_461", user);
+    const two = await linked(b, await appOf(b), "act_462", user);
+    const owners = new Map([[one.connectionId, a], [two.connectionId, b]]);
+    let meanwhile = "";
+    // Right after the request revoked the first connection, an owner revokes the other one.
+    seams.afterRevoke = {
+      connectionIds: [one.connectionId, two.connectionId],
+      run: async (revoked) => {
+        meanwhile = revoked === one.connectionId ? two.connectionId : one.connectionId;
+        const project = owners.get(meanwhile)!;
+        expect((await project.call("owner", "POST", `/ads/connections/${meanwhile}/revoke`)).statusCode).toBe(200);
+      },
+    };
+    const response = await post(`signed_request=${signedRequest(fresh(user))}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().confirmation_code).toMatch(/^[a-f0-9]{42}$/);
+    expect(meanwhile).not.toBe("");
+    for (const id of [one.connectionId, two.connectionId]) {
+      const row = await authDb.connection.findUniqueOrThrow({ where: { id } });
+      expect([row.revokedAt !== null, row.label]).toEqual([true, "Meta (deleted)"]);
+    }
+    expect(await accountOf(a, one.accountId)).toMatchObject({ status: "unlinked" });
+    expect(await accountOf(b, two.accountId)).toMatchObject({ status: "unlinked" });
   });
 
   it("answers without a confirmation code when one connection fails, after trying every other one", async () => {
