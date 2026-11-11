@@ -26,17 +26,18 @@ export function useManagementCapabilities(enabled: boolean): {
 }
 
 /**
- * The page part of the document title on /manage: known only once /me has
- * reported the stage, and absent while the flag is off (the address is then
- * not found, as before the settings center).
+ * The page part of the document title on /manage, from the kind of
+ * `centerState` (null: not a /manage place). Where the center shows no page
+ * (flag off, or a scope the member cannot open) the address is not found, as
+ * before the settings center, so the title says so too.
  */
 export function manageTitleKey(
-  isManagePlace: boolean,
-  stage: "off" | "preview" | "on" | undefined,
-): "manageTitle" | null {
-  return isManagePlace && (stage === "preview" || stage === "on")
-    ? "manageTitle"
-    : null;
+  centerKind: CenterState["kind"] | null,
+): "manageTitle" | "notFound" | null {
+  if (centerKind === null) return null;
+  return centerKind === "off" || centerKind === "notFound"
+    ? "notFound"
+    : "manageTitle";
 }
 
 export type CenterState =

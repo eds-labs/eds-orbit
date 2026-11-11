@@ -44,13 +44,18 @@ const input = (
 });
 
 describe("settings center title", () => {
-  it("names the page only on /manage while the flag is not off", () => {
-    expect(manageTitleKey(true, "preview")).toBe("manageTitle");
-    expect(manageTitleKey(true, "on")).toBe("manageTitle");
-    // While /me loads the stage is unknown: no title yet.
-    expect(manageTitleKey(true, undefined)).toBeNull();
-    expect(manageTitleKey(true, "off")).toBeNull();
-    expect(manageTitleKey(false, "on")).toBeNull();
+  it("is not a settings center title outside /manage", () => {
+    expect(manageTitleKey(null)).toBeNull();
+  });
+  it("says not found where the center shows no page", () => {
+    // Flag off (or /me still loading): the address is not found, as before
+    // the settings center.
+    expect(manageTitleKey("off")).toBe("notFound");
+    expect(manageTitleKey("notFound")).toBe("notFound");
+  });
+  it("names the center wherever it renders, loads or redirects", () => {
+    for (const kind of ["scope", "loading", "redirect", "error"] as const)
+      expect(manageTitleKey(kind)).toBe("manageTitle");
   });
 });
 

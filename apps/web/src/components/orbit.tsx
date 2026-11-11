@@ -463,7 +463,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       : group === "project"
         ? t("navProject")
         : registry.modules.find((m) => m.id === group)?.displayName[locale];
-  const manageTitle = manageTitleKey(place.kind === "manage", settingsCenter);
+  const manageTitle = manageTitleKey(center?.kind ?? null);
   useEffect(() => {
     const page = manageTitle
       ? t(manageTitle)
@@ -493,8 +493,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
-    // `manageTitle` too: a directly loaded /manage page learns the stage only
-    // when /me arrives; it is null on every other place, so it never changes
+    // `manageTitle` too: a directly loaded /manage page learns the stage when
+    // /me arrives and its scope when the capabilities arrive (loading → scope
+    // or not found); it is null on every other place, so it never changes
     // there.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, project?.name, locale, knownStates, manageTitle]);
