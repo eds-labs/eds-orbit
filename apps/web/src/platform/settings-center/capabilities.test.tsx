@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { centerState } from "./capabilities";
+import { centerState, manageTitleKey } from "./capabilities";
 import type { ManageTarget, ManagementCapabilities } from "./types";
 
 const caps: ManagementCapabilities = {
@@ -41,6 +41,17 @@ const input = (
   error: null,
   lastProjectId: null,
   ...extra,
+});
+
+describe("settings center title", () => {
+  it("names the page only on /manage while the flag is not off", () => {
+    expect(manageTitleKey(true, "preview")).toBe("manageTitle");
+    expect(manageTitleKey(true, "on")).toBe("manageTitle");
+    // While /me loads the stage is unknown: no title yet.
+    expect(manageTitleKey(true, undefined)).toBeNull();
+    expect(manageTitleKey(true, "off")).toBeNull();
+    expect(manageTitleKey(false, "on")).toBeNull();
+  });
 });
 
 describe("settings center state", () => {

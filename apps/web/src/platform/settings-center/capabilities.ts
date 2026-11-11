@@ -25,6 +25,20 @@ export function useManagementCapabilities(enabled: boolean): {
   return { data, loading, error, refresh };
 }
 
+/**
+ * The page part of the document title on /manage: known only once /me has
+ * reported the stage, and absent while the flag is off (the address is then
+ * not found, as before the settings center).
+ */
+export function manageTitleKey(
+  isManagePlace: boolean,
+  stage: "off" | "preview" | "on" | undefined,
+): "manageTitle" | null {
+  return isManagePlace && (stage === "preview" || stage === "on")
+    ? "manageTitle"
+    : null;
+}
+
 export type CenterState =
   | { kind: "off" }
   | { kind: "loading" }

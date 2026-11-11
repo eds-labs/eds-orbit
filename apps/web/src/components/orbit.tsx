@@ -109,6 +109,7 @@ import { AssistantProvider } from "@/platform/assistant/assistant-provider";
 import type { AssistantLinks } from "@/platform/assistant/links";
 import {
   centerState,
+  manageTitleKey,
   useManagementCapabilities,
 } from "@/platform/settings-center/capabilities";
 import { ScopeView } from "@/platform/settings-center/scope-view";
@@ -462,9 +463,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       : group === "project"
         ? t("navProject")
         : registry.modules.find((m) => m.id === group)?.displayName[locale];
+  const manageTitle = manageTitleKey(place.kind === "manage", settingsCenter);
   useEffect(() => {
-    const page = manage
-      ? t("manageTitle")
+    const page = manageTitle
+      ? t(manageTitle)
       : place.kind === "organizations"
         ? t("chooseOrganization")
         : place.kind === "organizationAgents"
@@ -491,8 +493,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
+    // `manageTitle` too: a directly loaded /manage page learns the stage only
+    // when /me arrives; it is null on every other place, so it never changes
+    // there.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, project?.name, locale, knownStates]);
+  }, [pathname, project?.name, locale, knownStates, manageTitle]);
   async function createProject(v: FormValues, workspaceId?: string) {
     const result = await mutation.run(() =>
       post<Project>("/projects", {
