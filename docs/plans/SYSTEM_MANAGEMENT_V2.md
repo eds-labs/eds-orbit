@@ -385,7 +385,7 @@ Acceptance: with the flag at `preview`, all four scopes are reachable through on
 
 ## 8. Phase 3: integrations center
 
-Status (2026-11-11): implemented locally on branch `claude/settings-center-phase-3`; not on `main`, flag `off` in production. Implementation plan: [2026-11-11-settings-center-phase-3-integrations.md](../superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`.
+Status (2026-11-11): implemented and delivered to `main` with the flag `off`; not enabled in production. Implementation plan: [2026-11-11-settings-center-phase-3-integrations.md](../superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`.
 
 Deviations from the table below, decided during the implementation:
 

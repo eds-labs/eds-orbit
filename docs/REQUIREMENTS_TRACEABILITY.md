@@ -1,6 +1,6 @@
 # Requirements traceability
 
-## System & Administration V2, phase 3: integrations center (ADR 0027; 2026-11-11, branch `claude/settings-center-phase-3`; local, not on `main`)
+## System & Administration V2, phase 3: integrations center (ADR 0027; 2026-11-11, branch `claude/settings-center-phase-3`; delivered to `main`, flag off)
 
 Plan [plans/SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) sections 5.6, 5.8 and 8, implementation plan [superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md](superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md). API tests are under `apps/api/tests/`, web unit tests next to their code under `apps/web/src/`, browser tests in `apps/web/tests/settings-center.spec.ts`.
 

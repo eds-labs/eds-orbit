@@ -1,6 +1,6 @@
 # Implementation status
 
-## System & Administration V2, phase 3: integrations center (2026-11-11, branch `claude/settings-center-phase-3`; local only, not on `main`, flag off in production)
+## System & Administration V2, phase 3: integrations center (2026-11-11, branch `claude/settings-center-phase-3`; delivered to `main`, flag off in production)
 
 Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §5.6, §5.8 and §8, implementation plan [2026-11-11-settings-center-phase-3-integrations.md](superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md), [ADR 0027](adr/0027-settings-center.md). No schema, migration, dependency, role or permission change; no new write path. Environment: local. Everything is behind `ORBIT_SETTINGS_CENTER` (`off` in production); the integrations parts also follow `ORBIT_CONNECTIONS` and `ORBIT_ADMINISTRATION` as before.
 
@@ -43,7 +43,13 @@ Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §5.6, §5.8 and �
   - `tsc --noEmit` (root and `apps/web`), import boundaries and source guard, Coolify Compose check, secret pattern scan and `next build`: passed.
   - Reviews: each of the twelve tasks by a separate reviewer with fix rounds; a whole-branch review with no critical finding and three findings on untrue card or step text, fixed in one wave and re-reviewed; the catalog, the setup pages and the phone view were looked at in a browser.
   - Not proven in a browser: the rule that a viewer or editor sees no "Set up" (the seeded installation has no viewer; unit tests cover it), a hidden Social module (Social is not installed on the local stack), mailboxes grouped by server with a real mailbox (e-mail is off on the local stack; unit tests cover the grouping).
-- **Production:** nothing changed; a push to `main` needs Mario's approval (no schema hash needed). Rollback: keep the flag `off`, or revert the branch's commits; no data or schema to undo.
+- **Production:** delivered to `main` with Mario's approval (no schema hash needed); the flag stays `off`, so nothing is visible. Rollback: keep the flag `off`, or revert the branch's commits; no data or schema to undo.
+
+## FamilyPlan Matomo: public DNS and scoped VM102 loopback route (2026-11-11)
+
+- Critical production configuration fix, explicitly approved by Mario: remove only the two analytics private-address overrides in the generated VM102 Compose adapter. The canonical stack, schema approval hash, credentials, feature flags, volumes and connector protections remain unchanged.
+- Host helper in `infra/network/` maintains a dedicated, source/bridge-paired NAT table for this installation's API/MCP/worker containers to the existing public HTTPS ingress. It survives container replacement, excludes unrelated services, fails closed and never modifies Docker's or Proxmox's firewall tables. Runbook and approval/rollback record: [Matomo public DNS change](deployment/MATOMO_PUBLIC_DNS_CHANGE.md).
+- Validation: Coolify/PVE Compose and schema-guard checks, lint/import boundaries, root/web typecheck, production build, 32 mocked connector/Matomo tests, six host-helper tests, secret scan and diff checks passed. No database/integration suite: no application/domain/schema/canonical Compose change. Host-side unit validation and authenticated-certificate public HTTPS probes passed; service/timer active. Application rollout and the stored Matomo credential's read verification remain separate post-deployment checks.
 
 ## System & Administration V2, phase 2: settings center frame (2026-11-11, branch `claude/system-management-v2`; delivered to `main`, flag off, not live-accepted)
 

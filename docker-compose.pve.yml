@@ -22,8 +22,6 @@ x-runtime: &runtime
   extra_hosts:
     - "orbit.eds-labs.io:10.50.0.12"
     - "n8n.eds-labs.io:10.50.0.12"
-    - "analytics.eds-labs.io:10.50.0.12"
-    - "analytics.uliquid.vip:10.50.0.12"
     - "postiz.eds-labs.io:10.50.0.12"
   logging:
     driver: json-file

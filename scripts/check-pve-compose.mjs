@@ -62,13 +62,10 @@ assert.equal(
 );
 assert.deepEqual(Object.keys(pve.services), Object.keys(base.services));
 const hosts = Object.fromEntries(
-  [
-    "orbit.eds-labs.io",
-    "n8n.eds-labs.io",
-    "analytics.eds-labs.io",
-    "analytics.uliquid.vip",
-    "postiz.eds-labs.io",
-  ].map((host) => [host, "10.50.0.12"]),
+  ["orbit.eds-labs.io", "n8n.eds-labs.io", "postiz.eds-labs.io"].map((host) => [
+    host,
+    "10.50.0.12",
+  ]),
 );
 for (const [name, service] of Object.entries(pve.services)) {
   assert.ok(!service.ports?.length, `${name} must not publish host ports`);
@@ -89,11 +86,19 @@ for (const [name, service] of Object.entries(pve.services)) {
     ]);
     service.volumes = base.services[name].volumes;
   }
-  if (["migrate", "api", "worker", "mcp", "web", "webmail-bridge"].includes(name)) {
+  if (
+    ["migrate", "api", "worker", "mcp", "web", "webmail-bridge"].includes(name)
+  ) {
     const actual = Array.isArray(service.extra_hosts)
       ? Object.fromEntries(service.extra_hosts.map((entry) => entry.split("=")))
       : service.extra_hosts;
     assert.deepEqual(actual, hosts);
+    for (const host of ["analytics.eds-labs.io", "analytics.uliquid.vip"])
+      assert.equal(
+        Object.hasOwn(actual, host),
+        false,
+        `${name}: Matomo must resolve through public DNS for the SSRF-protected reporting connector`,
+      );
     delete service.extra_hosts;
   }
   assert.deepEqual(
@@ -179,7 +184,10 @@ try {
     stdio: "pipe",
   });
   const canonical = readFileSync(join(fixture, "docker-compose.yml"), "utf8");
-  writeFileSync(join(fixture, "docker-compose.yml"), canonical + "\n# changed\n");
+  writeFileSync(
+    join(fixture, "docker-compose.yml"),
+    canonical + "\n# changed\n",
+  );
   const stale = spawnSync("sh", ["scripts/check-pve-schema.sh"], {
     cwd: fixture,
     env: schemaEnv,
