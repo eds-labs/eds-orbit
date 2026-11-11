@@ -1,6 +1,6 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phase 2 is on `main` (flag `off`); phase 3 is implemented locally (section 8); phases 4 to 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main` (flag `off`); phase 4 is implemented locally on branch `claude/settings-center-phase-4` (section 9); phases 5 and 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
 This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
@@ -411,6 +411,23 @@ Moved to phase 5 (or later): the public-access section with the F-5 fix (a widge
 Acceptance: a Matomo or Postiz connection is created, checked, granted and bound from the center alone, at organization and project level; a system connection is granted to an organization and from there to a project; existing connections keep working (`connection-cutover`, `connections`, `social-accounts` suites unchanged and green).
 
 ## 9. Phase 4: central AI configuration
+
+Status (2026-11-11): implemented locally on branch `claude/settings-center-phase-4`; not on `main`, flag `off` in production. Implementation plan: [2026-11-11-settings-center-phase-4-ai.md](../superpowers/plans/2026-11-11-settings-center-phase-4-ai.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`; the effective read and the safe saves in [MODEL_ROUTING.md](../MODEL_ROUTING.md), "Effective read and safe saves".
+
+Deviations from the table below, decided during the implementation (rulings P4-R1 to P4-R10 of the phase's ledger):
+
+- P4-R1: modules contribute their AI ceilings as an optional `WebModule.aiCeilings` (Finance, Issues, Support, Work), collected for the project's shown modules like phase 3's `integrations`; the project budget section lists them read-only with links.
+- P4-R2: `GET /api/management/capabilities` carries `flags: {connections, aiCatalog, aiDefaults, aiOrgBudget}`; sections read them from the capabilities they already receive instead of a second prop.
+- P4-R3: before a first save the Claude dialog with empty tier fields still sends the view's Claude tiers: a first save creates the whole configuration from the view and the member confirms it with the first-save box (risk 1 guarded, not removed).
+- P4-R4: `connection_disabled` and `keys.<k>.connection.disabled` stay in the effective answer, but a disabled connection is not visible to a project today, so the key reads as the next source or as none.
+- P4-R5: three origin rules follow the runtime instead of the plan's table: under a preset only the preset provider's tiers and the default provider are `preset`; a layer's task routes replace the lower layer's as a whole; a value without an effective value has origin null (Claude tiers are never `environment`). The image key falls back to the OpenAI text key, as image calls do.
+- P4-R6: `GET O/ai/projects` adds `unreadable` (projects whose read failed, left out and logged); the organization's notices and projects list say so when it is above 0.
+- P4-R7: "Exception" badges appear only on rows whose part the API lists in `exceptions` while the project's own settings are in force; "No exceptions" only when nothing is listed and no value has origin `project`.
+- P4-R8: readiness marks carry their state as screen-reader text ("yes"/"no"), not only by colour and glyph.
+- P4-R9: one notice text for unreadable projects, above the projects table and appended to the organization notices.
+- P4-R10: while the runtime applies no standard (`ORBIT_AI_DEFAULTS` off) the organization's profile notices and the system's standard notice state only that a save changes the route version, and the projects list says that standard models are off.
+- Section ids as built: project `overview`, `providers`, `models`, `budget`, `usage`, `agents`; organization `standard`, `models`, `budget`, `usage`, `projects`, `advanced`; system `standard`, `models`, `advanced`. The organization and system areas exist only with `ORBIT_CONNECTIONS` (their capabilities `organization.ai` and `system.ai` need it). `advanced` opens closed in an "Advanced" disclosure.
+- F-8 risk 8 (the organization budget `PUT` replaces monthly amount, provider caps and credits together) is not fixed: the one form shows all three and is mounted whole, so nothing is lost today; a characterization test pins the full replace so a later split cannot drop a part unseen.
 
 | WP | Work | Tests |
 | --- | --- | --- |

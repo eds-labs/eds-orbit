@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Request, type Route } from "./fixtures";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { SEED, signIn } from "./settings-center-helpers";
 
 // The settings center (/manage) in the browser: the four scopes, addresses,
 // search, refusals, module sections, the old pages beside it, phone and
@@ -21,7 +22,6 @@ import { resolve } from "node:path";
 // One sign-in for the whole file (sign-ins are rate limited): beforeAll
 // signs in and every test starts from that session.
 
-const SEED = resolve(".runtime/e2e-user.json");
 const STATE = resolve(".runtime/settings-center-state.json");
 const FOREIGN = "00000000-0000-4000-8000-000000000000";
 
@@ -45,39 +45,6 @@ let cutover: string[] | null = null;
 let caps: Caps;
 let userId = "";
 let origin = "";
-
-async function signIn(page: Page) {
-  const user = JSON.parse(readFileSync(SEED, "utf8")) as {
-    email: string;
-    password: string;
-  };
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  const submit = () => {
-    const response = page.waitForResponse(
-      (r) =>
-        r.url().endsWith("/api/auth/sign-in/email") &&
-        r.request().method() === "POST",
-    );
-    return page
-      .getByRole("button", { name: "Sign in", exact: true })
-      .click()
-      .then(() => response);
-  };
-  let response = await submit();
-  if (response.status() === 429) {
-    // Respect the real authentication throttle; never disable it.
-    const seconds = Math.min(
-      60,
-      Math.max(1, Number(response.headers()["retry-after"]) || 11),
-    );
-    await page.waitForTimeout(seconds * 1000);
-    response = await submit();
-  }
-  expect(response.status(), "sign-in response").toBe(200);
-  await expect(page.getByLabel(/^Account menu/)).toBeVisible();
-}
 
 test.describe("settings center", () => {
   test.skip(!existsSync(SEED), "needs the seeded e2e installation");
