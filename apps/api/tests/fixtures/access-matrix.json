@@ -591,6 +591,14 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/management/organizations/{workspaceId}/integrations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/management/projects/{projectId}/integrations": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

@@ -2,8 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { scopedRead } from "../../../../../packages/db/src/index.ts";
 import { scopeFor, sessionFor, type Auth } from "../tenancy/auth.ts";
+import { administrationEnabled, workspaceOwnerFor } from "../administration/authz.ts";
+import { DomainError } from "../shared.ts";
 import { managementCapabilities } from "./capabilities.ts";
 import { integrationCatalog } from "./integration-catalog.ts";
+import { organizationIntegrations } from "./organization-integrations.ts";
 import { projectIntegrationRecords, publicIntegration } from "./project-integrations.ts";
 
 // Settings center (ADR 0027). 404 while ORBIT_SETTINGS_CENTER is off
@@ -34,5 +37,21 @@ export function registerManagementRoutes(app: FastifyInstance, auth: Auth) {
     );
     reply.header("Cache-Control", "no-store");
     return { items: records.map(publicIntegration) };
+  });
+  // Organization owners only (D-4): 404 for everyone else, system
+  // administrators included, and for everyone while administration is off.
+  app.get("/api/management/organizations/:workspaceId/integrations", async (req, reply) => {
+    if (!administrationEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { workspaceId } = req.params as { workspaceId: string };
+    const owner = await workspaceOwnerFor(auth, req, z.uuid().parse(workspaceId));
+    const usage = await organizationIntegrations(owner.userId, owner.workspaceId, (projectId, moduleId, error) =>
+      // Ids and the error name only: a message may carry user data.
+      req.log.error(
+        { projectId, moduleId, errorName: (error as Error | undefined)?.name },
+        "organization integrations contribution failed",
+      ),
+    );
+    reply.header("Cache-Control", "no-store");
+    return usage;
   });
 }

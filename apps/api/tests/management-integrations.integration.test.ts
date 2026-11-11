@@ -6,6 +6,7 @@ import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { authDb, closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import type { CatalogEntry } from "../src/platform/management/integration-catalog.ts";
 import type { ProjectIntegration } from "../src/platform/management/project-integrations.ts";
+import type { OrganizationIntegrations } from "../src/platform/management/organization-integrations.ts";
 import { createProjectConnection } from "../src/platform/connections/project-secrets.ts";
 import { registeredProjectIntegrations } from "../src/platform/modules/contributions.ts";
 import { encrypt } from "../src/platform/shared.ts";
@@ -40,7 +41,11 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
   const workspaces: string[] = [];
   const p: Record<(typeof KEYS)[number], Person> = {} as never;
   let orgId = "";
+  let otherOrgId = "";
   let projectId = "";
+  // A second project of the organization without integrations, reached by the
+  // owner through the organization role only.
+  let secondProjectId = "";
   // Fixture ids and the secret values that must never leave the server.
   const f = {
     postiz: "", matomo: "", matomoGrant: "", postizRow: "", slackRow: "", mailboxRow: "",
@@ -194,7 +199,7 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
         },
       })
     ).id;
-    const otherOrgId = (
+    otherOrgId = (
       await authDb.workspace.create({
         data: {
           name: "Synthetic foreign org",
@@ -216,6 +221,9 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
           },
         },
       })
+    ).id;
+    secondProjectId = (
+      await authDb.project.create({ data: { workspaceId: orgId, name: "Synthetic second project" } })
     ).id;
     for (const key of KEYS) p[key].cookie = await signIn(p[key].email);
     await seedProjectIntegrations();
@@ -440,5 +448,128 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
     expect(byId(restored, `connection:${f.postiz}`)?.state).toBe("ready");
     expect(byId(restored, `connection:${f.matomo}`)?.state).toBe("verified");
     expect(byId(restored, `social:${f.socialAccount}`)?.state).toBe("ready");
+  });
+  // Organization usage (D-4): owners only, never a system administrator.
+  const usage = async (who: Person, workspaceId = orgId) => {
+    const r = await get(`/api/management/organizations/${workspaceId}/integrations`, who);
+    expect(r.statusCode).toBe(200);
+    return { body: r.body, json: r.json() as OrganizationIntegrations };
+  };
+
+  it("gives the owner every connection with the projects that use it", async () => {
+    const { body, json } = await usage(p.owner);
+    const postiz = json.connections.find((c) => c.id === f.postiz);
+    const matomo = json.connections.find((c) => c.id === f.matomo);
+    expect(postiz).toMatchObject({
+      provider: "postiz", label: "Synthetic system Postiz", category: "social", scope: "system", state: "ready",
+      projects: [{ id: projectId, name: "Synthetic integrations project", bound: true }],
+    });
+    expect(postiz?.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(matomo).toMatchObject({
+      provider: "matomo", label: "Synthetic organization Matomo", category: "analytics", scope: "workspace",
+      state: "verified", checkedAt: null,
+      projects: [{ id: projectId, name: "Synthetic integrations project", bound: false }],
+    });
+    for (const c of json.connections) {
+      expect(Object.keys(c).sort()).toEqual(["category", "checkedAt", "id", "label", "projects", "provider", "scope", "state"]);
+      for (const project of c.projects) expect(Object.keys(project).sort()).toEqual(["bound", "id", "name"]);
+    }
+    expect(json.projects.map((x) => x.id).sort()).toEqual([projectId, secondProjectId].sort());
+    const first = json.projects.find((x) => x.id === projectId)!;
+    expect(first.name).toBe("Synthetic integrations project");
+    expect(first.integrations.map((i) => i.id)).toContain(`connection:${f.postiz}`);
+    for (const i of first.integrations)
+      expect(Object.keys(i).sort()).toEqual(["category", "checkedAt", "group", "id", "label", "provider", "scope", "state"]);
+    expect(json.projects.find((x) => x.id === secondProjectId)?.integrations).toEqual([]);
+    for (const word of ["encryptedCredential", "baseUrl", "config", "health", "secret", ...Object.values(SECRETS)])
+      expect(body).not.toContain(word);
+  });
+
+  it("refuses everyone who is not an owner of the organization", async () => {
+    const url = `/api/management/organizations/${orgId}/integrations`;
+    for (const who of [p.admin, p.viewer, p.editor, p.outsider]) expect((await get(url, who)).statusCode).toBe(404);
+    expect((await get(url)).statusCode).toBe(401);
+    process.env.ORBIT_ADMINISTRATION = "false";
+    try {
+      expect((await get(url, p.owner)).statusCode).toBe(404);
+    } finally {
+      process.env.ORBIT_ADMINISTRATION = "true";
+    }
+    expect((await get(url, p.owner)).statusCode).toBe(200);
+  });
+
+  it("never reads a personal space", async () => {
+    const personal = (
+      await authDb.project.create({
+        data: {
+          workspaceId: orgId, name: "Synthetic personal space", kind: "personal", personalUserId: p.owner.id,
+          members: { create: { userId: p.owner.id, role: "owner" } },
+        },
+      })
+    ).id;
+    try {
+      // Even a grant pointing at the personal space must not surface it.
+      await authDb.connectionGrant.create({
+        data: { connectionId: f.matomo, workspaceId: orgId, projectId: personal, createdBy: p.owner.id },
+      });
+      const { body, json } = await usage(p.owner);
+      expect(json.projects.map((x) => x.id)).not.toContain(personal);
+      expect(json.connections.find((c) => c.id === f.matomo)?.projects.map((x) => x.id)).toEqual([projectId]);
+      expect(body).not.toContain(personal);
+      expect(body).not.toContain("Synthetic personal space");
+    } finally {
+      // The grant goes with the project (cascade).
+      await authDb.project.deleteMany({ where: { id: personal } });
+    }
+  });
+
+  it("lists nothing of another organization", async () => {
+    const { body, json } = await usage(p.outsider, otherOrgId);
+    expect(json.projects).toEqual([]);
+    for (const id of [orgId, projectId, secondProjectId, f.postiz, f.matomo, f.matomoGrant, f.postizRow, f.socialAccount])
+      expect(body).not.toContain(id);
+  });
+
+  it("keeps two organizations of one owner apart", async () => {
+    // The owner becomes an owner of the outsider's organization for this case,
+    // which gets its own project and grants of both fixture connections.
+    await authDb.workspaceMember.create({ data: { workspaceId: otherOrgId, userId: p.owner.id, role: "owner" } });
+    let foreign = "";
+    const grants: string[] = [];
+    try {
+      foreign = (
+        await authDb.project.create({ data: { workspaceId: otherOrgId, name: "Synthetic foreign project" } })
+      ).id;
+      const orgGrant = await authDb.connectionGrant.create({
+        data: { connectionId: f.postiz, workspaceId: otherOrgId, createdBy: p.admin.id },
+      });
+      grants.push(orgGrant.id);
+      for (const connectionId of [f.postiz, f.matomo])
+        grants.push(
+          (
+            await authDb.connectionGrant.create({
+              data: { connectionId, workspaceId: otherOrgId, projectId: foreign, createdBy: p.owner.id },
+            })
+          ).id,
+        );
+      const a = await usage(p.owner);
+      expect(a.json.projects.map((x) => x.id).sort()).toEqual([projectId, secondProjectId].sort());
+      for (const c of a.json.connections) expect(c.projects.map((x) => x.id)).toEqual([projectId]);
+      expect(a.body).not.toContain(foreign);
+      expect(a.body).not.toContain("Synthetic foreign project");
+      expect(a.body).not.toContain(otherOrgId);
+      const b = await usage(p.owner, otherOrgId);
+      expect(b.json.projects.map((x) => x.id)).toEqual([foreign]);
+      // The other organization's own Matomo connection is not B's to list.
+      expect(b.json.connections.map((c) => c.id)).toEqual([f.postiz]);
+      expect(b.json.connections[0]?.projects.map((x) => x.id)).toEqual([foreign]);
+      // The foreign project's own list still shows the Matomo grant it holds:
+      // that is what its project route shows any of its members.
+      for (const id of [orgId, projectId, secondProjectId]) expect(b.body).not.toContain(id);
+    } finally {
+      await authDb.connectionGrant.deleteMany({ where: { id: { in: grants } } });
+      if (foreign) await authDb.project.deleteMany({ where: { id: foreign } });
+      await authDb.workspaceMember.deleteMany({ where: { workspaceId: otherOrgId, userId: p.owner.id } });
+    }
   });
 });
