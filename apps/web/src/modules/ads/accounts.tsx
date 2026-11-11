@@ -177,6 +177,7 @@ export function AdsAccounts() {
       {note && <Alert kind={note.kind}>{note.text}</Alert>}
       {isOwner && app && app !== "ready" && <Alert kind="warning">{t.hints[app]}</Alert>}
       <ResourceError error={accounts.error} retry={accounts.refresh} />
+      <ResourceError error={connections.error} retry={connections.refresh} />
       {accounts.data && (list.length ? (
         <ul className="settings-rows">
           {list.map((a) => (

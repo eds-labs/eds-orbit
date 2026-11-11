@@ -111,6 +111,21 @@ describe("ads accounts view (ADR 0025, A3)", () => {
     expect(render(<AdsAccounts />)).toContain("administration");
   });
 
+  it("shows an owner a failed connections load with a retry and no connect button", () => {
+    answers["/ads/accounts"] = { accounts: [] };
+    // No answer for the connections path: the mocked resource reports an error.
+    for (const [locale, retry] of [["en", "Try again"], ["de", "Try again"]] as const) {
+      const html = render(<AdsAccounts />, { locale });
+      expect(html).toContain('role="alert"');
+      expect(html).toContain("failed");
+      expect(html).toContain(retry);
+      expect(buttons(html)).not.toContain("Connect with Meta");
+      expect(buttons(html)).not.toContain("Mit Meta verbinden");
+    }
+    // An editor never asks for the connections, so sees no error.
+    expect(render(<AdsAccounts />, { owner: false })).not.toContain('role="alert"');
+  });
+
   it("offers the connect button once the app is ready", () => {
     answers["/ads/accounts"] = { accounts: [] };
     answers["/ads/connections"] = connections("ready");
