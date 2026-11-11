@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   afterAll,
   afterEach,
@@ -78,7 +79,7 @@ vi.mock("../../../packages/connectors/src/index.ts", async (original) => ({
   >()),
   createPostizClient: () => ({ listPosts: async () => [] }),
 }));
-import { closeDatabase } from "../../../packages/db/src/index.ts";
+import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import {
   CREATIVE_FORMATS,
   TEMPLATE_COPY_LIMITS,
@@ -99,7 +100,11 @@ import {
   assignmentHash,
   setAssignmentStatus,
 } from "../src/modules/agents/assignments.ts";
-import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
+import {
+  agentReviewAccepted,
+  creativeAuthorityProblem,
+  type CreativeAuthorityCode,
+} from "../src/modules/agents/agent-review.ts";
 import { CREATIVES } from "../src/modules/marketing/creative/store.ts";
 import { composeRunCreatives } from "../src/modules/marketing/creative/assignment.ts";
 import {
@@ -138,6 +143,16 @@ const IMAGE_COPY = {
   headline: "Beta access is open",
   subline: "Product teams can join the beta today.",
   cta: "Join now!",
+};
+/** Vision review scores that pass the rubric (every score ≥ 3, mean ≥ 3.5). */
+const VISION_SCORES = {
+  subject: 4,
+  balance: 4,
+  legibility: 5,
+  brandFit: 4,
+  messageFit: 4,
+  channelFit: 4,
+  value: 4,
 };
 /** A Postiz channel whose provider Orbit has no rules for. */
 const UNKNOWN = "unknown-int";
@@ -230,6 +245,61 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
   };
   const arts = async () =>
     (await h.rows("assets")).filter((a) => a.creativeArt === true);
+  /** Vision review on; the logo may go to a provider (R28), the art is Orbit's own. */
+  const enableVisionReview = () =>
+    h.run(async (tx) => {
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      const identity = value.visualIdentity;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...identity,
+              creative: { ...identity.creative, visualReview: true },
+            },
+          },
+          version: { increment: 1 },
+        },
+      });
+      const logo = await entity(
+        tx,
+        project.owner,
+        "assets",
+        identity.logoAssetId,
+      );
+      await update(tx, project.owner, logo, {
+        ...data(logo),
+        providerUse: true,
+      });
+    });
+  const visionPasses = (): Reply => ({
+    output: [message({ scores: VISION_SCORES, issues: [] })],
+  });
+  const accepted = (content: Record<string, any>) =>
+    h.run((tx) => agentReviewAccepted(tx, project.owner, content));
+  const authorityProblem = (content: Record<string, any>) =>
+    h.run((tx) => creativeAuthorityProblem(tx, project.owner, content));
+  /**
+   * A creative post of a publishing assignment the agent approved, whose
+   * exact rendition passed the vision review, with the creative flag on.
+   */
+  const visionPassedDraft = async () => {
+    process.env.ORBIT_AGENT_REVIEW_CREATIVES = "true";
+    await linkBot();
+    await enableVisionReview();
+    await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
+    const { review } = await drafted();
+    provider.replies.push(visionPasses, approveAll);
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+    const [draft] = await contents();
+    return draft!;
+  };
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
@@ -333,6 +403,7 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     vi.restoreAllMocks();
     delete process.env.ORBIT_AGENTS;
     delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
     delete process.env.ORBIT_CREATIVE_STUDIO;
     await project.cleanup();
   });
@@ -676,7 +747,8 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     expect(provider.generateImage).toHaveBeenCalledTimes(2);
   });
 
-  it("agent authority does not cover creatives", async () => {
+  it("agent authority over creatives needs the flag", async () => {
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
     await linkBot();
     await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
     const { review } = await drafted();
@@ -686,26 +758,259 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     // Approved by the agent, but waiting for the owner: nothing is scheduled (CS-D7).
     expect(draft!.agentReview.creativeHash).toBe(hash(draft!.creativeCopy));
     expect(draft!.status).toBe("needs_review");
-    expect(
-      await h.run((tx) => agentReviewAccepted(tx, project.owner, draft!)),
-    ).toBe(false);
+    expect(await accepted(draft!)).toBe(false);
+    expect(await authorityProblem(draft!)).toBe("CREATIVE_AUTHORITY_OFF");
     expect(await h.rows("publications")).toEqual([]);
     // As a Postiz draft the same review stands, for exactly this image copy.
     const asDraft: Record<string, any> = {
       ...draft!,
       delivery: "postiz_draft",
     };
+    expect(await authorityProblem(asDraft)).toBeNull();
+    expect(await accepted(asDraft)).toBe(true);
     expect(
-      await h.run((tx) => agentReviewAccepted(tx, project.owner, asDraft)),
-    ).toBe(true);
-    expect(
-      await h.run((tx) =>
-        agentReviewAccepted(tx, project.owner, {
-          ...asDraft,
-          creativeCopy: { ...asDraft.creativeCopy, headline: "Another line" },
-        }),
-      ),
+      await accepted({
+        ...asDraft,
+        creativeCopy: { ...asDraft.creativeCopy, headline: "Another line" },
+      }),
     ).toBe(false);
+    // Content without a creative is not the rule's concern.
+    const { creativeCopy: _copy, creativeId: _id, ...plain } = draft!;
+    expect(await authorityProblem(plain)).toBeNull();
+  });
+
+  it("agent authority covers a creative whose exact rendition passed the vision review", async () => {
+    const draft = await visionPassedDraft();
+    // The vision call saw the rendition before the model review approved the text.
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[0].input[0].content[1].type).toBe("input_image");
+    const [creative] = await h.rows(CREATIVES);
+    const rendition = creative!.renditions.find(
+      (r: Record<string, any>) => r.assetId === draft.assetId,
+    );
+    expect(creative!.qa.vision).toMatchObject({
+      verdict: "pass",
+      renditionSha256: rendition.sha256,
+    });
+    expect(draft.agentReview.creativeHash).toBe(hash(draft.creativeCopy));
+    expect(draft.status).toBe("reviewed");
+    expect(await authorityProblem(draft)).toBeNull();
+    expect(await accepted(draft)).toBe(true);
+    // The image copy must still be the one reviewed.
+    expect(
+      await accepted({
+        ...draft,
+        creativeCopy: { ...draft.creativeCopy, headline: "Another line" },
+      }),
+    ).toBe(false);
+    // Turning the flag off takes the authority back, the rest unchanged.
+    process.env.ORBIT_AGENT_REVIEW_CREATIVES = "false";
+    expect(await authorityProblem(draft)).toBe("CREATIVE_AUTHORITY_OFF");
+    expect(await accepted(draft)).toBe(false);
+  });
+
+  it("names why a creative post waits", async () => {
+    const draft = await visionPassedDraft();
+    const stored = await h.run(async (tx) =>
+      data(await entity(tx, project.owner, CREATIVES, draft.creativeId)),
+    );
+    /** Stores the creative as `change` makes it from the passing one. */
+    const setCreative = (
+      change: (record: Record<string, any>) => Record<string, any>,
+    ) =>
+      h.run(async (tx) => {
+        const row = await entity(
+          tx,
+          project.owner,
+          CREATIVES,
+          draft.creativeId,
+        );
+        await update(tx, project.owner, row, change(structuredClone(stored)));
+      });
+    const waits = async (
+      content: Record<string, any>,
+      code: CreativeAuthorityCode,
+    ) => {
+      expect(await authorityProblem(content)).toBe(code);
+      expect(await accepted(content)).toBe(false);
+    };
+    expect(await authorityProblem(draft)).toBeNull();
+
+    await waits({ ...draft, creativeId: randomUUID() }, "CREATIVE_NOT_FOUND");
+    const { creativeId: _id, ...withoutId } = draft;
+    await waits(withoutId, "CREATIVE_NOT_FOUND");
+    await waits({ ...draft, creativeId: "not-a-uuid" }, "CREATIVE_NOT_FOUND");
+    // A creative of another project never resolves, even as an exact copy.
+    const other = await createPackageProject();
+    try {
+      const copied = await scoped(
+        other.owner.workspaceId,
+        other.owner.projectId,
+        (tx) => create(tx, other.owner, CREATIVES, stored),
+      );
+      await waits({ ...draft, creativeId: copied.id }, "CREATIVE_NOT_FOUND");
+    } finally {
+      await other.cleanup();
+    }
+
+    await setCreative((r) => ({ ...r, status: "superseded" }));
+    await waits(draft, "CREATIVE_NOT_USABLE");
+    await setCreative((r) => ({ ...r, status: "needs_rights" }));
+    await waits(draft, "CREATIVE_NOT_USABLE");
+    await setCreative((r) => r);
+
+    // The raw art is no rendition of the creative.
+    const [art] = await arts();
+    await waits(
+      { ...draft, assetId: art!.id },
+      "CREATIVE_RENDITION_NOT_ON_POST",
+    );
+    const { assetId: _asset, ...withoutAsset } = draft;
+    await waits(withoutAsset, "CREATIVE_RENDITION_NOT_ON_POST");
+
+    await setCreative((r) => {
+      delete r.qa.vision;
+      return r;
+    });
+    await waits(draft, "CREATIVE_VISION_REVIEW_REQUIRED");
+
+    await setCreative((r) => {
+      r.qa.vision.verdict = "needs_correction";
+      return r;
+    });
+    await waits(draft, "CREATIVE_VISION_NOT_PASSED");
+    // As stored after a failing review: named as the vision review's.
+    await setCreative((r) => {
+      r.qa.vision.verdict = "needs_correction";
+      r.qa.verdict = "needs_owner";
+      return r;
+    });
+    await waits(draft, "CREATIVE_VISION_NOT_PASSED");
+
+    // A recomposed rendition has another SHA-256 than the one judged.
+    await setCreative((r) => {
+      r.qa.vision.renditionSha256 = "0".repeat(64);
+      return r;
+    });
+    await waits(draft, "CREATIVE_RENDITION_NOT_REVIEWED");
+
+    await setCreative((r) => {
+      r.qa.verdict = "needs_owner";
+      return r;
+    });
+    await waits(draft, "CREATIVE_QA_NEEDS_OWNER");
+
+    await setCreative((r) => r);
+    expect(await authorityProblem(draft)).toBeNull();
+    expect(await accepted(draft)).toBe(true);
+  });
+
+  it("keeps the review authority flag above the creative flag", async () => {
+    const draft = await visionPassedDraft();
+    expect(await accepted(draft)).toBe(true);
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+    // The creative rule still holds; the review authority flag alone refuses.
+    expect(process.env.ORBIT_AGENT_REVIEW_CREATIVES).toBe("true");
+    expect(await authorityProblem(draft)).toBeNull();
+    expect(await accepted(draft)).toBe(false);
+  });
+
+  it("leaves banner posts to the owner as before", async () => {
+    const draft = await visionPassedDraft();
+    const banner = {
+      headline1: "Start free.",
+      headline2: "Build your workflow.",
+      subline: "Beta access for product teams.",
+      button: "Learn more",
+    };
+    // Even with the banner copy reviewed, a published banner waits (R79).
+    expect(
+      await accepted({
+        ...draft,
+        banner,
+        agentReview: { ...draft.agentReview, bannerHash: hash(banner) },
+      }),
+    ).toBe(false);
+  });
+
+  it("judges each channel of a shared slot by its own rendition", async () => {
+    process.env.ORBIT_AGENT_REVIEW_CREATIVES = "true";
+    await linkBot();
+    await enableVisionReview();
+    // The pair becomes Facebook and Instagram (R76), Facebook drawn in another format.
+    await h.run(async (tx) => {
+      const connector = (await list(tx, project.owner, "connectors")).find(
+        (row) => data(row).provider === "postiz",
+      )!;
+      await update(tx, project.owner, connector, {
+        ...data(connector),
+        channels: data(connector).channels.map((channel: any) =>
+          channel.id === X
+            ? { ...channel, identifier: "facebook" }
+            : channel.id === TELEGRAM
+              ? { ...channel, identifier: "instagram" }
+              : channel,
+        ),
+      });
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      const identity = value.visualIdentity;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...identity,
+              creative: {
+                ...identity.creative,
+                formatsByChannel: { facebook: ["landscape"] },
+              },
+            },
+          },
+          version: { increment: 1 },
+        },
+      });
+    });
+    await creativeAssignment({
+      schedule: ONE_SLOT,
+      channels: [X, TELEGRAM],
+      sharedAcrossChannels: true,
+      delivery: "publish",
+    });
+    const { review } = await drafted(() => ({}), TELEGRAM);
+    provider.replies.push(visionPasses, approveAll);
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+    // One creative for the slot; the vision review judged its first format only.
+    const [creative, ...more] = await h.rows(CREATIVES);
+    expect(more).toEqual([]);
+    expect(
+      creative!.renditions.map((r: Record<string, any>) => r.format),
+    ).toEqual(["feed_portrait", "landscape"]);
+    expect(creative!.qa.vision).toMatchObject({
+      verdict: "pass",
+      format: "feed_portrait",
+      renditionSha256: creative!.renditions[0].sha256,
+    });
+    const drafts = await contents();
+    const instagram = drafts.find((c) => c.channel === TELEGRAM)!;
+    const facebook = drafts.find((c) => c.channel === X)!;
+    expect(instagram.creativeId).toBe(creative!.id);
+    expect(facebook.creativeId).toBe(creative!.id);
+    expect(instagram.assetId).toBe(creative!.renditions[0].assetId);
+    expect(facebook.assetId).toBe(creative!.renditions[1].assetId);
+    expect(await authorityProblem(instagram)).toBeNull();
+    expect(await accepted(instagram)).toBe(true);
+    expect(instagram.status).toBe("reviewed");
+    // The channel whose rendition was not judged waits for the owner on its own.
+    expect(facebook.status).toBe("needs_review");
+    expect(await authorityProblem(facebook)).toBe(
+      "CREATIVE_RENDITION_NOT_REVIEWED",
+    );
+    expect(await accepted(facebook)).toBe(false);
   });
 
   // M3: a vision review that could never run would leave every draft of the
@@ -754,61 +1059,22 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
 
   it("runs the optional vision review before the model review", async () => {
     await linkBot();
-    // Vision review on; the logo may go to a provider (R28), the art is Orbit's own.
-    await h.run(async (tx) => {
-      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
-        where: { projectId: project.owner.projectId },
-      });
-      const value = profile.data as Record<string, any>;
-      const identity = value.visualIdentity;
-      await tx.projectMarketingProfile.update({
-        where: { id: profile.id },
-        data: {
-          data: {
-            ...value,
-            visualIdentity: {
-              ...identity,
-              creative: { ...identity.creative, visualReview: true },
-            },
-          },
-          version: { increment: 1 },
-        },
-      });
-      const logo = await entity(
-        tx,
-        project.owner,
-        "assets",
-        identity.logoAssetId,
-      );
-      await update(tx, project.owner, logo, {
-        ...data(logo),
-        providerUse: true,
-      });
-    });
+    await enableVisionReview();
     await creativeAssignment();
     const { review } = await drafted((index) => ({
       topic: index === 0 ? "Beta access for teams" : "SECOND beta access",
     }));
-    const scores = {
-      subject: 4,
-      balance: 4,
-      legibility: 5,
-      brandFit: 4,
-      messageFit: 4,
-      channelFit: 4,
-      value: 4,
-    };
     // The first creative fails the rubric, the second passes it.
     provider.replies.push(
       () => ({
         output: [
           message({
-            scores: { ...scores, legibility: 2 },
+            scores: { ...VISION_SCORES, legibility: 2 },
             issues: [{ kind: "layout", note: "The subline is hard to read." }],
           }),
         ],
       }),
-      () => ({ output: [message({ scores, issues: [] })] }),
+      visionPasses,
       approveAll,
     );
     await runAgentTask(h.worker(), review.id);

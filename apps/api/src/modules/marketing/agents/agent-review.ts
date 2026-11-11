@@ -3,6 +3,8 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, hash } from "../../../shared.ts";
 import { activePolicy } from "../policy/policy.ts";
+import { CREATIVES, type CreativeRecord } from "../creative/store.ts";
+import type { StoredVision } from "../creative/vision-review.ts";
 import { linkedTelegramConnection } from "../../../platform/connections/telegram.ts";
 import {
   agentsEnabled,
@@ -86,6 +88,87 @@ export function agentReviewAuthority() {
   return loadConfig().ORBIT_AGENT_REVIEW_AUTHORITY === "true";
 }
 
+/**
+ * Why the review agent's approval does not stand in for the owner on a post
+ * with a creative (CS-D7, spec §4), in the order they are checked.
+ */
+export const CREATIVE_AUTHORITY_CODES = [
+  "CREATIVE_AUTHORITY_OFF",
+  "CREATIVE_NOT_FOUND",
+  "CREATIVE_NOT_USABLE",
+  "CREATIVE_RENDITION_NOT_ON_POST",
+  "CREATIVE_VISION_REVIEW_REQUIRED",
+  "CREATIVE_VISION_NOT_PASSED",
+  "CREATIVE_RENDITION_NOT_REVIEWED",
+  "CREATIVE_QA_NEEDS_OWNER",
+] as const;
+export type CreativeAuthorityCode = (typeof CREATIVE_AUTHORITY_CODES)[number];
+
+/**
+ * The creative condition of agent review authority (CS-D7, spec §4): null
+ * when it holds, else the first code that keeps the post with the owner.
+ * It concerns only a post with image copy or a creative attached that is
+ * published; content without either and a Postiz draft the owner publishes
+ * himself return null. Such a post may go out on the agent's approval only
+ * while `ORBIT_AGENT_REVIEW_CREATIVES` is on, its creative is one of this
+ * project that is neither replaced nor waiting for rights, the post carries
+ * one of its renditions, and the vision review passed exactly that
+ * rendition (by SHA-256) with no other QA finding left for the owner. A
+ * recomposed creative has new renditions and so no longer passes; each
+ * channel of a shared slot is judged by its own rendition (R76).
+ * `agentReviewAccepted` checks everything else, including the image copy
+ * hash and `ORBIT_AGENT_REVIEW_AUTHORITY`, which comes first.
+ */
+export async function creativeAuthorityProblem(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+): Promise<CreativeAuthorityCode | null> {
+  if (
+    (content.creativeCopy === undefined &&
+      typeof content.creativeId !== "string") ||
+    content.delivery === "postiz_draft"
+  )
+    return null;
+  if (loadConfig().ORBIT_AGENT_REVIEW_CREATIVES !== "true")
+    return "CREATIVE_AUTHORITY_OFF";
+  // A malformed id is never looked up (it would fail the query): not found.
+  const row =
+    typeof content.creativeId === "string" && UUID.test(content.creativeId)
+      ? await tx.entity.findFirst({
+          where: {
+            id: content.creativeId,
+            kind: CREATIVES,
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+          },
+        })
+      : null;
+  if (!row) return "CREATIVE_NOT_FOUND";
+  const creative = data(row) as Partial<CreativeRecord>;
+  if (creative.status === "superseded" || creative.status === "needs_rights")
+    return "CREATIVE_NOT_USABLE";
+  const rendition =
+    typeof content.assetId === "string"
+      ? (creative.renditions ?? []).find(
+          (candidate) => candidate.assetId === content.assetId,
+        )
+      : undefined;
+  if (!rendition) return "CREATIVE_RENDITION_NOT_ON_POST";
+  const vision = creative.qa?.vision as Partial<StoredVision> | undefined;
+  if (!vision || typeof vision !== "object")
+    return "CREATIVE_VISION_REVIEW_REQUIRED";
+  if (vision.verdict !== "pass") return "CREATIVE_VISION_NOT_PASSED";
+  if (
+    typeof vision.renditionSha256 !== "string" ||
+    vision.renditionSha256 !== rendition.sha256
+  )
+    return "CREATIVE_RENDITION_NOT_REVIEWED";
+  // Checked after the vision codes, so a failing vision review is named as such.
+  if (creative.qa?.verdict === "needs_owner") return "CREATIVE_QA_NEEDS_OWNER";
+  return null;
+}
+
 /** The assignment's confirmation covers this content type and channel. */
 export function withinConfirmation(
   assignment: Record<string, any>,
@@ -126,9 +209,12 @@ export function confirmedHash(assignment: Record<string, any>) {
  * covers its content and is the one the review was made under; the
  * confirmation covers the content's type and channel; the text names no link
  * outside the policy; a Telegram chat was linked to the project before the
- * review was made; a post with banner copy (R79), with a creative's image
- * copy or with a creative attached (CS-D7, R66) is delivered as a Postiz
- * draft, and that copy is the one reviewed. The veto
+ * review was made; a post with banner copy (R79) is delivered as a Postiz
+ * draft; a post with a creative's image copy or with a creative attached
+ * (CS-D7, R66) is delivered as a Postiz draft or meets the creative rule
+ * (`creativeAuthorityProblem`: `ORBIT_AGENT_REVIEW_CREATIVES` on and a
+ * passed vision review of the exact rendition on the post); the banner and
+ * image copy are the ones reviewed. The veto
  * deadline belongs to the publication and is checked at handoff (R4).
  */
 export async function agentReviewAccepted(
@@ -157,16 +243,11 @@ export async function agentReviewAccepted(
     (content.banner !== undefined ? hash(content.banner) : undefined)
   )
     return false;
-  // Agent review authority does not cover creatives that are published
-  // (CS-D7): the owner publishes a Postiz draft himself, or approves the
-  // post. That holds for any creative, also one a person attached in the
-  // studio (R66). The image copy must be the one reviewed.
-  if (
-    (content.creativeCopy !== undefined ||
-      typeof content.creativeId === "string") &&
-    content.delivery !== "postiz_draft"
-  )
-    return false;
+  // A published creative (any, also one a person attached in the studio,
+  // R66) needs the creative flag and a passed vision review of its exact
+  // rendition (CS-D7); a Postiz draft the owner publishes himself does not.
+  // The image copy must be the one reviewed.
+  if (await creativeAuthorityProblem(tx, scope, content)) return false;
   if (
     review.creativeHash !==
     (content.creativeCopy !== undefined
