@@ -38,7 +38,10 @@ test.describe("system administration", () => {
 
     // Reached through the account menu, not only by URL.
     await page.getByLabel(/^Account menu/).click();
-    await page.getByRole("menuitem", { name: "Administration" }).click();
+    // Exact: in preview the menu also holds "Administration & settings".
+    await page
+      .getByRole("menuitem", { name: "Administration", exact: true })
+      .click();
     await expect(
       page.getByRole("heading", { name: "Administration", level: 1 }),
     ).toBeVisible();
@@ -76,7 +79,10 @@ test.describe("system administration", () => {
     await expect(invitee.getByLabel(/^Account menu/)).toBeVisible();
     // A member sees neither the administration nor the organization settings.
     await invitee.getByLabel(/^Account menu/).click();
-    await expect(invitee.getByRole("menuitem", { name: "Administration" })).toHaveCount(0);
+    // Exact: in preview every member also has "Administration & settings".
+    await expect(
+      invitee.getByRole("menuitem", { name: "Administration", exact: true }),
+    ).toHaveCount(0);
 
     await page.goto("/admin/users");
     await page.getByLabel("Search name or e-mail").fill(email);
