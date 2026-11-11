@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from "./fixtures";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { SEED, signIn } from "./settings-center-helpers";
@@ -27,11 +27,17 @@ import { SEED, signIn } from "./settings-center-helpers";
 //   invitation link without system mail; removed from the organization at
 //   the end;
 // - the organization's standard models: restored to what they were before
-//   (removed again when there was none).
+//   (removed again when there was none), from a baseline file written before
+//   the change; a run that finds that file restores from it first.
 // The project's own model choice ("Organization standard") stays: the project
 // belongs to this file alone.
 
 const STATE = resolve(".runtime/settings-center-ai-state.json");
+// The organization's standard as it was before this file changed it, kept
+// on disk (`.runtime/` is git-ignored) until it is restored, so a run that
+// dies before its cleanup is repaired by the next one instead of the next
+// run taking the leftover standard for the original.
+const STANDARD_BASELINE = resolve(".runtime/settings-center-ai-standard.json");
 const AI_PROJECT = "AI acceptance project";
 const RUN = Date.now().toString(36);
 const CONNECTION_PREFIX = "Synthetic OpenAI ";
@@ -66,6 +72,8 @@ let second:
 // The organization's standard as it was before this file changed it;
 // undefined while unchanged.
 let savedStandard: { defaults: unknown } | undefined;
+// An invitation created for the second person and not yet accepted.
+let pendingInvitation: string | undefined;
 
 const flags = () => caps?.flags ?? { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false };
 const org = () => caps!.organizations[0];
@@ -97,6 +105,28 @@ function gate(needs: {
 async function ok(response: import("@playwright/test").APIResponse, what: string) {
   expect(response.ok(), `${what}: ${response.status()} ${await response.text().catch(() => "")}`).toBe(true);
   return response;
+}
+
+/** Puts the organization's standard back to `defaults` (removes it when null). */
+async function restoreStandard(request: APIRequestContext, organizationId: string, defaults: unknown) {
+  const path = `/api/organizations/${organizationId}/ai/defaults`;
+  await ok(
+    defaults === null
+      ? await request.delete(path, { headers: { origin } })
+      : await request.put(path, { headers: { origin }, data: defaults }),
+    "organization standard restored",
+  );
+}
+
+/** Records the standard before this run changes it, in memory and in the baseline file. */
+async function rememberStandard(request: APIRequestContext) {
+  if (savedStandard) return;
+  const current = await request.get(`/api/organizations/${org().id}/ai/defaults`).then((r) => r.json());
+  savedStandard = { defaults: current.defaults };
+  writeFileSync(
+    STANDARD_BASELINE,
+    JSON.stringify({ organizationId: org().id, defaults: current.defaults }),
+  );
 }
 
 /** The file's own project; created once through the API. */
@@ -206,7 +236,12 @@ async function secondPerson(page: Page) {
     }),
     "second person invited",
   );
-  const invitation = (await invited.json()) as { delivery?: string; link?: string };
+  const invitation = (await invited.json()) as {
+    invitationId?: string;
+    delivery?: string;
+    link?: string;
+  };
+  pendingInvitation = invitation.invitationId;
   test.skip(
     invitation.delivery !== "link" || !invitation.link,
     "system mail is configured, so the invitation link is not returned",
@@ -224,6 +259,7 @@ async function secondPerson(page: Page) {
   await invitee.getByLabel(/^Repeat the password/).fill(password);
   await invitee.getByRole("button", { name: "Create account and accept" }).click();
   await expect(invitee.getByLabel(/^Account menu/)).toBeVisible();
+  pendingInvitation = undefined;
   const me = await invitee.request.get("/api/me").then((r) => r.json());
   await invitee.close();
   return (second = { email, userId: me.user.id, context });
@@ -303,6 +339,15 @@ test.describe("settings center AI area", () => {
       administration = me.administration === true;
       if (stage && stage !== "off")
         caps = await page.request.get("/api/management/capabilities").then((r) => r.json());
+      // An earlier run died before restoring the standard: restore it now.
+      if (existsSync(STANDARD_BASELINE) && caps?.flags?.connections) {
+        const baseline = JSON.parse(readFileSync(STANDARD_BASELINE, "utf8")) as {
+          organizationId: string;
+          defaults: unknown;
+        };
+        await restoreStandard(page.request, baseline.organizationId, baseline.defaults);
+        unlinkSync(STANDARD_BASELINE);
+      }
       await context.storageState({ path: STATE });
     } finally {
       await context.close();
@@ -310,32 +355,48 @@ test.describe("settings center AI area", () => {
   });
 
   test.afterAll(async ({ browser, baseURL }) => {
-    if (!connection && !second && !savedStandard) return;
+    if (!connection && !second && !savedStandard && !pendingInvitation) return;
     const context = await browser.newContext({ baseURL, storageState: STATE });
     const request = context.request;
+    // Every step is attempted, the standard first; failures are reported together.
+    const errors: unknown[] = [];
+    const attempt = async (step: () => Promise<void>) => {
+      try {
+        await step();
+      } catch (error) {
+        errors.push(error);
+      }
+    };
     try {
-      if (second) {
-        await second.context.close();
-        await ok(
-          await request.delete(`/api/organizations/${org().id}/members/${second.userId}`, {
-            headers: { origin },
-          }),
-          "second person removed",
-        );
-      }
-      if (savedStandard) {
-        const path = `/api/organizations/${org().id}/ai/defaults`;
-        await ok(
-          savedStandard.defaults === null
-            ? await request.delete(path, { headers: { origin } })
-            : await request.put(path, { headers: { origin }, data: savedStandard.defaults }),
-          "organization standard restored",
-        );
-      }
-      if (connection) await removeConnection(request, connection.id);
+      if (savedStandard)
+        await attempt(async () => {
+          await restoreStandard(request, org().id, savedStandard!.defaults);
+          unlinkSync(STANDARD_BASELINE);
+        });
+      if (second)
+        await attempt(async () => {
+          await second!.context.close();
+          await ok(
+            await request.delete(`/api/organizations/${org().id}/members/${second!.userId}`, {
+              headers: { origin },
+            }),
+            "second person removed",
+          );
+        });
+      if (pendingInvitation)
+        await attempt(async () => {
+          await ok(
+            await request.delete(`/api/organizations/${org().id}/invitations/${pendingInvitation}`, {
+              headers: { origin },
+            }),
+            "pending invitation revoked",
+          );
+        });
+      if (connection) await attempt(() => removeConnection(request, connection!.id));
     } finally {
       await context.close();
     }
+    if (errors.length) throw new AggregateError(errors, "cleanup of settings-center-ai.spec.ts failed");
   });
 
   test.beforeEach(() => {
@@ -469,11 +530,10 @@ test.describe("settings center AI area", () => {
     // The project's first save needs a key it keeps using: the granted connection.
     await connectionFixture(page.request);
     const path = `/api/organizations/${org().id}/ai/defaults`;
-    const current = await page.request.get(path).then((r) => r.json());
-    savedStandard ??= { defaults: current.defaults };
+    await rememberStandard(page.request);
 
     await page.goto(`/manage/o/${org().id}/ai/standard`);
-    await expect(main(page).getByText(/projects of this organization/)).toBeVisible();
+    await expect(main(page).getByText(/project of this organization/)).toBeVisible();
     await main(page).getByRole("button", { name: /^(Set standard|Change)$/ }).click();
     const dialog = page.getByRole("dialog", { name: "Standard models" });
     await dialog.getByLabel(/^Provider/).selectOption({ label: "Claude" });
@@ -532,6 +592,10 @@ test.describe("settings center AI area", () => {
     await page.goto(`/manage/o/${org().id}/ai/projects`);
     const row = main(page).getByRole("row").filter({ hasText: project.name });
     await expect(row).toContainText("Organization standard");
+    // The name shows as stored: the header cell style must not capitalize it.
+    const name = row.getByRole("rowheader");
+    expect(await name.innerText()).toBe(project.name);
+    expect(await name.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
   });
 
   test("old AI pages keep working", async ({ page }) => {

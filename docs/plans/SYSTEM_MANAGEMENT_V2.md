@@ -414,7 +414,7 @@ Acceptance: a Matomo or Postiz connection is created, checked, granted and bound
 
 Status (2026-11-11): implemented locally on branch `claude/settings-center-phase-4`; not on `main`, flag `off` in production. Implementation plan: [2026-11-11-settings-center-phase-4-ai.md](../superpowers/plans/2026-11-11-settings-center-phase-4-ai.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`; the effective read and the safe saves in [MODEL_ROUTING.md](../MODEL_ROUTING.md), "Effective read and safe saves".
 
-Deviations from the table below, decided during the implementation (rulings P4-R1 to P4-R10 of the phase's ledger):
+Deviations from the table below, decided during the implementation (rulings P4-R1 to P4-R12 of the phase's ledger):
 
 - P4-R1: modules contribute their AI ceilings as an optional `WebModule.aiCeilings` (Finance, Issues, Support, Work), collected for the project's shown modules like phase 3's `integrations`; the project budget section lists them read-only with links.
 - P4-R2: `GET /api/management/capabilities` carries `flags: {connections, aiCatalog, aiDefaults, aiOrgBudget}`; sections read them from the capabilities they already receive instead of a second prop.
@@ -426,6 +426,8 @@ Deviations from the table below, decided during the implementation (rulings P4-R
 - P4-R8: readiness marks carry their state as screen-reader text ("yes"/"no"), not only by colour and glyph.
 - P4-R9: one notice text for unreadable projects, above the projects table and appended to the organization notices.
 - P4-R10: while the runtime applies no standard (`ORBIT_AI_DEFAULTS` off) the organization's profile notices and the system's standard notice state only that a save changes the route version, and the projects list says that standard models are off.
+- P4-R11: the notices are count-neutral: a count stands in parentheses after its noun ("every project of this organization (1)"), never as a bare number before a plural noun.
+- P4-R12: a project that follows the standard while neither the organization nor Orbit has set one says so on its overview (only while the standard applies; otherwise the routing-off notice explains).
 - Section ids as built: project `overview`, `providers`, `models`, `budget`, `usage`, `agents`; organization `standard`, `models`, `budget`, `usage`, `projects`, `advanced`; system `standard`, `models`, `advanced`. The organization and system areas exist only with `ORBIT_CONNECTIONS` (their capabilities `organization.ai` and `system.ai` need it). `advanced` opens closed in an "Advanced" disclosure.
 - F-8 risk 8 (the organization budget `PUT` replaces monthly amount, provider caps and credits together) is not fixed: the one form shows all three and is mounted whole, so nothing is lost today; a characterization test pins the full replace so a later split cannot drop a part unseen.
 
