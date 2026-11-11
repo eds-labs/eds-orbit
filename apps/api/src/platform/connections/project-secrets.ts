@@ -169,6 +169,117 @@ export async function withProjectSecret<T>(
   }, TX);
 }
 
+const CLAIM_KEY = /^[a-zA-Z][a-zA-Z0-9]{1,40}$/;
+const CLAIM_VALUE = /^[A-Za-z0-9_:.-]{1,100}$/;
+const MAX_CLAIMS = 500;
+
+type ClaimInput = { moduleId: string; connectionId: string; key: string; value: string };
+
+function validClaim(input: ClaimInput) {
+  if (!CLAIM_KEY.test(input.key) || !CLAIM_VALUE.test(input.value))
+    throw new DomainError("CONNECTION_CLAIM_INVALID", 400);
+}
+
+function claimed(config: unknown, key: string): string[] {
+  const list = (config as Record<string, unknown> | null)?.[key];
+  return Array.isArray(list) ? list.filter((v): v is string => typeof v === "string") : [];
+}
+
+/**
+ * Exclusive claim of a config value (an ad account, say) across the projects
+ * of one organization: the tables of a module cannot be read across projects
+ * by the auth role, so the exclusivity lives on the connection's config. The
+ * value is appended to `config[key]`; another active connection of the same
+ * provider and organization in another project that holds it refuses the
+ * claim. Connections of the same project do not block.
+ */
+export async function claimExclusiveConfigValue(scope: Scope, input: ClaimInput): Promise<void> {
+  validClaim(input);
+  await authDb.$transaction(async (atx) => {
+    // The provider is needed for the lock name, so read it first; the
+    // ownership check below runs again under the locks.
+    const probe = await atx.connection.findFirst({
+      where: { id: input.connectionId, workspaceId: scope.workspaceId, projectId: scope.projectId },
+      select: { provider: true },
+    });
+    if (!probe) throw new DomainError("NOT_FOUND", 404);
+    await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`connection-claim:${probe.provider}:${scope.workspaceId}:${input.key}:${input.value}`}))`;
+    await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project-secret:${input.connectionId}`}))`;
+    const connection = await owned(atx, scope, input);
+    const taken = await atx.connection.findFirst({
+      where: {
+        provider: connection.provider,
+        scope: "project",
+        workspaceId: scope.workspaceId,
+        projectId: { not: scope.projectId },
+        revokedAt: null,
+        disabledAt: null,
+        config: { path: [input.key], array_contains: [input.value] },
+      },
+      select: { id: true },
+    });
+    if (taken) throw new DomainError("CONNECTION_VALUE_CLAIMED", 409);
+    const current = claimed(connection.config, input.key);
+    if (current.includes(input.value)) return;
+    if (current.length >= MAX_CLAIMS) throw new DomainError("CONNECTION_CLAIMS_FULL", 409);
+    await atx.connection.update({
+      where: { id: connection.id },
+      data: {
+        config: {
+          ...(connection.config as JsonConfig),
+          [input.key]: [...current, input.value],
+        } as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+    await systemAudit(
+      {
+        actorId: scope.userId,
+        action: "connection.config_claimed",
+        targetType: "connection",
+        targetId: connection.id,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        metadata: { provider: connection.provider, key: input.key },
+      },
+      atx,
+    );
+  }, TX);
+}
+
+/** Removes a claimed config value; absent values are not an error. */
+export async function releaseExclusiveConfigValue(scope: Scope, input: ClaimInput): Promise<void> {
+  validClaim(input);
+  await authDb.$transaction(async (atx) => {
+    await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project-secret:${input.connectionId}`}))`;
+    const connection = await owned(atx, scope, input);
+    const current = claimed(connection.config, input.key);
+    if (!current.includes(input.value)) return;
+    await atx.connection.update({
+      where: { id: connection.id },
+      data: {
+        config: {
+          ...(connection.config as JsonConfig),
+          [input.key]: current.filter((v) => v !== input.value),
+        } as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+    await systemAudit(
+      {
+        actorId: scope.userId,
+        action: "connection.config_released",
+        targetType: "connection",
+        targetId: connection.id,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        metadata: { provider: connection.provider, key: input.key },
+      },
+      atx,
+    );
+  }, TX);
+}
+
 /** Revokes the connection, retires its secrets and ends the project grant. */
 export async function revokeProjectConnection(
   scope: Scope,
