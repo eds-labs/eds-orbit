@@ -207,8 +207,10 @@ export async function prepareBrandRun(
   await applyBrand(project, h, config);
   if (options.creative) {
     await addFacebook(project, h);
-    // Only the eval's template, in Facebook's feed_portrait format.
+    // Only the eval's template, in Facebook's feed_portrait format. The
+    // vision review stays off: the eval measures the review model alone.
     await addBrandKit(project, {
+      visualReview: false,
       templates: {
         product_showcase: { enabled: false },
         feature_highlight: { enabled: false },
@@ -294,8 +296,9 @@ export async function caseDraft(
   const cta = run.config.profile.primaryCtas[0]!;
   const setup = await run.h.run(async (tx) => {
     const content = await create(tx, owner, "content", {
+      // The template's own neutral title ("Beta post", "Beitrag"), which the
+      // revision carries too: the model never sees the case id or its label.
       ...shape,
-      title: c.id,
       body: c.body,
       claims: [{ text: cta, kind: "style" }],
       // Copy craft: the template's core message, the case body's own hook.
@@ -326,6 +329,11 @@ export async function caseDraft(
       String(run.template.assignmentRunId),
     );
     if (composed.error) throw new Error(`EVAL_CREATIVE_${composed.error}`);
+    // A setup fault, not the review's: the case would be left for the owner.
+    const failed = composed.failed.find(
+      (entry) => entry.contentId === setup.contentId,
+    );
+    if (failed) throw new Error(`EVAL_CREATIVE_NOT_COMPOSED:${failed.code}`);
   }
   const task = await run.h.run((tx) =>
     create(tx, owner, "agent_tasks", {

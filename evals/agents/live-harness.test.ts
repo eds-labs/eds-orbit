@@ -8,30 +8,40 @@ const replay = vi.hoisted(() => ({
   maxBytes: 0,
   // Bodies the model saw, per round.
   seen: { 1: [] as string[], 2: [] as string[] },
+  // Image copy the model saw, per round and body.
+  copies: { 1: new Map<string, unknown>(), 2: new Map<string, unknown>() },
+  // Every review request as the runner sizes it, and its size per body.
+  requests: [] as string[],
+  bytes: new Map<string, number>(),
 }));
 vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../packages/ai/src/index.ts")>()),
   ...(await import("./stubs.ts")).draftStubs(),
   respond: vi.fn(async (request: any) => {
     replay.calls++;
-    // The size the runner reserves for (see runSpecialist).
-    replay.maxBytes = Math.max(
-      replay.maxBytes,
-      Buffer.byteLength(
-        JSON.stringify({
-          input: request.input,
-          instructions: request.instructions,
-          tools: request.tools,
-          outputSchema: request.outputSchema,
-        }),
-      ),
-    );
+    // The request the runner reserves for (see runStructured).
+    const serialized = JSON.stringify({
+      input: request.input,
+      instructions: request.instructions,
+      tools: request.tools,
+      outputSchema: request.outputSchema,
+    });
+    replay.requests.push(serialized);
+    replay.maxBytes = Math.max(replay.maxBytes, Buffer.byteLength(serialized));
     const input = JSON.parse(request.input[0].content) as {
       round: 1 | 2;
-      drafts: Array<{ contentId: string; body: string }>;
+      drafts: Array<{
+        contentId: string;
+        body: string;
+        creativeCopy?: unknown;
+      }>;
     };
     const drafts = input.drafts;
-    for (const draft of drafts) replay.seen[input.round].push(draft.body);
+    for (const draft of drafts) {
+      replay.seen[input.round].push(draft.body);
+      replay.copies[input.round].set(draft.body, draft.creativeCopy);
+      replay.bytes.set(draft.body, Buffer.byteLength(serialized));
+    }
     return {
       output: [
         {
@@ -79,6 +89,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
+import { estimateCost } from "../../packages/ai/src/index.ts";
 import { parseCandidatesFile } from "../generation/live-plan.ts";
 import { REVIEW_EVAL_MARKER, runReviewEval } from "./live-harness.ts";
 import {
@@ -88,7 +99,7 @@ import {
   REVIEW_REQUEST_BYTES,
   renderReport,
 } from "./live-plan.ts";
-import { parseReviewSet, type ReviewCase } from "./review-set.ts";
+import { CATEGORIES, parseReviewSet, type ReviewCase } from "./review-set.ts";
 import {
   DIAGNOSIS_DIR,
   writeDiagnosis,
@@ -135,6 +146,9 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     );
     replay.calls = 0;
     replay.seen = { 1: [], 2: [] };
+    replay.copies = { 1: new Map(), 2: new Map() };
+    replay.requests = [];
+    replay.bytes = new Map();
     return runReviewEval({
       cases,
       brands: set.brands,
@@ -195,6 +209,16 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     // Every review request of the set stays below the planning bound.
     expect(replay.maxBytes).toBeGreaterThan(0);
     expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+    // No request names a case, its label or its category: the model judges
+    // the post, never the set's answer key (the draft title is the template's).
+    expect(replay.requests).toHaveLength(replay.calls);
+    for (const request of replay.requests) {
+      for (const c of set.cases) expect(request).not.toContain(c.id);
+      expect(request).not.toMatch(/\b(?:good|bad)\b/iu);
+      for (const category of CATEGORIES)
+        expect(request).not.toContain(category);
+      expect(request).not.toContain("eval:");
+    }
     // Metrics only: the model's reasons, the draft bodies and the key never reach the report.
     const written = JSON.stringify(report) + renderReport(report, outcome);
     expect(written).not.toContain("Synthetic reason");
@@ -246,6 +270,8 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       "bad-advice-savings",
       "bad-repeat-paraphrase",
       "bad-unbacked-day-one",
+      // A creative case: the revision keeps its image copy and gets a creative of its own.
+      "de-bad-image-holidays",
     ].map(byId);
     const report = await run(cases, {
       "good-reply": { 1: "revise", 2: "approve" },
@@ -255,6 +281,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       "bad-repeat-paraphrase": { 1: "revise", 2: "reject" },
       // A live revise of an unbacked claim: the unchanged revision is rejected in round 2.
       "bad-unbacked-day-one": { 1: "revise", 2: "reject" },
+      "de-bad-image-holidays": { 1: "revise", 2: "reject" },
     });
     expect(report.stoppedReason).toBeNull();
     const result = Object.fromEntries(report.results.map((r) => [r.caseId, r]));
@@ -264,6 +291,14 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     expect(result["bad-advice-savings"]!.verdict).toBe("reject");
     expect(result["bad-repeat-paraphrase"]!.verdict).toBe("reject");
     expect(result["bad-unbacked-day-one"]!.verdict).toBe("reject");
+    expect(result["de-bad-image-holidays"]!.verdict).toBe("reject");
+    // Round 2 saw the creative revision with the same body and the same image
+    // copy. It reached the model at all only because the revision carried a
+    // composed creative of that copy (else CREATIVE_MISSING leaves it for the
+    // owner without a call, and the case is not as planned).
+    const holidays = byId("de-bad-image-holidays");
+    expect(replay.copies[1].get(holidays.body)).toEqual(holidays.creativeCopy);
+    expect(replay.copies[2].get(holidays.body)).toEqual(holidays.creativeCopy);
     for (const r of report.results) {
       expect(r.revised).toBe(true);
       expect(r.reviewCalls).toBe(2);
@@ -272,7 +307,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       expect(r.deterministicProblems).toEqual([]);
       expect(r.asPlanned).toBe(true);
     }
-    expect(replay.calls).toBe(10);
+    expect(replay.calls).toBe(12);
     // Round 2 judged exactly the original texts.
     expect(replay.seen[2].sort()).toEqual(cases.map((c) => c.body).sort());
     const outcome = evaluatePassRule(cases, report.results, null);
@@ -394,6 +429,52 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
+
+  // The ceiling is one budget across the projects of all brands.
+  it("stops the second brand's case when the shared ceiling allows only one review reservation", async () => {
+    const cases = ["good-join-now", "de-good-abholen"].map(byId);
+    const answers = {
+      "good-join-now": { 1: "approve" },
+      "de-good-abholen": { 1: "approve" },
+    };
+    // Calibration with the full ceiling: the exact size of both requests.
+    expect((await run(cases, answers)).stoppedReason).toBeNull();
+    const reservation = (c: ReviewCase) =>
+      estimateCost(
+        plan.route.model,
+        replay.bytes.get(c.body)!,
+        plan.route.maxOutputTokens,
+        { rateCard: plan.runtime.rateCard },
+      );
+    const [en, de] = cases.map(reservation) as [number, number];
+    // Room for the English reservation (and the stubbed drafts' few micros),
+    // not for the German one once the first review is settled at 3,000.
+    const ceiling = en + 1_000;
+    expect(ceiling - 3_000).toBeLessThan(de);
+    const report = await run(cases, answers, ceiling);
+    expect(replay.calls).toBe(1);
+    expect(report.results).toHaveLength(2);
+    expect(report.results[0]).toMatchObject({
+      caseId: "good-join-now",
+      verdict: "approve",
+      modelCalled: true,
+    });
+    expect(report.results[1]).toMatchObject({
+      caseId: "de-good-abholen",
+      verdict: "error",
+      modelCalled: false,
+      errorCode: "AGENT_LIMIT",
+    });
+    expect(report.stoppedReason).toBe("AGENT_LIMIT");
+    expect(report.workspaceIds).toHaveLength(2);
+    const outcome = evaluatePassRule(
+      cases,
+      report.results,
+      report.stoppedReason,
+    );
+    expect(outcome.rules.complete).toBe(false);
+    expect(outcome.pass).toBe(false);
+  }, 180_000);
 
   it("stops at the ceiling before a reservation it cannot afford", async () => {
     const cases = ["good-join-now", "good-invite"].map(byId);

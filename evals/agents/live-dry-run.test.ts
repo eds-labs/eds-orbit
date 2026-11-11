@@ -82,7 +82,7 @@ describe("Live review eval planning (dry run)", () => {
   // The worst case: two calls for every case, each at its full output limit
   // and the request bound. Above the ceiling, the plan says so: the run then
   // stops at the first refused reservation with a partial report (a FAIL).
-  it("plans v3 under the 3 USD ceiling", () => {
+  it("plans v3 against the 3 USD ceiling and prints the note when the worst case exceeds it", () => {
     const p = plan();
     expect(REVIEW_REQUEST_BYTES).toBe(16_000);
     expect(p.maxCostMicros).toBe(3_000_000);

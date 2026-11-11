@@ -107,12 +107,13 @@ No Telegram bot is linked, so no notification is queued.
    the cost ceiling, the dataset hash, the hash of the review prompt and
    schema, the commit, and the confirmation, and transmits nothing.
    For `review-v3` it prints `agents-review-v3`, 38 cases, the cases per
-   brand, 76 review calls at most and a worst case of $4.408 (76 calls at
-   58,000 micros each, every call at its full output limit and the
-   16,000-byte request bound, on the rate card of 2026-09-30). That is above
-   the 3 USD ceiling, so the plan notes a possible early stop with a partial
-   report (a FAIL); whether to run at 3 USD is Mario's decision at the dry
-   run. The realistic cost is far lower: run 3 spent $0.075 on v2.
+   brand and 76 review calls at most. The worst case it prints is every
+   call at its full output limit and the 16,000-byte request bound, priced
+   with the current rate card and route; when that exceeds the 3 USD
+   ceiling, the plan says so and the run may stop early with a partial
+   report (a FAIL). Whether to run at 3 USD is Mario's decision at the dry
+   run. Real requests are far smaller than the bound (about 7 KB for the
+   longest German post), and run 3 spent $0.075 on v2.
    **The rate card is stale:** its `verifiedAt` is 2026-09-30, so until it
    is refreshed the dry run stops with `EVAL_RATE_CARD_STALE` before it
    prints anything.

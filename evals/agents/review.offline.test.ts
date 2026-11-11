@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const replay = vi.hoisted(() => ({
   shown: [] as string[][],
   recorded: null as null | { verdict: string; reasons: string[] },
+  // A verdict per review round instead of the recorded one (revision tests).
+  rounds: null as null | { 1: string; 2: string },
 }));
 vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../packages/ai/src/index.ts")>()),
@@ -11,21 +13,22 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await import("./stubs.ts")).draftStubs(),
   respond: vi.fn(async (request: any) => {
     if (!replay.recorded) throw new Error("REPLAY_NOT_CONFIGURED");
-    const drafts = JSON.parse(request.input[0].content).drafts as Array<{
-      contentId: string;
-    }>;
+    const input = JSON.parse(request.input[0].content) as {
+      round: 1 | 2;
+      drafts: Array<{ contentId: string }>;
+    };
+    const drafts = input.drafts;
     replay.shown.push(drafts.map((draft) => draft.contentId));
+    const verdict = replay.rounds?.[input.round] ?? replay.recorded.verdict;
     return {
       output: [
         message({
           decisions: drafts.map((draft) => ({
             contentId: draft.contentId,
-            verdict: replay.recorded!.verdict,
-            reasons: replay.recorded!.reasons,
+            verdict,
+            reasons: verdict === "approve" ? [] : replay.recorded!.reasons,
             revisionInstructions:
-              replay.recorded!.verdict === "revise"
-                ? "Synthetic instruction."
-                : null,
+              verdict === "revise" ? "Synthetic instruction." : null,
           })),
         }),
       ],
@@ -287,6 +290,7 @@ describe.skipIf(!enabled)("Review eval v3 (offline replay)", () => {
     const original = contents.find((row) => row.id === setup.contentId)!;
     await endCase(run, setup, [setup.contentId, first?.revisedTo]);
     return {
+      first,
       verdict: final?.verdict,
       content,
       original,
@@ -359,4 +363,51 @@ describe.skipIf(!enabled)("Review eval v3 (offline replay)", () => {
     }
     expect(failures).toEqual([]);
   }, 300_000);
+
+  // Only the review model is measured: the brand kit's vision review is off.
+  it("keeps the vision review off in the creative brand's kit", async () => {
+    const run = runs.get("de")!;
+    const profile = await run.h.run((tx) =>
+      tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: run.project.owner.projectId },
+      }),
+    );
+    const identity = (profile.data as Record<string, any>).visualIdentity;
+    expect(identity.creative).toMatchObject({
+      enabled: true,
+      visualReview: false,
+    });
+  });
+
+  // The worst-case revision of a creative post keeps its body and image copy
+  // and gets a creative of its own, which round 2 judges again.
+  it("revises a creative case with its image copy and a newly composed creative", async () => {
+    const c = good.find((c) => c.creativeCopy !== undefined)!;
+    replay.rounds = { 1: "revise", 2: "approve" };
+    try {
+      const outcome = await review(c);
+      expect(outcome.first?.verdict).toBe("revise");
+      expect(outcome.verdict).toBe("approve");
+      expect(outcome.calls).toBe(2);
+      const { original, content: revised } = outcome;
+      expect(revised.id).toBe(outcome.first!.revisedTo);
+      expect(original.status).toBe("rejected");
+      expect(revised.body).toBe(c.body);
+      expect(revised.creativeCopy).toEqual(c.creativeCopy);
+      expect(revised.creativeCopy).toEqual(original.creativeCopy);
+      expect([revised.hook, revised.coreMessage]).toEqual([
+        original.hook,
+        original.coreMessage,
+      ]);
+      expect(typeof revised.creativeId).toBe("string");
+      expect(typeof revised.assetId).toBe("string");
+      expect(revised.creativeId).not.toBe(original.creativeId);
+      expect(revised.agentReview).toBeTruthy();
+      expect(revised.agentAuthorityProblem).toBe(
+        "CREATIVE_VISION_REVIEW_REQUIRED",
+      );
+    } finally {
+      replay.rounds = null;
+    }
+  }, 120_000);
 });
