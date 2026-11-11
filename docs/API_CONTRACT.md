@@ -56,6 +56,26 @@ Creative Studio (`ORBIT_CREATIVE_STUDIO=true`; with it off every route below ans
 - POST /api/projects/:projectId/creatives/:creativeId/review owner `{}` (3 a minute per client) -> creative with `qa.vision`. The optional vision review of the first format's rendition: `CREATIVE_NOT_REVIEWABLE` (a `superseded` creative or one that `needs_rights`, before anything is reserved), `VISION_REVIEW_DISABLED`, `PROVIDER_USE_REQUIRED`, `PROJECT_PAUSED` (409) and the spend mandate's refusals; a rendition that was judged already returns its stored verdict without a second payment.
 - POST /api/projects/:projectId/creatives/:creativeId/attach editor/owner `{acceptQaFindings?:true}` -> `{contentId, assetId}`. Puts the rendition in the post's channel format on the post (the post goes back to `draft`, loses an agent's review, CS-D7, and is reviewed again). A creative that `needs_owner` needs `acceptQaFindings: true` from an owner (`CREATIVE_QA_FAILED` without it, `OWNER_REQUIRED` for an editor); integrity and rights findings are never accepted. Further errors: `CREATIVE_RIGHTS_REQUIRED`, `CREATIVE_NOT_ATTACHABLE`, `CONTENT_CHANGED`, `DRAFT_SUPERSEDED`, `ALREADY_SCHEDULED`, `CAPTION_TOO_LONG`, `BRAND_ASSET_CHANGED`, `ASSET_RIGHTS`, `LOGO_INTEGRITY`, `SCREENSHOT_INTEGRITY`. Repeating the attach changes nothing.
 
+## Settings center (ADR 0027; `ORBIT_SETTINGS_CENTER=off|preview|on`)
+
+With the flag `off` every route below `/api/management/` answers 404 `NOT_FOUND`, before authentication.
+
+- GET `/api/management/capabilities` (any signed-in user; 401 without a session) -> `{stage: "preview"|"on", system: Capability[], account: Capability[], organizations: [{id, name, capabilities}], projects: [{id, name, workspaceId, role: "owner"|"editor"|"viewer", capabilities}]}`. A hint for navigation only: which scopes and sections the member may open. Every route keeps its own server-side check. Read from the database on every request, so a role change shows on the next call. `organizations` lists only organizations the caller owns (a system administrator's foreign organizations are not listed, D-9); `projects` lists the business projects the caller reaches (personal spaces never). Nothing of an organization or project the caller has no role in appears.
+
+| Capability | Granted when |
+| --- | --- |
+| `system.overview`, `system.users`, `system.organizations`, `system.mcp`, `system.audit` | `ORBIT_ADMINISTRATION` and the caller is an active system administrator |
+| `system.connections`, `system.ai` | the row above and `ORBIT_CONNECTIONS` |
+| `organization.overview`, `organization.members` | `ORBIT_ADMINISTRATION` and organization role `owner` |
+| `organization.connections`, `organization.ai` | the row above and `ORBIT_CONNECTIONS` |
+| `organization.knowledge` | organization owner and `ORBIT_KNOWLEDGE_SHARES` |
+| `organization.apps` | organization owner and `ORBIT_MCP_OAUTH` (the MCP grant routes exist) |
+| `project.overview`, `project.profile`, `project.modules`, `project.integrations` | any role in the project |
+| `project.members`, `project.ai`, `project.data` | project role `owner` (an organization owner is owner of every business project, as in `/api/me`) |
+| `account.profile` | `ORBIT_ACCOUNT` |
+| `account.apps` | `ORBIT_MCP_OAUTH` |
+| `account.assistant` | the personal assistant is enabled |
+
 ## Errors
 
 Errors `{error:{code,message}}`, no stack, provider text, source snippets or SQL. An error that names what it refused adds `detail`, an object of ids and codes only (never content or secrets): `{assetIds,reasons}` (comma-separated) for `ASSET_RIGHTS`, `{failed:[{contentId,codes}]}` for a package's `CREATIVE_QA_FAILED`, `{codes}` (comma-separated) for refused image copy (`CREATIVE_TEXT_TOO_LONG`, `CREATIVE_TEXT_UNSAFE`, `CREATIVE_LINK_NOT_ALLOWED`), `{artAssetId}` for a failure after a paid image; other errors have none. Specific shapes are validated server-side and generated OpenAPI supplements this contract (it declares `code` and `message` only).

@@ -575,6 +575,14 @@
     "sysadmin": "public",
     "owner": "public"
   },
+  "GET /api/management/capabilities": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
   "GET /api/mcp-connect/request": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",

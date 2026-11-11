@@ -124,6 +124,7 @@ import {
   sendWebResponse,
 } from "./platform/mcp-auth/http.ts";
 import { registerMcpConnectRoutes } from "./platform/mcp-auth/routes.ts";
+import { registerManagementRoutes } from "./platform/management/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
@@ -559,6 +560,7 @@ export async function buildServer(
   // user's own account (ADR 0013).
   registerAdministrationRoutes(app, auth, { runtimeHealth });
   registerAccountRoutes(app, auth);
+  registerManagementRoutes(app, auth);
   registerConnectionRoutes(app, auth);
   registerShareRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
