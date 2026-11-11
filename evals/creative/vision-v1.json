@@ -1,6 +1,6 @@
 {
   "datasetVersion": "creative-vision-v1",
-  "description": "Eight creatives composed for free from the offline fixtures (packages/creative/fixtures/demo-brands.ts), all in the 4:5 feed_portrait format, judged by the production vision review (visionReviewCreative). Four good ones (each demo brand's good art in two templates) should pass; four bad ones (a tiny subject, an almost empty field, a bright busy scene, and a rendition composed in the other brand's palette and logo) must never pass. The recorded answers are hand-written replays of the expected verdict for the offline tests, not a model's output.",
+  "description": "Eight creatives composed for free from the offline fixtures (packages/creative/fixtures/demo-brands.ts), all in the 4:5 feed_portrait format, judged by the production vision review (visionReviewCreative). Four good ones (each demo brand's good art in two templates) should pass; four bad ones (a tiny subject, an almost empty field, a bright busy scene without a main subject, and the other brand's complete creative - its art, palette and logo - judged against this brand's brief and image copy) must never pass. The recorded answers are hand-written replays of the expected verdict for the offline tests, not a model's output.",
   "format": "feed_portrait",
   "brands": {
     "lumora": {
@@ -209,18 +209,18 @@
       "expected": "needs_correction",
       "recorded": {
         "scores": {
-          "subject": 2,
+          "subject": 1,
           "balance": 2,
-          "legibility": 2,
+          "legibility": 3,
           "brandFit": 3,
           "messageFit": 2,
           "channelFit": 3,
-          "value": 2
+          "value": 1
         },
         "issues": [
           {
-            "kind": "layout",
-            "note": "The washed-out, busy background competes with the text."
+            "kind": "art",
+            "note": "No main subject; busy decoration fills the frame."
           }
         ]
       }
@@ -239,14 +239,18 @@
           "balance": 4,
           "legibility": 4,
           "brandFit": 1,
-          "messageFit": 3,
+          "messageFit": 1,
           "channelFit": 4,
-          "value": 3
+          "value": 2
         },
         "issues": [
           {
             "kind": "logo",
             "note": "The logo and colours belong to another brand."
+          },
+          {
+            "kind": "art",
+            "note": "The art shows data charts, not a warm room at dusk."
           }
         ]
       }

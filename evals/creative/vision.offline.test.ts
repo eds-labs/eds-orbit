@@ -43,11 +43,18 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
 }));
 
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
+import { sourceSizeFor } from "../../packages/ai/src/index.ts";
 import {
+  sha256Hex,
   TEMPLATE_COPY_LIMITS,
   TEMPLATE_NEEDS,
+  TEMPLATE_VARIANTS,
 } from "../../packages/creative/src/index.ts";
-import { demoBrand } from "../../packages/creative/fixtures/demo-brands.ts";
+import {
+  demoBrand,
+  fixtureArt,
+} from "../../packages/creative/fixtures/demo-brands.ts";
+import { IMAGE_MODEL } from "../../apps/api/tests/support/package-project.ts";
 import { visionVerdict } from "../../apps/api/src/modules/marketing/creative/vision-review.ts";
 import { parseVisionSet, type VisionSet } from "./vision-set.ts";
 import {
@@ -313,11 +320,54 @@ describe.skipIf(!enabled)("Vision eval harness (offline replay)", () => {
       expect(sent).not.toContain(c.id);
       expect(sent).not.toContain("tiny_subject");
     }
-    // Every rendition differs; the wrong kit's differs from its brand's own
-    // good lifestyle creative (same art and template, other palette and logo).
     expect(new Set(images).size).toBe(8);
-    const at = (id: string) => images[set.cases.findIndex((c) => c.id === id)];
-    expect(at("lumora-bad-wrong-kit")).not.toBe(at("lumora-good-lifestyle"));
+
+    // Each case is what the set describes before any paid call: the image
+    // sent is the recorded rendition, drawn from the kit brand's art and
+    // logo, and production's composition (with its free corrections) finds
+    // the blockers of the tiny subject and the empty field, while the good
+    // cases, the bright scene and the wrong kit pass its checks, so the
+    // vision review is their only gate.
+    const [width, height] = sourceSizeFor(IMAGE_MODEL, 1080 / 1350)
+      .split("x")
+      .map(Number);
+    const artSha = async (c: (typeof set.cases)[number]) =>
+      (await fixtureArt(c.art, c.kitBrand, { width: width!, height: height! }))
+        .sha256;
+    const logoSha = async (name: "lumora" | "kestrel") =>
+      (await demoBrand(name)).logos[0]!.sha256;
+    const blockers: Partial<Record<string, string>> = {
+      tiny_subject: "SUBJECT_TOO_SMALL",
+      flat: "EMPTY_AREA_EXCESSIVE",
+    };
+    for (const [index, c] of set.cases.entries()) {
+      const result = report.results[index]!;
+      const sent = Buffer.from(images[index]!.split(",")[1]!, "base64");
+      expect(sha256Hex(sent), c.id).toBe(result.renditionSha256);
+      expect(result.artSha256, c.id).toBe(await artSha(c));
+      expect(result.logoSha256, c.id).toBe(await logoSha(c.kitBrand));
+      expect(TEMPLATE_VARIANTS[c.template], c.id).toContain(result.variant);
+      const blocker = blockers[c.art];
+      if (blocker) {
+        expect(result.compositionVerdict, c.id).toBe("needs_owner");
+        expect(result.compositionFailed, c.id).toContain(blocker);
+      } else {
+        expect(["pass", "corrected"], c.id).toContain(
+          result.compositionVerdict,
+        );
+        expect(result.compositionFailed, c.id).toEqual([]);
+      }
+    }
+    // The wrong kit's creative is Kestrel's complete creative (its art and
+    // logo, not Lumora's), judged against Lumora's brief (asserted above).
+    const byId = (id: string) => report.results.find((r) => r.caseId === id)!;
+    const wrongKit = byId("lumora-bad-wrong-kit");
+    const lumoraOwn = byId("lumora-good-lifestyle");
+    const kestrelOwn = byId("kestrel-good-lifestyle");
+    expect(wrongKit.artSha256).toBe(kestrelOwn.artSha256);
+    expect(wrongKit.artSha256).not.toBe(lumoraOwn.artSha256);
+    expect(wrongKit.logoSha256).toBe(await logoSha("kestrel"));
+    expect(wrongKit.logoSha256).not.toBe(await logoSha("lumora"));
 
     // Metrics only: no notes, no image bytes, no key.
     const json = JSON.stringify(report);

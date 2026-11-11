@@ -3,10 +3,12 @@
  * replay, the planner and the live harness. Every case is a creative
  * composed for free from the offline fixtures (`fixtureArt`, the demo brands
  * Lumora Home and Kestrel Analytics) in the set's one format. `brand` is the
- * project's brand at review time (the brief the model reads); `kitBrand` is
- * the brand kit (palette, fonts, logo) the creative is composed with, and the
- * art is drawn for `brand`. The recorded answers are hand-written replays of
- * the expected verdict, decided by production's `visionVerdict`.
+ * project's brand at review time: the brief the model reads and the post's
+ * image copy. `kitBrand` is the brand whose art, palette, fonts and logo the
+ * creative is composed from; only the wrong kit's case differs, so it is the
+ * other brand's complete creative judged against this brand's brief. The
+ * recorded answers are hand-written replays of the expected verdict, decided
+ * by production's `visionVerdict`.
  */
 import { z } from "zod";
 import {

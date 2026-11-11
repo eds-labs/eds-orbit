@@ -268,6 +268,17 @@ export type VisionCaseResult = {
   verdict: VisionVerdictClass;
   // Whether this case meets its expectation (`visionCasePasses`).
   pass: boolean;
+  // The composition before the review, through production's path and its
+  // free corrections: its verdict, its failed check codes and the variant
+  // drawn, so the evidence shows the case was what the set describes.
+  compositionVerdict: "pass" | "corrected" | "needs_owner";
+  compositionFailed: string[];
+  variant: string;
+  // Hashes only, never bytes: the rendition sent, and the art and logo it was
+  // drawn from (the kit brand's).
+  renditionSha256: string;
+  artSha256: string | null;
+  logoSha256: string;
   // The format of the rendition the review judged.
   format: string | null;
   // Whether a review call was transmitted (a reservation that was not released).
@@ -361,6 +372,7 @@ export type VisionTotals = {
   settledMicros: number;
   inputTokens: number;
   cachedTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   reasoningTokens: number;
 };
@@ -379,6 +391,7 @@ export function visionTotals(results: VisionCaseResult[]): VisionTotals {
     settledMicros: sum((r) => r.settledMicros),
     inputTokens: sum((r) => r.inputTokens),
     cachedTokens: sum((r) => r.cachedTokens),
+    cacheWriteTokens: sum((r) => r.cacheWriteTokens),
     outputTokens: sum((r) => r.outputTokens),
     reasoningTokens: sum((r) => r.reasoningTokens),
   };
@@ -452,6 +465,7 @@ export function renderVisionReport(
         "Settled (micros)",
         "Input",
         "Cached",
+        "Cache write",
         "Output",
         "Reasoning",
       ],
@@ -466,6 +480,7 @@ export function renderVisionReport(
           t.settledMicros,
           t.inputTokens,
           t.cachedTokens,
+          t.cacheWriteTokens,
           t.outputTokens,
           t.reasoningTokens,
         ],
@@ -480,7 +495,9 @@ export function renderVisionReport(
         "Label",
         "Art",
         "Brand / kit",
-        "Template",
+        "Template (variant)",
+        "Composition (failed checks)",
+        "Rendition SHA-256",
         "Expected",
         "Verdict",
         "Pass",
@@ -497,7 +514,12 @@ export function renderVisionReport(
         r.label,
         r.art,
         `${r.brand} / ${r.kitBrand}`,
-        r.template,
+        `${r.template} (${r.variant})`,
+        r.compositionVerdict +
+          (r.compositionFailed.length
+            ? ` (${r.compositionFailed.join(", ")})`
+            : ""),
+        `\`${r.renditionSha256.slice(0, 12)}\``,
         r.expected,
         r.verdict,
         r.pass ? "yes" : "NO",

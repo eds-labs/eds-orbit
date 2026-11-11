@@ -96,9 +96,12 @@ type Brands = VisionSet["brands"];
 type BrandName = keyof Brands;
 type Fixtures = {
   logos: Record<BrandName, string>;
-  // Art asset per `${brand}:${art}` the cases use.
+  // Art asset per `${kitBrand}:${art}` the cases use.
   art: Map<string, string>;
 };
+/** The fixture art a case's creative is composed from: drawn for its kit's brand. */
+const artKey = (c: Pick<VisionCase, "kitBrand" | "art">) =>
+  `${c.kitBrand}:${c.art}`;
 
 const runIn = <T>(project: Project, work: (tx: DbTx) => Promise<T>) =>
   scoped(project.owner.workspaceId, project.owner.projectId, work);
@@ -145,7 +148,11 @@ const addAsset = (project: Project, type: string, bytes: Buffer) =>
     return row.id;
   });
 
-/** Each demo brand's primary logo and every art the cases use, drawn at the image model's 4:5 size. */
+/**
+ * Each demo brand's primary logo and every art the cases use, drawn for the
+ * case's kit brand at the image model's 4:5 size: the wrong kit's case is
+ * the other brand's complete creative (art, palette, logo).
+ */
 async function addFixtures(
   project: Project,
   cases: VisionCase[],
@@ -162,9 +169,9 @@ async function addFixtures(
     .map(Number);
   const art = new Map<string, string>();
   for (const c of cases) {
-    const key = `${c.brand}:${c.art}`;
+    const key = artKey(c);
     if (art.has(key)) continue;
-    const drawn = await fixtureArt(c.art, c.brand, {
+    const drawn = await fixtureArt(c.art, c.kitBrand, {
       width: width!,
       height: height!,
     });
@@ -260,7 +267,9 @@ async function runCase(
 ): Promise<{ result: VisionCaseResult; unknown: boolean }> {
   const { owner } = project;
   const brand = set.brands[c.brand];
-  // Composed in the kit's palette, fonts and logo; free (no image provider).
+  // Composed from the kit brand's art, palette, fonts and logo with the
+  // brand's post and image copy, through production's composition path and
+  // its free corrections; free (no image provider).
   await setBrand(
     project,
     set.brands[c.kitBrand],
@@ -272,7 +281,7 @@ async function runCase(
     contentId: content.id,
     template: c.template,
     copy: brand.copy,
-    artAssetId: fixtures.art.get(`${c.brand}:${c.art}`)!,
+    artAssetId: fixtures.art.get(artKey(c))!,
   });
   // A setup fault, not the review's: the case must be what the set describes.
   if (creative.template !== c.template)
@@ -282,6 +291,24 @@ async function runCase(
     creative.renditions[0]!.format !== set.format
   )
     throw new Error("EVAL_CREATIVE_FORMAT_MISMATCH");
+  const rendition = creative.renditions[0]!;
+  // What the composition decided before the review (metrics only): its
+  // verdict after the free corrections, its failed checks, the variant drawn,
+  // and the hashes of the rendition and of the art and logo it was drawn from.
+  const composition = {
+    compositionVerdict: creative.qa.verdict,
+    compositionFailed: [
+      ...new Set(
+        creative.qa.checks
+          .filter((check) => !check.passed)
+          .map((check) => check.code),
+      ),
+    ],
+    variant: rendition.variant ?? creative.variant,
+    renditionSha256: rendition.sha256,
+    artSha256: creative.components.artSha256 ?? null,
+    logoSha256: creative.components.logo.sha256,
+  };
   // The review reads the brief of the project's brand (the wrong kit's case
   // is judged against the brand it was not composed for).
   if (c.kitBrand !== c.brand)
@@ -344,6 +371,9 @@ async function runCase(
     failure = "EVAL_ROUTE_MISMATCH";
   if (!failure && vision?.format !== set.format)
     failure = "EVAL_CREATIVE_FORMAT_MISMATCH";
+  // The verdict must belong to the rendition composed for the case.
+  if (!failure && vision?.renditionSha256 !== composition.renditionSha256)
+    failure = "EVAL_RENDITION_MISMATCH";
   const verdict: VisionVerdictClass = failure ? "error" : vision!.verdict;
   const known = spans.filter((span) => span.costMicros !== null);
   const sum = (pick: (span: (typeof spans)[number]) => number | null) =>
@@ -360,6 +390,7 @@ async function runCase(
     expected: c.expected,
     verdict,
     pass: visionCasePasses({ label: c.label, verdict }),
+    ...composition,
     format: vision?.format ?? null,
     modelCalled,
     model,

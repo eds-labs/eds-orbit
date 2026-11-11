@@ -21,9 +21,9 @@ and Kestrel Analytics (`kestrel`, teal and lime), their logos and
 
 - `brand`: the project's brand when the review runs, so the brief the model
   reads next to the image (brand name, palette, imagery, format, template,
-  key message, image copy). The art is drawn for this brand.
-- `kitBrand`: the brand kit (palette, fonts, logo) the creative is composed
-  with. It differs from `brand` only in the wrong-kit case.
+  key message) and the post's image copy.
+- `kitBrand`: the brand whose art, palette, fonts and logo the creative is
+  composed from. It differs from `brand` only in the wrong-kit case.
 - `art`: `good`, `tiny_subject`, `flat` or `bright`; `template`: the layout.
 - `expected`: `pass` for a good case, `needs_correction` for a bad one.
 - `recorded`: a hand-written answer (seven scores and issues) that gives the
@@ -31,21 +31,28 @@ and Kestrel Analytics (`kestrel`, teal and lime), their logos and
   least 3 and the mean at least 3.5). It is a replay for the offline tests,
   not a model's output.
 
-| Case                         | Label | Art            | Brand / kit       | Template        |
-| ---------------------------- | ----- | -------------- | ----------------- | --------------- |
-| `lumora-good-lifestyle`      | good  | `good`         | lumora / lumora   | `lifestyle`     |
-| `lumora-good-brand-message`  | good  | `good`         | lumora / lumora   | `brand_message` |
-| `kestrel-good-lifestyle`     | good  | `good`         | kestrel / kestrel | `lifestyle`     |
-| `kestrel-good-brand-message` | good  | `good`         | kestrel / kestrel | `brand_message` |
-| `lumora-bad-tiny-subject`    | bad   | `tiny_subject` | lumora / lumora   | `lifestyle`     |
-| `kestrel-bad-flat`           | bad   | `flat`         | kestrel / kestrel | `lifestyle`     |
-| `kestrel-bad-bright`         | bad   | `bright`       | kestrel / kestrel | `brand_message` |
-| `lumora-bad-wrong-kit`       | bad   | `good`         | lumora / kestrel  | `lifestyle`     |
+| Case                         | Label | Art            | Brand / kit       | Template        | Composition checks                                          |
+| ---------------------------- | ----- | -------------- | ----------------- | --------------- | ----------------------------------------------------------- |
+| `lumora-good-lifestyle`      | good  | `good`         | lumora / lumora   | `lifestyle`     | pass                                                        |
+| `lumora-good-brand-message`  | good  | `good`         | lumora / lumora   | `brand_message` | pass                                                        |
+| `kestrel-good-lifestyle`     | good  | `good`         | kestrel / kestrel | `lifestyle`     | pass                                                        |
+| `kestrel-good-brand-message` | good  | `good`         | kestrel / kestrel | `brand_message` | corrected (free variant switch, `centered` → `text_bottom`) |
+| `lumora-bad-tiny-subject`    | bad   | `tiny_subject` | lumora / lumora   | `lifestyle`     | needs owner: `SUBJECT_TOO_SMALL`, `EMPTY_AREA_EXCESSIVE`    |
+| `kestrel-bad-flat`           | bad   | `flat`         | kestrel / kestrel | `lifestyle`     | needs owner: `SUBJECT_TOO_SMALL`, `EMPTY_AREA_EXCESSIVE`    |
+| `kestrel-bad-bright`         | bad   | `bright`       | kestrel / kestrel | `brand_message` | pass                                                        |
+| `lumora-bad-wrong-kit`       | bad   | `good`         | lumora / kestrel  | `lifestyle`     | pass                                                        |
 
 `tiny_subject` is a small object on a smooth field, `flat` an almost uniform
-field, `bright` a bright, busy, washed-out scene behind the text. The wrong-kit
-case is Lumora's good art composed in Kestrel's palette and with Kestrel's
-logo, then judged against Lumora's brief. The schema (`vision-set.ts`) refuses
+field, `bright` a bright, busy scene of pastel shapes and confetti with no
+main subject (its defect is the missing subject and the busy decoration, not
+legibility: the composition raises the text scrim until contrast passes). The
+wrong-kit case is Kestrel's complete creative (its good art, palette, fonts and
+logo) with Lumora's image copy, judged against Lumora's brief, so palette,
+imagery and logo are visibly off-brand. The last column is what production's
+own composition path (with its free corrections) decides before the review, as
+recorded on this host: the good cases, the bright scene and the wrong kit pass
+the studio's checks, so the vision review is their only gate; the offline test
+asserts this per case. The schema (`vision-set.ts`) refuses
 a set without exactly 4 good and 4 bad cases, a good case that is not its
 brand's good art in its own kit, a recorded answer that does not give the
 expected verdict, a template that needs a product or draws no art, and image
@@ -63,7 +70,11 @@ Both files run in `pnpm test` (the main Vitest config includes
   answers (`respond` mocked): one call per case on the route file's route
   with the run's key stored as the project's Anthropic key, the rendition as
   a PNG image, the brief of the case's brand within the planning bound, no
-  case id in the request, every case's verdict as expected, metrics-only
+  case id in the request; per case that the image sent is the recorded
+  rendition, drawn from the kit brand's art and logo (the wrong kit's from
+  Kestrel's, not Lumora's), and that the composition verdict is as the table
+  above shows (blockers of the tiny subject and the empty field, the other
+  cases clean); every case's verdict as expected, metrics-only
   output, the ceiling stop before any call and across cases, an invalid answer
   as a paid error, the refusals before any project exists, and the deletion
   of the synthetic workspace.
@@ -184,9 +195,13 @@ Safeguards:
 - Results are written to
   `docs/evidence/creative-vision-eval-<UTC timestamp>.json` and `.md`. They
   contain metrics only: per case the verdict, the expected outcome, pass or
-  fail, the format, the seven scores, the number of issues per kind, the
+  fail, the composition verdict and its failed check codes, the variant drawn,
+  the SHA-256 of the rendition sent and of the art and logo it was drawn
+  from, the format, the seven scores, the number of issues per kind, the
   error code, tokens and cost; totals; the pass rule; the commit, a dirty flag
   and the prompt hash. Never the image bytes, the model's notes or the key.
+  A verdict for any other rendition than the one composed for the case is an
+  error (`EVAL_RENDITION_MISMATCH`).
 
 ## Verdicts and pass rule
 
@@ -213,9 +228,17 @@ Otherwise it prints **FAIL** and exits non-zero.
   faces, garbled objects) cannot be drawn from deterministic fixtures and are
   not measured. Mitigation: the 180-minute stop window and the first-day watch
   (spec §9).
-- **Composition quality checks.** The studio's own checks may already mark
-  the tiny-subject and flat creatives for the owner; the eval measures the
-  vision review's verdict regardless.
+- **One draw per defect kind.** The set holds one sample of each defect (tiny
+  subject, empty field, busy scene without a subject, wrong brand), so a PASS
+  is one draw per defect kind, not a rate. Mitigation: the 180-minute stop
+  window and the first-day watch (spec §9).
+- **Composition quality checks.** The studio's own checks already mark the
+  tiny-subject and flat creatives for the owner (`SUBJECT_TOO_SMALL`,
+  `EMPTY_AREA_EXCESSIVE`); the eval measures the vision review's verdict
+  regardless. The bright scene and the wrong kit pass those checks, so for
+  them the vision review is the only gate. Fixture bytes may differ between
+  hosts (fonts, librsvg); the offline test asserts the composition verdicts
+  on the host that runs it, and the evidence records them for the live run.
 - **Two fictional brands.** A PASS shows the review's judgement on this set,
   not on a production brand's imagery or palette.
 - **Output cap.** The route's `maxOutputTokens` bounds the answer; a cut-off
