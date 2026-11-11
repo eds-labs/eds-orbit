@@ -163,6 +163,12 @@ test.describe("settings center", () => {
     await expect(users).toHaveAttribute("aria-current", "page");
     await expect(sectionNav(page).locator("[aria-current=page]")).toHaveCount(1);
     await expect(h1(page)).toHaveCount(1);
+    // The canonical address of a section named like its area is the area's.
+    await expect(users).toHaveAttribute("href", "/manage/system/users");
+    await page.goto("/manage/system/security/audit");
+    await users.click();
+    await expect(page).toHaveURL(/\/manage\/system\/users$/);
+    await expect(users).toHaveAttribute("aria-current", "page");
 
     const me = await page.request.get("/api/me").then((r) => r.json());
     await page.goto(`/manage/system/users/${userId}`);
@@ -190,10 +196,24 @@ test.describe("settings center", () => {
     await expect(page.getByLabel("Search settings")).toHaveValue("");
   });
 
-  test("refuses a foreign project and an unknown section", async ({ page }) => {
+  test("refuses a foreign project, a foreign organization and an unknown section", async ({
+    page,
+  }) => {
     await page.goto(`/manage/p/${FOREIGN}`);
     await expect(page.getByText("Page not found").first()).toBeVisible();
     await expect(page.getByLabel("Applies to")).toHaveCount(0);
+
+    // Refused from the capabilities alone: the organization is never requested.
+    const asked: string[] = [];
+    page.on("request", (r) => {
+      if (new URL(r.url()).pathname.startsWith(`/api/organizations/${FOREIGN}`))
+        asked.push(`${r.method()} ${r.url()}`);
+    });
+    await page.goto(`/manage/o/${FOREIGN}`);
+    await expect(page.getByText("Page not found").first()).toBeVisible();
+    await expect(page.getByLabel("Applies to")).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(asked).toEqual([]);
 
     await page.goto("/manage/system/nope");
     await expect(page.getByText("Not available")).toBeVisible();
@@ -236,11 +256,9 @@ test.describe("settings center", () => {
         headers: { origin },
         data: { enabled },
       });
+    // The installation can switch modules, so a refusal is a failure.
     const off = await put(false);
-    test.skip(
-      !off.ok(),
-      `module ${moduleId} cannot be switched off here (${off.status()})`,
-    );
+    expect(off.status(), `switching ${moduleId} off`).toBe(200);
     try {
       await page.goto(`/manage/p/${id}/modules`);
       await expect(sectionNav(page)).toBeVisible();
