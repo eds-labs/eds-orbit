@@ -1,6 +1,6 @@
 # Implementation status
 
-## Marketing: Orbit's objection goes to the owner, not to a closed draft (2026-11-11, branch `claude/review-owner-fallback`; local only, not on `main`)
+## Marketing: Orbit's objection goes to the owner, not to a closed draft (2026-11-11, branch `claude/review-owner-fallback`; on `main` `d9eb4ac8`, deployed 2026-11-11 09:33 UTC, not live-accepted)
 
 Mario's decision of 2026-11-11: when Orbit's review objects to an assignment draft, the draft must not be closed; it waits for the owner, who rejects, edits or releases it. Risk medium (approval flow of assignment drafts, one new owner-only route); no schema, migration, flag, provider or dependency.
 
