@@ -128,7 +128,9 @@ describe("Eval key per provider", () => {
     expect(
       isEvalLiveRequested({ ORBIT_EVAL_ANTHROPIC_API_KEY: SYNTHETIC_KEY }),
     ).toBe(true);
-    expect(isEvalLiveRequested({ ORBIT_EVAL_CONFIRM: CONFIRMATION })).toBe(true);
+    expect(isEvalLiveRequested({ ORBIT_EVAL_CONFIRM: CONFIRMATION })).toBe(
+      true,
+    );
   });
 
   it("reads only the variable of the route's provider", async () => {
@@ -145,7 +147,10 @@ describe("Eval key per provider", () => {
     await expect(
       resolveEvalKey(
         "anthropic",
-        { ORBIT_EVAL_OPENAI_API_KEY: OTHER_KEY, ORBIT_EVAL_CONFIRM: CONFIRMATION },
+        {
+          ORBIT_EVAL_OPENAI_API_KEY: OTHER_KEY,
+          ORBIT_EVAL_CONFIRM: CONFIRMATION,
+        },
         CONFIRMATION,
       ),
     ).rejects.toThrow("EVAL_KEY_REQUIRED");

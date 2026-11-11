@@ -1,7 +1,7 @@
 # Agent review authority over Creative Studio posts (design)
 
 - **Date:** 2026-11-11
-- **Status:** design, awaiting Mario's review. Nothing implemented.
+- **Status:** implemented on branch claude/eds-orbit-tasks-13129a (not on main).
 - **Risk:** high. It widens what the review agent may release in the owner's place. No migration, no new dependency, no new provider.
 - **Environment:** local implementation; every production step needs its own approval (section 9).
 

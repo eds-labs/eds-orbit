@@ -163,7 +163,7 @@ A client (ChatGPT over MCP, the Orbit Assistant) can have one finished creative 
 - No video, carousels or animated formats; no new image providers (adapter-ready, needs a decision).
 - Marketing assets stay base64 `Entity` data, not platform files.
 - Instagram stories are not modelled; links in Instagram captions are not clickable (a "link in bio" copy rule is later).
-- Review eval cases for creatives are missing, so agent authority does not cover them (CS-D7).
+- Agent authority over creatives (CS-D7) is off by default (`ORBIT_AGENT_REVIEW_CREATIVES`). It needs review eval v3 (German creative cases) and the vision eval to pass on the deployed commit, and the vision review judges only the first format, so channels drawn in other formats still wait for the owner. Both evals use synthetic brands, one draw per defect kind.
 - Vision verdict is per creative, with no per-rendition history (R57).
 - Art direction: a smooth gradient can pass `SUBJECT_TOO_SMALL` (R27); product prompts ask 60–75 % subject size while two reserved zones exist; busyness is inflated by synthetic grain in fixtures.
 - Non-default stacked landscape variants (for example product_showcase `text_top`) offer less text room and may need a variant switch.

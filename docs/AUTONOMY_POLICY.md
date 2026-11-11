@@ -23,3 +23,7 @@ Exceptions are grouped by project and cause. A paused, expired, revoked, stale, 
 Slack messages are separately authorized by an expiring owner mandate, exact team/channel, mapped current owners and signing secret. Actions bind a versioned one-use resource preview. HMAC, timestamp, replay and stale-package checks apply. Message uncertainty does not trigger resend. The web UI remains the independent approval path.
 
 Infrastructure administration, SSH, Docker, DNS, payments, training and cloud control are absent from the runtime agent tools. Deployment and production activation remain separate operator actions.
+
+## Agent release of assignment posts
+
+In assignment mode "Agent review with veto window" (`delegated_review`) the review agent's approval can stand in for the owner's release of a post, after the veto window (default 180 minutes; Stop withdraws it until the handoff). This needs `ORBIT_AGENT_REVIEW_AUTHORITY=true` and the owner's confirmation of the assignment. A post with image copy or a creative additionally needs `ORBIT_AGENT_REVIEW_CREATIVES=true` and a passed vision review of the exact rendition on the post (`creativeAuthorityProblem`, spec `superpowers/specs/2026-11-11-agent-review-creatives-design.md`); otherwise it waits for the owner's release and the draft shows why. Banners, `postiz_draft` and `human_each` assignments are unchanged, and turning either flag off holds scheduled posts again.

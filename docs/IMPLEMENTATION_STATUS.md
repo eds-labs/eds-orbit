@@ -1,5 +1,32 @@
 # Implementation status
 
+## Agent review authority over Creative Studio posts (2026-11-11, branch `claude/eds-orbit-tasks-13129a`; local only, not on `main`, not deployed)
+
+Spec [2026-11-11-agent-review-creatives-design.md](superpowers/specs/2026-11-11-agent-review-creatives-design.md). Risk high: widens what the review agent may release in the owner's place. Environment: local. No migration, no schema hash change, no new dependency or provider.
+
+- **State:** implemented and tested locally on the branch (commits `27a8ea7b` to `a13bb00b` plus the documentation commit). Nothing pushed; a push to `main` deploys production and needs Mario's approval. The flag defaults to off, so production behaviour does not change on delivery.
+- **Built:**
+  - Flag `ORBIT_AGENT_REVIEW_CREATIVES` (default `false`, effective only with `ORBIT_AGENT_REVIEW_AUTHORITY=true`) in config, both Compose files, the compose check, `.env.example` and `docs/OPERATIONS.md`.
+  - `creativeAuthorityProblem` (eight codes, `agents/agent-review.ts`) used by `agentReviewAccepted`, so scheduling, preflight, claim and handoff (the kill switch) and draft delivery all apply it; CS-D7 in `docs/MARKETING_CREATIVE_STUDIO.md` and `docs/AUTONOMY_POLICY.md` describe it.
+  - Integration tests: veto window of 180 minutes, a positive control handing over after the window with the flag on, and a hold at claim with the flag off or after a recompose.
+  - Content field `agentAuthorityProblem` shows as `waitingReason` on pending drafts (German and English); the assignment overview and detail carry `creativeAuthority: {flag, visionReview} | null` with two read-only lines.
+  - Review eval v3 (`evals/agents/review-v3.json`: 38 cases, the 26 v2 cases plus 12 German creative cases for the fictional brand "Familienzeit"), `REVIEW_REQUEST_BYTES` 16,000, ceiling 3 USD, run on production's Anthropic route (`review-route-v2.json`: `claude-opus-5-5`, effort medium, 5000 output tokens; key `ORBIT_EVAL_ANTHROPIC_API_KEY` or keychain). Vision eval (`evals/creative`, 8 cases, ceiling 0.50 USD, `pnpm eval:creative-vision`, route `claude-sonnet-5-5`, 1500 tokens).
+  - Rate card refreshed (`verifiedAt` 2026-11-11, Claude prices from the `provider.ts` catalog): live runs must happen by 2026-12-12 or the card is refreshed again. Dry runs: v3 worst case 13.68 USD against the 3 USD ceiling (early-stop note; Mario decides the ceiling at the dry run), vision 0.2311 USD against 0.50 USD. The support and work-pm eval tests pinned an older clock and now use 2026-11-12.
+- **Verification (local, this worktree's own test database):** `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm test:coolify-compose`, `pnpm framework:check`, `pnpm secrets:check` pass. Full `vitest run`: 6973 passed, 4 failed (support and work-pm eval plan tests rejecting the refreshed rate card as dated in the future against their pinned clock; fixed by moving the clock, then `evals/support` and `evals/work-pm` pass); `rls-matrix`, `access-matrix` and `queue-dispatch` passed. `git diff --name-only origin/main -- packages/db/prisma packages/db/prisma.config.ts scripts/db-deploy.ts` is empty. No live provider call was made.
+- **Production steps (spec section 9; each needs Mario's approval):**
+  1. Deliver to `main` with the flag off.
+  2. Mario runs the live evals on the deployed commit after their dry runs: review eval v3 (decides the ceiling) and the vision eval. Both must pass.
+  3. Mario sets `ORBIT_AGENT_REVIEW_CREATIVES=true` in Coolify and redeploys.
+  4. FamilyPlan brand kit: turn on the vision review and set `providerUse` on the logo.
+  5. Check that FamilyPlan has a Telegram bot bound to a current owner (otherwise Stop works only in Orbit).
+  6. Change "FamilyPlan Testwoche" to `delegated_review` with `vetoMinutes: 180` (Mario confirms the card).
+  7. First-day watch of both slots: vision verdict, agent approval, 15:30 deadline, publication at 18:30, no `blocked` notice.
+- **Rollback:** flag off and redeploy (creative posts wait for the owner again, scheduled ones included, then the owner releases them); assignment back to `human_each`; revert on `main` and redeploy. No data or schema to undo.
+- **Open points:**
+  - Production's `agent_review` route on FamilyPlan (read 2026-11-11) is `claude-opus-5-5`, but Approval J's PASS was on `gpt-6.1-sol`; v3 is the first evaluation of the current route.
+  - The v2 harness sent the case id as the draft title, a label leak that also affected Approval J's run 3 on 2026-10-10; fixed in v3.
+  - One draw per defect kind, first format only (other formats wait for the owner), synthetic brands only; nothing is live-accepted.
+
 ## Knowledge: search index display (2026-11-11, branch `claude/live-rag-eval-error-3b5651`; local only, not on `main`)
 
 Risk low: read-only display, no schema, migration, provider call or flag. Environment: local.

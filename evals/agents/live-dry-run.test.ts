@@ -287,10 +287,12 @@ describe("Live review eval on the production Anthropic route (dry run)", () => {
     expect(() => parseRouteFile({ ...rawRouteV2, provider: "openai" })).toThrow(
       "EVAL_ROUTE_PROVIDER_MISMATCH",
     );
-    expect(() => parseRouteFile({ ...rawRoute, provider: "anthropic" })).toThrow(
-      "EVAL_ROUTE_PROVIDER_MISMATCH",
-    );
-    expect(() => parseRouteFile({ ...rawRouteV2, provider: "gemini" })).toThrow();
+    expect(() =>
+      parseRouteFile({ ...rawRoute, provider: "anthropic" }),
+    ).toThrow("EVAL_ROUTE_PROVIDER_MISMATCH");
+    expect(() =>
+      parseRouteFile({ ...rawRouteV2, provider: "gemini" }),
+    ).toThrow();
   });
 
   it("plans v2 on anthropic claude-opus-5-5 under the unchanged 3 USD ceiling and prints the provider and the early-stop note", () => {
@@ -349,9 +351,9 @@ describe("Live review eval on the production Anthropic route (dry run)", () => {
 
   it("refuses a rate card without claude-opus-5-5 or the embedding price, and a stale one, before any transmission", () => {
     const { "claude-opus-5-5": _opus, ...withoutOpus } = claudeRates.rateCard;
-    expect(() =>
-      planV2({}, { ...claudeRates, rateCard: withoutOpus }),
-    ).toThrow("EVAL_ROUTE_NOT_PRICED");
+    expect(() => planV2({}, { ...claudeRates, rateCard: withoutOpus })).toThrow(
+      "EVAL_ROUTE_NOT_PRICED",
+    );
     // The stubbed embeddings are priced before their reservation (a revision
     // would stop there, after paid review calls).
     const { "text-embedding-3-small": _embedding, ...withoutEmbedding } =
@@ -422,7 +424,13 @@ describe("Live review eval diagnostic mode (dry run)", () => {
     expect(p.maxCostMicros).toBe(500_000);
     expect(DIAGNOSTIC_CEILING_USD).toBe(0.5);
     expect(p.hash).toBe(
-      reviewDatasetHash(p.cases, routeFile.route, 500_000, set.brands, "openai"),
+      reviewDatasetHash(
+        p.cases,
+        routeFile.route,
+        500_000,
+        set.brands,
+        "openai",
+      ),
     );
     const text = renderPlan(p);
     expect(text).toContain("DIAGNOSTIC");

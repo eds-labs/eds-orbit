@@ -224,9 +224,9 @@ export function planReviewEval(
             route,
             promptHash,
             maxCostMicros,
-            // The normal confirmation keeps its earlier shape; a diagnostic
-            // one also binds the mode and the case subset, so neither can
-            // start the other run.
+            // The confirmation binds the provider and route as well; a
+            // diagnostic one also binds the mode and the case subset, so
+            // neither can start the other run.
             ...(diagnose ? { mode, caseIds: cases.map((c) => c.id) } : {}),
           }),
         ),

@@ -197,14 +197,14 @@ No Telegram bot is linked, so no notification is queued.
    confirmation, leaves the run a dry run. No key in either place (or an
    unknown item) is `EVAL_KEY_REQUIRED`.
 
-| Variable                       | Meaning                                                                                                                                                                                 |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                       | Meaning                                                                                                                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ORBIT_EVAL_ANTHROPIC_API_KEY` | Anthropic key for this run only (route provider `anthropic`, v2). Stored like the production configuration (encrypted) in the synthetic project and deleted with it. Never printed or written. |
-| `ORBIT_EVAL_OPENAI_API_KEY`    | OpenAI key for this run only (route provider `openai`, v1). Stored and deleted the same way. Never printed or written.                                                                     |
-| `ORBIT_EVAL_KEYCHAIN_SERVICE`  | macOS keychain service holding the route provider's key, read only when that provider's key variable is unset and the confirmation matches.                                             |
-| `ORBIT_EVAL_CONFIRM`           | Confirmation value from the dry run (not the dataset hash).                                                                                                                             |
-| `ORBIT_EVAL_MAX_USD`           | Lowers the cost ceiling in USD. Default and maximum: 3 (0.5 in diagnostic mode); a higher value is clamped.                                                                             |
-| `ORBIT_EVAL_DIAGNOSE`          | `good` runs the diagnostic mode (below). Any other value is `EVAL_DIAGNOSE_INVALID`.                                                                                                    |
+| `ORBIT_EVAL_OPENAI_API_KEY`    | OpenAI key for this run only (route provider `openai`, v1). Stored and deleted the same way. Never printed or written.                                                                         |
+| `ORBIT_EVAL_KEYCHAIN_SERVICE`  | macOS keychain service holding the route provider's key, read only when that provider's key variable is unset and the confirmation matches.                                                    |
+| `ORBIT_EVAL_CONFIRM`           | Confirmation value from the dry run (not the dataset hash).                                                                                                                                    |
+| `ORBIT_EVAL_MAX_USD`           | Lowers the cost ceiling in USD. Default and maximum: 3 (0.5 in diagnostic mode); a higher value is clamped.                                                                                    |
+| `ORBIT_EVAL_DIAGNOSE`          | `good` runs the diagnostic mode (below). Any other value is `EVAL_DIAGNOSE_INVALID`.                                                                                                           |
 
 Safeguards:
 

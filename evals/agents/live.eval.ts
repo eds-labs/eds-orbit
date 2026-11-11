@@ -78,7 +78,11 @@ describe("Live agent review eval", () => {
       );
       // The route provider's key variable, or its keychain item once the
       // confirmation matches; null is a dry run (no key, no confirmation).
-      const apiKey = await resolveEvalKey(plan.provider, env, plan.confirmation);
+      const apiKey = await resolveEvalKey(
+        plan.provider,
+        env,
+        plan.confirmation,
+      );
       if (apiKey === null) {
         const prefix = diagnostic ? "ORBIT_EVAL_DIAGNOSE=good " : "";
         console.log(
