@@ -37,4 +37,16 @@ export const knowledgeContributions: ModuleContributions = {
   attention: knowledgeAttention,
   // Documents as link targets of other modules (ADR 0016).
   linkTypes: knowledgeLinkTypes,
+  // The GitHub connection a project's code sources read through.
+  integrations: [
+    {
+      id: "knowledge_github",
+      label: { en: "GitHub for Knowledge", de: "GitHub für Wissen" },
+      category: "development",
+      authType: "oauth_account",
+      scopes: ["project"],
+      storage: ["project"],
+      checkable: false,
+    },
+  ],
 };

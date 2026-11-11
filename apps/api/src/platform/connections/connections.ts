@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import type { IntegrationAuthType, IntegrationCategory } from "./integrations.ts";
 import {
   credentialKey,
   data,
@@ -153,6 +154,13 @@ export type ConnectionProvider = {
   validateSecret?: (secret: string) => void;
   /** Path on the Orbit origin the provider must call back (OAuth apps). */
   callbackPath?: string;
+  /** Group in the Integrations Center; default "other". Set by the owner. */
+  category?: IntegrationCategory;
+  /**
+   * How the credential is obtained. Default: "oauth_app" with a
+   * `callbackPath`, "json_secret" with `secretFields`, otherwise "api_key".
+   */
+  authType?: IntegrationAuthType;
 };
 
 /** One part of a JSON secret, for the administration forms. */

@@ -71,6 +71,8 @@ export const n8nConnectionProvider: ConnectionProvider = {
   scopes: ["system", "workspace"],
   purposes: [AUTOMATION_PURPOSE],
   label: { en: "n8n", de: "n8n" },
+  category: "automation",
+  authType: "json_secret",
   normalizeCentral: (fields) => ({ baseUrl: https(fields.baseUrl) }),
   async check(connection, plain) {
     const { apiKey } = secretOf(plain);

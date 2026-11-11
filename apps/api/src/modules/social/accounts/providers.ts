@@ -1,4 +1,5 @@
 import type { ConnectionProvider } from "../../../platform/connections/connections.ts";
+import type { IntegrationAuthType } from "../../../platform/connections/integrations.ts";
 import { DomainError } from "../../../shared.ts";
 import { metaAppSecret, parseAppSecret, xAppSecret } from "./apps.ts";
 import { socialFetch } from "./http.ts";
@@ -32,8 +33,10 @@ const validator = (schema: Parameters<typeof parseAppSecret>[0]) => (secret: str
   }
 };
 
-const account = (en: string, de: string): ConnectionProvider => ({
+const account = (en: string, de: string, authType: IntegrationAuthType = "oauth_account"): ConnectionProvider => ({
   scopes: ["project"],
+  category: "social",
+  authType,
   managedByModule: true,
   purposes: ["social_publish"],
   label: { en, de },
@@ -45,6 +48,7 @@ export const socialConnectionProviders: Record<string, ConnectionProvider> = {
     scopes: ["system"],
     purposes: ["social_oauth"],
     label: { en: "Meta app (Facebook and Instagram)", de: "Meta-App (Facebook und Instagram)" },
+    category: "social",
     check: checkMetaApp,
     callbackPath: "/api/social/oauth/callback/meta",
     secretFields: [
@@ -80,6 +84,7 @@ export const socialConnectionProviders: Record<string, ConnectionProvider> = {
     scopes: ["system"],
     purposes: ["social_oauth"],
     label: { en: "X app", de: "X-App" },
+    category: "social",
     checkUnsupported: "SOCIAL_APP_NOT_CHECKABLE",
     callbackPath: "/api/social/oauth/callback/x",
     secretFields: [
@@ -104,5 +109,5 @@ export const socialConnectionProviders: Record<string, ConnectionProvider> = {
   "social.account.x": account("X account", "X-Konto"),
   "social.account.facebook": account("Facebook Page", "Facebook-Seite"),
   "social.account.instagram": account("Instagram account", "Instagram-Konto"),
-  "social.account.telegram": account("Telegram channel", "Telegram-Kanal"),
+  "social.account.telegram": account("Telegram channel", "Telegram-Kanal", "bot_token"),
 };

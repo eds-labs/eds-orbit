@@ -280,6 +280,8 @@ export const githubAppConnectionProvider: ConnectionProvider = {
   scopes: ["system", "workspace"],
   purposes: [GITHUB_ISSUES_PURPOSE],
   label: { en: "GitHub App", de: "GitHub-App" },
+  category: "development",
+  authType: "json_secret",
   async check(_connection, credential) {
     const app = parseGithubAppSecret(credential);
     const installation = await githubFetch<{

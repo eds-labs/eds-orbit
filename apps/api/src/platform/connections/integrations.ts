@@ -3,6 +3,9 @@
 // accounts, Drive, Telegram, installation items) are mapped to six states on the
 // server so the UI never has to interpret provider-specific strings.
 
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+
 export const INTEGRATION_STATES = ["not_set_up", "stored", "verified", "ready", "needs_attention", "disabled"] as const;
 export type IntegrationState = (typeof INTEGRATION_STATES)[number];
 
@@ -13,6 +16,37 @@ export const INTEGRATION_AUTH_TYPES = ["api_key", "json_secret", "oauth_app", "o
 export type IntegrationAuthType = (typeof INTEGRATION_AUTH_TYPES)[number];
 
 export type IntegrationStorage = "central" | "project" | "environment";
+
+/** An integration outside the provider registry, contributed by its owner. */
+export type IntegrationDescriptor = {
+  /** /^[a-z][a-z0-9_.]{1,63}$/, unique across descriptors and provider ids. */
+  id: string;
+  label: { en: string; de: string };
+  category: IntegrationCategory;
+  authType: IntegrationAuthType;
+  /** Owner scopes, as for providers; [] for environment-only items. */
+  scopes: ReadonlyArray<"system" | "workspace" | "project">;
+  storage: readonly IntegrationStorage[];
+  checkable: boolean;
+  /** Default: always available (the owner module's availability still applies). */
+  available?: () => boolean;
+};
+
+/** One project-level record a module lists; the platform adds category and group. */
+export type ContributedIntegration = {
+  id: string;
+  provider: string;
+  label: string;
+  scope: "central" | "project";
+  state: IntegrationState;
+  checkedAt: string | null;
+};
+
+/** Runs in the project's read transaction with the member's role in the module. */
+export type ProjectIntegrationsContribution = (
+  tx: DbTx,
+  scope: Scope,
+) => Promise<ContributedIntegration[]>;
 
 export type StateSource =
   | {

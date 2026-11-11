@@ -19,6 +19,8 @@ export const marketingConnections: ConnectionsContribution = {
       // One Postiz organization can serve several projects (ADR 0014).
       scopes: ["project", "workspace", "system"],
       label: { en: "Postiz", de: "Postiz" },
+      category: "social",
+      authType: "api_key",
       // Its channels are assigned to projects centrally, one project each.
       channelAssignment: true,
       normalize: (fields) =>
@@ -58,6 +60,8 @@ export const marketingConnections: ConnectionsContribution = {
     matomo: {
       scopes: ["project", "workspace", "system"],
       label: { en: "Matomo", de: "Matomo" },
+      category: "analytics",
+      authType: "api_key",
       async check(d, token) {
         const client = createMatomoClient({
           baseUrl: d.baseUrl,
@@ -75,6 +79,10 @@ export const marketingConnections: ConnectionsContribution = {
       },
     },
     // Delivery is proven by an authorized test notice, not by a check.
-    slack: { checkUnsupported: "SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION" },
+    slack: {
+      checkUnsupported: "SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION",
+      category: "other",
+      authType: "bot_token",
+    },
   },
 };

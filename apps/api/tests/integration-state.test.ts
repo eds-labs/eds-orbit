@@ -49,6 +49,16 @@ describe("uniform integration state", () => {
     expect(integrationState({ kind: "installation", configured: true, installed: false })).toBe("stored");
     expect(integrationState({ kind: "installation", configured: false, installed: false })).toBe("not_set_up");
   });
+  it("pins rule order and edge cases", () => {
+    expect(integrationState(central({ status: "failed", disabled: true }))).toBe("disabled");
+    expect(integrationState(central({ status: "failed", grant: "revoked" }))).toBe("disabled");
+    expect(integrationState(central({ status: "failed", grant: "none" }))).toBe("needs_attention");
+    const connector = (status: string | null) => integrationState({ kind: "project_connector", status });
+    expect(connector("")).toBe("not_set_up");
+    expect(connector("disabled")).toBe("disabled");
+    expect(connector("write_verified")).toBe("ready");
+    expect(integrationState({ kind: "social_account", status: "pending", capability: "none" })).toBe("stored");
+  });
   it("returns only states of the vocabulary", () => {
     expect(INTEGRATION_STATES).toEqual(["not_set_up", "stored", "verified", "ready", "needs_attention", "disabled"]);
   });
