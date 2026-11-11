@@ -225,6 +225,11 @@ import {
 } from "./platform/knowledge/share-routes.ts";
 import { sharesEnabled } from "./platform/knowledge/shares.ts";
 import {
+  isManagementRoute,
+  settingsCenterEnabled,
+  settingsCenterStage,
+} from "./platform/management/flag.ts";
+import {
   isAccountRoute,
   registerAccountRoutes,
 } from "./platform/account/routes.ts";
@@ -413,6 +418,9 @@ export async function buildServer(
     if (isConnectionRoute(req.routeOptions.url ?? "") && !connectionsEnabled())
       throw new DomainError("NOT_FOUND", 404);
     if (isShareRoute(req.routeOptions.url ?? "") && !sharesEnabled())
+      throw new DomainError("NOT_FOUND", 404);
+    // The settings center (ADR 0027) does not exist while its flag is off.
+    if (isManagementRoute(req.routeOptions.url ?? "") && !settingsCenterEnabled())
       throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
@@ -695,6 +703,7 @@ export async function buildServer(
       account: accountEnabled(),
       connections: connectionsEnabled(),
       knowledgeShares: sharesEnabled(),
+      settingsCenter: settingsCenterStage(),
       workspaces: memberships.map((x) => ({
         ...x.workspace,
         role: x.role,

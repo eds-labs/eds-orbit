@@ -289,6 +289,11 @@ const baseConfigSchema = z.object({
   // Organization knowledge libraries shared with projects (ADR 0014, E1).
   // Off: shares are ignored and their routes answer 404.
   ORBIT_KNOWLEDGE_SHARES: z.enum(["false", "true"]).default("false"),
+  // Settings center (ADR 0027), three stages: "off" the routes below
+  // /api/management/ answer 404 and nothing changes; "preview" the center is
+  // reachable for system administrators only; "on" for everyone who may
+  // manage something.
+  ORBIT_SETTINGS_CENTER: z.enum(["off", "preview", "on"]).default("off"),
   // Providers whose project connections may use a granted central
   // connection instead of their own key (ADR 0014, WP3.4), comma-separated,
   // e.g. "postiz,matomo". A project connection keeps its own key until it is
