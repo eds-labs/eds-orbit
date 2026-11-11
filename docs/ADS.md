@@ -138,6 +138,8 @@ Code: `apps/api/src/modules/ads/accounts/` (`app`, `connect`, `oauth-state`, `va
 - Mario's legal wording check of the German and English texts of the data-deletion status page is open.
 - Follow-up for Social (not changed in A3): Social keeps the person's name and id on revoked Social connections after a deletion request; Ads clears them with `forget` on every revocation.
 - Independent security review before the first production use (SECURITY_REVIEW.md, A12).
+- Before `ORBIT_ADS` goes on (final review of 2026-11-11, parked): an owner revoke that lists a connection's accounts before a concurrent assignment commits its row, and commits after that assignment's re-check, can leave an `active` row on a revoked connection whose claim no longer blocks other projects (health then flips it to `reconnect_required`); fix by re-listing and unlinking the connection's rows after the revocation. The disabled check in `grantCredentials` reads before `withProjectSecret` takes its lock, so a disable landing in between still opens the secret once; fix by checking `disabledAt` under the lock. Failed connections in a data-deletion request (500 `ADS_DATA_DELETION_INCOMPLETE`) and health errors on the periodic path are not logged (the worker swallows periodic-task errors); add logging before live check L1.
+- Later: matching a data-deletion request to the app whose secret verified it, audit rows that follow flipped rows instead of candidates, a lock against two simultaneous first connects by the same Meta user, and what `ADS_META_APP_CHANGED` should do (decide before A4). `writesEnabled` is cleared on downgrade; the switch itself stays without effect until A7.
 
 ### A0 dependencies of A3 (answered before live check L1)
 
