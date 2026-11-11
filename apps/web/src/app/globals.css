@@ -7741,6 +7741,65 @@ a.support-row {
 .admin-layout .settings-nav {
   top: 16px;
 }
+/* The settings center frame (settings-center/settings-center.tsx): the
+   scope switcher and the search share one row above the section list. */
+.manage-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 470px);
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 24px;
+}
+.manage-hint {
+  color: var(--muted-foreground);
+}
+.manage-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.manage-card {
+  padding: 18px 21px;
+}
+.manage-card h2 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+.manage-card ul,
+.manage-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.manage-card li a {
+  display: inline-block;
+  padding: 4px 0;
+  font-size: 13.5px;
+}
+.manage-hits a {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+.manage-hits a span {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+@media (max-width: 760px) {
+  .manage-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* 16px stops iOS from zooming into the fields on focus. */
+  .manage-toolbar .input {
+    font-size: 16px;
+  }
+}
 .admin-mobile-nav {
   display: none;
 }
