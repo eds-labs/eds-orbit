@@ -377,6 +377,74 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
       ).toBe(404);
     });
 
+    it("shows a project owner only their own project's part of an invitation", async () => {
+      // A second project of the organization in which the member has no role.
+      const other = await authDb.project.create({
+        data: { workspaceId, name: "Synthetic second project" },
+      });
+      const membership = {
+        projectId_userId: { projectId, userId: p.member.id },
+      };
+      await authDb.projectMember.update({
+        where: membership,
+        data: { role: "owner" },
+      });
+      const email = address();
+      const list = (who: Person) =>
+        call("GET", `/api/projects/${projectId}/invitations`, who);
+      const invitationOf = (r: Awaited<ReturnType<typeof list>>) =>
+        (
+          r.json().items as Array<{
+            id: string;
+            email: string;
+            projects: Array<{ id: string; role: string }>;
+          }>
+        ).find((i) => i.email === email)!;
+      try {
+        const created = await call(
+          "POST",
+          `/api/organizations/${workspaceId}/invitations`,
+          p.owner,
+          {
+            email,
+            projects: [
+              { projectId, role: "editor" },
+              { projectId: other.id, role: "viewer" },
+            ],
+          },
+        );
+        expect(created.statusCode).toBe(201);
+        // The project owner is not an owner of the organization: the other
+        // project's name and role are not theirs to see.
+        const own = await list(p.member);
+        expect(own.statusCode).toBe(200);
+        expect(invitationOf(own).projects).toMatchObject([
+          { id: projectId, role: "editor" },
+        ]);
+        expect(invitationOf(own).projects).toHaveLength(1);
+        expect(own.body).not.toContain(other.id);
+        expect(own.body).not.toContain("Synthetic second project");
+        // The organization's owner still sees the whole invitation.
+        const whole = await list(p.owner);
+        expect(
+          invitationOf(whole)
+            .projects.map((x) => x.id)
+            .sort(),
+        ).toEqual([projectId, other.id].sort());
+        await call(
+          "DELETE",
+          `/api/organizations/${workspaceId}/invitations/${invitationOf(whole).id}`,
+          p.owner,
+        );
+      } finally {
+        await authDb.projectMember.update({
+          where: membership,
+          data: { role: "editor" },
+        });
+        await authDb.project.delete({ where: { id: other.id } });
+      }
+    });
+
     it("refuses an invitation whose inviter lost the right to give it", async () => {
       const email = address();
       const created = await call(
