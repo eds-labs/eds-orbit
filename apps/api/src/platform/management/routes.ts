@@ -6,6 +6,7 @@ import { PROJECT_OWN } from "../tenancy/permissions.ts";
 import { administrationEnabled, workspaceOwnerFor } from "../administration/authz.ts";
 import { DomainError } from "../shared.ts";
 import { projectAiEffective } from "./ai-effective.ts";
+import { organizationAiProjects } from "./ai-projects.ts";
 import { managementCapabilities } from "./capabilities.ts";
 import { integrationCatalog } from "./integration-catalog.ts";
 import { organizationIntegrations } from "./organization-integrations.ts";
@@ -73,5 +74,19 @@ export function registerManagementRoutes(app: FastifyInstance, auth: Auth) {
     );
     reply.header("Cache-Control", "no-store");
     return usage;
+  });
+  // Organization owners only (D-4), like the integrations list: which projects
+  // follow the organization's AI settings and which override them. Metadata
+  // only, built field by field.
+  app.get("/api/management/organizations/:workspaceId/ai/projects", async (req, reply) => {
+    if (!administrationEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { workspaceId } = z.object({ workspaceId: z.uuid() }).strict().parse(req.params);
+    const owner = await workspaceOwnerFor(auth, req, workspaceId);
+    const view = await organizationAiProjects(owner.workspaceId, owner.userId, new Date(), (projectId, error) =>
+      // Ids and the error name only: a message may carry user data.
+      req.log.error({ projectId, errorName: (error as Error | undefined)?.name }, "organization AI project read failed"),
+    );
+    reply.header("Cache-Control", "no-store");
+    return view;
   });
 }

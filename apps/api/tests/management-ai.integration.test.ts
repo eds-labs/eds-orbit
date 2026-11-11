@@ -11,6 +11,8 @@ import {
   grantConnection,
 } from "../src/platform/administration/connections.ts";
 import { saveAiProfile } from "../src/platform/administration/ai-profiles.ts";
+import { saveSpendPolicy } from "../src/platform/ai/spend-policy.ts";
+import type { OrganizationAiProjects } from "../src/platform/management/ai-projects.ts";
 import { saveAiDefaults } from "../src/platform/administration/ai-defaults.ts";
 import {
   saveAiRouting,
@@ -34,6 +36,7 @@ const enabled = Boolean(
 );
 // The deployment's own AI settings would leak into the effective view.
 const ENV_KEYS = [
+  "ORBIT_ADMINISTRATION",
   "ORBIT_CONNECTIONS",
   "ORBIT_AI_CATALOG",
   "ORBIT_AI_DEFAULTS",
@@ -60,6 +63,7 @@ beforeAll(() => {
     delete process.env[k];
   }
   Object.assign(process.env, {
+    ORBIT_ADMINISTRATION: "true",
     ORBIT_CONNECTIONS: "true",
     ORBIT_AI_CATALOG: "true",
     ORBIT_AI_DEFAULTS: "true",
@@ -415,7 +419,8 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
   const users: string[] = [];
   const workspaces: string[] = [];
   const connections: string[] = [];
-  const people = {} as Record<"owner" | "projectOwner" | "editor" | "outsider", Person>;
+  const people = {} as Record<"owner" | "projectOwner" | "editor" | "outsider" | "sysadmin", Person>;
+  let personalId = "";
   let orgId = "";
   let standardOrgId = "";
   // One project per fixture.
@@ -506,8 +511,10 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
     const row = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
     systemBefore = row ? { id: row.id, data: row.data, version: row.version } : null;
     app = await buildServer();
-    for (const key of ["owner", "projectOwner", "editor", "outsider"] as const)
+    for (const key of ["owner", "projectOwner", "editor", "outsider", "sysadmin"] as const)
       people[key] = await signUp(`Synthetic ${key}`);
+    // A system administrator who owns nothing: administration is not ownership (D-4).
+    await authDb.user.update({ where: { id: people.sysadmin.id }, data: { role: "admin" } });
     orgId = (
       await authDb.workspace.create({
         data: {
@@ -555,7 +562,19 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
       fx[key] = await project(orgId, `Synthetic ${key}`);
     fx.standard = await project(standardOrgId, "Synthetic standard");
     fx.foreign = await project(foreignOrg, "Synthetic foreign project");
-    for (const key of ["owner", "projectOwner", "editor", "outsider"] as const)
+    // A member's personal space in the organization: never part of the list.
+    personalId = (
+      await authDb.project.create({
+        data: {
+          workspaceId: orgId,
+          name: "Synthetic personal space",
+          kind: "personal",
+          personalUserId: people.projectOwner.id,
+          members: { create: { userId: people.projectOwner.id, role: "owner" } },
+        },
+      })
+    ).id;
+    for (const key of ["owner", "projectOwner", "editor", "outsider", "sysadmin"] as const)
       people[key].cookie = await signIn(people[key].email);
 
     // Organization standard: Claude, balanced; the project follows it with a granted key.
@@ -726,5 +745,123 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
       expect(text).not.toContain(orgId);
       expect(text).not.toContain(standardOrgId);
     }
+  });
+  describe("GET /api/management/organizations/:workspaceId/ai/projects", () => {
+    const listUrl = (workspaceId: string) => `/api/management/organizations/${workspaceId}/ai/projects`;
+    const list = (workspaceId: string, who?: Person) =>
+      app.inject({
+        method: "GET",
+        url: listUrl(workspaceId),
+        headers: { origin, [CLIENT_IP_HEADER]: ip(), ...(who ? { cookie: who.cookie! } : {}) },
+      });
+    async function projects(workspaceId = orgId) {
+      const r = await list(workspaceId, people.owner);
+      expect(r.statusCode).toBe(200);
+      return r.json() as OrganizationAiProjects;
+    }
+    const entry = (body: OrganizationAiProjects, projectId: string) => {
+      const found = body.projects.find((p) => p.projectId === projectId);
+      expect(found, projectId).toBeDefined();
+      return found!;
+    };
+
+    it("is for organization owners only", async () => {
+      expect((await list(orgId, people.owner)).statusCode).toBe(200);
+      expect((await list(orgId, people.projectOwner)).statusCode).toBe(404);
+      expect((await list(orgId, people.editor)).statusCode).toBe(404);
+      expect((await list(orgId, people.outsider)).statusCode).toBe(404);
+      expect((await list(orgId, people.sysadmin)).statusCode).toBe(404);
+      expect((await list(orgId)).statusCode).toBe(401);
+      expect((await list("not-a-uuid", people.owner)).statusCode).toBe(400);
+    });
+
+    it("answers 404 while administration is off", async () => {
+      process.env.ORBIT_ADMINISTRATION = "false";
+      try {
+        expect((await list(orgId, people.owner)).statusCode).toBe(404);
+      } finally {
+        process.env.ORBIT_ADMINISTRATION = "true";
+      }
+    });
+
+    it("says per project what it follows and overrides", async () => {
+      const body = await projects();
+      expect(body.routingApplied).toBe(true);
+      const none = { models: false, routes: false, prices: false, providerBudgets: false };
+      expect(entry(body, fx.envOnly)).toMatchObject({
+        name: "Synthetic environment only",
+        routingMode: "unsaved",
+        overrides: none,
+        ownKeys: { openai: false, image: false, anthropic: false },
+      });
+      expect(entry(body, fx.preset)).toMatchObject({ routingMode: "preset", overrides: none, ownKeys: { openai: true } });
+      expect(entry(body, fx.own)).toMatchObject({
+        routingMode: "custom",
+        overrides: { models: true, routes: true, prices: true, providerBudgets: false },
+        ownKeys: { openai: true },
+      });
+      expect(entry(body, fx.ownKey)).toMatchObject({ routingMode: "custom", ownKeys: { openai: true, image: false, anthropic: false } });
+      const standard = await projects(standardOrgId);
+      expect(standard.projects.map((p) => p.projectId)).toEqual([fx.standard]);
+      expect(entry(standard, fx.standard)).toMatchObject({ routingMode: "organization", overrides: none });
+    });
+
+    it("says whether the runtime applies a saved routing", async () => {
+      process.env.ORBIT_AI_DEFAULTS = "false";
+      try {
+        expect((await projects()).routingApplied).toBe(false);
+      } finally {
+        process.env.ORBIT_AI_DEFAULTS = "true";
+      }
+    });
+
+    it("reports the spending authority", async () => {
+      await inProject(orgId, fx.granted, (tx, s) => saveSpendPolicy(tx, s, { profile: "monthly", monthlyBudgetMicros: 25_000_000 }));
+      await inProject(orgId, fx.revoked, (tx, s) =>
+        saveSpendPolicy(tx, s, {
+          profile: "custom",
+          startAt: "2020-01-01T00:00:00.000Z",
+          endAt: "2020-02-01T00:00:00.000Z",
+          approvedPaidUse: true,
+          dailyBudgetMicros: 1_000_000,
+          monthlyBudgetMicros: 10_000_000,
+          perRunBudgetMicros: 500_000,
+        }),
+      );
+      await inProject(orgId, fx.failed, (tx, s) => saveSpendPolicy(tx, s, { profile: "off" }));
+      const body = await projects();
+      expect(entry(body, fx.missing).spendingAuthority).toBe("none");
+      expect(entry(body, fx.granted).spendingAuthority).toBe("active");
+      expect(entry(body, fx.revoked).spendingAuthority).toBe("expired");
+      expect(entry(body, fx.failed).spendingAuthority).toBe("off");
+    });
+
+    it("lists no personal space and nothing of another organization", async () => {
+      const body = await projects();
+      const ids = body.projects.map((p) => p.projectId);
+      expect(ids).not.toContain(personalId);
+      expect(ids).not.toContain(fx.standard);
+      expect(ids).not.toContain(fx.foreign);
+      expect(ids).toContain(fx.envOnly);
+      expect(JSON.stringify(body)).not.toContain("Synthetic personal space");
+      expect((await list(workspaces[2]!, people.owner)).statusCode).toBe(404);
+      const foreign = await list(workspaces[2]!, people.outsider);
+      expect(foreign.statusCode).toBe(200);
+      expect((foreign.json() as OrganizationAiProjects).projects.map((p) => p.projectId)).toEqual([fx.foreign]);
+    });
+
+    it("returns the listed fields only", async () => {
+      const r = await list(orgId, people.owner);
+      const body = r.json() as OrganizationAiProjects;
+      expect(Object.keys(body).sort()).toEqual(["projects", "routingApplied"]);
+      for (const p of body.projects)
+        expect(Object.keys(p).sort()).toEqual(["name", "overrides", "ownKeys", "projectId", "routingMode", "spendingAuthority"]);
+      const text = r.body;
+      for (const secret of Object.values(SECRETS)) expect(text).not.toContain(secret);
+      for (const word of ["encrypted", "rateCard", "verifiedModels", "synthetic-own", "secret", "config", "settings"])
+        expect(text, word).not.toContain(word);
+      expect(text).not.toContain(standardOrgId);
+      expect(r.headers["cache-control"]).toBe("no-store");
+    });
   });
 });
