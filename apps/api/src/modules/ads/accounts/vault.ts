@@ -66,7 +66,7 @@ export async function saveGrant(
     tokenExpiresAt: grant.expiresAt ? grant.expiresAt.toISOString() : null,
     expiryWarnedFor: null,
   } satisfies JsonConfig;
-  const existing = await authDb.connection.findFirst({
+  const matching = await authDb.connection.findMany({
     where: {
       provider: PROVIDER,
       scope: "project",
@@ -79,8 +79,12 @@ export async function saveGrant(
       ],
     },
     orderBy: { createdAt: "asc" },
-    select: { id: true },
+    select: { id: true, disabledAt: true },
   });
+  // An administrator disabled this login's connection: a reconnect neither
+  // rotates it nor works around it with a new one.
+  if (matching.some((c) => c.disabledAt !== null)) throw new DomainError("ADS_CONNECTION_DISABLED", 409);
+  const existing = matching[0];
   if (existing) {
     // assignedAdAccounts is not in `facts`: the merge keeps the claims.
     await withProjectSecret(scope, { moduleId: MODULE, connectionId: existing.id }, async () => ({
@@ -101,11 +105,17 @@ export async function saveGrant(
   return { connectionId: created.connectionId, reconnect: false };
 }
 
-/** The connection's token, its config and the project's current developer app. */
+/** The connection's token, its config and the project's current developer app; a disabled connection is refused. */
 export async function grantCredentials(
   scope: Scope,
   connectionId: string,
 ): Promise<{ accessToken: string; config: GrantConfig; app: ProviderApp & { connectionId: string } }> {
+  // An administrator's switch: no secret of a disabled connection is opened.
+  const state = await authDb.connection.findFirst({
+    where: { id: connectionId, provider: PROVIDER, scope: "project", workspaceId: scope.workspaceId, projectId: scope.projectId, revokedAt: null },
+    select: { disabledAt: true },
+  });
+  if (state?.disabledAt) throw new DomainError("ADS_CONNECTION_DISABLED", 409);
   let held: { accessToken: string; config: GrantConfig };
   try {
     held = await withProjectSecret(scope, { moduleId: MODULE, connectionId }, async ({ secret, config }) => {

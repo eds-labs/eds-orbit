@@ -334,6 +334,23 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     outputs.push(rows.accounts, rows.health);
   });
 
+  it("refuses a reconnect onto an admin-disabled connection and leaves its secret alone", async () => {
+    const q = await track({ app });
+    cleanups.push(() => q.cleanup());
+    cleanups.push((await grantAdsMetaApp(q)).cleanup);
+    routeMeta(fakeToken("disabled-one"), "u-disabled");
+    const done1 = await finish(q.cookies.owner, (await start(q)).state);
+    const connectionId = new URL(done1.headers.location as string, origin).searchParams.get("connection")!;
+    await authDb.connection.update({ where: { id: connectionId }, data: { disabledAt: new Date() } });
+    routeMeta(fakeToken("disabled-two"), "u-disabled");
+    const done2 = await finish(q.cookies.owner, (await start(q)).state);
+    expect([done2.statusCode, done2.headers.location]).toEqual([302, `/p/${q.projectId}/ads/accounts?error=ADS_CONNECTION_DISABLED`]);
+    expect((await secretOf(connectionId)).version).toBe(1);
+    expect((await connections(q)).map((c) => c.id)).toEqual([connectionId]);
+    const connected = await q.run((tx) => tx.auditEvent.count({ where: { action: "ads.account.connected" } }));
+    expect(connected).toBe(1);
+  });
+
   it("restores only rows still waiting: an unlink during the re-read wins, status and capability follow the read", async () => {
     const q = await track({ app });
     cleanups.push(() => q.cleanup());

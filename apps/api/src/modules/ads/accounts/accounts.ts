@@ -55,6 +55,8 @@ export type AdConnectionView = {
   tokenExpiresAt: string | null;
   grantedScopes: string[];
   accountCount: number;
+  /** An administrator disabled the connection (revoked ones are not listed). */
+  disabled: boolean;
   createdAt: string;
 };
 
@@ -152,7 +154,7 @@ export async function listConnections(
   const rows = await authDb.connection.findMany({
     where: { provider: PROVIDER, scope: "project", workspaceId: scope.workspaceId, projectId: scope.projectId, revokedAt: null },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, label: true, config: true, createdAt: true },
+    select: { id: true, label: true, config: true, createdAt: true, disabledAt: true },
   });
   const counts = await tx.adAccount.groupBy({
     by: ["connectionId"],
@@ -171,6 +173,7 @@ export async function listConnections(
         tokenExpiresAt: expiry(config),
         grantedScopes: strings(config.grantedScopes),
         accountCount: countOf.get(r.id) ?? 0,
+        disabled: r.disabledAt !== null,
         createdAt: r.createdAt.toISOString(),
       };
     }),

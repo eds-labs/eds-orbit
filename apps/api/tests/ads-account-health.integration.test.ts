@@ -294,6 +294,26 @@ describe.skipIf(!enabled)("ads account health and clean-up", () => {
     expect(await notices(project, "ads_account_reconnect")).toHaveLength(1);
   });
 
+  it("notes an admin-disabled connection on the streams without a token call, a flip or a notice", async () => {
+    const { project, connection, ids } = await setup();
+    await authDb.connection.update({ where: { id: connection }, data: { disabledAt: new Date() } });
+    await runHealth(project);
+    expect(fake.requests).toEqual([]);
+    const s = await state(project);
+    expect(s.accounts.map((a) => [a.externalId, a.status])).toEqual([["act_1", "active"], ["act_2", "active"]]);
+    expect(s.streams.map((x) => [x.lastErrorCode, x.consecutiveFailures])).toEqual([["ADS_CONNECTION_DISABLED", 0], ["ADS_CONNECTION_DISABLED", 0]]);
+    expect(s.streams.every((x) => x.nextRunAt.getTime() > Date.now() + 5.9 * HOUR)).toBe(true);
+    expect(s.audit.filter((a) => a.action === "ads.account.reconnect_required")).toHaveLength(0);
+    expect(s.events).toHaveLength(0);
+    expect(await notices(project, "ads_account_reconnect")).toHaveLength(0);
+    expect(await checkAdAccount(project.owner, ids[0]!, { manual: true })).toEqual({ ok: false, code: "ADS_CONNECTION_DISABLED" });
+    expect(fake.requests).toEqual([]);
+    // Enabled again: the next run reads the accounts as before.
+    await authDb.connection.update({ where: { id: connection }, data: { disabledAt: null } });
+    await runHealth(project);
+    expect((await state(project)).streams.every((x) => x.lastErrorCode === null)).toBe(true);
+  });
+
   it("probes at most 10 accounts per run and one scope call per connection", async () => {
     const project = await track();
     const connection = await connectMeta(project);

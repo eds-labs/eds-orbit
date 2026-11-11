@@ -425,6 +425,21 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
     expect((await api(q, "owner", "POST", `/ads/connections/${connection}/revoke`)).statusCode).toBe(404);
   });
 
+  it("marks an admin-disabled connection in the list and refuses to use it", async () => {
+    const q = await track();
+    const live = await connectMeta(q, { metaUser: "u-1" });
+    const off = await connectMeta(q, { metaUser: "u-2" });
+    const gone = await connectMeta(q, { metaUser: "u-3" });
+    await authDb.connection.update({ where: { id: off }, data: { disabledAt: new Date() } });
+    expect((await api(q, "owner", "POST", `/ads/connections/${gone}/revoke`)).statusCode).toBe(200);
+    const listed = (await api(q, "owner", "GET", "/ads/connections")).json() as { connections: Array<{ id: string; disabled: boolean }> };
+    expect(listed.connections.map((c) => [c.id, c.disabled])).toEqual([[live, false], [off, true]]);
+    const requests = fake.requests.length;
+    expect((await api(q, "owner", "GET", `/ads/connections/${off}/available-accounts`)).statusCode).toBe(404);
+    expect((await assign(q, off, "act_1")).statusCode).toBe(404);
+    expect(fake.requests.length).toBe(requests);
+  });
+
   it("an unlink of the last account leaves the connection while an assignment holds a claim on it", async () => {
     const q = await track();
     const connection = await connectMeta(q);
@@ -497,7 +512,7 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
     expect(listed.statusCode).toBe(200);
     expect(listed.json()).toMatchObject({
       app: "ready",
-      connections: [{ id: connection, label: "Meta: Synthetic Meta User", tokenType: "user", grantedScopes: ["ads_management", "ads_read"], accountCount: 0 }],
+      connections: [{ id: connection, label: "Meta: Synthetic Meta User", tokenType: "user", grantedScopes: ["ads_management", "ads_read"], accountCount: 0, disabled: false }],
     });
     const available = await api(q, "owner", "GET", `/ads/connections/${connection}/available-accounts`);
     expect(available.json().accounts.map((a: { externalId: string }) => a.externalId)).toEqual(["act_1", "act_3"]);

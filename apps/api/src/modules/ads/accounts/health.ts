@@ -128,6 +128,13 @@ async function checkConnection(
   } catch (error) {
     const { code } = failureOf(error);
     if (code === "ADS_ACCOUNT_RECONNECT_REQUIRED") return refuseAll(code);
+    if (code === "ADS_CONNECTION_DISABLED") {
+      // An administrator's reversible switch: noted on the streams; nothing
+      // flips, no failure is counted and nobody is told.
+      await scoped(scope.workspaceId, scope.projectId, (tx) => touch(tx, scope, ids, code));
+      for (const id of ids) results.set(id, { ok: false, code });
+      return results;
+    }
     await outage(scope, ids, code);
     for (const id of ids) results.set(id, { ok: false, code });
     return results;
