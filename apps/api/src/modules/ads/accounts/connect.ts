@@ -4,7 +4,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { revokeProjectConnection } from "../../../platform/connections/project-secrets.ts";
 import { audit, DomainError } from "../../../shared.ts";
 import { adsProvider } from "../providers/registry.ts";
-import { AdsProviderError, type ProviderApp } from "../providers/types.ts";
+import { AdsProviderError, type ProviderAccount, type ProviderApp } from "../providers/types.ts";
 import { adsAppCredentials, adsRedirectUri } from "./app.ts";
 import { beginAdsOAuthState, type ConsumedAdsState } from "./oauth-state.ts";
 import { saveGrant } from "./vault.ts";
@@ -80,8 +80,11 @@ export async function finishMetaConnect(
 
 /**
  * Re-reads (at most 20 of) the connection's accounts that were waiting for a
- * reconnect: readable ones are active again, refused ones keep waiting with a
- * health note, and every other one is due for a check right now.
+ * reconnect: readable ones take the provider's status again, refused ones
+ * keep waiting with a health note, and every other one is due for a check
+ * right now. A row that changed meanwhile (an owner unlinked it, say) is
+ * left as it is: the restore only applies to a row still waiting on this
+ * connection.
  */
 async function recheckAccounts(
   scope: Scope,
@@ -94,12 +97,12 @@ async function recheckAccounts(
       orderBy: { createdAt: "asc" },
     }),
   );
-  const restored: Array<{ id: string; providerStatus: string }> = [];
+  const restored: Array<{ id: string; read: ProviderAccount }> = [];
   const refused: string[] = [];
   for (const account of waiting.slice(0, REREAD_LIMIT)) {
     try {
       const read = await metaConnect().readAccount({ ...input, externalId: account.externalId });
-      restored.push({ id: account.id, providerStatus: read.providerStatus });
+      restored.push({ id: account.id, read });
     } catch (error) {
       if (error instanceof AdsProviderError && (error.failure.kind === "auth" || error.failure.kind === "permission"))
         refused.push(account.id);
@@ -110,16 +113,28 @@ async function recheckAccounts(
   const rest = waiting.filter((a) => !refusedIds.has(a.id) && !restoredIds.has(a.id)).map((a) => a.id);
   const now = new Date();
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    for (const account of restored) {
-      await tx.adAccount.update({
-        where: { projectId_id: { projectId: scope.projectId, id: account.id } },
-        data: { status: "active", providerStatus: account.providerStatus, version: { increment: 1 } },
+    for (const { id, read } of restored) {
+      const still = { projectId: scope.projectId, id, connectionId: input.connectionId, status: "reconnect_required" };
+      const row = await tx.adAccount.findFirst({ where: still, select: { capability: true } });
+      if (!row) continue;
+      // As health does: write_verified stays only while writing is possible.
+      const capability = read.canWrite ? (row.capability === "write_verified" ? "write_verified" : "write_ready") : "read_verified";
+      const changed = await tx.adAccount.updateMany({
+        where: still,
+        data: {
+          status: read.status,
+          providerStatus: read.providerStatus,
+          capability,
+          ...(capability === "read_verified" || read.status !== "active" ? { writesEnabled: false } : {}),
+          version: { increment: 1 },
+        },
       });
+      if (changed.count !== 1) continue;
       await tx.adSyncState.updateMany({
-        where: { projectId: scope.projectId, accountId: account.id, stream: "health" },
+        where: { projectId: scope.projectId, accountId: id, stream: "health" },
         data: { lastErrorCode: null, consecutiveFailures: 0, nextRunAt: now },
       });
-      await audit(tx, scope, "ads.account.restored", account.id, { connectionId: input.connectionId });
+      await audit(tx, scope, "ads.account.restored", id, { connectionId: input.connectionId });
     }
     for (const id of refused)
       await tx.adSyncState.upsert({

@@ -4,6 +4,7 @@ import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
+import { unlinkAdAccount } from "../src/modules/ads/accounts/accounts.ts";
 import { beginAdsOAuthState, consumeAdsOAuthState, projectOfAdsState } from "../src/modules/ads/accounts/oauth-state.ts";
 import { claimExclusiveConfigValue } from "../src/platform/connections/project-secrets.ts";
 import { openSecret } from "../src/platform/connections/secrets.ts";
@@ -62,11 +63,11 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     return response;
   };
   /** Routes the code exchange and the identity reads for one Meta user and token. */
-  const routeMeta = (token: string, metaUser = "u-1") => {
+  const routeMeta = (token: string, metaUser = "u-1", scopes = ["ads_read", "ads_management"]) => {
     tokens.push(token);
     fake.on("POST", "/oauth/access_token", { json: { access_token: token, token_type: "bearer", expires_in: 5183944 } });
     fake.on("GET", "/me", { json: { id: metaUser, name: "Synthetic Meta User" } });
-    fake.on("GET", "/me/permissions", { json: { data: [{ permission: "ads_read", status: "granted" }, { permission: "ads_management", status: "granted" }] } });
+    fake.on("GET", "/me/permissions", { json: { data: scopes.map((permission) => ({ permission, status: "granted" })) } });
   };
   const connections = (project: AdsProject = p) =>
     authDb.connection.findMany({ where: { projectId: project.projectId, provider: "ads.account.meta", revokedAt: null } });
@@ -300,6 +301,8 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     const connectionId = new URL(done1.headers.location as string, origin).searchParams.get("connection")!;
     const acts = [await adAccount(q, connectionId, 1), await adAccount(q, connectionId, 2), await adAccount(q, connectionId, 3)];
     for (const n of [1, 2, 3]) await claimExclusiveConfigValue(q.owner, { moduleId: "ads", connectionId, key: "assignedAdAccounts", value: `act_${n}` });
+    // Verified writing survives a reconnect that can still write.
+    await q.run((tx) => tx.adAccount.update({ where: { id: acts[0]!.id }, data: { capability: "write_verified", writesEnabled: true } }));
     const second = fakeToken("two");
     routeMeta(second);
     const account = (n: number) => ({ id: `act_${n}`, account_id: String(n), name: `Account ${n}`, currency: "EUR", timezone_name: "Europe/Berlin", account_status: 1 });
@@ -319,6 +322,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
       audit: await tx.auditEvent.findMany({ where: { action: "ads.account.restored" } }),
     }));
     expect(rows.accounts.map((a) => [a.externalId, a.status])).toEqual([["act_1", "active"], ["act_2", "reconnect_required"], ["act_3", "reconnect_required"]]);
+    expect(rows.accounts[0]).toMatchObject({ capability: "write_verified", writesEnabled: true, providerStatus: "ACTIVE" });
     const health = (id: string) => rows.health.find((h) => h.accountId === id)!;
     expect(health(acts[1]!.id).lastErrorCode).toBe("ADS_META_ACCOUNT_NOT_GRANTED");
     expect(health(acts[1]!.id).nextRunAt.getTime()).toBeGreaterThan(Date.now() + 3_600_000);
@@ -327,6 +331,46 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     expect(rows.audit.map((a) => a.resourceId)).toEqual([acts[0]!.id]);
     const connected = await q.run((tx) => tx.auditEvent.findMany({ where: { action: "ads.account.connected" }, orderBy: { createdAt: "asc" } }));
     expect(connected.map((a) => (a.metadata as { reconnect: boolean }).reconnect)).toEqual([false, true]);
+    outputs.push(rows.accounts, rows.health);
+  });
+
+  it("restores only rows still waiting: an unlink during the re-read wins, status and capability follow the read", async () => {
+    const q = await track({ app });
+    cleanups.push(() => q.cleanup());
+    cleanups.push((await grantAdsMetaApp(q)).cleanup);
+    routeMeta(fakeToken("race-one"));
+    const done1 = await finish(q.cookies.owner, (await start(q)).state);
+    const connectionId = new URL(done1.headers.location as string, origin).searchParams.get("connection")!;
+    const [gone, off, kept] = [await adAccount(q, connectionId, 11), await adAccount(q, connectionId, 12), await adAccount(q, connectionId, 13)];
+    for (const n of [11, 12, 13]) await claimExclusiveConfigValue(q.owner, { moduleId: "ads", connectionId, key: "assignedAdAccounts", value: `act_${n}` });
+    await q.run((tx) => tx.adAccount.updateMany({ data: { capability: "write_verified", writesEnabled: true } }));
+    // The new grant lacks ads_management: nothing can be written any more.
+    routeMeta(fakeToken("race-two"), "u-1", ["ads_read"]);
+    const account = (n: number, over: object = {}) => ({ id: `act_${n}`, account_id: String(n), name: `Account ${n}`, currency: "EUR", timezone_name: "Europe/Berlin", account_status: 1, ...over });
+    fake.on("GET", "/act_11", async () => {
+      // The owner unlinks this account after the reconnect listed it and before the restore.
+      const row = await q.run((tx) => tx.adAccount.findUniqueOrThrow({ where: { id: gone.id } }));
+      await unlinkAdAccount(q.owner, gone.id, { version: row.version });
+      return { json: account(11) };
+    });
+    fake.on("GET", "/act_12", { json: account(12, { account_status: 2 }) });
+    fake.on("GET", "/act_13", { json: account(13) });
+    const done2 = await finish(q.cookies.owner, (await start(q)).state);
+    expect(done2.headers.location).toBe(`/p/${q.projectId}/ads/accounts?connection=${connectionId}`);
+    const rows = await q.run(async (tx) => ({
+      accounts: await tx.adAccount.findMany({ orderBy: { externalId: "asc" } }),
+      health: await tx.adSyncState.findMany({ where: { stream: "health" } }),
+      restored: await tx.auditEvent.findMany({ where: { action: "ads.account.restored" } }),
+    }));
+    expect(rows.accounts.map((a) => [a.externalId, a.status, a.capability, a.writesEnabled])).toEqual([
+      ["act_11", "unlinked", "write_verified", false],
+      ["act_12", "disabled", "read_verified", false],
+      ["act_13", "active", "read_verified", false],
+    ]);
+    expect(rows.accounts[1]!.providerStatus).toMatch(/^DISABLED/);
+    expect(rows.health.map((h) => h.accountId).sort()).toEqual([off.id, kept.id].sort());
+    expect(rows.restored.map((a) => a.resourceId).sort()).toEqual([off.id, kept.id].sort());
+    expect((await connections(q)).map((c) => (c.config as { assignedAdAccounts: string[] }).assignedAdAccounts)).toEqual([["act_12", "act_13"]]);
     outputs.push(rows.accounts, rows.health);
   });
 
