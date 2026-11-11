@@ -9719,3 +9719,48 @@ button.drive-file-name {
     border: 1px solid CanvasText;
   }
 }
+
+/* Integrations center: provider catalog, cards and guided setup steps. */
+.integration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  gap: 14px;
+}
+.integration-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: var(--panel-inset-block, 18px) var(--panel-inset, 21px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.integration-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  width: 100%;
+}
+.integration-card li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.integration-card .integration-meta {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.setup-steps {
+  display: grid;
+  gap: 8px;
+  padding-left: 22px;
+}
+.setup-steps [aria-current="step"] {
+  font-weight: 600;
+}
