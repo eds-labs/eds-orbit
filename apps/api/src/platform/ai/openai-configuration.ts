@@ -585,7 +585,8 @@ export function publicOpenAiConfiguration(
   };
 }
 
-async function configurationRow(tx: DbTx, scope: Scope) {
+/** The project's own AI configuration row; null while it saved none. */
+export async function configurationRow(tx: DbTx, scope: Scope) {
   return tx.entity.findFirst({
     where: {
       workspaceId: scope.workspaceId,

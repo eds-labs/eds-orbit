@@ -29,6 +29,7 @@ import {
   aiProviderConfigurationInput,
   assertModelsVerified,
   catalogModelIds,
+  configurationRow,
   effectiveAiStatus,
   openAiConfigurationInput,
   publicOpenAiConfiguration,
@@ -51,16 +52,6 @@ import {
 // project's Settings → AI).
 
 const modelName = z.string().trim().min(1).max(120);
-
-async function configurationRow(tx: DbTx, scope: Scope) {
-  return tx.entity.findFirst({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "openai_configuration",
-    },
-  });
-}
 
 /** The project configuration's version; 0 while the project has none. */
 const versionOf = (row: { version: number } | null) => row?.version ?? 0;

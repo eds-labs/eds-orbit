@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { authDb, closeDatabase, scoped } from "../../../packages/db/src/index.ts";
+import { authDb, closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
+import { centralLayers } from "../src/platform/ai/central-ai.ts";
 import {
   anthropicCatalog,
   anthropicCatalogRateCard,
@@ -48,13 +49,30 @@ const ENV_KEYS = [
   "OPENAI_IMAGE_MAX_COST_MICROS",
   "OPENAI_IMAGE_PRICE_VERIFIED_AT",
 ] as const;
-const savedEnv = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
-for (const k of ENV_KEYS) delete process.env[k];
-process.env.ORBIT_CONNECTIONS = "true";
+const savedEnv: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
+// Top level, so the environment is restored even when the database tests skip.
+beforeAll(() => {
+  for (const k of ENV_KEYS) {
+    savedEnv[k] = process.env[k];
+    delete process.env[k];
+  }
+  process.env.ORBIT_CONNECTIONS = "true";
+});
+afterAll(() => {
+  for (const k of ENV_KEYS)
+    if (savedEnv[k] === undefined) delete process.env[k];
+    else process.env[k] = savedEnv[k];
+});
 
 const VERIFIED_AT = "2026-11-01T00:00:00.000Z";
 const rate = { inputMicrosPerMillion: 1000, outputMicrosPerMillion: 2000, verifiedAt: VERIFIED_AT };
 const IMAGE_MODEL = "gpt-image-2.5-flare";
+/**
+ * The system layer centralLayers reports for the system profile row: none
+ * without a row; an empty profile (the only kind these expectations allow,
+ * see systemProfile) contributes no runtime fields.
+ */
+const systemLayerFor = (row: { data: unknown } | null) => (row ? {} : null);
 
 describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
   const users: string[] = [];
@@ -141,9 +159,6 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
       await authDb.workspace.delete({ where: { id: workspaceId } });
     }
     await authDb.user.deleteMany({ where: { id: { in: users } } });
-    for (const k of ENV_KEYS)
-      if (savedEnv[k] === undefined) delete process.env[k];
-      else process.env[k] = savedEnv[k];
     await closeDatabase();
   });
 
@@ -356,8 +371,12 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
       stored: null,
       ownKeys: { openai: false, image: false, anthropic: false },
       routingApplied: false,
-      layers: { system: expect.anything(), standardImageModel: undefined },
+      layers: { standardImageModel: undefined },
     });
+    // With or without a system profile row (a fresh database has none).
+    const systemRow = await authDb.aiProfile.findFirst({ where: { scope: "system" } });
+    expect(systemRow?.data ?? {}).toEqual({});
+    expect(state.layers!.system).toEqual(systemLayerFor(systemRow));
     expect(state.layers!.organization).toMatchObject({ defaultProvider: "anthropic" });
     expect(Object.keys(state.grants)).toEqual(["openaiText", "openaiImage"]);
     expect(routingModeOf(state.stored)).toBe("unsaved");
@@ -377,6 +396,31 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
       providerBudgets: true,
       keys: ["openai"],
     });
+  });
+});
+
+// The two system-row outcomes of the editor test above, on a stubbed
+// transaction, so the no-row branch is proven without touching the shared
+// test database: centralLayers must agree with systemLayerFor for both.
+describe("centralLayers and the system profile row", () => {
+  const organizationRow = { scope: "workspace", version: 1, data: { defaultProvider: "anthropic" } };
+  const stub = (rows: object[]) =>
+    ({
+      aiProfile: { findMany: async () => rows },
+      connectionGrant: { findMany: async () => [] },
+    }) as unknown as DbTx;
+  const scope = { workspaceId: randomUUID(), projectId: randomUUID(), userId: randomUUID(), role: "owner" } as Scope;
+  it("reports no system layer without a system profile row", async () => {
+    const layers = await centralLayers(stub([organizationRow]), scope);
+    expect(layers!.system).toBeNull();
+    expect(layers!.system).toEqual(systemLayerFor(null));
+    expect(layers!.organization).toEqual({ defaultProvider: "anthropic" });
+  });
+  it("reports an empty system layer for an empty system profile row", async () => {
+    const systemRow = { scope: "system", version: 4, data: {} };
+    const layers = await centralLayers(stub([systemRow, organizationRow]), scope);
+    expect(layers!.system).toEqual({});
+    expect(layers!.system).toEqual(systemLayerFor(systemRow));
   });
 });
 

@@ -10,6 +10,7 @@ import {
 import { aiDefaultsEnabled } from "./catalog.ts";
 import { centralLayers, type CentralLayers } from "./central-ai.ts";
 import {
+  configurationRow,
   effectiveAiStatus,
   ownAiKeys,
   storedAiFields,
@@ -47,16 +48,6 @@ export type AiConfigurationState = {
   /** Whether the runtime applies a saved routing mode (ORBIT_AI_DEFAULTS). */
   routingApplied: boolean;
 };
-
-async function configurationRow(tx: DbTx, scope: Scope) {
-  return tx.entity.findFirst({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "openai_configuration",
-    },
-  });
-}
 
 /** The system's and the organization's AI profile rows; none while central connections are off. */
 async function profileRows(tx: DbTx, scope: Scope) {
@@ -111,7 +102,9 @@ export async function aiConfigurationState(
   const layers = await centralLayers(tx, scope);
   const ids = [
     ...new Set(
-      Object.values(effective.keyConnections).map((s) => s!.connectionId),
+      Object.values(effective.keyConnections)
+        .map((s) => s?.connectionId)
+        .filter((id): id is string => Boolean(id)),
     ),
   ];
   // Readable here: the connection policy admits what the project is granted.
