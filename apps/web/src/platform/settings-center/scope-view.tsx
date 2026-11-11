@@ -2,6 +2,7 @@
 import type { Identity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { visibleSections } from "./registry";
+import { accountSections } from "./sections/account";
 import { organizationSections } from "./sections/organization";
 import { systemSections } from "./sections/system";
 import { SettingsCenterView } from "./settings-center";
@@ -78,7 +79,9 @@ export function ScopeView({
       ? visibleSections(systemSections, "system", capabilities)
       : scope.kind === "organization"
         ? visibleSections(organizationSections, "organization", capabilities)
-        : NO_SECTIONS;
+        : scope.kind === "account"
+          ? visibleSections(accountSections, "account", capabilities)
+          : NO_SECTIONS;
   return (
     <SettingsCenterView
       scope={scope}
