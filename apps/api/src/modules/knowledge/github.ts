@@ -10,6 +10,11 @@ import type {
 import { containsCredentials } from "../../../../../packages/knowledge/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import {
+  integrationState,
+  type ProjectIntegrationsContribution,
+} from "../../platform/connections/integrations.ts";
+import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
+import {
   create,
   data,
   decrypt,
@@ -126,6 +131,31 @@ export async function githubStatus(s: Scope) {
     };
   });
 }
+/**
+ * The project's GitHub installations for the Integrations Center: owners
+ * only, while the knowledge workspace is on, as the GitHub status route.
+ * A stored app without an installation is one item waiting to be installed.
+ * The flag is read as workspace.ts's workspaceEnabled reads it; importing
+ * that would make the two files import each other.
+ */
+export const knowledgeGithubIntegrations: ProjectIntegrationsContribution = async (tx, s) => {
+  if (process.env.ORBIT_KNOWLEDGE_WORKSPACE !== "true" || !can(s, PROJECT_OWN)) return [];
+  const config = (await list(tx, s, "knowledge_github_config"))[0];
+  const connections = await list(tx, s, "knowledge_github_connections");
+  const item = (id: string, label: string, installed: boolean) => ({
+    id,
+    provider: "knowledge_github",
+    label,
+    scope: "project" as const,
+    state: integrationState({ kind: "installation", configured: true, installed }),
+    checkedAt: null,
+  });
+  if (!connections.length)
+    return config ? [item("knowledge_github", "GitHub for Knowledge", false)] : [];
+  return connections.map((row) =>
+    item(`knowledge_github:${row.id}`, String(data(row).account ?? "GitHub"), true),
+  );
+};
 export async function beginGithub(s: Scope, input: unknown = {}) {
   const { draftId } = z.object({ draftId: z.uuid().optional() }).parse(input);
   if (draftId)

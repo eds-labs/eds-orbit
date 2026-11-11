@@ -591,6 +591,14 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/management/projects/{projectId}/integrations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/mcp-connect/request": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",

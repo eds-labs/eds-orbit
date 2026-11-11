@@ -81,6 +81,7 @@ export const marketingConnections: ConnectionsContribution = {
     // Delivery is proven by an authorized test notice, not by a check.
     slack: {
       checkUnsupported: "SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION",
+      label: { en: "Slack", de: "Slack" },
       category: "other",
       authType: "bot_token",
     },

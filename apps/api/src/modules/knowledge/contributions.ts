@@ -10,6 +10,7 @@ import { knowledgeActions } from "./actions.ts";
 import { knowledgeRoutes } from "./routes.ts";
 import { knowledgeActionPermissions } from "./permissions.ts";
 import { knowledgeAttention } from "./attention.ts";
+import { knowledgeGithubIntegrations } from "./github.ts";
 
 /**
  * What the knowledge module plugs into the platform (WP2.1f, WP3.3): its
@@ -37,6 +38,8 @@ export const knowledgeContributions: ModuleContributions = {
   attention: knowledgeAttention,
   // Documents as link targets of other modules (ADR 0016).
   linkTypes: knowledgeLinkTypes,
+  // Its GitHub installations in the project's Integrations Center (ADR 0027).
+  projectIntegrations: knowledgeGithubIntegrations,
   // The GitHub connection a project's code sources read through.
   integrations: [
     {

@@ -6,8 +6,9 @@ import {
   registeredConnectionProvider,
   registeredConnectionProviderIds,
   registeredIntegrationDescriptors,
+  registeredProjectIntegrations,
 } from "../src/platform/modules/contributions.ts";
-import { catalogCategory, integrationCatalog } from "../src/platform/management/integration-catalog.ts";
+import { catalogCategories, catalogCategory, integrationCatalog } from "../src/platform/management/integration-catalog.ts";
 import { INTEGRATION_AUTH_TYPES, INTEGRATION_CATEGORIES, type IntegrationDescriptor } from "../src/platform/connections/integrations.ts";
 
 registerModules();
@@ -89,5 +90,17 @@ describe("integration registrations", () => {
   it("falls back to the category other for an unknown id", () => {
     expect(catalogCategory("unknown-id")).toBe("other");
     expect(catalogCategory("postiz")).toBe("social");
+    expect(catalogCategories().get("matomo")).toBe("analytics");
+  });
+  it("lists the social and knowledge project contributions", () => {
+    expect(registeredProjectIntegrations().map(([owner]) => owner)).toEqual(["knowledge", "social"]);
+  });
+  it("gives every provider a readable label", () => {
+    for (const id of registeredConnectionProviderIds())
+      expect(registeredConnectionProvider(id)!.label, id).toBeDefined();
+    expect(integrationCatalog().find((e) => e.id === "email")!.label).toEqual({ en: "E-mail mailbox", de: "E-Mail-Postfach" });
+    expect(integrationCatalog().find((e) => e.id === "slack")!.label.en).toBe("Slack");
+    // n8n writes its own name in lower case; no other label is just the id.
+    expect(integrationCatalog().filter((e) => e.label.en === e.id).map((e) => e.id)).toEqual(["n8n"]);
   });
 });

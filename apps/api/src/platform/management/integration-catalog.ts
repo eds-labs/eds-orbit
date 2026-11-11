@@ -70,7 +70,12 @@ export function integrationCatalog(): CatalogEntry[] {
   );
 }
 
+/** Every catalog id with its category; build it once per request, not per item. */
+export function catalogCategories(): Map<string, IntegrationCategory> {
+  return new Map(integrationCatalog().map((e) => [e.id, e.category]));
+}
+
 /** The category of a provider or descriptor id; "other" when unknown. */
 export function catalogCategory(id: string): IntegrationCategory {
-  return integrationCatalog().find((e) => e.id === id)?.category ?? "other";
+  return catalogCategories().get(id) ?? "other";
 }
