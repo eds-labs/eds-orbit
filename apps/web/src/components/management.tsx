@@ -79,7 +79,8 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { capabilityLabel, liveBlockerText } from "@/lib/capability-text";
-export function Connectors() {
+/** `embedded`: inside the settings center, whose frame shows the section head. */
+export function Connectors({ embedded = false }: { embedded?: boolean } = {}) {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const resource = useCollection("connectors");
   const [configure, setConfigure] = useState<string | null>(null);
@@ -91,14 +92,16 @@ export function Connectors() {
   const configuring = providers.find((p) => p.id === configure);
   return (
     <>
-      <PageHead
-        title={t("connectors")}
-        description={
-          locale === "de"
-            ? "Verbindungen mit überprüfbaren Fähigkeiten."
-            : "Connections with capabilities you can verify."
-        }
-      />
+      {!embedded && (
+        <PageHead
+          title={t("connectors")}
+          description={
+            locale === "de"
+              ? "Verbindungen mit überprüfbaren Fähigkeiten."
+              : "Connections with capabilities you can verify."
+          }
+        />
+      )}
       <Alert>
         {locale === "de"
           ? "Codex- und ChatGPT-Verbindungen stellen dieser Installation keine Zugangsdaten bereit."
@@ -487,10 +490,172 @@ export function Operations() {
     </>
   );
 }
-export function ProjectSettings() {
+/**
+ * The project's facts, the caller's role and the export. The project
+ * settings page and the settings center both show it; the caller passes the
+ * dashboard it loaded, so the page keeps its single request.
+ */
+export function ProjectSummaryPanel({ dashboard }: { dashboard: Dashboard | null }) {
   const marketingOn = useMarketingOn();
-  const { t, locale, project, revision, isOwner, identity, refresh } =
-    useWorkspace();
+  const { locale, project, identity } = useWorkspace();
+  const pt = projectSettingsText(locale);
+  const roleText = (role?: string) =>
+    pt(
+      role === "owner"
+        ? "roleOwner"
+        : role === "editor"
+          ? "roleEditor"
+          : role === "viewer"
+            ? "roleViewer"
+            : "roleMember",
+    );
+  const d = dashboard;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>{pt("projectHeading")}</h2>
+          <p>{pt("projectHint")}</p>
+        </div>
+        <Badge>{roleText(project.role)}</Badge>
+      </div>
+      <dl className="detail-grid">
+        <dt>{pt("name")}</dt>
+        <dd>{project.name}</dd>
+        <dt>{pt("timezone")}</dt>
+        <dd>{project.timezone}</dd>
+        <dt>{pt("defaultLanguage")}</dt>
+        <dd>
+          {languageName(project.language, locale)}
+          <small>
+            {languagesOf(project)
+              .map((code) => languageName(code, locale))
+              .join(" · ")}
+          </small>
+        </dd>
+        <dt>{pt("signedInAs")}</dt>
+        <dd>
+          {identity.user.name}
+          <small>{identity.user.email}</small>
+        </dd>
+        {/* Marketing's autonomy mode, only while it is on (E-6). */}
+        {marketingOn && (
+          <>
+            <dt>{pt("mode")}</dt>
+            <dd>
+              <Status value={d?.project.mode || project.mode} />
+            </dd>
+          </>
+        )}
+      </dl>
+      <Button asChild variant="outline">
+        <a
+          href={`/api${collectionPath(project.id, "export")}`}
+          download
+        >
+          <Download data-icon="inline-start" />
+          {pt("exportProject")}
+        </a>
+      </Button>
+    </section>
+  );
+}
+
+/** Autopilot readiness with the links that resolve its blockers. */
+export function ProjectReadinessPanel({
+  dashboard,
+  loading,
+}: {
+  dashboard: Dashboard | null;
+  loading: boolean;
+}) {
+  const { locale, isOwner } = useWorkspace();
+  const shell = useContext(ShellContext);
+  const setupLinks = shell?.setupLinks ?? [];
+  const settingsHref = shell?.hrefOf("settings") ?? "";
+  const sectionHref = (key: string) => settingsSectionHref(settingsHref, key);
+  const de = locale === "de";
+  const d = dashboard;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <h2>
+          {de ? "Autopilot-Bereitschaft" : "Autopilot readiness"}
+        </h2>
+        {d && <Status value={d.readiness.state} />}
+      </div>
+      {d?.readiness.blockers.length ? (
+        <ul className="checklist">
+          {d.readiness.blockers.map((s) => (
+            <li key={s}>
+              <span className="checklist-dot" />
+              {blockerReason(locale, s)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="panel-note">
+          {loading
+            ? de
+              ? "Wird geprüft…"
+              : "Checking…"
+            : de
+              ? "Die Bereitschaft richtet sich nach verifizierten Fähigkeiten."
+              : "Readiness is scoped to verified capabilities."}
+        </p>
+      )}
+      {d?.readiness.capabilities && (
+        <div className="capability-readiness">
+          {Object.entries(d.readiness.capabilities).map(
+            ([name, capability]) => (
+              <div className="data-row" key={name}>
+                <div>
+                  <strong>{capabilityLabel(locale, name)}</strong>
+                  {/* A sentence; the raw code only as a tooltip. */}
+                  {capability.liveBlocker && (
+                    <p title={capability.liveBlocker}>
+                      {liveBlockerText(
+                        locale,
+                        capability.liveBlocker,
+                      )}
+                    </p>
+                  )}
+                </div>
+                <Status value={capability.state} />
+              </div>
+            ),
+          )}
+        </div>
+      )}
+      <div className="setup-links">
+        <AppLink href="/knowledge">
+          <BookOpenIcon />
+          {de
+            ? "Quellenrechte und verifizierte Fakten ergänzen"
+            : "Add source rights and verified facts"}
+        </AppLink>
+        <AppLink href="/connectors">
+          <Link2 />
+          {de
+            ? "Verbindungen und ihre Fähigkeiten prüfen"
+            : "Verify connector capabilities"}
+        </AppLink>
+        {setupLinks.map((Link, index) => (
+          <Link key={index} />
+        ))}
+        {/* One place for AI settings (plan phase 3.3). */}
+        {isOwner && (
+          <AppLink href={sectionHref("ai")}>
+            <Brain />
+            {de ? "KI & Budget einrichten" : "Set up AI & budget"}
+          </AppLink>
+        )}
+      </div>
+    </section>
+  );
+}
+export function ProjectSettings() {
+  const { t, locale, project, revision, isOwner, refresh } = useWorkspace();
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
   );
@@ -508,19 +673,7 @@ export function ProjectSettings() {
   const connectedApps = appsAvailable || appsSeen;
   const d = dashboard.data;
   const de = locale === "de";
-  const pt = projectSettingsText(locale);
-  const roleText = (role?: string) =>
-    pt(
-      role === "owner"
-        ? "roleOwner"
-        : role === "editor"
-          ? "roleEditor"
-          : role === "viewer"
-            ? "roleViewer"
-            : "roleMember",
-    );
   const shell = useContext(ShellContext);
-  const setupLinks = shell?.setupLinks ?? [];
   // Module sections (WP2.3b). Their hooks run on every render in registry
   // order, which never changes while the app runs.
   const modules = (shell?.settings ?? []).map((section) => ({
@@ -584,128 +737,11 @@ export function ProjectSettings() {
             ))}
           {tab === "project" && (
             <div className="settings-grid">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{pt("projectHeading")}</h2>
-                    <p>{pt("projectHint")}</p>
-                  </div>
-                  <Badge>{roleText(project.role)}</Badge>
-                </div>
-                <dl className="detail-grid">
-                  <dt>{pt("name")}</dt>
-                  <dd>{project.name}</dd>
-                  <dt>{pt("timezone")}</dt>
-                  <dd>{project.timezone}</dd>
-                  <dt>{pt("defaultLanguage")}</dt>
-                  <dd>
-                    {languageName(project.language, locale)}
-                    <small>
-                      {languagesOf(project)
-                        .map((code) => languageName(code, locale))
-                        .join(" · ")}
-                    </small>
-                  </dd>
-                  <dt>{pt("signedInAs")}</dt>
-                  <dd>
-                    {identity.user.name}
-                    <small>{identity.user.email}</small>
-                  </dd>
-                  {/* Marketing's autonomy mode, only while it is on (E-6). */}
-                  {marketingOn && (
-                    <>
-                      <dt>{pt("mode")}</dt>
-                      <dd>
-                        <Status value={d?.project.mode || project.mode} />
-                      </dd>
-                    </>
-                  )}
-                </dl>
-                <Button asChild variant="outline">
-                  <a
-                    href={`/api${collectionPath(project.id, "export")}`}
-                    download
-                  >
-                    <Download data-icon="inline-start" />
-                    {pt("exportProject")}
-                  </a>
-                </Button>
-              </section>
-              <section className="panel">
-                <div className="panel-head">
-                  <h2>
-                    {de ? "Autopilot-Bereitschaft" : "Autopilot readiness"}
-                  </h2>
-                  {d && <Status value={d.readiness.state} />}
-                </div>
-                {d?.readiness.blockers.length ? (
-                  <ul className="checklist">
-                    {d.readiness.blockers.map((s) => (
-                      <li key={s}>
-                        <span className="checklist-dot" />
-                        {blockerReason(locale, s)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="panel-note">
-                    {dashboard.loading
-                      ? de
-                        ? "Wird geprüft…"
-                        : "Checking…"
-                      : de
-                        ? "Die Bereitschaft richtet sich nach verifizierten Fähigkeiten."
-                        : "Readiness is scoped to verified capabilities."}
-                  </p>
-                )}
-                {d?.readiness.capabilities && (
-                  <div className="capability-readiness">
-                    {Object.entries(d.readiness.capabilities).map(
-                      ([name, capability]) => (
-                        <div className="data-row" key={name}>
-                          <div>
-                            <strong>{capabilityLabel(locale, name)}</strong>
-                            {/* A sentence; the raw code only as a tooltip. */}
-                            {capability.liveBlocker && (
-                              <p title={capability.liveBlocker}>
-                                {liveBlockerText(
-                                  locale,
-                                  capability.liveBlocker,
-                                )}
-                              </p>
-                            )}
-                          </div>
-                          <Status value={capability.state} />
-                        </div>
-                      ),
-                    )}
-                  </div>
-                )}
-                <div className="setup-links">
-                  <AppLink href="/knowledge">
-                    <BookOpenIcon />
-                    {de
-                      ? "Quellenrechte und verifizierte Fakten ergänzen"
-                      : "Add source rights and verified facts"}
-                  </AppLink>
-                  <AppLink href="/connectors">
-                    <Link2 />
-                    {de
-                      ? "Verbindungen und ihre Fähigkeiten prüfen"
-                      : "Verify connector capabilities"}
-                  </AppLink>
-                  {setupLinks.map((Link, index) => (
-                    <Link key={index} />
-                  ))}
-                  {/* One place for AI settings (plan phase 3.3). */}
-                  {isOwner && (
-                    <AppLink href={sectionHref("ai")}>
-                      <Brain />
-                      {de ? "KI & Budget einrichten" : "Set up AI & budget"}
-                    </AppLink>
-                  )}
-                </div>
-              </section>
+              <ProjectSummaryPanel dashboard={d} />
+              <ProjectReadinessPanel
+                dashboard={d}
+                loading={dashboard.loading}
+              />
             </div>
           )}
           {tab === "project" && (

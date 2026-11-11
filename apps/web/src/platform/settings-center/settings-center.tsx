@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import type { Identity } from "@/lib/api";
@@ -65,6 +65,7 @@ export function SettingsCenterView({
   navigate,
   backHref,
   backLabel,
+  notices,
 }: {
   scope: ManageScope;
   scopeName: string;
@@ -77,6 +78,8 @@ export function SettingsCenterView({
   navigate(href: string): void;
   backHref: string;
   backLabel: string;
+  /** Shown above whatever the content column holds, e.g. a module's load error. */
+  notices?: ReactNode;
 }) {
   const t = centerText(locale);
   const at = addressKey(target);
@@ -231,7 +234,10 @@ export function SettingsCenterView({
           onSelect={(key) => go(hrefOf(key))}
           locale={locale}
         />
-        <div className="settings-content">{content()}</div>
+        <div className="settings-content">
+          {notices}
+          {content()}
+        </div>
       </div>
     </>
   );

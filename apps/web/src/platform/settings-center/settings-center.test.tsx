@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity } from "@/lib/api";
 import type {
@@ -59,7 +60,11 @@ const identity: Identity = {
 };
 const scope: ManageScope = { kind: "system" };
 
-function render(target: Partial<ManageTarget>, capabilities = caps.system) {
+function render(
+  target: Partial<ManageTarget>,
+  capabilities = caps.system,
+  notices?: ReactNode,
+) {
   return renderToStaticMarkup(
     <SettingsCenterView
       scope={scope}
@@ -73,6 +78,7 @@ function render(target: Partial<ManageTarget>, capabilities = caps.system) {
       navigate={() => {}}
       backHref="/"
       backLabel="Back to Orbit"
+      notices={notices}
     />,
   );
 }
@@ -139,6 +145,23 @@ describe("SettingsCenterView", () => {
     expect(html).toMatch(/<details><summary>Advanced<\/summary><p>marker-none/);
     expect(html).not.toMatch(/<details[^>]* open/);
     expect(render({ area: "users" })).not.toContain("<details");
+  });
+
+  it("shows notices at the top of the content, on a section and on the overview", () => {
+    const notice = <p className="probe-notice">notice-marker</p>;
+    const content = (html: string) =>
+      html.slice(html.indexOf('class="settings-content"'));
+    const onSection = content(render({ area: "users" }, caps.system, notice));
+    expect(onSection.indexOf("notice-marker")).toBeGreaterThan(-1);
+    expect(onSection.indexOf("notice-marker")).toBeLessThan(
+      onSection.indexOf("<h2>Label users</h2>"),
+    );
+    const onOverview = content(render({}, caps.system, notice));
+    expect(onOverview.indexOf("notice-marker")).toBeGreaterThan(-1);
+    expect(onOverview.indexOf("notice-marker")).toBeLessThan(
+      onOverview.indexOf("manage-hint"),
+    );
+    expect(render({ area: "users" })).not.toContain("notice-marker");
   });
 });
 

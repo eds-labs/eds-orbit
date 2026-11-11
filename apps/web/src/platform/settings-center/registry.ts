@@ -1,5 +1,5 @@
-import { createElement } from "react";
-import type { Label } from "@/platform/shell/types";
+import { createElement, Fragment, type ReactNode } from "react";
+import type { Label, SettingsSection } from "@/platform/shell/types";
 import type {
   Area,
   Capability,
@@ -186,4 +186,83 @@ export function moduleSectionId(
   if (tabKey === moduleId || platformKeys.includes(tabKey)) return `${moduleId}/settings`;
   if (tabKey.startsWith(`${moduleId}-`)) return `${moduleId}/${tabKey.slice(moduleId.length + 1)}`;
   return `${moduleId}/${tabKey}`;
+}
+
+type Contribution = {
+  section: SettingsSection;
+  shown: ReturnType<SettingsSection["useSection"]>;
+};
+
+/**
+ * The module sections of the project settings as settings center sections.
+ * Pure: the caller has already run every section's hook (they must run on
+ * every render) and passes what each returned. A hidden section (null) is
+ * left out; contributions that land on the same id become one section that
+ * renders them by their order, as the old page renders a shared tab.
+ */
+export function adaptModuleSections(
+  contributed: readonly Contribution[],
+  modules: ReadonlyArray<{ id: string; displayName: Label; description: Label }>,
+  platformKeys: readonly string[],
+): { sections: ResolvedSection[]; notices: ReactNode[] } {
+  const notices: ReactNode[] = [];
+  const joined = new Map<string, { moduleId: string; parts: Contribution[] }>();
+  for (const c of contributed) {
+    if (!c.shown) continue;
+    if (c.shown.notice) notices.push(c.shown.notice);
+    // The shell sets every module section's group to its module.
+    const moduleId = c.section.tab.group;
+    if (!moduleId) continue;
+    const id = moduleSectionId(moduleId, c.section.tab.key, platformKeys);
+    const entry = joined.get(id);
+    if (entry) entry.parts.push(c);
+    else joined.set(id, { moduleId, parts: [c] });
+  }
+  // Modules in the shell's (sidebar) order; one unknown to it goes last.
+  const rank = (moduleId: string) => {
+    const index = modules.findIndex((m) => m.id === moduleId);
+    return index === -1 ? modules.length : index;
+  };
+  return {
+    notices,
+    sections: [...joined.entries()]
+      .map(([id, { moduleId, parts }]) => ({
+        id,
+        moduleId,
+        parts: [...parts].sort((x, y) => x.section.order - y.section.order),
+      }))
+      .sort(
+        (x, y) =>
+          rank(x.moduleId) - rank(y.moduleId) ||
+          x.parts[0].section.tab.order - y.parts[0].section.tab.order,
+      )
+      .map(({ id, moduleId, parts }) => {
+        const first = parts[0];
+        const shellModule = modules.find((m) => m.id === moduleId);
+        const fallback = { en: moduleId, de: moduleId };
+        // A module section on a platform tab ("integrations") would carry the
+        // platform tab's name; in the center it goes by its module's name.
+        const onPlatformTab = platformKeys.includes(first.section.tab.key);
+        const contents = parts.map((part) => part.shown!.content);
+        return {
+          id,
+          scope: "project" as const,
+          area: "modules",
+          moduleId,
+          label: onPlatformTab
+            ? (shellModule?.displayName ?? fallback)
+            : (first.shown!.label ?? first.section.tab.label),
+          description: shellModule?.description ?? fallback,
+          order: first.section.tab.order,
+          render: () =>
+            createElement(
+              Fragment,
+              null,
+              ...contents.map((content, index) =>
+                createElement(Fragment, { key: index }, content),
+              ),
+            ),
+        };
+      }),
+  };
 }
