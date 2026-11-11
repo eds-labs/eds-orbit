@@ -1,8 +1,8 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **draft for review, 2026-11-10. Nothing is implemented.** Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Nothing is implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
-This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. No product code changes before Mario approves it. The open decisions are in [section 11](#11-open-decisions-for-mario).
+This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
 ## 1. Goal and understanding
 
@@ -30,7 +30,7 @@ This plan covers phase 1 of the task (analysis and target architecture) and the 
 | Environment | Local and this worktree's own test database. Production only through the usual push to `main`, each step approved separately. |
 | App profile | `fullstack-saas` (primary), with `web-frontend` and `backend-api` rules. |
 | Workflow | `.agentic/workflows/feature.md` per phase; `refactor.md` for the removal in phase 5. No `migration.md`: the plan needs no schema change. |
-| Approval needed | Yes: this plan, each push to `main`, each flag change in production, and decisions D-1 to D-9. |
+| Approval needed | Yes: each push to `main` and each flag change in production. Decisions D-1 to D-9 are taken (section 11). |
 | Stack decision | None. Existing stack, no new dependency. |
 
 ## 3. Inventory of today's settings surfaces
@@ -138,7 +138,7 @@ Shown as "configured / missing" plus health, never editable (ADR 0014, decision 
 | F-4 | Members, roles and invitations in three places; two module-role editors. | One editor component; organization scope edits all projects, project scope its own. |
 | F-5 | Public keys and Support widget keys are issued in two places. Whether they share a store is not verified. | Verify in phase 3 before moving; list both under `p/integrations/public-access`. |
 | F-6 | AI ceilings in five places (project AI, Finance, Work PM, Issues triage, Support daily budget). | They stay module settings. `p/ai/budget` shows all of them read-only with links ("who may spend what"). |
-| F-7 | AI at organization and system level: three editors each for model tiers, prices and provider limits; all three provider-limit mechanisms are enforced independently. | One guided editor per concept; the raw profile editor becomes a collapsed "advanced" section. Which limit mechanism is the editable one is decision D-7. |
+| F-7 | AI at organization and system level: three editors each for model tiers, prices and provider limits; all three provider-limit mechanisms are enforced independently. | One guided editor per concept; the raw profile editor becomes a collapsed "advanced" section. The guided UI edits the organization caps (D-7). |
 | F-8 | Ten save risks in the AI forms, for example: a first save freezes environment defaults into the project; saving a provider budget on an "organization standard" project rewrites the stored default provider; the route form deletes routes of tasks it does not show; the profile editor writes back a stale `defaults`; the setup wizard's last step replaces an existing spending authority. | Fixed with regression tests **before** any AI form is mounted in the new frame (phase 4, work package 4.3). |
 | F-9 | Scope mixing: personal and organization MCP grants and the organization-wide pause sit in project pages. | Moved to their scopes (O12, O13, P11). |
 | F-10 | Language is set in two places and the top bar choice reverts after reload. | The toggle also saves the account language. |
@@ -147,10 +147,10 @@ Shown as "configured / missing" plus health, never editable (ADR 0014, decision 
 
 | # | Finding | Evidence | Proposal |
 | --- | --- | --- | --- |
-| F-11 | A system administrator passes `organizationManagerFor` for every organization and can make any user, themselves included, owner of a project or of the organization. The action is audited, but only system administrators can read that audit. ADR 0013 does not forbid it. | `administration/authz.ts:36-49`, `routes.ts:217-251`, `memberships.ts:204-239`; access-matrix fixture `sysadmin: allowed` | Decision D-8. V2 changes no permission on its own. |
+| F-11 | A system administrator passes `organizationManagerFor` for every organization and can make any user, themselves included, owner of a project or of the organization. The action is audited, but only system administrators can read that audit. ADR 0013 does not forbid it. | `administration/authz.ts:36-49`, `routes.ts:217-251`, `memberships.ts:204-239`; access-matrix fixture `sysadmin: allowed` | Kept in V2, with a confirmation that names the consequence (D-8). V2 changes no permission. |
 | F-12 | **Not a defect (checked 2026-11-11).** `POST /api/workspaces/:id/pause` also pauses the members' personal spaces. ADR 0022 decides exactly that: "Pausing the personal space pauses only the assistant; an organization pause pauses it too." The response lists the paused project ids, personal spaces included; the web does not read them. | `server.ts:1078-1107`; `docs/adr/0022-personal-space-assistant.md:18`; `docs/ORBIT_ASSISTANT.md:28` | No change. The V2 page for the organization pause says that members' assistants pause too. |
 | F-13 | **Confirmed and fixed on branch `claude/tenancy-pause-invitations` (2026-11-11, not on `main`).** `GET P/invitations` returned, for each invitation, every project it covers, so a project owner who is not organization owner saw other projects' names and roles. Resend and revoke were already limited correctly. | `administration/routes.ts:321-329`; failing test first in `administration.integration.test.ts` | Fixed outside V2: a project owner gets only their own project's part; the organization owner still gets the whole invitation. |
-| F-14 | The administrator's password reset returns the link to the administrator whenever system mail did not send. | `platform/account/service.ts:229-257` | Decision D-8. |
+| F-14 | The administrator's password reset returns the link to the administrator whenever system mail did not send. | `platform/account/service.ts:229-257` | Kept in V2 (D-8). |
 | F-15 | Organization pages use two guards: members and invitations admit system administrators, connections, AI and shares admit owners only. The web mirrors this by hand. | `authz.ts:36-84`, `organization-integrations.tsx:24-27` | The capabilities endpoint (5.5) states it per section, from the same guard functions. |
 | F-16 | New route prefixes are not flag-gated until a predicate and a hook line exist. | `server.ts:377-427` | Phase 2 adds the predicate with a rule test; the access matrix covers every new route. |
 | F-17 | `GET P/connectors` is open to viewers and removes only `encryptedCredential`; connection `config` is free-form. | `platform/shared.ts:246-249`, `administration/connections.ts:126-149` | New read endpoints use explicit allow-lists of fields; no change to the existing route in V2. |
@@ -203,7 +203,7 @@ Sections are path segments, so every section has a stable address; `?section=` s
 
 **Scope switcher.** A labelled control at the top of the frame: "Whole system" (system administrators only), one entry per organization the member owns, one per project the member belongs to (grouped by organization), "My account". It always names the open organization or project. A system administrator reaches a foreign organization through System → Organizations, as today, not through the organization scope (D-9).
 
-**Frame.** The same layout on all four scopes: scope switcher and search on top, grouped section list on the left (the existing `SettingsNav` pattern, 208 px, a select at 760 px and below), content on the right, one page head with a short explanation per section, advanced settings in collapsed disclosures. A "back to …" link returns to the project or picker. Whether the project scope keeps the project sidebar is decision D-2.
+**Frame.** The same layout on all four scopes: scope switcher and search on top, grouped section list on the left (the existing `SettingsNav` pattern, 208 px, a select at 760 px and below), content on the right, one page head with a short explanation per section, advanced settings in collapsed disclosures. A "back to …" link returns to the project or picker. The project scope uses the same frame, without the project sidebar (D-2).
 
 **Search.** Client-side over the registry entries the member can see (label, description, keywords, both languages). No server search, no content search.
 
@@ -334,7 +334,7 @@ The web learns the value from `/api/me`. The scopes follow their existing flags:
 
 Each step names who can do it. A member does the steps their role allows and gets a link for the rest. The developer app, the central connection, the grant and the connected account stay four records.
 
-**E-mail.** Today a mailbox is one project-level record that holds server, address and password; there is no separate mail server record, and mailboxes are not part of the central connections by an earlier decision. V2 separates them in the UI: mailboxes are grouped by server, and adding a second mailbox on the same server reuses host, port and TLS. Mailboxes shared across projects need `email` as a central provider at organization scope; that is a backend change with a cutover and is decision D-5. System mail stays a status display.
+**E-mail.** Today a mailbox is one project-level record that holds server, address and password; there is no separate mail server record, and mailboxes are not part of the central connections by an earlier decision. V2 separates them in the UI: mailboxes are grouped by server, and adding a second mailbox on the same server reuses host, port and TLS. Mailboxes shared across projects need `email` as a central provider at organization scope; that is a backend change with a cutover and is not part of V2 (D-5). System mail stays a status display.
 
 ### 5.9 AI area
 
@@ -362,9 +362,9 @@ This replaces phase D of `docs/plans/ai-central-management.md` (project page reb
 | --- | --- |
 | 1.1 | Inventory and mapping: sections 3 and 5.3. |
 | 1.2 | Target architecture: section 5. |
-| 1.3 | After approval: ADR 0027 "Settings center" (amends ADR 0013 decision 1 for the URLs; records D-1 to D-9), and entries in `docs/IMPLEMENTATION_STATUS.md` and `docs/REQUIREMENTS_TRACEABILITY.md`. |
+| 1.3 | Done 2026-11-11: ADR 0027 "Settings center" (amends ADR 0013 decision 1 for the URLs; records D-1 to D-9). The entries in `docs/IMPLEMENTATION_STATUS.md` and `docs/REQUIREMENTS_TRACEABILITY.md` follow with the first delivery to `main`. |
 
-Acceptance: Mario has decided D-1 to D-9 and approved the plan.
+Acceptance: Mario decided D-1 to D-9 on 2026-11-11.
 
 ## 7. Phase 2: settings center frame
 
@@ -373,7 +373,7 @@ Acceptance: Mario has decided D-1 to D-9 and approved the plan.
 | 2.1 | Flag `ORBIT_SETTINGS_CENTER` (5.7); `/api/me` field; route predicate and rule test. | flag `off` → 404 before authentication; compose check; access matrix |
 | 2.2 | `GET /api/management/capabilities` (5.6). | integration test per role: system administrator without membership, organization owner, project owner, editor, viewer, outsider, module role `none`, disabled module; answers match the route guards |
 | 2.3 | Web: `/manage` place in `routes.ts`, registry, frame, scope switcher, navigation, search; extract the project context provider from `orbit.tsx`. | unit: URL parse/build, registry validation, visibility per capability, search; `routes.test.tsx` |
-| 2.4 | Platform sections for all four scopes that mount the **existing** panels unchanged (members, connections, AI panels, account, modules, retention, MCP, audit). New read-only overviews per scope. | unit per scope; `settings-nav.test.tsx` stays green |
+| 2.4 | Platform sections for all four scopes that mount the **existing** panels unchanged (members, connections, AI panels, account, modules, retention, MCP, audit). New read-only overviews per scope. A confirmation that names the consequence before a system administrator assigns an organization or project role (D-8). | unit per scope; `settings-nav.test.tsx` stays green; the confirmation is shown to administrators only |
 | 2.5 | Adapter for `WebModule.settings`; module sections appear under `p/modules/<module>`. | unit: disabled module, access `none`, `minAccess` |
 | 2.6 | Texts in German and English; keyboard and screen-reader pass; 1440, 768 and 390 px. | parity test for the new text files in both directions; Playwright `settings-center.spec.ts` (flag `preview`) |
 
@@ -418,9 +418,11 @@ Prerequisite to check before production: which of `ORBIT_AI_CATALOG`, `ORBIT_AI_
 
 Nothing in this phase deletes stored settings or data.
 
-## 11. Open decisions for Mario
+## 11. Decisions (Mario, 2026-11-11)
 
-| # | Question | Recommendation |
+Mario took every recommendation as the decision.
+
+| # | Question | Decision |
 | --- | --- | --- |
 | D-1 | New root `/manage` with path sections, or keep the four existing roots and unify only the frame? | `/manage`. One address scheme, sections get stable URLs, old URLs redirect. |
 | D-2 | Project scope: own frame like the other scopes (project sidebar hidden, "back to project" link), or inside the project shell? | Own frame. Same layout on every scope; the sidebar's settings links still lead in. |
