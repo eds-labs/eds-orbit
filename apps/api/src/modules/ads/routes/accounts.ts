@@ -4,6 +4,7 @@ import type { RoutesContribution } from "../../../platform/http/routes.ts";
 import { scopeFor } from "../../../platform/tenancy/auth.ts";
 import { beginMetaConnect, finishMetaConnect } from "../accounts/connect.ts";
 import { consumeAdsOAuthState, projectOfAdsState, type ConsumedAdsState } from "../accounts/oauth-state.ts";
+import { adsDataDeletionStatus, handleAdsMetaDataDeletion } from "../accounts/data-deletion.ts";
 import { checkAdAccount } from "../accounts/health.ts";
 import { requireAds } from "../gate.ts";
 import { ADS_BASE, inAds } from "../http-scope.ts";
@@ -86,6 +87,24 @@ export const accountRoutes: RoutesContribution = (context) => {
     const scope = await inAds(auth, req, ADS_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
     return checkAdAccount(scope, accountParam.parse(req.params).accountId, { manual: true });
   });
+  // Meta's data-deletion request (public ingress only; signed by Meta).
+  app.post(
+    "/api/callbacks/ads/meta-data-deletion",
+    { bodyLimit: 16_384, config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    (req) => handleAdsMetaDataDeletion(req.body),
+  );
+  // The status behind a confirmation code, for the public status page.
+  app.get(
+    "/api/public/ads/data-deletion/:code",
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { code } = z.object({ code: z.string().max(100) }).parse(req.params);
+      return reply
+        .header("Cache-Control", "no-store")
+        .header("X-Robots-Tag", "noindex, nofollow")
+        .send(adsDataDeletionStatus(code));
+    },
+  );
   // The provider sends the browser here (outside the project path, so the
   // project comes from the state). The member must be the signed-in owner who
   // started the flow; the state is used once, before any token exchange.

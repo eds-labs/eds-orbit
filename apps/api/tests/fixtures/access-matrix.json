@@ -2359,6 +2359,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/public/ads/data-deletion/{code}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/public/social/data-deletion/{code}": {
     "anonymous": "not_found",
     "outsider": "not_found",
@@ -2878,6 +2886,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "POST /api/callbacks/ads/meta-data-deletion": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
   },
   "POST /api/callbacks/social/meta-data-deletion": {
     "anonymous": "allowed:400",

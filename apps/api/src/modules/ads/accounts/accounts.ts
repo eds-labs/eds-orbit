@@ -400,7 +400,12 @@ export async function unlinkAdAccount(
 }
 
 /** Unlinks every account that uses the connection, then revokes it (its token is wiped). */
-export async function revokeAdsConnection(scope: Scope, connectionId: string): Promise<{ id: string; accountsUnlinked: number }> {
+export async function revokeAdsConnection(
+  scope: Scope,
+  connectionId: string,
+  /** `audit`: one extra audit row per unlinked account (the data-deletion request records its code). */
+  options: { reason?: string; audit?: { action: string; metadata: Record<string, unknown> } } = {},
+): Promise<{ id: string; accountsUnlinked: number }> {
   await ownConnection(scope, connectionId, { allowDisabled: true });
   const accounts = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     tx.adAccount.findMany({
@@ -411,7 +416,9 @@ export async function revokeAdsConnection(scope: Scope, connectionId: string): P
   for (const account of accounts) {
     const done = await markUnlinked(scope, account.id, null);
     await release(scope, done.connectionId, done.externalId);
+    const extra = options.audit;
+    if (extra) await scoped(scope.workspaceId, scope.projectId, (tx) => audit(tx, scope, extra.action, account.id, extra.metadata));
   }
-  await revokeProjectConnection(scope, { moduleId: MODULE, connectionId, reason: "revoked_by_owner" });
+  await revokeProjectConnection(scope, { moduleId: MODULE, connectionId, reason: options.reason ?? "revoked_by_owner" });
   return { id: connectionId, accountsUnlinked: accounts.length };
 }
