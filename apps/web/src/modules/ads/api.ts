@@ -53,6 +53,8 @@ export type AdConnection = {
   tokenExpiresAt: string | null;
   grantedScopes: string[];
   accountCount: number;
+  /** An administrator disabled the connection: it cannot be used or renewed. */
+  disabled: boolean;
   createdAt: string;
 };
 /** GET /connections (owner only). */
@@ -84,6 +86,9 @@ export const unlinkAccount = (projectId: string, account: Pick<AdAccountView, "i
     adsPath(projectId, `/accounts/${account.id}/unlink`),
     json("POST", { version: account.version }),
   );
+/** Unlinks the connection's accounts and revokes it (its token is deleted). */
+export const revokeConnection = (projectId: string, connectionId: string) =>
+  api<{ id: string; accountsUnlinked: number }>(adsPath(projectId, `/connections/${encodeURIComponent(connectionId)}/revoke`), json("POST"));
 export const checkAccount = (projectId: string, id: string) =>
   api<{ ok: boolean; code?: string }>(adsPath(projectId, `/accounts/${id}/check`), json("POST"));
 export const updateAccount = (

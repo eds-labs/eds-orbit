@@ -57,6 +57,7 @@ const en = {
       ADS_META_TOKEN_INVALID: "Meta no longer accepts the access token.",
       ADS_META_PERMISSION_MISSING: "A required Meta permission is missing.",
       ADS_META_ACCOUNT_NOT_GRANTED: "This account is no longer shared with the connection.",
+      ADS_CONNECTION_DISABLED: "An administrator disabled the connection.",
       ADS_HEALTH_FAILED: "The check failed.",
     } as Record<string, string>,
     check: "Check",
@@ -72,6 +73,17 @@ const en = {
     unlinkTitle: (name: string) => `Disconnect ${name}?`,
     unlinkBody: "Orbit stops reading this account. Campaigns at Meta are not touched. If no other account uses the connection, it is revoked.",
     cancel: "Cancel",
+    connections: {
+      title: "Connections",
+      tokenType: { user: "User token", system_user: "System user token" } as Record<string, string>,
+      permissions: { write: "Read and write", read: "Read", none: "No ads permission" },
+      accounts: (n: number) => (n === 1 ? "1 account" : `${n} accounts`),
+      disabled: "Disabled by an administrator",
+      revoke: "Revoke",
+      revokeTitle: (label: string) => `Revoke ${label}?`,
+      revokeBody: "Orbit disconnects every ad account of this connection and deletes its access token. Campaigns at Meta are not touched.",
+      revoked: "The connection was revoked.",
+    },
     picker: {
       title: "Select accounts",
       intro: "Assign the ad accounts this project may use.",
@@ -96,6 +108,7 @@ const en = {
       ADS_ACCOUNT_RECONNECT_REQUIRED: "The connection must be renewed first.",
       ADS_ACCOUNT_NOT_WRITE_READY: "This account cannot be written to yet.",
       ADS_VERSION_CONFLICT: "The account changed in the meantime. Reload and try again.",
+      ADS_CONNECTION_DISABLED: "An administrator disabled this connection. It cannot be used or renewed until it is enabled again.",
     } as Record<string, string>,
     genericError: "Connection failed",
   },
@@ -158,6 +171,7 @@ const de: AdsText = {
       ADS_META_TOKEN_INVALID: "Meta akzeptiert das Zugriffstoken nicht mehr.",
       ADS_META_PERMISSION_MISSING: "Eine nötige Meta-Berechtigung fehlt.",
       ADS_META_ACCOUNT_NOT_GRANTED: "Dieses Konto ist nicht mehr mit der Verbindung geteilt.",
+      ADS_CONNECTION_DISABLED: "Die Administration hat die Verbindung deaktiviert.",
       ADS_HEALTH_FAILED: "Die Prüfung ist fehlgeschlagen.",
     },
     check: "Prüfen",
@@ -173,6 +187,17 @@ const de: AdsText = {
     unlinkTitle: (name: string) => `${name} trennen?`,
     unlinkBody: "Orbit liest dieses Konto nicht mehr. Kampagnen bei Meta bleiben unberührt. Nutzt kein anderes Konto die Verbindung, wird sie widerrufen.",
     cancel: "Abbrechen",
+    connections: {
+      title: "Verbindungen",
+      tokenType: { user: "Nutzer-Token", system_user: "Systemnutzer-Token" },
+      permissions: { write: "Lesen und Schreiben", read: "Lesen", none: "Keine Werbeberechtigung" },
+      accounts: (n: number) => (n === 1 ? "1 Konto" : `${n} Konten`),
+      disabled: "Von der Administration deaktiviert",
+      revoke: "Widerrufen",
+      revokeTitle: (label: string) => `${label} widerrufen?`,
+      revokeBody: "Orbit trennt alle Werbekonten dieser Verbindung und löscht ihr Zugriffstoken. Kampagnen bei Meta bleiben unberührt.",
+      revoked: "Die Verbindung wurde widerrufen.",
+    },
     picker: {
       title: "Konten auswählen",
       intro: "Ordne die Werbekonten zu, die dieses Projekt nutzen darf.",
@@ -197,6 +222,7 @@ const de: AdsText = {
       ADS_ACCOUNT_RECONNECT_REQUIRED: "Die Verbindung muss zuerst erneuert werden.",
       ADS_ACCOUNT_NOT_WRITE_READY: "In dieses Konto kann noch nicht geschrieben werden.",
       ADS_VERSION_CONFLICT: "Das Konto hat sich zwischenzeitlich geändert. Bitte neu laden.",
+      ADS_CONNECTION_DISABLED: "Die Administration hat diese Verbindung deaktiviert. Bis sie wieder aktiviert ist, kann sie weder genutzt noch erneuert werden.",
     },
     genericError: "Verbindung fehlgeschlagen",
   },
@@ -206,8 +232,16 @@ const de: AdsText = {
 
 export const adsText = (locale: "en" | "de"): AdsText => (locale === "de" ? de : en);
 
+/**
+ * The entry of `map` for `key`, else `fallback`. Own keys only: "constructor"
+ * or "__proto__" from an address never resolve to an inherited value.
+ */
+export function textFor<T>(map: Readonly<Record<string, T>>, key: string | null | undefined, fallback: T): T {
+  return key != null && Object.hasOwn(map, key) ? map[key]! : fallback;
+}
+
 /** The text of an account error code; unknown codes get the generic text. */
 export const accountsMessage = (code: string, locale: "en" | "de") => {
   const t = adsText(locale).accounts;
-  return t.errors[code] ?? t.genericError;
+  return textFor(t.errors, code, t.genericError);
 };
