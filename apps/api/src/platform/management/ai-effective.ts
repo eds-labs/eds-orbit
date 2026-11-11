@@ -2,6 +2,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   aiDefaultsSchema,
+  imageModelSchema,
   taskClasses,
   type OpenAiRuntimeConfig,
   type ProviderBudget,
@@ -41,9 +42,13 @@ export type TracedRoute = {
   origin: AiOrigin | null;
 };
 export type KeyTrace = {
-  /** The project saved its own key. */
+  /** The project saved its own key (for `image`: its own image key). */
   stored: boolean;
-  /** A call would have a key. */
+  /**
+   * A call would have a key. Without a dedicated image key, image calls use
+   * the OpenAI text key (`imageApiKey ?? apiKey`); `image` then reports that
+   * key's origin and connection.
+   */
   effective: boolean;
   origin: Exclude<AiOrigin, "preset"> | null;
   connection: { label: string; status: string; disabled: boolean } | null;
@@ -166,7 +171,21 @@ function budgetSource(
   return null;
 }
 
-function keyConnection(state: AiConfigurationState, key: KeyName) {
+/**
+ * The key that serves calls of `key`: image calls fall back to the OpenAI
+ * text key when there is no dedicated image key (the image call path uses
+ * `imageApiKey ?? apiKey`; `imageKeyConfigured` counts it the same way).
+ */
+function servingKey(state: AiConfigurationState, key: KeyName): KeyName {
+  return key === "image" &&
+    state.effective.keySources.image === "none" &&
+    state.effective.imageKeyConfigured
+    ? "openai"
+    : key;
+}
+
+function keyConnection(state: AiConfigurationState, name: KeyName) {
+  const key = servingKey(state, name);
   if (state.effective.keySources[key] !== "connection") return null;
   const id = state.effective.keyConnections[key]?.connectionId;
   // A connection the project cannot read (none today) has nothing to report.
@@ -196,16 +215,21 @@ export function effectiveOrigins(state: AiConfigurationState): AiOrigins {
         ? "project"
         : fromLayers(state, (l) => l.modelRoutes?.[tier]);
   // The project's Claude tiers count only when stored; an OpenAI preset and
-  // the standard clear them (routedFields), so the layers' apply.
+  // the standard clear them (routedFields), so the layers' apply. The
+  // environment configures no Claude tiers.
   const anthropicTier = (tier: AnthropicTier): AiOrigin | null => {
     if (!effective.anthropicTierRoutes) return null;
     if (presetProvider === "anthropic") return "preset";
     if (mode === "custom" && stored?.anthropicTierRoutes) return "project";
-    return fromLayers(state, (l) => l.anthropicTierRoutes?.[tier]);
+    const origin = fromLayers(state, (l) => l.anthropicTierRoutes?.[tier]);
+    return origin === "environment" ? null : origin;
   };
-  const organizationImage =
+  // The runtime takes the organization's standard image model when it parses
+  // (defaultImageModel), else the system's.
+  const organizationImage = imageModelSchema.safeParse(
     (state.profiles.organization?.data as { defaults?: { imageModel?: unknown } } | null)
-      ?.defaults?.imageModel !== undefined;
+      ?.defaults?.imageModel,
+  ).success;
   const imageModel: AiOrigin =
     mode === "organization" && state.layers?.standardImageModel
       ? organizationImage
@@ -231,7 +255,7 @@ export function effectiveOrigins(state: AiConfigurationState): AiOrigins {
     return origin ? { explicit: true, origin } : { explicit: false, origin: defaultProvider };
   };
   const key = (name: KeyName): KeyTrace["origin"] => {
-    const source = effective.keySources[name];
+    const source = effective.keySources[servingKey(state, name)];
     if (source === "project" || source === "environment") return source;
     if (source !== "connection") return null;
     const connection = keyConnection(state, name);
@@ -362,7 +386,8 @@ export function projectAiEffectiveOf(
     const connection = keyConnection(state, name);
     return {
       stored: state.ownKeys[name],
-      effective: effective.keySources[name] !== "none",
+      effective:
+        name === "image" ? effective.imageKeyConfigured : effective.keySources[name] !== "none",
       origin: origins.keys[name],
       connection: connection
         ? { label: connection.label, status: connection.status, disabled: connection.disabled }

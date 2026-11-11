@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { buildServer } from "../src/server.ts";
 import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
-import { authDb, closeDatabase, scoped } from "../../../packages/db/src/index.ts";
+import { authDb, closeDatabase, scoped, type DbTx } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { taskClasses } from "../../../packages/ai/src/index.ts";
 import {
@@ -166,8 +166,12 @@ describe("effective origins (one case per table row)", () => {
     const openai = effectiveOrigins(state({ stored: preset("openai"), organization: { defaultProvider: "anthropic" } }));
     expect(openai.defaultProvider).toBe("preset");
     expect(Object.values(openai.tiers.openai)).toEqual(["preset", "preset", "preset", "preset"]);
-    // Runtime: an OpenAI preset clears the project's Claude tiers, so the layers' apply.
-    expect(openai.tiers.anthropic.fast).toBe("environment");
+    // Runtime: an OpenAI preset clears the project's Claude tiers, so the layers' apply;
+    // the environment has none.
+    const cleared = state({ stored: preset("openai"), effective: { anthropicTierRoutes: null } });
+    expect(effectiveOrigins(cleared).tiers.anthropic.fast).toBeNull();
+    const layered = state({ stored: preset("openai"), system: { anthropicTierRoutes: { fast: "a", standard: "b", quality: "c" } } });
+    expect(effectiveOrigins(layered).tiers.anthropic.fast).toBe("system");
     const claude = effectiveOrigins(state({ stored: preset("anthropic") }));
     expect(claude.tiers.anthropic).toEqual({ fast: "preset", standard: "preset", quality: "preset" });
     // Runtime: a Claude preset keeps the project's saved OpenAI tiers.
@@ -187,13 +191,21 @@ describe("effective origins (one case per table row)", () => {
   });
 
   it("a stored row defines its fields: custom settings, and fields a routing does not replace", () => {
-    const custom = effectiveOrigins(state({ stored: {}, organization: { defaultProvider: "anthropic", modelRoutes: TIERS, fallback: {}, imageGeneration: {} } }));
+    const custom = effectiveOrigins(
+      state({
+        stored: {},
+        organization: {
+          defaultProvider: "anthropic", modelRoutes: TIERS, fallback: {}, imageGeneration: {},
+          anthropicTierRoutes: { fast: "a", standard: "b", quality: "c" },
+        },
+      }),
+    );
     expect(custom.defaultProvider).toBe("project");
     expect(custom.tiers.openai.escalation).toBe("project");
     expect(custom.fallback).toBe("project");
     expect(custom.imageModel).toBe("project");
     // Claude tiers only when stored.
-    expect(custom.tiers.anthropic.fast).toBe("environment");
+    expect(custom.tiers.anthropic.fast).toBe("organization");
     const withTiers = state({ stored: { anthropicTierRoutes: { fast: "a", standard: "b", quality: "c" } } });
     expect(effectiveOrigins(withTiers).tiers.anthropic.fast).toBe("project");
     // A saved routing that the runtime does not apply leaves the row in charge.
@@ -224,6 +236,13 @@ describe("effective origins (one case per table row)", () => {
     expect(effectiveOrigins(fromOrganization).imageModel).toBe("organization");
     const fromSystem = state({ stored: organization(), standardImageModel: "gpt-image-2.5-sunburst" });
     expect(effectiveOrigins(fromSystem).imageModel).toBe("system");
+    // An organization value the runtime does not accept falls through to the system's.
+    const invalid = state({
+      stored: organization(),
+      standardImageModel: "gpt-image-2.5-sunburst",
+      organizationDefaults: { provider: "openai", level: "economy", imageModel: "not-an-image-model" },
+    });
+    expect(effectiveOrigins(invalid).imageModel).toBe("system");
     // Not applied: the project's own image settings.
     expect(effectiveOrigins({ ...fromSystem, routingApplied: false }).imageModel).toBe("project");
   });
@@ -307,6 +326,19 @@ describe("effective origins (one case per table row)", () => {
       state({ effective: { keySources: { openai: "connection", image: "none", anthropic: "none" }, keyConnections: { openai: { connectionId: "c9", grantId: "g9" } } } }),
     );
     expect(hidden.keys.openai).toBeNull();
+    // Without a dedicated image key, image calls use the OpenAI text key.
+    const textOnly = effectiveOrigins(
+      state({
+        effective: {
+          textKeyConfigured: true,
+          imageKeyConfigured: true,
+          keySources: { openai: "connection", image: "none", anthropic: "none" },
+          keyConnections: { openai: { connectionId: "c1", grantId: "g1" } },
+        },
+        keyConnections: { c1: { status: "read_verified", disabled: false, scope: "workspace", label: "W" } },
+      }),
+    );
+    expect(textOnly.keys.image).toBe("organization");
   });
 });
 
@@ -449,8 +481,8 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
   const scopeOf = (workspaceId: string, projectId: string): Scope => ({
     workspaceId, projectId, userId: people.owner.id, role: "owner",
   });
-  const inProject = <T>(workspaceId: string, projectId: string, fn: (tx: never, scope: Scope) => Promise<T>) =>
-    scoped(workspaceId, projectId, (tx) => fn(tx as never, scopeOf(workspaceId, projectId)));
+  const inProject = <T>(workspaceId: string, projectId: string, fn: (tx: DbTx, scope: Scope) => Promise<T>) =>
+    scoped(workspaceId, projectId, (tx) => fn(tx, scopeOf(workspaceId, projectId)));
   /** An organization OpenAI connection granted to one project, with the given status. */
   async function grantedConnection(workspaceId: string, projectId: string, label: string, secret: string, status: string) {
     const actor = { userId: people.owner.id, role: "owner" as const, workspaceId };
@@ -653,6 +685,13 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
       connection: { label: CHECKED_LABEL, status: "read_verified", disabled: false },
     });
     expect(body.readiness.openai).toMatchObject({ verified: true, ready: true });
+    // Granted for text only: image calls run on the text key (imageApiKey ?? apiKey).
+    expect(body.keys.image).toEqual({
+      stored: false,
+      effective: true,
+      origin: "organization",
+      connection: { label: CHECKED_LABEL, status: "read_verified", disabled: false },
+    });
   });
 
   it("revoked grant", async () => {
