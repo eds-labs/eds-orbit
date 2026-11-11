@@ -27,10 +27,16 @@ const accountSchema = z.object({
 });
 type MetaAccount = z.infer<typeof accountSchema>;
 
+/** A malformed amount is "not available" (null) for that amount only; it is never guessed and never fails the list. */
+function minorAmount(value: string | undefined, currency: string): bigint | null {
+  if (value === undefined || !/^\d+$/.test(value)) return null;
+  return metaMinorToMicros(value, currency);
+}
+
 function mapAccount(raw: MetaAccount, grantedScopes: string[]): ProviderAccount {
   const statusName = STATUS_NAMES[raw.account_status] ?? `CODE_${raw.account_status}`;
   const currencySupported = Object.hasOwn(META_CURRENCY_OFFSETS, raw.currency);
-  const capped = raw.spend_cap !== undefined && raw.spend_cap !== "0";
+  const capped = raw.spend_cap !== "0";
   return {
     externalId: raw.id,
     name: raw.name ?? raw.id,
@@ -40,8 +46,8 @@ function mapAccount(raw: MetaAccount, grantedScopes: string[]): ProviderAccount 
     status: DISABLED_STATUSES.has(raw.account_status) ? "disabled" : "active",
     businessId: raw.business?.id ?? null,
     businessName: raw.business?.name ?? null,
-    spendCapMicros: currencySupported && capped ? metaMinorToMicros(raw.spend_cap!, raw.currency) : null,
-    amountSpentMicros: currencySupported && raw.amount_spent !== undefined ? metaMinorToMicros(raw.amount_spent, raw.currency) : null,
+    spendCapMicros: currencySupported && capped ? minorAmount(raw.spend_cap, raw.currency) : null,
+    amountSpentMicros: currencySupported ? minorAmount(raw.amount_spent, raw.currency) : null,
     canWrite: grantedScopes.includes("ads_management")
       && (raw.user_tasks === undefined || raw.user_tasks.includes("MANAGE") || raw.user_tasks.includes("ADVERTISE")),
     currencySupported,

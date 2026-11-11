@@ -129,6 +129,22 @@ describe("meta connect: ad accounts", () => {
     expect(fake.requests[0]!.query.get("fields")).toContain("user_tasks");
   });
 
+  it("treats a malformed amount as not available without failing the list or read", async () => {
+    const fake = installFakeMetaGraph();
+    fake.on("GET", "/me/adaccounts", { json: { data: [
+      account({ id: "act_8", account_id: "8", amount_spent: "12.5x", spend_cap: "-1" }),
+      account({ id: "act_9", account_id: "9" }),
+    ] } });
+    const { accounts } = await connect.listAccounts({ app, accessToken: LONG, grantedScopes: scopes });
+    expect(accounts).toHaveLength(2);
+    expect(accounts[0]).toMatchObject({ externalId: "act_8", amountSpentMicros: null, spendCapMicros: null });
+    expect(accounts[1]).toMatchObject({ externalId: "act_9", amountSpentMicros: 12_340_000n, spendCapMicros: 500_000_000n });
+    fake.on("GET", "/act_8", { json: account({ id: "act_8", account_id: "8", amount_spent: "1e3" }) });
+    const read = await connect.readAccount({ app, accessToken: LONG, grantedScopes: scopes, externalId: "act_8" });
+    expect(read.amountSpentMicros).toBeNull();
+    expect(read.spendCapMicros).toBe(500_000_000n);
+  });
+
   it("canWrite needs ads_management", async () => {
     const fake = installFakeMetaGraph();
     fake.on("GET", "/act_1", { json: account({ user_tasks: ["MANAGE"] }) });
