@@ -550,7 +550,11 @@ export async function draftsAwaitingOwner(
       // Why the review agent's approval of a creative post does not stand
       // in for the owner's: a code, only on a pending draft that still carries the agent's approval.
       waitingReason:
-        !expired && d.agentReview && typeof d.agentAuthorityProblem === "string"
+        !expired &&
+        d.agentReview &&
+        approvalModeOf(data(assignment)) === "delegated_review" &&
+        approvalModeOf(d) === "delegated_review" &&
+        typeof d.agentAuthorityProblem === "string"
           ? d.agentAuthorityProblem
           : null,
       problems: [

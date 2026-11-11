@@ -977,6 +977,43 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     expect(stale.waitingReason).toBeNull();
   });
 
+  it("stores no creative reason when the assignment is human_each", async () => {
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
+    await linkBot();
+    await creativeAssignment({
+      schedule: ONE_SLOT,
+      delivery: "publish",
+      approvalMode: "human_each",
+    });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    expect(draft!.agentReview).toBeTruthy();
+    expect(draft!.status).toBe("needs_review");
+    expect(draft!.agentAuthorityProblem ?? null).toBeNull();
+    const items = (await waitingDrafts()) as Array<Record<string, any>>;
+    const item = items.find((i) => i.id === draft!.id)!;
+    expect(item.state).toBe("pending");
+    expect(item.waitingReason).toBeNull();
+  });
+
+  it("stores no creative reason while the review authority flag is off", async () => {
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
+    await linkBot();
+    await creativeAssignment({ schedule: ONE_SLOT, delivery: "publish" });
+    const { review } = await drafted();
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    expect(draft!.agentReview).toBeTruthy();
+    expect(draft!.status).toBe("needs_review");
+    expect(draft!.agentAuthorityProblem ?? null).toBeNull();
+    const items = (await waitingDrafts()) as Array<Record<string, any>>;
+    expect(items.find((i) => i.id === draft!.id)!.waitingReason).toBeNull();
+  });
+
   it("shows no waiting reason once the owner released the draft", async () => {
     delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
     await linkBot();

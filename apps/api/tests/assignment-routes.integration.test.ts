@@ -528,7 +528,7 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
   });
 
   it("serves the waiting reason of a pending draft on the drafts route", async () => {
-    const assignment = await confirmed();
+    const assignment = await confirmed({ approvalMode: "delegated_review" });
     const { content } = await run(async (tx) => {
       const slotAt = new Date(Date.now() + 6 * 3600000).toISOString();
       const runRow = await create(tx, project.owner, "assignment_runs", {

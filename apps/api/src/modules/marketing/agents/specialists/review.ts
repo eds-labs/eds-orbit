@@ -25,9 +25,12 @@ import {
   loadBrandTerms,
 } from "../../policy/fact-claims.ts";
 import { errorCode } from "../../../telemetry.ts";
+import { linkedTelegramConnection } from "../../../../platform/connections/telegram.ts";
+import { approvalModeOf } from "../assignments.ts";
 import {
   bodyLinkProblems,
   confirmedHash,
+  agentReviewAuthority,
   creativeAuthorityProblem,
   withinConfirmation,
   type AgentReview,
@@ -1126,9 +1129,18 @@ async function approve(
   const result = await checkClaims(tx, scope, contentId);
   // Why the approval cannot stand in for the owner's when the post carries a
   // creative (a code, never content); the owner's list names it.
-  const authorityProblem = result.valid
-    ? null
-    : await creativeAuthorityProblem(tx, scope, v);
+  // Stored only when the creative condition is what is missing: the post may
+  // be released by the agent at all (delegated review, authority on) and a
+  // linked chat exists. Otherwise another condition blocks it and a creative
+  // code would send the owner to the wrong switch. A snapshot at review time.
+  const authorityProblem =
+    result.valid ||
+    approvalModeOf(v) !== "delegated_review" ||
+    approvalModeOf(data(assignmentRow)) !== "delegated_review" ||
+    !agentReviewAuthority() ||
+    !(await linkedTelegramConnection(tx, scope))
+      ? null
+      : await creativeAuthorityProblem(tx, scope, v);
   await update(tx, scope, reviewed, {
     ...data(reviewed),
     status: result.valid ? "reviewed" : "needs_review",
