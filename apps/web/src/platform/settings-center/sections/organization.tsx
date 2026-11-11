@@ -8,10 +8,11 @@ import type { OrganizationDetail } from "@/platform/administration/organization-
 import { ConnectionsPanel } from "@/platform/administration/connections-ui";
 import { KnowledgeSharesPanel } from "@/platform/administration/ai-knowledge-ui";
 import { AiUsagePanel } from "@/platform/administration/ai-budget-ui";
+import type { Locale } from "@/lib/i18n";
 import { centerText } from "../texts";
 import type { ManageScope, ManagementSection, SectionProps } from "../types";
 import { AiLinkPanel } from "./ai-link";
-import { GrantsPanel } from "./grants-panel";
+import { GrantsPanel, grantsPath } from "./grants-panel";
 
 // The organization scope mounts the components of /o/:id/settings; that page
 // keeps rendering them unchanged.
@@ -24,40 +25,77 @@ export function organizationIdOf(scope: ManageScope): string {
   return scope.organizationId;
 }
 
-const encoded = (scope: ManageScope) => encodeURIComponent(organizationIdOf(scope));
+/** Every request path and link of the organization sections, with the id encoded. */
+export function organizationPaths(organizationId: string) {
+  const id = encodeURIComponent(organizationId);
+  return {
+    detail: `/organizations/${id}`,
+    connections: `/organizations/${id}/connections`,
+    aiBase: `/organizations/${id}`,
+    grants: grantsPath({ kind: "organization", organizationId }),
+    agents: `/o/${id}/agents`,
+    aiSettings: `/o/${id}/settings`,
+  };
+}
+
+const pathsOf = (scope: ManageScope) =>
+  organizationPaths(organizationIdOf(scope));
+
+/** The loaded summary; the container below fetches it. */
+export function SummaryPanel({
+  name,
+  members,
+  projects,
+  membersHref,
+  agentsHref,
+  locale,
+}: {
+  name: string;
+  members: number;
+  projects: number;
+  membersHref: string;
+  agentsHref: string;
+  locale: Locale;
+}) {
+  const text = centerText(locale);
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <strong>{name}</strong>
+          <p>
+            {text("orgMembers")}: {members} · {text("orgProjects")}: {projects}
+          </p>
+        </div>
+        <div className="form-actions">
+          <Button asChild variant="outline">
+            <Link href={membersHref}>{text("orgOpenMembers")}</Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={agentsHref}>{text("orgOpenAgents")}</Link>
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function SummarySection({ scope, locale, hrefOf }: SectionProps) {
-  const text = centerText(locale);
-  const id = organizationIdOf(scope);
-  const detail = useResource<OrganizationDetail>(
-    `/organizations/${encodeURIComponent(id)}`,
-  );
+  const paths = pathsOf(scope);
+  const detail = useResource<OrganizationDetail>(paths.detail);
   if (detail.loading && !detail.data) return <Loading />;
   if (!detail.data)
     return <ResourceError error={detail.error} retry={detail.refresh} />;
   const d = detail.data;
   return (
-    <section className="panel">
-      <div className="panel-head">
-        <div>
-          <strong>{d.organization.name}</strong>
-          <p>
-            {text("orgMembers")}: {d.members.length} ·{" "}
-            {text("orgProjects")}: {d.projects.length}
-          </p>
-        </div>
-        <div className="form-actions">
-          <Button asChild variant="outline">
-            <Link href={hrefOf("members")}>{text("orgOpenMembers")}</Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link href={`/o/${encodeURIComponent(id)}/agents`}>
-              {text("orgOpenAgents")}
-            </Link>
-          </Button>
-        </div>
-      </div>
-    </section>
+    <SummaryPanel
+      name={d.organization.name}
+      members={d.members.length}
+      projects={d.projects.length}
+      membersHref={hrefOf("members")}
+      agentsHref={paths.agents}
+      locale={locale}
+    />
   );
 }
 
@@ -74,7 +112,7 @@ function ConnectionsSection({ scope, locale, identity }: SectionProps) {
     .map((p) => ({ id: p.id, name: p.name }));
   return (
     <ConnectionsPanel
-      base={`/organizations/${encoded(scope)}/connections`}
+      base={pathsOf(scope).connections}
       mode="owner"
       locale={locale}
       targets={projects}
@@ -84,12 +122,12 @@ function ConnectionsSection({ scope, locale, identity }: SectionProps) {
 
 function UsageSection({ scope, locale }: SectionProps) {
   return (
-    <AiUsagePanel base={`/organizations/${encoded(scope)}`} locale={locale} />
+    <AiUsagePanel base={pathsOf(scope).aiBase} locale={locale} />
   );
 }
 
 function AiSection({ scope, locale }: SectionProps) {
-  return <AiLinkPanel href={`/o/${encoded(scope)}/settings`} locale={locale} />;
+  return <AiLinkPanel href={pathsOf(scope).aiSettings} locale={locale} />;
 }
 
 function KnowledgeSection({ scope, locale, identity }: SectionProps) {
@@ -106,12 +144,7 @@ function KnowledgeSection({ scope, locale, identity }: SectionProps) {
 }
 
 function AppsSection({ scope }: SectionProps) {
-  return (
-    <GrantsPanel
-      path={`/workspaces/${encoded(scope)}/mcp-grants`}
-      showUser
-    />
-  );
+  return <GrantsPanel scope={scope} showUser />;
 }
 
 export const organizationSections: readonly ManagementSection[] = [

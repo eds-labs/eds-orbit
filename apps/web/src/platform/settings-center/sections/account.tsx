@@ -1,7 +1,7 @@
 "use client";
 import { AccountView } from "@/platform/account/account-view";
 import { PersonalContextView } from "@/platform/account/personal-context";
-import type { ManagementSection } from "../types";
+import type { ManagementSection, SectionProps } from "../types";
 import { GrantsPanel } from "./grants-panel";
 
 // The account scope mounts the pages of /account; those keep rendering the
@@ -12,8 +12,8 @@ function ProfileSection() {
   return <AccountView />;
 }
 
-function AppsSection() {
-  return <GrantsPanel path="/mcp-grants" showUser={false} />;
+function AppsSection({ scope }: SectionProps) {
+  return <GrantsPanel scope={scope} showUser={false} />;
 }
 
 function ContextSection() {
