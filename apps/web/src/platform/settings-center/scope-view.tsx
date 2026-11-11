@@ -1,6 +1,8 @@
 "use client";
 import type { Identity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
+import { visibleSections } from "./registry";
+import { systemSections } from "./sections/system";
 import { SettingsCenterView } from "./settings-center";
 import { centerText } from "./texts";
 import type {
@@ -42,8 +44,8 @@ export function backLink(
   return { href: "/", label: text("backToApp") };
 }
 
-// Filled per scope by the tasks that add its sections; until then the
-// overview says nothing is available.
+// Organization, project and account sections come with later tasks; until
+// then their overview says nothing is available.
 const NO_SECTIONS: readonly ResolvedSection[] = [];
 
 /**
@@ -52,6 +54,7 @@ const NO_SECTIONS: readonly ResolvedSection[] = [];
  */
 export function ScopeView({
   scope,
+  capabilities,
   name,
   target,
   caps,
@@ -69,11 +72,15 @@ export function ScopeView({
   navigate(href: string): void;
 }) {
   const back = backLink(scope, locale);
+  const sections =
+    scope.kind === "system"
+      ? visibleSections(systemSections, "system", capabilities)
+      : NO_SECTIONS;
   return (
     <SettingsCenterView
       scope={scope}
       scopeName={scopeTitle(scope, name, locale)}
-      sections={NO_SECTIONS}
+      sections={sections}
       target={target}
       caps={caps}
       identity={identity}

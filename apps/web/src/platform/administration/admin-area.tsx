@@ -176,7 +176,7 @@ export function AdminArea({
   );
 }
 
-function Integrations({ locale }: { locale: Locale }) {
+export function Integrations({ locale }: { locale: Locale }) {
   const de = locale === "de";
   const orgs = useResource<Page<{ id: string; name: string }>>("/admin/organizations");
   return (
@@ -238,7 +238,7 @@ type OverviewData = {
   };
 };
 
-function Overview({ locale }: { locale: Locale }) {
+export function Overview({ locale }: { locale: Locale }) {
   const de = locale === "de";
   const overview = useResource<OverviewData>("/admin/overview");
   return (
@@ -336,7 +336,14 @@ function Overview({ locale }: { locale: Locale }) {
   );
 }
 
-function UserList({ locale }: { locale: Locale }) {
+export function UserList({
+  locale,
+  hrefOf = adminHref,
+}: {
+  locale: Locale;
+  /** Where links to other admin sections lead; the settings center maps them. */
+  hrefOf?: (section: string, id?: string) => string;
+}) {
   const de = locale === "de";
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -415,7 +422,7 @@ function UserList({ locale }: { locale: Locale }) {
                     {page.items.map((u) => (
                       <tr key={u.id}>
                         <td>
-                          <Link className="row-button" href={adminHref("users", u.id)}>
+                          <Link className="row-button" href={hrefOf("users", u.id)}>
                             {u.name}
                           </Link>
                           <small>{u.email}</small>
@@ -499,14 +506,17 @@ type UserDetailData = {
   }>;
 };
 
-function UserDetail({
+export function UserDetail({
   id,
   locale,
   currentUserId,
+  hrefOf = adminHref,
 }: {
   id: string;
   locale: Locale;
   currentUserId: string;
+  /** Where links to other admin sections lead; the settings center maps them. */
+  hrefOf?: (section: string, id?: string) => string;
 }) {
   const de = locale === "de";
   const detail = useResource<UserDetailData>(`/admin/users/${encodeURIComponent(id)}`);
@@ -517,7 +527,7 @@ function UserDetail({
   const path = `/admin/users/${encodeURIComponent(id)}`;
   return (
     <>
-      <BackLink href={adminHref("users")} locale={locale} />
+      <BackLink href={hrefOf("users")} locale={locale} />
       <Loaded resource={detail} locale={locale}>
         {(d) => {
           const self = d.user.id === currentUserId;
@@ -659,7 +669,7 @@ function UserDetail({
                               <td>
                                 <Link
                                   className="row-button"
-                                  href={adminHref("organizations", o.id)}
+                                  href={hrefOf("organizations", o.id)}
                                 >
                                   {o.name}
                                 </Link>
@@ -759,7 +769,14 @@ type OrganizationRow = {
   projects: number;
 };
 
-function Organizations({ locale }: { locale: Locale }) {
+export function Organizations({
+  locale,
+  hrefOf = adminHref,
+}: {
+  locale: Locale;
+  /** Where links to other admin sections lead; the settings center maps them. */
+  hrefOf?: (section: string, id?: string) => string;
+}) {
   const de = locale === "de";
   const [query, setQuery] = useState("");
   const list = useResource<Page<OrganizationRow>>(
@@ -812,7 +829,7 @@ function Organizations({ locale }: { locale: Locale }) {
                         <td>
                           <Link
                             className="row-button"
-                            href={adminHref("organizations", o.id)}
+                            href={hrefOf("organizations", o.id)}
                           >
                             {o.name}
                           </Link>
@@ -896,7 +913,14 @@ type ProjectRow = {
   workspace: { id: string; name: string };
 };
 
-function Projects({ locale }: { locale: Locale }) {
+export function Projects({
+  locale,
+  hrefOf = adminHref,
+}: {
+  locale: Locale;
+  /** Where links to other admin sections lead; the settings center maps them. */
+  hrefOf?: (section: string, id?: string) => string;
+}) {
   const de = locale === "de";
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
@@ -948,7 +972,7 @@ function Projects({ locale }: { locale: Locale }) {
                         <td>
                           <Link
                             className="row-button"
-                            href={adminHref("organizations", p.workspace.id)}
+                            href={hrefOf("organizations", p.workspace.id)}
                           >
                             {p.workspace.name}
                           </Link>
@@ -988,7 +1012,7 @@ function Projects({ locale }: { locale: Locale }) {
   );
 }
 
-function Invitations({ locale }: { locale: Locale }) {
+export function Invitations({ locale }: { locale: Locale }) {
   const de = locale === "de";
   const list = useResource<{ items: Invitation[] }>("/admin/invitations");
   const [link, setLink] = useState<string | null>(null);
@@ -1033,7 +1057,7 @@ type AuditRow = {
   createdAt: string;
 };
 
-function Audit({ locale }: { locale: Locale }) {
+export function Audit({ locale }: { locale: Locale }) {
   const de = locale === "de";
   const [cursor, setCursor] = useState<string | null>(null);
   const list = useResource<Page<AuditRow>>(
