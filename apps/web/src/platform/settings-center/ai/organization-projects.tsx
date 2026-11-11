@@ -6,9 +6,8 @@ import { Alert, Badge } from "@/components/ui/primitives";
 import { gate } from "../integrations/scopes";
 import { manageHref } from "../routes";
 import type { SectionProps } from "../types";
-import { affectedText } from "./affected-projects";
 import { aiPaths } from "./paths";
-import { aiText, type AiTextKey } from "./texts";
+import { affectedText, aiText, type AiTextKey } from "./texts";
 import type {
   OrganizationAiProjects,
   RoutingMode,
@@ -109,6 +108,8 @@ export function OrganizationAiProjectsView({
           <p>{t("projectsIntro")}</p>
         </div>
       </div>
+      {/* The runtime skips presets and the standard, so the choices below are saved ones. */}
+      {data.routingApplied ? null : <Alert kind="info">{t("defaultsOff")}</Alert>}
       {data.unreadable > 0 ? (
         <Alert kind="warning">
           {affectedText("projectsUnreadable", { count: data.unreadable }, locale)}

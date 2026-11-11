@@ -71,4 +71,66 @@ describe("affected projects", () => {
     expect(renderToStaticMarkup(<OrganizationAffected organizationId="w1" kind="profile" locale="en" />)).toBe("");
     expect(renderToStaticMarkup(<SystemAffected kind="catalog" locale="en" />)).toBe("");
   });
+
+  it("says only the route version change while the organization's standard does not apply", () => {
+    for (const locale of ["en", "de"] as const) {
+      const off = renderToStaticMarkup(
+        <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} standardApplies={false} locale={locale} />,
+      );
+      const on = renderToStaticMarkup(
+        <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} standardApplies locale={locale} />,
+      );
+      expect(off).toContain(affectedText("affectedOrgRouteOnly", { total: 6 }, locale));
+      expect(off).not.toContain(affectedText("affectedOrgProfile", counts, locale));
+      expect(on).toContain(affectedText("affectedOrgProfile", counts, locale));
+    }
+    const off = renderToStaticMarkup(
+      <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} standardApplies={false} unreadable={1} locale="en" />,
+    );
+    expect(off).toContain("Saving changes the route version of all 6 projects of this organization");
+    expect(off).not.toContain("follow the standard");
+    expect(off).toContain(". 1 projects could not be read and are missing from this list.");
+  });
+
+  it("says only the route version change for the system's standard while standard models are off", () => {
+    const off = renderToStaticMarkup(
+      <AffectedProjectsNotice scope="system" kind="profile" total={9} standardApplies={false} locale="en" />,
+    );
+    expect(off).toContain(
+      "Saving changes the route version of all 9 projects and of every personal space: running AI work stops before its next paid call.",
+    );
+    expect(off).not.toContain("Applies to every project");
+    const on = renderToStaticMarkup(
+      <AffectedProjectsNotice scope="system" kind="profile" total={9} standardApplies locale="en" />,
+    );
+    expect(on).toContain("Applies to every project whose organization and own settings leave a value open.");
+    // Without the prop (the advanced section) the full profile notice stays.
+    const advanced = renderToStaticMarkup(
+      <AffectedProjectsNotice scope="system" kind="profile" total={9} locale="de" />,
+    );
+    expect(advanced).toContain("Gilt für jedes Projekt");
+  });
+
+  it("fills every placeholder of every notice in both languages", () => {
+    const notices = [];
+    for (const locale of ["en", "de"] as const) {
+      for (const kind of ["profile", "catalog"] as const) {
+        for (const standardApplies of [true, false]) {
+          for (const unreadable of [0, 3])
+            notices.push(
+              <AffectedProjectsNotice scope="organization" kind={kind} counts={counts} standardApplies={standardApplies} unreadable={unreadable} locale={locale} />,
+            );
+          notices.push(
+            <AffectedProjectsNotice scope="system" kind={kind} total={9} standardApplies={standardApplies} locale={locale} />,
+          );
+        }
+      }
+    }
+    expect(notices).toHaveLength(24);
+    for (const notice of notices) {
+      const html = renderToStaticMarkup(notice);
+      expect(html).toMatch(/\d/);
+      expect(html).not.toContain("{");
+    }
+  });
 });

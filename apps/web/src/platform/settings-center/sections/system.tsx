@@ -109,10 +109,16 @@ function ConnectionsSection({ locale }: SectionProps) {
 // props as that page, so the forms behave the same in both places.
 const SYSTEM_AI = aiPaths(SYSTEM);
 
-function AiStandardSection({ locale }: SectionProps) {
+function AiStandardSection({ locale, caps }: SectionProps) {
+  // While standard models are off the runtime skips them; the advanced
+  // profile still fills open values, so only this notice changes.
   return (
     <>
-      <SystemAffected kind="profile" locale={locale} />
+      <SystemAffected
+        kind="profile"
+        standardApplies={flagsOf(caps).aiDefaults}
+        locale={locale}
+      />
       <AiDefaultsPanel
         path={SYSTEM_AI.defaults!}
         modelsPath={SYSTEM_AI.models!}
@@ -125,10 +131,12 @@ function AiStandardSection({ locale }: SectionProps) {
 function AiModelsSection({ locale, caps }: SectionProps) {
   return (
     <>
-      {flagsOf(caps).aiCatalog ? null : (
+      {/* While the catalog is off its prices apply to no project yet. */}
+      {flagsOf(caps).aiCatalog ? (
+        <SystemAffected kind="catalog" locale={locale} />
+      ) : (
         <Alert kind="info">{aiText(locale)("catalogOff")}</Alert>
       )}
-      <SystemAffected kind="catalog" locale={locale} />
       <ModelPricesPanel path={SYSTEM_AI.models!} locale={locale} />
     </>
   );

@@ -114,4 +114,11 @@ describe("organization AI projects", () => {
     const empty = view({ routingApplied: true, unreadable: 1, projects: [] }, "de");
     expect(empty).toContain("1 Projekte konnten nicht gelesen werden und fehlen in dieser Liste.");
   });
+
+  it("says the choices are saved ones while standard models are off", () => {
+    const off = view({ ...fixture, routingApplied: false });
+    expect(off).toContain("Standard models and presets are not switched on for this installation");
+    expect(off.indexOf("not switched on")).toBeLessThan(off.indexOf("<table"));
+    expect(view(fixture)).not.toContain("not switched on");
+  });
 });

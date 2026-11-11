@@ -1,17 +1,18 @@
 "use client";
 import Link from "next/link";
 import { useResource } from "@/lib/api";
-import { Button, Loading } from "@/components/ui/primitives";
+import { Alert, Button, Loading } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
 import { OrganizationManager } from "@/platform/administration/organization-manager";
 import type { OrganizationDetail } from "@/platform/administration/organization-manager";
 import { ConnectionsPanel } from "@/platform/administration/connections-ui";
-import { KnowledgeSharesPanel } from "@/platform/administration/ai-knowledge-ui";
+import {
+  AiProfileEditor,
+  KnowledgeSharesPanel,
+} from "@/platform/administration/ai-knowledge-ui";
 import { AiBudgetPanel, AiUsagePanel } from "@/platform/administration/ai-budget-ui";
-import { AiProfileEditor } from "@/platform/administration/ai-knowledge-ui";
 import { ModelPricesPanel } from "@/platform/administration/ai-catalog-ui";
 import { AiDefaultsPanel } from "@/platform/administration/ai-defaults-ui";
-import { Alert } from "@/components/ui/primitives";
 import type { Locale } from "@/lib/i18n";
 import {
   CATALOG_SECTION,
@@ -153,12 +154,15 @@ function AiStandardSection({ scope, locale }: SectionProps) {
 }
 
 function AiModelsSection({ scope, locale, caps }: SectionProps) {
+  // While the catalog is off its prices apply to no project yet, so the
+  // affected notice would claim too much; catalogOff says when they will.
   return (
     <>
-      {flagsOf(caps).aiCatalog ? null : (
+      {flagsOf(caps).aiCatalog ? (
+        <OrganizationAffected organizationId={organizationIdOf(scope)} kind="catalog" locale={locale} />
+      ) : (
         <Alert kind="info">{aiText(locale)("catalogOff")}</Alert>
       )}
-      <OrganizationAffected organizationId={organizationIdOf(scope)} kind="catalog" locale={locale} />
       <ModelPricesPanel path={`${pathsOf(scope).aiBase}/ai/models`} locale={locale} />
     </>
   );

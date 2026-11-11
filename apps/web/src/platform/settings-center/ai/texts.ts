@@ -74,10 +74,14 @@ const en = {
   openSetting: "Open setting",
   affectedOrgProfile:
     "Applies to {following} projects that follow the standard and {unsaved} without own AI settings; {own} projects with their own choice keep the values they set. Saving changes the route version of all {total} projects of this organization: running AI work there stops before its next paid call.",
+  affectedOrgRouteOnly:
+    "Saving changes the route version of all {total} projects of this organization: running AI work there stops before its next paid call.",
   affectedOrgCatalog:
     "Prices and switches here apply to all {total} projects of this organization where the project sets no price of its own.",
   affectedSystemProfile:
     "Applies to every project whose organization and own settings leave a value open. Saving changes the route version of all {total} projects and of every personal space: running AI work stops before its next paid call.",
+  affectedSystemRouteOnly:
+    "Saving changes the route version of all {total} projects and of every personal space: running AI work stops before its next paid call.",
   affectedSystemCatalog:
     "Prices and switches here apply to every organization and project that sets no price of its own ({total} projects).",
   catalogOff:
@@ -179,10 +183,14 @@ const de: Record<AiTextKey, string> = {
   openSetting: "Einstellung öffnen",
   affectedOrgProfile:
     "Gilt für {following} Projekte, die dem Standard folgen, und {unsaved} ohne eigene KI-Einstellungen; {own} Projekte mit eigener Wahl behalten ihre gesetzten Werte. Speichern ändert die Routen-Version aller {total} Projekte dieser Organisation: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+  affectedOrgRouteOnly:
+    "Speichern ändert die Routen-Version aller {total} Projekte dieser Organisation: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedOrgCatalog:
     "Preise und Schalter hier gelten für alle {total} Projekte dieser Organisation, sofern ein Projekt keinen eigenen Preis festlegt.",
   affectedSystemProfile:
     "Gilt für jedes Projekt, dessen Organisation und eigene Einstellungen einen Wert offen lassen. Speichern ändert die Routen-Version aller {total} Projekte und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
+  affectedSystemRouteOnly:
+    "Speichern ändert die Routen-Version aller {total} Projekte und jedes persönlichen Bereichs: Laufende KI-Arbeit stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedSystemCatalog:
     "Preise und Schalter hier gelten für jede Organisation und jedes Projekt ohne eigenen Preis ({total} Projekte).",
   catalogOff:
@@ -217,6 +225,17 @@ export const AI_TEXTS: Record<Locale, Partial<Record<AiTextKey, string>>> = {
 /** The text of a key in the locale, else English, else the key itself. */
 export function aiText(locale: Locale) {
   return (key: AiTextKey): string => AI_TEXTS[locale]?.[key] || en[key] || key;
+}
+
+/** The text of a key with every `{name}` it has a value for filled in. */
+export function affectedText(
+  key: AiTextKey,
+  values: Record<string, number | string>,
+  locale: Locale,
+): string {
+  return aiText(locale)(key).replace(/\{(\w+)\}/g, (whole, name: string) =>
+    Object.hasOwn(values, name) ? String(values[name]) : whole,
+  );
 }
 
 /**
