@@ -770,10 +770,19 @@ test.describe("settings center", () => {
       await expect(postiz).toBeVisible();
       await expect(postiz.getByText(STATES).first()).toBeVisible();
       // The seeded member holds a step of Postiz in every scope shown here.
-      await expect(postiz.getByRole("link", { name: "Set up", exact: true })).toHaveAttribute(
-        "href",
-        `${new URL(url, origin).pathname}/setup/postiz`,
-      );
+      // In the system and the organization that step is on the central path,
+      // which exists only once Postiz is in the connection cutover.
+      if (name === "project" || cutover?.includes("postiz")) {
+        await expect(postiz.getByRole("link", { name: "Set up", exact: true })).toHaveAttribute(
+          "href",
+          `${new URL(url, origin).pathname}/setup/postiz`,
+        );
+      } else {
+        test.info().annotations.push({
+          type: "assertion skipped",
+          description: `${name}: Postiz is not in the connection cutover, so its card offers no setup here`,
+        });
+      }
       if (name === "project") {
         const openai = card(page, "OpenAI");
         if (connectionsOn) {
@@ -1007,7 +1016,7 @@ test.describe("settings center", () => {
     test.setTimeout(120_000);
     test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
     const target = await integrationsProject(page);
-    await gateSetup(page, { projectId: target.id });
+    await gateSetup(page, { provider: "matomo", projectId: target.id });
     const label = `Matomo key check ${RUN}`;
     const orgSetup = `/manage/o/${org().id}/integrations/setup/matomo`;
     const orgConnections = `/manage/o/${org().id}/integrations/connections`;

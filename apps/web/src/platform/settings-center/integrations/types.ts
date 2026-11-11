@@ -28,7 +28,7 @@ export type CatalogEntry = {
    * Whether its central connections work in this installation (connections
    * on and, with project storage, the provider's cutover). Optional so an
    * older API answer still renders: absent counts as true for an entry with
-   * central storage (`centralPath` in steps.ts).
+   * central storage (`centralPath` in catalog.tsx).
    */
   centralUsable?: boolean;
   /** "platform" or the module id. */
