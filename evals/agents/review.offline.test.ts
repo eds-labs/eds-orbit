@@ -262,7 +262,9 @@ describe.skipIf(!enabled)("Review eval v2 (offline replay)", () => {
     expect(failures).toEqual([]);
   }, 120_000);
 
-  // A bad case is never approved: rejected, or left for the owner where the set expects that.
+  // A bad case is never approved: objected to (handed to the owner with the
+  // reasons since 2026-11-11, or closed by the owner's own rules), or left
+  // for the owner where the set expects that.
   it("rejects every bad case of review-v2", async () => {
     const failures: string[] = [];
     for (const c of bad) {
@@ -272,7 +274,9 @@ describe.skipIf(!enabled)("Review eval v2 (offline replay)", () => {
       const owner = c.expected.verdict === "owner";
       if (
         outcome.verdict !== (owner ? "needs_owner" : "reject") ||
-        outcome.content.status !== (owner ? "needs_review" : "rejected") ||
+        !(owner ? ["needs_review"] : ["needs_review", "rejected"]).includes(
+          outcome.content.status,
+        ) ||
         outcome.content.agentReview ||
         outcome.modelSaw !== c.expected.modelSees ||
         c.expected.deterministic.some((code) => !problems.includes(code))

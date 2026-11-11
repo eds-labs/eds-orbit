@@ -756,24 +756,24 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     );
   });
 
-  it("reports rejection, budget pause and project pause", async () => {
+  it("reports Orbit's concerns, budget pause and project pause", async () => {
     await linkBot();
     const assignment = await h.makeAssignment({ name: "Zwei Posts am Tag" });
     const planned = await reviewedRun();
     const drafts = (await h.rows("content")).sort((a, b) =>
       String(a.briefKey).localeCompare(String(b.briefKey)),
     );
-    // Rejection: the review rejects the first draft.
+    // The review objects to the first draft: it waits for the owner with the reasons, never closed.
     await reviewTask(planned.review.id, (draft) =>
       draft.contentId === drafts[0]!.id
         ? { verdict: "reject", reasons: ["Zu werblich."] }
         : { verdict: "approve" },
     );
-    const rejected = await jobsOf("rejected");
+    expect(await jobsOf("rejected")).toEqual([]);
+    const rejected = await jobsOf("needs_owner");
     expect(rejected).toHaveLength(1);
     expect(rejected[0]!.idempotencyKey).toContain(drafts[0]!.id);
     // The approved draft got its preview job (Task 11) and no notice.
-    expect(await jobsOf("needs_owner")).toEqual([]);
     expect(await jobsOf("preview")).toHaveLength(1);
 
     // Budget: tomorrow's run is planned, then the month's budget is spent and the assignment pauses itself.
@@ -821,8 +821,9 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     for (const job of [rejected[0]!, budget[0]!, pause[0]!]) await send(job.id);
     const texts = sent().map(textOf);
     expect(texts).toHaveLength(3);
-    expect(texts[0]).toContain("abgelehnt");
+    expect(texts[0]).toContain("Orbit hat Bedenken");
     expect(texts[0]).toContain("Zu werblich.");
+    expect(texts[0]).toContain("freigeben, bearbeiten oder ablehnen");
     expect(texts[1]).toContain("Zwei Posts am Tag");
     expect(texts[1]).toContain("Budget");
     // The approved post of the first run was scheduled and is withdrawn with the pause (M6).

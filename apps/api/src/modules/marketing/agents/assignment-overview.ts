@@ -57,6 +57,28 @@ export const vetoInput = z
   .strict();
 
 const EXCERPT = 280;
+const CONCERNS = 6;
+const CONCERN_TEXT = 500;
+
+/**
+ * The review model's reasons on a draft Orbit objected to (verdict
+ * `reject`, or a channel copy of such a text): plain sentences only, the
+ * codes it appends (such as AGENT_SECOND_REVIEW_NOT_APPROVED) are left out.
+ */
+function concernsOf(d: Record<string, any>): string[] {
+  const decision = d.agentReviewDecision;
+  if (!decision || d.agentReview) return [];
+  const objected =
+    decision.verdict === "reject" ||
+    decision.modelVerdict === "reject" ||
+    decision.modelVerdict === "revise";
+  if (!objected) return [];
+  return ((decision.reasons ?? []) as unknown[])
+    .map((reason) => String(reason).trim())
+    .filter((reason) => reason && !/^[A-Z0-9_]+$/.test(reason))
+    .slice(0, CONCERNS)
+    .map((reason) => reason.slice(0, CONCERN_TEXT));
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Channel names of the project by channel ID (Postiz channels and `social:` accounts), as the owner knows them. */
@@ -495,6 +517,8 @@ export async function draftsAwaitingOwner(
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
       excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
+      // The full text, for the owner's edit (2026-11-11).
+      body: String(d.body ?? ""),
       // The draft's image or creative rendition, shown as a thumbnail
       // (Creative Studio on; off, the list is as before, CS-D6).
       ...(creativeStudioEnabled()
@@ -509,6 +533,11 @@ export async function draftsAwaitingOwner(
       ),
       // The review agent approved the text; only its authority was missing.
       agentApproved: Boolean(d.agentReview),
+      // Why Orbit objected (2026-11-11): the review model's reasons, shown
+      // so the owner can decide; none when it approved or only left it.
+      concerns: concernsOf(d),
+      // The owner changed the text since; the concerns were about the text before.
+      ownerEdited: Boolean(d.ownerEdit),
       problems: [
         ...new Set([
           ...((d.agentReviewDecision?.deterministicProblems ?? []) as string[]),

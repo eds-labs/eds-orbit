@@ -604,7 +604,8 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     const copy = drafts.find(
       (c) => c.channel === X && c.scheduledAt === first.at,
     )!;
-    expect(copy.status).toBe("rejected");
+    // A repeat is Orbit's judgement: the owner sees it and decides.
+    expect(copy.status).toBe("needs_review");
     expect(copy.agentReviewDecision.deterministicProblems).toContain(
       "DUPLICATE_CONTENT",
     );
@@ -894,7 +895,7 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     );
   });
 
-  it("names every channel of the slot when a text is dropped (I3)", async () => {
+  it("hands a text Orbit objects to to the owner on every channel of its slot (I3)", async () => {
     await linkBot();
     await shared({ delivery: "postiz_draft" });
     // The first slot's brief names a fact that is no longer usable: the copywriter drops it.
@@ -927,24 +928,35 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
         .map((slot) => `${slot.channel}@${slot.at}:FACT_NOT_USABLE`)
         .sort(),
     );
-    // The rejected text counts for both channels: in its notice and in the daily report.
-    const rejected = await notices("rejected");
-    expect(rejected).toHaveLength(1);
-    const text = await telegramText(rejected[0]!.id);
-    expect(text).toContain("Synthetic Telegram");
-    expect(text).toContain("Synthetic X");
+    // Not closed: the text and its copy wait for the owner with the reasons.
+    expect(await notices("rejected")).toEqual([]);
+    const waiting = (await contents()).filter(
+      (c) => c.scheduledAt === second.at,
+    );
+    expect(waiting.map((c) => c.channel).sort()).toEqual([TELEGRAM, X].sort());
+    for (const draft of waiting) {
+      expect(draft.status).toBe("needs_review");
+      expect(draft.agentReviewDecision.reasons).toEqual(["Off tone"]);
+    }
+    const left = await notices("needs_owner");
+    expect(left).toHaveLength(2);
+    const original = waiting.find((c) => !c.sharedFrom)!;
+    const text = await telegramText(
+      left.find((job) => job.idempotencyKey.includes(original.id))!.id,
+    );
+    expect(text).toContain("Orbit hat Bedenken");
+    expect(text).toContain("Off tone");
     const audit = await h.run((tx) =>
       tx.auditEvent.findFirst({
         where: {
           projectId: project.owner.projectId,
-          action: "content.agent_rejected",
+          action: "content.agent_objected",
         },
       }),
     );
     expect((audit!.metadata as any).channels.sort()).toEqual(
       [TELEGRAM, X].sort(),
     );
-    void second;
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       const evening = new Date();
@@ -954,8 +966,9 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     } finally {
       vi.useRealTimers();
     }
-    const report = (await notices("daily_report"))[0]!;
-    expect(await telegramText(report.id)).toContain("Abgelehnt: 2");
+    const report = await telegramText((await notices("daily_report"))[0]!.id);
+    expect(report).toContain("Abgelehnt: 0");
+    expect(report).toContain("Mit Bedenken an dich: 2");
   });
 
   it("expands the strategy's uncovered slot to every channel of its group (I3)", async () => {
@@ -1049,6 +1062,32 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     expect(await h.rows("postiz_drafts")).toHaveLength(2);
   });
 
+  it("hands a text that fails a check after the model's approval to the owner on every channel", async () => {
+    await linkBot();
+    await shared({ delivery: "postiz_draft" });
+    const { review } = await drafted();
+    provider.replies.push(async (request) => {
+      // The policy stops allowing the drafts' link while the model is answering.
+      await h.setPolicy({ allowedOrigins: [] });
+      return approveAll(request);
+    });
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    const originals = drafts.filter((c) => !c.sharedFrom);
+    expect(originals.length).toBeGreaterThan(0);
+    for (const original of originals) {
+      expect(original.status).toBe("needs_review");
+      expect(original.agentReviewDecision).toMatchObject({
+        verdict: "reject",
+        deterministicProblems: expect.arrayContaining(["LINK_NOT_ALLOWED"]),
+      });
+      // The slot's other channel waits for the owner too.
+      const copy = drafts.find((c) => c.sharedFrom?.contentId === original.id);
+      expect(copy?.status).toBe("needs_review");
+    }
+    expect(await h.rows("postiz_drafts")).toHaveLength(0);
+  });
+
   it("copies nothing twice when the review task runs again", async () => {
     await linkBot();
     await shared({ delivery: "postiz_draft" });
@@ -1072,7 +1111,7 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
     ).toEqual(["approve", "approve"]);
   });
 
-  it("rejects a draft that misses the format while the project is paused (stricter)", async () => {
+  it("leaves a draft that misses the format while the project is paused to the owner", async () => {
     await linkBot();
     await shared({
       delivery: "postiz_draft",
@@ -1091,13 +1130,13 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
       }),
     );
     await runAgentTask(h.worker(), review.id);
-    // No revision, no model call, no copy: format problems with a pause reject.
+    // No revision and no model call: format problems with a pause go to the owner.
     expect(provider.generate).toHaveBeenCalledTimes(2);
     expect(provider.requests).toHaveLength(0);
-    const drafts = await contents();
+    const drafts = (await contents()).filter((draft) => !draft.sharedFrom);
     expect(drafts).toHaveLength(2);
     for (const draft of drafts) {
-      expect(draft.status).toBe("rejected");
+      expect(draft.status).toBe("needs_review");
       expect(draft.agentReviewDecision.deterministicProblems).toEqual(
         expect.arrayContaining(["FORMAT_LENGTH", "PROJECT_PAUSED"]),
       );

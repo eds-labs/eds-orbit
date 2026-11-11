@@ -55,6 +55,7 @@ import {
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { releaseAssignmentDraft } from "../src/modules/agents/owner-release.ts";
+import { editAssignmentDraft } from "../src/modules/marketing/agents/owner-edit.ts";
 import {
   draftDecisionHistory,
   draftsAwaitingOwner,
@@ -848,6 +849,119 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
     expect(
       await decide(project.owner, row, "reject", { version: 99 }),
     ).toMatchObject({ result: "unchanged" });
+  });
+
+  const edit = (
+    scope: typeof project.owner,
+    draft: Record<string, any>,
+    body: string,
+    version = draft.version as number,
+  ) =>
+    h.run((tx) => editAssignmentDraft(tx, scope, draft.id, { version, body }));
+
+  // Mario, 2026-11-11: a draft waiting for the owner can be edited and then
+  // released; the edit must not drop it out of the approvals page.
+  it("lets the owner edit a waiting draft and release exactly the edited text", async () => {
+    const { drafts } = await leftForOwner();
+    const [first] = drafts;
+    const body = first!.body.replace(
+      "Learn more.",
+      "Teams start today. Learn more.",
+    );
+    expect(body).not.toBe(first!.body);
+    expect(await edit(project.owner, first!, body)).toMatchObject({
+      result: "edited",
+    });
+    const edited = (await contents())[0]!;
+    expect(edited).toMatchObject({
+      status: "needs_review",
+      body,
+      ownerEdit: {
+        by: project.owner.userId,
+        previousBodyHash: hash(first!.body),
+      },
+    });
+    expect(edited.version).toBeGreaterThan(first!.version);
+    expect(edited.agentReview).toBeUndefined();
+    const listed = await h.run((tx) => draftsAwaitingOwner(tx, project.owner));
+    expect(listed.map((item) => item.id)).toContain(first!.id);
+    // The audit records the edit, never the text.
+    const recorded = await audits("content.owner_edited");
+    expect(recorded).toHaveLength(1);
+    expect(JSON.stringify(recorded)).not.toContain("Teams start today");
+    // The release reviews and publishes the edited text.
+    await release(project.owner, edited);
+    const released = (await contents())[0]!;
+    expect(released.humanReviewedBodyHash).toBe(hash(body));
+    expect(await publications()).toHaveLength(1);
+    // Released: no more edits through this path.
+    expect(await code(edit(project.owner, released, `${body} x`))).toBe(
+      "DRAFT_NOT_AWAITING_OWNER",
+    );
+  });
+
+  it("lets only the owner edit, against the current version, and changes nothing otherwise", async () => {
+    const { drafts } = await leftForOwner();
+    const [first] = drafts;
+    for (const scope of [project.editor, project.viewer])
+      expect(await code(edit(scope, first!, `${first!.body} x`))).toBe(
+        "OWNER_REQUIRED",
+      );
+    expect(
+      await code(edit(project.owner, first!, `${first!.body} x`, 99)),
+    ).toBe("VERSION_CONFLICT");
+    expect(await code(edit(project.owner, first!, "   "))).toBeTruthy();
+    expect(await edit(project.owner, first!, first!.body)).toMatchObject({
+      result: "unchanged",
+    });
+    expect((await contents())[0]).toMatchObject({
+      status: "needs_review",
+      version: first!.version,
+      body: first!.body,
+    });
+    // A closed draft stays closed.
+    await decide(project.owner, first!, "reject");
+    const closed = (await contents())[0]!;
+    expect(await code(edit(project.owner, closed, `${closed.body} x`))).toBe(
+      "CONTENT_CLOSED",
+    );
+  });
+
+  // Mario, 2026-11-11: Orbit's objection is a recommendation; the owner
+  // sees the reasons and may still release the post.
+  it("lists a draft Orbit objected to with its concerns and lets the owner release it", async () => {
+    await h.makeAssignment();
+    await h.planWithBriefs((slots) => slots.map((slot) => h.brief(slot)));
+    for (const copy of (await h.rows("agent_tasks")).filter(
+      (t) => t.role === "copywriter",
+    ))
+      await runAgentTask(h.worker(), copy.id);
+    provider.replies.push((request: any) => ({
+      output: [
+        message({
+          decisions: JSON.parse(request.input[0].content).drafts.map(
+            (draft: Record<string, any>) => ({
+              contentId: draft.contentId,
+              verdict: "reject",
+              reasons: ["Too salesy for the brand."],
+              revisionInstructions: null,
+            }),
+          ),
+        }),
+      ],
+    }));
+    await runAgentTask(h.worker(), (await h.task("review")).id);
+    const drafts = await contents();
+    expect(drafts.map((c) => c.status)).toEqual([
+      "needs_review",
+      "needs_review",
+    ]);
+    const listed = await h.run((tx) => draftsAwaitingOwner(tx, project.owner));
+    expect(listed).toHaveLength(2);
+    for (const item of listed)
+      expect(item.concerns).toEqual(["Too salesy for the brand."]);
+    await release(project.owner, drafts[0]!);
+    expect(await publications()).toHaveLength(1);
   });
 
   it("lets only the owner decide, with a clear refusal for others", async () => {

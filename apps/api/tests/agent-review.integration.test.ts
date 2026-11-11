@@ -418,7 +418,8 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     const after = Object.fromEntries(
       (await h.rows("content")).map((d) => [d.id, d]),
     );
-    expect(after[blocked.id]!.status).toBe("rejected");
+    // Orbit objects, but the owner decides: the draft waits for them, never closed.
+    expect(after[blocked.id]!.status).toBe("needs_review");
     expect(after[blocked.id]!.agentReview).toBeUndefined();
     expect(after[blocked.id]!.agentReviewDecision).toMatchObject({
       verdict: "reject",
@@ -458,7 +459,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(await blockers(clean.id)).toContain(HUMAN);
   });
 
-  it("revises once, then rejects", async () => {
+  it("revises once, then leaves the revision to the owner with its concerns", async () => {
     await h.connectTelegram();
     await h.makeAssignment();
     const review = await drafted();
@@ -508,12 +509,14 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
       verdict: "revise",
       revisedTo: revisedId,
     });
-    expect(all[revisedId]!.status).toBe("rejected");
+    // Not closed: the owner sees the revision with Orbit's concerns and decides.
+    expect(all[revisedId]!.status).toBe("needs_review");
     expect(all[revisedId]!.agentReview).toBeUndefined();
     expect(all[revisedId]!.agentReviewDecision).toMatchObject({
       round: 2,
       modelVerdict: "revise",
       verdict: "reject",
+      reasons: expect.arrayContaining(["Still vague."]),
     });
     expect(all[second!.id]!.status).toBe("reviewed");
     expect((await h.task("review")).output.decisions).toEqual(
@@ -527,6 +530,30 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     await reviewAgain(review.id);
     expect(provider.generate).toHaveBeenCalledTimes(3);
     expect(provider.requests).toHaveLength(2);
+  });
+
+  // Production FamilyPlan, 2026-11-11 (run f1ed316e): the model asked to
+  // replace the required App Store call to action with a website link, and
+  // the revision then failed PRIMARY_CTA_REQUIRED.
+  it("shows each draft its required call to action and forbids changing it", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const review = await drafted();
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+    const missions = await h.rows("missions");
+    const [request] = provider.requests;
+    for (const draft of shown(request)) {
+      const content = (await h.rows("content")).find(
+        (row) => row.id === draft.contentId,
+      )!;
+      const mission = missions.find((m) => m.id === content.missionId)!;
+      expect(mission.targetAction).toBeTruthy();
+      expect(draft.cta).toBe(mission.targetAction);
+    }
+    expect(request.instructions).toMatch(
+      /never ask to remove, replace or reword its cta/,
+    );
   });
 
   it("approves a revised draft in the second review", async () => {
@@ -602,7 +629,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(all[revisedId]!.status).toBe("reviewed");
   });
 
-  it("rejects a revision that still mismatches its fact (R26)", async () => {
+  it("leaves a revision that still mismatches its fact to the owner (R26)", async () => {
     await h.connectTelegram();
     await h.makeAssignment({
       schedule: {
@@ -622,7 +649,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(provider.requests).toHaveLength(0);
     const all = await h.rows("content");
     const revised = all.find((d) => !d.supersededBy)!;
-    expect(revised.status).toBe("rejected");
+    expect(revised.status).toBe("needs_review");
     expect(revised.agentReviewDecision).toMatchObject({
       round: 2,
       verdict: "reject",
@@ -743,7 +770,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(all[revisedId]!.status).toBe("reviewed");
   });
 
-  it("rejects a revision that still carries the long fact", async () => {
+  it("leaves a revision that still carries the long fact to the owner", async () => {
     const review = await longFactDraft();
     provider.longFactRevision = true;
     await runAgentTask(h.worker(), review.id);
@@ -753,7 +780,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(provider.generate).toHaveBeenCalledTimes(2);
     expect(provider.requests).toHaveLength(0);
     const revised = (await h.rows("content")).find((d) => !d.supersededBy)!;
-    expect(revised.status).toBe("rejected");
+    expect(revised.status).toBe("needs_review");
     expect(revised.agentReviewDecision).toMatchObject({
       round: 2,
       verdict: "reject",
@@ -1277,7 +1304,8 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
       (await h.rows("assignments")).find((a) => a.id === assignment.id)!.status,
     ).toBe("budget_exhausted");
     const [original] = await h.rows("content");
-    expect(original!.status).toBe("rejected");
+    // The revision failed for the draft: the owner decides on the original.
+    expect(original!.status).toBe("needs_review");
     expect(original!.agentReviewDecision.revisionError).toBe(
       "ASSIGNMENT_BUDGET_EXHAUSTED",
     );

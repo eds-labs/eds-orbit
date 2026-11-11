@@ -1948,6 +1948,8 @@ export function ApprovalInbox() {
     onDiscard: (item: AwaitingOwnerDraft) => agent.decide(item, "discard"),
     onArchive: (item: { id: string; version: number }) =>
       agent.decide(item, "archive"),
+    onEdit: (items: AwaitingOwnerDraft[], body: string) =>
+      agent.edit(items, body),
   };
   const list = (
     lanes: LaneItem[],
