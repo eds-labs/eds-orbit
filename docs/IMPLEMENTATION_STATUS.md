@@ -21,10 +21,13 @@ Spec [2026-11-11-agent-review-creatives-design.md](superpowers/specs/2026-11-11-
   5. Check that FamilyPlan has a Telegram bot bound to a current owner (otherwise Stop works only in Orbit).
   6. Change "FamilyPlan Testwoche" to `delegated_review` with `vetoMinutes: 180` (Mario confirms the card).
   7. First-day watch of both slots: vision verdict, agent approval, 15:30 deadline, publication at 18:30, no `blocked` notice.
-- **Rollback:** flag off and redeploy (creative posts wait for the owner again, scheduled ones included, then the owner releases them); assignment back to `human_each`; revert on `main` and redeploy. No data or schema to undo.
+- **Rollback:** flag off and redeploy (already scheduled creative posts stay scheduled, also as a held entry in the Social calendar, until their slot; then the claim blocks them with `APPROVAL_REQUIRED` and a `blocked` notice, the slot is not caught up and the owner cannot release them because a veto-scheduled post is `reviewed`; only drafts of later runs wait for the owner's release); assignment back to `human_each`; revert on `main` and redeploy. No data or schema to undo.
 - **Open points:**
   - Production's `agent_review` route on FamilyPlan (read 2026-11-11) is `claude-opus-5-5`, but Approval J's PASS was on `gpt-6.1-sol`; v3 is the first evaluation of the current route.
   - The v2 harness sent the case id as the draft title, a label leak that also affected Approval J's run 3 on 2026-10-10; fixed in v3.
+  - The waiting reason on a draft is a snapshot taken at review time (controller Ruling R13); it is stored only for a delegated assignment with authority on and a linked bot, so `human_each` and other blockers show none.
+  - `pnpm api:generate` gives no diff: the assignment routes use a generic `additionalProperties: true` response schema.
+  - Follow-up for the owner (controller Ruling R12): the Sonnet 5.5 cache-read price in `packages/ai/src/provider.ts` (catalog 0.10 USD/MTok) differs from the current Anthropic pricing table (0.20, 0.1x input); neither `provider.ts` nor the rate card was changed.
   - One draw per defect kind, first format only (other formats wait for the owner), synthetic brands only; nothing is live-accepted.
 
 ## Knowledge: search index display (2026-11-11, branch `claude/live-rag-eval-error-3b5651`; local only, not on `main`)

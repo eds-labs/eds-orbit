@@ -299,8 +299,12 @@ The run prints **PASS** only when all of these hold:
   recorded;
 - every case with a review call has a known cost above zero.
 
-Otherwise it prints **FAIL** and exits non-zero. With PASS, Mario may set
-`ORBIT_AGENT_REVIEW_AUTHORITY=true` (rollout plan, Approval J).
+Otherwise it prints **FAIL** and exits non-zero. History: with a PASS of v2,
+Mario could set `ORBIT_AGENT_REVIEW_AUTHORITY=true` (rollout plan, Approval J).
+For v3, a PASS together with a PASS of the vision eval (`evals/creative`) is
+the precondition for setting `ORBIT_AGENT_REVIEW_CREATIVES=true`; v3 is the
+first run on FamilyPlan's production route (`claude-opus-5-5`). A bad case the
+model saw cannot end as `owner` (it would fail `asPlanned`).
 
 ## Limitations
 

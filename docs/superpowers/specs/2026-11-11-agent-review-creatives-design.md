@@ -28,7 +28,7 @@
   - the new flag is on;
   - the vision review passed the exact rendition on the post;
   - both live evals of this design passed.
-- Every condition is checked again at handoff, so turning the flag off holds scheduled creative posts.
+- Every condition is checked again at handoff, so turning the flag off keeps scheduled creative posts from going out (the claim blocks them at their slot).
 - The owner sees in words why a creative post waits for them.
 
 **Non-goals**
@@ -64,7 +64,7 @@ A new function `creativeAuthorityProblem(tx, scope, content): string | null` in 
 - **Shared slots.** A Facebook/Instagram pair (R76) is judged per channel. A channel whose rendition was not judged waits for the owner on its own.
 - **Banners.** The banner refusal (R79) is unchanged.
 
-**The owner sees why.** Where the review step leaves an agent-approved draft for the owner (the `needs_owner` notice in `specialists/review.ts`), it stores the code on the content as `agentAuthorityProblem`, and `GET …/assignment-drafts` returns it as `waitingReason` for drafts that still wait. The approvals page shows it as text in German and English, through the existing maps (`ERROR_TEXT` in `assignment-detail.tsx`, `lib/exception-text.ts`).
+**The owner sees why.** Where the review step leaves an agent-approved draft for the owner (the `needs_owner` notice in `specialists/review.ts`), it stores the code on the content as `agentAuthorityProblem`, and `GET …/assignment-drafts` returns it as `waitingReason` for drafts that still wait. The approvals page shows it as text in German and English, through the existing maps (`ERROR_TEXT` in `assignment-detail.tsx`, `lib/exception-text.ts`). The code is stored only when the creative condition is what is missing (delegated review, `ORBIT_AGENT_REVIEW_AUTHORITY` on, a linked bot); for `human_each`, authority off or no bot it is null, and the list shows it only for an assignment still in `delegated_review`. It is a snapshot taken at review time (controller Ruling R13): a later flag change does not update drafts already waiting, and a fix applies to later posts, not to that draft.
 
 **Vision review in the run.**
 - The review step already runs the vision review before the model when the brand kit enables it (`visionReviews`). A failing creative, or one whose review could not run, goes to the owner as `CREATIVE_QA_FAILED`; that stays.
@@ -209,7 +209,7 @@ A small eval of the production `visionReviewCreative`. It follows the agent eval
    - no `blocked` notice.
 
 **Rollback**
-- Flag off, then redeploy: creative posts wait for the owner again, including those already scheduled.
+- Flag off, then redeploy: posts already scheduled stay scheduled (also as a held entry in the Social calendar) until their slot, where the claim blocks them with `APPROVAL_REQUIRED` and a `blocked` notice; the slot is not caught up, and the owner cannot release them (a veto-scheduled post is `reviewed`, owner release needs `needs_review`). Only drafts of later runs wait for the owner's release.
 - For FamilyPlan alone: change the assignment back to `human_each`.
 - Code: revert on `main` and redeploy. No data or schema to undo.
 
