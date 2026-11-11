@@ -94,6 +94,17 @@ describe.skipIf(!enabled)("exclusive connection config claims", () => {
     await expect(claim(b, cb, "act_rev")).resolves.toBeUndefined();
   });
 
+  it("a disabled connection keeps its claim and cannot take new ones", async () => {
+    const [ca, cb] = [await connection(a), await connection(b)];
+    await claim(a, ca, "act_x");
+    await authDb.connection.update({ where: { id: ca.connectionId }, data: { disabledAt: new Date() } });
+    await expect(claim(b, cb, "act_x")).rejects.toMatchObject({ code: "CONNECTION_VALUE_CLAIMED", status: 409 });
+    await expect(claim(a, ca, "act_y")).rejects.toMatchObject({ code: "CONNECTION_DISABLED", status: 409 });
+    await releaseExclusiveConfigValue(a, { ...ca, key: KEY, value: "act_x" });
+    expect((await config(ca.connectionId))[KEY]).toEqual([]);
+    await expect(claim(b, cb, "act_x")).resolves.toBeUndefined();
+  });
+
   it("concurrent claims: exactly one wins", async () => {
     const [ca, cb] = [await connection(a), await connection(b)];
     const results = await Promise.allSettled([claim(a, ca, "act_race"), claim(b, cb, "act_race")]);

@@ -189,9 +189,11 @@ function claimed(config: unknown, key: string): string[] {
  * Exclusive claim of a config value (an ad account, say) across the projects
  * of one organization: the tables of a module cannot be read across projects
  * by the auth role, so the exclusivity lives on the connection's config. The
- * value is appended to `config[key]`; another active connection of the same
+ * value is appended to `config[key]`; another non-revoked connection (disabled
+ * ones keep their claims, since an admin may re-enable them) of the same
  * provider and organization in another project that holds it refuses the
- * claim. Connections of the same project do not block.
+ * claim. Connections of the same project do not block. A disabled connection
+ * cannot take new claims; it may still release.
  */
 export async function claimExclusiveConfigValue(scope: Scope, input: ClaimInput): Promise<void> {
   validClaim(input);
@@ -206,6 +208,7 @@ export async function claimExclusiveConfigValue(scope: Scope, input: ClaimInput)
     await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`connection-claim:${probe.provider}:${scope.workspaceId}:${input.key}:${input.value}`}))`;
     await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project-secret:${input.connectionId}`}))`;
     const connection = await owned(atx, scope, input);
+    if (connection.disabledAt) throw new DomainError("CONNECTION_DISABLED", 409);
     const taken = await atx.connection.findFirst({
       where: {
         provider: connection.provider,
@@ -213,7 +216,6 @@ export async function claimExclusiveConfigValue(scope: Scope, input: ClaimInput)
         workspaceId: scope.workspaceId,
         projectId: { not: scope.projectId },
         revokedAt: null,
-        disabledAt: null,
         config: { path: [input.key], array_contains: [input.value] },
       },
       select: { id: true },
