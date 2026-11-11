@@ -133,6 +133,23 @@ export type SettingsSection = {
 };
 
 /**
+ * An AI spending ceiling a module keeps in its own settings. The settings
+ * center lists it read-only and links to the section that edits it.
+ */
+export type AiCeiling = {
+  /** Unique within the module. */
+  key: string;
+  label: Label;
+  /** The settings-center section that edits it, below the project's modules area ("finance/ai"). */
+  section: string;
+  /**
+   * Called on every render in registry order (a hook): the ceiling, or null
+   * while loading or when the module's settings cannot be read.
+   */
+  useCeiling(): { micros: number; period: "day" | "month"; on?: boolean } | null;
+};
+
+/**
  * A section a module adds to the Integrations area of the project scope of
  * the settings center (ADR 0027). Its address is
  * /manage/p/:projectId/integrations/<module id>/<id>; it is shown only while
@@ -227,6 +244,8 @@ export type WebModule = {
   settings?: readonly SettingsSection[];
   /** Sections of the settings center's Integrations area (ADR 0027). */
   integrations?: readonly IntegrationContribution[];
+  /** AI ceilings of the module's settings, listed by the settings center. */
+  aiCeilings?: readonly AiCeiling[];
   /** Setup links of the settings overview, before the platform's own. */
   setupLinks?: readonly ComponentType[];
   /** Providers and extra cards of the connectors page (WP2.3b). */

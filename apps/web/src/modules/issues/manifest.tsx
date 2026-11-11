@@ -6,6 +6,7 @@ import { issuesText } from "./labels";
 import { IssueListView } from "./list";
 import { IssuesHome, IssuesOverview } from "./overview";
 import { ReleasesView } from "./releases";
+import { issuesAiCeilings } from "./ai-ceiling";
 import { issuesSettings } from "./settings";
 import { TriageView } from "./triage";
 
@@ -33,6 +34,7 @@ export const issuesWeb: WebModule = {
   // After Support (20), plan §5.
   groupOrder: 25,
   settings: issuesSettings,
+  aiCeilings: issuesAiCeilings,
   attention: issuesAttention,
   actionRequests: issuesActionRequests,
   views: [

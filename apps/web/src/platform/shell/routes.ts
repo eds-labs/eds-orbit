@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { parseManagePath } from "../settings-center/routes";
 import type { ManageTarget } from "../settings-center/types";
 import type {
+  AiCeiling,
   IntegrationContribution,
   Label,
   StandaloneView,
@@ -353,6 +354,19 @@ export function moduleIntegrations(
     .flatMap((m) =>
       (m.integrations ?? []).map((c) => ({ ...c, moduleId: m.id })),
     );
+}
+
+/**
+ * The AI ceilings of every shown module (WebModule.aiCeilings), each with its
+ * module's id, in registry order.
+ */
+export function moduleAiCeilings(
+  modules: readonly WebModule[],
+  enabled: (id: string) => boolean,
+): Array<AiCeiling & { moduleId: string }> {
+  return modules
+    .filter((m) => enabled(m.id))
+    .flatMap((m) => (m.aiCeilings ?? []).map((c) => ({ ...c, moduleId: m.id })));
 }
 
 /**

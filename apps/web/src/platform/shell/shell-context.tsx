@@ -4,6 +4,7 @@ import type { Route, RouteTable } from "./routes";
 import type {
   AgentSetup,
   AttentionRenderer,
+  AiCeiling,
   ConnectorProvider,
   IntegrationContribution,
   Label,
@@ -68,6 +69,8 @@ export type ShellContextValue = {
   settings: readonly SettingsSection[];
   /** Integration sections of the shown modules, each with its module's id. */
   integrations?: ReadonlyArray<IntegrationContribution & { moduleId: string }>;
+  /** AI ceilings of the shown modules, each with its module's id. */
+  aiCeilings?: ReadonlyArray<AiCeiling & { moduleId: string }>;
   /** Setup links of the modules for the settings overview (WP2.3b). */
   setupLinks: readonly ComponentType[];
   /** Connector providers and extra cards of the modules (WP2.3b). */

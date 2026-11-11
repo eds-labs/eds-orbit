@@ -36,6 +36,7 @@ type Settings = {
   autoAck: boolean;
   autoCloseDays: number;
   reopenOnReply: boolean;
+  aiDailyBudgetMicros: number;
   retention: {
     closedTicketMonths: number;
     rawEmailDays: number;

@@ -10,6 +10,7 @@ import {
   knownModuleStates,
   waitsForModuleStates,
   locate,
+  moduleAiCeilings,
   moduleIntegrations,
   moduleShown,
   moduleUsable,
@@ -712,6 +713,30 @@ describe("Web route registry", () => {
     expect(collect([{ id: "social", enabled: true, access: "none" }])).toEqual([]);
     // Social is opt-in: until the states load it contributes nothing.
     expect(moduleIntegrations(webRegistry.modules, () => false)).toEqual([]);
+  });
+
+  it("collects AI ceilings only from shown modules", () => {
+    const withCeilings = webRegistry.modules.filter((m) => (m.aiCeilings ?? []).length > 0);
+    expect(withCeilings.length).toBeGreaterThan(0);
+    const shownIds = new Set(withCeilings.map((m) => m.id));
+    const collect = (states: Array<{ id: string; enabled: boolean; access?: string }>) =>
+      moduleAiCeilings(webRegistry.modules, (id) => {
+        const m = webRegistry.modules.find((x) => x.id === id);
+        return moduleShown(states, id, m?.optIn === true, m?.minAccess);
+      });
+    const all = collect(withCeilings.map((m) => ({ id: m.id, enabled: true, access: "owner" })));
+    expect(all.map((c) => [c.moduleId, c.key])).toEqual(
+      withCeilings.flatMap((m) => (m.aiCeilings ?? []).map((c) => [m.id, c.key])),
+    );
+    const off = withCeilings[0]!;
+    const rest = collect(
+      withCeilings.map((m) => ({ id: m.id, enabled: m.id !== off.id, access: "owner" })),
+    );
+    expect(rest.some((c) => c.moduleId === off.id)).toBe(false);
+    expect(new Set(rest.map((c) => c.moduleId))).toEqual(
+      new Set([...shownIds].filter((id) => id !== off.id)),
+    );
+    expect(moduleAiCeilings(webRegistry.modules, () => false)).toEqual([]);
   });
 
   it("hides the pages of a disabled module and the pages that need it", () => {
