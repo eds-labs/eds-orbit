@@ -39,6 +39,9 @@ type Caps = {
 
 let stage: string | undefined;
 let connectionsOn = false;
+// ORBIT_CONNECTIONS_CUTOVER as the system overview reports it; null when the
+// signed-in member cannot read the overview (not a system administrator).
+let cutover: string[] | null = null;
 let caps: Caps;
 let userId = "";
 let origin = "";
@@ -100,6 +103,11 @@ test.describe("settings center", () => {
         caps = await page.request
           .get("/api/management/capabilities")
           .then((r) => r.json());
+      const overview = await page.request.get("/api/admin/overview");
+      if (overview.ok()) {
+        const value = (await overview.json())?.system?.environment?.connectionsCutover;
+        cutover = Array.isArray(value) ? value : null;
+      }
       await context.storageState({ path: STATE });
     } finally {
       await context.close();
@@ -466,6 +474,56 @@ test.describe("settings center", () => {
       .filter({ has: page.locator("strong", { hasText: new RegExp(`^${label}$`) }) });
   const connectionRow = (page: Page, label: string) =>
     page.getByRole("row").filter({ hasText: label });
+  /**
+   * The project's "Granted connections" card (the innermost section with that
+   * heading; the setup's own section holds it too). One active grant per
+   * provider here.
+   */
+  const grantedCard = (page: Page) =>
+    page
+      .getByRole("main")
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Granted connections", exact: true }) })
+      .last();
+
+  const can = {
+    systemConnections: () => caps.system.includes("system.connections"),
+    organizationConnections: () =>
+      Boolean(org()?.capabilities.includes("organization.connections")),
+  };
+  /** Marketing (owner of Matomo and Postiz) is on for the project. */
+  async function marketingOn(page: Page, projectId: string) {
+    const list = (await page.request
+      .get(`/api/projects/${encodeURIComponent(projectId)}/modules`)
+      .then((r) => r.json())) as { modules?: Array<{ id: string; enabled: boolean }> };
+    return (list.modules ?? []).some((m) => m.id === "marketing" && m.enabled);
+  }
+  /**
+   * Skips a setup scenario unless the installation can do every step it
+   * clicks: central connections, the scopes' connection capabilities, the
+   * provider's cutover (binding answers CUTOVER_NOT_ENABLED without it) and
+   * Marketing on in the project it binds into (the provider's owner).
+   */
+  async function gateSetup(
+    page: Page,
+    needs: { system?: boolean; provider?: string; projectId: string },
+  ) {
+    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
+    test.skip(!can.organizationConnections(), "the member owns no organization with connections");
+    if (needs.system)
+      test.skip(!can.systemConnections(), "the member is not a system administrator");
+    if (needs.provider) {
+      test.skip(cutover === null, "the connection cutover cannot be read (no system administrator)");
+      test.skip(
+        !cutover!.includes(needs.provider),
+        `${needs.provider} is not in ORBIT_CONNECTIONS_CUTOVER, so it cannot be bound`,
+      );
+    }
+    test.skip(
+      !(await marketingOn(page, needs.projectId)),
+      "Marketing is not on for the project the scenario uses",
+    );
+  }
 
   /** The project the setup scenarios bind into; created once through the API. */
   async function integrationsProject(page: Page) {
@@ -623,7 +681,9 @@ test.describe("settings center", () => {
     await row.getByRole("button", { name: "Grants", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: `Grants · ${label}` });
     const revoke = dialog.getByRole("button", { name: "Revoke", exact: true });
-    await expect(dialog.getByRole("table")).toBeVisible();
+    await expect(
+      dialog.getByRole("table").or(dialog.getByText("No grants yet.", { exact: true })),
+    ).toBeVisible();
     for (let n = await revoke.count(); n > 0; n = await revoke.count()) {
       await revoke.first().click();
       await expect(revoke).toHaveCount(n - 1);
@@ -634,12 +694,43 @@ test.describe("settings center", () => {
     await expect(row).toHaveCount(0);
   }
 
+  /**
+   * Removes what an earlier, interrupted run of this file left in the open
+   * connections panel (labels this file writes only), so each run starts
+   * from the same steps.
+   */
+  async function removeLeftovers(page: Page, prefix: RegExp) {
+    await expect(page.getByRole("button", { name: "Add connection", exact: true })).toBeVisible();
+    const labels = (
+      await page
+        .getByRole("row")
+        .locator("td:first-child")
+        .evaluateAll((cells) => cells.map((c) => c.firstChild?.textContent ?? ""))
+    ).filter((label) => prefix.test(label) && !label.includes(RUN));
+    for (const label of labels) await removeConnection(page, label);
+    if (labels.length) {
+      test.info().annotations.push({ type: "leftovers removed", description: labels.join(", ") });
+      // The steps were read before the removal.
+      await page.reload();
+    }
+  }
+
   test("opens Integrations on the catalog in each scope", async ({ page }) => {
-    for (const url of [
-      "/manage/system/integrations",
-      `/manage/o/${org().id}/integrations`,
-      `/manage/p/${project().id}/integrations`,
-    ]) {
+    // The system and organization catalogs need the scope's connections
+    // capability (ORBIT_CONNECTIONS); the project's is there for every member.
+    const scopes: Array<[string, boolean, string]> = [
+      ["/manage/system/integrations", can.systemConnections(), "system"],
+      [`/manage/o/${org().id}/integrations`, can.organizationConnections(), "organization"],
+      [`/manage/p/${project().id}/integrations`, true, "project"],
+    ];
+    for (const [url, shown, name] of scopes) {
+      if (!shown) {
+        test.info().annotations.push({
+          type: "scope skipped",
+          description: `${name}: no connections capability on this installation`,
+        });
+        continue;
+      }
       await page.goto(url);
       // The area address opens the catalog, marked in the section list.
       await expect(
@@ -661,16 +752,28 @@ test.describe("settings center", () => {
       const postiz = card(page, "Postiz");
       await expect(postiz).toBeVisible();
       await expect(postiz.getByText(STATES).first()).toBeVisible();
+      // The seeded member holds a step of Postiz in every scope shown here.
       await expect(postiz.getByRole("link", { name: "Set up", exact: true })).toHaveAttribute(
         "href",
         `${new URL(url, origin).pathname}/setup/postiz`,
       );
+      if (name === "project") {
+        // A central-only provider is managed where its connection lives.
+        const openai = card(page, "OpenAI");
+        await expect(openai.getByText("Managed in the organization.", { exact: true })).toBeVisible();
+        await expect(openai.getByRole("link")).toHaveCount(0);
+      }
+      if (name === "system") {
+        // The server environment is state only: in its panel, never as a card badge.
+        await expect(
+          page.getByRole("heading", { name: "Server environment", exact: true }),
+        ).toBeVisible();
+        const mail = card(page, "System e-mail");
+        await expect(mail.getByText("Set on the server.", { exact: true })).toBeVisible();
+        await expect(mail.getByText(STATES)).toHaveCount(0);
+        await expect(mail.getByRole("link")).toHaveCount(0);
+      }
     }
-    // The system lists the server environment as state only.
-    await page.goto("/manage/system/integrations");
-    await expect(
-      page.getByRole("heading", { name: "Server environment", exact: true }),
-    ).toBeVisible();
   });
 
   test("never offers a setup for a planned provider or another scope's provider", async ({
@@ -678,7 +781,7 @@ test.describe("settings center", () => {
   }) => {
     for (const id of ["tiktok", "openai", "social.app.meta", "nope"]) {
       await page.goto(`/manage/p/${project().id}/integrations/setup/${id}`);
-      await expect(page.getByText("Not available").first(), id).toBeVisible();
+      await expect(page.getByText("Not available", { exact: true }), id).toBeVisible();
       await expect(steps(page), id).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Add connection" }), id).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Bind" }), id).toHaveCount(0);
@@ -690,14 +793,16 @@ test.describe("settings center", () => {
   test("sets up a Matomo connection from the organization to the project", async ({
     page,
   }) => {
-    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
     test.setTimeout(150_000);
+    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
     const target = await integrationsProject(page);
+    await gateSetup(page, { provider: "matomo", projectId: target.id });
     const checks = await answerChecks(page);
     const label = `Matomo e2e ${RUN}`;
     const orgSetup = `/manage/o/${org().id}/integrations/setup/matomo`;
 
     await page.goto(orgSetup);
+    await removeLeftovers(page, /^Matomo (e2e|key check) /);
     await expect(
       page.getByRole("main").getByRole("heading", { name: "Matomo", exact: true }),
     ).toBeVisible();
@@ -733,7 +838,8 @@ test.describe("settings center", () => {
 
     // The project binds the granted connection instead of entering a key.
     await page.goto(`/manage/p/${target.id}/integrations/setup/matomo`);
-    const granted = page.locator(".data-row").filter({ hasText: label });
+    const granted = grantedCard(page);
+    await expect(granted).toContainText(label);
     await granted.getByRole("button", { name: "Bind", exact: true }).click();
     await expect(granted.getByText("bound", { exact: true })).toBeVisible();
     checks.bound(target.id, id);
@@ -765,15 +871,16 @@ test.describe("settings center", () => {
   test("grants a system connection to an organization and from there to a project", async ({
     page,
   }) => {
-    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
     test.setTimeout(150_000);
-    expect(caps.system, "seeded user is administrator").toContain("system.connections");
+    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
     const target = await integrationsProject(page);
+    await gateSetup(page, { system: true, provider: "postiz", projectId: target.id });
     const checks = await answerChecks(page);
     const label = `Postiz e2e ${RUN}`;
     const systemSetup = "/manage/system/integrations/setup/postiz";
 
     await page.goto(systemSetup);
+    await removeLeftovers(page, /^Postiz e2e /);
     await expect(
       page.getByRole("main").getByRole("heading", { name: "Postiz", exact: true }),
     ).toBeVisible();
@@ -814,7 +921,18 @@ test.describe("settings center", () => {
     await expect(step(page, "Authorize organization and projects")).toContainText("Done");
 
     await page.goto(`/manage/p/${target.id}/integrations/setup/postiz`);
-    const granted = page.locator(".data-row").filter({ hasText: label });
+    // The organization owner's steps lead to where they are done.
+    for (const name of [
+      "Configure connection or developer app",
+      "Check",
+      "Authorize organization and projects",
+    ])
+      await expect(
+        step(page, name).getByRole("link", { name: `Open: ${name}`, exact: true }),
+        name,
+      ).toHaveAttribute("href", `/manage/o/${org().id}/integrations/setup/postiz`);
+    const granted = grantedCard(page);
+    await expect(granted).toContainText(label);
     await expect(granted).toContainText("System");
     await granted.getByRole("button", { name: "Bind", exact: true }).click();
     await expect(granted.getByText("bound", { exact: true })).toBeVisible();
@@ -833,14 +951,16 @@ test.describe("settings center", () => {
     await removeConnection(page, label);
   });
 
-  test("shows a viewer states without actions", async ({ page }) => {
-    // The seeded installation has one person (system administrator and
-    // organization owner) and no way to add a viewer without the database,
-    // so this runs as the least privileged member there is: states read as
-    // text, and the key never comes back to any page.
-    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
+  test("shows states in words and never the stored key", async ({ page }) => {
+    // Runs as the seeded owner: the installation has no viewer and none can
+    // be added without the database. That a viewer or editor sees states
+    // without "Set up" is covered by the unit tests
+    // apps/web/src/platform/settings-center/integrations/scopes.test.tsx and
+    // scopes-containers.test.tsx, not here.
     test.setTimeout(120_000);
+    test.skip(!connectionsOn, "ORBIT_CONNECTIONS is off");
     const target = await integrationsProject(page);
+    await gateSetup(page, { projectId: target.id });
     const label = `Matomo key check ${RUN}`;
     const orgSetup = `/manage/o/${org().id}/integrations/setup/matomo`;
     await page.goto(orgSetup);
@@ -890,28 +1010,36 @@ test.describe("settings center", () => {
       });
     const social = list.modules.find((m) => m.id === "social");
     const switchSocial = list.switchable && social?.enabled === true;
+    // Social on but not switchable: its section is rightly there, so the
+    // hidden case cannot be shown here.
+    const socialStuck = social?.enabled === true && !list.switchable;
     if (!switchSocial)
       test.info().annotations.push({
         type: "social",
-        description: social
-          ? "Social is off for the project; checked as it is"
-          : "Social is not installed; checked as it is",
+        description: socialStuck
+          ? "Social is on and cannot be switched; the hidden section is not checked"
+          : social
+            ? "Social is off for the project; checked as it is"
+            : // Absence where Social is not installed proves nothing about hiding.
+              "Social is not installed; its absence is checked, hiding it is unproven here",
       });
-    if (switchSocial) expect((await put("social", false)).status(), "social off").toBe(200);
-    try {
-      await page.goto(`/manage/p/${id}/integrations`);
-      await expect(sectionNav(page)).toBeVisible();
-      await expect(
-        sectionNav(page).getByRole("link", { name: "All integrations", exact: true }),
-      ).toBeVisible();
-      await expect(
-        sectionNav(page).getByRole("link", { name: "Social accounts", exact: true }),
-      ).toHaveCount(0);
-      await page.goto(`/manage/p/${id}/integrations/social/accounts`);
-      await expect(page.getByText("Not available").first()).toBeVisible();
-    } finally {
-      if (switchSocial)
-        expect((await put("social", true)).ok(), "social switched back on").toBe(true);
+    if (!socialStuck) {
+      if (switchSocial) expect((await put("social", false)).status(), "social off").toBe(200);
+      try {
+        await page.goto(`/manage/p/${id}/integrations`);
+        await expect(sectionNav(page)).toBeVisible();
+        await expect(
+          sectionNav(page).getByRole("link", { name: "All integrations", exact: true }),
+        ).toBeVisible();
+        await expect(
+          sectionNav(page).getByRole("link", { name: "Social accounts", exact: true }),
+        ).toHaveCount(0);
+        await page.goto(`/manage/p/${id}/integrations/social/accounts`);
+        await expect(page.getByText("Not available", { exact: true })).toBeVisible();
+      } finally {
+        if (switchSocial)
+          expect((await put("social", true)).ok(), "social switched back on").toBe(true);
+      }
     }
 
     // Marketing owns Matomo: with Marketing off its card no longer leads to a
@@ -972,7 +1100,7 @@ test.describe("settings center", () => {
     await expect(
       sectionNav(page).getByRole("link", { name: "Connections", exact: true }),
     ).toHaveAttribute("aria-current", "page");
-    await expect(page.getByText("Not available")).toHaveCount(0);
+    await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
 
     const modules = (await page.request
       .get(`/api/projects/${encodeURIComponent(id)}/modules`)
