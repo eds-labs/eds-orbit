@@ -163,11 +163,14 @@ describe("scopeCatalog", () => {
 
 describe("manageHrefOf", () => {
   const social = [{ id: "social/accounts", providers: ["social.account.x"] }];
-  const ctx = (scope: ManageScope, moduleSections = social) => ({
-    scope,
-    hrefOf: hrefIn(scope),
-    moduleSections,
-  });
+  // Marketing shown: it contributes postiz to the Connectors page.
+  const ctx = (
+    scope: ManageScope,
+    moduleSections: ReadonlyArray<{ id: string; providers?: readonly string[] }> = social,
+    connectorProviders: readonly string[] = scope.kind === "project" ? ["postiz"] : [],
+  ) => ({ scope, hrefOf: hrefIn(scope), moduleSections, connectorProviders });
+  const issuesWebhook = entry({ id: "issues_webhook", category: "development", authType: "webhook_secret", scopes: ["project"], storage: ["project"], owner: "issues" });
+  const ownerBot = entry({ id: "telegram_owner_bot", category: "other", authType: "bot_token", scopes: ["project"], storage: ["project"], owner: "platform" });
 
   it("links each card to the section that manages it", () => {
     expect(manageHrefOf(byId("postiz"), ctx(project))).toBe("/manage/p/p1/integrations/connections");
@@ -179,13 +182,27 @@ describe("manageHrefOf", () => {
     expect(manageHrefOf(byId("openai"), ctx(system))).toBe("/manage/system/integrations/connections");
   });
 
-  it("keeps the GitHub of Knowledge in its module and a project card without its module section unlinked to it", () => {
+  it("links a project card to connections only where the Connectors page manages it", () => {
+    // Platform-owned: the Connectors page renders the mailbox and the owner bot itself.
+    expect(manageHrefOf(byId("email"), ctx(project))).toBe("/manage/p/p1/integrations/connections");
+    expect(manageHrefOf(ownerBot, ctx(project))).toBe("/manage/p/p1/integrations/connections");
+    // Managed in the Issues module's settings, not on the Connectors page.
+    expect(manageHrefOf(issuesWebhook, ctx(project))).toBeNull();
+    // Marketing hidden: the Connectors page does not show postiz.
+    expect(manageHrefOf(byId("postiz"), ctx(project, social, []))).toBeNull();
+    // Social hidden: no section manages the accounts, and Connectors has no Social provider.
+    expect(manageHrefOf(byId("social.account.x"), ctx(project, []))).toBeNull();
     expect(manageHrefOf(byId("knowledge_github"), ctx(project))).toBeNull();
-    // Social hidden: the account card falls back to the generic rule.
-    expect(manageHrefOf(byId("social.account.x"), ctx(project, []))).toBe(
-      "/manage/p/p1/integrations/connections",
-    );
   });
+
+  it("links an organization-only provider in the organization, not in the system", () => {
+    expect(manageHrefOf(byId("n8n"), ctx(organization))).toBe("/manage/o/w1/integrations/connections");
+    expect(manageHrefOf(byId("n8n"), ctx(system))).toBeNull();
+    expect(manageHrefOf(byId("postiz"), ctx(system))).toBe("/manage/system/integrations/connections");
+    // Project-only storage is never managed centrally.
+    expect(manageHrefOf(byId("social.account.x"), ctx(organization, []))).toBeNull();
+  });
+  // A null link renders managedInModule and no Manage link: provider-card.test.tsx.
 });
 
 const environment: EnvironmentStatus = {
@@ -290,6 +307,13 @@ describe("organization projects", () => {
     expect(html).toContain(t("neverChecked"));
     // A project without integrations says so.
     expect(html).toContain(t("none"));
+  });
+
+  it("says none when the organization has no projects", () => {
+    const html = renderToStaticMarkup(<OrganizationProjects projects={[]} catalog={catalog} locale="en" />);
+    expect(html).toContain(`<h2>${t("projectsTitle")}</h2>`);
+    expect(html).not.toContain("<table");
+    expect(html).toContain(`<p>${t("none")}</p>`);
   });
 });
 

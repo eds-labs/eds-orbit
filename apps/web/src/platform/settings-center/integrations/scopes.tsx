@@ -169,9 +169,13 @@ export function scopeCatalog(
 }
 
 /**
- * The section that manages a card's integration: a module section that
- * names it, else the platform's section by where it is stored; null where
- * nothing in this scope manages it.
+ * The section that manages a card's integration, or null (the card then says
+ * it is managed in its module). A link only ever leads to a page that can
+ * manage the entry: a shown module's section that names it; in a project the
+ * Drive section, or the Connectors page for what that page renders (the
+ * platform's own project connections and the providers the shown modules
+ * contribute to it, `connectorProviders`); in an organization or the system
+ * the central connections of that level.
  */
 export function manageHrefOf(
   entry: CatalogEntry,
@@ -179,22 +183,29 @@ export function manageHrefOf(
     scope: ManageScope;
     hrefOf(area: string, ...rest: string[]): string;
     moduleSections: ReadonlyArray<{ id: string; providers?: readonly string[] }>;
+    /** Provider ids the Connectors page shows from the modules (shell.connectors.providers). */
+    connectorProviders: readonly string[];
   },
 ): string | null {
   const owner = ctx.moduleSections.find((s) => s.providers?.includes(entry.id));
   if (owner) return ctx.hrefOf("integrations", ...owner.id.split("/"));
   // Its page stays in the Knowledge module until phase 5.
   if (entry.id === "knowledge_github") return null;
+  const connections = () => ctx.hrefOf("integrations", "connections");
   switch (ctx.scope.kind) {
     case "project":
       if (entry.id === "google_drive") return ctx.hrefOf("integrations", "google-drive");
-      return entry.storage.includes("project")
-        ? ctx.hrefOf("integrations", "connections")
+      if (!entry.storage.includes("project")) return null;
+      return entry.owner === "platform" || ctx.connectorProviders.includes(entry.id)
+        ? connections()
         : null;
     case "organization":
+      return entry.storage.includes("central") && entry.scopes.includes("workspace")
+        ? connections()
+        : null;
     case "system":
-      return entry.storage.includes("central")
-        ? ctx.hrefOf("integrations", "connections")
+      return entry.storage.includes("central") && entry.scopes.includes("system")
+        ? connections()
         : null;
     default:
       return null;
@@ -276,6 +287,7 @@ export function OrganizationProjects({
   return (
     <section>
       <h2>{text("projectsTitle")}</h2>
+      {projects.length === 0 ? <p>{text("none")}</p> : null}
       {projects.map((project) => (
         <table key={project.id}>
           <caption>{project.name}</caption>
@@ -342,6 +354,7 @@ function ScopeCatalogView({
   entries,
   records,
   moduleSections = [],
+  connectorProviders = [],
   hrefOf,
   extra,
   locale,
@@ -350,6 +363,7 @@ function ScopeCatalogView({
   entries: readonly CatalogEntry[];
   records: Records;
   moduleSections?: ReadonlyArray<{ id: string; providers?: readonly string[] }>;
+  connectorProviders?: readonly string[];
   hrefOf: SectionProps["hrefOf"];
   extra?: ReactNode;
   locale: Locale;
@@ -360,7 +374,7 @@ function ScopeCatalogView({
       groups={groups}
       unavailable={unavailable}
       recordsOf={(id) => records.get(id) ?? []}
-      manageHrefOf={(entry) => manageHrefOf(entry, { scope, hrefOf, moduleSections })}
+      manageHrefOf={(entry) => manageHrefOf(entry, { scope, hrefOf, moduleSections, connectorProviders })}
       setupHrefOf={setupHrefOf}
       extra={extra}
       locale={locale}
@@ -428,6 +442,8 @@ export function ProjectCatalog({ scope, locale, hrefOf }: SectionProps) {
     id: integrationSectionId(c),
     providers: c.providers,
   }));
+  // The same source the Connectors page lists its module providers from.
+  const connectorProviders = (shell?.connectors?.providers ?? []).map((p) => p.id);
   const waiting = gate([catalog, records]);
   if (waiting) return waiting;
   return (
@@ -436,6 +452,7 @@ export function ProjectCatalog({ scope, locale, hrefOf }: SectionProps) {
       entries={catalog.data!.items}
       records={projectRecords(records.data!.items)}
       moduleSections={moduleSections}
+      connectorProviders={connectorProviders}
       hrefOf={hrefOf}
       locale={locale}
     />

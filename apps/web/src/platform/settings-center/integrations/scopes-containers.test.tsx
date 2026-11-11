@@ -150,6 +150,27 @@ describe("ProjectCatalog", () => {
     expect(shown).toContain('href="/manage/p/p1/integrations/social/accounts"');
     const hidden = renderToStaticMarkup(<ProjectCatalog {...props(scope)} />);
     expect(hidden).not.toContain("social/accounts");
-    expect(hidden).toContain('href="/manage/p/p1/integrations/connections"');
+    // Nothing on this page manages the accounts then.
+    expect(hidden).not.toContain('href="/manage/p/p1/integrations/connections"');
+    expect(hidden).toContain(integrationText("en")("managedInModule"));
+  });
+
+  it("links a module's connector provider to connections only while the module contributes it", () => {
+    reset({
+      "/management/integrations/catalog": {
+        items: [entry({ id: "postiz", label: { en: "Postiz", de: "Postiz" }, category: "social", scopes: ["project", "workspace", "system"], storage: ["central", "project"], owner: "marketing" })],
+      },
+      "/management/projects/p1/integrations": { items: [] },
+    });
+    const scope: ManageScope = { kind: "project", projectId: "p1" };
+    const shell = { connectors: { providers: [{ id: "postiz" }], extras: [] } } as unknown as ShellContextValue;
+    const shown = renderToStaticMarkup(
+      <ShellContext.Provider value={shell}>
+        <ProjectCatalog {...props(scope)} />
+      </ShellContext.Provider>,
+    );
+    expect(shown).toContain('href="/manage/p/p1/integrations/connections"');
+    const hidden = renderToStaticMarkup(<ProjectCatalog {...props(scope)} />);
+    expect(hidden).not.toContain('href="/manage/p/p1/integrations/connections"');
   });
 });
