@@ -1219,8 +1219,10 @@ export async function buildServer(
     const projectId = z.uuid().parse(state.split(".")[0]);
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     const ready = await finishConnect(scope, state, code);
+    // Back into the project the flow was begun for: the id comes from the
+    // validated state, not from the last project the browser remembers.
     return reply.redirect(
-      `${config.APP_ORIGIN}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
+      `${config.APP_ORIGIN}/p/${encodeURIComponent(scope.projectId)}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
     );
   });
   app.get(

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { webRegistry } from "@/modules/registry";
 import { buildNavGroups, withSettingsLinks } from "./nav-groups";
-import { projectHref, routeTable, type Route } from "./routes";
+import { locate, projectHref, routeTable, type Route } from "./routes";
 import { SidebarNav } from "./sidebar-nav";
 import {
   collectSettingsTabs,
@@ -202,6 +202,20 @@ describe("sectionFromSearch", () => {
     expect(sectionFromSearch("?googleDrive=ready", available)).toBe(
       "integrations",
     );
+    expect(sectionFromSearch("?googleDrive=choose-root", available)).toBe(
+      "integrations",
+    );
+  });
+
+  it("the callback's address is the settings page of its project", () => {
+    // The API sends the browser to /p/<project>/settings?googleDrive=...;
+    // the path must resolve to that project's settings, not be rewritten.
+    const place = locate("/p/p1/settings", routeTable(webRegistry));
+    expect(place).toMatchObject({
+      kind: "view",
+      projectId: "p1",
+      route: { key: "settings" },
+    });
   });
 });
 
