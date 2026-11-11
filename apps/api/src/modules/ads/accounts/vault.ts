@@ -1,12 +1,14 @@
 import { z } from "zod";
-import { authDb, scoped } from "../../../../../../packages/db/src/index.ts";
+import { authDb, scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   createProjectConnection,
   withProjectSecret,
   type JsonConfig,
 } from "../../../platform/connections/project-secrets.ts";
-import { DomainError } from "../../../shared.ts";
+import { publishEvent } from "../../../platform/events/events.ts";
+import { audit, DomainError } from "../../../shared.ts";
+import { notifyAdsReconnect } from "../notifications.ts";
 import type { ProviderApp, ProviderGrant } from "../providers/types.ts";
 import { adsAppCredentials } from "./app.ts";
 
@@ -123,4 +125,41 @@ export async function grantCredentials(
     config: held.config,
     app: { connectionId: app.connectionId, clientId: app.clientId, clientSecret: app.clientSecret, configId: app.configId },
   };
+}
+
+/**
+ * Marks the project's active or disabled accounts among `accountIds` for a
+ * reconnect: one audit row and one event per flipped account, one owner
+ * notification per call. Returns how many flipped; rows that already wait
+ * for a reconnect (or are unlinked) change nothing, so a repeat is silent.
+ */
+export async function markReconnectRequired(tx: DbTx, scope: Scope, accountIds: string[], code: string): Promise<number> {
+  if (accountIds.length === 0) return 0;
+  const candidates = await tx.adAccount.findMany({
+    where: { projectId: scope.projectId, id: { in: accountIds }, status: { in: ["active", "disabled"] } },
+    select: { id: true },
+  });
+  if (candidates.length === 0) return 0;
+  const ids = candidates.map((c) => c.id);
+  const changed = await tx.adAccount.updateMany({
+    where: { projectId: scope.projectId, id: { in: ids }, status: { in: ["active", "disabled"] } },
+    data: { status: "reconnect_required", version: { increment: 1 } },
+  });
+  if (changed.count === 0) return 0;
+  await tx.adSyncState.updateMany({
+    where: { projectId: scope.projectId, accountId: { in: ids }, stream: "health" },
+    data: { lastErrorCode: code },
+  });
+  for (const accountId of ids) {
+    await audit(tx, scope, "ads.account.reconnect_required", accountId, { code });
+    await publishEvent(tx, scope, {
+      type: "ads.account.reconnect_required",
+      subject: { type: "ads.account", id: accountId },
+      actor: { kind: "system", id: null },
+      origin: "ads",
+      data: { accountId, code },
+    });
+  }
+  await notifyAdsReconnect(tx, scope);
+  return changed.count;
 }

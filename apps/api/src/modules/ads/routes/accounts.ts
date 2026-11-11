@@ -4,6 +4,7 @@ import type { RoutesContribution } from "../../../platform/http/routes.ts";
 import { scopeFor } from "../../../platform/tenancy/auth.ts";
 import { beginMetaConnect, finishMetaConnect } from "../accounts/connect.ts";
 import { consumeAdsOAuthState, projectOfAdsState, type ConsumedAdsState } from "../accounts/oauth-state.ts";
+import { checkAdAccount } from "../accounts/health.ts";
 import { requireAds } from "../gate.ts";
 import { ADS_BASE, inAds } from "../http-scope.ts";
 import { ADS_ACCOUNTS_MANAGE, ADS_READ } from "../permissions.ts";
@@ -79,6 +80,11 @@ export const accountRoutes: RoutesContribution = (context) => {
   app.post(`${ADS_BASE}/accounts/:accountId/unlink`, async (req) => {
     const scope = await inAds(auth, req, ADS_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
     return unlinkAdAccount(scope, accountParam.parse(req.params).accountId, unlinkBody.parse(req.body));
+  });
+  // An owner's check also reads an account that waits for a reconnect.
+  app.post(`${ADS_BASE}/accounts/:accountId/check`, async (req) => {
+    const scope = await inAds(auth, req, ADS_ACCOUNTS_MANAGE, async (_tx, scope) => scope);
+    return checkAdAccount(scope, accountParam.parse(req.params).accountId, { manual: true });
   });
   // The provider sends the browser here (outside the project path, so the
   // project comes from the state). The member must be the signed-in owner who
