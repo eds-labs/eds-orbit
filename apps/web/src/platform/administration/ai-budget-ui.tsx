@@ -565,38 +565,54 @@ function BudgetForm({
         cancelLabel={locale === "de" ? "Abbrechen" : "Cancel"}
         onCancel={onClose}
         onSubmit={(values) =>
-          mutation.run(() => {
-            const now = new Date().toISOString();
-            const creditOf = (p: Provider) => {
-              const amount = microsOf(values, `credit-${p}`);
-              if (amount === undefined) return undefined;
-              const known = credits[p];
-              // An unchanged balance keeps the date it was read.
-              return known && known.amountMicros === amount
-                ? known
-                : { amountMicros: amount, verifiedAt: now };
-            };
-            return put(`${base}/ai/budget`, {
-              monthlyMicros: microsOf(values, "monthly") ?? null,
-              assistantPerUserMonthlyMicros: assistantCapMicros(values),
-              providerCaps: Object.fromEntries(
-                providers.flatMap((p) => {
-                  const cap = microsOf(values, `cap-${p}`);
-                  return cap === undefined ? [] : [[p, cap]];
-                }),
-              ),
-              credits: Object.fromEntries(
-                providers.flatMap((p) => {
-                  const credit = creditOf(p);
-                  return credit ? [[p, credit]] : [];
-                }),
-              ),
-            });
-          })
+          mutation.run(() =>
+            put(`${base}/ai/budget`, budgetPayload(values, credits, new Date().toISOString())),
+          )
         }
       />
     </Modal>
   );
+}
+
+/**
+ * What the budget form sends. `PUT …/ai/budget` replaces every part, so the
+ * form must always send all four (settings center phase 4, risk 8).
+ */
+export function budgetPayload(
+  values: FormValues,
+  credits: Partial<Record<Provider, Credit>>,
+  now: string,
+): {
+  monthlyMicros: number | null;
+  assistantPerUserMonthlyMicros: number | null;
+  providerCaps: Partial<Record<Provider, number>>;
+  credits: Partial<Record<Provider, Credit>>;
+} {
+  const creditOf = (p: Provider) => {
+    const amount = microsOf(values, `credit-${p}`);
+    if (amount === undefined) return undefined;
+    const known = credits[p];
+    // An unchanged balance keeps the date it was read.
+    return known && known.amountMicros === amount
+      ? known
+      : { amountMicros: amount, verifiedAt: now };
+  };
+  return {
+    monthlyMicros: microsOf(values, "monthly") ?? null,
+    assistantPerUserMonthlyMicros: assistantCapMicros(values),
+    providerCaps: Object.fromEntries(
+      providers.flatMap((p) => {
+        const cap = microsOf(values, `cap-${p}`);
+        return cap === undefined ? [] : [[p, cap]];
+      }),
+    ),
+    credits: Object.fromEntries(
+      providers.flatMap((p) => {
+        const credit = creditOf(p);
+        return credit ? [[p, credit]] : [];
+      }),
+    ),
+  };
 }
 
 function UsageList({
