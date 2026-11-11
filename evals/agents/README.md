@@ -9,6 +9,10 @@ first live run (2026-10-09, FAIL, see
 step must pass before it gains authority over Creative Studio posts
 (`ORBIT_AGENT_REVIEW_CREATIVES`, spec
 `docs/superpowers/specs/2026-11-11-agent-review-creatives-design.md` §6).
+The live run measures the route production uses for FamilyPlan's review,
+`review-route-v2.json`: Anthropic `claude-opus-5-5`, reasoning effort
+`medium`, 5,000 output tokens. `review-route-v1.json` (OpenAI `gpt-6.1-sol`,
+the effective route of runs 1 to 3) stays as their record.
 
 ## The set (v3)
 
@@ -71,17 +75,24 @@ and deleted per run, and only against a local database
   unchanged, and that the set expects exactly the deterministic image copy
   codes the production check finds.
 - `live-dry-run.test.ts` tests the plan, the confirmation gate, the ceiling,
-  the local-database check and the pass rule.
+  the local-database check and the pass rule, on both route files: v1 parses
+  with the provider `openai` by default, v2 is planned on `anthropic` with a
+  fixture rate card (never the repository's), the provider is part of the
+  dataset hash and the confirmation, and a confirmation without the
+  Anthropic key is `EVAL_KEY_REQUIRED`.
 - `live-harness.test.ts` runs the live harness end to end with replayed
-  answers: the whole set as planned, round 2 after a `revise` (with the
+  answers: the whole set as planned, on the OpenAI route and on the
+  Anthropic route (the key stored as the project's Anthropic key, every call
+  on the route file's route), round 2 after a `revise` (with the
   unchanged revision), the ceiling stop, metrics-only output, the cleanup of
   every brand's project, the diagnostic reasons file under `.runtime/`, and
   that every review request of the set, and one with a 2,200-character
   German body with umlauts and emoji, stays below the request bound
   (counted in bytes).
 - `diagnosis.test.ts` tests the diagnostic reasons file (banner, content,
-  refusal to write the key); `eval-key.test.ts` the keychain lookup with a
-  mocked `execFile`.
+  refusal to write the key); `eval-key.test.ts` the key per provider and the
+  keychain lookup with a mocked `execFile`. Other live evals reuse the key
+  helper (`eval-key.ts`).
 
 ## Live run (manual, budget-capped, rollout Approval J)
 
@@ -107,72 +118,93 @@ No Telegram bot is linked, so no notification is queued.
    the cost ceiling, the dataset hash, the hash of the review prompt and
    schema, the commit, and the confirmation, and transmits nothing.
    For `review-v3` it prints `agents-review-v3`, 38 cases, the cases per
-   brand and 76 review calls at most. The worst case it prints is every
-   call at its full output limit and the 16,000-byte request bound, priced
-   with the current rate card and route; when that exceeds the 3 USD
-   ceiling, the plan says so and the run may stop early with a partial
-   report (a FAIL). Whether to run at 3 USD is Mario's decision at the dry
-   run. Real requests are far smaller than the bound (about 7 KB for the
-   longest German post), and run 3 spent $0.075 on v2.
-   **The rate card is stale:** its `verifiedAt` is 2026-09-30, so until it
-   is refreshed the dry run stops with `EVAL_RATE_CARD_STALE` before it
-   prints anything.
+   brand, the route with its provider (`provider anthropic, model
+   claude-opus-5-5, reasoning medium, max output 5000`) and 76 review calls
+   at most. The worst case it prints is every call at its full output limit
+   and the 16,000-byte request bound, priced with the current rate card and
+   route; when that exceeds the 3 USD ceiling, the plan says so and the run
+   may stop early with a partial report (a FAIL). On the Opus route it does
+   by far (at $4 input, $5 cache write and $20 output per million tokens,
+   $0.18 per call, about $13.68 for 76 calls); the ceiling stays 3 USD, and
+   whether to run at 3 USD is Mario's decision at the dry run. Real requests
+   are far smaller than the bound (about 7 KB for the longest German post),
+   and run 3 spent $0.075 on v2 with `gpt-6.1-sol`.
+   **The rate card is stale and has no Claude price:** its `verifiedAt` is
+   2026-09-30, so until it is refreshed the dry run stops with
+   `EVAL_RATE_CARD_STALE` before it prints anything, and a refreshed card
+   without `claude-opus-5-5` stops with `EVAL_ROUTE_NOT_PRICED`.
 2. **Review.** Check the plan:
-   - **Route.** The route comes from `review-route-v1.json`. Verify in Orbit
-     Settings that it equals production's `agent_review` route, or the
-     quality tier if no `agent_review` route is saved. Recommended: save an
-     explicit `agent_review` route in production first and copy it into
-     `review-route-v1.json`, so a later change of the quality tier cannot
-     silently change what the review uses. Any later change of that route or
-     tier invalidates a PASS: run the eval again.
+   - **Route.** The route comes from `review-route-v2.json`, which mirrors
+     FamilyPlan's explicit `agent_review` task route as read on 2026-11-11
+     (Settings → AI → Task routes). Verify in Orbit Settings that it still
+     equals production's `agent_review` route, provider included, and copy
+     any change into the file. The file names its `provider` (`openai` when
+     absent, as in v1), which must be the provider of its model
+     (`EVAL_ROUTE_PROVIDER_MISMATCH` otherwise). The run stores its key in
+     each synthetic project as production stores a project key of that
+     provider (encrypted, through `saveAiConfiguration`: an Anthropic key in
+     the provider section, an OpenAI key in the model section) and refuses
+     to start unless `agent_review` resolves to exactly the file's model,
+     effort, output limit and provider (`EVAL_ROUTE_MISMATCH`) with the
+     run's key (`EVAL_KEY_NOT_APPLIED`). Any later change of that route
+     invalidates a PASS: run the eval again.
    - **Code.** Run on the deployed commit (the commit is printed and written
      to the evidence; "tracked files changed" means the working tree is not
      that commit). Any change to the review prompt, its output schema or this
      runner, or to the `agent_review` route or quality tier, needs a new run
      before `ORBIT_AGENT_REVIEW_AUTHORITY` stays on.
    - **Hashes.** The **dataset hash** covers the cases, every brand
-     (profile fields, facts, assignment fields, brief), the route and the
-     ceiling. The **confirmation** is a hash of the dataset hash, the
-     complete rate card (every price field of every model), its
-     `verifiedAt`, the route, the hash of the review instructions and output
-     schema, and the ceiling, so an edit of any of them invalidates the
-     approval.
-3. **Live run.** Mario runs, with the local environment sourced:
+     (profile fields, facts, assignment fields, brief), the provider, the
+     route and the ceiling. The **confirmation** is a hash of the dataset
+     hash, the complete rate card (every price field of every model), its
+     `verifiedAt`, the provider, the route, the hash of the review
+     instructions and output schema, and the ceiling, so an edit of any of
+     them invalidates the approval.
+3. **Live run.** Mario runs, with the local environment sourced, the key
+   variable of the route's provider (`ORBIT_EVAL_ANTHROPIC_API_KEY` for v2,
+   `ORBIT_EVAL_OPENAI_API_KEY` for an OpenAI route):
 
    ```sh
-   ORBIT_EVAL_OPENAI_API_KEY=<key> ORBIT_EVAL_CONFIRM=<confirmation> pnpm eval:agent-review
+   ORBIT_EVAL_ANTHROPIC_API_KEY=<key> ORBIT_EVAL_CONFIRM=<confirmation> pnpm eval:agent-review
    ```
 
    `ORBIT_EVAL_CONFIRM` must equal the confirmation printed by the dry run for
    the same inputs (`EVAL_CONFIRMATION_MISMATCH` otherwise; the dataset hash
-   alone is not accepted). A missing or blank key with a confirmation is
-   `EVAL_KEY_REQUIRED`. A key or a confirmation alone never falls back to a
-   silent dry run: the missing half is an error.
+   alone is not accepted). A missing or blank key for the route's provider
+   with a confirmation is `EVAL_KEY_REQUIRED`, also when the other
+   provider's variable is set: only the route provider's key is read. A key
+   (of either provider) or a confirmation alone never falls back to a
+   silent dry run: the missing half is an error. The run unsets
+   `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` for itself, so only its own key
+   is used.
 
    **Key from the macOS keychain.** Instead of putting the key on the
-   command line, store it once in the login keychain:
+   command line, store it once in the login keychain, one item per provider
+   (suggested service names `orbit-eval-anthropic` and `orbit-eval-openai`):
 
    ```sh
-   security add-generic-password -s orbit-eval-openai -a "$USER" -U -w
+   security add-generic-password -s orbit-eval-anthropic -a "$USER" -U -w
    ```
 
    Keep `-w` as the last option: without a value macOS prompts for the key
    hidden, so it never enters the shell history. Then run with
-   `ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-openai` in place of
-   `ORBIT_EVAL_OPENAI_API_KEY`. The key variable wins when both are set. The
-   keychain is read only for a run whose confirmation matches, with
+   `ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-anthropic` in place of
+   `ORBIT_EVAL_ANTHROPIC_API_KEY`. The service must hold the key of the
+   route's provider. The route provider's key variable wins when both are
+   set. The keychain is read only for a run whose confirmation matches, with
    `security find-generic-password -s <service> -w` through `execFile` (no
    shell); the key is never printed or logged. A service alone, without a
    confirmation, leaves the run a dry run. No key in either place (or an
    unknown item) is `EVAL_KEY_REQUIRED`.
 
-| Variable                      | Meaning                                                                                                                                             |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ORBIT_EVAL_OPENAI_API_KEY`   | Key for this run only. Stored like the production configuration (encrypted) in the synthetic project and deleted with it. Never printed or written. |
-| `ORBIT_EVAL_KEYCHAIN_SERVICE` | macOS keychain service holding the key, read only when `ORBIT_EVAL_OPENAI_API_KEY` is unset and the confirmation matches.                           |
-| `ORBIT_EVAL_CONFIRM`          | Confirmation value from the dry run (not the dataset hash).                                                                                         |
-| `ORBIT_EVAL_MAX_USD`          | Lowers the cost ceiling in USD. Default and maximum: 3 (0.5 in diagnostic mode); a higher value is clamped.                                         |
-| `ORBIT_EVAL_DIAGNOSE`         | `good` runs the diagnostic mode (below). Any other value is `EVAL_DIAGNOSE_INVALID`.                                                                |
+| Variable                       | Meaning                                                                                                                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORBIT_EVAL_ANTHROPIC_API_KEY` | Anthropic key for this run only (route provider `anthropic`, v2). Stored like the production configuration (encrypted) in the synthetic project and deleted with it. Never printed or written. |
+| `ORBIT_EVAL_OPENAI_API_KEY`    | OpenAI key for this run only (route provider `openai`, v1). Stored and deleted the same way. Never printed or written.                                                                     |
+| `ORBIT_EVAL_KEYCHAIN_SERVICE`  | macOS keychain service holding the route provider's key, read only when that provider's key variable is unset and the confirmation matches.                                             |
+| `ORBIT_EVAL_CONFIRM`           | Confirmation value from the dry run (not the dataset hash).                                                                                                                             |
+| `ORBIT_EVAL_MAX_USD`           | Lowers the cost ceiling in USD. Default and maximum: 3 (0.5 in diagnostic mode); a higher value is clamped.                                                                             |
+| `ORBIT_EVAL_DIAGNOSE`          | `good` runs the diagnostic mode (below). Any other value is `EVAL_DIAGNOSE_INVALID`.                                                                                                    |
 
 Safeguards:
 
@@ -187,7 +219,10 @@ Safeguards:
   (`evals/generation/candidates-v1.json`) with the same rule: older than 31
   days fails with `EVAL_RATE_CARD_STALE`, future-dated with
   `EVAL_RATE_CARD_FUTURE`, before any transmission. A route whose model has
-  no price there fails with `EVAL_ROUTE_NOT_PRICED`.
+  no price there fails with `EVAL_ROUTE_NOT_PRICED`, a card without
+  `text-embedding-3-small` with `EVAL_EMBEDDING_NOT_PRICED`: the stubbed
+  embeddings send nothing, but their reservation is priced, and a revision
+  would otherwise stop the run after paid review calls.
 - No local worker may run against the eval database while the eval runs: it
   could pick up the synthetic project's jobs. The worker heartbeat lives in
   Redis per instance, not per database, so the eval cannot detect this; it
@@ -237,7 +272,7 @@ production review step, to read why the model rejected them (run 2 on
   an early stop or a failed cleanup.
 
 ```sh
-ORBIT_EVAL_DIAGNOSE=good ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-openai ORBIT_EVAL_CONFIRM=<diagnostic confirmation> pnpm eval:agent-review
+ORBIT_EVAL_DIAGNOSE=good ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-anthropic ORBIT_EVAL_CONFIRM=<diagnostic confirmation> pnpm eval:agent-review
 ```
 
 ## Verdict classes and pass rule

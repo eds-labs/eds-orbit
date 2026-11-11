@@ -14,7 +14,9 @@
  * own synthetic project (brand-projects.ts); a case with image copy is
  * reviewed with a creative composed for free from the offline fixtures, with
  * the vision review off, so only the review model is measured. The ceiling
- * holds across all projects of a run.
+ * holds across all projects of a run. The run's key is stored for the route
+ * file's provider, as production stores a project's key for that provider
+ * (OpenAI or Anthropic), and `agent_review` must resolve to exactly the route.
  */
 import { vi } from "vitest";
 import { scoped } from "../../packages/db/src/index.ts";
@@ -22,15 +24,17 @@ import {
   embed,
   generate,
   resolveRoute,
+  routeProvider,
   type ModelRoute,
   type OpenAiRuntimeConfig,
+  type ProviderId,
 } from "../../packages/ai/src/index.ts";
 import type { Scope } from "../../packages/schemas/src/index.ts";
 import { data, entity, list, update } from "../../apps/api/src/shared.ts";
 import { errorCode } from "../../apps/api/src/modules/telemetry.ts";
 import {
   runtimeOpenAiConfiguration,
-  saveOpenAiConfiguration,
+  saveAiConfiguration,
 } from "../../apps/api/src/modules/openai-configuration.ts";
 import {
   runSpend,
@@ -162,15 +166,26 @@ async function capRun(run: BrandRun, remaining: number) {
   });
 }
 
-/** Stores the run's key and the planned `agent_review` route, then checks that the route resolves as planned. */
+type EvalRuntime = Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
+
+/**
+ * Stores the run's key and the planned `agent_review` route through
+ * production's save path (`saveAiConfiguration`): the model section with the
+ * eval's verified model, rate card and task route, and the key where
+ * production keeps that provider's project key (encrypted): an OpenAI key in
+ * the model section, an Anthropic key in the provider section. Then checks
+ * that `agent_review` resolves to exactly the route on that provider, and
+ * that its calls would carry the run's key.
+ */
 async function configure(
   owner: Scope,
-  runtime: OpenAiRuntimeConfig,
+  provider: ProviderId,
+  apiKey: string,
+  runtime: EvalRuntime,
   route: ModelRoute,
 ) {
   await scoped(owner.workspaceId, owner.projectId, async (tx) => {
-    await saveOpenAiConfiguration(tx, owner, {
-      apiKey: runtime.apiKey,
+    const models = {
       verifiedModels: runtime.verifiedModels,
       rateCard: runtime.rateCard,
       modelRoutes: {
@@ -180,13 +195,28 @@ async function configure(
         escalation: route.model,
       },
       taskRoutes: { agent_review: route },
-    });
-    const resolved = resolveRoute(
-      "agent_review",
-      await runtimeOpenAiConfiguration(tx, owner),
+    };
+    await saveAiConfiguration(
+      tx,
+      owner,
+      provider === "anthropic"
+        ? {
+            models,
+            providers: { anthropicApiKey: apiKey, defaultProvider: "anthropic" },
+          }
+        : { models: { apiKey, ...models } },
     );
-    if (JSON.stringify(resolved) !== JSON.stringify(route))
+    const configured = await runtimeOpenAiConfiguration(tx, owner);
+    const resolved = resolveRoute("agent_review", configured);
+    if (
+      JSON.stringify(resolved) !== JSON.stringify(route) ||
+      routeProvider(resolved, configured) !== provider
+    )
       throw new Error("EVAL_ROUTE_MISMATCH");
+    // Never a granted connection's or the environment's key in its place.
+    const used =
+      provider === "anthropic" ? configured.anthropicApiKey : configured.apiKey;
+    if (used !== apiKey) throw new Error("EVAL_KEY_NOT_APPLIED");
   });
 }
 
@@ -390,8 +420,13 @@ export async function runReviewEval(options: {
   // The set's brands: one synthetic project each, for the brands of `cases`.
   brands: ReviewBrands;
   route: ModelRoute;
+  // Who serves the route (the route file's provider); the key is stored for it.
+  provider: ProviderId;
+  // The run's key for `provider`; never printed or written.
+  apiKey: string;
   maxCostMicros: number;
-  runtime: OpenAiRuntimeConfig;
+  // The eval's verified model and rate card (the plan's runtime).
+  runtime: EvalRuntime;
   datasetVersion: string;
   // Diagnostic mode: receives each case's stored reasons, revision
   // instructions and draft bodies. They never enter the metrics report.
@@ -399,7 +434,7 @@ export async function runReviewEval(options: {
 }): Promise<ReviewReport> {
   assertLocalDatabase();
   assertStubs();
-  const { cases, route, maxCostMicros, runtime } = options;
+  const { cases, route, provider, apiKey, maxCostMicros, runtime } = options;
   if (
     !Number.isSafeInteger(maxCostMicros) ||
     maxCostMicros < 1 ||
@@ -411,6 +446,11 @@ export async function runReviewEval(options: {
     !runtime.rateCard[route.model]
   )
     throw new Error("EVAL_ROUTE_NOT_CONFIGURED");
+  // A route its provider does not serve would send the key to the wrong
+  // provider: refused before any project exists.
+  if (routeProvider(route, {}) !== provider)
+    throw new Error("EVAL_ROUTE_MISMATCH");
+  if (!apiKey.trim()) throw new Error("EVAL_KEY_REQUIRED");
   await removeStaleEvals(REVIEW_EVAL_MARKER);
   const startedAt = new Date().toISOString();
   // The copywriter task that shapes the cases runs only with Orbit Agents
@@ -450,7 +490,7 @@ export async function runReviewEval(options: {
     }
     // The key enters the projects only now, after the stubbed drafts.
     for (const project of projects)
-      await configure(project.owner, runtime, route);
+      await configure(project.owner, provider, apiKey, runtime, route);
     try {
       for (const c of cases) {
         const remaining = await remainingMicros(
@@ -498,9 +538,16 @@ export async function runReviewEval(options: {
   if (setupError) throw setupError;
   return {
     datasetVersion: options.datasetVersion,
-    datasetHash: reviewDatasetHash(cases, route, maxCostMicros, options.brands),
+    datasetHash: reviewDatasetHash(
+      cases,
+      route,
+      maxCostMicros,
+      options.brands,
+      provider,
+    ),
     startedAt,
     workspaceIds: projects.map((project) => project.owner.workspaceId),
+    provider,
     route,
     stoppedReason,
     cleanupError: cleanupError ? errorCode(cleanupError) : null,

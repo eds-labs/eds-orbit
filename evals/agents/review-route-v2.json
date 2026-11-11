@@ -1,0 +1,10 @@
+{
+  "description": "The agent_review route of the live review eval. It mirrors FamilyPlan's production agent_review task route as read on 2026-11-11 in Orbit Settings → AI → Task routes: provider anthropic, model claude-opus-5-5, reasoning effort medium, 5,000 output tokens. Re-check it in production before the dry run and copy any change here; the dataset hash and the confirmation change with it. Prices come from evals/generation/candidates-v1.json, which must carry claude-opus-5-5. review-route-v1.json (OpenAI gpt-6.1-sol, the effective route of run 3) stays as the record of the earlier runs.",
+  "taskClass": "agent_review",
+  "provider": "anthropic",
+  "route": {
+    "model": "claude-opus-5-5",
+    "reasoningEffort": "medium",
+    "maxOutputTokens": 5000
+  }
+}

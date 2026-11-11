@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assertLocalDatabase } from "../generation/harness.ts";
-import {
-  assertLiveAllowed,
-  isLiveRequested,
-  parseCandidatesFile,
-} from "../generation/live-plan.ts";
+import { parseCandidatesFile } from "../generation/live-plan.ts";
+import { isEvalLiveRequested, resolveEvalKey } from "./eval-key.ts";
 import {
   caseAsPlanned,
   casePasses,
@@ -18,12 +15,14 @@ import {
   REVIEW_CEILING_USD,
   REVIEW_REQUEST_BYTES,
   reviewDatasetHash,
+  type RouteFile,
   type VerdictClass,
 } from "./live-plan.ts";
 import { caseBrand, isBareHost, parseReviewSet } from "./review-set.ts";
 import { reviewPromptHash } from "./code-version.ts";
 import rawSet from "./review-v3.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
+import rawRouteV2 from "./review-route-v2.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
 // Planning only: nothing here touches a database or the network.
@@ -53,6 +52,7 @@ describe("Live review eval planning (dry run)", () => {
       { brand: "en", cases: 26, creative: 0 },
       { brand: "de", cases: 12, creative: 12 },
     ]);
+    expect(p.provider).toBe("openai");
     expect(p.route).toEqual({ model: "gpt-6.1-sol", maxOutputTokens: 1800 });
     expect(REVIEW_CEILING_USD).toBe(3);
     expect(p.maxCostMicros).toBe(3_000_000);
@@ -70,6 +70,9 @@ describe("Live review eval planning (dry run)", () => {
       "brands: en 26 cases (0 with image copy), de 12 cases (12 with image copy)",
     );
     expect(text).toContain("76 review calls at most");
+    expect(text).toContain(
+      "route (agent_review): provider openai, model gpt-6.1-sol, reasoning default, max output 1800",
+    );
     expect(text).toContain("round 2");
     expect(text).toContain("verify in Orbit Settings");
     expect(text).toContain("cost ceiling: $3.0000");
@@ -102,9 +105,14 @@ describe("Live review eval planning (dry run)", () => {
   });
 
   it("stays a dry run without key and confirmation", () => {
-    expect(isLiveRequested({})).toBe(false);
-    expect(isLiveRequested({ ORBIT_EVAL_OPENAI_API_KEY: "  " })).toBe(false);
-    expect(isLiveRequested({ ORBIT_EVAL_MAX_USD: "0.5" })).toBe(false);
+    expect(isEvalLiveRequested({})).toBe(false);
+    expect(isEvalLiveRequested({ ORBIT_EVAL_OPENAI_API_KEY: "  " })).toBe(
+      false,
+    );
+    expect(isEvalLiveRequested({ ORBIT_EVAL_ANTHROPIC_API_KEY: "  " })).toBe(
+      false,
+    );
+    expect(isEvalLiveRequested({ ORBIT_EVAL_MAX_USD: "0.5" })).toBe(false);
   });
 
   it("clamps a ceiling above 3 USD and refuses a malformed one", () => {
@@ -123,7 +131,13 @@ describe("Live review eval planning (dry run)", () => {
   it("binds the dataset, the complete rate card, its date, the route, the prompt and the ceiling into the confirmation", () => {
     const base = plan();
     expect(base.hash).toBe(
-      reviewDatasetHash(set.cases, routeFile.route, 3_000_000, set.brands),
+      reviewDatasetHash(
+        set.cases,
+        routeFile.route,
+        3_000_000,
+        set.brands,
+        "openai",
+      ),
     );
     // A changed review prompt or output schema invalidates the approval.
     const prompted = planReviewEval(
@@ -224,6 +238,175 @@ describe("Live review eval planning (dry run)", () => {
   });
 });
 
+// The production route of FamilyPlan's review (review-route-v2.json), planned
+// against a fixture rate card, never the repository file
+// (evals/generation/candidates-v1.json has no Claude price yet).
+describe("Live review eval on the production Anthropic route (dry run)", () => {
+  const routeFileV2 = parseRouteFile(rawRouteV2);
+  // Orbit's verified catalog prices of claude-opus-5-5 and of the embedding
+  // model (USD micros per million tokens).
+  const claudeRates = {
+    verifiedAt: "2026-11-11T00:00:00.000Z",
+    rateCard: {
+      "claude-opus-5-5": {
+        inputMicrosPerMillion: 4_000_000,
+        cachedInputMicrosPerMillion: 200_000,
+        cacheWriteMicrosPerMillion: 5_000_000,
+        outputMicrosPerMillion: 20_000_000,
+      },
+      "text-embedding-3-small": {
+        inputMicrosPerMillion: 20_000,
+        outputMicrosPerMillion: 0,
+      },
+    },
+  };
+  const claudeVerifiedAt = new Date(claudeRates.verifiedAt).valueOf();
+  const planV2 = (
+    env: Record<string, string | undefined> = {},
+    rates: Parameters<typeof planReviewEval>[3] = claudeRates,
+    file: RouteFile = routeFileV2,
+    at = claudeVerifiedAt + 3600_000,
+  ) => planReviewEval(env, set, file, rates, PROMPT_HASH, at);
+
+  it("parses v1 with the default provider openai and v2 as FamilyPlan's Anthropic route", () => {
+    expect("provider" in rawRoute).toBe(false);
+    expect(routeFile.provider).toBe("openai");
+    expect(routeFileV2).toEqual({
+      description: expect.stringContaining("2026-11-11"),
+      taskClass: "agent_review",
+      provider: "anthropic",
+      route: {
+        model: "claude-opus-5-5",
+        reasoningEffort: "medium",
+        maxOutputTokens: 5000,
+      },
+    });
+    expect(routeFileV2.description).toContain("FamilyPlan");
+    expect(routeFileV2.description).toContain("before the dry run");
+    // A provider that does not serve the route's model is refused.
+    expect(() => parseRouteFile({ ...rawRouteV2, provider: "openai" })).toThrow(
+      "EVAL_ROUTE_PROVIDER_MISMATCH",
+    );
+    expect(() => parseRouteFile({ ...rawRoute, provider: "anthropic" })).toThrow(
+      "EVAL_ROUTE_PROVIDER_MISMATCH",
+    );
+    expect(() => parseRouteFile({ ...rawRouteV2, provider: "gemini" })).toThrow();
+  });
+
+  it("plans v2 on anthropic claude-opus-5-5 under the unchanged 3 USD ceiling and prints the provider and the early-stop note", () => {
+    const p = planV2();
+    expect(p.provider).toBe("anthropic");
+    expect(p.route).toEqual(routeFileV2.route);
+    expect(p.caseCount).toBe(38);
+    expect(p.calls).toBe(76);
+    expect(p.maxCostMicros).toBe(3_000_000);
+    // The request bound at the cache-write rate (as every pre-transmission
+    // estimate) and 5,000 output tokens at $20 per million.
+    expect(p.perCallMicros).toBe(16_000 * 5 + 5_000 * 20);
+    expect(p.worstCaseMicros).toBe(p.perCallMicros * 76);
+    expect(p.worstCaseMicros).toBeGreaterThan(p.maxCostMicros);
+    expect(p.runtime.verifiedModels).toEqual(["claude-opus-5-5"]);
+    expect(p.runtime.rateCard["claude-opus-5-5"]!.verifiedAt).toBe(
+      claudeRates.verifiedAt,
+    );
+    const text = renderPlan(p);
+    expect(text).toContain(
+      "route (agent_review): provider anthropic, model claude-opus-5-5, reasoning medium, max output 5000",
+    );
+    expect(text).toContain("cost ceiling: $3.0000");
+    expect(text).toContain(
+      "note: the worst case exceeds the ceiling, so the run may stop early with a partial report.",
+    );
+    expect(text).toContain(p.hash);
+    expect(text).toContain(p.confirmation);
+    expect(text).not.toContain(SYNTHETIC_KEY);
+  });
+
+  it("binds the provider into the dataset hash and the confirmation", () => {
+    const anthropic = planV2();
+    // The same cases, route, ceiling, rate card and prompt with another provider.
+    const openai = planV2({}, claudeRates, {
+      ...routeFileV2,
+      provider: "openai",
+    });
+    expect(openai.hash).not.toBe(anthropic.hash);
+    expect(openai.confirmation).not.toBe(anthropic.confirmation);
+    expect(anthropic.hash).toBe(
+      reviewDatasetHash(
+        set.cases,
+        routeFileV2.route,
+        3_000_000,
+        set.brands,
+        "anthropic",
+      ),
+    );
+    // Stable across copies.
+    expect(
+      planV2({}, structuredClone(claudeRates), structuredClone(routeFileV2))
+        .confirmation,
+    ).toBe(anthropic.confirmation);
+  });
+
+  it("refuses a rate card without claude-opus-5-5 or the embedding price, and a stale one, before any transmission", () => {
+    const { "claude-opus-5-5": _opus, ...withoutOpus } = claudeRates.rateCard;
+    expect(() =>
+      planV2({}, { ...claudeRates, rateCard: withoutOpus }),
+    ).toThrow("EVAL_ROUTE_NOT_PRICED");
+    // The stubbed embeddings are priced before their reservation (a revision
+    // would stop there, after paid review calls).
+    const { "text-embedding-3-small": _embedding, ...withoutEmbedding } =
+      claudeRates.rateCard;
+    expect(() =>
+      planV2({}, { ...claudeRates, rateCard: withoutEmbedding }),
+    ).toThrow("EVAL_EMBEDDING_NOT_PRICED");
+    expect(() =>
+      planV2({}, claudeRates, routeFileV2, claudeVerifiedAt + 32 * 86_400_000),
+    ).toThrow("EVAL_RATE_CARD_STALE");
+  });
+
+  it("needs the Anthropic key with the confirmation: without it EVAL_KEY_REQUIRED, also when only the OpenAI key is set", async () => {
+    const { confirmation } = planV2();
+    await expect(
+      resolveEvalKey(
+        "anthropic",
+        { ORBIT_EVAL_CONFIRM: confirmation },
+        confirmation,
+      ),
+    ).rejects.toThrow("EVAL_KEY_REQUIRED");
+    await expect(
+      resolveEvalKey(
+        "anthropic",
+        {
+          ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY,
+          ORBIT_EVAL_CONFIRM: confirmation,
+        },
+        confirmation,
+      ),
+    ).rejects.toThrow("EVAL_KEY_REQUIRED");
+    // An Anthropic key alone is an error, never a silent dry run.
+    const keyOnly = { ORBIT_EVAL_ANTHROPIC_API_KEY: SYNTHETIC_KEY };
+    expect(isEvalLiveRequested(keyOnly)).toBe(true);
+    await expect(
+      resolveEvalKey("anthropic", keyOnly, confirmation),
+    ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
+    // The OpenAI route's confirmation never starts the Anthropic run.
+    await expect(
+      resolveEvalKey(
+        "anthropic",
+        { ...keyOnly, ORBIT_EVAL_CONFIRM: plan().confirmation },
+        confirmation,
+      ),
+    ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
+    expect(
+      await resolveEvalKey(
+        "anthropic",
+        { ...keyOnly, ORBIT_EVAL_CONFIRM: confirmation },
+        confirmation,
+      ),
+    ).toBe(SYNTHETIC_KEY);
+  });
+});
+
 describe("Live review eval diagnostic mode (dry run)", () => {
   const diagnose = { ORBIT_EVAL_DIAGNOSE: "good" };
   const goodIds = set.cases.filter((c) => c.label === "good").map((c) => c.id);
@@ -239,7 +422,7 @@ describe("Live review eval diagnostic mode (dry run)", () => {
     expect(p.maxCostMicros).toBe(500_000);
     expect(DIAGNOSTIC_CEILING_USD).toBe(0.5);
     expect(p.hash).toBe(
-      reviewDatasetHash(p.cases, routeFile.route, 500_000, set.brands),
+      reviewDatasetHash(p.cases, routeFile.route, 500_000, set.brands, "openai"),
     );
     const text = renderPlan(p);
     expect(text).toContain("DIAGNOSTIC");
@@ -293,24 +476,27 @@ describe("Live review eval diagnostic mode (dry run)", () => {
     ).toBe(diag.confirmation);
   });
 
-  it("refuses a normal confirmation in diagnostic mode, and the reverse", () => {
+  it("refuses a normal confirmation in diagnostic mode, and the reverse", async () => {
     const key = { ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY };
     const normal = plan();
     const diag = plan(diagnose);
-    expect(() =>
-      assertLiveAllowed(
+    await expect(
+      resolveEvalKey(
+        "openai",
         { ...key, ...diagnose, ORBIT_EVAL_CONFIRM: normal.confirmation },
         diag.confirmation,
       ),
-    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
-    expect(() =>
-      assertLiveAllowed(
+    ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
+    await expect(
+      resolveEvalKey(
+        "openai",
         { ...key, ORBIT_EVAL_CONFIRM: diag.confirmation },
         normal.confirmation,
       ),
-    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
+    ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
     expect(
-      assertLiveAllowed(
+      await resolveEvalKey(
+        "openai",
         { ...key, ...diagnose, ORBIT_EVAL_CONFIRM: diag.confirmation },
         diag.confirmation,
       ),
@@ -359,38 +545,44 @@ describe("Live review eval diagnostic mode (dry run)", () => {
 describe("Live review eval gate", () => {
   const { confirmation, hash } = plan();
 
-  it("refuses a confirmation that does not match", () => {
+  it("refuses a confirmation that does not match", async () => {
     const key = { ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY };
     for (const wrong of ["0".repeat(64), confirmation + " ", hash])
-      expect(() =>
-        assertLiveAllowed({ ...key, ORBIT_EVAL_CONFIRM: wrong }, confirmation),
-      ).toThrow("EVAL_CONFIRMATION_MISMATCH");
+      await expect(
+        resolveEvalKey(
+          "openai",
+          { ...key, ORBIT_EVAL_CONFIRM: wrong },
+          confirmation,
+        ),
+      ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
     // A confirmation made for another ceiling does not carry over.
-    expect(() =>
-      assertLiveAllowed(
+    await expect(
+      resolveEvalKey(
+        "openai",
         {
           ...key,
           ORBIT_EVAL_CONFIRM: plan({ ORBIT_EVAL_MAX_USD: "0.5" }).confirmation,
         },
         confirmation,
       ),
-    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
+    ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
   });
 
-  it("treats a key alone or a confirmation alone as an error, never as a dry run", () => {
+  it("treats a key alone or a confirmation alone as an error, never as a dry run", async () => {
     const keyOnly = { ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY };
-    expect(isLiveRequested(keyOnly)).toBe(true);
-    expect(() => assertLiveAllowed(keyOnly, confirmation)).toThrow(
-      "EVAL_CONFIRMATION_MISMATCH",
-    );
+    expect(isEvalLiveRequested(keyOnly)).toBe(true);
+    await expect(
+      resolveEvalKey("openai", keyOnly, confirmation),
+    ).rejects.toThrow("EVAL_CONFIRMATION_MISMATCH");
     const confirmationOnly = { ORBIT_EVAL_CONFIRM: confirmation };
-    expect(isLiveRequested(confirmationOnly)).toBe(true);
-    expect(() => assertLiveAllowed(confirmationOnly, confirmation)).toThrow(
-      "EVAL_KEY_REQUIRED",
-    );
+    expect(isEvalLiveRequested(confirmationOnly)).toBe(true);
+    await expect(
+      resolveEvalKey("openai", confirmationOnly, confirmation),
+    ).rejects.toThrow("EVAL_KEY_REQUIRED");
     let thrown: unknown = null;
     try {
-      assertLiveAllowed(
+      await resolveEvalKey(
+        "openai",
         { ...keyOnly, ORBIT_EVAL_CONFIRM: "wrong" },
         confirmation,
       );
@@ -399,7 +591,8 @@ describe("Live review eval gate", () => {
     }
     expect(String(thrown)).not.toContain(SYNTHETIC_KEY);
     expect(
-      assertLiveAllowed(
+      await resolveEvalKey(
+        "openai",
         { ...keyOnly, ORBIT_EVAL_CONFIRM: confirmation },
         confirmation,
       ),

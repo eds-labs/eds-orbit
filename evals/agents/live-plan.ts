@@ -1,16 +1,20 @@
 /**
  * Planning, gating and the pass rule of the manual live review eval
  * (rollout Approval J). Pure functions: nothing here reads a database, calls
- * a provider or prints a secret. The gates and the rate card are the
- * generation eval's (`evals/generation/live-plan.ts`).
+ * a provider or prints a secret. The rate card rules and the ceiling are the
+ * generation eval's (`evals/generation/live-plan.ts`); the key gate is
+ * `eval-key.ts`.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   estimateCost,
   modelRouteSchema,
+  providerIdSchema,
+  providerOfModel,
   type ModelRoute,
   type OpenAiRuntimeConfig,
+  type ProviderId,
 } from "../../packages/ai/src/index.ts";
 import { canonical } from "../generation/harness.ts";
 import {
@@ -43,14 +47,30 @@ const CALLS_PER_CASE = 2;
 // 2,200-character German body against it. A planning bound only, because
 // each reservation uses the exact size.
 export const REVIEW_REQUEST_BYTES = 16_000;
+// The stubbed embeddings (retrieval, and the similarity check of a revision)
+// send nothing, but their reservation is still priced: a rate card without
+// this model would stop the run at the first revision, after paid review calls.
+const EMBEDDING_MODEL = "text-embedding-3-small";
 
+// The route file: `provider` names who serves the route (absent: OpenAI, as
+// in review-route-v1.json); it must be the provider of the route's model, the
+// one production derives from it (`providerOfModel`).
 const routeFileSchema = z
   .object({
     description: z.string().min(1),
     taskClass: z.literal("agent_review"),
+    provider: providerIdSchema.default("openai"),
     route: modelRouteSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((file, context) => {
+    if (providerOfModel(file.route.model) !== file.provider)
+      context.addIssue({
+        code: "custom",
+        message: "EVAL_ROUTE_PROVIDER_MISMATCH",
+        path: ["provider"],
+      });
+  });
 export type RouteFile = z.infer<typeof routeFileSchema>;
 
 export function parseRouteFile(raw: unknown): RouteFile {
@@ -87,31 +107,38 @@ export type ReviewPlan = {
   calls: number;
   // Cases the set expects the model to see (the others are decided by the deterministic checks).
   expectedModelCalls: number;
+  // Who serves the route; the run's key is stored for this provider.
+  provider: ProviderId;
   route: ModelRoute;
   // Reservation estimate of one review call at its full output limit.
   perCallMicros: number;
   worstCaseMicros: number;
   maxCostMicros: number;
-  // Hash of the cases, the route and the ceiling (also in the report).
+  // Hash of the cases, the provider, the route and the ceiling (also in the report).
   hash: string;
   // Hash of the review instructions and output schema the run sends (code-version.ts).
   promptHash: string;
   // Value for ORBIT_EVAL_CONFIRM: binds the hash, the complete rate card with
-  // its verification date, the route, the prompt hash and the ceiling; in
-  // diagnostic mode also the mode and the case ids.
+  // its verification date, the provider, the route, the prompt hash and the
+  // ceiling; in diagnostic mode also the mode and the case ids.
   confirmation: string;
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
 };
 
-/** Hash of the cases, the route, the ceiling and every brand (profile, facts, assignment, brief). */
+/** Hash of the cases, the provider, the route, the ceiling and every brand (profile, facts, assignment, brief). */
 export function reviewDatasetHash(
   cases: ReviewCase[],
   route: ModelRoute,
   maxCostMicros: number,
   brands: ReviewBrands,
+  provider: ProviderId,
 ) {
   return createHash("sha256")
-    .update(JSON.stringify(canonical({ cases, route, maxCostMicros, brands })))
+    .update(
+      JSON.stringify(
+        canonical({ cases, provider, route, maxCostMicros, brands }),
+      ),
+    )
     .digest("hex");
 }
 
@@ -126,9 +153,12 @@ export function planReviewEval(
   if (!/^[0-9a-f]{64}$/.test(promptHash))
     throw new Error("EVAL_PROMPT_HASH_INVALID");
   const rateCard = evalRateCard(rates, now);
-  const { route } = routeFile;
-  // Prices are never invented: an unpriced route is refused.
+  const { route, provider } = routeFile;
+  // Prices are never invented: an unpriced route is refused, and so is a card
+  // without the embedding price, before any transmission.
   if (!rateCard[route.model]) throw new Error("EVAL_ROUTE_NOT_PRICED");
+  if (!rateCard[EMBEDDING_MODEL])
+    throw new Error("EVAL_EMBEDDING_NOT_PRICED");
   const diagnose = diagnoseMode(env);
   const mode: ReviewMode = diagnose ? "diagnose-good" : "normal";
   const cases = diagnose
@@ -144,7 +174,13 @@ export function planReviewEval(
     route.maxOutputTokens,
     { rateCard },
   );
-  const hash = reviewDatasetHash(cases, route, maxCostMicros, set.brands);
+  const hash = reviewDatasetHash(
+    cases,
+    route,
+    maxCostMicros,
+    set.brands,
+    provider,
+  );
   return {
     mode,
     cases,
@@ -165,6 +201,7 @@ export function planReviewEval(
       .filter((entry) => entry.cases > 0),
     calls: cases.length * CALLS_PER_CASE,
     expectedModelCalls: cases.filter((c) => c.expected.modelSees).length,
+    provider,
     route,
     perCallMicros,
     worstCaseMicros: perCallMicros * cases.length * CALLS_PER_CASE,
@@ -178,6 +215,7 @@ export function planReviewEval(
             datasetHash: hash,
             rateCard,
             verifiedAt: rates.verifiedAt,
+            provider,
             route,
             promptHash,
             maxCostMicros,
@@ -209,7 +247,7 @@ export function renderPlan(plan: ReviewPlan): string {
     `  dataset version: ${plan.datasetVersion}`,
     `  cases: ${plan.caseCount} (${plan.good} good, ${plan.bad} bad, ${plan.bareHost} bare host)`,
     `  brands: ${plan.brands.map((b) => `${b.brand} ${b.cases} cases (${b.creative} with image copy)`).join(", ")}; one synthetic project per brand, a creative composed from offline fixtures for every case with image copy (no image provider, vision review off)`,
-    `  route (agent_review): ${route.model}, reasoning ${route.reasoningEffort ?? "default"}, max output ${route.maxOutputTokens}`,
+    `  route (agent_review): provider ${plan.provider}, model ${route.model}, reasoning ${route.reasoningEffort ?? "default"}, max output ${route.maxOutputTokens}`,
     "  verify in Orbit Settings that this equals production's agent_review route (or the quality tier if none is saved); a later route or tier change invalidates a PASS",
     `  ${plan.calls} review calls at most (two per case: round 1, and round 2 after a \`revise\`); ${plan.expectedModelCalls} cases are expected to reach the model, the other ${plan.caseCount - plan.expectedModelCalls} to be decided by the deterministic checks without a call`,
     "  a round-1 `revise` runs the production revision with a worst-case copywriter stub (the revised draft keeps the body and image copy unchanged; nothing is sent for it) and the round-2 review decides the case",
@@ -369,6 +407,7 @@ export type ReviewReport = {
   startedAt: string;
   // Deleted synthetic workspaces, one per brand; let callers verify the cleanup.
   workspaceIds: string[];
+  provider: ProviderId;
   route: ModelRoute;
   // Why the eval stopped before all cases; null when complete.
   stoppedReason: string | null;
@@ -444,7 +483,7 @@ export function renderReport(
     "",
     `- Dataset: ${report.datasetVersion}`,
     `- Dataset hash: \`${report.datasetHash}\``,
-    `- Route (agent_review): ${report.route.model}, reasoning ${report.route.reasoningEffort ?? "default"}, max output ${report.route.maxOutputTokens}`,
+    `- Route (agent_review): provider ${report.provider}, model ${report.route.model}, reasoning ${report.route.reasoningEffort ?? "default"}, max output ${report.route.maxOutputTokens}`,
     `- Started: ${report.startedAt}`,
     `- Stopped early: ${report.stoppedReason ?? "no"}`,
     ...(report.cleanupError
