@@ -106,7 +106,9 @@ import {
   type CreativeAuthorityCode,
 } from "../src/modules/agents/agent-review.ts";
 import { CREATIVES } from "../src/modules/marketing/creative/store.ts";
+import { recomposeCreative } from "../src/modules/marketing/creative/pipeline.ts";
 import { composeRunCreatives } from "../src/modules/marketing/creative/assignment.ts";
+import { claimPublication } from "../src/modules/marketing/pipeline/workflow.ts";
 import {
   createPackageProject,
   IMAGE_MODEL,
@@ -399,6 +401,7 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     registerAgentSpecialists();
   });
   afterEach(async () => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
     delete process.env.ORBIT_AGENTS;
@@ -1113,6 +1116,79 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     expect(reservationIds).toHaveLength(2);
     for (const id of reservationIds)
       expect(budgetRun.reservationIds).toContain(id);
+  });
+
+  const MINUTE = 60_000;
+  /** The one slot of the run, and the publications scheduled for it. */
+  const scheduledCreativePost = async () => {
+    // Assisted mode: the passed veto window stands in for the package approval, so a held post names APPROVAL_REQUIRED.
+    await h.setPolicy({ mode: "assisted" });
+    await visionPassedDraft();
+    const [run] = await h.rows("assignment_runs");
+    const slot = (run!.slots as Array<{ at: string }>)[0]!.at;
+    const pubs = await h.rows("publications");
+    return { slot, pubs, runId: run!.id as string };
+  };
+  const blockedNotices = async (pubId: string) =>
+    (await h.rows("jobs")).filter(
+      (job) => job.idempotencyKey === `notify:blocked:${pubId}`,
+    );
+  const blockedAudits = () =>
+    h.run((tx) =>
+      tx.auditEvent.findMany({
+        where: {
+          projectId: project.owner.projectId,
+          action: "publication.claim_blocked",
+        },
+      }),
+    );
+  /** Claims the publication one minute after its slot; it must be refused and nothing handed over. */
+  const expectHeldAtClaim = async (pubId: string) => {
+    const [before] = await h.rows("publications");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse(before!.scheduledAt) + MINUTE);
+    const claim = await h.run((tx) =>
+      claimPublication(tx, project.owner, pubId),
+    );
+    vi.useRealTimers();
+    expect(claim.send).toBe(false);
+    const [pub] = await h.rows("publications");
+    expect(pub!.status).toBe("blocked_dependency");
+    expect(pub!.blockers).toContain("APPROVAL_REQUIRED");
+    expect(pub!.socialPostId ?? null).toBeNull();
+    expect(pub!.handoffAt ?? null).toBeNull();
+    expect(await blockedNotices(pubId)).toHaveLength(1);
+    expect(await blockedAudits()).toHaveLength(1);
+  };
+
+  it("schedules an approved creative post with its veto window", async () => {
+    const { slot, pubs } = await scheduledCreativePost();
+    expect(pubs).toHaveLength(1);
+    expect(pubs[0]).toMatchObject({
+      status: "intent_created",
+      scheduledAt: slot,
+      vetoDeadline: new Date(Date.parse(slot) - 180 * MINUTE).toISOString(),
+    });
+  });
+
+  it("holds a scheduled creative post when the creative flag is turned off", async () => {
+    const { pubs } = await scheduledCreativePost();
+    expect(pubs).toHaveLength(1);
+    delete process.env.ORBIT_AGENT_REVIEW_CREATIVES;
+    await expectHeldAtClaim(pubs[0]!.id);
+  });
+
+  it("holds a scheduled creative post whose creative was recomposed", async () => {
+    const { pubs } = await scheduledCreativePost();
+    expect(pubs).toHaveLength(1);
+    const [before] = await h.rows(CREATIVES);
+    // The Creative Studio's free recomposition: the same art in another layout.
+    await recomposeCreative(project.owner, before!.id, {
+      variant: before!.variant === "text_top" ? "text_bottom" : "text_top",
+    });
+    const [after] = await h.rows(CREATIVES);
+    expect(after!.renditions[0].sha256).not.toBe(before!.renditions[0].sha256);
+    await expectHeldAtClaim(pubs[0]!.id);
   });
 
   it("composes again only when what a creative shows changed", async () => {
