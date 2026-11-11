@@ -370,6 +370,9 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
     expect(last.json().connectionRevoked).toBe(true);
     const connectionRow = await authDb.connection.findUniqueOrThrow({ where: { id: connection } });
     expect(connectionRow.revokedAt).not.toBeNull();
+    // The revoked row forgets the person.
+    expect(connectionRow.label).toBe("Meta (deleted)");
+    expect((connectionRow.config as Record<string, unknown>).metaUserId).toBeNull();
     const secrets = await authDb.connectionSecret.findMany({ where: { connectionId: connection } });
     expect(secrets.length).toBeGreaterThan(0);
     expect(secrets.every((s) => s.ciphertext === "" && s.state === "retired")).toBe(true);
@@ -387,8 +390,12 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
     const connection = await connectMeta(q);
     await assign(q, connection, "act_1");
     await assign(q, connection, "act_3");
+    expect((await authDb.connection.findUniqueOrThrow({ where: { id: connection } })).label).toBe("Meta: Synthetic Meta User");
     const done = await api(q, "owner", "POST", `/ads/connections/${connection}/revoke`);
     expect(done.json()).toEqual({ id: connection, accountsUnlinked: 2 });
+    const revoked = await authDb.connection.findUniqueOrThrow({ where: { id: connection } });
+    expect([revoked.label, (revoked.config as Record<string, unknown>).metaUserId]).toEqual(["Meta (deleted)", null]);
+    expect(revoked.revokedAt).not.toBeNull();
     const state = await rows(q);
     expect(state.accounts.every((a) => a.status === "unlinked")).toBe(true);
     expect(state.health).toHaveLength(0);

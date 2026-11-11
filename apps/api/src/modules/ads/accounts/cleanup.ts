@@ -4,6 +4,7 @@ import { releaseExclusiveConfigValue, revokeProjectConnection } from "../../../p
 import type { PeriodicTask } from "../../../platform/jobs/types.ts";
 import { DomainError } from "../../../shared.ts";
 import { adsActive } from "../gate.ts";
+import { FORGET_PERSON } from "./vault.ts";
 
 // Clean-up (ADR 0025, A3): OAuth states that expired more than a day ago go;
 // a Meta connection that no ad account uses is revoked after 24 hours (its
@@ -74,7 +75,7 @@ export const adsOAuthStateCleanup: PeriodicTask = {
     const gone = new Set<string>();
     for (const c of plan.unused) {
       if (c.createdAt.getTime() > now - DAY_MS) continue;
-      await revokeProjectConnection(system, { moduleId: MODULE, connectionId: c.id, reason: "unused" }).catch(quietNotFound);
+      await revokeProjectConnection(system, { moduleId: MODULE, connectionId: c.id, reason: "unused", forget: FORGET_PERSON }).catch(quietNotFound);
       gone.add(c.id);
       revoked++;
     }

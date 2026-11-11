@@ -11,7 +11,7 @@ import { adsProvider } from "../providers/registry.ts";
 import { AdsProviderError, type ProviderAccount } from "../providers/types.ts";
 import { adsAppReadiness, type AdsAppReadiness } from "./app.ts";
 import { adAccountSettingsPatchSchema, readAdAccountSettings, type AdAccountSettings } from "./account-settings.ts";
-import { grantCredentials } from "./vault.ts";
+import { FORGET_PERSON, grantCredentials } from "./vault.ts";
 
 // Ad accounts of a project (ADR 0025, A3): which of a connection's Meta ad
 // accounts the project uses. One account belongs to one project per
@@ -230,8 +230,9 @@ export async function availableAccounts(
   };
 }
 
+const isCode = (error: unknown, code: string) => error instanceof DomainError && error.code === code;
 const quietNotFound = (error: unknown) => {
-  if (error instanceof DomainError && error.code === "NOT_FOUND") return;
+  if (isCode(error, "NOT_FOUND")) return;
   throw error;
 };
 
@@ -384,8 +385,9 @@ const connectionUnused = (scope: Scope, connectionId: string) =>
     (await tx.adAccount.count({ where: { projectId: scope.projectId, connectionId, status: { not: "unlinked" } } })) === 0,
   );
 
+/** Revokes and forgets the person; a connection that is already revoked is done. */
 const revokeConnection = (scope: Scope, connectionId: string, reason: string) =>
-  revokeProjectConnection(scope, { moduleId: MODULE, connectionId, reason }).catch(quietNotFound);
+  revokeProjectConnection(scope, { moduleId: MODULE, connectionId, reason, forget: FORGET_PERSON }).catch(quietNotFound);
 
 export async function unlinkAdAccount(
   scope: Scope,
@@ -399,12 +401,31 @@ export async function unlinkAdAccount(
   return { id: accountId, status: "unlinked", connectionRevoked: unused };
 }
 
-/** Unlinks every account that uses the connection, then revokes it (its token is wiped). */
+/**
+ * Unlinks one account for a revocation. An account somebody else unlinked
+ * meanwhile is done (null); a version race is read again and retried once.
+ */
+async function unlinkForRevoke(scope: Scope, accountId: string) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await markUnlinked(scope, accountId, null);
+    } catch (error) {
+      if (isCode(error, "NOT_FOUND")) return null;
+      if (!isCode(error, "ADS_VERSION_CONFLICT") || attempt > 1) throw error;
+    }
+  }
+}
+
+/**
+ * Unlinks every account that uses the connection, then revokes it (its token
+ * is wiped, the person forgotten). Accounts or the connection that went away
+ * meanwhile count as done.
+ */
 export async function revokeAdsConnection(
   scope: Scope,
   connectionId: string,
   /** `audit`: one extra audit row per unlinked account (the data-deletion request records its code). */
-  options: { reason?: string; forgetPerson?: boolean; audit?: { action: string; metadata: Record<string, unknown> } } = {},
+  options: { reason?: string; audit?: { action: string; metadata: Record<string, unknown> } } = {},
 ): Promise<{ id: string; accountsUnlinked: number }> {
   await ownConnection(scope, connectionId, { allowDisabled: true });
   const accounts = await scoped(scope.workspaceId, scope.projectId, (tx) =>
@@ -413,17 +434,15 @@ export async function revokeAdsConnection(
       select: { id: true },
     }),
   );
+  let unlinked = 0;
   for (const account of accounts) {
-    const done = await markUnlinked(scope, account.id, null);
+    const done = await unlinkForRevoke(scope, account.id);
+    if (!done) continue;
+    unlinked++;
     await release(scope, done.connectionId, done.externalId);
     const extra = options.audit;
     if (extra) await scoped(scope.workspaceId, scope.projectId, (tx) => audit(tx, scope, extra.action, account.id, extra.metadata));
   }
-  await revokeProjectConnection(scope, {
-    moduleId: MODULE,
-    connectionId,
-    reason: options.reason ?? "revoked_by_owner",
-    ...(options.forgetPerson ? { forget: { label: "Meta (deleted)", configKeys: ["metaUserId"] } } : {}),
-  });
-  return { id: connectionId, accountsUnlinked: accounts.length };
+  await revokeConnection(scope, connectionId, options.reason ?? "revoked_by_owner");
+  return { id: connectionId, accountsUnlinked: unlinked };
 }

@@ -20,6 +20,12 @@ import { adsAppCredentials } from "./app.ts";
 const MODULE = "ads";
 const PROVIDER = "ads.account.meta";
 
+/**
+ * Every Ads revocation forgets the person: the revoked row keeps a neutral
+ * label and no Meta user id (a revoked connection is never used again).
+ */
+export const FORGET_PERSON = { label: "Meta (deleted)", configKeys: ["metaUserId"] };
+
 export type GrantConfig = {
   metaUserId: string;
   appConnectionId: string;

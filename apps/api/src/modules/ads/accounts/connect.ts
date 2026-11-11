@@ -7,7 +7,7 @@ import { adsProvider } from "../providers/registry.ts";
 import { AdsProviderError, type ProviderAccount, type ProviderApp } from "../providers/types.ts";
 import { adsAppCredentials, adsRedirectUri } from "./app.ts";
 import { beginAdsOAuthState, type ConsumedAdsState } from "./oauth-state.ts";
-import { saveGrant } from "./vault.ts";
+import { FORGET_PERSON, saveGrant } from "./vault.ts";
 
 // Connecting Meta through Facebook Login for Business (ADR 0025). The routes
 // own the state checks; this turns a consumed state and the provider's code
@@ -70,7 +70,7 @@ export async function finishMetaConnect(
   } catch (error) {
     // A new connection nobody can see would be an orphan: revoke it.
     if (!saved.reconnect)
-      await revokeProjectConnection(scope, { moduleId: "ads", connectionId: saved.connectionId, reason: "connect_not_recorded" });
+      await revokeProjectConnection(scope, { moduleId: "ads", connectionId: saved.connectionId, reason: "connect_not_recorded", forget: FORGET_PERSON });
     throw error;
   }
   if (saved.reconnect)

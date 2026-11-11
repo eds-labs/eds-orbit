@@ -112,7 +112,9 @@ export async function handleAdsMetaDataDeletion(body: unknown): Promise<{ url: s
   const request = await verify(signedRequestOf(body));
   const code = confirmationCode();
   // Every organization, whatever the module state of the project: the
-  // person's request is not a module feature.
+  // person's request is not a module feature. Every connection is tried;
+  // one that somebody revoked meanwhile is done already.
+  let incomplete = false;
   for (const found of await projectConnectionsByConfig("ads.account.meta", "metaUserId", request.user_id)) {
     const scope: Scope = {
       workspaceId: found.workspaceId,
@@ -120,12 +122,18 @@ export async function handleAdsMetaDataDeletion(body: unknown): Promise<{ url: s
       userId: SYSTEM_ACTOR,
       role: "owner",
     };
-    await revokeAdsConnection(scope, found.connectionId, {
-      reason: "meta_data_deletion",
-      forgetPerson: true,
-      audit: { action: "ads.meta.data_deletion", metadata: { confirmationCode: code } },
-    });
+    try {
+      await revokeAdsConnection(scope, found.connectionId, {
+        reason: "meta_data_deletion",
+        audit: { action: "ads.meta.data_deletion", metadata: { confirmationCode: code } },
+      });
+    } catch (error) {
+      if (error instanceof DomainError && error.code === "NOT_FOUND") continue;
+      incomplete = true;
+    }
   }
+  // No confirmation code for a request that is not done everywhere.
+  if (incomplete) throw new DomainError("ADS_DATA_DELETION_INCOMPLETE", 500);
   return {
     url: `${new URL(loadConfig().APP_ORIGIN).origin}/${ADS_DATA_DELETION_PAGE}?code=${code}`,
     confirmation_code: code,

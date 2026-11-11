@@ -1,8 +1,9 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import { buildServer } from "../src/server.ts";
 import { connectionSecret } from "../src/platform/connections/central.ts";
+import { unlinkAdAccount } from "../src/modules/ads/accounts/accounts.ts";
 import { saveGrant } from "../src/modules/ads/accounts/vault.ts";
 import { ADS_META_APP, createAdsProject, expectNoSecret, grantAdsMetaApp, type AdsProject } from "./support/ads-fixtures.ts";
 import { grantSocialApp, META_APP_SECRET } from "./support/social-apps.ts";
@@ -11,6 +12,32 @@ import { metaDataDeletionStatus } from "../src/modules/social/accounts/data-dele
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 const PATH = "/api/callbacks/ads/meta-data-deletion";
+
+// Test seams on the platform calls the revocation makes: `afterRelease` runs
+// once, after the next claim release on its connection (between two
+// accounts of one revocation); `failRevoke` makes the revocation of that
+// connection fail.
+const seams = vi.hoisted(() => ({
+  afterRelease: null as null | { connectionId: string; run: () => Promise<void> },
+  failRevoke: null as string | null,
+}));
+vi.mock("../src/platform/connections/project-secrets.ts", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/platform/connections/project-secrets.ts")>();
+  return {
+    ...actual,
+    releaseExclusiveConfigValue: async (...args: Parameters<typeof actual.releaseExclusiveConfigValue>) => {
+      await actual.releaseExclusiveConfigValue(...args);
+      const hook = seams.afterRelease;
+      if (hook?.connectionId !== args[1].connectionId) return;
+      seams.afterRelease = null;
+      await hook.run();
+    },
+    revokeProjectConnection: async (...args: Parameters<typeof actual.revokeProjectConnection>) => {
+      if (seams.failRevoke === args[1].connectionId) throw new Error("forced database failure");
+      return actual.revokeProjectConnection(...args);
+    },
+  };
+});
 
 const b64url = (value: Buffer | string) => Buffer.from(value).toString("base64url");
 function signedRequest(payload: object, secret: string = ADS_META_APP.appSecret) {
@@ -80,6 +107,12 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
   const accountOf = (project: AdsProject, id: string) => project.run((tx) => tx.adAccount.findUniqueOrThrow({ where: { id } }));
   const auditOf = (project: AdsProject) =>
     project.run((tx) => tx.auditEvent.findMany({ where: { projectId: project.projectId, action: "ads.meta.data_deletion" } }));
+  /** The owner unlinks whichever account of the connection is still linked; returns its id. */
+  const unlinkOneMeanwhile = async (project: AdsProject, connectionId: string) => {
+    const row = await project.run((tx) => tx.adAccount.findFirstOrThrow({ where: { connectionId, status: { not: "unlinked" } } }));
+    await unlinkAdAccount(project.owner, row.id, { version: row.version });
+    return row.id;
+  };
 
   beforeAll(async () => {
     process.env.ORBIT_CONNECTIONS = "true";
@@ -94,6 +127,8 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
     cleanups.push(() => social.cleanup(), (await grantSocialApp(social, "social.app.meta", META_APP_SECRET)).cleanup);
   });
   beforeEach(() => {
+    seams.afterRelease = null;
+    seams.failRevoke = null;
     process.env.ORBIT_SOCIAL = "true";
     process.env.ORBIT_ADS = "true";
     process.env.ORBIT_PUBLIC_INGRESS = "true";
@@ -146,6 +181,92 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
     expect(audits[0]).toMatchObject({ actorId: "meta-data-deletion", resourceId: one.accountId, metadata: { confirmationCode: body.confirmation_code } });
     expect(await auditOf(b)).toHaveLength(1);
     expectNoSecret({ audits, body: response.body }, [metaUserId, ...secrets]);
+  });
+
+  it("finishes the request when an account is unlinked meanwhile, and forgets that connection too", async () => {
+    const user = `meta-user-${randomUUID()}`;
+    const first = await linked(a, await appOf(a), "act_431", user);
+    // A second account on the same connection, unlinked by the owner while the request runs.
+    const second = await a.run((tx) =>
+      tx.adAccount.create({
+        data: {
+          id: randomUUID(), workspaceId: a.workspaceId, projectId: a.projectId, provider: "meta", externalId: "act_432",
+          name: "Account act_432", currency: "EUR", timezone: "Europe/Berlin", connectionId: first.connectionId, createdBy: a.ids.owner,
+        },
+      }),
+    );
+    const elsewhere = await linked(b, await appOf(b), "act_433", user);
+    let meanwhile = "";
+    seams.afterRelease = {
+      connectionId: first.connectionId,
+      // The owner's unlink of the last other account revokes the connection as well.
+      run: async () => {
+        meanwhile = await unlinkOneMeanwhile(a, first.connectionId);
+      },
+    };
+    const response = await post(`signed_request=${signedRequest(fresh(user))}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.json().confirmation_code).toMatch(/^[a-f0-9]{42}$/);
+    expect(seams.afterRelease).toBeNull();
+    expect(await accountOf(a, first.accountId)).toMatchObject({ status: "unlinked" });
+    expect(await accountOf(a, second.id)).toMatchObject({ status: "unlinked" });
+    expect(await accountOf(b, elsewhere.accountId)).toMatchObject({ status: "unlinked" });
+    for (const id of [first.connectionId, elsewhere.connectionId]) {
+      const row = await authDb.connection.findUniqueOrThrow({ where: { id } });
+      expect([row.revokedAt !== null, row.label, (row.config as Record<string, unknown>).metaUserId]).toEqual([true, "Meta (deleted)", null]);
+    }
+    expect(await b.run((tx) => connectionSecret(tx, elsewhere.connectionId))).toBeNull();
+    // Only the account the request itself unlinked carries its code.
+    const audits = (await auditOf(a)).filter((row) => (row.metadata as { confirmationCode?: string }).confirmationCode === response.json().confirmation_code);
+    expect(meanwhile).not.toBe("");
+    expect(audits.map((row) => row.resourceId)).toEqual([[first.accountId, second.id].find((id) => id !== meanwhile)]);
+  });
+
+  it("answers without a confirmation code when one connection fails, after trying every other one", async () => {
+    const user = `meta-user-${randomUUID()}`;
+    const broken = await linked(a, await appOf(a), "act_441", user);
+    const other = await linked(b, await appOf(b), "act_442", user);
+    seams.failRevoke = broken.connectionId;
+    const response = await post(`signed_request=${signedRequest(fresh(user))}`);
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: { code: "ADS_DATA_DELETION_INCOMPLETE", message: "ADS DATA DELETION INCOMPLETE" } });
+    expect(response.body).not.toContain("confirmation_code");
+    expect((await authDb.connection.findUniqueOrThrow({ where: { id: broken.connectionId } })).revokedAt).toBeNull();
+    expect((await authDb.connection.findUniqueOrThrow({ where: { id: other.connectionId } })).revokedAt).not.toBeNull();
+    expect(await accountOf(b, other.accountId)).toMatchObject({ status: "unlinked" });
+    // Meta's next attempt finishes the job and gets a code.
+    seams.failRevoke = null;
+    const retry = await post(`signed_request=${signedRequest(fresh(user))}`);
+    expect(retry.statusCode).toBe(200);
+    expect((await authDb.connection.findUniqueOrThrow({ where: { id: broken.connectionId } })).revokedAt).not.toBeNull();
+  });
+
+  it("lets the owner revoke a connection while one of its accounts is unlinked meanwhile", async () => {
+    const user = `meta-user-${randomUUID()}`;
+    const first = await linked(a, await appOf(a), "act_451", user);
+    const second = await a.run((tx) =>
+      tx.adAccount.create({
+        data: {
+          id: randomUUID(), workspaceId: a.workspaceId, projectId: a.projectId, provider: "meta", externalId: "act_452",
+          name: "Account act_452", currency: "EUR", timezone: "Europe/Berlin", connectionId: first.connectionId, createdBy: a.ids.owner,
+        },
+      }),
+    );
+    const third = await a.run((tx) =>
+      tx.adAccount.create({
+        data: {
+          id: randomUUID(), workspaceId: a.workspaceId, projectId: a.projectId, provider: "meta", externalId: "act_453",
+          name: "Account act_453", currency: "EUR", timezone: "Europe/Berlin", connectionId: first.connectionId, createdBy: a.ids.owner,
+        },
+      }),
+    );
+    // A second owner session unlinks one account right after the revocation unlinked the first.
+    seams.afterRelease = { connectionId: first.connectionId, run: async () => void (await unlinkOneMeanwhile(a, first.connectionId)) };
+    const response = await a.call("owner", "POST", `/ads/connections/${first.connectionId}/revoke`);
+    expect([response.statusCode, response.json()]).toEqual([200, { id: first.connectionId, accountsUnlinked: 2 }]);
+    for (const id of [first.accountId, second.id, third.id]) expect(await accountOf(a, id)).toMatchObject({ status: "unlinked" });
+    const row = await authDb.connection.findUniqueOrThrow({ where: { id: first.connectionId } });
+    expect([row.revokedAt !== null, row.label]).toEqual([true, "Meta (deleted)"]);
   });
 
   it("still unlinks while the ads module is off in the project", async () => {
