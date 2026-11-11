@@ -5,7 +5,9 @@ import { buildServer } from "../src/server.ts";
 import { connectionSecret } from "../src/platform/connections/central.ts";
 import { saveGrant } from "../src/modules/ads/accounts/vault.ts";
 import { ADS_META_APP, createAdsProject, expectNoSecret, grantAdsMetaApp, type AdsProject } from "./support/ads-fixtures.ts";
-import { META_APP_SECRET } from "./support/social-apps.ts";
+import { grantSocialApp, META_APP_SECRET } from "./support/social-apps.ts";
+import { createSocialProject } from "./support/social-project.ts";
+import { metaDataDeletionStatus } from "../src/modules/social/accounts/data-deletion.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 const PATH = "/api/callbacks/ads/meta-data-deletion";
@@ -32,6 +34,7 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let a: AdsProject;
   let b: AdsProject;
+  let social: Awaited<ReturnType<typeof createSocialProject>>;
   const cleanups: Array<() => Promise<unknown>> = [];
   const metaUserId = `meta-user-${randomUUID()}`;
   const secrets: string[] = [];
@@ -86,8 +89,12 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
     b = await createAdsProject({ app, name: "Synthetic ads B" });
     cleanups.push(() => a.cleanup(), () => b.cleanup());
     for (const project of [a, b]) cleanups.push((await grantAdsMetaApp(project)).cleanup);
+    // Social's Meta app is registered too, so a Social-signed request is a real "wrong app" case.
+    social = await createSocialProject();
+    cleanups.push(() => social.cleanup(), (await grantSocialApp(social, "social.app.meta", META_APP_SECRET)).cleanup);
   });
   beforeEach(() => {
+    process.env.ORBIT_SOCIAL = "true";
     process.env.ORBIT_ADS = "true";
     process.env.ORBIT_PUBLIC_INGRESS = "true";
   });
@@ -116,6 +123,16 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
     const body = response.json();
     expect(body.confirmation_code).toMatch(/^[a-f0-9]{42}$/);
     expect(body.url).toBe(`${new URL(process.env.APP_ORIGIN!).origin}/data-deletion/ads?code=${body.confirmation_code}`);
+    // The revoked rows forget the person; another user's connection keeps both.
+    const forgot = await authDb.connection.findMany({ where: { id: { in: [one.connectionId, two.connectionId] } } });
+    for (const row of forgot) {
+      expect(row.label).toBe("Meta (deleted)");
+      expect((row.config as Record<string, unknown>).metaUserId).toBeNull();
+      expect(row.revokedAt).not.toBeNull();
+    }
+    const kept = await authDb.connection.findUniqueOrThrow({ where: { id: other.connectionId } });
+    expect(kept.label).not.toBe("Meta (deleted)");
+    expect((kept.config as Record<string, unknown>).metaUserId).toBe("someone-else");
     expect(await accountOf(a, one.accountId)).toMatchObject({ status: "unlinked", writesEnabled: false });
     expect(await accountOf(b, two.accountId)).toMatchObject({ status: "unlinked" });
     expect(await accountOf(a, other.accountId)).toMatchObject({ status: "active" });
@@ -157,7 +174,17 @@ describe.skipIf(!enabled)("ads Meta data-deletion callback", () => {
     const otherTime = code.slice(0, 18) + (code[18] === "0" ? "1" : "0") + code.slice(19);
     for (const value of [forged, otherTime, "abc", "z".repeat(42), code.slice(0, 41)])
       expect((await lookup(value)).statusCode).toBe(404);
-    // Social's codes use another key: they are unknown here.
+    // A code Social issued (its own key label) is unknown to the Ads status route.
+    const socialSigned = signedRequest(fresh(`nobody-${randomUUID()}`), META_APP_SECRET.appSecret);
+    const issued = await app.inject({
+      method: "POST",
+      url: "/api/callbacks/social/meta-data-deletion",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: `signed_request=${socialSigned}`,
+    });
+    const socialCode: string = issued.json().confirmation_code;
+    expect(metaDataDeletionStatus(socialCode).status).toBe("completed");
+    expect((await lookup(socialCode)).statusCode).toBe(404);
     delete process.env.ORBIT_PUBLIC_INGRESS;
     expect((await lookup(code)).statusCode).toBe(404);
   });

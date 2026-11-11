@@ -122,6 +122,7 @@ export async function handleAdsMetaDataDeletion(body: unknown): Promise<{ url: s
     };
     await revokeAdsConnection(scope, found.connectionId, {
       reason: "meta_data_deletion",
+      forgetPerson: true,
       audit: { action: "ads.meta.data_deletion", metadata: { confirmationCode: code } },
     });
   }

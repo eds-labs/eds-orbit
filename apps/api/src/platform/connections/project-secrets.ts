@@ -285,15 +285,47 @@ export async function releaseExclusiveConfigValue(scope: Scope, input: ClaimInpu
 /** Revokes the connection, retires its secrets and ends the project grant. */
 export async function revokeProjectConnection(
   scope: Scope,
-  input: { moduleId: string; connectionId: string; reason: string },
+  input: {
+    moduleId: string;
+    connectionId: string;
+    reason: string;
+    /**
+     * A data-deletion request: in the same transaction the label becomes
+     * this neutral one and the listed config keys become null, so the
+     * revoked row no longer names the person. Other config keys stay.
+     */
+    forget?: { label: string; configKeys: string[] };
+  },
 ): Promise<void> {
+  const forget = input.forget;
+  if (
+    forget &&
+    (forget.label.length < 1 ||
+      forget.configKeys.length < 1 ||
+      forget.configKeys.length > 20 ||
+      forget.configKeys.some((k) => k.length < 1))
+  )
+    throw new DomainError("CONNECTION_FORGET_INVALID", 400);
   await authDb.$transaction(async (atx) => {
     await atx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`project-secret:${input.connectionId}`}))`;
     const connection = await owned(atx, scope, input);
     const now = new Date();
+    const kept = (connection.config ?? {}) as Record<string, unknown>;
     await atx.connection.update({
       where: { id: connection.id },
-      data: { revokedAt: now, version: { increment: 1 } },
+      data: {
+        revokedAt: now,
+        version: { increment: 1 },
+        ...(forget
+          ? {
+              label: forget.label,
+              config: {
+                ...kept,
+                ...Object.fromEntries(forget.configKeys.map((k) => [k, null])),
+              } as Prisma.InputJsonValue,
+            }
+          : {}),
+      },
     });
     await atx.connectionSecret.updateMany({
       where: { connectionId: connection.id, state: "active" },

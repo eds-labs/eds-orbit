@@ -94,6 +94,33 @@ describe.skipIf(!enabled)("exclusive connection config claims", () => {
     await expect(claim(b, cb, "act_rev")).resolves.toBeUndefined();
   });
 
+  it("revoke keeps label and config; revoke with forget neutralises the label and nulls the listed keys", async () => {
+    const make = async () => {
+      const made = await connection(a);
+      await authDb.connection.update({
+        where: { id: made.connectionId },
+        data: { label: "Meta: Some Person", config: { metaUserId: "u-1", other: "kept", [KEY]: ["act_f"] } },
+      });
+      return made;
+    };
+    const plain = await make();
+    await revokeProjectConnection(a, { ...plain, reason: "test" });
+    const before = await authDb.connection.findUniqueOrThrow({ where: { id: plain.connectionId } });
+    expect(before.label).toBe("Meta: Some Person");
+    expect(before.config).toEqual({ metaUserId: "u-1", other: "kept", [KEY]: ["act_f"] });
+    const forgotten = await make();
+    await revokeProjectConnection(a, { ...forgotten, reason: "test", forget: { label: "Meta (deleted)", configKeys: ["metaUserId"] } });
+    const after = await authDb.connection.findUniqueOrThrow({ where: { id: forgotten.connectionId } });
+    expect(after.revokedAt).not.toBeNull();
+    expect(after.label).toBe("Meta (deleted)");
+    expect(after.config).toEqual({ metaUserId: null, other: "kept", [KEY]: ["act_f"] });
+    const audit = await authDb.systemAuditEvent.findFirst({ where: { targetId: forgotten.connectionId, action: "connection.revoked" } });
+    expect(JSON.stringify(audit?.metadata)).not.toContain("u-1");
+    await expect(
+      revokeProjectConnection(a, { ...(await make()), reason: "t", forget: { label: "x", configKeys: [] } }),
+    ).rejects.toMatchObject({ code: "CONNECTION_FORGET_INVALID" });
+  });
+
   it("a disabled connection keeps its claim and cannot take new ones", async () => {
     const [ca, cb] = [await connection(a), await connection(b)];
     await claim(a, ca, "act_x");
