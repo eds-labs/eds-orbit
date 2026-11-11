@@ -112,6 +112,23 @@ describe("visibleSections", () => {
 });
 
 describe("resolveSection", () => {
+  it("opens the section named like its area at the area's address", () => {
+    const s = [
+      { area: "users", id: "invitations", order: 0 },
+      { area: "users", id: "users", order: 10, takesId: true as const },
+    ];
+    expect(resolveSection(s, "users", [])).toMatchObject({ section: { id: "users" } });
+    // The long address still works, and the entity id below it.
+    expect(resolveSection(s, "users", ["users"])).toMatchObject({ section: { id: "users" } });
+    expect(resolveSection(s, "users", ["users", "u1"])).toMatchObject({
+      section: { id: "users" },
+      id: "u1",
+    });
+    expect(resolveSection(s, "users", ["invitations"])).toMatchObject({
+      section: { id: "invitations" },
+    });
+  });
+
   const s = [
     make("system", "users", "users", { order: 0, takesId: true }),
     make("system", "users", "invitations", { order: 10 }),
@@ -142,13 +159,24 @@ describe("resolveSection", () => {
     });
   });
 
-  it("passes a single unknown segment only to a first section that takes an id", () => {
-    // "invitations" first: it reads no id, so the address names nothing.
+  it("passes a single unknown segment only to the area's lead section if it takes an id", () => {
+    // No section named like the area: "invitations" leads and reads no id,
+    // so the address names nothing.
     const noId = [
+      make("system", "users", "invitations", { order: 0 }),
+      make("system", "users", "list", { order: 10, takesId: true }),
+    ];
+    expect(resolveSection(noId, "users", ["u-123"])).toBeNull();
+    // A section named like its area leads it whatever its order (its
+    // address is the area's own), so the segment is its entity id.
+    const named = [
       make("system", "users", "invitations", { order: 0 }),
       make("system", "users", "users", { order: 10, takesId: true }),
     ];
-    expect(resolveSection(noId, "users", ["u-123"])).toBeNull();
+    expect(resolveSection(named, "users", ["u-123"])).toMatchObject({
+      section: { id: "users" },
+      id: "u-123",
+    });
     expect(resolveSection(m, "modules", ["unknown"])).toBeNull();
   });
 
@@ -195,7 +223,14 @@ describe("sectionPath", () => {
     expect(sectionPath({ area: "modules", id: "finance/accounts" })).toEqual([
       "modules", "finance", "accounts",
     ]);
-    expect(sectionPath({ area: "users", id: "users" })).toEqual(["users", "users"]);
+    expect(sectionPath({ area: "users", id: "invitations" })).toEqual([
+      "users", "invitations",
+    ]);
+  });
+
+  it("gives a section named like its area the area's own address", () => {
+    expect(sectionPath({ area: "users", id: "users" })).toEqual(["users"]);
+    expect(sectionPath({ area: "members", id: "members" })).toEqual(["members"]);
   });
 });
 

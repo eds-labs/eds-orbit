@@ -87,7 +87,7 @@ describe("SettingsCenterView", () => {
   it("marks the open section and renders its content", () => {
     const html = render({ area: "users", rest: ["users", "x1"] });
     expect(html).toContain(
-      '<a class="settings-nav-link" href="/manage/system/users/users" aria-current="page">Label users</a>',
+      '<a class="settings-nav-link" href="/manage/system/users" aria-current="page">Label users</a>',
     );
     expect(html).not.toContain(
       'href="/manage/system/users/invitations" aria-current',
@@ -99,6 +99,25 @@ describe("SettingsCenterView", () => {
     expect(html).toContain('<a class="back-link" href="/">← Back to Orbit</a>');
     expect(html).toMatch(/<label for="manage-search" class="field-label">Search settings<\/label>/);
     expect(html).toContain('type="search"');
+  });
+
+  it("links a section named like its area by the short address and marks it there", () => {
+    for (const target of [
+      { area: "users", rest: [] },
+      { area: "users", rest: ["users"] },
+      { area: "users", rest: ["x1"] },
+    ]) {
+      const html = render(target);
+      expect(html).toContain(
+        '<a class="settings-nav-link" href="/manage/system/users" aria-current="page">Label users</a>',
+      );
+      expect(html).not.toContain("/manage/system/users/users");
+    }
+    const invitations = render({ area: "users", rest: ["invitations"] });
+    expect(invitations).toContain(
+      '<a class="settings-nav-link" href="/manage/system/users/invitations" aria-current="page">Label invitations</a>',
+    );
+    expect(invitations).toContain('<option value="users">Label users</option>');
   });
 
   it("shows the overview for a scope without an area", () => {

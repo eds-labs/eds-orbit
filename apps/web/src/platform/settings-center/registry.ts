@@ -127,18 +127,27 @@ export function resolveSection<
     if (extra.length > 1 || (extra.length === 1 && !best.takesId)) return null;
     return { section: best, id: extra[0] };
   }
-  if (rest.length === 0) return { section: inArea[0], id: undefined };
+  // The area's own address belongs to the section named like the area (see
+  // sectionPath), else to the area's first section.
+  const lead = inArea.find((s) => s.id === target) ?? inArea[0];
+  if (rest.length === 0) return { section: lead, id: undefined };
   if (rest.length === 1) {
     // 2. A module name selects the module's first section.
     const ofModule = inArea.find((s) => s.id.startsWith(rest[0] + "/"));
     if (ofModule) return { section: ofModule, id: undefined };
-    // 3. Anything else is an entity id of the area's first section, if it takes one.
-    return inArea[0].takesId ? { section: inArea[0], id: rest[0] } : null;
+    // 3. Anything else is an entity id of the area's lead section, if it takes one.
+    return lead.takesId ? { section: lead, id: rest[0] } : null;
   }
   return null;
 }
 
+/**
+ * The address of a section below its scope. A section named like its area
+ * is the area's own address (`users`, not `users/users`); resolveSection
+ * still accepts the long form.
+ */
 export function sectionPath(section: { area: string; id: string }): string[] {
+  if (section.id === section.area) return [section.area];
   return [section.area, ...section.id.split("/")];
 }
 
