@@ -231,6 +231,39 @@ describe.skipIf(!enabled)("Management capabilities (ADR 0027)", () => {
     }
   });
 
+  it("reports the AI flags", async () => {
+    const saved = {
+      catalog: process.env.ORBIT_AI_CATALOG,
+      defaults: process.env.ORBIT_AI_DEFAULTS,
+      budget: process.env.ORBIT_AI_ORG_BUDGET,
+    };
+    const restore = (name: string, value: string | undefined) => {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    };
+    process.env.ORBIT_AI_CATALOG = "true";
+    delete process.env.ORBIT_AI_DEFAULTS;
+    delete process.env.ORBIT_AI_ORG_BUDGET;
+    try {
+      expect((await caps(p.viewer)).flags).toEqual({
+        connections: true,
+        aiCatalog: true,
+        aiDefaults: false,
+        aiOrgBudget: false,
+      });
+      // The standard needs the catalog, as the runtime reads it.
+      process.env.ORBIT_AI_DEFAULTS = "true";
+      process.env.ORBIT_AI_CATALOG = "false";
+      expect((await caps(p.viewer)).flags.aiDefaults).toBe(false);
+      process.env.ORBIT_AI_CATALOG = "true";
+      expect((await caps(p.viewer)).flags.aiDefaults).toBe(true);
+    } finally {
+      restore("ORBIT_AI_CATALOG", saved.catalog);
+      restore("ORBIT_AI_DEFAULTS", saved.defaults);
+      restore("ORBIT_AI_ORG_BUDGET", saved.budget);
+    }
+  });
+
   it("agrees with the routes", async () => {
     const pairs: Array<{
       scope: "system" | "organization" | "project";

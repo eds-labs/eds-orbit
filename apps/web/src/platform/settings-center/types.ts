@@ -36,8 +36,17 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
+/** Installation switches the sections word their notices by; display hints only. */
+export type ManagementFlags = {
+  connections: boolean;
+  aiCatalog: boolean;
+  aiDefaults: boolean;
+  aiOrgBudget: boolean;
+};
+
 export type ManagementCapabilities = {
   stage: "preview" | "on";
+  flags: ManagementFlags;
   system: Capability[];
   account: Capability[];
   organizations: Array<{
@@ -53,6 +62,20 @@ export type ManagementCapabilities = {
     capabilities: Capability[];
   }>;
 };
+
+const NO_FLAGS: ManagementFlags = {
+  connections: false,
+  aiCatalog: false,
+  aiDefaults: false,
+  aiOrgBudget: false,
+};
+
+/**
+ * The flags of a capabilities answer; all off without one (a section rendered
+ * on its own, as in tests) or from an older API that sent none.
+ */
+export const flagsOf = (caps: ManagementCapabilities | undefined): ManagementFlags =>
+  caps?.flags ?? NO_FLAGS;
 
 export type ManageScope =
   | { kind: "system" }

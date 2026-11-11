@@ -65,7 +65,7 @@ const hrefIn = (scope: ManageScope) => (area: string, ...rest: string[]) =>
 
 // Capabilities as apps/api grants them (management/capabilities.ts).
 const capsOf = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
-  stage: "preview", system: [], account: [], organizations: [], projects: [], ...over,
+  stage: "preview", flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false }, system: [], account: [], organizations: [], projects: [], ...over,
 });
 const VIEWER_CAPS = ["project.overview", "project.profile", "project.modules", "project.integrations"] as Capability[];
 const OWNER_CAPS = [...VIEWER_CAPS, "project.members", "project.ai", "project.data"] as Capability[];

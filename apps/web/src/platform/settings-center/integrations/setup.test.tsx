@@ -392,6 +392,7 @@ describe("refresh", () => {
 
 const caps = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
   stage: "preview",
+  flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: [],
   account: [],
   organizations: [],

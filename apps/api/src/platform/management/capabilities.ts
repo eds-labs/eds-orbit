@@ -6,6 +6,8 @@ import {
   isSystemAdmin,
 } from "../administration/authz.ts";
 import { connectionsEnabled } from "../connections/central.ts";
+import { aiCatalogEnabled, aiDefaultsEnabled } from "../ai/catalog.ts";
+import { aiOrgBudgetEnabled } from "../ai/org-budget.ts";
 import { sharesEnabled } from "../knowledge/shares.ts";
 import { personalAssistantEnabled } from "../assistant/personal-space.ts";
 import { mcpConnectEnabled } from "../mcp-auth/routes.ts";
@@ -45,8 +47,17 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 type ProjectRole = "owner" | "editor" | "viewer";
 
+/** Installation switches the sections word their notices by; display hints only. */
+export type ManagementFlags = {
+  connections: boolean;
+  aiCatalog: boolean;
+  aiDefaults: boolean;
+  aiOrgBudget: boolean;
+};
+
 export type ManagementCapabilities = {
   stage: "preview" | "on";
+  flags: ManagementFlags;
   system: Capability[];
   account: Capability[];
   organizations: Array<{
@@ -169,6 +180,12 @@ export async function managementCapabilities(
   return {
     // The route answers 404 while the stage is "off" (server hook).
     stage: settingsCenterStage() === "on" ? "on" : "preview",
+    flags: {
+      connections,
+      aiCatalog: aiCatalogEnabled(),
+      aiDefaults: aiDefaultsEnabled(),
+      aiOrgBudget: aiOrgBudgetEnabled(),
+    },
     system,
     account,
     organizations,

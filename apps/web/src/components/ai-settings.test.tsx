@@ -19,6 +19,7 @@ import {
   providerBudgetFields,
   providerPayload,
   routeTaskClasses,
+  setupKeyProps,
   taskRouteFields,
   taskRoutesPayload,
   type AiBudgetView,
@@ -141,6 +142,15 @@ describe("project AI dialogs save only what they show (F-8)", () => {
     expect(firstSaveFields(view({ stored: storedFixture() }), "en")).toEqual([]);
     expect(firstSaveConfirmed(view({ stored: null }), {})).toBe(false);
     expect(firstSaveConfirmed(view({ stored: null }), { firstSave: true })).toBe(true);
+  });
+  it("gives the setup wizard's key step the first-save confirmation (F-8 risk 5)", () => {
+    const unsaved = setupKeyProps("p-1", view({ stored: null }), "en");
+    expect(unsaved.keyFields).toEqual(firstSaveFields(view({ stored: null }), "en"));
+    expect(unsaved.keyFields.map((field) => field.name)).toEqual(["firstSave"]);
+    expect(unsaved.keyConfirmed({})).toBe(false);
+    const saved = setupKeyProps("p-1", view({ stored: storedFixture() }), "en");
+    expect(saved.keyFields).toEqual([]);
+    expect(saved.keyConfirmed({})).toBe(true);
   });
   it("keeps the route of a task the dialog does not show (risk 3)", () => {
     const stored = { creative_review: { model: "gpt-5.6-terra", maxOutputTokens: 1500 } };
