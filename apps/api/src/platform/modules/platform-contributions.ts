@@ -226,6 +226,8 @@ export const platformContributions: ModuleContributions = {
       storage: ["project"],
       checkable: false,
       available: telegramEnabled,
+      // Its status route, and so its project record, is owner-only.
+      visibleTo: "owner",
     },
     {
       id: "mcp_server",

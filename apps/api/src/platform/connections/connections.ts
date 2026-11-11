@@ -62,6 +62,17 @@ export function cutoverEnabled(provider: string) {
 }
 
 /**
+ * Whether a provider's central connections can serve a project in this
+ * installation: never while central connections are off; for a provider
+ * that also keeps project connections (`projectPath`), only with its
+ * cutover, because its central use goes through a bound project row
+ * (attachGrantedConnection and connectionAccess refuse it otherwise).
+ */
+export function centralPathEnabled(provider: string, projectPath: boolean) {
+  return projectPath ? cutoverEnabled(provider) : connectionsEnabled();
+}
+
+/**
  * What a provider call needs from a project connection (ADR 0014): its
  * plain credential and base URL. A connection bound to a central one
  * (`centralConnectionId`) reads the central secret inside this project

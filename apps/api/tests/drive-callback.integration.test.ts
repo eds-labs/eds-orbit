@@ -23,14 +23,32 @@ describe.skipIf(!enabled)("Google Drive OAuth callback redirect", () => {
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");
   let userId: string, workspaceId: string, projectId: string, cookie: string;
+  let editorId: string, editorCookie: string;
 
-  const callback = (state: string) =>
+  const signInAs = async (email: string) => {
+    const signIn = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      headers: {
+        origin,
+        [CLIENT_IP_HEADER]: `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`,
+      },
+      payload: { email, password },
+    });
+    expect(signIn.statusCode).toBe(200);
+    const set = signIn.headers["set-cookie"];
+    return (Array.isArray(set) ? set : [set])
+      .filter(Boolean)
+      .map((c) => c!.split(";")[0])
+      .join("; ");
+  };
+  const callback = (state: string, as = cookie) =>
     app.inject({
       method: "GET",
       url: `/api/google-drive/callback?code=synthetic-code&state=${state}`,
       headers: {
         origin,
-        cookie,
+        cookie: as,
         [CLIENT_IP_HEADER]: `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`,
       },
     });
@@ -44,11 +62,22 @@ describe.skipIf(!enabled)("Google Drive OAuth callback redirect", () => {
       body: { email, name: "Synthetic drive owner", password },
     });
     userId = created.user.id;
+    const editorEmail = `${randomUUID()}@example.invalid`;
+    editorId = (
+      await makeAuth().api.signUpEmail({
+        body: { email: editorEmail, name: "Synthetic drive editor", password },
+      })
+    ).user.id;
     workspaceId = (
       await authDb.workspace.create({
         data: {
           name: "Synthetic drive callback org",
-          members: { create: { userId, role: "viewer" } },
+          members: {
+            create: [
+              { userId, role: "viewer" },
+              { userId: editorId, role: "viewer" },
+            ],
+          },
         },
       })
     ).id;
@@ -57,29 +86,21 @@ describe.skipIf(!enabled)("Google Drive OAuth callback redirect", () => {
         data: {
           workspaceId,
           name: "Synthetic drive callback project",
-          members: { create: { userId, role: "owner" } },
+          members: {
+            create: [
+              { userId, role: "owner" },
+              { userId: editorId, role: "editor" },
+            ],
+          },
         },
       })
     ).id;
-    const signIn = await app.inject({
-      method: "POST",
-      url: "/api/auth/sign-in/email",
-      headers: {
-        origin,
-        [CLIENT_IP_HEADER]: `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`,
-      },
-      payload: { email, password },
-    });
-    expect(signIn.statusCode).toBe(200);
-    const set = signIn.headers["set-cookie"];
-    cookie = (Array.isArray(set) ? set : [set])
-      .filter(Boolean)
-      .map((c) => c!.split(";")[0])
-      .join("; ");
+    cookie = await signInAs(email);
+    editorCookie = await signInAs(editorEmail);
   });
   afterAll(async () => {
     await authDb.workspace.deleteMany({ where: { id: workspaceId } });
-    await authDb.user.deleteMany({ where: { id: userId } });
+    await authDb.user.deleteMany({ where: { id: { in: [userId, editorId] } } });
     await app?.close();
     await closeDatabase();
   });
@@ -104,6 +125,14 @@ describe.skipIf(!enabled)("Google Drive OAuth callback redirect", () => {
     const foreign = await callback(stateFor(randomUUID()));
     expect(foreign.statusCode).toBeGreaterThanOrEqual(400);
     expect(foreign.headers.location).toBeUndefined();
+    expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("refuses a project member below owner without a redirect", async () => {
+    finish.mockClear();
+    const refused = await callback(stateFor(projectId), editorCookie);
+    expect(refused.statusCode).toBe(403);
+    expect(refused.headers.location).toBeUndefined();
     expect(finish).not.toHaveBeenCalled();
   });
 });

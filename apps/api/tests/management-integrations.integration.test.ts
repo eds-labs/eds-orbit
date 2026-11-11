@@ -104,6 +104,11 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
     expect(r.statusCode).toBe(200);
     return (r.json() as { items: ProjectIntegration[] }).items;
   };
+  const unavailableFor = async (who: Person) => {
+    const r = await get(`/api/management/projects/${projectId}/integrations`, who);
+    expect(r.statusCode).toBe(200);
+    return r.json() as { items: ProjectIntegration[]; unavailable: string[] };
+  };
   const byId = (list: ProjectIntegration[], id: string) => list.find((i) => i.id === id);
 
   // A system Postiz connection granted to the organization and the project
@@ -262,7 +267,7 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
     // "webhook_secret" are labels, not secrets, so they are left out of the text check.
     for (const e of items)
       expect(Object.keys(e).sort()).toEqual(
-        ["authType", "available", "category", "checkable", "id", "label", "owner", "scopes", "storage"],
+        ["authType", "available", "category", "centralUsable", "checkable", "id", "label", "owner", "scopes", "storage"],
       );
     const text = JSON.stringify(items.map(({ authType: _authType, ...rest }) => rest));
     for (const word of ["secret", "config", "health"]) expect(text).not.toContain(word);
@@ -413,6 +418,49 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
     }
   });
 
+  it("names the catalog entries the member cannot use in the project", async () => {
+    const OWNER_ONLY = ["knowledge_github", "telegram_owner_bot"];
+    const MARKETING = ["matomo", "postiz", "slack"];
+    const catalogIds = ((await get("/api/management/integrations/catalog", p.viewer)).json() as { items: CatalogEntry[] })
+      .items.map((e) => e.id);
+    const check = (answer: { items: ProjectIntegration[]; unavailable: string[] }) => {
+      // Sorted ids of the catalog, never an id of a record the member reads.
+      expect(answer.unavailable).toEqual([...answer.unavailable].sort());
+      for (const id of answer.unavailable) expect(catalogIds).toContain(id);
+      for (const item of answer.items) expect(answer.unavailable).not.toContain(item.provider);
+    };
+    const owner = await unavailableFor(p.owner);
+    check(owner);
+    for (const id of OWNER_ONLY) expect(owner.unavailable).not.toContain(id);
+    for (const who of [p.viewer, p.editor]) {
+      const answer = await unavailableFor(who);
+      check(answer);
+      for (const id of OWNER_ONLY) expect(answer.unavailable).toContain(id);
+      for (const id of [...MARKETING, "email"]) expect(answer.unavailable).not.toContain(id);
+    }
+    await authDb.projectMemberModuleRole.create({
+      data: { workspaceId: orgId, projectId, userId: p.viewer.id, moduleId: "marketing", role: "none", changedBy: p.owner.id },
+    });
+    try {
+      const answer = await unavailableFor(p.viewer);
+      check(answer);
+      for (const id of MARKETING) expect(answer.unavailable).toContain(id);
+      expect(answer.unavailable).not.toContain("email");
+      // Another member keeps the module.
+      for (const id of MARKETING) expect((await unavailableFor(p.editor)).unavailable).not.toContain(id);
+    } finally {
+      await authDb.projectMemberModuleRole.deleteMany({ where: { projectId, userId: p.viewer.id } });
+    }
+    await setModule("marketing", false);
+    try {
+      const answer = await unavailableFor(p.owner);
+      check(answer);
+      for (const id of MARKETING) expect(answer.unavailable).toContain(id);
+    } finally {
+      await setModule("marketing", true);
+    }
+  });
+
   it("answers 404 to non-members and to a system administrator who is not a member", async () => {
     const url = `/api/management/projects/${projectId}/integrations`;
     expect((await get(url, p.outsider)).statusCode).toBe(404);
@@ -496,6 +544,18 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
       process.env.ORBIT_ADMINISTRATION = "true";
     }
     expect((await get(url, p.owner)).statusCode).toBe(200);
+  });
+
+  it("lists no connections while central connections are off, and refuses a malformed id", async () => {
+    process.env.ORBIT_CONNECTIONS = "false";
+    try {
+      const { json } = await usage(p.owner);
+      expect(json.connections).toEqual([]);
+      expect(json.projects.map((x) => x.id).sort()).toEqual([projectId, secondProjectId].sort());
+    } finally {
+      process.env.ORBIT_CONNECTIONS = "true";
+    }
+    expect((await get("/api/management/organizations/not-a-uuid/integrations", p.owner)).statusCode).toBe(400);
   });
 
   it("never reads a personal space", async () => {

@@ -50,6 +50,10 @@ export const knowledgeContributions: ModuleContributions = {
       scopes: ["project"],
       storage: ["project"],
       checkable: false,
+      // The same switch knowledgeGithubIntegrations reads.
+      available: () => process.env.ORBIT_KNOWLEDGE_WORKSPACE === "true",
+      // Its installations are listed to project owners only.
+      visibleTo: "owner",
     },
   ],
 };

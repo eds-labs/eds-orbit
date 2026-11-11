@@ -30,6 +30,13 @@ export type IntegrationDescriptor = {
   checkable: boolean;
   /** Default: always available (the owner module's availability still applies). */
   available?: () => boolean;
+  /**
+   * Who may read its state in a project. "owner": its records are listed to
+   * project owners only, so the project answer names it as unavailable for
+   * everyone else (a card must not say "Not set up" for what the member
+   * cannot see). Default "member".
+   */
+  visibleTo?: "member" | "owner";
 };
 
 /** One project-level record a module lists; the platform adds category and group. */

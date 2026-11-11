@@ -19,7 +19,7 @@ import {
 } from "../modules/contributions.ts";
 import { hiddenModules, moduleScope } from "../tenancy/module-roles.ts";
 import { can, PROJECT_OWN } from "../tenancy/permissions.ts";
-import { catalogCategories } from "./integration-catalog.ts";
+import { catalogCategories, integrationCatalog, ownerOnlyIntegrationIds } from "./integration-catalog.ts";
 
 // The project's integrations with a uniform state (ADR 0027). Any member may
 // read the list, so it shows nothing beyond what the member's existing reads
@@ -57,14 +57,35 @@ const text = (value: unknown) => (typeof value === "string" && value ? value : n
  * order. A module's contribution that throws adds nothing; `onFailure`
  * hears about it.
  */
+/** Whether an owner (module or platform) is on for the project and shown to the member. */
+async function usableOwners(tx: DbTx, scope: Scope): Promise<(owner: string) => boolean> {
+  const enabled = await enabledModules(tx, scope);
+  const hidden = hiddenModules(scope);
+  return (owner: string) => ownerEnabled(owner, enabled) && !hidden.includes(owner);
+}
+
+/**
+ * The catalog ids the member cannot use in this project, sorted: the owner
+ * module is off for the project or hidden from the member, or the state is
+ * readable by project owners only and the member is not one. The web leaves
+ * their cards out, so no card says "Not set up" for what the member cannot
+ * see. The same rules as the item gates in projectIntegrationRecords.
+ */
+export async function unavailableIntegrations(tx: DbTx, scope: Scope): Promise<string[]> {
+  const usable = await usableOwners(tx, scope);
+  const ownerOnly = can(scope, PROJECT_OWN) ? new Set<string>() : ownerOnlyIntegrationIds();
+  return integrationCatalog()
+    .filter((e) => !usable(e.owner) || ownerOnly.has(e.id))
+    .map((e) => e.id)
+    .sort();
+}
+
 export async function projectIntegrationRecords(
   tx: DbTx,
   scope: Scope,
   onFailure?: ContributionFailure,
 ): Promise<ProjectIntegrationRecord[]> {
-  const enabled = await enabledModules(tx, scope);
-  const hidden = hiddenModules(scope);
-  const usable = (owner: string) => ownerEnabled(owner, enabled) && !hidden.includes(owner);
+  const usable = await usableOwners(tx, scope);
   const categories = catalogCategories();
   const category = (provider: string) => categories.get(provider) ?? "other";
   const providerLabel = (provider: string) =>
