@@ -1,0 +1,255 @@
+{
+  "datasetVersion": "creative-vision-v1",
+  "description": "Eight creatives composed for free from the offline fixtures (packages/creative/fixtures/demo-brands.ts), all in the 4:5 feed_portrait format, judged by the production vision review (visionReviewCreative). Four good ones (each demo brand's good art in two templates) should pass; four bad ones (a tiny subject, an almost empty field, a bright busy scene, and a rendition composed in the other brand's palette and logo) must never pass. The recorded answers are hand-written replays of the expected verdict for the offline tests, not a model's output.",
+  "format": "feed_portrait",
+  "brands": {
+    "lumora": {
+      "productName": "Lumora Home",
+      "visualIdentity": {
+        "primaryColor": "#E8604C",
+        "secondaryColor": "#8C3B2C",
+        "accentColor": "#F6B26B",
+        "backgroundColor": "#FFF4E8",
+        "surfaceColor": "#FFF4E8",
+        "textColor": "#2B1B17",
+        "headingFont": "Inter",
+        "bodyFont": "Inter",
+        "imagery": {
+          "kind": "illustration",
+          "mood": "warm, calm, cosy",
+          "subjects": "Living rooms at dusk with lamps, armchairs, linen and wood",
+          "avoid": ["Cold blue office light"]
+        }
+      },
+      "post": {
+        "title": "Evenings feel softer in warm light",
+        "body": "Evenings feel softer in warm light. Lamps, throws and textures turn any room into a calm retreat. Shop the collection."
+      },
+      "copy": {
+        "eyebrow": "New this autumn",
+        "headline": "Evenings feel softer in warm light",
+        "subline": "Lamps, throws and textures that turn any room into a calm retreat.",
+        "cta": "Shop the collection"
+      }
+    },
+    "kestrel": {
+      "productName": "Kestrel Analytics",
+      "visualIdentity": {
+        "primaryColor": "#0F4C5C",
+        "secondaryColor": "#082F38",
+        "accentColor": "#B5E655",
+        "backgroundColor": "#F2F6F5",
+        "surfaceColor": "#FFFFFF",
+        "textColor": "#0B1F24",
+        "headingFont": "DejaVu Sans",
+        "bodyFont": "DejaVu Sans",
+        "imagery": {
+          "kind": "illustration",
+          "mood": "clear, confident, optimistic",
+          "subjects": "Clean data landscapes: isometric bars, orbits and trend lines in teal and lime",
+          "avoid": ["Stock handshake photos"]
+        }
+      },
+      "post": {
+        "title": "See every metric that moves your team",
+        "body": "See every metric that moves your team. Dashboards that update themselves, so Monday starts with answers. Start free trial."
+      },
+      "copy": {
+        "eyebrow": "Weekly insight",
+        "headline": "See every metric that moves your team",
+        "subline": "Dashboards that update themselves, so Monday starts with answers.",
+        "cta": "Start free trial"
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "lumora-good-lifestyle",
+      "label": "good",
+      "brand": "lumora",
+      "art": "good",
+      "kitBrand": "lumora",
+      "template": "lifestyle",
+      "expected": "pass",
+      "recorded": {
+        "scores": {
+          "subject": 4,
+          "balance": 4,
+          "legibility": 4,
+          "brandFit": 4,
+          "messageFit": 4,
+          "channelFit": 4,
+          "value": 3
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "lumora-good-brand-message",
+      "label": "good",
+      "brand": "lumora",
+      "art": "good",
+      "kitBrand": "lumora",
+      "template": "brand_message",
+      "expected": "pass",
+      "recorded": {
+        "scores": {
+          "subject": 4,
+          "balance": 4,
+          "legibility": 5,
+          "brandFit": 4,
+          "messageFit": 4,
+          "channelFit": 4,
+          "value": 3
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "kestrel-good-lifestyle",
+      "label": "good",
+      "brand": "kestrel",
+      "art": "good",
+      "kitBrand": "kestrel",
+      "template": "lifestyle",
+      "expected": "pass",
+      "recorded": {
+        "scores": {
+          "subject": 4,
+          "balance": 4,
+          "legibility": 4,
+          "brandFit": 4,
+          "messageFit": 4,
+          "channelFit": 4,
+          "value": 3
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "kestrel-good-brand-message",
+      "label": "good",
+      "brand": "kestrel",
+      "art": "good",
+      "kitBrand": "kestrel",
+      "template": "brand_message",
+      "expected": "pass",
+      "recorded": {
+        "scores": {
+          "subject": 4,
+          "balance": 4,
+          "legibility": 4,
+          "brandFit": 5,
+          "messageFit": 4,
+          "channelFit": 4,
+          "value": 4
+        },
+        "issues": []
+      }
+    },
+    {
+      "id": "lumora-bad-tiny-subject",
+      "label": "bad",
+      "brand": "lumora",
+      "art": "tiny_subject",
+      "kitBrand": "lumora",
+      "template": "lifestyle",
+      "expected": "needs_correction",
+      "recorded": {
+        "scores": {
+          "subject": 1,
+          "balance": 2,
+          "legibility": 4,
+          "brandFit": 3,
+          "messageFit": 2,
+          "channelFit": 3,
+          "value": 2
+        },
+        "issues": [
+          {
+            "kind": "art",
+            "note": "The lamp is tiny and lost in an empty field."
+          }
+        ]
+      }
+    },
+    {
+      "id": "kestrel-bad-flat",
+      "label": "bad",
+      "brand": "kestrel",
+      "art": "flat",
+      "kitBrand": "kestrel",
+      "template": "lifestyle",
+      "expected": "needs_correction",
+      "recorded": {
+        "scores": {
+          "subject": 1,
+          "balance": 2,
+          "legibility": 4,
+          "brandFit": 3,
+          "messageFit": 1,
+          "channelFit": 3,
+          "value": 1
+        },
+        "issues": [
+          {
+            "kind": "art",
+            "note": "The art is an almost empty field without a subject."
+          }
+        ]
+      }
+    },
+    {
+      "id": "kestrel-bad-bright",
+      "label": "bad",
+      "brand": "kestrel",
+      "art": "bright",
+      "kitBrand": "kestrel",
+      "template": "brand_message",
+      "expected": "needs_correction",
+      "recorded": {
+        "scores": {
+          "subject": 2,
+          "balance": 2,
+          "legibility": 2,
+          "brandFit": 3,
+          "messageFit": 2,
+          "channelFit": 3,
+          "value": 2
+        },
+        "issues": [
+          {
+            "kind": "layout",
+            "note": "The washed-out, busy background competes with the text."
+          }
+        ]
+      }
+    },
+    {
+      "id": "lumora-bad-wrong-kit",
+      "label": "bad",
+      "brand": "lumora",
+      "art": "good",
+      "kitBrand": "kestrel",
+      "template": "lifestyle",
+      "expected": "needs_correction",
+      "recorded": {
+        "scores": {
+          "subject": 4,
+          "balance": 4,
+          "legibility": 4,
+          "brandFit": 1,
+          "messageFit": 3,
+          "channelFit": 4,
+          "value": 3
+        },
+        "issues": [
+          {
+            "kind": "logo",
+            "note": "The logo and colours belong to another brand."
+          }
+        ]
+      }
+    }
+  ]
+}

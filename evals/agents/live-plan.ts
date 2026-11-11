@@ -52,25 +52,31 @@ export const REVIEW_REQUEST_BYTES = 16_000;
 // this model would stop the run at the first revision, after paid review calls.
 const EMBEDDING_MODEL = "text-embedding-3-small";
 
-// The route file: `provider` names who serves the route (absent: OpenAI, as
-// in review-route-v1.json); it must be the provider of the route's model, the
-// one production derives from it (`providerOfModel`).
-const routeFileSchema = z
-  .object({
-    description: z.string().min(1),
-    taskClass: z.literal("agent_review"),
-    provider: providerIdSchema.default("openai"),
-    route: modelRouteSchema,
-  })
-  .strict()
-  .superRefine((file, context) => {
-    if (providerOfModel(file.route.model) !== file.provider)
-      context.addIssue({
-        code: "custom",
-        message: "EVAL_ROUTE_PROVIDER_MISMATCH",
-        path: ["provider"],
-      });
-  });
+/**
+ * The route file of a live eval for `taskClass`: `provider` names who serves
+ * the route (absent: OpenAI, as in review-route-v1.json); it must be the
+ * provider of the route's model, the one production derives from it
+ * (`providerOfModel`). The vision eval reuses it for `creative_review`.
+ */
+export function routeFileSchemaFor<T extends string>(taskClass: T) {
+  return z
+    .object({
+      description: z.string().min(1),
+      taskClass: z.literal(taskClass),
+      provider: providerIdSchema.default("openai"),
+      route: modelRouteSchema,
+    })
+    .strict()
+    .superRefine((file, context) => {
+      if (providerOfModel(file.route.model) !== file.provider)
+        context.addIssue({
+          code: "custom",
+          message: "EVAL_ROUTE_PROVIDER_MISMATCH",
+          path: ["provider"],
+        });
+    });
+}
+const routeFileSchema = routeFileSchemaFor("agent_review");
 export type RouteFile = z.infer<typeof routeFileSchema>;
 
 export function parseRouteFile(raw: unknown): RouteFile {
@@ -157,8 +163,7 @@ export function planReviewEval(
   // Prices are never invented: an unpriced route is refused, and so is a card
   // without the embedding price, before any transmission.
   if (!rateCard[route.model]) throw new Error("EVAL_ROUTE_NOT_PRICED");
-  if (!rateCard[EMBEDDING_MODEL])
-    throw new Error("EVAL_EMBEDDING_NOT_PRICED");
+  if (!rateCard[EMBEDDING_MODEL]) throw new Error("EVAL_EMBEDDING_NOT_PRICED");
   const diagnose = diagnoseMode(env);
   const mode: ReviewMode = diagnose ? "diagnose-good" : "normal";
   const cases = diagnose

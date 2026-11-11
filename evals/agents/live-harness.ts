@@ -28,6 +28,7 @@ import {
   type ModelRoute,
   type OpenAiRuntimeConfig,
   type ProviderId,
+  type TaskClass,
 } from "../../packages/ai/src/index.ts";
 import type { Scope } from "../../packages/schemas/src/index.ts";
 import { data, entity, list, update } from "../../apps/api/src/shared.ts";
@@ -166,23 +167,29 @@ async function capRun(run: BrandRun, remaining: number) {
   });
 }
 
-type EvalRuntime = Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
+export type EvalRuntime = Pick<
+  OpenAiRuntimeConfig,
+  "verifiedModels" | "rateCard"
+>;
 
 /**
- * Stores the run's key and the planned `agent_review` route through
- * production's save path (`saveAiConfiguration`): the model section with the
- * eval's verified model, rate card and task route, and the key where
- * production keeps that provider's project key (encrypted): an OpenAI key in
- * the model section, an Anthropic key in the provider section. Then checks
- * that `agent_review` resolves to exactly the route on that provider, and
- * that its calls would carry the run's key.
+ * Stores the run's key and the planned route of `taskClass` (the review
+ * eval's `agent_review` by default) through production's save path
+ * (`saveAiConfiguration`): the model section with the eval's verified model,
+ * rate card and task route, and the key where production keeps that
+ * provider's project key (encrypted): an OpenAI key in the model section, an
+ * Anthropic key in the provider section. Then checks that `taskClass`
+ * resolves to exactly the route on that provider (`EVAL_ROUTE_MISMATCH`),
+ * and that its calls would carry the run's key (`EVAL_KEY_NOT_APPLIED`).
+ * The vision eval reuses it for `creative_review`.
  */
-async function configure(
+export async function configureEvalRoute(
   owner: Scope,
   provider: ProviderId,
   apiKey: string,
   runtime: EvalRuntime,
   route: ModelRoute,
+  taskClass: TaskClass = "agent_review",
 ) {
   await scoped(owner.workspaceId, owner.projectId, async (tx) => {
     const models = {
@@ -194,7 +201,7 @@ async function configure(
         quality: route.model,
         escalation: route.model,
       },
-      taskRoutes: { agent_review: route },
+      taskRoutes: { [taskClass]: route },
     };
     await saveAiConfiguration(
       tx,
@@ -202,12 +209,15 @@ async function configure(
       provider === "anthropic"
         ? {
             models,
-            providers: { anthropicApiKey: apiKey, defaultProvider: "anthropic" },
+            providers: {
+              anthropicApiKey: apiKey,
+              defaultProvider: "anthropic",
+            },
           }
         : { models: { apiKey, ...models } },
     );
     const configured = await runtimeOpenAiConfiguration(tx, owner);
-    const resolved = resolveRoute("agent_review", configured);
+    const resolved = resolveRoute(taskClass, configured);
     if (
       JSON.stringify(resolved) !== JSON.stringify(route) ||
       routeProvider(resolved, configured) !== provider
@@ -490,7 +500,7 @@ export async function runReviewEval(options: {
     }
     // The key enters the projects only now, after the stubbed drafts.
     for (const project of projects)
-      await configure(project.owner, provider, apiKey, runtime, route);
+      await configureEvalRoute(project.owner, provider, apiKey, runtime, route);
     try {
       for (const c of cases) {
         const remaining = await remainingMicros(
