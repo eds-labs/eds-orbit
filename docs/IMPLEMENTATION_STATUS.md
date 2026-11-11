@@ -1,5 +1,14 @@
 # Implementation status
 
+## Knowledge: search index display (2026-11-11, branch `claude/live-rag-eval-error-3b5651`; local only, not on `main`)
+
+Risk low: read-only display, no schema, migration, provider call or flag. Environment: local.
+
+- **Cause:** Knowledge → search index showed FamilyPlan generation 3 as "735 of 108 text passages embedded" and as plain "Active" while its live check no longer allowed releases (`LIVE_RAG_EVAL_REQUIRED` on 2026-11-10).
+- **Change:** `describeIndexGenerations` counts only embeddings of chunks in the generation's own manifest. `GET /indexes` adds `liveEvaluation` (`valid`, `reasons`) from `validateActiveIndexEvaluation` to the active generation; the page shows "Active · check not valid" as a warning badge with the reason and the steps that restore releases.
+- **Verification (local, this worktree's own test database):** new integration test (a document added after the build leaves the generation's coverage unchanged) and two UI tests (warning badge and reason in German and English, missing or expired check) RED before and GREEN after the change; whole vitest suite 597 files passed, 1 skipped, 6,898 tests passed, 7 skipped, 0 failed; `pnpm lint` (import boundaries 0 known, none new), `pnpm typecheck` and `pnpm build` pass. The route has no response test (none existed); typecheck and the UI tests cover its shape.
+- **Production:** not changed; a push to `main` needs Mario's approval (no schema hash needed).
+
 ## Knowledge: evidence survives index activation (2026-11-10, branch `claude/live-rag-eval-error-3b5651`; delivered to `main`, not live-accepted)
 
 Spec [2026-11-10-evidence-across-index-generations-design.md](superpowers/specs/2026-11-10-evidence-across-index-generations-design.md), plan [2026-11-10-evidence-across-index-generations.md](superpowers/plans/2026-11-10-evidence-across-index-generations.md). Risk medium: relaxes a shared integrity check; no schema, migration, provider call or flag.

@@ -6,7 +6,10 @@ import {
   sourceExpiry,
   tracksFreshness,
 } from "../../../../../packages/knowledge/src/freshness.ts";
-import { describeIndexGenerations } from "../../../../../packages/knowledge/src/index.ts";
+import {
+  describeIndexGenerations,
+  validateActiveIndexEvaluation,
+} from "../../../../../packages/knowledge/src/index.ts";
 import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
 import {
   evaluationSetEstimate,
@@ -137,10 +140,15 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
     return scoped(scope.workspaceId, projectId, async (tx) => {
       const generations = await describeIndexGenerations(tx, scope);
       const evaluations = await latestEvaluations(tx, scope);
+      // The release gate's verdict on the active generation (LIVE_RAG_EVAL_REQUIRED).
+      const live = await validateActiveIndexEvaluation(tx, scope);
       const items = [];
       for (const g of generations)
         items.push({
           ...g,
+          ...(g.id === live.indexId
+            ? { liveEvaluation: { valid: live.valid, reasons: live.reasons } }
+            : {}),
           // The newest evaluation record, with the review list while in review.
           evaluationRun: evaluations.get(g.id) ?? null,
           // What generating the test questions would cost (micro-USD).

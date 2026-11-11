@@ -155,21 +155,21 @@ export function indexGenerationPhase(input: {
                 : "ready_for_evaluation";
   return { phase, nextStep: NEXT_STEP[phase] };
 }
-/** Every generation, newest first, with its embedding coverage and phase. */
+/**
+ * Every generation, newest first, with its embedding coverage and phase.
+ * Coverage counts only the chunks of the generation's own snapshot: documents
+ * added later are embedded into the active generation too, but they are not
+ * part of what it was built and checked on.
+ */
 export async function describeIndexGenerations(tx: DbTx, s: Scope) {
   const generations = await listIndexGenerations(tx, s);
-  const embedded = await tx.chunkEmbedding.groupBy({
-    by: ["profile", "indexGeneration"],
-    where: where(s),
-    _count: { _all: true },
-  });
+  const embedded = await tx.$queryRaw<
+    { id: string; embedded: number }[]
+  >`SELECT i.id, count(e.id)::int AS embedded FROM "KnowledgeIndex" i CROSS JOIN LATERAL jsonb_array_elements(i.manifest) m JOIN "ChunkEmbedding" e ON e."chunkId"=(m->>'chunkId')::uuid AND e.profile=i.profile AND e."indexGeneration"=i.generation AND e."workspaceId"=i."workspaceId" AND e."projectId"=i."projectId" WHERE i."workspaceId"=${s.workspaceId}::uuid AND i."projectId"=${s.projectId}::uuid AND jsonb_typeof(i.manifest)='array' GROUP BY i.id`;
   const corpusHash = hash(JSON.stringify(await manifest(tx, s)));
   return generations.map((g) => {
     const chunks = Array.isArray(g.manifest) ? g.manifest.length : 0;
-    const embeddedChunks =
-      embedded.find(
-        (e) => e.profile === g.profile && e.indexGeneration === g.generation,
-      )?._count._all ?? 0;
+    const embeddedChunks = embedded.find((e) => e.id === g.id)?.embedded ?? 0;
     return {
       ...g,
       chunks,
