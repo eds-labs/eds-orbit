@@ -927,7 +927,15 @@ export function AiSettings() {
   return (
     <>
       {view && (
-        <AiSetupPanel view={view} saveKey={saveKey} onChanged={refreshAll} />
+        <AiSetupPanel
+          view={view}
+          saveKey={saveKey}
+          // The key saves copy the whole shown configuration into an unsaved
+          // project: a first save needs the confirmation (F-8 risk 5).
+          keyFields={firstSaveFields(view, locale)}
+          keyConfirmed={(values) => firstSaveConfirmed(view, values)}
+          onChanged={refreshAll}
+        />
       )}
       <section className="panel">
         <div className="panel-head">

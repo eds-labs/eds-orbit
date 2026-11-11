@@ -40,6 +40,18 @@ describe("taskRoutesFrom", () => {
   });
 });
 
+// F-8 risk 3: a form saves only the routes it shows.
+describe("taskRoutesFrom without a field", () => {
+  it("keeps the route of a task the form shows no field for", () => {
+    const current = { creative_review: { model: "m1", maxOutputTokens: 1500 } };
+    expect(taskRoutesFrom({ "task-chat_operator": "m2" }, current)).toEqual({
+      creative_review: current.creative_review,
+      chat_operator: { model: "m2", maxOutputTokens: 3000 },
+    });
+    expect(taskRoutesFrom({ "task-creative_review": "" }, current)).toEqual({}); // shown and cleared
+  });
+});
+
 describe("AI preset wording", () => {
   it("names presets and explains error codes, spaced or not", () => {
     expect(presetName({ provider: "anthropic", level: "balanced" }, "de")).toBe(

@@ -19,7 +19,7 @@ import {
 } from "@/lib/ai-presets";
 import { Alert, Badge, Button, Loading, Modal } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import { DataForm, str, type FormField, type FormValues } from "@/platform/ui/form";
 
 // "Standard-Modelle" (plans/ai-central-management.md, phase B): the
 // organization's (owners) or the system's (administrators) provider and
@@ -180,6 +180,22 @@ export function AiDefaultsPanel({
   );
 }
 
+/** The standard the form saves, from its values and the saved standard. */
+export function defaultsPayload(
+  values: FormValues,
+  current: AiDefaults | null,
+): AiDefaults {
+  const image = str(values, "imageModel");
+  return {
+    provider: str(values, "provider") as AiDefaults["provider"],
+    level: str(values, "level") as AiDefaults["level"],
+    ...(image ? { imageModel: image } : {}),
+    // Hidden task fields arrive empty and drop their routes; a task without
+    // a field keeps its route (F-8 risk 3).
+    taskRoutes: taskRoutesFrom(values, current?.taskRoutes),
+  };
+}
+
 function DefaultsForm({
   path,
   locale,
@@ -266,18 +282,7 @@ function DefaultsForm({
         submitLabel={t.save}
         onCancel={onClose}
         onSubmit={(values) =>
-          mutation.run(() => {
-            const image = str(values, "imageModel");
-            return put(path, {
-              provider: str(values, "provider"),
-              level: str(values, "level"),
-              ...(image ? { imageModel: image } : {}),
-              taskRoutes:
-                str(values, "advanced") === "yes"
-                  ? taskRoutesFrom(values, current?.taskRoutes)
-                  : {},
-            });
-          })
+          mutation.run(() => put(path, defaultsPayload(values, current)))
         }
       />
     </Modal>

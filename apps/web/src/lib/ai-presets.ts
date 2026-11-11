@@ -93,14 +93,21 @@ export const taskName = (task: (typeof aiTasks)[number], locale: Locale) =>
 /**
  * Task deviations from form values `task-<id>`: a chosen model keeps the
  * route's effort and tokens if it had one, else the task's default tokens.
+ * A task the form has no field for (such as the Creative Studio's while it
+ * is off) keeps its current route: a form saves only what it shows (F-8).
  */
 export function taskRoutesFrom(
   values: Record<string, unknown>,
   current: Partial<Record<string, TaskRoute>> = {},
-) {
+): Record<string, TaskRoute> {
   return Object.fromEntries(
     aiTasks.flatMap((task) => {
-      const model = String(values[`task-${task.id}`] ?? "");
+      const name = `task-${task.id}`;
+      if (!(name in values)) {
+        const kept = current[task.id];
+        return kept ? [[task.id, kept]] : [];
+      }
+      const model = String(values[name] ?? "");
       if (!model) return [];
       const previous = current[task.id];
       return [

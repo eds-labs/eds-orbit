@@ -1,7 +1,7 @@
 "use client";
 import { useContext, useState } from "react";
 import { Sparkles } from "lucide-react";
-import { action, useMutation } from "@/lib/api";
+import { action, collectionPath, useMutation, useResource } from "@/lib/api";
 import { ShellContext } from "@/platform/shell/shell-context";
 import type { Locale } from "@/lib/i18n";
 import {
@@ -315,13 +315,15 @@ function choiceFields(
 }
 
 /** The routing section `ai-configure` takes, from the choice form's values. */
-function routingFrom(values: FormValues, view: ModelChoiceView) {
+export function routingFrom(
+  values: FormValues,
+  view: ModelChoiceView,
+): Record<string, unknown> {
   const source = str(values, "source");
   if (source === "custom") return { source };
-  const overrides =
-    str(values, "advanced") === "yes"
-      ? taskRoutesFrom(values, view.routing?.overrides)
-      : {};
+  // Task fields hidden by "advanced: no" arrive empty and drop exactly the
+  // shown tasks' overrides; a task without a field keeps its own (F-8 risk 3).
+  const overrides = taskRoutesFrom(values, view.routing?.overrides);
   return source === "preset"
     ? {
         source,
@@ -378,11 +380,17 @@ function ChoiceForm({
 export function AiSetupPanel({
   view,
   saveKey,
+  keyFields = [],
+  keyConfirmed = () => true,
   onChanged,
 }: {
   view: ModelChoiceView;
   /** Saves an own key of the provider through the project's AI settings. */
   saveKey: (provider: AiProvider, key: string) => Promise<unknown>;
+  /** Extra fields of the key step, such as the first-save confirmation. */
+  keyFields?: FormField[];
+  /** Whether the key step may save these values; false sends no request. */
+  keyConfirmed?: (values: FormValues) => boolean;
   onChanged: () => void;
 }) {
   const { locale } = useWorkspace();
@@ -407,6 +415,8 @@ export function AiSetupPanel({
         <SetupWizard
           view={view}
           saveKey={saveKey}
+          keyFields={keyFields}
+          keyConfirmed={keyConfirmed}
           onChanged={onChanged}
           onClose={() => {
             setOpen(false);
@@ -418,14 +428,56 @@ export function AiSetupPanel({
   );
 }
 
+export type WizardStep = "key" | "models" | "budget";
+
+/** The wizard's steps: "budget" only once the authority has loaded and the project has none. */
+export function wizardSteps(input: {
+  keyReady: boolean;
+  policy: { record: unknown | null; source: string } | null;
+}): WizardStep[] {
+  const { keyReady, policy } = input;
+  return [
+    ...(keyReady ? [] : (["key"] as const)),
+    "models",
+    ...(policy !== null && policy.record === null && policy.source === "none"
+      ? (["budget"] as const)
+      : []),
+  ];
+}
+
+/** The setup's budget step: the spending authority's starting profile. */
+export function budgetStepFields(t: {
+  budget: string;
+  budgets: Record<"off" | "10" | "50", string>;
+}): FormField[] {
+  return [
+    {
+      name: "profile",
+      label: t.budget,
+      type: "select",
+      // No preselection: the setup writes an authority only by choice (F-8 risk 5).
+      value: "",
+      required: true,
+      options: (["off", "10", "50"] as const).map((p) => ({
+        value: p,
+        label: t.budgets[p],
+      })),
+    },
+  ];
+}
+
 function SetupWizard({
   view,
   saveKey,
+  keyFields,
+  keyConfirmed,
   onChanged,
   onClose,
 }: {
   view: ModelChoiceView;
   saveKey: (provider: AiProvider, key: string) => Promise<unknown>;
+  keyFields: FormField[];
+  keyConfirmed: (values: FormValues) => boolean;
   onChanged: () => void;
   onClose: () => void;
 }) {
@@ -434,9 +486,16 @@ function SetupWizard({
   const keys = (["anthropic", "openai"] as const).filter(
     (p) => view.providers[p].keyConfigured,
   );
-  const [step, setStep] = useState<"key" | "models" | "budget">(
+  // The budget step only for a project without an authority: re-running the
+  // setup never replaces one (F-8 risk 5).
+  const policy = useResource<{ record: unknown | null; source: string }>(
+    collectionPath(project.id, "ai-spend-policy"),
+  );
+  const steps = wizardSteps({ keyReady: keys.length > 0, policy: policy.data });
+  const [step, setStep] = useState<WizardStep>(
     keys.length ? "models" : "key",
   );
+  const withBudget = steps.includes("budget");
   const mutation = useMutation(() => {
     refresh();
     onChanged();
@@ -476,17 +535,19 @@ function SetupWizard({
                 })),
               },
               { name: "key", label: t.key, type: "password", required: true },
+              ...keyFields,
             ]}
             pending={mutation.pending}
             error={aiErrorText(mutation.error, locale)}
             submitLabel={t.next}
             onCancel={onClose}
-            onSubmit={(values) =>
-              save(
+            onSubmit={(values) => {
+              if (!keyConfirmed(values)) return;
+              return save(
                 () => saveKey(str(values, "provider") as AiProvider, str(values, "key")),
                 () => setStep("models"),
-              )
-            }
+              );
+            }}
           />
         </>
       )}
@@ -495,13 +556,13 @@ function SetupWizard({
           fields={choiceFields(view, t, locale, { custom: false, advanced: false })}
           pending={mutation.pending}
           error={aiErrorText(mutation.error, locale)}
-          submitLabel={t.next}
+          submitLabel={withBudget ? t.next : t.finish}
           onCancel={onClose}
           onSubmit={(values) =>
             save(
               () =>
                 action(project.id, "ai-configure", { routing: routingFrom(values, view) }),
-              () => setStep("budget"),
+              withBudget ? () => setStep("budget") : onClose,
             )
           }
         />
@@ -510,18 +571,7 @@ function SetupWizard({
         <>
           <p className="panel-note">{t.budgetHint}</p>
           <DataForm
-            fields={[
-              {
-                name: "profile",
-                label: t.budget,
-                type: "select",
-                value: "10",
-                options: (["off", "10", "50"] as const).map((p) => ({
-                  value: p,
-                  label: t.budgets[p],
-                })),
-              },
-            ]}
+            fields={budgetStepFields(t)}
             pending={mutation.pending}
             error={aiErrorText(mutation.error, locale)}
             submitLabel={t.finish}
