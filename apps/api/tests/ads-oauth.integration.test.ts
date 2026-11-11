@@ -29,15 +29,25 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
   const origin = process.env.APP_ORIGIN!;
   const outputs: unknown[] = [];
   const tokens: string[] = [];
+  const projects: AdsProject[] = [];
+  /** Every project the file creates is scanned for leaks at the end. */
+  const track = async (options: Parameters<typeof createAdsProject>[0]) => {
+    const project = await createAdsProject(options);
+    projects.push(project);
+    return project;
+  };
   const ip = () => `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
   const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 
-  const callback = (cookie: string | null, query: string) =>
-    app.inject({
+  const callback = async (cookie: string | null, query: string) => {
+    const response = await app.inject({
       method: "GET",
       url: `/api/ads/oauth/callback/meta?${query}`,
       headers: { origin, ...(cookie ? { cookie } : {}), [CLIENT_IP_HEADER]: ip() },
     });
+    outputs.push(response.body, response.headers.location);
+    return response;
+  };
   const start = async (project: AdsProject = p, who: "owner" | "editor" | "viewer" = "owner") => {
     const response = await project.call(who, "POST", "/ads/connections/meta/connect");
     outputs.push(response.body);
@@ -98,7 +108,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     process.env.ORBIT_CONNECTIONS = "true";
     process.env.ORBIT_ADS = "true";
     app = await buildServer();
-    p = await createAdsProject({ app });
+    p = await track({ app });
     const granted = await grantAdsMetaApp(p);
     cleanups.push(granted.cleanup, () => p.cleanup());
   });
@@ -115,7 +125,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
   });
 
   it("refuses to begin without the app grant (409)", async () => {
-    const bare = await createAdsProject({ app });
+    const bare = await track({ app });
     cleanups.push(() => bare.cleanup());
     const { response } = await start(bare);
     expect([response.statusCode, response.json().error?.code]).toEqual([409, "ADS_META_APP_NOT_GRANTED"]);
@@ -124,7 +134,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
   it("lets only the owner begin; editors and viewers get 403, a disabled module 404", async () => {
     expect((await start(p, "editor")).response.statusCode).toBe(403);
     expect((await start(p, "viewer")).response.statusCode).toBe(403);
-    const off = await createAdsProject({ app, enabled: false });
+    const off = await track({ app, enabled: false });
     cleanups.push(() => off.cleanup());
     const response = await off.call("owner", "POST", "/ads/connections/meta/connect");
     expect([response.statusCode, response.json().error?.code]).toEqual([404, "ADS_DISABLED"]);
@@ -188,7 +198,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     const q = `code=${CODE}&state=${encodeURIComponent(state)}`;
     expect((await callback(null, q)).statusCode).toBe(401);
     expect((await callback(p.cookies.editor, q)).statusCode).toBe(403);
-    const other = await createAdsProject({ app });
+    const other = await track({ app });
     cleanups.push(() => other.cleanup());
     expect([403, 404]).toContain((await callback(other.cookies.owner, q)).statusCode);
     // A second owner of the same project did not start the flow.
@@ -242,7 +252,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
   });
 
   it("redirects a failed exchange with its code only and does not leave the state usable", async () => {
-    const q = await createAdsProject({ app });
+    const q = await track({ app });
     cleanups.push(() => q.cleanup());
     cleanups.push((await grantAdsMetaApp(q)).cleanup);
     fake.on("POST", "/oauth/access_token", graphError(400, 100));
@@ -256,7 +266,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
   });
 
   it("connects: one sealed connection with the token and non-secret facts", async () => {
-    const q = await createAdsProject({ app });
+    const q = await track({ app });
     cleanups.push(() => q.cleanup());
     cleanups.push((await grantAdsMetaApp(q)).cleanup);
     const token = fakeToken("first");
@@ -281,7 +291,7 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
   });
 
   it("reconnects: rotates the secret, restores readable accounts, keeps refused ones waiting", async () => {
-    const q = await createAdsProject({ app });
+    const q = await track({ app });
     cleanups.push(() => q.cleanup());
     cleanups.push((await grantAdsMetaApp(q)).cleanup);
     const first = fakeToken("one");
@@ -320,17 +330,24 @@ describe.skipIf(!enabled)("ads OAuth connect and callback", () => {
     outputs.push(rows.accounts, rows.health);
   });
 
-  it("leaks no token, code or app secret into any output Orbit wrote", async () => {
-    const rows = await p.run(async (tx) => ({
-      audit: await tx.auditEvent.findMany({ select: { metadata: true, action: true, resourceId: true } }),
-      events: await tx.domainEvent.findMany({ select: { data: true } }),
-      notifications: await tx.notification.findMany({ select: { title: true, body: true, link: true } }),
-      accounts: await tx.adAccount.findMany(),
-      states: await tx.adOAuthState.findMany({ select: { stateHash: true, redirectAfter: true } }),
-    }));
-    const all = [...outputs, rows];
-    expect(outputs.length).toBeGreaterThan(5);
-    expect(tokens.length).toBeGreaterThan(2);
-    expectNoSecret(all, [...tokens, CODE, ADS_META_APP.appSecret]);
+  it("leaks no token, code or app secret into any output Orbit wrote, in any project", async () => {
+    const secrets = [...tokens, CODE, ADS_META_APP.appSecret];
+    expect(outputs.length).toBeGreaterThan(20);
+    expect(tokens.length).toBeGreaterThan(3);
+    expect(projects.length).toBeGreaterThan(4);
+    expectNoSecret(outputs, secrets);
+    let audits = 0;
+    for (const project of projects) {
+      const rows = await project.run(async (tx) => ({
+        audit: await tx.auditEvent.findMany({ select: { metadata: true, action: true, resourceId: true } }),
+        events: await tx.domainEvent.findMany({ select: { data: true } }),
+        notifications: await tx.notification.findMany({ select: { title: true, body: true, link: true } }),
+        accounts: await tx.adAccount.findMany(),
+        states: await tx.adOAuthState.findMany({ select: { stateHash: true, redirectAfter: true } }),
+      }));
+      audits += rows.audit.filter((a) => a.action === "ads.account.connected").length;
+      expectNoSecret(rows, secrets);
+    }
+    expect(audits).toBeGreaterThanOrEqual(3);
   });
 });
