@@ -5,10 +5,16 @@ import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { data, list } from "../../../shared.ts";
+import { data, DomainError, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { socialChannelHandles } from "../../social/contract.ts";
-import { confirmedHash, withinConfirmation } from "./agent-review.ts";
+import {
+  agentReviewAuthority,
+  confirmedHash,
+  withinConfirmation,
+} from "./agent-review.ts";
+import { loadConfig } from "../../../../../../packages/config/src/index.ts";
+import { resolveBrandKit } from "../creative/brand-kit.ts";
 import {
   nextAssignmentRunAt,
   runRetryRefusal,
@@ -101,6 +107,36 @@ export async function rowsById(
 }
 
 /**
+ * Whether the agent may release the creative posts of an assignment, and
+ * whether the vision review is on (read only, for the settings view). Null
+ * unless the assignment has a creative and its agent approves the drafts. The
+ * brand kit is resolved at most once per call through `kit`; a project
+ * without a usable kit has no vision review.
+ */
+export async function creativeAuthorityOf(
+  tx: DbTx,
+  scope: Scope,
+  d: Record<string, any>,
+  kit: { visionReview?: boolean } = {},
+) {
+  if (!d.creative || approvalModeOf(d) !== "delegated_review") return null;
+  if (kit.visionReview === undefined)
+    kit.visionReview = await resolveBrandKit(tx, scope).then(
+      (plan) => plan.config.visualReview === true,
+      (error) => {
+        if (error instanceof DomainError) return false;
+        throw error;
+      },
+    );
+  return {
+    flag:
+      loadConfig().ORBIT_AGENT_REVIEW_CREATIVES === "true" &&
+      agentReviewAuthority(),
+    visionReview: kit.visionReview,
+  };
+}
+
+/**
  * The project's assignments for the assignments page: schedule, the time the
  * next run starts, what this UTC month has cost (counted like the budget
  * check, `assignmentMonthSpend`) against the monthly budget, and the open
@@ -133,6 +169,7 @@ export async function listAssignments(
     project.timezone,
   );
   const items = [];
+  const kit: { visionReview?: boolean } = {};
   for (const row of rows) {
     const d = data(row);
     // The latest run (not retired) when the owner can still retry it (G6).
@@ -163,6 +200,7 @@ export async function listAssignments(
       vetoMinutes: d.vetoMinutes,
       delivery: deliveryOf(d),
       approvalMode: approvalModeOf(d),
+      creativeAuthority: await creativeAuthorityOf(tx, scope, d, kit),
       // A paused project runs nothing, so no run is due.
       nextRunAt: project.paused
         ? null

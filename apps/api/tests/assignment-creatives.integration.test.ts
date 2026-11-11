@@ -108,7 +108,9 @@ import {
 import {
   draftDecisionHistory,
   draftsAwaitingOwner,
+  listAssignments,
 } from "../src/modules/marketing/agents/assignment-overview.ts";
+import { assignmentDetail } from "../src/modules/marketing/agents/assignment-detail.ts";
 import { releaseAssignmentDraft } from "../src/modules/marketing/agents/owner-release.ts";
 import { CREATIVES } from "../src/modules/marketing/creative/store.ts";
 import { recomposeCreative } from "../src/modules/marketing/creative/pipeline.ts";
@@ -1539,5 +1541,46 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
     );
     for (const channel of [X, TELEGRAM])
       expect(after.find((c) => c.channel === channel)!.status).toBe("reviewed");
+  });
+  it("reports the creative authority state of a delegated creative assignment, and null otherwise", async () => {
+    const delegated = await creativeAssignment({
+      approvalMode: "delegated_review",
+    });
+    const owner = await creativeAssignment({ approvalMode: "human_each" });
+    const plain = await h.makeAssignment({ approvalMode: "delegated_review" });
+    const read = async () => {
+      const overview = await h.run((tx) => listAssignments(tx, project.owner));
+      const byId = new Map(overview.items.map((item) => [item.id, item]));
+      const detail = await h.run((tx) =>
+        assignmentDetail(tx, project.owner, delegated.id),
+      );
+      return {
+        delegated: byId.get(delegated.id)!.creativeAuthority,
+        owner: byId.get(owner.id)!.creativeAuthority,
+        plain: byId.get(plain.id)!.creativeAuthority,
+        detail: detail.assignment.creativeAuthority,
+      };
+    };
+    process.env.ORBIT_AGENT_REVIEW_CREATIVES = "false";
+    expect(await read()).toEqual({
+      delegated: { flag: false, visionReview: false },
+      owner: null,
+      plain: null,
+      detail: { flag: false, visionReview: false },
+    });
+    process.env.ORBIT_AGENT_REVIEW_CREATIVES = "true";
+    await enableVisionReview();
+    expect(await read()).toEqual({
+      delegated: { flag: true, visionReview: true },
+      owner: null,
+      plain: null,
+      detail: { flag: true, visionReview: true },
+    });
+    // The creative flag alone is not authority: the review authority comes first.
+    process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "false";
+    expect((await read()).delegated).toEqual({
+      flag: false,
+      visionReview: true,
+    });
   });
 });
