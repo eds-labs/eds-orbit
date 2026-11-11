@@ -12,7 +12,15 @@ const counts = { total: 6, following: 1, unsaved: 2, own: 3 };
 describe("affected projects", () => {
   it("fills the counts into the organization's profile notice", () => {
     expect(affectedText("affectedOrgProfile", { following: 1, unsaved: 2, own: 3, total: 6 }, "en"))
-      .toBe("Applies to projects that follow the standard (1) and to projects without own AI settings (2); projects with their own choice (3) keep the values they set. Saving changes the route version of every project of this organization (6): running AI work there stops before its next paid call.");
+      .toBe("Applies to projects that follow the standard (1) and to projects without own AI settings (2); projects with their own choice (3) keep the values they set. Saving changes the route version of every project of this organization (6) and of the personal spaces in it: running AI work there stops before its next paid call.");
+    expect(affectedText("affectedOrgProfile", { following: 1, unsaved: 2, own: 3, total: 6 }, "de"))
+      .toBe("Gilt für Projekte, die dem Standard folgen (1), und für Projekte ohne eigene KI-Einstellungen (2); Projekte mit eigener Wahl (3) behalten ihre gesetzten Werte. Speichern ändert die Routen-Version jedes Projekts dieser Organisation (6) und der persönlichen Bereiche darin: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.");
+    expect(affectedText("affectedOrgRouteOnly", { total: 6 }, "en")).toBe(
+      "Saving changes the route version of every project of this organization (6) and of the personal spaces in it: running AI work there stops before its next paid call.",
+    );
+    expect(affectedText("affectedOrgRouteOnly", { total: 6 }, "de")).toBe(
+      "Speichern ändert die Routen-Version jedes Projekts dieser Organisation (6) und der persönlichen Bereiche darin: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+    );
     expect(affectedText("affectedOrgCatalog", { total: 6 }, "de")).toBe(
       "Preise und Schalter hier gelten für jedes Projekt dieser Organisation (6), das keinen eigenen Preis festlegt.",
     );
@@ -43,7 +51,7 @@ describe("affected projects", () => {
       <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} locale="en" />,
     );
     expect(org).toContain("Applies to projects that follow the standard (1) and to projects without own AI settings (2); projects with their own choice (3)");
-    expect(org).toContain("route version of every project of this organization (6)");
+    expect(org).toContain("route version of every project of this organization (6) and of the personal spaces in it");
     const system = renderToStaticMarkup(
       <AffectedProjectsNotice scope="system" kind="profile" total={9} locale="de" />,
     );
@@ -87,7 +95,7 @@ describe("affected projects", () => {
     const off = renderToStaticMarkup(
       <AffectedProjectsNotice scope="organization" kind="profile" counts={counts} standardApplies={false} unreadable={1} locale="en" />,
     );
-    expect(off).toContain("Saving changes the route version of every project of this organization (6)");
+    expect(off).toContain("Saving changes the route version of every project of this organization (6) and of the personal spaces in it: running AI work there stops before its next paid call.");
     expect(off).not.toContain("follow the standard");
     expect(off).toContain(". Projects that could not be read and are missing from this list: 1.");
   });

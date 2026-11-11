@@ -67,7 +67,7 @@ const en = {
   changeBudgets: "Budgets",
   modelsAdvanced: "Models, prices and task routes",
   defaultsOff:
-    "Standard models and presets are not switched on for this installation; the project's own models apply.",
+    "Standard models and presets are not switched on for this installation; a project uses its own AI settings, or the profiles and the environment where it has none.",
   ceilingsTitle: "AI ceilings of the modules",
   ceilingsIntro:
     "Modules limit their own AI use on top of the spending authority. They are changed in each module's settings.",
@@ -75,9 +75,9 @@ const en = {
   ceilingOff: "switched off",
   openSetting: "Open setting",
   affectedOrgProfile:
-    "Applies to projects that follow the standard ({following}) and to projects without own AI settings ({unsaved}); projects with their own choice ({own}) keep the values they set. Saving changes the route version of every project of this organization ({total}): running AI work there stops before its next paid call.",
+    "Applies to projects that follow the standard ({following}) and to projects without own AI settings ({unsaved}); projects with their own choice ({own}) keep the values they set. Saving changes the route version of every project of this organization ({total}) and of the personal spaces in it: running AI work there stops before its next paid call.",
   affectedOrgRouteOnly:
-    "Saving changes the route version of every project of this organization ({total}): running AI work there stops before its next paid call.",
+    "Saving changes the route version of every project of this organization ({total}) and of the personal spaces in it: running AI work there stops before its next paid call.",
   affectedOrgCatalog:
     "Prices and switches here apply to every project of this organization ({total}) that sets no price of its own.",
   affectedSystemProfile:
@@ -178,7 +178,7 @@ const de: Record<AiTextKey, string> = {
   changeBudgets: "Budgets",
   modelsAdvanced: "Modelle, Preise und Aufgaben-Routen",
   defaultsOff:
-    "Standard-Modelle und Stufen sind für diese Installation nicht eingeschaltet; es gelten die eigenen Modelle des Projekts.",
+    "Standard-Modelle und Stufen sind für diese Installation nicht eingeschaltet; ein Projekt nutzt seine eigenen KI-Einstellungen oder, wo es keine hat, die Profile und die Umgebung.",
   ceilingsTitle: "KI-Obergrenzen der Module",
   ceilingsIntro:
     "Module begrenzen ihre KI-Nutzung zusätzlich zur Ausgabenfreigabe. Geändert werden sie in den Einstellungen des jeweiligen Moduls.",
@@ -186,9 +186,9 @@ const de: Record<AiTextKey, string> = {
   ceilingOff: "ausgeschaltet",
   openSetting: "Einstellung öffnen",
   affectedOrgProfile:
-    "Gilt für Projekte, die dem Standard folgen ({following}), und für Projekte ohne eigene KI-Einstellungen ({unsaved}); Projekte mit eigener Wahl ({own}) behalten ihre gesetzten Werte. Speichern ändert die Routen-Version jedes Projekts dieser Organisation ({total}): Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+    "Gilt für Projekte, die dem Standard folgen ({following}), und für Projekte ohne eigene KI-Einstellungen ({unsaved}); Projekte mit eigener Wahl ({own}) behalten ihre gesetzten Werte. Speichern ändert die Routen-Version jedes Projekts dieser Organisation ({total}) und der persönlichen Bereiche darin: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedOrgRouteOnly:
-    "Speichern ändert die Routen-Version jedes Projekts dieser Organisation ({total}): Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
+    "Speichern ändert die Routen-Version jedes Projekts dieser Organisation ({total}) und der persönlichen Bereiche darin: Laufende KI-Arbeit dort stoppt vor ihrem nächsten bezahlten Aufruf.",
   affectedOrgCatalog:
     "Preise und Schalter hier gelten für jedes Projekt dieser Organisation ({total}), das keinen eigenen Preis festlegt.",
   affectedSystemProfile:

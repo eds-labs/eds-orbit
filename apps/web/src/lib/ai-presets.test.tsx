@@ -4,6 +4,7 @@ import {
   presetName,
   shownAiTasks,
   taskRoutesFrom,
+  withStoredOption,
 } from "./ai-presets";
 import { budgetRefusalText } from "./budget-refusals";
 
@@ -49,6 +50,33 @@ describe("taskRoutesFrom without a field", () => {
       chat_operator: { model: "m2", maxOutputTokens: 3000 },
     });
     expect(taskRoutesFrom({ "task-creative_review": "" }, current)).toEqual({}); // shown and cleared
+  });
+
+  it("keeps the stored route of a task class the web list does not know", () => {
+    const current = {
+      future_task: { model: "m9", maxOutputTokens: 700 },
+      chat_operator: { model: "m1", maxOutputTokens: 3000 },
+    };
+    expect(taskRoutesFrom({ "task-chat_operator": "" }, current)).toEqual({
+      future_task: current.future_task,
+    });
+  });
+});
+
+// A stored value that is no longer offered stays selectable, so an untouched
+// save keeps it instead of falling back to the first option.
+describe("withStoredOption", () => {
+  const options = [
+    { value: "", label: "None" },
+    { value: "a", label: "A" },
+  ];
+  it("appends a stored value that is not among the options", () => {
+    expect(withStoredOption(options, "old")).toEqual([...options, { value: "old", label: "old" }]);
+  });
+  it("leaves the options alone for an offered or empty value", () => {
+    expect(withStoredOption(options, "a")).toEqual(options);
+    expect(withStoredOption(options, "")).toEqual(options);
+    expect(withStoredOption(options, undefined)).toEqual(options);
   });
 });
 

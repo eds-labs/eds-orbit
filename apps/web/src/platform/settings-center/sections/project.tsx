@@ -8,6 +8,7 @@ import {
   AiProjectUsagePanel,
   AiProviderBudgetPanels,
   AiProvidersPanel,
+  modelChoiceProps,
   setupKeyProps,
   useAiSettingsResources,
   type AiConfigurationData,
@@ -166,7 +167,13 @@ export function AiModelsSectionView({
   const view = configuration.data;
   return (
     <>
-      {view && <ModelChoicePanel view={view} onChanged={refreshAll} />}
+      {view && (
+        <ModelChoicePanel
+          view={view}
+          {...modelChoiceProps(view, locale)}
+          onChanged={refreshAll}
+        />
+      )}
       {aiDefaults ? null : <Alert kind="info">{t("defaultsOff")}</Alert>}
       <details>
         <summary>{t("modelsAdvanced")}</summary>

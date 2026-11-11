@@ -15,6 +15,7 @@ import {
   taskName,
   taskRoutesFrom,
   tiersText,
+  withStoredOption,
   type AiDefaults,
   type AiProvider,
   type PresetLevel,
@@ -164,9 +165,15 @@ function describe(view: ModelChoiceView, t: Text, locale: Locale) {
 
 export function ModelChoicePanel({
   view,
+  routingFields = [],
+  routingConfirmed = () => true,
   onChanged,
 }: {
   view: ModelChoiceView;
+  /** Extra fields of the choice form, such as the first-save confirmation. */
+  routingFields?: FormField[];
+  /** Whether the choice form may save these values; false sends no request. */
+  routingConfirmed?: (values: FormValues) => boolean;
   onChanged: () => void;
 }) {
   const { locale } = useWorkspace();
@@ -217,6 +224,8 @@ export function ModelChoicePanel({
       {editing && (
         <ChoiceForm
           view={view}
+          extraFields={routingFields}
+          confirmed={routingConfirmed}
           onClose={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -305,13 +314,39 @@ function choiceFields(
               label: taskName(task, locale),
               type: "select",
               value: overrides[task.id]?.model ?? "",
-              options: [{ value: "", label: t.levelTask }, ...textModels],
+              // A stored model no longer in the catalog stays selected (review I4).
+              options: withStoredOption(
+                [{ value: "", label: t.levelTask }, ...textModels],
+                overrides[task.id]?.model,
+              ),
               showWhen: { name: "advanced", values: ["yes"] },
             }),
           ),
         ]
       : []),
   ];
+}
+
+/** The choice form's fields for a locale (the form and the wizard's models step). */
+export function modelChoiceFields(
+  view: ModelChoiceView,
+  locale: Locale,
+  options: Parameters<typeof choiceFields>[3],
+): FormField[] {
+  return choiceFields(view, textOf(locale), locale, options);
+}
+
+/**
+ * The `ai-configure` input a choice form submits, or null while the
+ * confirmation (the first-save box) refuses: then no request is sent.
+ */
+export function choiceSubmit(
+  values: FormValues,
+  view: ModelChoiceView,
+  confirmed: (values: FormValues) => boolean,
+): { routing: Record<string, unknown> } | null {
+  if (!confirmed(values)) return null;
+  return { routing: routingFrom(values, view) };
 }
 
 /** The routing section `ai-configure` takes, from the choice form's values. */
@@ -336,10 +371,14 @@ export function routingFrom(
 
 function ChoiceForm({
   view,
+  extraFields,
+  confirmed,
   onClose,
   onSaved,
 }: {
   view: ModelChoiceView;
+  extraFields: FormField[];
+  confirmed: (values: FormValues) => boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -353,20 +392,23 @@ function ChoiceForm({
   return (
     <Modal title={t.title} onClose={onClose}>
       <DataForm
-        fields={choiceFields(view, t, locale, {
-          custom: true,
-          advanced: true,
-          features,
-        })}
+        fields={[
+          ...choiceFields(view, t, locale, {
+            custom: true,
+            advanced: true,
+            features,
+          }),
+          ...extraFields,
+        ]}
         pending={mutation.pending}
         error={aiErrorText(mutation.error, locale)}
         submitLabel={t.save}
         onCancel={onClose}
-        onSubmit={(values) =>
-          mutation.run(() =>
-            action(project.id, "ai-configure", { routing: routingFrom(values, view) }),
-          )
-        }
+        onSubmit={(values) => {
+          const input = choiceSubmit(values, view, confirmed);
+          if (!input) return;
+          return mutation.run(() => action(project.id, "ai-configure", input));
+        }}
       />
     </Modal>
   );
@@ -382,6 +424,8 @@ export function AiSetupPanel({
   saveKey,
   keyFields = [],
   keyConfirmed = () => true,
+  modelsFields = [],
+  modelsConfirmed = () => true,
   onChanged,
 }: {
   view: ModelChoiceView;
@@ -391,6 +435,10 @@ export function AiSetupPanel({
   keyFields?: FormField[];
   /** Whether the key step may save these values; false sends no request. */
   keyConfirmed?: (values: FormValues) => boolean;
+  /** Extra fields of the models step, such as the first-save confirmation. */
+  modelsFields?: FormField[];
+  /** Whether the models step may save these values; false sends no request. */
+  modelsConfirmed?: (values: FormValues) => boolean;
   onChanged: () => void;
 }) {
   const { locale } = useWorkspace();
@@ -417,6 +465,8 @@ export function AiSetupPanel({
           saveKey={saveKey}
           keyFields={keyFields}
           keyConfirmed={keyConfirmed}
+          modelsFields={modelsFields}
+          modelsConfirmed={modelsConfirmed}
           onChanged={onChanged}
           onClose={() => {
             setOpen(false);
@@ -471,6 +521,8 @@ function SetupWizard({
   saveKey,
   keyFields,
   keyConfirmed,
+  modelsFields,
+  modelsConfirmed,
   onChanged,
   onClose,
 }: {
@@ -478,6 +530,8 @@ function SetupWizard({
   saveKey: (provider: AiProvider, key: string) => Promise<unknown>;
   keyFields: FormField[];
   keyConfirmed: (values: FormValues) => boolean;
+  modelsFields: FormField[];
+  modelsConfirmed: (values: FormValues) => boolean;
   onChanged: () => void;
   onClose: () => void;
 }) {
@@ -553,18 +607,22 @@ function SetupWizard({
       )}
       {step === "models" && (
         <DataForm
-          fields={choiceFields(view, t, locale, { custom: false, advanced: false })}
+          fields={[
+            ...choiceFields(view, t, locale, { custom: false, advanced: false }),
+            ...modelsFields,
+          ]}
           pending={mutation.pending}
           error={aiErrorText(mutation.error, locale)}
           submitLabel={withBudget ? t.next : t.finish}
           onCancel={onClose}
-          onSubmit={(values) =>
-            save(
-              () =>
-                action(project.id, "ai-configure", { routing: routingFrom(values, view) }),
+          onSubmit={(values) => {
+            const input = choiceSubmit(values, view, modelsConfirmed);
+            if (!input) return;
+            return save(
+              () => action(project.id, "ai-configure", input),
               withBudget ? () => setStep("budget") : onClose,
-            )
-          }
+            );
+          }}
         />
       )}
       {step === "budget" && (

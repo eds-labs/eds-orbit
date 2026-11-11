@@ -286,10 +286,14 @@ export function choiceOf(view: Pick<SpendPolicyView, "record">): Choice | "" {
   return "monthly";
 }
 
-/** The action input, or null when the form changed nothing. */
+/**
+ * The action input, or null when the form changed nothing. `now` is the
+ * current time in milliseconds.
+ */
 export function spendPolicyPayload(
   values: FormValues,
   record: SpendPolicyView["record"],
+  now: number,
 ): Record<string, unknown> | null {
   const choice = str(values, "profile") as Choice;
   const monthly = {
@@ -297,15 +301,22 @@ export function spendPolicyPayload(
     "monthly-50": 50_000_000,
     monthly: micros(str(values, "amount")),
   } as Partial<Record<Choice, number>>;
-  // An unchanged save would still derive day and run anew and restart the
-  // year on the server (F-8 risk 6); "custom" always saves its own limits.
-  const saved = record as { profile?: Profile; monthlyBudgetMicros?: number } | null;
+  // An unchanged monthly save would still derive day and run anew and
+  // restart the year on the server (F-8 risk 6), so it is skipped while the
+  // stored window is open. Every other save is sent: an expired window is
+  // renewed only by saving, "test" and "off" mean "from now", and "custom"
+  // always saves its own limits.
+  const saved = record as
+    | { profile?: Profile; monthlyBudgetMicros?: number; endAt?: unknown }
+    | null;
+  const open =
+    typeof saved?.endAt === "string" && Date.parse(saved.endAt) > now;
   if (
     saved &&
-    (monthly[choice] !== undefined
-      ? saved.profile === "monthly" &&
-        saved.monthlyBudgetMicros === monthly[choice]
-      : choice !== "custom" && saved.profile === choice)
+    open &&
+    monthly[choice] !== undefined &&
+    saved.profile === "monthly" &&
+    saved.monthlyBudgetMicros === monthly[choice]
   )
     return null;
   return monthly[choice] !== undefined
@@ -431,13 +442,14 @@ function SpendPolicyForm({
         onSubmit={(values) => {
           // Nothing changed: close without a request. "custom" never compares
           // equal, so its date parsing still fails inside the save as before.
+          const at = Date.now();
           if (
             str(values, "profile") !== "custom" &&
-            spendPolicyPayload(values, view.record) === null
+            spendPolicyPayload(values, view.record, at) === null
           )
             return onClose();
           return mutation.run(() =>
-            action(project.id, "ai-spend-policy", spendPolicyPayload(values, view.record)),
+            action(project.id, "ai-spend-policy", spendPolicyPayload(values, view.record, at)),
           );
         }}
       />

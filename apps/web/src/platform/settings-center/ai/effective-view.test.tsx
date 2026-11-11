@@ -244,6 +244,10 @@ describe("EffectiveAiView", () => {
     const system = render(fixture({ standardSource: "system" }));
     expect(system).toContain("Orbit&#x27;s standard applies");
     expect(render(fixture())).not.toContain("Orbit&#x27;s standard applies");
+    // Only while the standard applies; otherwise routingOff explains (review Minor 5).
+    expect(
+      render(fixture({ standardSource: "system", routingApplied: false })),
+    ).not.toContain("Orbit&#x27;s standard applies");
     expect(render(fixture())).not.toContain("not switched on");
     expect(render(fixture({ routingApplied: false }))).toContain(
       "Standard models and presets are not switched on for this installation, so the project&#x27;s own settings apply until they are.",

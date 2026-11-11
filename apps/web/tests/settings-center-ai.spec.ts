@@ -566,7 +566,7 @@ test.describe("settings center AI area", () => {
       await main(owner).getByText("Models, prices and task routes", { exact: true }).click();
       await expect(heading(owner, "AI models")).toBeVisible();
       await expect(
-        main(owner).getByText(/^The models come from the organization's standard\./),
+        main(owner).getByText(/^The project follows the organization's standard, so models and task routes are not chosen here\./),
       ).toBeVisible();
       await expect(main(owner).getByRole("button", { name: "Task routes" })).toHaveCount(0);
 

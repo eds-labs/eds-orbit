@@ -263,7 +263,7 @@ describe("project scope", () => {
     expect(following).not.toContain("not switched on");
     expect(render(null)).toContain("Task routes");
     expect(render(null, false)).toContain(
-      "Standard models and presets are not switched on for this installation; the project&#x27;s own models apply.",
+      "Standard models and presets are not switched on for this installation; a project uses its own AI settings, or the profiles and the environment where it has none.",
     );
   });
 });

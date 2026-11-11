@@ -265,15 +265,27 @@ export function providerPayload(view: AiConfigurationData): ProviderSection {
 
 /**
  * The first-save confirmation, only while the project saved no AI settings
- * of its own: a first save cannot be partial, it copies the whole shown
- * configuration into the project (F-8 risk 1).
+ * of its own: a first save cannot be partial (F-8 risk 1). `section` words
+ * it for what the form writes: "models" for the forms that show models,
+ * prices or tiers and copy them; "settings" for the forms that write keys,
+ * budgets or the model choice, after which the project has no models and
+ * prices of its own (review I3).
  */
 export function firstSaveFields(
   view: Pick<OpenAiConfigurationView, "stored">,
   locale: Locale,
+  section: "models" | "settings" = "models",
 ): FormField[] {
   if (view.stored !== null) return [];
   const de = locale === "de";
+  const hint = {
+    models: de
+      ? "Dieses Projekt hat noch keine eigenen KI-Einstellungen. Beim Speichern werden die hier gezeigten Modelle, Preise und Stufen in das Projekt übernommen. Danach gilt der Schlüssel aus der Umgebung nicht mehr, und die Modelleinstellungen von Organisation und System gelten für die hier gespeicherten Felder nicht mehr."
+      : "This project has no AI settings of its own yet. Saving copies the models, prices and tiers shown here into the project. From then on the environment's key no longer serves it, and the organization's and system's model settings no longer apply to the fields saved here.",
+    settings: de
+      ? "Dieses Projekt hat noch keine eigenen KI-Einstellungen. Beim Speichern werden sie angelegt, zunächst ohne eigene Modelle und Preise. Danach gilt der Schlüssel aus der Umgebung für das Projekt nicht mehr, und Werte, die es bisher von Organisation, System oder Umgebung übernommen hat, können entfallen. Prüfe danach Modelle, Schlüssel und Budgets."
+      : "This project has no AI settings of its own yet. Saving creates them, at first without models and prices of its own. From then on the environment's key no longer serves the project, and values it took over so far from the organization, the system or the environment can stop applying. Check models, keys and budgets afterwards.",
+  }[section];
   return [
     {
       name: "firstSave",
@@ -283,9 +295,7 @@ export function firstSaveFields(
       label: de
         ? "Als eigene KI-Einstellungen dieses Projekts speichern"
         : "Save as this project's own AI settings",
-      hint: de
-        ? "Dieses Projekt hat noch keine eigenen KI-Einstellungen. Beim Speichern werden die hier gezeigten Modelle, Preise und Stufen in das Projekt übernommen. Danach gilt der Schlüssel aus der Umgebung nicht mehr, und die Modelleinstellungen von Organisation und System gelten für die hier gespeicherten Felder nicht mehr."
-        : "This project has no AI settings of its own yet. Saving copies the models, prices and tiers shown here into the project. From then on the environment's key no longer serves it, and the organization's and system's model settings no longer apply to the fields saved here.",
+      hint,
     },
   ];
 }
@@ -422,7 +432,9 @@ export function anthropicFields(
 /**
  * The provider section the Claude dialog saves: the stored section plus
  * what the form shows. Tiers are all three or none; none keeps the stored
- * tiers, a half-filled set is refused before any request.
+ * tiers, a half-filled set is refused before any request. With no tiers at
+ * all, ticking "Add the suggested … and tiers" sends the suggested tiers
+ * (review I1): the tick is the member's choice, nothing is preselected.
  */
 export function anthropicPayload(
   view: AiConfigurationData,
@@ -451,6 +463,10 @@ export function anthropicPayload(
   const filled = Object.values(tiers).filter(Boolean).length;
   if (showsModels && filled > 0 && filled < 3)
     return { error: "CLAUDE_TIERS_INCOMPLETE" };
+  const suggestedTiers =
+    values.applyCatalog === true && !base.anthropicTierRoutes
+      ? view.suggestions?.anthropic?.tiers
+      : undefined;
   const apiKey = str(values, "anthropicApiKey");
   const defaultProvider = str(values, "defaultProvider");
   const fallback = str(values, "fallback");
@@ -465,7 +481,11 @@ export function anthropicPayload(
       ...(showsModels && defaultProvider
         ? { defaultProvider: defaultProvider as ProviderId }
         : {}),
-      ...(showsModels && filled === 3 ? { anthropicTierRoutes: tiers } : {}),
+      ...(showsModels && filled === 3
+        ? { anthropicTierRoutes: tiers }
+        : showsModels && filled === 0 && suggestedTiers
+          ? { anthropicTierRoutes: suggestedTiers }
+          : {}),
       ...(fallback
         ? {
             fallback: {
@@ -496,7 +516,7 @@ export function AnthropicConfiguration({
   });
   const fields = [
     ...anthropicFields(view, locale, { followsStandard }),
-    ...firstSaveFields(view, locale),
+    ...firstSaveFields(view, locale, "settings"),
   ];
   return (
     <Modal
@@ -660,7 +680,7 @@ function ProviderBudgetForm({
   const name = providerName[provider];
   const fields = [
     ...providerBudgetFields(provider, view, locale),
-    ...firstSaveFields(view, locale),
+    ...firstSaveFields(view, locale, "settings"),
   ];
   return (
     <DataForm
@@ -904,9 +924,10 @@ export function saveAiKey(
 }
 
 /**
- * The setup wizard's key step props for a view. The key saves copy the whole
- * shown configuration into an unsaved project: a first save needs the
- * confirmation (F-8 risk 5), so every mount of AiSetupPanel takes all three.
+ * The setup wizard's props for a view: the key save and the first-save
+ * confirmation of its key step and its models step. Both steps create an
+ * unsaved project's AI settings, so a first save needs the confirmation
+ * (F-8 risk 5, review I2); every mount of AiSetupPanel takes all of them.
  */
 export function setupKeyProps(
   projectId: string,
@@ -916,11 +937,37 @@ export function setupKeyProps(
   saveKey: (provider: ProviderId, key: string) => Promise<void>;
   keyFields: FormField[];
   keyConfirmed: (values: FormValues) => boolean;
+  modelsFields: FormField[];
+  modelsConfirmed: (values: FormValues) => boolean;
 } {
   return {
     saveKey: (provider, key) => saveAiKey(projectId, view, provider, key),
-    keyFields: firstSaveFields(view, locale),
+    keyFields: firstSaveFields(view, locale, "settings"),
     keyConfirmed: (values) => firstSaveConfirmed(view, values),
+    modelsFields: firstSaveFields(view, locale, "settings"),
+    modelsConfirmed: (values) => firstSaveConfirmed(view, values),
+  };
+}
+
+/**
+ * The model choice panel's first-save props for a view (review I2). The
+ * source "custom" stores nothing for a project without own settings, so
+ * the box shows and is required only for the sources that create them.
+ */
+export function modelChoiceProps(
+  view: AiConfigurationData,
+  locale: Locale,
+): {
+  routingFields: FormField[];
+  routingConfirmed: (values: FormValues) => boolean;
+} {
+  return {
+    routingFields: firstSaveFields(view, locale, "settings").map((field) => ({
+      ...field,
+      showWhen: { name: "source", values: ["organization", "preset"] },
+    })),
+    routingConfirmed: (values) =>
+      str(values, "source") === "custom" || firstSaveConfirmed(view, values),
   };
 }
 
@@ -946,7 +993,13 @@ export function AiSettingsView({
         />
       )}
       <AiProvidersPanel configuration={configuration} refreshAll={refreshAll} />
-      {view && <ModelChoicePanel view={view} onChanged={refreshAll} />}
+      {view && (
+        <ModelChoicePanel
+          view={view}
+          {...modelChoiceProps(view, locale)}
+          onChanged={refreshAll}
+        />
+      )}
       <AiModelsPanel configuration={configuration} />
       <AiProviderBudgetPanels configuration={configuration} budget={budget} />
       <AiProjectUsagePanel budget={budget} />
@@ -1136,8 +1189,8 @@ export function AiModelsPanel({
         {!editable && (
           <p className="panel-note">
             {de
-              ? "Die Modelle kommen aus dem Standard der Organisation. Um andere zu wählen, stelle die Modellwahl auf eine Stufe oder eigene Einstellungen um."
-              : "The models come from the organization's standard. To choose others, change the model choice to a level or own settings."}
+              ? "Das Projekt folgt dem Standard der Organisation; Modelle und Aufgaben-Routen werden deshalb nicht hier gewählt. Um andere zu wählen, stelle die Modellwahl auf eine Stufe oder eigene Einstellungen um."
+              : "The project follows the organization's standard, so models and task routes are not chosen here. To choose others, change the model choice to a level or own settings."}
           </p>
         )}
         {models.length ? (

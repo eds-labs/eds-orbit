@@ -275,12 +275,14 @@ export function EffectiveAiView({
         <div className="panel-head">
           <div>
             <p>{mode ? t(mode) : data.routingMode}</p>
+            {/* Both standard notes only while the standard applies; otherwise
+                routingOff explains. No standard anywhere: the origins below
+                say what applies instead. */}
             {data.routingMode === "organization" &&
+            data.routingApplied &&
             data.standardSource === "system" ? (
               <p>{t("standardFromSystem")}</p>
             ) : null}
-            {/* No standard anywhere: the origins below say what applies instead.
-                Only while the standard applies; otherwise routingOff explains. */}
             {data.routingMode === "organization" &&
             data.routingApplied &&
             data.standardSource === null ? (
