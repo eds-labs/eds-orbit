@@ -1,5 +1,34 @@
 # Implementation status
 
+## System & Administration V2, phase 3: integrations center (2026-11-11, branch `claude/settings-center-phase-3`; local only, not on `main`, flag off in production)
+
+Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §5.6, §5.8 and §8, implementation plan [2026-11-11-settings-center-phase-3-integrations.md](superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md), [ADR 0027](adr/0027-settings-center.md). No schema, migration, dependency, role or permission change; no new write path. Environment: local. Everything is behind `ORBIT_SETTINGS_CENTER` (`off` in production); the integrations parts also follow `ORBIT_CONNECTIONS` and `ORBIT_ADMINISTRATION` as before.
+
+- **Built, API:**
+  - One uniform state for every integration (`not_set_up`, `stored`, `verified`, `ready`, `needs_attention`, `disabled`), derived on the server from the existing vocabularies; a failed, revoked or disabled record never reaches `ready`.
+  - Providers declare category and auth type; integrations outside the provider registry (Google Drive, Telegram owner bot, Orbit MCP server, system e-mail, Knowledge GitHub, webmail) are integration descriptors of their owners.
+  - `GET /api/management/integrations/catalog`: every integration that has code, `available` only when its owner module is installed (and its own switch is on).
+  - `GET /api/management/projects/:projectId/integrations`: the project's integrations with the uniform state for every member, nothing beyond the existing reads; Social accounts and Knowledge GitHub come as module contributions under the member's module role, each in its own savepoint.
+  - `GET /api/management/organizations/:workspaceId/integrations`: which projects hold and bind each connection, for organization owners only (404 for system administrators, D-4).
+  - `GET /api/admin/overview` adds the server environment (names and booleans only); central connection answers add `state` and `checkedAt`.
+  - The Google Drive callback returns to `/p/<projectId>/settings?googleDrive=…` of the project it was started for (id from the validated OAuth state).
+- **Built, web:**
+  - Integrations area in the system, organization and project scope opens on the catalog "All integrations": cards by category with state badges in words, last check, "Used by" in the organization, the server environment in the system, and a "Not available yet" group (switched-off providers, TikTok, MCP servers of other providers) without actions.
+  - Module integration sections (`WebModule.integrations`): Social accounts appears under the project's Integrations while Social is shown for the member.
+  - Guided setup at `…/integrations/setup/<provider>` in every scope: a step list with who does each step and the existing connection panels mounted below; every write is the panel's own. A planned, switched-off or foreign provider shows "Not available".
+  - The project's connections section groups mailboxes by mail server and offers a new mailbox on the same server with its host, port and TLS (D-5); the old connectors page stays flat.
+- **Deviations from the plan (ledger rulings):**
+  - P3-R20: a card links to "Manage" only where that page manages the provider (project-stored entries only when owned by the platform or offered by a module on the connectors page; system only for system providers; organization only for workspace providers), otherwise "Managed in its module.".
+  - P3-R22: the setup emits only the steps that apply ("Authorize" only for providers with central storage and not for a project running its own record); steps the scope cannot observe (system: assign and validate; organization: validate) say "Follows in the project" and are never current. The setup is a step list with a "Refresh state" button over the old panels, not a click-through wizard (P3-R3).
+  - P3-R14: `/api/projects/:projectId/operations` returns exactly its old fields; the new environment status does not reach members through it.
+  - P3-R9: each module contribution of the project list reads in its own savepoint, so one failing contribution does not truncate the list.
+  - P3-R17: installation entries (environment storage) appear in the system scope only.
+- **Not in phase 3:** the public-access section, redirects of old addresses (`on` still behaves like `preview`), mailboxes shared across projects, project AI keys in the integrations list, the organization's name on system catalog cards (system cards show each connection by its label only), display names for the MCP switches in the environment panel (raw switch keys today).
+- **Known finding F-5 (not fixed here):** Support widget keys and public keys are one store shown on two pages; revoking a widget key on the public keys page leaves the Support inbox pointing at the revoked key. Recorded in the plan; the fix belongs to phase 5.
+- **Browser acceptance (`apps/web/tests/settings-center.spec.ts`, implementer runs):** with `ORBIT_ADMINISTRATION`, `ORBIT_ACCOUNT`, `ORBIT_SETTINGS_CENTER=preview`, `ORBIT_CONNECTIONS`, `ORBIT_MODULES` and `ORBIT_CONNECTIONS_CUTOVER=postiz,matomo` on this worktree's seeded test database, the whole file twice in a row: 18 of 18 passed both times (10 phase 2 tests, 8 new). The new scenarios: the catalog in each scope; no setup for TikTok, OpenAI or another scope's provider in a project; a Matomo connection created, checked, granted and bound from the organization to a project until the project card says "Ready"; a system Postiz connection granted to the organization and on to a project; states in words and the dummy key in no page; a disabled module's integration section; the Drive return into its project; the old connectors page without mail server groups. The two provider checks and the reads carrying the checked connection's state are answered in the browser; create, grant and bind go to the real API, and each scenario revokes and removes what it created. The bindings go into a project of their own ("Integrations acceptance project"), because a binding cannot be undone in the product. Social is not installed on that stack, so its section and old page were checked as absent; there is no viewer in the seed, so the viewer scenario runs as the owner.
+- Verification: see the controller's entry below
+- **Production:** nothing changed; a push to `main` needs Mario's approval (no schema hash needed). Rollback: keep the flag `off`, or revert the branch's commits; no data or schema to undo.
+
 ## System & Administration V2, phase 2: settings center frame (2026-11-11, branch `claude/system-management-v2`; delivered to `main`, flag off, not live-accepted)
 
 Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §7, implementation plan [2026-11-11-settings-center-phase-2.md](superpowers/plans/2026-11-11-settings-center-phase-2.md), [ADR 0027](adr/0027-settings-center.md). No schema, migration, dependency or role change. Environment: local.

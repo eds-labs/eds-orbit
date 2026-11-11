@@ -385,6 +385,18 @@ Acceptance: with the flag at `preview`, all four scopes are reachable through on
 
 ## 8. Phase 3: integrations center
 
+Status (2026-11-11): implemented locally on branch `claude/settings-center-phase-3`; not on `main`, flag `off` in production. Implementation plan: [2026-11-11-settings-center-phase-3-integrations.md](../superpowers/plans/2026-11-11-settings-center-phase-3-integrations.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`.
+
+Deviations from the table below, decided during the implementation:
+
+- The setup "wizard" (3.6) is a step list with roles above the existing panels and a "Refresh state" button, not a click-through wizard. It shows only the steps that apply to the provider (no "Authorize" for project-only providers or for a project running its own record), and steps a scope cannot observe (system: assign and validate; organization: validate) say "Follows in the project".
+- A catalog card links to "Manage" only where that page manages the provider; otherwise it says "Managed in its module.". The provider detail of 3.5 is the card plus the guided setup; the existing cards were not moved.
+- The organization usage route is `GET /api/management/organizations/:workspaceId/integrations`, the project list `GET /api/management/projects/:projectId/integrations` (both under the flag's `/api/management` prefix).
+- `/api/projects/:projectId/operations` keeps its old fields; the environment status is shown to administrators only.
+- Each module contribution of the project list reads in its own savepoint.
+
+Moved to phase 5 (or later): the public-access section with the F-5 fix (a widget key revoked on the public keys page leaves its inbox pointing at it), redirects of old addresses, mailboxes shared across projects (D-5), project AI keys in the integrations list (phase 4), the organization's name on system catalog cards and display names for the MCP switches.
+
 | WP | Work | Tests |
 | --- | --- | --- |
 | 3.1 | Catalog endpoint; server-side descriptors for integrations outside the provider registry (Drive, Telegram owner bot, MCP server, Knowledge GitHub, webmail), contributed by their owners. | availability follows the registry and module installation; nothing unbuilt is `available` |

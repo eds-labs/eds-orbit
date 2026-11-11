@@ -15,6 +15,37 @@ Documentation checked: 2026-09-17. Source modules: packages/connectors/src and p
 | OpenAI Images            | Owner-confirmed GPT Image 2.5 generation with a dedicated encrypted key option, verified model allowlist, dated cost ceiling, project budget reservation and project-scoped provenance                                                                                                 | No live call performed. Generated output is an unapproved reference until a separate rights/brand decision. Unknown provider cost remains conservatively reserved. Prompts and brand tokens leave the host.         |
 | Email/community/paid ads | Draft/export/import only through the generic content and CSV paths                                                                                                                                                                                                                     | No live send, public response or paid-account control adapter asserted                                                                                                                                              |
 
+## Integrations catalog: category, auth type and storage
+
+Since the settings center's phase 3 (ADR 0027, 2026-11-11) every connection provider declares a `category` and an `authType` next to its label (`ConnectionProvider` in `apps/api/src/platform/connections/connections.ts`), and integrations outside the provider registry are described by their owners as integration descriptors (`IntegrationDescriptor` in `apps/api/src/platform/connections/integrations.ts`, listed as `integrations` in a module's contributions; the platform's in `apps/api/src/platform/modules/platform-contributions.ts`, Knowledge's in `apps/api/src/modules/knowledge/contributions.ts`, Webmail's in `apps/api/src/modules/webmail/contributions.ts`). `GET /api/management/integrations/catalog` (`apps/api/src/platform/management/integration-catalog.ts`) lists both; a provider without a category is `other`, and one without an auth type is `oauth_app` (callback path), `json_secret` (secret fields) or `api_key`. `storage` follows the scopes for providers (`central` for a system or workspace scope, `project` for a project scope) and is declared by descriptors. `checkable` means the provider has a check (descriptors declare it). Availability is not part of this table: a provider is available while its owner module is installed; the Telegram owner bot descriptor additionally needs the Telegram bot switched on, the MCP server descriptor `ORBIT_MCP_OAUTH`.
+
+The table below was taken from the catalog answer of a local stack on branch `claude/settings-center-phase-3` (head `9c3719bb`), in the catalog's order (category, then English label). TikTok and MCP servers of other providers have no code and are not in the catalog; the web shows them as planned in the "Not available yet" group.
+
+| Id | Label | Kind | Owner | Category | Auth type | Scopes | Storage | Checkable |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `email` | E-mail mailbox | provider | platform | email | `password` (server login) | project | project | yes |
+| `system_mail` | System e-mail | descriptor | platform | email | `environment` (set on the server) | – | environment | no |
+| `webmail` | Webmail | descriptor | webmail | email | `environment` (set on the server) | – | environment | no |
+| `social.account.facebook` | Facebook Page | provider | social | social | `oauth_account` (account sign-in) | project | project | no |
+| `social.account.instagram` | Instagram account | provider | social | social | `oauth_account` (account sign-in) | project | project | no |
+| `social.app.meta` | Meta app (Facebook and Instagram) | provider | social | social | `oauth_app` (developer app) | system | central | yes |
+| `postiz` | Postiz | provider | marketing | social | `api_key` | project, workspace, system | central, project | yes |
+| `social.account.telegram` | Telegram channel | provider | social | social | `bot_token` | project | project | no |
+| `social.account.x` | X account | provider | social | social | `oauth_account` (account sign-in) | project | project | no |
+| `social.app.x` | X app | provider | social | social | `oauth_app` (developer app) | system | central | no |
+| `google_drive` | Google Drive | descriptor | platform | google | `oauth_account` (account sign-in) | project | project | yes |
+| `anthropic` | Anthropic Claude | provider | platform | ai | `api_key` | system, workspace | central | yes |
+| `openai` | OpenAI | provider | platform | ai | `api_key` | system, workspace | central | yes |
+| `customer_context` | Customer context | provider | platform | automation | `json_secret` (key set) | project, workspace, system | central, project | yes |
+| `n8n` | n8n | provider | platform | automation | `json_secret` (key set) | system, workspace | central | yes |
+| `mcp_server` | Orbit MCP server | descriptor | platform | mcp | `environment` (set on the server) | – | environment | no |
+| `github_app` | GitHub App | provider | platform | development | `json_secret` (key set) | system, workspace | central | yes |
+| `knowledge_github` | GitHub for Knowledge | descriptor | knowledge | development | `oauth_account` (account sign-in) | project | project | no |
+| `issues_webhook` | Issue report webhook | provider | issues | development | `webhook_secret` (signed webhook) | project | project | no |
+| `matomo` | Matomo | provider | marketing | analytics | `api_key` | project, workspace, system | central, project | yes |
+| `slack` | Slack | provider | marketing | other | `bot_token` | project | project | no |
+| `telegram_owner_bot` | Telegram owner bot | descriptor | platform | other | `bot_token` | project | project | no |
+
 ## API entry points
 
 Postiz: `createPostizClient({baseUrl,token,fetch?})`. Orbit stores the URL and encrypted credential in its existing project-scoped connector record; there is no browser-visible or `NEXT_PUBLIC_*` Postiz secret. Host-only, legacy `/public/v1`, and canonical `/api/public/v1` inputs normalize to one `/api/public/v1` prefix. Methods: `testConnection()`, `listIntegrations()`, `listGroups()`, `getIntegrationSettings()`, `triggerIntegrationTool()`, `uploadMedia()`, `createPost()`, `listPosts()`, `deletePost()`, `changePostStatus()`, `updatePostSettings()`, `getIntegrationAnalytics()`, `getPostAnalytics()`, `getMissingPostContent()`, and `connectMissingReleaseId()`. The default request transport requires HTTPS, resolves all addresses, rejects nonpublic ranges, pins the selected DNS answer, refuses redirects, bounds response size and applies timeout. Injected transports are a test/trusted application seam, never a user-editable URL bypass. Private-network self-hosting requires a separately reviewed restricted transport, not relaxing global SSRF defenses.

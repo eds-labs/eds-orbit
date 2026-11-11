@@ -80,6 +80,18 @@ With the flag `off` every route below `/api/management/` answers 404 `NOT_FOUND`
   - Order: `connections` by label, then id; `projects` and the `projects` of a connection by name, then id.
   - Only the listed fields are returned: never a secret, `config`, `health` payload, provider error text, budget or grant settings, and no id or name of another organization or of a personal space. A module contribution that throws adds nothing for that project (project id, module id and error name are logged) and the route still answers.
 - GET `/api/admin/overview` (system administrators only; unchanged access) additionally returns `system.environment`: `{redis: {configured, reachable}, files: {configured}, googleDriveApp: {configured}, aiFallbackKeys: {openai, anthropic}, credentialKeys: {ring}, mcp: {oauth, gateway, dcr, tasks, proposals, projectConfiguration, projectAdministration}, connectionsCutover: string[]}`. Names and booleans only: never a URL, host, key, key id or count. `redis.reachable` is the result of the runtime health read the overview already performs (`false` when Redis is not configured); `connectionsCutover` lists the provider names in `ORBIT_CONNECTIONS_CUTOVER`.
+- The uniform `state` of every answer above (one vocabulary for connections, connectors, social accounts, Drive, the Telegram owner bot and installation descriptors; the server derives it, the web only shows it; a failed, revoked or disabled record never reaches `ready`):
+
+  | `state` | Meaning | Mapped from |
+  | --- | --- | --- |
+  | `not_set_up` | no record | – |
+  | `stored` | saved, never checked successfully | `configured`; Telegram `pending`; an installation descriptor configured but not installed |
+  | `verified` | the last check succeeded | `read_verified`, `write_verified`; social `active` without write capability; Telegram `linked`; Drive connected without a root folder; a central connection whose project binding is still missing, or read without a consuming organization or project |
+  | `ready` | verified and usable here | a verified central connection with an active grant that is bound (or needs no binding); a verified project connector; social `active` with `write_verified`; Drive with a root folder; an installed descriptor |
+  | `needs_attention` | check failed or consent must be renewed | `failed`; social `reconnect_required`; Drive `reconnectRequired` |
+  | `disabled` | switched off or revoked | `disabled`, `revokedAt`, a revoked grant, connector status `revoked` or `disabled`, Telegram `disabled` |
+
+- GET `/api/google-drive/callback?code&state` (the project owner who started the flow) -> 302 to `/p/:projectId/settings?googleDrive=ready|choose-root`, with the project id from the validated OAuth state (never a query value). Until 2026-11-11 it answered `/settings?googleDrive=…`, which the web still resolves. The page opens the Integrations section of that project.
 - Every central connection answer (`GET /api/admin/connections`, `GET /api/organizations/:workspaceId/connections`, and the create, update, secret, enable/disable and check answers) additionally carries `state` (`not_set_up`, `stored`, `verified`, `ready`, `needs_attention`, `disabled`; for a connection read without a consuming organization or project, so `verified` once a check passed, `needs_attention` when failed, `disabled` when disabled, else `stored`) and `checkedAt` (the health check time when stored, else null). Existing fields are unchanged.
 
 | Capability | Granted when |
