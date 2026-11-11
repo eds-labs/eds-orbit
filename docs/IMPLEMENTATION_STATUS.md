@@ -1,5 +1,11 @@
 # Implementation status
 
+## FamilyPlan Matomo: public DNS and scoped VM102 loopback route (2026-11-11)
+
+- Critical production configuration fix, explicitly approved by Mario: remove only the two analytics private-address overrides in the generated VM102 Compose adapter. The canonical stack, schema approval hash, credentials, feature flags, volumes and connector protections remain unchanged.
+- Host helper in `infra/network/` maintains a dedicated, source/bridge-paired NAT table for this installation's API/MCP/worker containers to the existing public HTTPS ingress. It survives container replacement, excludes unrelated services, fails closed and never modifies Docker's or Proxmox's firewall tables. Runbook and approval/rollback record: [Matomo public DNS change](deployment/MATOMO_PUBLIC_DNS_CHANGE.md).
+- Validation: Coolify/PVE Compose and schema-guard checks, lint/import boundaries, root/web typecheck, production build, 32 mocked connector/Matomo tests, six host-helper tests, secret scan and diff checks passed. No database/integration suite: no application/domain/schema/canonical Compose change. Host-side unit validation and authenticated-certificate public HTTPS probes passed; service/timer active. Application rollout and the stored Matomo credential's read verification remain separate post-deployment checks.
+
 ## System & Administration V2, phase 2: settings center frame (2026-11-11, branch `claude/system-management-v2`; delivered to `main`, flag off, not live-accepted)
 
 Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §7, implementation plan [2026-11-11-settings-center-phase-2.md](superpowers/plans/2026-11-11-settings-center-phase-2.md), [ADR 0027](adr/0027-settings-center.md). No schema, migration, dependency or role change. Environment: local.
