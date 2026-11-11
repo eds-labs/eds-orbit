@@ -437,6 +437,10 @@ export function anthropicPayload(
       };
     }
   | { error: "CLAUDE_TIERS_INCOMPLETE" } {
+  // Before a first save `base` holds the view's Claude tiers, and empty tier
+  // fields resend them: a first save creates the whole configuration from
+  // what the view holds (confirmed by the first-save box), and leaving them
+  // out could strip tiers the project uses today.
   const base = providerPayload(view);
   const showsModels = !options.followsStandard;
   const tiers = {
@@ -1439,8 +1443,13 @@ export function openAiFields(
     label,
     type: "select",
     required: true,
-    value: current?.modelRoutes?.[key] ?? "",
-    options: current ? textModelOptions(current, current.modelRoutes?.[key]) : [],
+    // The stored tier first: the form must not depend on how the API fills
+    // the effective view (F-8).
+    value: current.stored?.modelRoutes[key] ?? current.modelRoutes?.[key] ?? "",
+    options: textModelOptions(
+      current,
+      current.stored?.modelRoutes[key] ?? current.modelRoutes?.[key],
+    ),
   });
   return [
     {
@@ -1688,6 +1697,54 @@ export function taskRoutesPayload(
   ]);
 }
 
+/** The task-route fields: the stored route of each shown task, else the view's. */
+export function taskRouteFields(
+  current: OpenAiConfigurationView,
+  tasks: ReadonlyArray<{ id: TaskClass; label: string; defaultTokens: number }>,
+  locale: Locale,
+): FormField[] {
+  const de = locale === "de";
+  return tasks.flatMap(({ id, label, defaultTokens }): FormField[] => {
+    // Stored first, as for the tiers; hints show the effective route.
+    const stored = current.stored
+      ? current.stored.taskRoutes[id]
+      : current.taskRoutes?.[id];
+    return [
+      {
+        name: `route-${id}-model`,
+        heading: `${label} route`,
+        label: `${label} model`,
+        type: "select",
+        value: stored?.model ?? "",
+        options: [
+          { value: "", label: de ? "Stufe des Standardanbieters" : "Default provider's tier" },
+          ...textModelOptions(current, stored?.model),
+        ],
+        hint: describeEffectiveRoute(current.effectiveRoutes?.[id]),
+      },
+      {
+        name: `route-${id}-effort`,
+        label: `${label} reasoning effort`,
+        type: "select",
+        value: stored?.reasoningEffort ?? "",
+        options: [
+          { value: "", label: "Default (not sent)" },
+          ...reasoningEffortValues.map((value) => ({ value, label: value })),
+        ],
+      },
+      {
+        name: `route-${id}-max-tokens`,
+        label: `${label} maximum output tokens`,
+        type: "number",
+        min: 256,
+        max: 16000,
+        step: "1",
+        value: stored?.maxOutputTokens ?? defaultTokens,
+      },
+    ];
+  });
+}
+
 /**
  * Which model each task uses, for both providers: a model chosen from the
  * verified ones, or none (the provider's tier for the task applies).
@@ -1705,42 +1762,9 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
   });
   const current = configuration.data;
   const fields: FormField[] = current
-    ? tasks.flatMap(({ id, label, defaultTokens }): FormField[] => {
-        const stored = current.taskRoutes?.[id];
-        return [
-          {
-            name: `route-${id}-model`,
-            heading: `${label} route`,
-            label: `${label} model`,
-            type: "select",
-            value: stored?.model ?? "",
-            options: [
-              { value: "", label: de ? "Stufe des Standardanbieters" : "Default provider's tier" },
-              ...textModelOptions(current, stored?.model),
-            ],
-            hint: describeEffectiveRoute(current.effectiveRoutes?.[id]),
-          },
-          {
-            name: `route-${id}-effort`,
-            label: `${label} reasoning effort`,
-            type: "select",
-            value: stored?.reasoningEffort ?? "",
-            options: [
-              { value: "", label: "Default (not sent)" },
-              ...reasoningEffortValues.map((value) => ({ value, label: value })),
-            ],
-          },
-          {
-            name: `route-${id}-max-tokens`,
-            label: `${label} maximum output tokens`,
-            type: "number",
-            min: 256,
-            max: 16000,
-            step: "1",
-            value: stored?.maxOutputTokens ?? defaultTokens,
-          },
-        ];
-      }).concat(firstSaveFields(current, locale))
+    ? taskRouteFields(current, tasks, locale).concat(
+        firstSaveFields(current, locale),
+      )
     : [];
   return (
     <Modal title={de ? "Aufgaben-Routen" : "Task routes"} onClose={onClose}>

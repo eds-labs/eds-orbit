@@ -11,6 +11,7 @@ import {
   providerBudgetFields,
   providerPayload,
   routeTaskClasses,
+  taskRouteFields,
   taskRoutesPayload,
   type AiConfigurationData,
   type StoredAiView,
@@ -157,5 +158,47 @@ describe("project AI dialogs save only what they show (F-8)", () => {
     expect(names).not.toContain("defaultProvider");
     expect(names).not.toContain("applyCatalog");
     expect(openAiFields(view({}), "en", { followsStandard: true }).map((f) => f.name)).not.toContain("model-fast");
+  });
+
+  it("prefills the tiers and task routes from the stored values", () => {
+    const v = view({
+      modelRoutes: { ...tiers, fast: "gpt-5.6-env" },
+      taskRoutes: { chat_operator: { model: "gpt-5.6-env", maxOutputTokens: 900 } },
+      stored: storedFixture({
+        modelRoutes: { ...tiers, fast: "gpt-5.6-own" },
+        taskRoutes: { chat_operator: { model: "gpt-5.6-own", reasoningEffort: "low", maxOutputTokens: 2500 } },
+      }),
+    });
+    expect(field(openAiFields(v, "en"), "model-fast").value).toBe("gpt-5.6-own");
+    const routes = taskRouteFields(v, routeTaskClasses(false), "en");
+    expect(field(routes, "route-chat_operator-model").value).toBe("gpt-5.6-own");
+    expect(field(routes, "route-chat_operator-effort").value).toBe("low");
+    expect(field(routes, "route-chat_operator-max-tokens").value).toBe(2500);
+  });
+  it("sends exactly the three tiers when all are filled", () => {
+    const v = view({ stored: storedFixture() });
+    const tiersIn = { "tier-fast": "claude-a", "tier-standard": "claude-b", "tier-quality": "claude-c" };
+    expect(anthropicPayload(v, { ...tiersIn, fallback: "none" })).toMatchObject({
+      providers: { anthropicTierRoutes: { fast: "claude-a", standard: "claude-b", quality: "claude-c" } },
+    });
+  });
+  it("keeps the stored tiers when all three fields are empty", () => {
+    const own = { fast: "claude-own-f", standard: "claude-own-s", quality: "claude-own-q" };
+    const v = view({ stored: storedFixture({ anthropicTierRoutes: own }) });
+    const payload = anthropicPayload(v, { "tier-fast": "", "tier-standard": "", "tier-quality": "", fallback: "none" });
+    expect(payload).toMatchObject({ providers: { anthropicTierRoutes: own } });
+  });
+  it("ignores a form default provider while the project follows the standard", () => {
+    const v = view({ defaultProvider: "anthropic", stored: storedFixture({ defaultProvider: "openai" }) });
+    const payload = anthropicPayload(v, { defaultProvider: "anthropic", fallback: "none" }, { followsStandard: true });
+    expect(payload).toMatchObject({ providers: { defaultProvider: "openai" } });
+  });
+  it("drops the stored route of a shown task whose model was cleared", () => {
+    const stored = { chat_operator: { model: "gpt-5.6-terra", maxOutputTokens: 3000 } };
+    const routes = taskRoutesPayload({ "route-chat_operator-model": "" }, routeTaskClasses(false), stored);
+    expect(routes).not.toHaveProperty("chat_operator");
+  });
+  it("needs no confirmation once the project saved its own settings", () => {
+    expect(firstSaveConfirmed(view({ stored: storedFixture() }), {})).toBe(true);
   });
 });
