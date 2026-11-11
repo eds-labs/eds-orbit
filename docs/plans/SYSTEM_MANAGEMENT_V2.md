@@ -101,7 +101,7 @@ Page gate today: `canManage || systemAdmin`; O4 to O10 additionally need the org
 | J7 | `ai` | `spend-policy.tsx`, `agent-mandates.tsx`, `ai-settings.tsx`, `ai-model-choice.tsx` | owner (`PROJECT_OWN`) | `ai_spend_policies`, `agent_mandates`, `openai_configuration` entities | `P/ai-spend-policy`, `P/agent-mandates`, `P/openai-configuration`, `P/ai-budget`, `act/ai-configure` | `p/ai/{overview,providers,models,budget,usage,agents}` | UI move plus safe-save fixes (4.3) | Most-linked section; ten save risks (F-8) |
 | J8 | `retention` | `components/retention-control.tsx` | owner | – | `act/retention` | `p/data` | UI move | Really marketing memory; English only |
 | J9 | `modules`: switches, proactive notices | `module-settings.tsx`, `signal-settings.tsx` | owner switches | `ProjectModule`, signal settings | `P/modules…`, `P/signal-settings` | `p/modules` | UI move | – |
-| J10 | `policy`, `brand` | `modules/marketing/settings-sections.tsx` | owner edits | `policies`, marketing profile | `P/policies`, `P/marketing-profile` | `p/modules/marketing/{rules,brand}` | UI move | Two editors PUT the same profile |
+| J10 | `policy`, `brand` | `modules/marketing/settings-sections.tsx` | owner edits | `policies`, marketing profile | `P/policies`, `P/marketing-profile` | `p/modules/marketing/{policy,brand}` | UI move | Two editors PUT the same profile |
 | J11 | `work` | `modules/work/settings.tsx`, `pm-settings.tsx` | module owner | module settings | `P/work/settings`, `P/work/pm/settings` | `p/modules/work` | UI move | PM budget is an AI ceiling (F-6) |
 | J12 | `issues` | `modules/issues/settings.tsx` | module owner | module settings, inbound sources | `P/issues/settings`, `P/issues/sources` | `p/modules/issues`; sources and GitHub listed in `p/integrations` | UI move | Triage ceiling is an AI ceiling |
 | J13 | `support` | `modules/support/settings.tsx` | project owner | `SupportInbox`, support settings | `P/support/inboxes…`, `P/support/settings` | `p/modules/support` | UI move | Uses the project role, not the module role |
@@ -226,8 +226,8 @@ Applied only when the flag is `on` (5.7). Search and hash are kept unless mapped
 | `…?section=retention` | `/manage/p/:id/data` |
 | `…?section=modules` | `/manage/p/:id/modules` |
 | `…?section=apps` | `/manage/me/connections` |
-| `…?section=policy`, `brand` | `/manage/p/:id/modules/marketing/rules`, `…/brand` |
-| `…?section=work`, `issues`, `support` | `/manage/p/:id/modules/<module>` |
+| `…?section=policy`, `brand` | `/manage/p/:id/modules/marketing/policy`, `…/brand` |
+| `…?section=work`, `issues`, `support` | `/manage/p/:id/modules/<module>/settings` |
 | `…?section=finance-<x>` | `/manage/p/:id/modules/finance/<x>` |
 | `/p/:id/connectors` | `/manage/p/:id/integrations` |
 | `/settings…`, `/connectors` (pre-WP1.7 legacy) | resolved to the last project as today, then mapped as above |
@@ -276,7 +276,7 @@ type ManagementSection = {
 
 `WebModule.settings` keeps working: the adapter turns each contribution into a project-scope section under `modules/<moduleId>`. A module's sections are collected only while the module is shown for the project (`moduleShown`: enabled, access not `none`, `minAccess` reached), as today. `WebModule.connectors` is generalized to `WebModule.integrations` so a module can contribute its provider UI (Postiz, Matomo, Slack, social accounts, Knowledge GitHub) without the shell importing the module (`scripts/boundaries.json`).
 
-`orbit.tsx` gets one new place kind (`manage`). The project scope needs the same project context the project pages have; that assembly (`orbit.tsx:348-417`) is extracted into a provider that both the project shell and the settings center use. This is the only refactor of existing shell code the plan requires.
+`orbit.tsx` gets one new place kind (`manage`). The project scope needs the same project context the project pages have. The shell resolves the project of `/manage/p/:projectId` exactly as it does for a project page, so the context (`orbit.tsx:348-417`) is reused where it is and no shell code moves.
 
 ### 5.6 API additions (`apps/api/src/platform/management/`)
 
@@ -368,12 +368,14 @@ Acceptance: Mario decided D-1 to D-9 on 2026-11-11.
 
 ## 7. Phase 2: settings center frame
 
+Implementation plan: [2026-11-11-settings-center-phase-2.md](../superpowers/plans/2026-11-11-settings-center-phase-2.md).
+
 | WP | Work | Tests |
 | --- | --- | --- |
 | 2.1 | Flag `ORBIT_SETTINGS_CENTER` (5.7); `/api/me` field; route predicate and rule test. | flag `off` → 404 before authentication; compose check; access matrix |
 | 2.2 | `GET /api/management/capabilities` (5.6). | integration test per role: system administrator without membership, organization owner, project owner, editor, viewer, outsider, module role `none`, disabled module; answers match the route guards |
-| 2.3 | Web: `/manage` place in `routes.ts`, registry, frame, scope switcher, navigation, search; extract the project context provider from `orbit.tsx`. | unit: URL parse/build, registry validation, visibility per capability, search; `routes.test.tsx` |
-| 2.4 | Platform sections for all four scopes that mount the **existing** panels unchanged (members, connections, AI panels, account, modules, retention, MCP, audit). New read-only overviews per scope. A confirmation that names the consequence before a system administrator assigns an organization or project role (D-8). | unit per scope; `settings-nav.test.tsx` stays green; the confirmation is shown to administrators only |
+| 2.3 | Web: `/manage` place in `routes.ts`, registry, frame, scope switcher, navigation, search; `orbit.tsx` resolves the project of `/manage/p/:id` like a project page. | unit: URL parse/build, registry validation, visibility per capability, search; `routes.test.tsx` |
+| 2.4 | Platform sections for all four scopes that mount the **existing** panels unchanged (members, connections, account, modules, retention, MCP, audit). The AI areas link to the existing AI pages until 4.3 is done. New read-only overviews per scope. A confirmation that names the consequence before a system administrator assigns an organization or project role (D-8). | unit per scope; `settings-nav.test.tsx` stays green; the confirmation is shown to administrators only |
 | 2.5 | Adapter for `WebModule.settings`; module sections appear under `p/modules/<module>`. | unit: disabled module, access `none`, `minAccess` |
 | 2.6 | Texts in German and English; keyboard and screen-reader pass; 1440, 768 and 390 px. | parity test for the new text files in both directions; Playwright `settings-center.spec.ts` (flag `preview`) |
 
@@ -470,7 +472,7 @@ Mario took every recommendation as the decision.
 | Navigation shows something the server refuses, or hides something allowed | Capabilities come from the same guard functions; a test compares them with the route answers per role |
 | An AI form silently changes stored configuration | 4.3 with regression tests; byte comparison in the acceptance |
 | Broken bookmarks, OAuth returns or links in sent notifications | The redirect table is permanent and fully unit-tested; API links switch only in 5.4 |
-| `orbit.tsx` refactor breaks the project shell | Extraction without behaviour change, covered by the existing shell, navigation and workspace tests, in its own commit |
+| The `orbit.tsx` change breaks the project shell | No code moves: one more source for the project id and one render branch, covered by the existing shell, navigation and workspace tests |
 | Two UIs in parallel confuse members during `preview` | `preview` only adds a menu entry; no old link changes |
 | Scope creep into backend rebuilds | Section 12; every endpoint in 5.6 is read-only |
 

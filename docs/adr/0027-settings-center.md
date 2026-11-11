@@ -37,7 +37,7 @@ The backend already separates the four levels and enforces them: system administ
 
 ## Consequences
 
-- One new web package (`apps/web/src/platform/settings-center/`) and one new API package (`apps/api/src/platform/management/`). The project context assembly is extracted from `orbit.tsx` so the project scope can use it.
+- One new web package (`apps/web/src/platform/settings-center/`) and one new API package (`apps/api/src/platform/management/`). The shell resolves the project of `/manage/p/:projectId` like a project page, so the project scope reuses the existing project context.
 - `manage` becomes a reserved first path segment. The redirect table is permanent and unit-tested row by row.
 - Every new route is flag-gated by a route predicate and enters the access matrix; fixture changes are reviewed as security changes.
 - The AI forms get safe-save fixes with regression tests before they are mounted in the new frame.
