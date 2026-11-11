@@ -1,5 +1,15 @@
 # Implementation status
 
+## Administration: a project owner sees only their project's part of an invitation (2026-11-11, branch `claude/tenancy-pause-invitations`; delivered to `main`, not live-accepted)
+
+Found while planning System & Administration V2 (finding F-13). Risk high (tenant metadata in an administration route); no schema, migration, flag or dependency.
+
+- **Cause:** `GET /api/projects/:projectId/invitations` kept the invitations that cover the project but returned each with every project it covers. A project owner who is not an owner of the organization could read the names and roles of other projects.
+- **Change:** such a caller gets only the requested project's part; the organization's owner still gets the whole invitation. Resend and revoke were already limited (`assertManageable`).
+- **Verification (local, this worktree's own test database, fix `4aa82f83`):** new integration test in `administration.integration.test.ts` RED before and GREEN after the change; whole vitest suite 597 files passed, 1 skipped, 6,895 tests passed, 7 skipped, 0 failed (incl. `rls-matrix`, `access-matrix`, `personal-space`); `tsc --noEmit` (root and web), source and boundary check, `next build`. Not run: Playwright and `pnpm api:generate` (no UI change, response schema unchanged).
+- **Not changed:** the organization pause also pauses members' personal spaces. That is ADR 0022's decision, not a defect.
+- **Production:** pushed to `main` with Mario's approval of 2026-11-11 (no schema hash needed). Rollback: revert the fix commit and redeploy.
+
 ## Knowledge: search index display (2026-11-11, branch `claude/live-rag-eval-error-3b5651`; local only, not on `main`)
 
 Risk low: read-only display, no schema, migration, provider call or flag. Environment: local.
