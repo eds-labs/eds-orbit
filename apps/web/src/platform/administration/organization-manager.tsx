@@ -165,6 +165,14 @@ export function grantsAccess(change: MembershipChange): boolean {
   return change.kind !== "removal";
 }
 
+/** Whether a change waits for the D-8 confirmation before it is sent. */
+export function needsAdministratorConfirmation(
+  asAdministrator: boolean,
+  change: MembershipChange,
+): boolean {
+  return asAdministrator && grantsAccess(change);
+}
+
 export function OrganizationManager({
   organizationId,
   locale,
@@ -201,7 +209,8 @@ export function OrganizationManager({
     send: () => void;
   } | null>(null);
   const gate = (kind: MembershipChange["kind"], send: () => void) => {
-    if (asAdministrator && grantsAccess({ kind })) setConfirming({ send });
+    if (needsAdministratorConfirmation(asAdministrator, { kind }))
+      setConfirming({ send });
     else send();
   };
   if (detail.loading && !detail.data)

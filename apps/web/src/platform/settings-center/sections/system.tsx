@@ -13,6 +13,7 @@ import {
 } from "@/platform/administration/admin-area";
 import { McpAdmin } from "@/platform/administration/admin-mcp";
 import { OrganizationManager } from "@/platform/administration/organization-manager";
+import { PageHead } from "@/platform/ui/collection";
 import { manageHref } from "../routes";
 import { centerText } from "../texts";
 import type { ManagementSection, SectionProps } from "../types";
@@ -59,13 +60,27 @@ function InvitationsSection({ locale }: SectionProps) {
   return <Invitations locale={locale} />;
 }
 
+const ORGANIZATIONS = {
+  label: { en: "Organizations", de: "Organisationen" },
+  description: {
+    en: "Organizations group members and projects.",
+    de: "Organisationen bündeln Mitglieder und Projekte.",
+  },
+} as const;
+
 function OrganizationsSection({ id, locale }: SectionProps) {
   if (!id) return <Organizations locale={locale} hrefOf={adminLinkInCenter} />;
+  // OrganizationManager has no page head of its own (the section is ownHead
+  // for the list), so the detail supplies the section's head itself.
   return (
     <>
       <Link className="back-link" href={adminLinkInCenter("organizations")}>
         ← {centerText(locale)("backToList")}
       </Link>
+      <PageHead
+        title={ORGANIZATIONS.label[locale]}
+        description={ORGANIZATIONS.description[locale]}
+      />
       <OrganizationManager organizationId={id} locale={locale} asAdministrator />
     </>
   );
@@ -98,6 +113,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "overview",
     order: 0,
     capability: "system.overview",
+    ownHead: true,
     label: { en: "System status", de: "Systemstatus" },
     description: {
       en: "Users, organizations, projects and the state of this Orbit installation, without project content.",
@@ -111,6 +127,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "users",
     order: 0,
     capability: "system.users",
+    ownHead: true,
     label: { en: "Users", de: "Benutzer" },
     description: {
       en: "Every account of the installation with its memberships.",
@@ -124,6 +141,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "users",
     order: 10,
     capability: "system.users",
+    ownHead: true,
     label: { en: "Invitations", de: "Einladungen" },
     description: {
       en: "Open invitations of every organization; new ones are made in the organization.",
@@ -137,11 +155,8 @@ export const systemSections: readonly ManagementSection[] = [
     area: "organizations",
     order: 0,
     capability: "system.organizations",
-    label: { en: "Organizations", de: "Organisationen" },
-    description: {
-      en: "Organizations group members and projects.",
-      de: "Organisationen bündeln Mitglieder und Projekte.",
-    },
+    ownHead: true,
+    ...ORGANIZATIONS,
     component: OrganizationsSection,
   },
   {
@@ -150,6 +165,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "organizations",
     order: 10,
     capability: "system.organizations",
+    ownHead: true,
     label: { en: "Projects", de: "Projekte" },
     description: {
       en: "Every project of every organization, metadata only.",
@@ -163,6 +179,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "integrations",
     order: 0,
     capability: "system.connections",
+    ownHead: true,
     label: { en: "Central connections", de: "Zentrale Verbindungen" },
     description: {
       en: "Central connections such as AI providers; infrastructure secrets stay in the environment.",
@@ -189,6 +206,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "mcp",
     order: 0,
     capability: "system.mcp",
+    ownHead: true,
     label: { en: "MCP clients", de: "MCP-Clients" },
     description: {
       en: "Orbit as an MCP server for external clients such as ChatGPT, with every active grant.",
@@ -202,6 +220,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "security",
     order: 0,
     capability: "system.audit",
+    ownHead: true,
     label: { en: "Audit log", de: "Protokoll" },
     description: {
       en: "Administrative changes, without content, addresses or passwords.",

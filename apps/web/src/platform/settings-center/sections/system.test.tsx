@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { grantsAccess } from "@/platform/administration/organization-manager";
+import {
+  grantsAccess,
+  needsAdministratorConfirmation,
+} from "@/platform/administration/organization-manager";
 import { validateSections, visibleSections } from "../registry";
 import { AiLinkPanel } from "./ai-link";
 import { adminLinkInCenter, systemSections } from "./system";
@@ -58,6 +61,28 @@ describe("system scope", () => {
     expect(grantsAccess({ kind: "projectRole" })).toBe(true);
     expect(grantsAccess({ kind: "invitation" })).toBe(true);
     expect(grantsAccess({ kind: "removal" })).toBe(false);
+  });
+
+  it("confirms only an administrator's change that grants access", () => {
+    const kinds = ["organizationRole", "projectRole", "invitation", "removal"] as const;
+    expect(kinds.map((kind) => needsAdministratorConfirmation(true, { kind }))).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    expect(kinds.map((kind) => needsAdministratorConfirmation(false, { kind }))).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it("lets each mounted administration view keep its own page head", () => {
+    const own = systemSections.filter((s) => s.ownHead).map((s) => `${s.area}/${s.id}`);
+    expect(own).not.toContain("ai/overview");
+    expect(own).toHaveLength(systemSections.length - 1);
   });
 
   it("points AI settings to the current page, in both languages", () => {

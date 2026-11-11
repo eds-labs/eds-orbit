@@ -5,7 +5,7 @@ import { Search } from "lucide-react";
 import type { Identity } from "@/lib/api";
 import { labels, type Locale } from "@/lib/i18n";
 import { Empty, Field, FieldLabel, Input } from "@/components/ui/primitives";
-import { PageHead } from "@/platform/ui/collection";
+import { PageHead, PageHeadLevel } from "@/platform/ui/collection";
 import { SettingsNav, type SettingsGroup } from "@/platform/shell/settings-nav";
 import type { Label } from "@/platform/shell/types";
 import {
@@ -136,19 +136,24 @@ export function SettingsCenterView({
       });
       return (
         <>
-          <PageHead
-            as="h2"
-            title={section.label[locale]}
-            description={section.description[locale]}
-          />
-          {section.advanced ? (
-            <details>
-              <summary>{t("advanced")}</summary>
-              {body}
-            </details>
-          ) : (
-            body
+          {!section.ownHead && (
+            <PageHead
+              as="h2"
+              title={section.label[locale]}
+              description={section.description[locale]}
+            />
           )}
+          {/* Mounted views keep their own PageHead, one level below the scope's h1. */}
+          <PageHeadLevel.Provider value="h2">
+            {section.advanced ? (
+              <details>
+                <summary>{t("advanced")}</summary>
+                {body}
+              </details>
+            ) : (
+              body
+            )}
+          </PageHeadLevel.Provider>
         </>
       );
     }

@@ -87,6 +87,8 @@ export type SectionMeta = {
   keywords?: Label;
   order: number;
   advanced?: true;
+  /** The section's component renders its own page head; the frame omits its section head. */
+  ownHead?: true;
 };
 export type ManagementSection = SectionMeta & {
   capability: Capability;

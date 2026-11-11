@@ -8,6 +8,7 @@ import type {
   ManagementSection,
   SectionProps,
 } from "./types";
+import { PageHead } from "@/platform/ui/collection";
 import { visibleSections } from "./registry";
 import { activeQuery, addressKey, SettingsCenterView } from "./settings-center";
 
@@ -16,6 +17,9 @@ const Probe = (props: SectionProps) => (
     marker-{props.id ?? "none"}-{props.hrefOf("users", "u1")}
   </p>
 );
+
+// A component that brings its own page head, like the administration views.
+const OwnHead = () => <PageHead title="Own heading" description="Own text" />;
 
 const section = (
   area: string,
@@ -38,6 +42,7 @@ const all = [
   section("users", "users"),
   section("users", "invitations", { order: 10 }),
   section("mcp", "mcp", { capability: "system.mcp", advanced: true }),
+  section("security", "audit", { component: OwnHead, ownHead: true }),
 ];
 const caps: ManagementCapabilities = {
   stage: "on",
@@ -92,7 +97,7 @@ describe("SettingsCenterView", () => {
 
   it("shows the overview for a scope without an area", () => {
     const html = render({});
-    expect(html.match(/class="panel manage-card"/g)).toHaveLength(3);
+    expect(html.match(/class="panel manage-card"/g)).toHaveLength(4);
     expect(html).toContain("Choose an area. Each one says what it is for.");
     expect(html).toContain('href="/manage/system/users/invitations"');
     expect(html).not.toContain("marker-");
@@ -110,6 +115,23 @@ describe("SettingsCenterView", () => {
     const withoutMcp = render({ area: "mcp" }, ["system.overview", "system.users"]);
     expect(withoutMcp).toContain("Not available");
     expect(withoutMcp).not.toContain("marker-");
+  });
+
+  it("leaves the head to a section that renders its own", () => {
+    const html = render({ area: "security" });
+    expect(html).toContain("<h2>Own heading</h2>");
+    expect(html).not.toContain("<h1>Own heading</h1>");
+    // The label stays in the navigation only; the frame adds no head for it.
+    expect(html).not.toContain("<h2>Label audit</h2>");
+    expect(html).not.toContain("About audit");
+    expect(html).toContain(">Label audit</a>");
+    expect(html.match(/<h1>/g)).toHaveLength(1);
+  });
+
+  it("gives a section without its own head the frame's head", () => {
+    const html = render({ area: "users" });
+    expect(html).toContain("<h2>Label users</h2>");
+    expect(html).toContain("<p>About users</p>");
   });
 
   it("wraps an advanced section in a disclosure", () => {
