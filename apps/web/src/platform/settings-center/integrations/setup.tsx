@@ -11,7 +11,6 @@ import { Integrations } from "@/platform/administration/admin-area";
 import { ConnectionsPanel } from "@/platform/administration/connections-ui";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { integrationSectionId } from "../registry";
-import { manageHref } from "../routes";
 import { centerText } from "../texts";
 import type {
   ManageScope,
@@ -19,7 +18,16 @@ import type {
   ScopeKind,
   SectionProps,
 } from "../types";
-import { setupOffers } from "./catalog";
+import {
+  setupLinks,
+  setupOffers,
+  setupRole,
+  setupSteps,
+  storageOf,
+  type SetupStep,
+  type SetupStepId,
+  type SetupWho,
+} from "./steps";
 import { integrationPaths } from "./paths";
 import {
   gate,
@@ -42,153 +50,17 @@ import type {
 // It adds no write path: every write is the mounted panel's own form and the
 // server's own check. Roles here are display hints only.
 
-export { setupOffers };
-
-export type SetupStepId = "choose" | "configure" | "check" | "authorize" | "assign" | "validate";
-export type SetupWho = "admin" | "owner" | "projectOwner" | "anyone";
-export type SetupStep = {
-  id: SetupStepId;
-  who: SetupWho;
-  done: boolean;
-  mine: boolean;
-  href: string | null;
-  /**
-   * Whether this scope can see the step's result. A step that is not
-   * observable is never done and never current; it follows in the project.
-   */
-  observable: boolean;
-};
-type SetupRole = { admin: boolean; organizationOwner: boolean; projectOwner: boolean };
-
-export function setupSteps(input: {
-  scope: ScopeKind;
-  entry: CatalogEntry;
-  role: SetupRole;
-  /** States of the provider's records as the server sent them, in the current scope. */
-  states: readonly IntegrationState[];
-  granted: boolean;
-  bound: boolean;
-  /** Project scope: a record of this provider with scope "project" exists; else false. */
-  projectStored: boolean;
-  links: { organization: string | null; project: string | null };
-}): SetupStep[] {
-  const { scope, entry, role, states, granted, bound, projectStored, links } = input;
-  const central = storageOf(entry).includes("central");
-  // A project runs a project-only entry, or its own record of an entry with
-  // both storages, without anything from the organization (ledger P3-R22).
-  const ownRecord = scope === "project" && (!central || projectStored);
-  const configureWho: SetupWho =
-    scope === "system" ? "admin" : ownRecord ? "projectOwner" : "owner";
-  const covers = (who: SetupWho) =>
-    who === "anyone" ||
-    (who === "admin" && role.admin) ||
-    (who === "owner" && role.organizationOwner) ||
-    (who === "projectOwner" && (role.projectOwner || role.organizationOwner));
-  const linkOf = (who: SetupWho) =>
-    who === "owner" ? links.organization : who === "projectOwner" ? links.project : null;
-  const step = (
-    id: SetupStepId,
-    who: SetupWho,
-    done: boolean,
-    observable = true,
-  ): SetupStep => {
-    const mine = covers(who);
-    return {
-      id,
-      who,
-      done: observable && done,
-      mine,
-      href: mine ? null : linkOf(who),
-      observable,
-    };
-  };
-  // A state newer than this build counts as set up, never as checked.
-  const some = (...wanted: string[]) => states.some((s) => wanted.includes(s));
-  // A system administrator does not see project bindings (by design), and an
-  // organization sees bindings but not a project's final check.
-  return [
-    step("choose", "anyone", true),
-    step("configure", configureWho, states.some((s) => s !== "not_set_up")),
-    step("check", configureWho, some("verified", "ready")),
-    ...(central && !ownRecord
-      ? [step("authorize", scope === "system" ? "admin" : "owner", granted)]
-      : []),
-    step("assign", "projectOwner", bound, scope !== "system"),
-    step("validate", "projectOwner", some("ready"), scope === "project"),
-  ];
-}
-
-/**
- * Who the member is for the step list, from the capabilities answer: each
- * role by a capability only that role receives (apps/api management
- * capabilities). `system.connections` only system administrators;
- * `organization.connections` only owners of that organization;
- * `project.members` only project owners (an organization owner is owner of
- * every project of it), never editors or viewers. With ORBIT_ADMINISTRATION
- * off the server lists no organization at all, so an organization owner then
- * reads here as a project owner only.
- */
-export function setupRole(
-  scope: ManageScope,
-  caps: ManagementCapabilities | null | undefined,
-): SetupRole {
-  if (!caps) return { admin: false, organizationOwner: false, projectOwner: false };
-  const admin = caps.system.includes("system.connections");
-  const ownsOrganization = (id: string) =>
-    caps.organizations.some(
-      (o) => o.id === id && o.capabilities.includes("organization.connections"),
-    );
-  switch (scope.kind) {
-    case "organization":
-      return { admin, organizationOwner: ownsOrganization(scope.organizationId), projectOwner: false };
-    case "project": {
-      const project = caps.projects.find((p) => p.id === scope.projectId);
-      return {
-        admin,
-        organizationOwner: project ? ownsOrganization(project.workspaceId) : false,
-        projectOwner: project?.capabilities.includes("project.members") ?? false,
-      };
-    }
-    // No single organization or project is meant in the system scope.
-    default:
-      return { admin, organizationOwner: false, projectOwner: false };
-  }
-}
-
-/**
- * Where another scope's steps are done. Only a project has one organization
- * to point to, and only when the member may open its setup; the member is
- * already in the project, and the system and an organization have no single
- * target. Today the organization link exists only when the member owns the
- * organization, whose steps are then their own; the "Open" link is for roles
- * that may open the organization without owning it.
- */
-export function setupLinks(
-  scope: ManageScope,
-  entryId: string,
-  caps: ManagementCapabilities | null | undefined,
-): { organization: string | null; project: string | null } {
-  if (scope.kind !== "project" || !caps) return { organization: null, project: null };
-  const project = caps.projects.find((p) => p.id === scope.projectId);
-  const organization = project
-    ? caps.organizations.find(
-        (o) =>
-          o.id === project.workspaceId &&
-          o.capabilities.includes("organization.connections"),
-      )
-    : undefined;
-  return {
-    organization: organization
-      ? manageHref(
-          { kind: "organization", organizationId: organization.id },
-          "integrations",
-          "setup",
-          entryId,
-        )
-      : null,
-    project: null,
-  };
-}
+export {
+  hasOwnStep,
+  setupLinks,
+  setupOffers,
+  setupRole,
+  setupSteps,
+  type SetupRole,
+  type SetupStep,
+  type SetupStepId,
+  type SetupWho,
+} from "./steps";
 
 const STEP_LABEL: Record<SetupStepId, IntegrationTextKey> = {
   choose: "stepChoose",
@@ -204,9 +76,6 @@ const WHO_LABEL: Record<SetupWho, IntegrationTextKey> = {
   projectOwner: "whoProjectOwner",
   anyone: "whoAnyone",
 };
-// A value of a newer API must not break the page.
-const storageOf = (entry: CatalogEntry): readonly string[] =>
-  Array.isArray(entry.storage) ? entry.storage : [];
 const labelOf = (entry: CatalogEntry, locale: Locale) =>
   entry.label?.[locale] || entry.label?.en || entry.id;
 

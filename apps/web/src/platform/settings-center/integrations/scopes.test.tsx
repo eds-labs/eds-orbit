@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { Identity } from "@/lib/api";
 import { at } from "@/platform/administration/texts";
 import { manageHref } from "../routes";
-import type { ManageScope } from "../types";
+import type { Capability, ManagementCapabilities, ManageScope } from "../types";
 import {
   CATALOG_SECTION,
   EnvironmentPanel,
@@ -16,6 +16,7 @@ import {
   projectRecords,
   ProjectCatalog,
   scopeCatalog,
+  setupHrefOf,
   systemRecords,
   SystemCatalog,
   type AdminConnection,
@@ -60,6 +61,51 @@ const organization: ManageScope = { kind: "organization", organizationId: "w1" }
 const system: ManageScope = { kind: "system" };
 const hrefIn = (scope: ManageScope) => (area: string, ...rest: string[]) =>
   manageHref(scope, area, ...rest);
+
+// Capabilities as apps/api grants them (management/capabilities.ts).
+const capsOf = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
+  stage: "preview", system: [], account: [], organizations: [], projects: [], ...over,
+});
+const VIEWER_CAPS = ["project.overview", "project.profile", "project.modules", "project.integrations"] as Capability[];
+const OWNER_CAPS = [...VIEWER_CAPS, "project.members", "project.ai", "project.data"] as Capability[];
+const asProject = (role: "owner" | "editor" | "viewer") =>
+  capsOf({ projects: [{ id: "p1", name: "P", workspaceId: "w1", role, capabilities: role === "owner" ? OWNER_CAPS : VIEWER_CAPS }] });
+const ORG_OWNER = capsOf({
+  organizations: [{ id: "w1", name: "Org", capabilities: ["organization.overview", "organization.members", "organization.connections"] }],
+  projects: [{ id: "p1", name: "P", workspaceId: "w1", role: "owner", capabilities: OWNER_CAPS }],
+});
+const ADMIN_CAPS = capsOf({ system: ["system.overview", "system.connections"] });
+
+describe("setupHrefOf", () => {
+  const href = (id: string, scope: ManageScope, caps: ManagementCapabilities | undefined) =>
+    setupHrefOf(byId(id), { entries: catalog, scope, hrefOf: hrefIn(scope), caps });
+
+  it("offers set up in a project only to a member with a step of their own", () => {
+    for (const id of ["postiz", "social.account.x", "email"]) {
+      expect(href(id, project, asProject("viewer"))).toBeNull();
+      expect(href(id, project, asProject("editor"))).toBeNull();
+      expect(href(id, project, asProject("owner"))).toBe(`/manage/p/p1/integrations/setup/${encodeURIComponent(id)}`);
+      expect(href(id, project, ORG_OWNER)).not.toBeNull();
+    }
+    // Without the capabilities answer nobody is known to own a step.
+    expect(href("postiz", project, undefined)).toBeNull();
+  });
+
+  it("keeps set up for the holders of the system and organization capability", () => {
+    // Derived, not assumed: the capability that shows these sections makes
+    // configure and check the member's own.
+    expect(href("openai", system, ADMIN_CAPS)).toBe("/manage/system/integrations/setup/openai");
+    expect(href("openai", organization, ORG_OWNER)).toBe("/manage/o/w1/integrations/setup/openai");
+    expect(href("openai", organization, asProject("owner"))).toBeNull();
+    expect(href("openai", system, ORG_OWNER)).toBeNull();
+  });
+
+  it("never offers what the scope cannot set up", () => {
+    expect(href("system_mail", system, ADMIN_CAPS)).toBeNull();
+    expect(href("switched_off", project, ORG_OWNER)).toBeNull();
+    expect(href("openai", project, ORG_OWNER)).toBeNull();
+  });
+});
 
 describe("record builders", () => {
   it("keeps two connections of one provider as two records (system)", () => {

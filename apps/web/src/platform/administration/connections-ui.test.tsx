@@ -217,6 +217,10 @@ describe("system integrations page", () => {
     expect(plain).toContain(">social.app.x<");
     const narrowed = renderToStaticMarkup(<Integrations locale="en" provider="openai" />);
     expect(narrowed).toContain(">openai<");
+    // Inside the guided setup the entry's heading stands for the page head.
+    expect(plain).toContain("page-head");
+    expect(narrowed).not.toContain("page-head");
+    expect(narrowed).not.toContain("Infrastructure secrets");
     expect(narrowed).not.toContain(">social.app.x<");
     delete list.byPath["/admin/organizations"];
     delete list.byPath["/admin/connections"];

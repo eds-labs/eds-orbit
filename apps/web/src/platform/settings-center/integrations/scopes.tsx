@@ -7,10 +7,16 @@ import { at } from "@/platform/administration/texts";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { integrationSectionId } from "../registry";
-import type { ManageScope, ScopeKind, SectionProps } from "../types";
-import { catalogGroups, CatalogView, inScope, setupOffers } from "./catalog";
+import type {
+  ManageScope,
+  ManagementCapabilities,
+  ScopeKind,
+  SectionProps,
+} from "../types";
+import { catalogGroups, CatalogView, inScope } from "./catalog";
 import { integrationPaths } from "./paths";
 import { StateBadge } from "./state";
+import { hasOwnStep, setupOffers } from "./steps";
 import { integrationText } from "./texts";
 import {
   INTEGRATION_CATEGORIES,
@@ -212,17 +218,23 @@ export function manageHrefOf(
   }
 }
 
-/** The guided setup of a card, only for what the scope's setup offers. */
+/**
+ * The guided setup of a card: only for what the scope's setup offers, and
+ * only for a member with a step of their own there (a viewer gets none). The
+ * setup address itself stays open to every member of the scope.
+ */
 export function setupHrefOf(
   entry: CatalogEntry,
   ctx: {
     entries: readonly CatalogEntry[];
     scope: ManageScope;
     hrefOf(area: string, ...rest: string[]): string;
+    caps: ManagementCapabilities | null | undefined;
   },
 ): string | null {
+  const offered = setupOffers(ctx.entries, ctx.scope.kind).some((e) => e.id === entry.id);
   // hrefOf encodes every segment (manageHref).
-  return setupOffers(ctx.entries, ctx.scope.kind).some((e) => e.id === entry.id)
+  return offered && hasOwnStep(entry, ctx.scope, ctx.caps)
     ? ctx.hrefOf("integrations", "setup", entry.id)
     : null;
 }
@@ -368,6 +380,7 @@ function ScopeCatalogView({
   moduleSections = [],
   connectorProviders = [],
   hrefOf,
+  caps,
   extra,
   locale,
 }: {
@@ -377,6 +390,7 @@ function ScopeCatalogView({
   moduleSections?: ReadonlyArray<{ id: string; providers?: readonly string[] }>;
   connectorProviders?: readonly string[];
   hrefOf: SectionProps["hrefOf"];
+  caps: SectionProps["caps"];
   extra?: ReactNode;
   locale: Locale;
 }) {
@@ -387,14 +401,14 @@ function ScopeCatalogView({
       unavailable={unavailable}
       recordsOf={(id) => records.get(id) ?? []}
       manageHrefOf={(entry) => manageHrefOf(entry, { scope, hrefOf, moduleSections, connectorProviders })}
-      setupHrefOf={(entry) => setupHrefOf(entry, { entries, scope, hrefOf })}
+      setupHrefOf={(entry) => setupHrefOf(entry, { entries, scope, hrefOf, caps })}
       extra={extra}
       locale={locale}
     />
   );
 }
 
-export function SystemCatalog({ scope, locale, hrefOf }: SectionProps) {
+export function SystemCatalog({ scope, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
   const catalog = useResource<CatalogAnswer>(paths.catalog);
   const connections = useResource<{ items: AdminConnection[] }>(paths.connections);
@@ -409,6 +423,7 @@ export function SystemCatalog({ scope, locale, hrefOf }: SectionProps) {
       entries={catalog.data!.items}
       records={systemRecords(connections.data!.items)}
       hrefOf={hrefOf}
+      caps={caps}
       extra={
         <EnvironmentPanel
           environment={overview.data!.system.environment}
@@ -420,7 +435,7 @@ export function SystemCatalog({ scope, locale, hrefOf }: SectionProps) {
   );
 }
 
-export function OrganizationCatalog({ scope, locale, hrefOf }: SectionProps) {
+export function OrganizationCatalog({ scope, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
   const catalog = useResource<CatalogAnswer>(paths.catalog);
   const usage = useResource<OrganizationIntegrations>(paths.records);
@@ -433,6 +448,7 @@ export function OrganizationCatalog({ scope, locale, hrefOf }: SectionProps) {
         entries={catalog.data!.items}
         records={organizationRecords(usage.data!, locale)}
         hrefOf={hrefOf}
+      caps={caps}
         locale={locale}
       />
       <OrganizationProjects
@@ -444,7 +460,7 @@ export function OrganizationCatalog({ scope, locale, hrefOf }: SectionProps) {
   );
 }
 
-export function ProjectCatalog({ scope, locale, hrefOf }: SectionProps) {
+export function ProjectCatalog({ scope, locale, hrefOf, caps }: SectionProps) {
   const paths = integrationPaths(scope);
   const catalog = useResource<CatalogAnswer>(paths.catalog);
   const records = useResource<{ items: ProjectIntegration[] }>(paths.records);
@@ -466,6 +482,7 @@ export function ProjectCatalog({ scope, locale, hrefOf }: SectionProps) {
       moduleSections={moduleSections}
       connectorProviders={connectorProviders}
       hrefOf={hrefOf}
+      caps={caps}
       locale={locale}
     />
   );

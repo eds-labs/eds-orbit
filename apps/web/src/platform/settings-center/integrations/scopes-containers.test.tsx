@@ -23,7 +23,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity } from "@/lib/api";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { manageHref } from "../routes";
-import type { ManageScope } from "../types";
+import type { Capability, ManagementCapabilities, ManageScope } from "../types";
 import { OrganizationCatalog, ProjectCatalog, SystemCatalog } from "./scopes";
 import { integrationText, stateLabel } from "./texts";
 import type { CatalogEntry, EnvironmentStatus } from "./types";
@@ -54,10 +54,11 @@ const environment: EnvironmentStatus = {
   connectionsCutover: [],
 };
 const t = integrationText("en");
-const props = (scope: ManageScope) => ({
+const props = (scope: ManageScope, caps?: ManagementCapabilities) => ({
   scope,
   locale: "en" as const,
   identity: {} as Identity,
+  caps,
   hrefOf: (area: string, ...rest: string[]) => manageHref(scope, area, ...rest),
 });
 const reset = (next: Record<string, unknown>) => {
@@ -93,7 +94,8 @@ describe("SystemCatalog", () => {
       "/admin/connections": { items: [] },
       "/admin/overview": { system: { environment } },
     });
-    const html = renderToStaticMarkup(<SystemCatalog {...props({ kind: "system" })} />);
+    const admin = { stage: "preview", system: ["system.connections"], account: [], organizations: [], projects: [] } as ManagementCapabilities;
+    const html = renderToStaticMarkup(<SystemCatalog {...props({ kind: "system" }, admin)} />);
     const card = (id: string) => html.slice(html.indexOf(`data-provider="${id}"`)).split("</article>")[0]!;
     expect(card("openai")).toContain('href="/manage/system/integrations/setup/openai"');
     expect(card("openai")).toContain(t("setUp"));
@@ -167,6 +169,30 @@ describe("ProjectCatalog", () => {
     // Nothing on this page manages the accounts then.
     expect(hidden).not.toContain('href="/manage/p/p1/integrations/connections"');
     expect(hidden).toContain(integrationText("en")("managedInModule"));
+  });
+
+  it("shows a viewer the states without a set up link, and an owner the link", () => {
+    reset({
+      "/management/integrations/catalog": { items },
+      "/management/projects/p1/integrations": {
+        items: [
+          { id: "a1", provider: "social.account.x", label: "@orbit", category: "social", scope: "project", state: "ready", checkedAt: null, group: null },
+        ],
+      },
+    });
+    const scope: ManageScope = { kind: "project", projectId: "p1" };
+    const viewerCaps = ["project.overview", "project.profile", "project.modules", "project.integrations"] as Capability[];
+    const asRole = (role: "owner" | "viewer"): ManagementCapabilities => ({
+      stage: "preview", system: [], account: [], organizations: [],
+      projects: [{ id: "p1", name: "P", workspaceId: "w1", role, capabilities: role === "owner" ? [...viewerCaps, "project.members"] : viewerCaps }],
+    });
+    const viewer = renderToStaticMarkup(<ProjectCatalog {...props(scope, asRole("viewer"))} />);
+    expect(viewer).not.toContain(t("setUp"));
+    expect(viewer).not.toContain("/integrations/setup/");
+    expect(viewer).toContain("@orbit");
+    expect(viewer).toContain(stateLabel("ready", "en"));
+    const owner = renderToStaticMarkup(<ProjectCatalog {...props(scope, asRole("owner"))} />);
+    expect(owner).toContain('href="/manage/p/p1/integrations/setup/social.account.x"');
   });
 
   it("links a module's connector provider to connections only while the module contributes it", () => {
