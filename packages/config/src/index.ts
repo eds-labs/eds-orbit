@@ -95,6 +95,9 @@ const baseConfigSchema = z.object({
   // The review agent's approval stands in for the owner's only when "true"; set after the review
   // eval passed (Approval J). While "false", assignment posts wait for the owner.
   ORBIT_AGENT_REVIEW_AUTHORITY: z.enum(["false", "true"]).default("false"),
+  // Lets an accepted agent review stand in for a post with a creative, only while
+  // ORBIT_AGENT_REVIEW_AUTHORITY is also "true" and the vision review passed the exact rendition.
+  ORBIT_AGENT_REVIEW_CREATIVES: z.enum(["false", "true"]).default("false"),
   // Marketing Creative Studio: composed creatives (art, headline, approved logo)
   // per channel format. While "false" there is no creative route, tool or UI,
   // and prompts and tool schemas are those from before it (docs/
