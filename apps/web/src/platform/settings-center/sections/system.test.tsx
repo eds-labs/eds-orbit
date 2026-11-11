@@ -4,7 +4,7 @@ import {
   grantsAccess,
   needsAdministratorConfirmation,
 } from "@/platform/administration/organization-manager";
-import { validateSections, visibleSections } from "../registry";
+import { resolveSection, validateSections, visibleSections } from "../registry";
 import { AiLinkPanel } from "./ai-link";
 import { adminLinkInCenter, systemSections } from "./system";
 
@@ -44,6 +44,32 @@ describe("system scope", () => {
       "mcp/clients",
       "security/audit",
     ]);
+  });
+
+  it("passes an id only to users and organizations", () => {
+    const all = visibleSections(systemSections, "system", [
+      "system.overview",
+      "system.users",
+      "system.organizations",
+      "system.connections",
+      "system.ai",
+      "system.mcp",
+      "system.audit",
+    ]);
+    expect(all.filter((s) => s.takesId).map((s) => `${s.area}/${s.id}`)).toEqual([
+      "users/users",
+      "organizations/organizations",
+    ]);
+    expect(resolveSection(all, "users", ["u1"])).toMatchObject({
+      section: { id: "users" },
+      id: "u1",
+    });
+    expect(resolveSection(all, "organizations", ["w1"])).toMatchObject({
+      section: { id: "organizations" },
+      id: "w1",
+    });
+    expect(resolveSection(all, "security", ["anything"])).toBeNull();
+    expect(resolveSection(all, "security", ["audit", "x"])).toBeNull();
   });
 
   it("links users and organizations inside the center", () => {

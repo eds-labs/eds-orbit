@@ -113,13 +113,13 @@ describe("visibleSections", () => {
 
 describe("resolveSection", () => {
   const s = [
-    make("system", "users", "users", { order: 0 }),
+    make("system", "users", "users", { order: 0, takesId: true }),
     make("system", "users", "invitations", { order: 10 }),
     make("system", "security", "audit"),
   ];
   const m = [
     make("project", "modules", "switches", { order: 0 }),
-    make("project", "modules", "finance/accounts", { order: 20 }),
+    make("project", "modules", "finance/accounts", { order: 20, takesId: true }),
     make("project", "modules", "finance/mailboxes", { order: 10 }),
   ];
 
@@ -140,6 +140,32 @@ describe("resolveSection", () => {
       section: { id: "users" },
       id: "u-123",
     });
+  });
+
+  it("passes a single unknown segment only to a first section that takes an id", () => {
+    // "invitations" first: it reads no id, so the address names nothing.
+    const noId = [
+      make("system", "users", "invitations", { order: 0 }),
+      make("system", "users", "users", { order: 10, takesId: true }),
+    ];
+    expect(resolveSection(noId, "users", ["u-123"])).toBeNull();
+    expect(resolveSection(m, "modules", ["unknown"])).toBeNull();
+  });
+
+  it("passes the segment after a matched section only when it takes an id", () => {
+    expect(resolveSection(s, "users", ["users", "u-1"])).toMatchObject({
+      section: { id: "users" },
+      id: "u-1",
+    });
+    expect(resolveSection(s, "users", ["invitations", "x"])).toBeNull();
+    expect(resolveSection(s, "security", ["audit", "x"])).toBeNull();
+    expect(resolveSection(m, "modules", ["finance", "mailboxes", "x"])).toBeNull();
+  });
+
+  it("carries the flag through visibleSections", () => {
+    const [users, invitations] = visibleSections(s, "system", ["system.users"]);
+    expect(users.takesId).toBe(true);
+    expect(invitations.takesId).toBeUndefined();
   });
 
   it("returns null for a deeper unknown path or an unknown area", () => {

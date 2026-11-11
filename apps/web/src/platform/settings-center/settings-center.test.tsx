@@ -40,7 +40,7 @@ const section = (
 
 const all = [
   section("overview", "status", { capability: "system.overview" }),
-  section("users", "users"),
+  section("users", "users", { takesId: true }),
   section("users", "invitations", { order: 10 }),
   section("mcp", "mcp", { capability: "system.mcp", advanced: true }),
   section("security", "audit", { component: OwnHead, ownHead: true }),

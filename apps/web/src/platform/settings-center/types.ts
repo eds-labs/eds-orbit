@@ -89,6 +89,8 @@ export type SectionMeta = {
   advanced?: true;
   /** The section's component renders its own page head; the frame omits its section head. */
   ownHead?: true;
+  /** The section reads the path segment after it as an id, e.g. a user. */
+  takesId?: true;
 };
 export type ManagementSection = SectionMeta & {
   capability: Capability;

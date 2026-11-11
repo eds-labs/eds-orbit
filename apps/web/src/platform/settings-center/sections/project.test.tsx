@@ -270,10 +270,18 @@ describe("adaptModuleSections", () => {
     expect(navGroups(sections, "project", () => undefined).map((g) => g.id)).toEqual([
       "alpha",
     ]);
-    expect(resolveSection(sections, "modules", ["beta"])).toEqual({
-      section: sections[0],
-      id: "beta",
-    });
+    expect(resolveSection(sections, "modules", ["beta"])).toBeNull();
+    // Inside the real list too: the switches do not take a module's address.
+    const all = [
+      ...visibleSections(projectSections, "project", [...OWNER]),
+      ...sections,
+    ];
+    expect(resolveSection(all, "modules", ["beta"])).toBeNull();
+    expect(resolveSection(all, "modules", [])?.section.id).toBe("switches");
+    expect(resolveSection(all, "modules", ["alpha"])?.section.id).toBe("alpha/x");
+    // Module sections never read an id.
+    expect(sections.every((s) => s.takesId === undefined)).toBe(true);
+    expect(resolveSection(all, "modules", ["alpha", "x", "y"])).toBeNull();
     expect(resolveSection(sections, "modules", ["beta", "settings"])).toBeNull();
   });
 

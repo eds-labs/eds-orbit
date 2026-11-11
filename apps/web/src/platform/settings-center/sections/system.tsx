@@ -127,6 +127,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "users",
     order: 0,
     capability: "system.users",
+    takesId: true,
     ownHead: true,
     label: { en: "Users", de: "Benutzer" },
     description: {
@@ -155,6 +156,7 @@ export const systemSections: readonly ManagementSection[] = [
     area: "organizations",
     order: 0,
     capability: "system.organizations",
+    takesId: true,
     ownHead: true,
     ...ORGANIZATIONS,
     component: OrganizationsSection,

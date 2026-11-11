@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateSections, visibleSections } from "../registry";
+import { resolveSection, validateSections, visibleSections } from "../registry";
 import { accountSections } from "./account";
 
 describe("account scope", () => {
@@ -17,6 +17,19 @@ describe("account scope", () => {
       "account",
       "context",
     ]);
+  });
+
+  it("names nothing with a segment after a section", () => {
+    const all = visibleSections(accountSections, "account", [
+      "account.profile",
+      "account.apps",
+      "account.assistant",
+    ]);
+    expect(all.some((s) => s.takesId)).toBe(false);
+    for (const s of all) {
+      expect(resolveSection(all, s.area, [...s.id.split("/"), "extra"])).toBeNull();
+      expect(resolveSection(all, s.area, ["unknown"])).toBeNull();
+    }
   });
 
   it("lets the profile and assistant pages keep their own heads", () => {

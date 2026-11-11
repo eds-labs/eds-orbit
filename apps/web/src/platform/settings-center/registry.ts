@@ -91,9 +91,14 @@ const byOrder = <T extends { order: number }>(list: readonly T[]) =>
 /**
  * Callers pass only the visible sections, so a hidden section is simply not
  * found. This function has no scope: with no area it opens the area of the
- * first element, and callers pass lists already sorted by area order.
+ * first element, and callers pass lists already sorted by area order. A path
+ * segment becomes an entity id only for a section that takes one, so an
+ * unknown address (e.g. a disabled module's) is not available rather than
+ * some other section.
  */
-export function resolveSection<T extends { area: string; id: string; order: number }>(
+export function resolveSection<
+  T extends { area: string; id: string; order: number; takesId?: true },
+>(
   sections: readonly T[],
   area: string | null,
   rest: readonly string[],
@@ -119,7 +124,7 @@ export function resolveSection<T extends { area: string; id: string; order: numb
   }
   if (best) {
     const extra = rest.slice(bestLength);
-    if (extra.length > 1) return null;
+    if (extra.length > 1 || (extra.length === 1 && !best.takesId)) return null;
     return { section: best, id: extra[0] };
   }
   if (rest.length === 0) return { section: inArea[0], id: undefined };
@@ -127,8 +132,8 @@ export function resolveSection<T extends { area: string; id: string; order: numb
     // 2. A module name selects the module's first section.
     const ofModule = inArea.find((s) => s.id.startsWith(rest[0] + "/"));
     if (ofModule) return { section: ofModule, id: undefined };
-    // 3. Anything else is an entity id of the area's first section.
-    return { section: inArea[0], id: rest[0] };
+    // 3. Anything else is an entity id of the area's first section, if it takes one.
+    return inArea[0].takesId ? { section: inArea[0], id: rest[0] } : null;
   }
   return null;
 }
