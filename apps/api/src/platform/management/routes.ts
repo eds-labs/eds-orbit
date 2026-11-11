@@ -1,9 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { scopedRead } from "../../../../../packages/db/src/index.ts";
+import { scoped, scopedRead } from "../../../../../packages/db/src/index.ts";
 import { scopeFor, sessionFor, type Auth } from "../tenancy/auth.ts";
+import { PROJECT_OWN } from "../tenancy/permissions.ts";
 import { administrationEnabled, workspaceOwnerFor } from "../administration/authz.ts";
 import { DomainError } from "../shared.ts";
+import { projectAiEffective } from "./ai-effective.ts";
 import { managementCapabilities } from "./capabilities.ts";
 import { integrationCatalog } from "./integration-catalog.ts";
 import { organizationIntegrations } from "./organization-integrations.ts";
@@ -44,6 +46,17 @@ export function registerManagementRoutes(app: FastifyInstance, auth: Auth) {
     }));
     reply.header("Cache-Control", "no-store");
     return { items: records.map(publicIntegration), unavailable };
+  });
+  // Project owners only (PROJECT_OWN, the guard of GET
+  // /api/projects/:projectId/openai-configuration): 403 for other members,
+  // 404 without membership. The effective AI values with their origins and a
+  // readiness per provider, built field by field: never a key or a profile.
+  app.get("/api/management/projects/:projectId/ai/effective", async (req, reply) => {
+    const { projectId } = z.object({ projectId: z.uuid() }).strict().parse(req.params);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    const view = await scoped(scope.workspaceId, projectId, (tx) => projectAiEffective(tx, scope));
+    reply.header("Cache-Control", "no-store");
+    return view;
   });
   // Organization owners only (D-4): 404 for everyone else, system
   // administrators included, and for everyone while administration is off.

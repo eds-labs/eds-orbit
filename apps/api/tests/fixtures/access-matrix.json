@@ -599,6 +599,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/management/projects/{projectId}/ai/effective": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/management/projects/{projectId}/integrations": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
