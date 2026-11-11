@@ -10,7 +10,11 @@
  * send nothing; the revision is the worst case and keeps the body unchanged.
  * The harness refuses to run without those stubs and never mocks anything
  * itself. Only synthetic data is used, in a project created and deleted per
- * run, and only against a local database.
+ * run, and only against a local database. Each brand of the set gets its
+ * own synthetic project (brand-projects.ts); a case with image copy is
+ * reviewed with a creative composed for free from the offline fixtures, with
+ * the vision review off, so only the review model is measured. The ceiling
+ * holds across all projects of a run.
  */
 import { vi } from "vitest";
 import { scoped } from "../../packages/db/src/index.ts";
@@ -22,50 +26,50 @@ import {
   type OpenAiRuntimeConfig,
 } from "../../packages/ai/src/index.ts";
 import type { Scope } from "../../packages/schemas/src/index.ts";
-import {
-  create,
-  data,
-  entity,
-  list,
-  update,
-} from "../../apps/api/src/shared.ts";
+import { data, entity, list, update } from "../../apps/api/src/shared.ts";
 import { errorCode } from "../../apps/api/src/modules/telemetry.ts";
 import {
   runtimeOpenAiConfiguration,
   saveOpenAiConfiguration,
 } from "../../apps/api/src/modules/openai-configuration.ts";
 import {
-  runAgentTask,
+  runSpend,
   taskReservations,
 } from "../../apps/api/src/modules/agents/specialists/runner.ts";
-import { registerAgentSpecialists } from "../../apps/api/src/modules/agents/specialists/index.ts";
 import { reviewStep } from "../../apps/api/src/modules/agents/specialists/review.ts";
-import {
-  createPackageProject,
-  TELEGRAM,
-  X,
-} from "../../apps/api/tests/support/package-project.ts";
-import { assignmentRun } from "../../apps/api/tests/support/assignment-review.ts";
+import { createPackageProject } from "../../apps/api/tests/support/package-project.ts";
 import {
   assertLocalDatabase,
   removeStaleEvals,
 } from "../generation/harness.ts";
-import { isBareHost, type ReviewBrief, type ReviewCase } from "./review-set.ts";
+import {
+  caseBrand,
+  isBareHost,
+  type ReviewBrands,
+  type ReviewCase,
+} from "./review-set.ts";
 import type { CaseDiagnosis, RoundDiagnosis } from "./diagnosis.ts";
 import {
   caseAsPlanned,
   casePasses,
+  REVIEW_CEILING_USD,
   reviewDatasetHash,
   type CaseResult,
   type ReviewReport,
   type VerdictClass,
 } from "./live-plan.ts";
+import {
+  caseDraft,
+  endCase,
+  prepareBrandRun,
+  type BrandRun,
+} from "./brand-projects.ts";
 
 // Exact name of the workspace, project and users the harness creates; the
 // residue of a hard-killed run is removed by the next run after 12 hours.
 export const REVIEW_EVAL_MARKER = "Synthetic agent review eval";
-// Policy schema maximum for perRunBudgetMicros.
-const MAX_COST_MICROS = 100_000_000;
+// The eval's hard ceiling (REVIEW_CEILING_USD, 3 USD): no run may be given more.
+const MAX_COST_MICROS = Math.round(REVIEW_CEILING_USD * 1_000_000);
 // Refused reservations: every further case would be refused as well.
 const BUDGET_REFUSALS = new Set([
   "AGENT_LIMIT",
@@ -83,7 +87,6 @@ const CASE_ERRORS = new Set([
 const DAY_MS = 86_400_000;
 
 type Project = Awaited<ReturnType<typeof createPackageProject>>;
-type Harness = ReturnType<typeof assignmentRun>;
 
 /** The eval transmits only review calls: drafts, revisions and embeddings must be stubs. */
 function assertStubs() {
@@ -92,58 +95,37 @@ function assertStubs() {
 }
 
 /**
- * The run of one confirmed X assignment up to its review step, as in the
- * offline replay: the copywriter writes one draft whose shape (mission,
- * evidence, slot) every case reuses; the draft itself is archived.
+ * A brand's project up to its review step, as in the offline replay
+ * (`prepareBrandRun`): the copywriter writes one draft whose shape (mission,
+ * evidence, slot) every case of the brand reuses; the draft itself is
+ * archived. The ceiling is also the project's budget: the policy refuses
+ * beyond it, and the run's pool (R75) is lowered before each case to what
+ * the whole eval has left (`remainingMicros`).
  */
 async function prepare(
   project: Project,
+  brand: string,
+  brands: ReviewBrands,
+  creative: boolean,
   maxCostMicros: number,
-  brief: ReviewBrief,
 ) {
-  const h = assignmentRun(project);
-  // The ceiling is also the project's budget: the policy refuses beyond it.
-  await h.setPolicy({
-    startAt: new Date(Date.now() - DAY_MS).toISOString(),
-    // A short window limits what a hard-killed run leaves usable.
-    endAt: new Date(Date.now() + 3 * DAY_MS).toISOString(),
-    channels: [X, TELEGRAM],
-    maxPerDay: 2,
-    minIntervalMinutes: 120,
-    dailyBudgetMicros: maxCostMicros,
-    monthlyBudgetMicros: maxCostMicros,
-    perRunBudgetMicros: maxCostMicros,
-  });
-  registerAgentSpecialists();
-  // No Telegram bot is linked, so no notification is queued.
-  await h.makeAssignment({
-    schedule: {
-      rhythm: "daily",
-      weekdays: [],
-      times: ["10:00"],
-      leadMinutes: 360,
+  const run = await prepareBrandRun(project, brand, brands[brand]!, {
+    creative,
+    policy: {
+      startAt: new Date(Date.now() - DAY_MS).toISOString(),
+      // A short window limits what a hard-killed run leaves usable.
+      endAt: new Date(Date.now() + 3 * DAY_MS).toISOString(),
+      maxPerDay: 2,
+      minIntervalMinutes: 120,
+      dailyBudgetMicros: maxCostMicros,
+      monthlyBudgetMicros: maxCostMicros,
+      perRunBudgetMicros: maxCostMicros,
     },
   });
-  // The set's brief, so the cases are judged against the brief they answer.
-  await h.planWithBriefs((slots) => slots.map((slot) => h.brief(slot, brief)));
-  await runAgentTask(h.worker(), (await h.task(`copywriter:${X}`)).id);
-  const [template] = await h.rows("content");
-  if (!template) throw new Error("EVAL_TEMPLATE_MISSING");
-  await archive(h, project.owner, template.id);
-  // The run's own next steps (its review) are canceled, so nothing but the
-  // cases can call the model with the key, even if a worker picked them up.
-  // Every case reserves from the run's pool (R75): its ceiling is the eval's.
-  await h.run(async (tx) => {
-    const run = await entity(
-      tx,
-      project.owner,
-      "assignment_runs",
-      String(template.assignmentRunId),
-    );
-    await update(tx, project.owner, run, {
-      ...data(run),
-      ceilingMicros: maxCostMicros,
-    });
+  // No Telegram bot is linked, so no notification is queued. The run's own
+  // next steps (its review, its visual step) are canceled, so nothing but the
+  // cases can call a model with the key, even if a worker picked them up.
+  await run.h.run(async (tx) => {
     for (const row of await list(tx, project.owner, "agent_tasks"))
       if (
         !["done", "failed", "canceled", "outcome_unknown"].includes(
@@ -155,13 +137,28 @@ async function prepare(
           status: "canceled",
         });
   });
-  return { h, template };
+  return run;
 }
 
-async function archive(h: Harness, owner: Scope, contentId: string) {
-  await h.run(async (tx) => {
-    const row = await entity(tx, owner, "content", contentId);
-    await update(tx, owner, row, { ...data(row), status: "archived" });
+/**
+ * Lets a brand's run pool (R75) take at most `remaining` more: every case
+ * reserves from it, and the projects of one eval share one ceiling.
+ */
+async function capRun(run: BrandRun, remaining: number) {
+  const { owner } = run.project;
+  await run.h.run(async (tx) => {
+    const row = await entity(
+      tx,
+      owner,
+      "assignment_runs",
+      String(run.template.assignmentRunId),
+    );
+    await update(tx, owner, row, {
+      ...data(row),
+      ceilingMicros:
+        (await runSpend(tx, owner, String(run.template.assignmentRunId))) +
+        remaining,
+    });
   });
 }
 
@@ -193,27 +190,28 @@ async function configure(
   });
 }
 
-/** What the ceiling still allows: every reservation of the project, settled at its settled amount, open at its reserved one. */
-async function remainingMicros(owner: Scope, maxCostMicros: number) {
-  const rows = await scoped(owner.workspaceId, owner.projectId, (tx) =>
-    tx.budgetReservation.findMany({
-      where: { projectId: owner.projectId, state: { not: "released" } },
-    }),
-  );
-  const held = rows.reduce(
-    (sum, row) =>
-      sum +
-      Number(row.state === "settled" ? row.settledMicros : row.amountMicros),
-    0,
-  );
+/** What the ceiling still allows: every reservation of every project, settled at its settled amount, open at its reserved one. */
+async function remainingMicros(owners: Scope[], maxCostMicros: number) {
+  let held = 0;
+  for (const owner of owners) {
+    const rows = await scoped(owner.workspaceId, owner.projectId, (tx) =>
+      tx.budgetReservation.findMany({
+        where: { projectId: owner.projectId, state: { not: "released" } },
+      }),
+    );
+    held += rows.reduce(
+      (sum, row) =>
+        sum +
+        Number(row.state === "settled" ? row.settledMicros : row.amountMicros),
+      0,
+    );
+  }
   return maxCostMicros - held;
 }
 
-/** One case: its draft, its channel history and its own review task; returns its metrics. */
+/** One case: its draft (with a composed creative for image copy), its channel history and its own review task; returns its metrics. */
 async function runCase(
-  h: Harness,
-  owner: Scope,
-  template: Record<string, any>,
+  run: BrandRun,
   c: ReviewCase,
   ceilingMicros: number,
   diagnose: boolean,
@@ -222,50 +220,11 @@ async function runCase(
   unknown: boolean;
   diagnosis: CaseDiagnosis | null;
 }> {
-  const { id: _id, version: _version, ...shape } = template;
-  const setup = await h.run(async (tx) => {
-    const content = await create(tx, owner, "content", {
-      ...shape,
-      title: c.id,
-      body: c.body,
-      claims: [{ text: "Learn more.", kind: "style" }],
-      jobId: `eval:${c.id}`,
-      status: "draft",
-    });
-    const posts = [];
-    for (const [index, text] of (c.channelHistory ?? []).entries())
-      posts.push(
-        await create(tx, owner, "channel_posts", {
-          channel: X,
-          remoteId: `eval-${c.id}-${index}`,
-          publishedAt: new Date(Date.now() - DAY_MS).toISOString(),
-          state: "PUBLISHED",
-          text,
-          source: "external",
-          syncedAt: new Date().toISOString(),
-        }),
-      );
-    const task = await create(tx, owner, "agent_tasks", {
-      runId: template.assignmentRunId,
-      stepKey: "review",
-      role: "review",
-      assignmentId: template.assignmentId,
-      assignmentVersion: 1,
-      // What is left of the ceiling (informational): the run's pool refuses a
-      // larger reservation (AGENT_LIMIT, R75).
-      ceilingMicros,
-      input: {
-        inputs: {
-          [`copywriter:${X}`]: { contentIds: [content.id], failed: [] },
-        },
-      },
-      output: null,
-      status: "running",
-      errorCode: null,
-      costMicros: 0,
-    });
-    return { contentId: content.id, task, posts };
-  });
+  const { h } = run;
+  const { owner } = run.project;
+  // What is left of the ceiling (informational on the task): the run's pool
+  // refuses a larger reservation (AGENT_LIMIT, R75).
+  const setup = await caseDraft(run, c, ceilingMicros);
   type Decision = {
     contentId: string;
     verdict: string;
@@ -289,7 +248,7 @@ async function runCase(
   } catch (error) {
     failure = errorCode(error);
   }
-  return h.run(async (tx) => {
+  const measured = await h.run(async (tx) => {
     // Every review call of the task: one agent run per round.
     const runs = await tx.agentRun.findMany({
       where: {
@@ -340,14 +299,6 @@ async function runCase(
     if (!failure && revisionError) failure = String(revisionError);
     if (!failure && first?.verdict === "revise" && !first.revisedTo)
       failure = "EVAL_REVISION_MISSING";
-    // Cleanup of the case: its drafts leave the run, its history the channel.
-    for (const id of [setup.contentId, first?.revisedTo]) {
-      if (!id) continue;
-      const row = await entity(tx, owner, "content", id);
-      await update(tx, owner, row, { ...data(row), status: "archived" });
-    }
-    for (const post of setup.posts)
-      await tx.entity.delete({ where: { id: post.id } });
     const problems = [
       ...new Set([
         ...(first?.deterministicProblems ?? []),
@@ -419,6 +370,9 @@ async function runCase(
         : null,
     };
   });
+  // Cleanup of the case: its drafts leave the run, its history the channel.
+  await endCase(run, setup, [setup.contentId, first?.revisedTo]);
+  return measured;
 }
 
 // Whether a finished case stops the run, and why.
@@ -433,7 +387,8 @@ function stopReason(result: CaseResult, unknown: boolean) {
 
 export async function runReviewEval(options: {
   cases: ReviewCase[];
-  brief: ReviewBrief;
+  // The set's brands: one synthetic project each, for the brands of `cases`.
+  brands: ReviewBrands;
   route: ModelRoute;
   maxCostMicros: number;
   runtime: OpenAiRuntimeConfig;
@@ -458,33 +413,58 @@ export async function runReviewEval(options: {
     throw new Error("EVAL_ROUTE_NOT_CONFIGURED");
   await removeStaleEvals(REVIEW_EVAL_MARKER);
   const startedAt = new Date().toISOString();
-  const agents = process.env.ORBIT_AGENTS;
-  // The copywriter task that shapes the cases runs only with Orbit Agents on.
+  // The copywriter task that shapes the cases runs only with Orbit Agents
+  // on, and a case with image copy needs the Creative Studio (as in
+  // production); both are restored afterwards.
+  const saved = {
+    ORBIT_AGENTS: process.env.ORBIT_AGENTS,
+    ORBIT_CREATIVE_STUDIO: process.env.ORBIT_CREATIVE_STUDIO,
+  };
   process.env.ORBIT_AGENTS = "true";
+  process.env.ORBIT_CREATIVE_STUDIO = "true";
   const results: CaseResult[] = [];
   let stoppedReason: string | null = null;
-  let project: Project | null = null;
+  const projects: Project[] = [];
+  const runs = new Map<string, BrandRun>();
   let setupError: unknown = null;
   try {
-    project = await createPackageProject({ name: REVIEW_EVAL_MARKER });
-    const { h, template } = await prepare(
-      project,
-      maxCostMicros,
-      options.brief,
-    );
-    // The key enters the project only now, after the stubbed draft.
-    await configure(project.owner, runtime, route);
+    // The brands of the cases, in the order they first appear.
+    const brands = [...new Set(cases.map((c) => caseBrand(options, c)))];
+    for (const brand of brands) {
+      if (!options.brands[brand]) throw new Error("EVAL_BRAND_UNKNOWN");
+      const project = await createPackageProject({ name: REVIEW_EVAL_MARKER });
+      projects.push(project);
+      runs.set(
+        brand,
+        await prepare(
+          project,
+          brand,
+          options.brands,
+          cases.some(
+            (c) =>
+              caseBrand(options, c) === brand && c.creativeCopy !== undefined,
+          ),
+          maxCostMicros,
+        ),
+      );
+    }
+    // The key enters the projects only now, after the stubbed drafts.
+    for (const project of projects)
+      await configure(project.owner, runtime, route);
     try {
       for (const c of cases) {
-        const remaining = await remainingMicros(project.owner, maxCostMicros);
+        const remaining = await remainingMicros(
+          projects.map((project) => project.owner),
+          maxCostMicros,
+        );
         if (remaining <= 0) {
           stoppedReason = "BUDGET_EXCEEDED";
           break;
         }
+        const run = runs.get(caseBrand(options, c))!;
+        await capRun(run, remaining);
         const { result, unknown, diagnosis } = await runCase(
-          h,
-          project.owner,
-          template,
+          run,
           c,
           remaining,
           Boolean(options.diagnose),
@@ -501,24 +481,26 @@ export async function runReviewEval(options: {
   } catch (error) {
     setupError = error;
   }
-  // Cleanup always runs. The workspace cascades to the project, its
-  // encrypted key and every row of the run.
+  // Cleanup always runs. Each workspace cascades to its project, its
+  // encrypted key and every row of its run.
   let cleanupError: unknown = null;
-  try {
-    await project?.cleanup();
-  } catch (error) {
-    cleanupError = error;
-  }
-  if (agents === undefined) delete process.env.ORBIT_AGENTS;
-  else process.env.ORBIT_AGENTS = agents;
+  for (const project of projects)
+    try {
+      await project.cleanup();
+    } catch (error) {
+      cleanupError ??= error;
+    }
+  for (const [name, value] of Object.entries(saved))
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
   // Setup fails before any review call; a failed cleanup after paid calls is
   // reported with the results instead, so the evidence is still written.
   if (setupError) throw setupError;
   return {
     datasetVersion: options.datasetVersion,
-    datasetHash: reviewDatasetHash(cases, route, maxCostMicros, options.brief),
+    datasetHash: reviewDatasetHash(cases, route, maxCostMicros, options.brands),
     startedAt,
-    workspaceId: project!.owner.workspaceId,
+    workspaceIds: projects.map((project) => project.owner.workspaceId),
     route,
     stoppedReason,
     cleanupError: cleanupError ? errorCode(cleanupError) : null,

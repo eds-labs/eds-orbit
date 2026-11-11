@@ -15,12 +15,14 @@ import {
   parseRouteFile,
   planReviewEval,
   renderPlan,
+  REVIEW_CEILING_USD,
+  REVIEW_REQUEST_BYTES,
   reviewDatasetHash,
   type VerdictClass,
 } from "./live-plan.ts";
-import { isBareHost, parseReviewSet } from "./review-set.ts";
+import { caseBrand, isBareHost, parseReviewSet } from "./review-set.ts";
 import { reviewPromptHash } from "./code-version.ts";
-import rawSet from "./review-v2.json" with { type: "json" };
+import rawSet from "./review-v3.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
@@ -37,36 +39,66 @@ const plan = (env: Record<string, string | undefined> = {}, at = now) =>
   planReviewEval(env, set, routeFile, rates, PROMPT_HASH, at);
 
 describe("Live review eval planning (dry run)", () => {
-  it("plans at most two review calls per case under a 2 USD ceiling and prints it without secrets", () => {
+  it("plans at most two review calls per case under a 3 USD ceiling and prints it without secrets", () => {
     const p = plan({ ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY });
-    expect(p.datasetVersion).toBe("agents-review-v2");
-    expect(p.caseCount).toBe(26);
-    expect([p.good, p.bad, p.bareHost]).toEqual([8, 17, 1]);
-    expect(p.calls).toBe(52);
-    expect(p.expectedModelCalls).toBe(20);
+    expect(p.datasetVersion).toBe("agents-review-v3");
+    expect(p.caseCount).toBe(38);
+    expect([p.good, p.bad, p.bareHost]).toEqual([13, 24, 1]);
+    expect(p.calls).toBe(76);
+    expect(p.expectedModelCalls).toBe(31);
     expect(p.expectedModelCalls).toBe(
       set.cases.filter((c) => c.expected.modelSees).length,
     );
+    expect(p.brands).toEqual([
+      { brand: "en", cases: 26, creative: 0 },
+      { brand: "de", cases: 12, creative: 12 },
+    ]);
     expect(p.route).toEqual({ model: "gpt-6.1-sol", maxOutputTokens: 1800 });
-    expect(p.maxCostMicros).toBe(2_000_000);
+    expect(REVIEW_CEILING_USD).toBe(3);
+    expect(p.maxCostMicros).toBe(3_000_000);
     expect(p.perCallMicros).toBeGreaterThan(0);
-    expect(p.worstCaseMicros).toBe(p.perCallMicros * 52);
-    // A full run with every round-2 call fits under the ceiling.
-    expect(p.worstCaseMicros).toBeLessThanOrEqual(p.maxCostMicros);
+    expect(p.worstCaseMicros).toBe(p.perCallMicros * 76);
     expect(p.promptHash).toMatch(/^[0-9a-f]{64}$/);
     expect(p.runtime.verifiedModels).toEqual(["gpt-6.1-sol"]);
     for (const rate of Object.values(p.runtime.rateCard))
       expect(rate.verifiedAt).toBe(rates.verifiedAt);
     const text = renderPlan(p);
     expect(text).toContain("nothing is transmitted");
-    expect(text).toContain("52 review calls at most");
+    expect(text).toContain("dataset version: agents-review-v3");
+    expect(text).toContain("cases: 38 (13 good, 24 bad, 1 bare host)");
+    expect(text).toContain(
+      "brands: en 26 cases (0 with image copy), de 12 cases (12 with image copy)",
+    );
+    expect(text).toContain("76 review calls at most");
     expect(text).toContain("round 2");
     expect(text).toContain("verify in Orbit Settings");
-    expect(text).toContain("cost ceiling: $2.0000");
+    expect(text).toContain("cost ceiling: $3.0000");
     expect(text).toContain(p.promptHash);
     expect(text).toContain(p.hash);
     expect(text).toContain(p.confirmation);
     expect(text).not.toContain(SYNTHETIC_KEY);
+  });
+
+  // The worst case: two calls for every case, each at its full output limit
+  // and the request bound. Above the ceiling, the plan says so: the run then
+  // stops at the first refused reservation with a partial report (a FAIL).
+  it("plans v3 under the 3 USD ceiling", () => {
+    const p = plan();
+    expect(REVIEW_REQUEST_BYTES).toBe(16_000);
+    expect(p.maxCostMicros).toBe(3_000_000);
+    expect(p.worstCaseMicros).toBe(p.perCallMicros * 76);
+    const text = renderPlan(p);
+    expect(text).toContain(
+      `worst-case estimate: $${(p.worstCaseMicros / 1e6).toFixed(4)}`,
+    );
+    const note =
+      "note: the worst case exceeds the ceiling, so the run may stop early with a partial report.";
+    if (p.worstCaseMicros <= p.maxCostMicros) expect(text).not.toContain(note);
+    else expect(text).toContain(note);
+    // A smaller ceiling never hides the note.
+    const low = plan({ ORBIT_EVAL_MAX_USD: "0.1" });
+    expect(low.worstCaseMicros).toBeGreaterThan(low.maxCostMicros);
+    expect(renderPlan(low)).toContain(note);
   });
 
   it("stays a dry run without key and confirmation", () => {
@@ -75,9 +107,9 @@ describe("Live review eval planning (dry run)", () => {
     expect(isLiveRequested({ ORBIT_EVAL_MAX_USD: "0.5" })).toBe(false);
   });
 
-  it("clamps a ceiling above 2 USD and refuses a malformed one", () => {
-    expect(plan({ ORBIT_EVAL_MAX_USD: "5" }).maxCostMicros).toBe(2_000_000);
-    expect(plan({ ORBIT_EVAL_MAX_USD: "50" }).maxCostMicros).toBe(2_000_000);
+  it("clamps a ceiling above 3 USD and refuses a malformed one", () => {
+    expect(plan({ ORBIT_EVAL_MAX_USD: "5" }).maxCostMicros).toBe(3_000_000);
+    expect(plan({ ORBIT_EVAL_MAX_USD: "50" }).maxCostMicros).toBe(3_000_000);
     const low = plan({ ORBIT_EVAL_MAX_USD: "0.25" });
     expect(low.maxCostMicros).toBe(250_000);
     expect(low.hash).not.toBe(plan().hash);
@@ -91,7 +123,7 @@ describe("Live review eval planning (dry run)", () => {
   it("binds the dataset, the complete rate card, its date, the route, the prompt and the ceiling into the confirmation", () => {
     const base = plan();
     expect(base.hash).toBe(
-      reviewDatasetHash(set.cases, routeFile.route, 2_000_000, set.brief),
+      reviewDatasetHash(set.cases, routeFile.route, 3_000_000, set.brands),
     );
     // A changed review prompt or output schema invalidates the approval.
     const prompted = planReviewEval(
@@ -145,18 +177,34 @@ describe("Live review eval planning (dry run)", () => {
     expect(
       planReviewEval({}, edited, routeFile, rates, PROMPT_HASH, now).hash,
     ).not.toBe(base.hash);
-    // The brief the drafts answer is part of what is measured.
+    // The brief the drafts answer is part of what is measured, of every brand.
     const rebriefed = structuredClone(set);
-    rebriefed.brief.cta = "Join the beta.";
+    rebriefed.brands.en!.brief.cta = "Join the beta.";
     const b = planReviewEval({}, rebriefed, routeFile, rates, PROMPT_HASH, now);
     expect(b.hash).not.toBe(base.hash);
     expect(b.confirmation).not.toBe(base.confirmation);
+    // So are the second brand's facts and a case's image copy.
+    const refacted = structuredClone(set);
+    refacted.brands.de!.facts[0]!.value += " und mehr";
+    expect(
+      planReviewEval({}, refacted, routeFile, rates, PROMPT_HASH, now).hash,
+    ).not.toBe(base.hash);
+    const recopied = structuredClone(set);
+    (recopied.cases.at(-1)!.creativeCopy as { headline: string }).headline =
+      "Anders";
+    expect(
+      planReviewEval({}, recopied, routeFile, rates, PROMPT_HASH, now).hash,
+    ).not.toBe(base.hash);
   });
 
-  it("uses a brief the good drafts follow", () => {
-    expect(set.brief.cta).toBe("Learn more.");
-    for (const c of set.cases.filter((c) => c.label === "good"))
-      expect(c.body.trim().endsWith(set.brief.cta)).toBe(true);
+  it("uses a brief the good drafts follow, for every brand", () => {
+    expect(set.brands.en!.brief.cta).toBe("Learn more.");
+    expect(set.brands.de!.brief.cta).toBe("Jetzt ausprobieren.");
+    for (const c of set.cases.filter((c) => c.label === "good")) {
+      const brand = set.brands[caseBrand(set, c)]!;
+      expect(brand.brief.cta).toBe(brand.profile.primaryCtas[0]);
+      expect(c.body.trim().endsWith(brand.brief.cta)).toBe(true);
+    }
   });
 
   it("refuses a stale or future rate card and an unpriced route", () => {
@@ -184,20 +232,20 @@ describe("Live review eval diagnostic mode (dry run)", () => {
     const p = plan(diagnose);
     expect(p.mode).toBe("diagnose-good");
     expect(p.cases.map((c) => c.id)).toEqual(goodIds);
-    expect(p.caseCount).toBe(8);
-    expect([p.good, p.bad, p.bareHost]).toEqual([8, 0, 0]);
-    expect(p.calls).toBe(16);
-    expect(p.worstCaseMicros).toBe(p.perCallMicros * 16);
+    expect(p.caseCount).toBe(13);
+    expect([p.good, p.bad, p.bareHost]).toEqual([13, 0, 0]);
+    expect(p.calls).toBe(26);
+    expect(p.worstCaseMicros).toBe(p.perCallMicros * 26);
     expect(p.maxCostMicros).toBe(500_000);
     expect(DIAGNOSTIC_CEILING_USD).toBe(0.5);
     expect(p.hash).toBe(
-      reviewDatasetHash(p.cases, routeFile.route, 500_000, set.brief),
+      reviewDatasetHash(p.cases, routeFile.route, 500_000, set.brands),
     );
     const text = renderPlan(p);
     expect(text).toContain("DIAGNOSTIC");
     expect(text).toContain("not a gate result");
-    expect(text).toContain("cases: 8 (8 good, 0 bad, 0 bare host)");
-    expect(text).toContain("16 review calls at most (two per case");
+    expect(text).toContain("cases: 13 (13 good, 0 bad, 0 bare host)");
+    expect(text).toContain("26 review calls at most (two per case");
     expect(text).toContain("worst-case estimate: ");
     expect(text).toContain("cost ceiling: $0.5000");
     for (const id of goodIds) expect(text).toContain(id);
@@ -280,8 +328,8 @@ describe("Live review eval diagnostic mode (dry run)", () => {
     expect(() => plan({ ...diagnose, ORBIT_EVAL_MAX_USD: "" })).toThrow(
       "EVAL_MAX_USD_INVALID",
     );
-    // The normal ceiling stays 2 USD.
-    expect(plan({ ORBIT_EVAL_MAX_USD: "5" }).maxCostMicros).toBe(2_000_000);
+    // The normal ceiling stays 3 USD.
+    expect(plan({ ORBIT_EVAL_MAX_USD: "5" }).maxCostMicros).toBe(3_000_000);
   });
 
   it("accepts only the good subset and refuses any other value", () => {
@@ -545,6 +593,28 @@ describe("Review eval pass rule", () => {
     };
     expect(caseAsPlanned(seen, { ...ran, reviewCalls: 1 })).toBe(false);
     expect(caseAsPlanned(seen, { ...ran, reviewCalls: 2 })).toBe(true);
+  });
+
+  // A figure on the image is revised once without the model (the worst-case
+  // copywriter keeps it) and then rejected without the model as well.
+  it("counts a deterministic revision as planned only when the model saw neither round", () => {
+    const digits = set.cases.find(
+      (c) => c.id === "de-bad-image-number-digits",
+    )!;
+    expect(digits.expected).toEqual({
+      verdict: "reject",
+      deterministic: ["CREATIVE_UNSUPPORTED_CLAIM"],
+      modelSees: false,
+    });
+    const ran = {
+      modelCalled: false,
+      deterministicProblems: ["CREATIVE_UNSUPPORTED_CLAIM"],
+      revised: true,
+    };
+    expect(caseAsPlanned(digits, { ...ran, reviewCalls: 0 })).toBe(true);
+    expect(
+      caseAsPlanned(digits, { ...ran, modelCalled: true, reviewCalls: 1 }),
+    ).toBe(false);
   });
 
   it("fails a model-called case without a known positive cost", () => {

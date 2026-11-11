@@ -4,7 +4,9 @@
  * Without a key and a confirmation it only prints the plan and transmits
  * nothing. Only the review calls are real: the copywriter draft that shapes
  * the cases and every revision (`generate`, `embed`) are stubs that send
- * nothing; a revision keeps the body unchanged and round 2 decides the case.
+ * nothing; a revision keeps the body and image copy unchanged and round 2
+ * decides the case. A case with image copy gets a creative composed from the
+ * offline fixtures (no image provider; vision review off).
  * With ORBIT_EVAL_DIAGNOSE=good it runs only the good cases and writes the
  * model's reasons to .runtime/ instead of evidence; that is never a gate result.
  */
@@ -43,7 +45,7 @@ import {
   totals,
 } from "./live-plan.ts";
 import { parseReviewSet } from "./review-set.ts";
-import rawSet from "./review-v2.json" with { type: "json" };
+import rawSet from "./review-v3.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
@@ -96,7 +98,7 @@ describe("Live agent review eval", () => {
         // Errors after the first review call are returned in the report, not thrown.
         report = await runReviewEval({
           cases: plan.cases,
-          brief: set.brief,
+          brands: set.brands,
           route: plan.route,
           maxCostMicros: plan.maxCostMicros,
           runtime: { apiKey, ...plan.runtime },

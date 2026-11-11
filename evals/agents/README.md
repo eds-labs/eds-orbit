@@ -1,10 +1,49 @@
 # Agent review evals
 
-Measures the Orbit Agents review step on the review set `review-v2.json`
-(26 cases: 8 good drafts to approve, 17 bad ones to reject, one bare host to
-leave for the owner). `review-v1.json` stays unchanged as the record of the
+Measures the Orbit Agents review step on the review set `review-v3.json`
+(38 cases: 13 good drafts to approve, 24 bad ones to reject, one bare host to
+leave for the owner). `review-v2.json` stays unchanged as the record of run 3
+(the authority PASS of 2026-10-10), `review-v1.json` as the record of the
 first live run (2026-10-09, FAIL, see
-`docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`, Approval J).
+`docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`, Approval J). v3 is the set the review
+step must pass before it gains authority over Creative Studio posts
+(`ORBIT_AGENT_REVIEW_CREATIVES`, spec
+`docs/superpowers/specs/2026-11-11-agent-review-creatives-design.md` §6).
+
+## The set (v3)
+
+- **Brands.** Every brand has its own synthetic project with its profile
+  fields, facts, assignment fields and brief (`brands` in the set; a case
+  names its `brand`, absent: the first). `en` is v2's synthetic brand (voice
+  "clear", one fact, CTA "Learn more."), with all 26 v2 cases unchanged, on
+  one X slot. `de` is the fictional German family brand "Familienzeit" (no
+  FamilyPlan text or data): one fact (`familienzeit.wochenplan`), voice
+  "warm, klar", guardrail "keine Preise nennen", CTA "Jetzt ausprobieren.",
+  on one Facebook slot of a creative assignment (X cannot carry its long
+  posts).
+- **Image copy cases.** The 12 `de` cases are long-form posts (bodies up to
+  2,200 characters, Instagram's caption limit) with image copy
+  (`creativeCopy`, validated with `parsedCreativeCopy` and the `lifestyle`
+  template's limits). 5 good ones restate the fact and add only everyday
+  moments, questions or invitations; their image copy restates the fact or
+  is a plain invitation or question. 7 bad ones, in the categories
+  `image_copy_wrong_number`, `image_copy_profit_promise`,
+  `image_copy_contradiction`, `image_copy_unbacked_claim` and
+  `image_copy_off_brand_tone`; in two of them (`de-bad-image-number-words`,
+  `de-bad-image-holidays`) the body is clean and only the image copy breaks
+  a rule, so the model must read both. A figure in digits on the image
+  (`de-bad-image-number-digits`) is Orbit's deterministic image copy check
+  (`CREATIVE_UNSUPPORTED_CLAIM`): one deterministic revision, which the
+  worst-case copywriter ignores, then a reject; the model sees neither round.
+- **Creatives.** For a case with image copy, the harness composes a real
+  creative and attaches it before the review (`brand-projects.ts`): the
+  fictional Lumora Home brand kit (`addBrandKit`), the `lifestyle` template,
+  and one approved art asset per run from the offline fixtures
+  (`fixtureArt("good")`), composed by `composeRunCreatives`. This is free:
+  no image provider is called. The brand kit's vision review
+  (`visualReview`) stays off, so only the review model is measured; an
+  approved creative post then still waits for the owner
+  (`CREATIVE_VISION_REVIEW_REQUIRED`), which the offline replay checks.
 
 The set follows Mario's rule for free text: an invitation, question or call
 to action that states nothing about the product, brand or offer needs no
@@ -26,15 +65,20 @@ and deleted per run, and only against a local database
 
 ## Offline (normal test suite)
 
-- `review.offline.test.ts` replays recorded answers through the review step;
-  it never calls a provider.
+- `review.offline.test.ts` replays recorded answers through the review step
+  for every v3 case, with the composed creatives; it never calls a provider.
+  It also checks that v2 still parses and that every v2 case is in v3
+  unchanged, and that the set expects exactly the deterministic image copy
+  codes the production check finds.
 - `live-dry-run.test.ts` tests the plan, the confirmation gate, the ceiling,
   the local-database check and the pass rule.
 - `live-harness.test.ts` runs the live harness end to end with replayed
   answers: the whole set as planned, round 2 after a `revise` (with the
-  unchanged revision), the ceiling stop, metrics-only output, the cleanup,
-  the diagnostic reasons file under `.runtime/`, and that every review
-  request of the set stays below the planning bound.
+  unchanged revision), the ceiling stop, metrics-only output, the cleanup of
+  every brand's project, the diagnostic reasons file under `.runtime/`, and
+  that every review request of the set, and one with a 2,200-character
+  German body with umlauts and emoji, stays below the request bound
+  (counted in bytes).
 - `diagnosis.test.ts` tests the diagnostic reasons file (banner, content,
   refusal to write the key); `eval-key.test.ts` the keychain lookup with a
   mocked `execFile`.
@@ -48,7 +92,7 @@ copywriter (`generate`) and retrieval (`embed`) are stubs that send nothing
 (`stubs.ts`; the harness refuses to run without them, `EVAL_STUBS_REQUIRED`):
 they write the draft that gives the cases their shape, and they make every
 revision the worst case, a copywriter that ignores the instruction and keeps
-the body unchanged. The original draft is rejected as replaced, so the
+the body and image copy unchanged. The original draft is rejected as replaced, so the
 unchanged revision trips no duplicate check, and the round-2 review judges
 the same text again. Each case therefore makes at most two review calls.
 No Telegram bot is linked, so no notification is queued.
@@ -58,11 +102,20 @@ No Telegram bot is linked, so no notification is queued.
    below. It prints the dataset version, the cases, the `agent_review` route,
    the planned review calls (at most two per case; the cases the set expects
    the deterministic checks to decide make none), the worst-case estimate
-   (two calls for every case, about $1.98 for `review-v2` on the rate card of
-   2026-09-30, under the 2 USD ceiling; `live-dry-run.test.ts` fails if the
-   set outgrows it),
+   (two calls for every case; for `review-v2` about $1.98 at the former
+   8,000-byte bound and 2 USD ceiling),
    the cost ceiling, the dataset hash, the hash of the review prompt and
    schema, the commit, and the confirmation, and transmits nothing.
+   For `review-v3` it prints `agents-review-v3`, 38 cases, the cases per
+   brand, 76 review calls at most and a worst case of $4.408 (76 calls at
+   58,000 micros each, every call at its full output limit and the
+   16,000-byte request bound, on the rate card of 2026-09-30). That is above
+   the 3 USD ceiling, so the plan notes a possible early stop with a partial
+   report (a FAIL); whether to run at 3 USD is Mario's decision at the dry
+   run. The realistic cost is far lower: run 3 spent $0.075 on v2.
+   **The rate card is stale:** its `verifiedAt` is 2026-09-30, so until it
+   is refreshed the dry run stops with `EVAL_RATE_CARD_STALE` before it
+   prints anything.
 2. **Review.** Check the plan:
    - **Route.** The route comes from `review-route-v1.json`. Verify in Orbit
      Settings that it equals production's `agent_review` route, or the
@@ -76,7 +129,8 @@ No Telegram bot is linked, so no notification is queued.
      that commit). Any change to the review prompt, its output schema or this
      runner, or to the `agent_review` route or quality tier, needs a new run
      before `ORBIT_AGENT_REVIEW_AUTHORITY` stays on.
-   - **Hashes.** The **dataset hash** covers the cases, the route and the
+   - **Hashes.** The **dataset hash** covers the cases, every brand
+     (profile fields, facts, assignment fields, brief), the route and the
      ceiling. The **confirmation** is a hash of the dataset hash, the
      complete rate card (every price field of every model), its
      `verifiedAt`, the route, the hash of the review instructions and output
@@ -116,14 +170,16 @@ No Telegram bot is linked, so no notification is queued.
 | `ORBIT_EVAL_OPENAI_API_KEY`   | Key for this run only. Stored like the production configuration (encrypted) in the synthetic project and deleted with it. Never printed or written. |
 | `ORBIT_EVAL_KEYCHAIN_SERVICE` | macOS keychain service holding the key, read only when `ORBIT_EVAL_OPENAI_API_KEY` is unset and the confirmation matches.                           |
 | `ORBIT_EVAL_CONFIRM`          | Confirmation value from the dry run (not the dataset hash).                                                                                         |
-| `ORBIT_EVAL_MAX_USD`          | Lowers the cost ceiling in USD. Default and maximum: 2 (0.5 in diagnostic mode); a higher value is clamped.                                         |
+| `ORBIT_EVAL_MAX_USD`          | Lowers the cost ceiling in USD. Default and maximum: 3 (0.5 in diagnostic mode); a higher value is clamped.                                         |
 | `ORBIT_EVAL_DIAGNOSE`         | `good` runs the diagnostic mode (below). Any other value is `EVAL_DIAGNOSE_INVALID`.                                                                |
 
 Safeguards:
 
-- The ceiling is a hard limit across one run. It is the synthetic project's
-  daily, monthly and per-run budget, and each review task may reserve at
-  most what remains of it (`AGENT_LIMIT` otherwise); the run stops at the
+- The ceiling is a hard limit across one run, over the projects of all
+  brands. It is each synthetic project's daily, monthly and per-run budget;
+  before each case the run pool of the case's project is lowered to what
+  the whole run has left, so each review task may reserve at most what
+  remains of it (`AGENT_LIMIT` otherwise); the run stops at the
   first refused reservation and is then incomplete, which is a FAIL. No call
   is ever sent twice. The ceiling applies per run: a re-run spends again.
 - Prices come from the generation eval's rate card
@@ -155,15 +211,15 @@ production review step, to read why the model rejected them (run 2 on
 2026-10-10 rejected 5 of 8 good cases). It is a diagnosis, never a gate:
 
 - **Plan.** The dry run (`ORBIT_EVAL_DIAGNOSE=good pnpm eval:agent-review`)
-  states the mode, the good case ids and count, at most two review calls per
-  case, the worst case and the ceiling.
+  states the mode, the good case ids and count (13 in v3, both brands), at
+  most two review calls per case, the worst case and the ceiling.
 - **Confirmation.** The diagnostic confirmation also binds the mode and the
   case ids, so a normal confirmation never starts a diagnostic run and a
   diagnostic one never starts a normal run (`EVAL_CONFIRMATION_MISMATCH`).
   The normal confirmation is unchanged.
 - **Ceiling.** Default and maximum 0.5 USD; `ORBIT_EVAL_MAX_USD` can only
   lower it. The worst-case estimate (every call at its full output limit,
-  with the 8,000-byte planning bound) is above 0.5 USD, so the plan notes a
+  with the 16,000-byte request bound) is above 0.5 USD, so the plan notes a
   possible early stop; run 2 spent about $0.05 on the good cases.
 - **Reasons file.** For each case and round the run reads the decision the
   review step stores on the draft it judged (`content.agentReviewDecision`,
@@ -219,11 +275,14 @@ Otherwise it prints **FAIL** and exits non-zero. With PASS, Mario may set
 - **One draft per call.** Each case is reviewed alone. Production reviews all
   drafts of a run in one call (up to 16), which the eval does not measure;
   the first-day checks of Approval K and the veto window cover it.
-- **Synthetic brand.** The brand profile, facts and policy are the synthetic
-  test project's (voice "clear", one fact, CTA "Learn more."), not uLiquid's.
-  A PASS shows the review's judgement on this set, not on the production
-  brand's guardrails.
+- **Synthetic brands.** The brand profiles, facts and policies are synthetic
+  (`en`: voice "clear", one fact, CTA "Learn more."; `de`: the fictional
+  "Familienzeit"), not uLiquid's or FamilyPlan's. A PASS shows the review's
+  judgement on this set, not on a production brand's guardrails.
+- **No image.** The review model judges the body and the image copy, never
+  the image; the vision review is measured by its own eval. Composed
+  creatives use one fixture art for every case.
 
 ## The brief
 
-The review checks that a draft follows its brief, so every case is judged against the set's own `brief` (`review-v2.json`). It must match the drafts. A mismatched brief makes good cases fail and lets bad cases pass for the wrong reason. Run 2's diagnosis found exactly that: the harness's default test brief asked for day-one use and "Join the beta." The brief is part of the dataset hash and the confirmation.
+The review checks that a draft follows its brief, so every case is judged against its brand's `brief` in the set (`review-v3.json`; a brief may name its own `topic`, as the German one does, else the topic names the slot). It must match the drafts. A mismatched brief makes good cases fail and lets bad cases pass for the wrong reason. Run 2's diagnosis found exactly that: the harness's default test brief asked for day-one use and "Join the beta." The briefs are part of the dataset hash and the confirmation.

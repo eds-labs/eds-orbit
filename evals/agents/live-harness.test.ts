@@ -95,7 +95,7 @@ import {
   type CaseDiagnosis,
 } from "./diagnosis.ts";
 import { reviewPromptHash } from "./code-version.ts";
-import rawSet from "./review-v2.json" with { type: "json" };
+import rawSet from "./review-v3.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
@@ -129,14 +129,15 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     maxCostMicros = plan.maxCostMicros,
     diagnose?: (entry: CaseDiagnosis) => void,
   ) {
+    const caseOf = (id: string) => cases.find((c) => c.id === id) ?? byId(id);
     replay.verdicts = new Map(
-      Object.entries(verdicts).map(([id, v]) => [byId(id).body, v]),
+      Object.entries(verdicts).map(([id, v]) => [caseOf(id).body, v]),
     );
     replay.calls = 0;
     replay.seen = { 1: [], 2: [] };
     return runReviewEval({
       cases,
-      brief: set.brief,
+      brands: set.brands,
       route: plan.route,
       maxCostMicros,
       runtime,
@@ -145,7 +146,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     });
   }
 
-  it("runs the whole set as planned with the recorded answers, metrics only, and deletes the project", async () => {
+  it("runs the whole set as planned with the recorded answers, metrics only, and deletes the projects", async () => {
     replay.maxBytes = 0;
     const report = await run(
       set.cases,
@@ -155,7 +156,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     );
     expect(report.stoppedReason).toBeNull();
     expect(report.cleanupError).toBeNull();
-    expect(report.results).toHaveLength(26);
+    expect(report.results).toHaveLength(38);
     const outcome = evaluatePassRule(set.cases, report.results, null);
     expect(outcome.rules).toEqual({
       noBadApproved: true,
@@ -171,8 +172,23 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       expect(r.reviewCalls).toBe(r.modelCalled ? 1 : 0);
       expect(r.costMicros).toBe(r.modelCalled ? 3000 : null);
       expect(r.settledMicros).toBe(r.modelCalled ? 3000 : null);
-      expect(r.revised).toBe(false);
+      // Only a figure on the image is revised: once, without the model.
+      expect(r.revised).toBe(r.caseId === "de-bad-image-number-digits");
     }
+    const digits = report.results.find(
+      (r) => r.caseId === "de-bad-image-number-digits",
+    )!;
+    expect(digits).toMatchObject({
+      verdict: "blocked",
+      modelCalled: false,
+      deterministicProblems: ["CREATIVE_UNSUPPORTED_CLAIM"],
+    });
+    // The German creative posts reached the model with their image copy.
+    expect(
+      replay.seen[1].filter((body) =>
+        set.cases.some((c) => c.brand === "de" && c.body === body),
+      ),
+    ).toHaveLength(11);
     expect(replay.calls).toBe(
       set.cases.filter((c) => c.expected.modelSees).length,
     );
@@ -184,13 +200,44 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     expect(written).not.toContain("Synthetic reason");
     expect(written).not.toContain(runtime.apiKey);
     for (const c of set.cases) expect(written).not.toContain(c.body);
-    expect(
-      await authDb.workspace.findUnique({ where: { id: report.workspaceId } }),
-    ).toBeNull();
+    // One synthetic project (and workspace) per brand, all deleted.
+    expect(report.workspaceIds).toHaveLength(2);
+    for (const id of report.workspaceIds)
+      expect(await authDb.workspace.findUnique({ where: { id } })).toBeNull();
     expect(
       await authDb.user.count({ where: { name: REVIEW_EVAL_MARKER } }),
     ).toBe(0);
   }, 300_000);
+
+  // Bytes, never characters: umlauts take two bytes and emoji four.
+  it("keeps every review request of v3 under the request bound", async () => {
+    const base = byId("de-good-alltag");
+    const cta = "Jetzt ausprobieren.";
+    const filler =
+      "Grüße aus der Küche: Frühstück, Müsli, Äpfel und Brötchen für die Pausenbrote, dazu Übungshefte und Schlüssel. 🍎☕ ";
+    let body = "Wie läuft eure Woche? 🗓️\n\n";
+    while (body.length + filler.length + cta.length + 1 < 2_200) body += filler;
+    body += "ü".repeat(2_200 - body.length - cta.length - 1) + " " + cta;
+    // 2,200 characters as the schema counts them, many more bytes.
+    expect(body.length).toBe(2_200);
+    expect(Buffer.byteLength(body)).toBeGreaterThan(2_400);
+    expect(body).toMatch(/[äöüß]/u);
+    expect(body).toMatch(/\p{Extended_Pictographic}/u);
+    const long = { ...base, id: "de-long-2200", body };
+    replay.maxBytes = 0;
+    const report = await run([long], { [long.id]: { 1: "approve" } });
+    expect(report.stoppedReason).toBeNull();
+    expect(report.results[0]).toMatchObject({
+      verdict: "approve",
+      modelCalled: true,
+      asPlanned: true,
+    });
+    expect(replay.seen[1]).toEqual([body]);
+    // The longest request: instructions, schema, brand, the 2,200-character
+    // body with its image copy, facts and brief.
+    expect(replay.maxBytes).toBeGreaterThan(Buffer.byteLength(body));
+    expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+  }, 120_000);
 
   it("runs the production revision with an unchanged body and lets round 2 decide", async () => {
     const cases = [
