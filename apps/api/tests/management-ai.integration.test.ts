@@ -12,7 +12,11 @@ import {
 } from "../src/platform/administration/connections.ts";
 import { saveAiProfile } from "../src/platform/administration/ai-profiles.ts";
 import { saveSpendPolicy } from "../src/platform/ai/spend-policy.ts";
-import type { OrganizationAiProjects } from "../src/platform/management/ai-projects.ts";
+import {
+  organizationAiProjects,
+  readAiProject,
+  type OrganizationAiProjects,
+} from "../src/platform/management/ai-projects.ts";
 import { saveAiDefaults } from "../src/platform/administration/ai-defaults.ts";
 import {
   saveAiRouting,
@@ -815,6 +819,8 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
       }
     });
 
+    // Writes spend policies on the shared fixtures: it must stay after the
+    // tests that read their effective view.
     it("reports the spending authority", async () => {
       await inProject(orgId, fx.granted, (tx, s) => saveSpendPolicy(tx, s, { profile: "monthly", monthlyBudgetMicros: 25_000_000 }));
       await inProject(orgId, fx.revoked, (tx, s) =>
@@ -850,12 +856,37 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
       expect((foreign.json() as OrganizationAiProjects).projects.map((p) => p.projectId)).toEqual([fx.foreign]);
     });
 
+    it("counts a project whose read fails and leaves it out", async () => {
+      const failures: string[] = [];
+      const body = await organizationAiProjects(
+        orgId,
+        people.owner.id,
+        new Date(),
+        (projectId) => failures.push(projectId),
+        async (workspaceId, projectId, actorId, now) => {
+          if (projectId === fx.own) throw new Error(`leaky ${SECRETS.own}`);
+          return readAiProject(workspaceId, projectId, actorId, now);
+        },
+      );
+      expect(body.unreadable).toBe(1);
+      expect(failures).toEqual([fx.own]);
+      const ids = body.projects.map((p) => p.projectId);
+      expect(ids).not.toContain(fx.own);
+      expect(ids).toContain(fx.envOnly);
+      expect(JSON.stringify(body)).not.toContain("leaky");
+      expect(JSON.stringify(body)).not.toContain(SECRETS.own);
+    });
+
     it("returns the listed fields only", async () => {
       const r = await list(orgId, people.owner);
       const body = r.json() as OrganizationAiProjects;
-      expect(Object.keys(body).sort()).toEqual(["projects", "routingApplied"]);
-      for (const p of body.projects)
+      expect(Object.keys(body).sort()).toEqual(["projects", "routingApplied", "unreadable"]);
+      expect(body.unreadable).toBe(0);
+      for (const p of body.projects) {
         expect(Object.keys(p).sort()).toEqual(["name", "overrides", "ownKeys", "projectId", "routingMode", "spendingAuthority"]);
+        expect(Object.keys(p.ownKeys).sort()).toEqual(["anthropic", "image", "openai"]);
+        expect(Object.keys(p.overrides).sort()).toEqual(["models", "prices", "providerBudgets", "routes"]);
+      }
       const text = r.body;
       for (const secret of Object.values(SECRETS)) expect(text).not.toContain(secret);
       for (const word of ["encrypted", "rateCard", "verifiedModels", "synthetic-own", "secret", "config", "settings"])
