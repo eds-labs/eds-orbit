@@ -290,6 +290,24 @@ describe.skipIf(!enabled)("Central connections (ADR 0014)", () => {
     expect(await scoped(wsA, a1, (tx) => connectionSecret(tx, connectionId))).toBe(NEXT);
   });
 
+  it("states a connection that was never checked as stored", async () => {
+    const fresh = await call("POST", "/api/admin/connections", people.admin, {
+      provider: "openai",
+      label: "Never checked",
+      secret: `sk-test-${randomBytes(16).toString("hex")}`,
+    });
+    expect(fresh.statusCode).toBe(201);
+    const id = fresh.json().id as string;
+    try {
+      const row = (await call("GET", "/api/admin/connections", people.admin))
+        .json()
+        .items.find((c: { id: string }) => c.id === id);
+      expect(row).toMatchObject({ state: "stored", checkedAt: null });
+    } finally {
+      await authDb.connection.deleteMany({ where: { id } });
+    }
+  });
+
   it("states each central connection uniformly", async () => {
     const stateOf = async () => {
       const r = await call("GET", "/api/admin/connections", people.admin);

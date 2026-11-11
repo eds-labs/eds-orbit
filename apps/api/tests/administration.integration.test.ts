@@ -180,9 +180,9 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
         GOOGLE_DRIVE_CLIENT_SECRET: `gsecret-${randomBytes(12).toString("hex")}`,
         ORBIT_CONNECTIONS_CUTOVER: "postiz,matomo",
       };
-      const names = [...Object.keys(dummies), "ORBIT_MCP_OAUTH"];
+      const names = [...Object.keys(dummies), "ORBIT_MCP_PROPOSALS"];
       const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
-      Object.assign(process.env, dummies, { ORBIT_MCP_OAUTH: "false" });
+      Object.assign(process.env, dummies, { ORBIT_MCP_PROPOSALS: "true" });
       try {
         const r = await call("GET", "/api/admin/overview", p.admin);
         expect(r.statusCode).toBe(200);
@@ -209,9 +209,12 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
             "tasks",
           ].sort(),
         );
+        expect(Object.keys(environment.redis).sort()).toEqual(["configured", "reachable"]);
+        expect(Object.keys(environment.files)).toEqual(["configured"]);
+        expect(Object.keys(environment.credentialKeys)).toEqual(["ring"]);
         expect(environment.aiFallbackKeys).toEqual({ openai: true, anthropic: true });
         expect(environment.googleDriveApp).toEqual({ configured: true });
-        expect(environment.mcp.oauth).toBe(false);
+        expect(environment.mcp.proposals).toBe(true);
         expect(environment.connectionsCutover).toEqual(["postiz", "matomo"]);
         expect(typeof environment.redis.configured).toBe("boolean");
         expect(typeof environment.redis.reachable).toBe("boolean");
@@ -235,6 +238,15 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
           if (saved[n] === undefined) delete process.env[n];
           else process.env[n] = saved[n];
       }
+    });
+
+    it("keeps the members' operations answer free of the environment status", async () => {
+      const r = await call("GET", `/api/projects/${projectId}/operations`, p.owner);
+      expect(r.statusCode).toBe(200);
+      // The fields runtimeHealth() answered before the status work; no redis.
+      expect(Object.keys(r.json().runtime).sort()).toEqual(
+        ["lastHeartbeat", "observedAt", "queues", "worker"].sort(),
+      );
     });
 
     it("keeps the overview for administrators only", async () => {

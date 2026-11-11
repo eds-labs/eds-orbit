@@ -939,9 +939,10 @@ export async function buildServer(
   app.get("/api/projects/:projectId/operations", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
-    const runtime = await runtimeHealth();
+    // Members get the worker fields only: the Redis state is for administrators.
+    const { worker, lastHeartbeat, queues, observedAt } = await runtimeHealth();
     return scoped(scope.workspaceId, projectId, async (tx) => ({
-      runtime,
+      runtime: { worker, lastHeartbeat, queues, observedAt },
       jobs: await list(tx, scope, "jobs"),
       pendingOutbox: await tx.outbox.count({
         where: { projectId, dispatchedAt: null },
