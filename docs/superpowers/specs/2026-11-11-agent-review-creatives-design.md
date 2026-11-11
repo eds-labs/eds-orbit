@@ -64,7 +64,7 @@ A new function `creativeAuthorityProblem(tx, scope, content): string | null` in 
 - **Shared slots.** A Facebook/Instagram pair (R76) is judged per channel. A channel whose rendition was not judged waits for the owner on its own.
 - **Banners.** The banner refusal (R79) is unchanged.
 
-**The owner sees why.** Where the review step leaves an agent-approved draft for the owner (the `needs_owner` notice in `specialists/review.ts`), it stores the code as `ownerReason` on the decision. The approvals page and the assignment detail show it as text in German and English, through the existing maps (`ERROR_TEXT` in `assignment-detail.tsx`, `lib/exception-text.ts`).
+**The owner sees why.** Where the review step leaves an agent-approved draft for the owner (the `needs_owner` notice in `specialists/review.ts`), it stores the code on the content as `agentAuthorityProblem`, and `GET …/assignment-drafts` returns it as `waitingReason` for drafts that still wait. The approvals page shows it as text in German and English, through the existing maps (`ERROR_TEXT` in `assignment-detail.tsx`, `lib/exception-text.ts`).
 
 **Vision review in the run.**
 - The review step already runs the vision review before the model when the brand kit enables it (`visionReviews`). A failing creative, or one whose review could not run, goes to the owner as `CREATIVE_QA_FAILED`; that stays.
@@ -179,7 +179,7 @@ A small eval of the production `visionReviewCreative`. It follows the agent eval
 - never reaches Social.
 
 **Review step**
-- `ownerReason` is stored for an agent-approved creative draft that waits for the owner.
+- `agentAuthorityProblem` is stored for an agent-approved creative draft that waits for the owner, and a released draft shows no waiting reason.
 - `visualReview` off with the flag on makes no vision call.
 
 **Evals**
@@ -222,7 +222,7 @@ A small eval of the production `visionReviewCreative`. It follows the agent eval
 - The veto window, Stop, budgets, quiet hours, quotas and preflight all still apply.
 - **Provider.** The vision review sends one rendition (AI art, brand logo, image copy) to the configured `creative_review` provider. No customer data and no real persons are involved. The owner's `providerUse` on the logo is the explicit consent (R28). No new provider and no new dependency.
 - **Cost.** One vision call per FamilyPlan creative per day, through the assignment budget. The price per call follows from the refreshed rate card. The eval ceilings are 3 USD and 0.50 USD.
-- **Audit.** The existing audits (`publication.vetoed`, `publication.claim_blocked`, decisions on content) cover the flow. `ownerReason` is content-free.
+- **Audit.** The existing audits (`publication.vetoed`, `publication.claim_blocked`, decisions on content) cover the flow. `agentAuthorityProblem` is a code, never content.
 
 ## 11. Documentation
 
