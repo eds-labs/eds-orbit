@@ -89,7 +89,7 @@ type Rate = {
   webSearchMicrosPerCall?: number;
   verifiedAt: string;
 };
-type AiBudgetView = {
+export type AiBudgetView = {
   // OpenAI's budget is reported since phase 3.4; older servers omit it.
   providers: Record<"anthropic", ProviderBudgetState> &
     Partial<Record<"openai", ProviderBudgetState>>;
@@ -148,7 +148,7 @@ const sourceName: Record<"en" | "de", Record<KeySourceName, string>> = {
  * Text, search and images as the project can use them now: Claude alone
  * covers text; semantic search and image generation need an OpenAI key.
  */
-function CapabilityRows({
+export function CapabilityRows({
   capabilities,
   de,
 }: {
@@ -478,12 +478,15 @@ export function anthropicPayload(
 }
 
 /** Keys, default provider, suggested models and tiers, fallback. */
-function AnthropicConfiguration({
+export function AnthropicConfiguration({
   view,
   onClose,
+  followsStandard = false,
 }: {
   view: AiConfigurationData;
   onClose: () => void;
+  /** The project follows the organization's standard: no model fields. */
+  followsStandard?: boolean;
 }) {
   const { project, refresh, locale } = useWorkspace();
   const de = locale === "de";
@@ -492,7 +495,7 @@ function AnthropicConfiguration({
     onClose();
   });
   const fields = [
-    ...anthropicFields(view, locale),
+    ...anthropicFields(view, locale, { followsStandard }),
     ...firstSaveFields(view, locale),
   ];
   return (
@@ -526,7 +529,7 @@ function AnthropicConfiguration({
         onSubmit={(values) => {
           if (!firstSaveConfirmed(view, values)) return;
           return mutation.run(async () => {
-            const payload = anthropicPayload(view, values);
+            const payload = anthropicPayload(view, values, { followsStandard });
             // Thrown before any request, shown as the form's error.
             if ("error" in payload)
               throw new Error(
@@ -707,7 +710,7 @@ function ProviderBudgetForm({
  * One provider's credit budget: spend, period, the manually verified credit
  * and the form (phase 3.4: OpenAI as well as Claude).
  */
-function ProviderBudgetPanel({
+export function ProviderBudgetPanel({
   provider,
   entry,
   view,
@@ -788,7 +791,7 @@ function ProviderBudgetPanel({
   );
 }
 
-function CostList({
+export function CostList({
   title,
   rows,
   labelOf,
@@ -835,82 +838,32 @@ function CostList({
   );
 }
 
-export function AiSettings() {
-  const { project, revision, isOwner, locale } = useWorkspace();
-  const de = locale === "de";
+type Resource<T> = ReturnType<typeof useResource<T>>;
+
+/** The two resources AiSettings loads today, and a refresh of both. */
+export function useAiSettingsResources(): {
+  configuration: Resource<AiConfigurationData>;
+  budget: Resource<AiBudgetView>;
+  refreshAll(): void;
+} {
+  const { project, revision } = useWorkspace();
   const configuration = useResource<AiConfigurationData>(
     collectionPath(project.id, `openai-configuration?revision=${revision}`),
   );
   const budget = useResource<AiBudgetView>(
     collectionPath(project.id, `ai-budget?revision=${revision}`),
   );
-  const now = useMemo(() => Date.now(), [project.id, revision]);
-  const costPath = (groupBy: string, from: string) =>
-    collectionPath(
-      project.id,
-      `ai-cost?from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(now).toISOString())}&groupBy=${groupBy}`,
-    );
-  const period = budget.data?.providers.anthropic.spend?.periodStart;
-  const monthStart = new Date(
-    Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1),
-  ).toISOString();
-  const rangeStart = period ?? monthStart;
-  const today = useResource<{ rows: CostRow[] }>(
-    costPath("provider", dayStart(now)),
-  );
-  const byProvider = useResource<{ rows: CostRow[] }>(
-    costPath("provider", rangeStart),
-  );
-  const byModel = useResource<{ rows: CostRow[] }>(
-    costPath("model", rangeStart),
-  );
-  const byTask = useResource<{ rows: CostRow[] }>(
-    costPath("taskClass", rangeStart),
-  );
-  const [openAi, setOpenAi] = useState(false);
-  const [anthropic, setAnthropic] = useState(false);
-  const [routes, setRoutes] = useState(false);
-  const [prices, setPrices] = useState(false);
-  const view = configuration.data;
-  const models = useMemo(() => {
-    if (!view) return [];
-    const ids = new Set([
-      ...view.verifiedModels,
-      ...Object.keys(view.rateCard),
-      ...Object.keys(view.models),
-    ]);
-    return [...ids].sort().map((id) => {
-      const provider = providerOf(id, view.models);
-      const rate = view.rateCard[id];
-      const usedBy = Object.entries(view.effectiveRoutes ?? {})
-        .filter(
-          ([, route]) => route && !("error" in route) && route.model === id,
-        )
-        .map(([taskClass]) => taskClass.replaceAll("_", " "));
-      return {
-        id,
-        provider,
-        rate,
-        usedBy,
-        enabled: view.verifiedModels.includes(id),
-        entry: view.models[id],
-      };
-    });
-  }, [view]);
   const refreshAll = () => {
     configuration.refresh();
     budget.refresh();
   };
-  // The guided setup's key step: an own key through the usual sections.
-  const saveKey = (provider: ProviderId, key: string) =>
-    provider === "openai"
-      ? saveModels(project.id, { ...modelsPayload(view!), apiKey: key })
-      : saveProviders(project.id, {
-          ...providerPayload(view!),
-          anthropicApiKey: key,
-          // Without the central catalog the project needs Claude's prices itself.
-          applyAnthropicCatalog: !view?.catalog,
-        });
+  return { configuration, budget, refreshAll };
+}
+
+export function AiSettings() {
+  const { isOwner, locale } = useWorkspace();
+  const de = locale === "de";
+  const { configuration, budget, refreshAll } = useAiSettingsResources();
   if (!isOwner)
     return (
       <section className="panel">
@@ -925,18 +878,99 @@ export function AiSettings() {
       </section>
     );
   return (
+    <AiSettingsView
+      configuration={configuration}
+      budget={budget}
+      refreshAll={refreshAll}
+    />
+  );
+}
+
+/** The wizard's key step: an own key through the usual sections. */
+export function saveAiKey(
+  projectId: string,
+  view: AiConfigurationData,
+  provider: ProviderId,
+  key: string,
+): Promise<void> {
+  return provider === "openai"
+    ? saveModels(projectId, { ...modelsPayload(view), apiKey: key })
+    : saveProviders(projectId, {
+        ...providerPayload(view),
+        anthropicApiKey: key,
+        // Without the central catalog the project needs Claude's prices itself.
+        applyAnthropicCatalog: !view.catalog,
+      });
+}
+
+/**
+ * The setup wizard's key step props for a view. The key saves copy the whole
+ * shown configuration into an unsaved project: a first save needs the
+ * confirmation (F-8 risk 5), so every mount of AiSetupPanel takes all three.
+ */
+export function setupKeyProps(
+  projectId: string,
+  view: AiConfigurationData,
+  locale: Locale,
+): {
+  saveKey: (provider: ProviderId, key: string) => Promise<void>;
+  keyFields: FormField[];
+  keyConfirmed: (values: FormValues) => boolean;
+} {
+  return {
+    saveKey: (provider, key) => saveAiKey(projectId, view, provider, key),
+    keyFields: firstSaveFields(view, locale),
+    keyConfirmed: (values) => firstSaveConfirmed(view, values),
+  };
+}
+
+/** The owner's page: every panel in order, from the two loaded resources. */
+export function AiSettingsView({
+  configuration,
+  budget,
+  refreshAll,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  budget: Resource<AiBudgetView>;
+  refreshAll(): void;
+}) {
+  const { project, locale } = useWorkspace();
+  const view = configuration.data;
+  return (
     <>
       {view && (
         <AiSetupPanel
           view={view}
-          saveKey={saveKey}
-          // The key saves copy the whole shown configuration into an unsaved
-          // project: a first save needs the confirmation (F-8 risk 5).
-          keyFields={firstSaveFields(view, locale)}
-          keyConfirmed={(values) => firstSaveConfirmed(view, values)}
+          {...setupKeyProps(project.id, view, locale)}
           onChanged={refreshAll}
         />
       )}
+      <AiProvidersPanel configuration={configuration} refreshAll={refreshAll} />
+      {view && <ModelChoicePanel view={view} onChanged={refreshAll} />}
+      <AiModelsPanel configuration={configuration} />
+      <AiProviderBudgetPanels configuration={configuration} budget={budget} />
+      <AiProjectUsagePanel budget={budget} />
+    </>
+  );
+}
+
+/** "AI providers": capabilities, warnings, one row per provider, and the OpenAI and Claude dialogs. */
+export function AiProvidersPanel({
+  configuration,
+  refreshAll,
+  followsStandard = false,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  refreshAll(): void;
+  followsStandard?: boolean;
+}) {
+  const { locale } = useWorkspace();
+  const de = locale === "de";
+  const [openAi, setOpenAi] = useState(false);
+  const [anthropic, setAnthropic] = useState(false);
+  const view = configuration.data;
+  return (
+    <>
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -1015,9 +1049,69 @@ export function AiSettings() {
           <p className="panel-note">{configuration.error?.message ?? "—"}</p>
         )}
       </section>
+      {openAi && (
+        <OpenAiConfiguration
+          followsStandard={followsStandard}
+          onClose={() => {
+            setOpenAi(false);
+            configuration.refresh();
+          }}
+        />
+      )}
+      {anthropic && view && (
+        <AnthropicConfiguration
+          view={view}
+          followsStandard={followsStandard}
+          onClose={() => {
+            setAnthropic(false);
+            refreshAll();
+          }}
+        />
+      )}
+    </>
+  );
+}
 
-      {view && <ModelChoicePanel view={view} onChanged={refreshAll} />}
-
+/** "AI models": the verified models with prices; the task-route and models-and-prices dialogs while `editable`. */
+export function AiModelsPanel({
+  configuration,
+  editable = true,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  editable?: boolean;
+}) {
+  const { locale } = useWorkspace();
+  const de = locale === "de";
+  const [routes, setRoutes] = useState(false);
+  const [prices, setPrices] = useState(false);
+  const view = configuration.data;
+  const models = useMemo(() => {
+    if (!view) return [];
+    const ids = new Set([
+      ...view.verifiedModels,
+      ...Object.keys(view.rateCard),
+      ...Object.keys(view.models),
+    ]);
+    return [...ids].sort().map((id) => {
+      const provider = providerOf(id, view.models);
+      const rate = view.rateCard[id];
+      const usedBy = Object.entries(view.effectiveRoutes ?? {})
+        .filter(
+          ([, route]) => route && !("error" in route) && route.model === id,
+        )
+        .map(([taskClass]) => taskClass.replaceAll("_", " "));
+      return {
+        id,
+        provider,
+        rate,
+        usedBy,
+        enabled: view.verifiedModels.includes(id),
+        entry: view.models[id],
+      };
+    });
+  }, [view]);
+  return (
+    <>
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -1028,15 +1122,24 @@ export function AiSettings() {
                 : "Verified models with prices and the tasks that use them."}
             </p>
           </div>
-          <div className="page-actions">
-            <Button variant="outline" onClick={() => setRoutes(true)}>
-              {de ? "Aufgaben-Routen" : "Task routes"}
-            </Button>
-            <Button variant="outline" onClick={() => setPrices(true)}>
-              {de ? "Modelle & Preise" : "Models & prices"}
-            </Button>
-          </div>
+          {editable && (
+            <div className="page-actions">
+              <Button variant="outline" onClick={() => setRoutes(true)}>
+                {de ? "Aufgaben-Routen" : "Task routes"}
+              </Button>
+              <Button variant="outline" onClick={() => setPrices(true)}>
+                {de ? "Modelle & Preise" : "Models & prices"}
+              </Button>
+            </div>
+          )}
         </div>
+        {!editable && (
+          <p className="panel-note">
+            {de
+              ? "Die Modelle kommen aus dem Standard der Organisation. Um andere zu wählen, stelle die Modellwahl auf eine Stufe oder eigene Einstellungen um."
+              : "The models come from the organization's standard. To choose others, change the model choice to a level or own settings."}
+          </p>
+        )}
         {models.length ? (
           <div className="capability-readiness">
             {models.map((model) => (
@@ -1079,102 +1182,6 @@ export function AiSettings() {
           </p>
         )}
       </section>
-
-      {(["anthropic", "openai"] as const).map((provider) => (
-        <ProviderBudgetPanel
-          key={provider}
-          provider={provider}
-          entry={budget.data?.providers[provider]}
-          view={view}
-          onSaved={() => {
-            configuration.refresh();
-            budget.refresh();
-          }}
-        />
-      ))}
-
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>{de ? "KI-Verbrauch & Kosten" : "AI usage & costs"}</h2>
-            <p>
-              {de
-                ? "Orbits eigene Berechnung aus Reservierungen und abgerechneter Nutzung (USD). Keine Live-Daten des Providers."
-                : "Orbit's own calculation from reservations and settled usage (USD). Not the provider's live data."}
-            </p>
-          </div>
-        </div>
-        <div className="metrics-strip">
-          <Metric
-            icon={Coins}
-            label={de ? "Heute" : "Today"}
-            amount={today.data ? usd(totalMicros(today.data.rows)) : "—"}
-          />
-          <Metric
-            icon={Gauge}
-            label={de ? "Dieser Abrechnungszeitraum" : "This billing period"}
-            amount={
-              byProvider.data ? usd(totalMicros(byProvider.data.rows)) : "—"
-            }
-            detail={
-              period
-                ? `${de ? "seit" : "since"} ${when(period, locale)}`
-                : de
-                  ? "seit Monatsbeginn (UTC)"
-                  : "since the start of the month (UTC)"
-            }
-          />
-          <Metric
-            icon={Brain}
-            label="Claude"
-            amount={
-              byProvider.data
-                ? usd(
-                    totalMicros(
-                      byProvider.data.rows.filter(
-                        (row) => row.key === "anthropic",
-                      ),
-                    ),
-                  )
-                : "—"
-            }
-            detail={
-              byProvider.data
-                ? `OpenAI ${usd(totalMicros(byProvider.data.rows.filter((row) => row.key === "openai")))}`
-                : undefined
-            }
-          />
-        </div>
-        <div className="settings-grid">
-          <CostList
-            title={de ? "Nach Provider" : "By provider"}
-            rows={byProvider.data?.rows}
-            labelOf={(key) => providerName[key as ProviderId] ?? key}
-          />
-          <CostList
-            title={de ? "Nach Modell" : "By model"}
-            rows={byModel.data?.rows}
-          />
-          <CostList
-            title={de ? "Nach Agent / Modul" : "By agent / module"}
-            rows={byTask.data?.rows}
-            labelOf={(key) => key.replaceAll("_", " ")}
-          />
-        </div>
-        <p className="panel-note">
-          {de
-            ? "Kosten nach Projekt: diese Ansicht gilt für das gewählte Projekt; jedes Projekt reserviert und rechnet getrennt ab."
-            : "Cost per project: this view is the selected project's; every project reserves and settles separately."}
-        </p>
-      </section>
-      {openAi && (
-        <OpenAiConfiguration
-          onClose={() => {
-            setOpenAi(false);
-            configuration.refresh();
-          }}
-        />
-      )}
       {routes && (
         <TaskRoutesConfiguration
           onClose={() => {
@@ -1191,17 +1198,143 @@ export function AiSettings() {
           }}
         />
       )}
-      {anthropic && view && (
-        <AnthropicConfiguration
+    </>
+  );
+}
+
+/** The Claude and OpenAI budget panels, in that order. */
+export function AiProviderBudgetPanels({
+  configuration,
+  budget,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  budget: Resource<AiBudgetView>;
+}) {
+  const view = configuration.data;
+  return (
+    <>
+      {(["anthropic", "openai"] as const).map((provider) => (
+        <ProviderBudgetPanel
+          key={provider}
+          provider={provider}
+          entry={budget.data?.providers[provider]}
           view={view}
-          onClose={() => {
-            setAnthropic(false);
+          onSaved={() => {
             configuration.refresh();
             budget.refresh();
           }}
         />
-      )}
+      ))}
     </>
+  );
+}
+
+/** "AI usage & costs": loads its four cost lists itself. */
+export function AiProjectUsagePanel({
+  budget,
+}: {
+  budget: Resource<AiBudgetView>;
+}) {
+  const { project, revision, locale } = useWorkspace();
+  const de = locale === "de";
+  const now = useMemo(() => Date.now(), [project.id, revision]);
+  const costPath = (groupBy: string, from: string) =>
+    collectionPath(
+      project.id,
+      `ai-cost?from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(now).toISOString())}&groupBy=${groupBy}`,
+    );
+  const period = budget.data?.providers.anthropic.spend?.periodStart;
+  const monthStart = new Date(
+    Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1),
+  ).toISOString();
+  const rangeStart = period ?? monthStart;
+  const today = useResource<{ rows: CostRow[] }>(
+    costPath("provider", dayStart(now)),
+  );
+  const byProvider = useResource<{ rows: CostRow[] }>(
+    costPath("provider", rangeStart),
+  );
+  const byModel = useResource<{ rows: CostRow[] }>(
+    costPath("model", rangeStart),
+  );
+  const byTask = useResource<{ rows: CostRow[] }>(
+    costPath("taskClass", rangeStart),
+  );
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>{de ? "KI-Verbrauch & Kosten" : "AI usage & costs"}</h2>
+          <p>
+            {de
+              ? "Orbits eigene Berechnung aus Reservierungen und abgerechneter Nutzung (USD). Keine Live-Daten des Providers."
+              : "Orbit's own calculation from reservations and settled usage (USD). Not the provider's live data."}
+          </p>
+        </div>
+      </div>
+      <div className="metrics-strip">
+        <Metric
+          icon={Coins}
+          label={de ? "Heute" : "Today"}
+          amount={today.data ? usd(totalMicros(today.data.rows)) : "—"}
+        />
+        <Metric
+          icon={Gauge}
+          label={de ? "Dieser Abrechnungszeitraum" : "This billing period"}
+          amount={
+            byProvider.data ? usd(totalMicros(byProvider.data.rows)) : "—"
+          }
+          detail={
+            period
+              ? `${de ? "seit" : "since"} ${when(period, locale)}`
+              : de
+                ? "seit Monatsbeginn (UTC)"
+                : "since the start of the month (UTC)"
+          }
+        />
+        <Metric
+          icon={Brain}
+          label="Claude"
+          amount={
+            byProvider.data
+              ? usd(
+                  totalMicros(
+                    byProvider.data.rows.filter(
+                      (row) => row.key === "anthropic",
+                    ),
+                  ),
+                )
+              : "—"
+          }
+          detail={
+            byProvider.data
+              ? `OpenAI ${usd(totalMicros(byProvider.data.rows.filter((row) => row.key === "openai")))}`
+              : undefined
+          }
+        />
+      </div>
+      <div className="settings-grid">
+        <CostList
+          title={de ? "Nach Provider" : "By provider"}
+          rows={byProvider.data?.rows}
+          labelOf={(key) => providerName[key as ProviderId] ?? key}
+        />
+        <CostList
+          title={de ? "Nach Modell" : "By model"}
+          rows={byModel.data?.rows}
+        />
+        <CostList
+          title={de ? "Nach Agent / Modul" : "By agent / module"}
+          rows={byTask.data?.rows}
+          labelOf={(key) => key.replaceAll("_", " ")}
+        />
+      </div>
+      <p className="panel-note">
+        {de
+          ? "Kosten nach Projekt: diese Ansicht gilt für das gewählte Projekt; jedes Projekt reserviert und rechnet getrennt ab."
+          : "Cost per project: this view is the selected project's; every project reserves and settles separately."}
+      </p>
+    </section>
   );
 }
 
@@ -1568,7 +1701,14 @@ export function openAiFields(
  * OpenAI as simple as Claude: the keys, the three tier models and image
  * generation. Task routes and the rate card have their own dialogs.
  */
-export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
+export function OpenAiConfiguration({
+  onClose,
+  followsStandard = false,
+}: {
+  onClose: () => void;
+  /** The project follows the organization's standard: no tier fields. */
+  followsStandard?: boolean;
+}) {
   const { project, refresh, locale } = useWorkspace();
   const de = locale === "de";
   const configuration = useModelsView();
@@ -1579,7 +1719,10 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
   const current = configuration.data;
   const catalogImage = current ? catalogImageOf(current) : undefined;
   const fields = current
-    ? [...openAiFields(current, locale), ...firstSaveFields(current, locale)]
+    ? [
+        ...openAiFields(current, locale, { followsStandard }),
+        ...firstSaveFields(current, locale),
+      ]
     : [];
   return (
     <Modal title={de ? "OpenAI konfigurieren" : "Configure OpenAI"} onClose={onClose}>
