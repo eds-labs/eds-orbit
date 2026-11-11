@@ -113,7 +113,7 @@ describe.skipIf(!enabled)("ads account health and clean-up", () => {
     app = await buildServer();
     fake.on("GET", "/me/permissions", () => permissions);
     fake.on("GET", "/me/adaccounts", { json: { data: [] } });
-    for (let n = 1; n <= 9; n++) fake.on("GET", `/act_${n}`, () => reads.get(`act_${n}`) ?? { json: meta(n) });
+    for (let n = 1; n <= 12; n++) fake.on("GET", `/act_${n}`, () => reads.get(`act_${n}`) ?? { json: meta(n) });
   });
   beforeEach(() => {
     permissions = BOTH;
@@ -153,6 +153,22 @@ describe.skipIf(!enabled)("ads account health and clean-up", () => {
     expect(s.events).toHaveLength(2);
     expect(await notices(project, "ads_account_reconnect")).toHaveLength(1);
     expect(connection).toBeTruthy();
+  });
+
+  it("flips all accounts of a refused connection once, also those not due, and tells the owners once", async () => {
+    const { project } = await setup();
+    const [first] = (await state(project)).accounts;
+    // Only act_1 is due; act_2's stream is six hours away.
+    await project.run((tx) => tx.adSyncState.updateMany({ where: { accountId: first!.id }, data: { nextRunAt: new Date(Date.now() - 1000) } }));
+    permissions = graphError(400, 190);
+    await adsAccountHealth.run(project.owner);
+    expect(await statuses(project)).toEqual([["act_1", "reconnect_required"], ["act_2", "reconnect_required"]]);
+    expect((await state(project)).streams.every((x) => x.lastErrorCode === "ADS_META_TOKEN_INVALID" && x.nextRunAt.getTime() > Date.now() + 5.9 * HOUR)).toBe(true);
+    expect(await notices(project, "ads_account_reconnect")).toHaveLength(1);
+    // Now act_2 is due: nothing flips, nobody is told again.
+    await runHealth(project);
+    expect((await state(project)).audit.filter((a) => a.action === "ads.account.reconnect_required")).toHaveLength(2);
+    expect(await notices(project, "ads_account_reconnect")).toHaveLength(1);
   });
 
   it("an outage changes no status, notifies nobody, records the code and counts failures", async () => {
@@ -281,16 +297,14 @@ describe.skipIf(!enabled)("ads account health and clean-up", () => {
   it("probes at most 10 accounts per run and one scope call per connection", async () => {
     const project = await track();
     const connection = await connectMeta(project);
-    const rows: string[] = [];
-    for (let n = 1; n <= 9; n++) rows.push(await assign(project, connection, `act_${n}`));
-    const extra = await connectMeta(project, "u-2");
-    // 9 accounts + the second connection's account: the 11th does not exist, so use 9 and check the scope count.
-    expect(extra).toBeTruthy();
+    for (let n = 1; n <= 11; n++) await assign(project, connection, `act_${n}`);
     fake.requests.length = 0;
     await runHealth(project);
     expect(fake.requests.filter((r) => r.path === "/me/permissions")).toHaveLength(1);
-    expect(fake.requests.filter((r) => /^\/act_\d$/.test(r.path))).toHaveLength(9);
-    expect(rows).toHaveLength(9);
+    expect(fake.requests.filter((r) => /^\/act_\d+$/.test(r.path))).toHaveLength(10);
+    const streams = await project.run((tx) => tx.adSyncState.findMany());
+    // The 11th keeps its due time and is read by the next run.
+    expect(streams.filter((x) => x.nextRunAt.getTime() <= Date.now())).toHaveLength(1);
   });
 
   it("is due when a health stream is; the module off means never", async () => {

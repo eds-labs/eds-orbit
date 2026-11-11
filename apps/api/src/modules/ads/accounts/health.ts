@@ -110,7 +110,15 @@ async function checkConnection(
   const results = new Map<string, HealthResult>();
   const ids = accounts.map((a) => a.id);
   const refuseAll = async (code: string) => {
-    await refuse(scope, ids, code);
+    // A refused token is the connection's fault: every account of it flips in
+    // one call (the owners hear once), not only those due in this run.
+    const all = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      tx.adAccount.findMany({
+        where: { projectId: scope.projectId, connectionId, status: { not: "unlinked" } },
+        select: { id: true },
+      }),
+    );
+    await refuse(scope, [...new Set([...ids, ...all.map((a) => a.id)])], code);
     for (const id of ids) results.set(id, { ok: false, code });
     return results;
   };
