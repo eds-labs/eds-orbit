@@ -184,8 +184,8 @@ export function registerManagementRoutes(app: FastifyInstance, auth: Auth): void
 | `system.connections`, `system.ai` | the row above and `connectionsEnabled()` |
 | `organization.overview`, `organization.members` | `administrationEnabled()` and `WorkspaceMember.role === "owner"` in that organization |
 | `organization.connections`, `organization.ai` | the row above and `connectionsEnabled()` |
-| `organization.knowledge` | organization owner and the share flag is on |
-| `organization.apps` | organization owner and the MCP grant routes are registered |
+| `organization.knowledge` | the `organization.overview` row (administration on, owner) and the share flag is on |
+| `organization.apps` | the `organization.overview` row and the MCP grant routes are registered |
 | `project.overview`, `project.profile`, `project.modules`, `project.integrations` | any role in the project |
 | `project.members`, `project.ai`, `project.data` | role `owner` (an organization owner counts as owner of every business project, as in `/api/me`) |
 | `account.profile` | `accountEnabled()` |
