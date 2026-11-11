@@ -23,7 +23,8 @@ export const NOT_AVAILABLE_YET: ReadonlyArray<{ id: string; label: Label }> = [
   },
 ];
 
-const inScope = (entry: CatalogEntry, scope: ScopeKind): boolean => {
+/** Whether the scope lists the entry at all, available or not. */
+export const inScope = (entry: CatalogEntry, scope: ScopeKind): boolean => {
   const environment = entry.storage.includes("environment");
   switch (scope) {
     // Installation items belong to the system only; organizations and

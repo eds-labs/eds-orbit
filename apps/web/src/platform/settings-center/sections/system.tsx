@@ -15,6 +15,10 @@ import { McpAdmin } from "@/platform/administration/admin-mcp";
 import { OrganizationManager } from "@/platform/administration/organization-manager";
 import { PageHead } from "@/platform/ui/collection";
 import { manageHref } from "../routes";
+import {
+  CATALOG_SECTION,
+  SystemCatalog,
+} from "../integrations/scopes";
 import { centerText } from "../texts";
 import type { ManagementSection, SectionProps } from "../types";
 import { AiLinkPanel } from "./ai-link";
@@ -177,6 +181,16 @@ export const systemSections: readonly ManagementSection[] = [
       de: "Alle Projekte aller Organisationen, nur Metadaten.",
     },
     component: ProjectsSection,
+  },
+  {
+    id: "integrations",
+    scope: "system",
+    area: "integrations",
+    // First, so the area's address opens the catalog.
+    order: -10,
+    capability: "system.connections",
+    ...CATALOG_SECTION,
+    component: SystemCatalog,
   },
   {
     id: "connections",

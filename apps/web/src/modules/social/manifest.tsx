@@ -36,6 +36,23 @@ export const socialWeb: WebModule = {
   actionRequests: socialActionRequests,
   // Images from the Google Drive page into the media library (design 2026-11-05).
   drive: { fileActions: [AddToSocialAction] },
+  // The accounts page in the settings center's Integrations area (ADR 0027);
+  // its own page /p/:id/social/accounts mounts the same view.
+  integrations: [
+    {
+      id: "accounts",
+      label: { en: "Social accounts", de: "Social-Media-Konten" },
+      description: {
+        en: "Connect, check and disconnect the project's social media accounts.",
+        de: "Social-Media-Konten des Projekts verbinden, prüfen und trennen.",
+      },
+      order: 0,
+      // The catalog ids of the account providers (apps/api social/accounts/providers.ts).
+      providers: ["social.account.x", "social.account.facebook", "social.account.instagram", "social.account.telegram"],
+      ownHead: true,
+      component: AccountsView,
+    },
+  ],
   views: [
     { key: "social", path: "", component: SocialOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
     { key: "social.calendar", path: "calendar", component: CalendarView, nav: { label: nav("calendar"), icon: CalendarDays, order: 10 } },

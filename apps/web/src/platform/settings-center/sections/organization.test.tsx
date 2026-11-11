@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity } from "@/lib/api";
-import { validateSections, visibleSections } from "../registry";
+import { resolveSection, sectionPath, validateSections, visibleSections } from "../registry";
 import { AiLinkPanel } from "./ai-link";
 import {
   organizationIdOf,
@@ -28,6 +28,7 @@ describe("organization scope", () => {
     const base = keys(["organization.overview", "organization.members"]);
     expect(base).toEqual(["overview/summary", "members/members"]);
     expect(keys(["organization.connections"])).toEqual([
+      "integrations/integrations",
       "integrations/connections",
     ]);
     expect(keys(["organization.ai"])).toEqual(["ai/usage", "ai/overview"]);
@@ -66,6 +67,14 @@ describe("organization scope", () => {
     );
     expect(html).toContain(`href="${organizationPaths("a/b").aiSettings}"`);
     expect(html).toContain('href="/o/a%2Fb/settings"');
+  });
+
+  it("opens the area on the catalog and keeps the connections reachable", () => {
+    const list = visibleSections(organizationSections, "organization", ["organization.connections"]);
+    const lead = resolveSection(list, "integrations", []);
+    expect(lead?.section.id).toBe("integrations");
+    expect(sectionPath(lead!.section)).toEqual(["integrations"]);
+    expect(resolveSection(list, "integrations", ["connections"])?.section.id).toBe("connections");
   });
 
   it("reads the organization from the scope", () => {

@@ -1,5 +1,9 @@
 import { createElement, Fragment, type ReactNode } from "react";
-import type { Label, SettingsSection } from "@/platform/shell/types";
+import type {
+  IntegrationContribution,
+  Label,
+  SettingsSection,
+} from "@/platform/shell/types";
 import type {
   Area,
   Capability,
@@ -280,4 +284,31 @@ export function adaptModuleSections(
         };
       }),
   };
+}
+
+/** The section id of a module's integration section: "<module id>/<id>". */
+export function integrationSectionId(c: { moduleId: string; id: string }): string {
+  return `${c.moduleId}/${c.id}`;
+}
+
+/**
+ * The modules' integration sections (WebModule.integrations) as project
+ * sections of the Integrations area, after the platform's own (order 100 +
+ * the contribution's). They carry no `moduleId`: navGroups would move them
+ * into the module groups, and they belong to the Integrations group. The
+ * shell passes only the contributions of modules shown for the project.
+ */
+export function adaptIntegrationSections(
+  contributed: ReadonlyArray<IntegrationContribution & { moduleId: string }>,
+): ResolvedSection[] {
+  return contributed.map((c) => ({
+    id: integrationSectionId(c),
+    scope: "project" as const,
+    area: "integrations",
+    label: c.label,
+    description: c.description,
+    order: 100 + c.order,
+    ...(c.ownHead ? { ownHead: true as const } : {}),
+    render: () => createElement(c.component),
+  }));
 }

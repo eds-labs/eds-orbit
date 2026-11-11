@@ -26,7 +26,15 @@ import {
   settingsSectionHref,
 } from "@/platform/shell/settings-nav";
 import { ResourceError } from "@/platform/ui/collection";
-import { adaptModuleSections, visibleSections } from "../registry";
+import {
+  CATALOG_SECTION,
+  ProjectCatalog,
+} from "../integrations/scopes";
+import {
+  adaptIntegrationSections,
+  adaptModuleSections,
+  visibleSections,
+} from "../registry";
 import { backLink, scopeTitle } from "../scope-links";
 import type { ScopeViewProps } from "../scope-view";
 import { SettingsCenterView } from "../settings-center";
@@ -157,6 +165,16 @@ export const projectSections: readonly ManagementSection[] = [
     component: SwitchesSection,
   },
   {
+    id: "integrations",
+    scope: "project",
+    area: "integrations",
+    // First, so the area's address opens the catalog.
+    order: -10,
+    capability: "project.integrations",
+    ...CATALOG_SECTION,
+    component: ProjectCatalog,
+  },
+  {
     id: "connections",
     scope: "project",
     area: "integrations",
@@ -257,6 +275,8 @@ export function ProjectScopeView({
   const sections = [
     ...visibleSections(projectSections, "project", capabilities),
     ...adapted.sections,
+    // Integration sections of the modules shown for the project (ADR 0027).
+    ...adaptIntegrationSections(shell?.integrations ?? []),
   ];
   const back = backLink(scope, locale);
   return (

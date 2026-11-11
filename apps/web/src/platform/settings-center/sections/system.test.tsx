@@ -4,7 +4,7 @@ import {
   grantsAccess,
   needsAdministratorConfirmation,
 } from "@/platform/administration/organization-manager";
-import { resolveSection, validateSections, visibleSections } from "../registry";
+import { resolveSection, sectionPath, validateSections, visibleSections } from "../registry";
 import type { Identity } from "@/lib/api";
 import { adminLinkInCenter, SYSTEM_AI_SETTINGS_HREF, systemSections } from "./system";
 
@@ -39,11 +39,23 @@ describe("system scope", () => {
       "users/invitations",
       "organizations/organizations",
       "organizations/projects",
+      "integrations/integrations",
       "integrations/connections",
       "ai/overview",
       "mcp/clients",
       "security/audit",
     ]);
+  });
+
+  it("opens the area on the catalog and keeps the connections reachable", () => {
+    const list = visibleSections(systemSections, "system", ["system.connections"]);
+    const lead = resolveSection(list, "integrations", []);
+    expect(lead?.section.id).toBe("integrations");
+    expect(sectionPath(lead!.section)).toEqual(["integrations"]);
+    expect(resolveSection(list, "integrations", ["connections"])?.section.id).toBe("connections");
+    expect(list.find((s) => s.id === "integrations")?.label.en).toBe("All integrations");
+    // Without the capability there is no catalog either.
+    expect(visibleSections(systemSections, "system", ["system.users"]).some((s) => s.area === "integrations")).toBe(false);
   });
 
   it("passes an id only to users and organizations", () => {
@@ -108,7 +120,9 @@ describe("system scope", () => {
   it("lets each mounted administration view keep its own page head", () => {
     const own = systemSections.filter((s) => s.ownHead).map((s) => `${s.area}/${s.id}`);
     expect(own).not.toContain("ai/overview");
-    expect(own).toHaveLength(systemSections.length - 1);
+    // The catalog has no page head of its own; the frame shows the section's.
+    expect(own).not.toContain("integrations/integrations");
+    expect(own).toHaveLength(systemSections.length - 2);
   });
 
   it("points AI settings to the current page, in both languages", () => {

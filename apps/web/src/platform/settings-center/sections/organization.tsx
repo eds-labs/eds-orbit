@@ -9,6 +9,10 @@ import { ConnectionsPanel } from "@/platform/administration/connections-ui";
 import { KnowledgeSharesPanel } from "@/platform/administration/ai-knowledge-ui";
 import { AiUsagePanel } from "@/platform/administration/ai-budget-ui";
 import type { Locale } from "@/lib/i18n";
+import {
+  CATALOG_SECTION,
+  OrganizationCatalog,
+} from "../integrations/scopes";
 import { centerText } from "../texts";
 import type { ManageScope, ManagementSection, SectionProps } from "../types";
 import { AiLinkPanel } from "./ai-link";
@@ -173,6 +177,16 @@ export const organizationSections: readonly ManagementSection[] = [
       de: "Wer zur Organisation gehört, ihre Projektrollen und offene Einladungen.",
     },
     component: MembersSection,
+  },
+  {
+    id: "integrations",
+    scope: "organization",
+    area: "integrations",
+    // First, so the area's address opens the catalog.
+    order: -10,
+    capability: "organization.connections",
+    ...CATALOG_SECTION,
+    component: OrganizationCatalog,
   },
   {
     id: "connections",

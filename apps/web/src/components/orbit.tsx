@@ -54,6 +54,7 @@ import {
   rewriteLegacyHref,
   projectAwareHref,
   routeTable,
+  moduleIntegrations,
   navigationForFeatures,
   routesForFeatures,
   type Route,
@@ -439,6 +440,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           tab: { ...section.tab, group: section.tab.group ?? m.id },
         })),
       ),
+      integrations: moduleIntegrations(registry.modules, enabled),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {
         providers: active.flatMap((m) => m.connectors?.providers ?? []),

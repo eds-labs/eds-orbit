@@ -15,9 +15,11 @@ import {
 } from "@/platform/shell/settings-nav";
 import type { SettingsSection } from "@/platform/shell/types";
 import {
+  adaptIntegrationSections,
   adaptModuleSections,
   navGroups,
   resolveSection,
+  sectionPath,
   validateSections,
   visibleSections,
 } from "../registry";
@@ -98,6 +100,7 @@ describe("project scope", () => {
       "overview/summary",
       "profile/profile",
       "modules/switches",
+      "integrations/integrations",
       "integrations/connections",
       "integrations/google-drive",
     ]);
@@ -106,12 +109,42 @@ describe("project scope", () => {
       "profile/profile",
       "members/members",
       "modules/switches",
+      "integrations/integrations",
       "integrations/connections",
       "integrations/google-drive",
       "ai/overview",
       "data/retention",
     ]);
     expect(keys([])).toEqual([]);
+  });
+
+  it("opens the area on the catalog and keeps connections and google-drive reachable", () => {
+    const list = visibleSections(projectSections, "project", [...VIEWER]);
+    const lead = resolveSection(list, "integrations", []);
+    expect(lead?.section.id).toBe("integrations");
+    expect(sectionPath(lead!.section)).toEqual(["integrations"]);
+    expect(resolveSection(list, "integrations", ["connections"])?.section.id).toBe("connections");
+    expect(resolveSection(list, "integrations", ["google-drive"])?.section.id).toBe("google-drive");
+  });
+
+  it("places the Social accounts section of the real registry under Integrations", () => {
+    const social = webRegistry.modules.find((m) => m.id === "social")!;
+    const contributed = (social.integrations ?? []).map((c) => ({ ...c, moduleId: social.id }));
+    const all = [
+      ...visibleSections(projectSections, "project", [...VIEWER]),
+      ...adaptIntegrationSections(contributed),
+    ];
+    const accounts = resolveSection(all, "integrations", ["social", "accounts"]);
+    expect(accounts?.section).toMatchObject({ id: "social/accounts", ownHead: true, order: 100 });
+    expect(accounts?.section.label).toEqual({ en: "Social accounts", de: "Social-Media-Konten" });
+    expect(resolveSection(all, "integrations", [])?.section.id).toBe("integrations");
+    const group = navGroups(all, "project", () => undefined).find((g) => g.id === "integrations")!;
+    expect(group.sections.map((s) => s.id)).toEqual([
+      "integrations",
+      "connections",
+      "google-drive",
+      "social/accounts",
+    ]);
   });
 
   it("names every tab the platform's settings page can offer", () => {
@@ -392,6 +425,16 @@ describe("ProjectScopeView", () => {
         },
       },
     ],
+    integrations: [
+      {
+        moduleId: "alpha",
+        id: "accounts",
+        label: { en: "Alpha accounts", de: "Alpha-Konten" },
+        description: { en: "About alpha accounts", de: "Über Alpha-Konten" },
+        order: 0,
+        component: () => <i>alpha-accounts</i>,
+      },
+    ],
   } as unknown as ShellContextValue;
 
   const render = (target: Partial<ManageTarget>) =>
@@ -438,6 +481,14 @@ describe("ProjectScopeView", () => {
       </ShellContext.Provider>,
     );
     expect(page).toContain(`href="${projectAiSettingsHref("/p/p1/settings")}"`);
+  });
+
+  it("opens a module's integration section under Integrations", () => {
+    const page = render({ area: "integrations", rest: ["alpha", "accounts"] });
+    expect(page).toContain("<i>alpha-accounts</i>");
+    expect(page).toContain("<h2>Alpha accounts</h2>");
+    const overview = render({});
+    expect(overview).toContain('href="/manage/p/p1/integrations/alpha/accounts"');
   });
 
   it("lets an unknown module address fall to not available", () => {
