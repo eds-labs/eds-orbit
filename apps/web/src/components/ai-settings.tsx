@@ -10,7 +10,13 @@ import {
   when,
 } from "@/lib/api";
 import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import {
+  DataForm,
+  str,
+  type FormField,
+  type FormValues,
+} from "@/platform/ui/form";
+import type { Locale } from "@/lib/i18n";
 import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
@@ -228,36 +234,135 @@ const providerOf = (
 ): ProviderId =>
   models[model]?.provider ?? (/^claude-/i.test(model) ? "anthropic" : "openai");
 
-/** The provider fields of a view as `ai-provider-configure` expects them (a full replace). */
-function providerPayload(view: ProviderFields) {
+export type AiConfigurationData = OpenAiConfigurationView & ProviderFields;
+
+/** The provider section as `ai-configure` expects it (a full replace). */
+export type ProviderSection = {
+  defaultProvider: ProviderId;
+  anthropicTierRoutes?: NonNullable<ProviderFields["anthropicTierRoutes"]>;
+  models: ProviderFields["models"];
+  providerBudgets: ProviderFields["providerBudgets"];
+  fallback: ProviderFields["fallback"];
+};
+
+/**
+ * The provider section as stored (or as shown before a first save): a full
+ * replace. The effective view holds inherited and preset values; saving
+ * those would freeze them into the project (F-8 risk 2).
+ */
+export function providerPayload(view: AiConfigurationData): ProviderSection {
+  const source = view.stored ?? view;
   return {
-    defaultProvider: view.defaultProvider,
-    ...(view.anthropicTierRoutes
-      ? { anthropicTierRoutes: view.anthropicTierRoutes }
+    defaultProvider: source.defaultProvider,
+    ...(source.anthropicTierRoutes
+      ? { anthropicTierRoutes: source.anthropicTierRoutes }
       : {}),
-    models: view.models,
-    providerBudgets: view.providerBudgets,
-    fallback: view.fallback,
+    models: source.models,
+    providerBudgets: source.providerBudgets,
+    fallback: source.fallback,
   };
 }
 
-/** Keys, default provider, suggested models and tiers, fallback. */
-function AnthropicConfiguration({
-  view,
-  onClose,
-}: {
-  view: OpenAiConfigurationView & ProviderFields;
-  onClose: () => void;
-}) {
-  const { project, refresh, locale } = useWorkspace();
+/**
+ * The first-save confirmation, only while the project saved no AI settings
+ * of its own: a first save cannot be partial, it copies the whole shown
+ * configuration into the project (F-8 risk 1).
+ */
+export function firstSaveFields(
+  view: Pick<OpenAiConfigurationView, "stored">,
+  locale: Locale,
+): FormField[] {
+  if (view.stored !== null) return [];
   const de = locale === "de";
-  const mutation = useMutation(() => {
-    refresh();
-    onClose();
-  });
+  return [
+    {
+      name: "firstSave",
+      type: "checkbox",
+      required: true,
+      value: false,
+      label: de
+        ? "Als eigene KI-Einstellungen dieses Projekts speichern"
+        : "Save as this project's own AI settings",
+      hint: de
+        ? "Dieses Projekt hat noch keine eigenen KI-Einstellungen. Beim Speichern werden die hier gezeigten Modelle, Preise und Stufen in das Projekt übernommen. Danach gilt der Schlüssel aus der Umgebung nicht mehr, und die Modelleinstellungen von Organisation und System gelten für die hier gespeicherten Felder nicht mehr."
+        : "This project has no AI settings of its own yet. Saving copies the models, prices and tiers shown here into the project. From then on the environment's key no longer serves it, and the organization's and system's model settings no longer apply to the fields saved here.",
+    },
+  ];
+}
+
+/** Whether a submitted form may save: true when no confirmation was needed or it was ticked. */
+export function firstSaveConfirmed(
+  view: Pick<OpenAiConfigurationView, "stored">,
+  values: FormValues,
+): boolean {
+  return view.stored !== null || values.firstSave === true;
+}
+
+/** The fields of the Claude dialog: key, models, tiers, routing, fallback. */
+export function anthropicFields(
+  view: AiConfigurationData,
+  locale: Locale,
+  options: { followsStandard?: boolean } = {},
+): FormField[] {
+  const de = locale === "de";
   const suggestion = view.suggestions.anthropic;
-  const tiers = view.anthropicTierRoutes ?? suggestion.tiers;
-  const fields: FormField[] = [
+  // Empty unless stored: a prefilled suggestion would be saved unread (risk 4).
+  const tiers = view.stored?.anthropicTierRoutes ?? null;
+  const tier = (
+    key: "fast" | "standard" | "quality",
+    label: string,
+    heading?: string,
+  ): FormField => ({
+    name: `tier-${key}`,
+    ...(heading ? { heading } : {}),
+    label,
+    value: tiers?.[key] ?? "",
+    required: false,
+    placeholder: suggestion.tiers[key],
+  });
+  const modelFields: FormField[] = [
+    {
+      name: "applyCatalog",
+      heading: de ? "Modelle" : "Models",
+      label: de
+        ? `Vorgeschlagene Claude-Modelle, Preise (geprüft ${suggestion.verifiedAt.slice(0, 10)}) und Stufen übernehmen`
+        : `Add the suggested Claude models, prices (verified ${suggestion.verifiedAt.slice(0, 10)}) and tiers`,
+      type: "checkbox",
+      value: false,
+      hint: de
+        ? `Trägt ${Object.keys(suggestion.models).join(", ")} in die verifizierten Modelle und die Preisliste ein. Quellen: ${suggestion.sources.join(" · ")}. Bestehende Preise bleiben.`
+        : `Adds ${Object.keys(suggestion.models).join(", ")} to the verified models and the rate card. Sources: ${suggestion.sources.join(" · ")}. Existing prices stay.`,
+    },
+    tier(
+      "fast",
+      de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)",
+      de
+        ? "Claude-Stufen (Fallback ohne Aufgaben-Route)"
+        : "Claude tiers (fallback without a task route)",
+    ),
+    tier("standard", "Standard"),
+    tier(
+      "quality",
+      de ? "Qualität (komplexe Analysen)" : "Quality (complex analyses)",
+    ),
+    {
+      name: "defaultProvider",
+      heading: de ? "Routing" : "Routing",
+      label: de
+        ? "Standardprovider für Aufgaben ohne explizite Route"
+        : "Default provider for task classes without an explicit route",
+      type: "select",
+      value: view.stored?.defaultProvider ?? view.defaultProvider,
+      options: [
+        { value: "openai", label: "OpenAI" },
+        { value: "anthropic", label: "Anthropic (Claude)" },
+      ],
+      hint: de
+        ? "Explizite Aufgaben-Routen (OpenAI-Dialog) gewinnen immer. Bestehende Routen werden nicht überschrieben."
+        : "Explicit task routes (OpenAI dialog) always win. Existing routes are not overwritten.",
+    },
+  ];
+  return [
     {
       name: "anthropicApiKey",
       label:
@@ -285,64 +390,14 @@ function AnthropicConfiguration({
           },
         ]
       : []),
-    {
-      name: "applyCatalog",
-      heading: de ? "Modelle" : "Models",
-      label: de
-        ? `Vorgeschlagene Claude-Modelle, Preise (geprüft ${suggestion.verifiedAt.slice(0, 10)}) und Stufen übernehmen`
-        : `Add the suggested Claude models, prices (verified ${suggestion.verifiedAt.slice(0, 10)}) and tiers`,
-      type: "checkbox",
-      value: !view.verifiedModels.some(
-        (model) => providerOf(model, view.models) === "anthropic",
-      ),
-      hint: de
-        ? `Trägt ${Object.keys(suggestion.models).join(", ")} in die verifizierten Modelle und die Preisliste ein. Quellen: ${suggestion.sources.join(" · ")}. Bestehende Preise bleiben.`
-        : `Adds ${Object.keys(suggestion.models).join(", ")} to the verified models and the rate card. Sources: ${suggestion.sources.join(" · ")}. Existing prices stay.`,
-    },
-    {
-      name: "tier-fast",
-      heading: de
-        ? "Claude-Stufen (Fallback ohne Aufgaben-Route)"
-        : "Claude tiers (fallback without a task route)",
-      label: de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)",
-      value: tiers.fast,
-      required: true,
-    },
-    {
-      name: "tier-standard",
-      label: "Standard",
-      value: tiers.standard,
-      required: true,
-    },
-    {
-      name: "tier-quality",
-      label: de ? "Qualität (komplexe Analysen)" : "Quality (complex analyses)",
-      value: tiers.quality,
-      required: true,
-    },
-    {
-      name: "defaultProvider",
-      heading: de ? "Routing" : "Routing",
-      label: de
-        ? "Standardprovider für Aufgaben ohne explizite Route"
-        : "Default provider for task classes without an explicit route",
-      type: "select",
-      value: view.defaultProvider,
-      options: [
-        { value: "openai", label: "OpenAI" },
-        { value: "anthropic", label: "Anthropic (Claude)" },
-      ],
-      hint: de
-        ? "Explizite Aufgaben-Routen (OpenAI-Dialog) gewinnen immer. Bestehende Routen werden nicht überschrieben."
-        : "Explicit task routes (OpenAI dialog) always win. Existing routes are not overwritten.",
-    },
+    ...(options.followsStandard ? [] : modelFields),
     {
       name: "fallback",
       label: de
         ? "Wenn das Claude-Budget gestoppt ist (auf OpenAI ausweichen)"
         : "When the Claude budget is stopped (fall back to OpenAI)",
       type: "select",
-      value: view.fallback.onProviderBudgetStop,
+      value: (view.stored ?? view).fallback.onProviderBudgetStop,
       options: [
         {
           value: "none",
@@ -361,6 +416,80 @@ function AnthropicConfiguration({
         ? "Das Ausweichen verursacht OpenAI-Kosten und gilt als deine ausdrückliche Freigabe. Ein bereits gesendeter Aufruf wird nie wiederholt."
         : "The fallback incurs OpenAI costs and counts as your explicit approval. A transmitted call is never retried.",
     },
+  ];
+}
+
+/**
+ * The provider section the Claude dialog saves: the stored section plus
+ * what the form shows. Tiers are all three or none; none keeps the stored
+ * tiers, a half-filled set is refused before any request.
+ */
+export function anthropicPayload(
+  view: AiConfigurationData,
+  values: FormValues,
+  options: { followsStandard?: boolean } = {},
+):
+  | {
+      providers: ProviderSection & {
+        applyAnthropicCatalog: boolean;
+        anthropicApiKey?: string;
+        clearAnthropicApiKey?: true;
+      };
+    }
+  | { error: "CLAUDE_TIERS_INCOMPLETE" } {
+  const base = providerPayload(view);
+  const showsModels = !options.followsStandard;
+  const tiers = {
+    fast: str(values, "tier-fast"),
+    standard: str(values, "tier-standard"),
+    quality: str(values, "tier-quality"),
+  };
+  const filled = Object.values(tiers).filter(Boolean).length;
+  if (showsModels && filled > 0 && filled < 3)
+    return { error: "CLAUDE_TIERS_INCOMPLETE" };
+  const apiKey = str(values, "anthropicApiKey");
+  const defaultProvider = str(values, "defaultProvider");
+  const fallback = str(values, "fallback");
+  return {
+    providers: {
+      ...base,
+      applyAnthropicCatalog: values.applyCatalog === true,
+      ...(apiKey ? { anthropicApiKey: apiKey } : {}),
+      ...(values.clearAnthropicApiKey === true
+        ? { clearAnthropicApiKey: true as const }
+        : {}),
+      ...(showsModels && defaultProvider
+        ? { defaultProvider: defaultProvider as ProviderId }
+        : {}),
+      ...(showsModels && filled === 3 ? { anthropicTierRoutes: tiers } : {}),
+      ...(fallback
+        ? {
+            fallback: {
+              onProviderBudgetStop: fallback as ProviderSection["fallback"]["onProviderBudgetStop"],
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/** Keys, default provider, suggested models and tiers, fallback. */
+function AnthropicConfiguration({
+  view,
+  onClose,
+}: {
+  view: AiConfigurationData;
+  onClose: () => void;
+}) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const fields = [
+    ...anthropicFields(view, locale),
+    ...firstSaveFields(view, locale),
   ];
   return (
     <Modal
@@ -390,51 +519,41 @@ function AnthropicConfiguration({
           de ? "Claude-Einstellungen speichern" : "Save Claude settings"
         }
         onCancel={onClose}
-        onSubmit={(values) =>
-          mutation.run(async () => {
-            const apiKey = str(values, "anthropicApiKey");
-            return saveProviders(project.id, {
-              ...providerPayload(view),
-              applyAnthropicCatalog: values.applyCatalog === true,
-              ...(apiKey ? { anthropicApiKey: apiKey } : {}),
-              ...(values.clearAnthropicApiKey === true
-                ? { clearAnthropicApiKey: true }
-                : {}),
-              defaultProvider: str(values, "defaultProvider"),
-              anthropicTierRoutes: {
-                fast: str(values, "tier-fast"),
-                standard: str(values, "tier-standard"),
-                quality: str(values, "tier-quality"),
-              },
-              models: view.models,
-              fallback: { onProviderBudgetStop: str(values, "fallback") },
-            });
-          })
-        }
+        onSubmit={(values) => {
+          if (!firstSaveConfirmed(view, values)) return;
+          return mutation.run(async () => {
+            const payload = anthropicPayload(view, values);
+            // Thrown before any request, shown as the form's error.
+            if ("error" in payload)
+              throw new Error(
+                de
+                  ? "Fülle alle drei Claude-Stufen aus oder lass alle drei leer."
+                  : "Fill in all three Claude tiers or leave all three empty.",
+              );
+            return saveProviders(project.id, payload.providers);
+          });
+        }}
       />
     </Modal>
   );
 }
 
-/** The Anthropic credit budget: amounts, thresholds, billing period anchor and the verified credit note. */
-function ProviderBudgetForm({
-  provider,
-  view,
-  onSaved,
-}: {
-  provider: ProviderId;
-  view: OpenAiConfigurationView & ProviderFields;
-  onSaved: () => void;
-}) {
-  const { project, locale } = useWorkspace();
+/** The fields of one provider's credit budget form. */
+export function providerBudgetFields(
+  provider: ProviderId,
+  view: AiConfigurationData,
+  locale: Locale,
+): FormField[] {
   const de = locale === "de";
-  const mutation = useMutation(onSaved);
-  const current = view.providerBudgets[provider];
+  // Only the project's own budget prefills the form: a default would be
+  // saved unread (F-8 risk 4), so without one the amounts start empty.
+  const current = view.stored?.providerBudgets[provider];
   const name = providerName[provider];
   const usdField = (
     name: string,
     label: string,
-    micros: number,
+    micros: number | undefined,
+    placeholder: string,
     hint?: string,
   ): FormField => ({
     name,
@@ -443,32 +562,37 @@ function ProviderBudgetForm({
     min: 0,
     max: 100000,
     step: "0.01",
-    value: micros / 1_000_000,
+    value: micros === undefined ? "" : micros / 1_000_000,
     required: true,
+    placeholder,
     ...(hint ? { hint } : {}),
   });
-  const fields: FormField[] = [
+  return [
     usdField(
       "monthly",
       de
         ? "Guthaben pro Abrechnungszeitraum (USD)"
         : "Credit per billing period (USD)",
-      current?.monthlyMicros ?? 100_000_000,
+      current?.monthlyMicros,
+      "100",
     ),
     usdField(
       "warn",
       de ? "Erste Warnschwelle (USD)" : "First warning threshold (USD)",
-      current?.warnMicros ?? 75_000_000,
+      current?.warnMicros,
+      "75",
     ),
     usdField(
       "warn2",
       de ? "Zweite Warnschwelle (USD)" : "Second warning threshold (USD)",
-      current?.warn2Micros ?? 90_000_000,
+      current?.warn2Micros,
+      "90",
     ),
     usdField(
       "stop",
       de ? "Interner Ausgabenstopp (USD)" : "Internal spending stop (USD)",
-      current?.stopMicros ?? 95_000_000,
+      current?.stopMicros,
+      "95",
       de
         ? `Ab diesem berechneten Verbrauch lehnt Orbit weitere ${name}-Aufrufe ab; parallele Aufrufe werden nacheinander geprüft.`
         : `From this calculated spend Orbit refuses further ${name} calls; parallel calls are checked one after the other.`,
@@ -482,8 +606,9 @@ function ProviderBudgetForm({
       min: 1,
       max: 28,
       step: "1",
-      value: current?.anchorDay ?? 1,
+      value: current?.anchorDay ?? "",
       required: true,
+      placeholder: "1",
       hint: de
         ? `Der Tag, an dem ${name} das Guthaben erneuert, nicht automatisch der 1.`
         : `The day ${name} renews the credit, not necessarily the 1st.`,
@@ -510,6 +635,26 @@ function ProviderBudgetForm({
       max: 200,
     },
   ];
+}
+
+/** The Anthropic credit budget: amounts, thresholds, billing period anchor and the verified credit note. */
+function ProviderBudgetForm({
+  provider,
+  view,
+  onSaved,
+}: {
+  provider: ProviderId;
+  view: AiConfigurationData;
+  onSaved: () => void;
+}) {
+  const { project, locale } = useWorkspace();
+  const de = locale === "de";
+  const mutation = useMutation(onSaved);
+  const name = providerName[provider];
+  const fields = [
+    ...providerBudgetFields(provider, view, locale),
+    ...firstSaveFields(view, locale),
+  ];
   return (
     <DataForm
       key={`${provider}:${view.updatedAt ?? "budget"}`}
@@ -517,15 +662,17 @@ function ProviderBudgetForm({
       pending={mutation.pending}
       error={mutation.error}
       submitLabel={de ? `${name}-Budget speichern` : `Save ${name} budget`}
-      onSubmit={(values) =>
-        mutation.run(() => {
+      onSubmit={(values) => {
+        if (!firstSaveConfirmed(view, values)) return;
+        return mutation.run(() => {
           const micros = (key: string) =>
             Math.round(Number(values[key]) * 1_000_000);
           const creditAmount = str(values, "creditAmount");
+          const base = providerPayload(view);
           return saveProviders(project.id, {
-            ...providerPayload(view),
+            ...base,
             providerBudgets: {
-              ...view.providerBudgets,
+              ...base.providerBudgets,
               [provider]: {
                 monthlyMicros: micros("monthly"),
                 warnMicros: micros("warn"),
@@ -546,8 +693,8 @@ function ProviderBudgetForm({
               },
             },
           });
-        })
-      }
+        });
+      }}
     />
   );
 }
@@ -564,7 +711,7 @@ function ProviderBudgetPanel({
 }: {
   provider: ProviderId;
   entry: ProviderBudgetState | undefined;
-  view: (OpenAiConfigurationView & ProviderFields) | null | undefined;
+  view: AiConfigurationData | null | undefined;
   onSaved: () => void;
 }) {
   const { locale } = useWorkspace();
@@ -687,7 +834,7 @@ function CostList({
 export function AiSettings() {
   const { project, revision, isOwner, locale } = useWorkspace();
   const de = locale === "de";
-  const configuration = useResource<OpenAiConfigurationView & ProviderFields>(
+  const configuration = useResource<AiConfigurationData>(
     collectionPath(project.id, `openai-configuration?revision=${revision}`),
   );
   const budget = useResource<AiBudgetView>(
@@ -1117,6 +1264,24 @@ export type OpenAiConfigurationView = {
   >;
   routeVersion?: number | null;
   updatedAt?: string;
+  // The project's own saved fields (no environment value), null while it
+  // saved none: the dialogs build their saves from it.
+  stored: StoredAiView | null;
+};
+/** The web copy of the API's `StoredAiFields`, field for field. */
+export type StoredAiView = {
+  version: number;
+  verifiedModels: string[];
+  rateCard: Record<string, Rate>;
+  modelRoutes: OpenAiConfigurationView["modelRoutes"];
+  taskRoutes: Partial<Record<TaskClass, StoredTaskRoute>>;
+  imageGeneration: OpenAiConfigurationView["imageGeneration"];
+  defaultProvider: ProviderId;
+  anthropicTierRoutes: ProviderFields["anthropicTierRoutes"];
+  models: ProviderFields["models"];
+  providerBudgets: ProviderFields["providerBudgets"];
+  fallback: ProviderFields["fallback"];
+  routing: NonNullable<ModelChoiceView["routing"]> | null;
 };
 const taskClasses = [
   { id: "chat_operator", label: "Chat operator", defaultTokens: 3000 },
@@ -1168,12 +1333,31 @@ function describeEffectiveRoute(
       : "";
   return `Effective route: ${route.model}${route.provider ? ` (${route.provider})` : ""} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.${price}`;
 }
+/** The model section as `ai-configure` expects it (a full replace). */
+export type ModelsSection = {
+  verifiedModels: string[];
+  rateCard: OpenAiConfigurationView["rateCard"];
+  modelRoutes: OpenAiConfigurationView["modelRoutes"];
+  taskRoutes: Partial<Record<TaskClass, StoredTaskRoute>>;
+  imageGeneration: OpenAiConfigurationView["imageGeneration"];
+};
+
 /**
  * The model section of the configuration as stored, so a dialog that shows
  * only part of it saves the rest unchanged (the save path takes the whole
  * section).
  */
-function modelsPayload(view: OpenAiConfigurationView) {
+export function modelsPayload(view: OpenAiConfigurationView): ModelsSection {
+  // Once the project saved its own settings, resend exactly those: the
+  // effective view mixes in environment and organization values (F-8).
+  if (view.stored)
+    return {
+      verifiedModels: view.stored.verifiedModels,
+      rateCard: view.stored.rateCard,
+      modelRoutes: view.stored.modelRoutes,
+      taskRoutes: view.stored.taskRoutes,
+      imageGeneration: view.stored.imageGeneration,
+    };
   const image = view.imageGeneration;
   return {
     verifiedModels: view.verifiedModels,
@@ -1207,29 +1391,48 @@ function useModelsView() {
   );
 }
 
-/**
- * OpenAI as simple as Claude: the keys, the three tier models and image
- * generation. Task routes and the rate card have their own dialogs.
- */
-export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
-  const { project, refresh, locale } = useWorkspace();
-  const de = locale === "de";
-  const configuration = useModelsView();
-  const mutation = useMutation(() => {
-    refresh();
-    onClose();
-  });
-  const current = configuration.data;
-  const claudeDefault =
-    (current as { defaultProvider?: ProviderId } | undefined)?.defaultProvider ===
-    "anthropic";
-  // The catalog's image price for the stored image model, when the catalog is on.
-  const catalogImage = current?.catalog?.find(
+/** The catalog's image price for the stored image model, when the catalog is on. */
+const catalogImageOf = (current: OpenAiConfigurationView) =>
+  current.catalog?.find(
     (m) =>
       m.id === (current.imageGeneration?.model || "gpt-image-2.5-flare") &&
       m.active &&
       m.perImageMicros,
   ) as { perImageMicros: number; verifiedAt: string } | undefined;
+
+/**
+ * The image models to choose from; a stored model outside the list joins
+ * it, so opening the dialog does not silently switch it (F-8 risk 4).
+ */
+export function imageModelOptions(
+  stored: string | undefined,
+  locale: Locale,
+): Array<{ value: string; label: string }> {
+  const de = locale === "de";
+  const options = [
+    { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · " + (de ? "schnell" : "fast") },
+    { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst · " + (de ? "präzise Bearbeitung" : "precise editing") },
+    { value: "gpt-image-2.5-flare-2026-09-08", label: "Flare · 2026-09-08" },
+    { value: "gpt-image-2.5-sunburst-2026-09-08", label: "Sunburst · 2026-09-08" },
+  ];
+  return stored && !options.some((option) => option.value === stored)
+    ? [...options, { value: stored, label: stored }]
+    : options;
+}
+
+/** The fields of the OpenAI dialog: keys, tiers, image generation. */
+export function openAiFields(
+  current: OpenAiConfigurationView,
+  locale: Locale,
+  options: { followsStandard?: boolean } = {},
+): FormField[] {
+  const de = locale === "de";
+  const imageModel =
+    current.stored?.imageGeneration.model ?? current.imageGeneration?.model;
+  const claudeDefault =
+    (current as { defaultProvider?: ProviderId }).defaultProvider ===
+    "anthropic";
+  const catalogImage = catalogImageOf(current);
   const tier = (key: "fast" | "standard" | "quality", label: string, heading?: string): FormField => ({
     name: `model-${key}`,
     ...(heading ? { heading } : {}),
@@ -1239,7 +1442,7 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
     value: current?.modelRoutes?.[key] ?? "",
     options: current ? textModelOptions(current, current.modelRoutes?.[key]) : [],
   });
-  const fields: FormField[] = [
+  return [
     {
       name: "apiKey",
       label: current?.textKeyConfigured
@@ -1270,31 +1473,32 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         ? "Ohne eigenen Bild-Key nutzt die Bilderzeugung den OpenAI-Key oben."
         : "Without one, image generation uses the OpenAI key above.",
     },
-    {
-      ...tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
-      // Unused while Claude is the default provider; then they need no check.
-      ...(claudeDefault
-        ? {
-            hint: de
-              ? "Claude ist Standardanbieter: diese Stufen werden nicht genutzt und müssen nicht geprüft sein."
-              : "Claude is the default provider: these tiers are not used and need no verification.",
-          }
-        : {}),
-    },
-    tier("standard", "Standard"),
-    tier("quality", de ? "Qualität (komplexe Analysen)" : "Quality (complex analysis)"),
+    // While the project follows the standard its tiers are not its own:
+    // they stay out of the form and the stored ones are resent.
+    ...(options.followsStandard
+      ? []
+      : [
+          {
+            ...tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
+            // Unused while Claude is the default provider; then they need no check.
+            ...(claudeDefault
+              ? {
+                  hint: de
+                    ? "Claude ist Standardanbieter: diese Stufen werden nicht genutzt und müssen nicht geprüft sein."
+                    : "Claude is the default provider: these tiers are not used and need no verification.",
+                }
+              : {}),
+          },
+          tier("standard", "Standard"),
+          tier("quality", de ? "Qualität (komplexe Analysen)" : "Quality (complex analysis)"),
+        ]),
     {
       name: "imageModel",
       heading: de ? "Bilderzeugung" : "Image generation",
       label: de ? "Bildmodell" : "Image model",
       type: "select",
-      value: current?.imageGeneration?.model || "gpt-image-2.5-flare",
-      options: [
-        { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · " + (de ? "schnell" : "fast") },
-        { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst · " + (de ? "präzise Bearbeitung" : "precise editing") },
-        { value: "gpt-image-2.5-flare-2026-09-08", label: "Flare · 2026-09-08" },
-        { value: "gpt-image-2.5-sunburst-2026-09-08", label: "Sunburst · 2026-09-08" },
-      ],
+      value: imageModel || "gpt-image-2.5-flare",
+      options: imageModelOptions(imageModel, locale),
     },
     // With the central catalog the image price comes from there: images are
     // simply on or off. Without it, the per-image maximum and its date.
@@ -1333,13 +1537,33 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
               ? "Preis heute geprüft"
               : "Price checked today",
           type: "checkbox" as const,
-          value: !current?.imageGeneration?.pricingVerifiedAt,
+          // Unticked: a price is confirmed by the person, never by default.
+          value: false,
           hint: de
             ? "Nötig, sobald der Höchstbetrag über 0 liegt. Bilder brauchen außerdem das Bildmodell unter „Modelle & Preise“."
             : "Needed once the maximum is above 0. Images also need the image model under “Models & prices”.",
         },
         ]),
   ];
+}
+
+/**
+ * OpenAI as simple as Claude: the keys, the three tier models and image
+ * generation. Task routes and the rate card have their own dialogs.
+ */
+export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const configuration = useModelsView();
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const current = configuration.data;
+  const catalogImage = current ? catalogImageOf(current) : undefined;
+  const fields = current
+    ? [...openAiFields(current, locale), ...firstSaveFields(current, locale)]
+    : [];
   return (
     <Modal title={de ? "OpenAI konfigurieren" : "Configure OpenAI"} onClose={onClose}>
       <p className="panel-note">
@@ -1371,8 +1595,9 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
           error={mutation.error}
           submitLabel={de ? "OpenAI-Einstellungen speichern" : "Save OpenAI settings"}
           onCancel={onClose}
-          onSubmit={(values) =>
-            mutation.run(() => {
+          onSubmit={(values) => {
+            if (!firstSaveConfirmed(current, values)) return;
+            return mutation.run(() => {
               const apiKey = str(values, "apiKey");
               const imageApiKey = str(values, "imageApiKey");
               const base = modelsPayload(current);
@@ -1380,12 +1605,16 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                 ...base,
                 ...(apiKey ? { apiKey } : {}),
                 ...(imageApiKey ? { imageApiKey } : {}),
-                modelRoutes: {
-                  ...base.modelRoutes,
-                  fast: str(values, "model-fast"),
-                  standard: str(values, "model-standard"),
-                  quality: str(values, "model-quality"),
-                },
+                // Tiers only when the form showed them; else the stored ones.
+                modelRoutes:
+                  "model-fast" in values
+                    ? {
+                        ...base.modelRoutes,
+                        fast: str(values, "model-fast"),
+                        standard: str(values, "model-standard"),
+                        quality: str(values, "model-quality"),
+                      }
+                    : base.modelRoutes,
                 imageGeneration: (() => {
                   const model = str(values, "imageModel");
                   const fromCatalog = current.catalog?.find(
@@ -1413,12 +1642,50 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                   };
                 })(),
               });
-            })
-          }
+            });
+          }}
         />
       )}
     </Modal>
   );
+}
+
+/**
+ * The task routes the route dialog saves: the shown tasks from the form,
+ * every other task's route as stored (a hidden task is not cleared, F-8
+ * risk 3).
+ */
+export function taskRoutesPayload(
+  values: FormValues,
+  shown: ReadonlyArray<{ id: TaskClass; defaultTokens: number }>,
+  stored: Partial<Record<TaskClass, StoredTaskRoute>>,
+): Partial<Record<TaskClass, StoredTaskRoute>> {
+  const shownIds = new Set<TaskClass>(shown.map((task) => task.id));
+  const hidden = Object.entries(stored).filter(
+    ([id]) => !shownIds.has(id as TaskClass),
+  );
+  return Object.fromEntries([
+    ...hidden,
+    ...shown.flatMap(({ id, defaultTokens }) => {
+      const model = str(values, `route-${id}-model`);
+      if (!model) return [];
+      const effort = str(values, `route-${id}-effort`);
+      const maxOutputTokens =
+        Number(values[`route-${id}-max-tokens`]) || defaultTokens;
+      return [
+        [
+          id,
+          {
+            model,
+            ...(effort
+              ? { reasoningEffort: effort as StoredTaskRoute["reasoningEffort"] }
+              : {}),
+            maxOutputTokens,
+          },
+        ],
+      ];
+    }),
+  ]);
 }
 
 /**
@@ -1473,7 +1740,7 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
             value: stored?.maxOutputTokens ?? defaultTokens,
           },
         ];
-      })
+      }).concat(firstSaveFields(current, locale))
     : [];
   return (
     <Modal title={de ? "Aufgaben-Routen" : "Task routes"} onClose={onClose}>
@@ -1495,32 +1762,19 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
           error={mutation.error}
           submitLabel={de ? "Routen speichern" : "Save routes"}
           onCancel={onClose}
-          onSubmit={(values) =>
-            mutation.run(() =>
+          onSubmit={(values) => {
+            if (!firstSaveConfirmed(current, values)) return;
+            return mutation.run(() =>
               saveModels(project.id, {
                 ...modelsPayload(current),
-                taskRoutes: Object.fromEntries(
-                  tasks.flatMap(({ id, defaultTokens }) => {
-                    const model = str(values, `route-${id}-model`);
-                    if (!model) return [];
-                    const effort = str(values, `route-${id}-effort`);
-                    const maxOutputTokens =
-                      Number(values[`route-${id}-max-tokens`]) || defaultTokens;
-                    return [
-                      [
-                        id,
-                        {
-                          model,
-                          ...(effort ? { reasoningEffort: effort } : {}),
-                          maxOutputTokens,
-                        },
-                      ],
-                    ];
-                  }),
+                taskRoutes: taskRoutesPayload(
+                  values,
+                  tasks,
+                  current.stored?.taskRoutes ?? current.taskRoutes ?? {},
                 ),
               }),
-            )
-          }
+            );
+          }}
         />
       )}
     </Modal>
@@ -1573,6 +1827,7 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
         ? "Pro Modell inputMicrosPerMillion, outputMicrosPerMillion und verifiedAt (ISO-Datum); optional cachedInputMicrosPerMillion und cacheWriteMicrosPerMillion. Claude-Preise übernimmt auch „Claude konfigurieren“."
         : "Per model inputMicrosPerMillion, outputMicrosPerMillion and verifiedAt (ISO date); optional cachedInputMicrosPerMillion and cacheWriteMicrosPerMillion. “Configure Claude” can add Claude's prices.",
     },
+    ...(current ? firstSaveFields(current, locale) : []),
   ];
   return (
     <Modal title={de ? "Modelle & Preise" : "Models & prices"} onClose={onClose}>
@@ -1621,8 +1876,9 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
           error={mutation.error}
           submitLabel={de ? "Modelle & Preise speichern" : "Save models & prices"}
           onCancel={onClose}
-          onSubmit={(values) =>
-            mutation.run(() => {
+          onSubmit={(values) => {
+            if (!firstSaveConfirmed(current, values)) return;
+            return mutation.run(() => {
               let rateCard: unknown;
               try {
                 rateCard = JSON.parse(str(values, "rateCard"));
@@ -1637,8 +1893,8 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
                   .filter(Boolean),
                 rateCard: rateCard as Record<string, unknown>,
               });
-            })
-          }
+            });
+          }}
         />
       )}
     </Modal>
