@@ -9,7 +9,7 @@ import type {
   SectionProps,
 } from "./types";
 import { visibleSections } from "./registry";
-import { SettingsCenterView } from "./settings-center";
+import { activeQuery, addressKey, SettingsCenterView } from "./settings-center";
 
 const Probe = (props: SectionProps) => (
   <p>
@@ -117,5 +117,31 @@ describe("SettingsCenterView", () => {
     expect(html).toMatch(/<details><summary>Advanced<\/summary><p>marker-none/);
     expect(html).not.toMatch(/<details[^>]* open/);
     expect(render({ area: "users" })).not.toContain("<details");
+  });
+});
+
+describe("activeQuery", () => {
+  const at = addressKey({ scope, area: "users", rest: ["users"] });
+
+  it("keeps the query on the address it was typed on", () => {
+    expect(activeQuery({ query: "mail", at }, at)).toBe("mail");
+  });
+
+  it("ends the search once the address changes", () => {
+    const search = { query: "mail", at };
+    expect(
+      activeQuery(search, addressKey({ scope, area: "users", rest: ["invitations"] })),
+    ).toBe("");
+    expect(
+      activeQuery(
+        search,
+        addressKey({ scope: { kind: "account" }, area: "users", rest: ["users"] }),
+      ),
+    ).toBe("");
+    expect(activeQuery(search, addressKey({ scope, area: null, rest: [] }))).toBe("");
+  });
+
+  it("treats a blank query as no search", () => {
+    expect(activeQuery({ query: "   ", at }, at)).toBe("");
   });
 });

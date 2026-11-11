@@ -14,7 +14,7 @@ import {
   searchSections,
   sectionPath,
 } from "./registry";
-import { manageHref } from "./routes";
+import { manageHref, scopeKey } from "./routes";
 import { ScopeSwitcher } from "./scope-switcher";
 import { centerText } from "./texts";
 import type {
@@ -26,6 +26,26 @@ import type {
 } from "./types";
 
 const keyOf = (section: SectionMeta) => sectionPath(section).join("/");
+
+/** A stable key of the open address: scope, area and the path below it. */
+export function addressKey(target: ManageTarget): string {
+  return JSON.stringify([
+    target.scope ? scopeKey(target.scope) : null,
+    target.area,
+    target.rest,
+  ]);
+}
+
+/**
+ * The search is tied to the address it was typed on, so it ends on every
+ * change of address, whichever link, select or browser button caused it.
+ */
+export function activeQuery(
+  search: { query: string; at: string },
+  address: string,
+): string {
+  return search.at === address && search.query.trim() !== "" ? search.query : "";
+}
 
 /**
  * The frame of the settings center: head, scope switcher and search, the
@@ -59,7 +79,16 @@ export function SettingsCenterView({
   backLabel: string;
 }) {
   const t = centerText(locale);
-  const [query, setQuery] = useState("");
+  const at = addressKey(target);
+  const [search, setSearch] = useState({ query: "", at });
+  const query = activeQuery(search, at);
+  // A link to the address that is already open changes nothing, so every
+  // navigation also ends the search itself.
+  const endSearch = () => setSearch({ query: "", at });
+  const go = (href: string) => {
+    endSearch();
+    navigate(href);
+  };
   const hrefOf = (key: string) => manageHref(scope, ...key.split("/"));
   const groups = navGroups(sections, scope.kind, moduleName);
   const navList: SettingsGroup[] = groups.map((group) => ({
@@ -80,14 +109,14 @@ export function SettingsCenterView({
   const hits = searchSections(sections, query);
 
   const content = () => {
-    if (query.trim() !== "") {
+    if (query !== "") {
       return hits.length === 0 ? (
         <Empty title={t("searchEmpty")} />
       ) : (
         <ul className="manage-hits">
           {hits.map((section) => (
             <li key={keyOf(section)}>
-              <Link href={hrefOf(keyOf(section))} onClick={() => setQuery("")}>
+              <Link href={hrefOf(keyOf(section))} onClick={endSearch}>
                 <strong>{section.label[locale]}</strong>
                 <span>{section.description[locale]}</span>
               </Link>
@@ -133,14 +162,14 @@ export function SettingsCenterView({
             {groups.map((group) => (
               <section className="panel manage-card" key={group.id}>
                 <h2>
-                  <Link href={hrefOf(keyOf(group.sections[0]))}>
+                  <Link href={hrefOf(keyOf(group.sections[0]))} onClick={endSearch}>
                     {group.label[locale]}
                   </Link>
                 </h2>
                 <ul>
                   {group.sections.map((section) => (
                     <li key={keyOf(section)}>
-                      <Link href={hrefOf(keyOf(section))}>
+                      <Link href={hrefOf(keyOf(section))} onClick={endSearch}>
                         {section.label[locale]}
                       </Link>
                     </li>
@@ -159,7 +188,7 @@ export function SettingsCenterView({
 
   return (
     <>
-      <Link className="back-link" href={backHref}>
+      <Link className="back-link" href={backHref} onClick={endSearch}>
         ← {backLabel}
       </Link>
       <div className="page-head">
@@ -173,7 +202,7 @@ export function SettingsCenterView({
           caps={caps}
           current={scope}
           locale={locale}
-          onSelect={navigate}
+          onSelect={go}
         />
         <Field>
           <FieldLabel htmlFor="manage-search">{t("searchLabel")}</FieldLabel>
@@ -182,8 +211,9 @@ export function SettingsCenterView({
             <Input
               id="manage-search"
               type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              // The raw text, so typing a leading space is not swallowed.
+              value={search.at === at ? search.query : ""}
+              onChange={(e) => setSearch({ query: e.target.value, at })}
             />
           </div>
         </Field>
@@ -193,7 +223,7 @@ export function SettingsCenterView({
           groups={navList}
           value={resolved ? keyOf(resolved.section) : ""}
           hrefOf={hrefOf}
-          onSelect={(key) => navigate(hrefOf(key))}
+          onSelect={(key) => go(hrefOf(key))}
           locale={locale}
         />
         <div className="settings-content">{content()}</div>
