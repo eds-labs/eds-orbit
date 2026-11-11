@@ -121,6 +121,7 @@ export const accountRoutes: RoutesContribution = (context) => {
       });
     } catch (error) {
       if (errorCode(error) !== "ADS_OAUTH_STATE_INVALID") throw error;
+      req.log.warn({ code: "ADS_OAUTH_STATE_INVALID" }, "ads connect callback failed");
       return reply.redirect(`/p/${projectId}/ads/accounts?error=ADS_OAUTH_STATE_INVALID`);
     }
     if (query.error || !query.code) return reply.redirect(withParam(attempt.redirectAfter, "error=ADS_OAUTH_CANCELLED"));
@@ -128,7 +129,10 @@ export const accountRoutes: RoutesContribution = (context) => {
       const done = await finishMetaConnect(scope, { code: query.code, attempt });
       return reply.redirect(withParam(attempt.redirectAfter, `connection=${done.connectionId}`));
     } catch (error) {
-      return reply.redirect(withParam(attempt.redirectAfter, `error=${errorCode(error)}`));
+      // The code only: neither the provider's message nor any token.
+      const code = errorCode(error);
+      req.log.warn({ code }, "ads connect callback failed");
+      return reply.redirect(withParam(attempt.redirectAfter, `error=${code}`));
     }
   });
 };

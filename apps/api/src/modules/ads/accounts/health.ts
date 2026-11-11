@@ -69,6 +69,8 @@ async function succeed(scope: Scope, account: Probed, read: ProviderAccount) {
       capability,
       spendCapMicros: read.spendCapMicros,
       amountSpentMicros: read.amountSpentMicros,
+      // Writing stays allowed only while it is possible.
+      writesEnabled: capability === "read_verified" || read.status !== "active" ? false : row.writesEnabled,
     };
     const changed = (Object.keys(facts) as (keyof typeof facts)[]).some((k) => row[k] !== facts[k]);
     if (changed)
@@ -162,15 +164,14 @@ async function checkConnection(
   const notGranted: string[] = [];
   for (const account of accounts) {
     if (Date.now() > deadline) break;
+    let read: ProviderAccount;
     try {
-      const read = await connect().readAccount({
+      read = await connect().readAccount({
         app: credentials.app,
         accessToken: credentials.accessToken,
         grantedScopes: granted,
         externalId: account.externalId,
       });
-      await succeed(scope, account, read);
-      results.set(account.id, { ok: true });
     } catch (error) {
       const failure = failureOf(error);
       if (failure.kind === "auth" || failure.kind === "permission") {
@@ -180,7 +181,11 @@ async function checkConnection(
         await outage(scope, [account.id], failure.code);
         results.set(account.id, { ok: false, code: failure.code });
       }
+      continue;
     }
+    // Outside the provider's try: Orbit's own failure is no outage; it is thrown.
+    await succeed(scope, account, read);
+    results.set(account.id, { ok: true });
   }
   // One flip call: the owners hear about the refused accounts once.
   if (notGranted.length > 0) await refuse(scope, notGranted, "ADS_META_ACCOUNT_NOT_GRANTED");

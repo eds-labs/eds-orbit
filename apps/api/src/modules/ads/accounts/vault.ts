@@ -159,7 +159,7 @@ export async function markReconnectRequired(tx: DbTx, scope: Scope, accountIds: 
   const ids = candidates.map((c) => c.id);
   const changed = await tx.adAccount.updateMany({
     where: { projectId: scope.projectId, id: { in: ids }, status: { in: ["active", "disabled"] } },
-    data: { status: "reconnect_required", version: { increment: 1 } },
+    data: { status: "reconnect_required", writesEnabled: false, version: { increment: 1 } },
   });
   if (changed.count === 0) return 0;
   await tx.adSyncState.updateMany({

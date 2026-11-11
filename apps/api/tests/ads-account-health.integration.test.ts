@@ -256,6 +256,34 @@ describe.skipIf(!enabled)("ads account health and clean-up", () => {
     expect(s.streams[0]!.lastSuccessAt).toBeTruthy();
   });
 
+  it("turns writing off once health finds it impossible: disabled at Meta, permission gone, token refused", async () => {
+    const { project } = await setup([1, 2]);
+    await project.run((tx) => tx.adAccount.updateMany({ data: { writesEnabled: true } }));
+    const writes = async () => (await state(project)).accounts.map((a) => [a.externalId, a.status, a.capability, a.writesEnabled]);
+    reads.set("act_2", { json: meta(2, { account_status: 2 }) });
+    await runHealth(project);
+    expect(await writes()).toEqual([["act_1", "active", "write_ready", true], ["act_2", "disabled", "write_ready", false]]);
+    reads.delete("act_2");
+    permissions = { json: { data: [{ permission: "ads_read", status: "granted" }] } };
+    await runHealth(project);
+    expect(await writes()).toEqual([["act_1", "active", "read_verified", false], ["act_2", "active", "read_verified", false]]);
+    const refused = await setup([3]);
+    await refused.project.run((tx) => tx.adAccount.updateMany({ data: { writesEnabled: true } }));
+    permissions = graphError(400, 190);
+    await runHealth(refused.project);
+    expect((await state(refused.project)).accounts.map((a) => [a.status, a.writesEnabled])).toEqual([["reconnect_required", false]]);
+  });
+
+  it("throws Orbit's own failure after a successful read instead of recording an outage", async () => {
+    const { project } = await setup([1]);
+    // A name PostgreSQL cannot store: the read works, Orbit's write fails.
+    reads.set("act_1", { json: meta(1, { name: "Broken\u0000Name" }) });
+    await expect(runHealth(project)).rejects.toThrow();
+    const s = await state(project);
+    expect(s.streams[0]).toMatchObject({ consecutiveFailures: 0, lastErrorCode: null });
+    expect(s.accounts[0]).toMatchObject({ status: "active", name: "Account 1" });
+  });
+
   it("restores a reconnect_required account whose read works: on the periodic run and on a manual check", async () => {
     const { project, ids } = await setup();
     await project.run((tx) => tx.adAccount.updateMany({ data: { status: "reconnect_required" } }));

@@ -281,8 +281,15 @@ describe.skipIf(!enabled)("ads accounts: discover, assign, edit, unlink", () => 
     const one = await connectMeta(q, { metaUser: "u-1" });
     const two = await connectMeta(q, { metaUser: "u-2" });
     const first = await assign(q, one, "act_3");
+    // The old connection's failures do not follow the account.
+    await q.run((tx) =>
+      tx.adSyncState.updateMany({ data: { lastErrorCode: "ADS_META_ACCOUNT_NOT_GRANTED", consecutiveFailures: 3, nextRunAt: new Date(Date.now() - 1000) } }),
+    );
     const moved = await assign(q, two, "act_3");
     expect(moved.statusCode).toBe(200);
+    const [health] = (await rows(q)).health;
+    expect(health).toMatchObject({ lastErrorCode: null, consecutiveFailures: 0 });
+    expect(health!.nextRunAt.getTime()).toBeGreaterThan(Date.now() + 5.9 * 3_600_000);
     expect(moved.json().id).toBe(first.json().id);
     expect(moved.json().connection.id).toBe(two);
     expect((await configOf(one)).assignedAdAccounts).toEqual([]);

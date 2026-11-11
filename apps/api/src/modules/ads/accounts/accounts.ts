@@ -276,6 +276,8 @@ export async function assignAdAccount(
         where: { projectId: scope.projectId, provider: "meta", externalId: read.externalId },
       });
       const fresh = !existing || existing.status === "unlinked" || existing.connectionId !== input.connectionId;
+      const movedFrom = existing && existing.status !== "unlinked" && existing.connectionId !== input.connectionId ? existing.connectionId : null;
+      const nextCheck = new Date(Date.now() + HEALTH_INTERVAL_MS);
       const capability = read.canWrite ? (existing?.capability === "write_verified" && !fresh ? "write_verified" : "write_ready") : "read_verified";
       const facts = {
         name: read.name,
@@ -311,16 +313,14 @@ export async function assignAdAccount(
           projectId: scope.projectId,
           accountId: row.id,
           stream: "health",
-          nextRunAt: new Date(Date.now() + HEALTH_INTERVAL_MS),
+          nextRunAt: nextCheck,
         },
-        update: {},
+        // Moved to another connection: the old connection's failures say nothing about it.
+        update: movedFrom ? { lastErrorCode: null, consecutiveFailures: 0, nextRunAt: nextCheck } : {},
       });
       await audit(tx, scope, "ads.account.assigned", row.id, { provider: "meta", connectionId: input.connectionId });
       const [created] = await toViews(tx, scope, [row]);
-      return {
-        view: created!,
-        movedFrom: existing && existing.status !== "unlinked" && existing.connectionId !== input.connectionId ? existing.connectionId : null,
-      };
+      return { view: created!, movedFrom };
     });
   } catch (error) {
     // A claim this call added must not outlive the failure (unless the
