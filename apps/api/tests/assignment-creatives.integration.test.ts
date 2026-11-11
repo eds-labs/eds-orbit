@@ -1146,11 +1146,13 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
   const expectHeldAtClaim = async (pubId: string) => {
     const [before] = await h.rows("publications");
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.parse(before!.scheduledAt) + MINUTE);
-    const claim = await h.run((tx) =>
-      claimPublication(tx, project.owner, pubId),
-    );
-    vi.useRealTimers();
+    let claim: Awaited<ReturnType<typeof claimPublication>>;
+    try {
+      vi.setSystemTime(Date.parse(before!.scheduledAt) + MINUTE);
+      claim = await h.run((tx) => claimPublication(tx, project.owner, pubId));
+    } finally {
+      vi.useRealTimers();
+    }
     expect(claim.send).toBe(false);
     const [pub] = await h.rows("publications");
     expect(pub!.status).toBe("blocked_dependency");
@@ -1169,6 +1171,30 @@ describe.skipIf(!enabled)("Assignment creatives", () => {
       scheduledAt: slot,
       vetoDeadline: new Date(Date.parse(slot) - 180 * MINUTE).toISOString(),
     });
+  });
+
+  it("hands over a scheduled creative post after its veto window while the creative flag is on", async () => {
+    // Positive control for the two holds below: same setup, nothing changed.
+    const { pubs } = await scheduledCreativePost();
+    expect(pubs).toHaveLength(1);
+    expect(process.env.ORBIT_AGENT_REVIEW_CREATIVES).toBe("true");
+    expect(process.env.ORBIT_AGENT_REVIEW_AUTHORITY).toBe("true");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.parse(pubs[0]!.scheduledAt) + MINUTE);
+      const claim = await h.run((tx) =>
+        claimPublication(tx, project.owner, pubs[0]!.id),
+      );
+      expect(claim.send).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+    const [pub] = await h.rows("publications");
+    expect(pub!.status).toBe("sending");
+    expect(pub!.blockers ?? []).not.toContain("APPROVAL_REQUIRED");
+    expect(pub!.handoffAt).toBeTruthy();
+    expect(await blockedNotices(pubs[0]!.id)).toEqual([]);
+    expect(await blockedAudits()).toEqual([]);
   });
 
   it("holds a scheduled creative post when the creative flag is turned off", async () => {
