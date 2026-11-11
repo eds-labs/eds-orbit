@@ -1,5 +1,22 @@
 # Requirements traceability
 
+## System & Administration V2, phase 2: settings center frame (ADR 0027; 2026-11-11, branch `claude/system-management-v2`; flag off)
+
+Plan [plans/SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) section 7, implementation plan [superpowers/plans/2026-11-11-settings-center-phase-2.md](superpowers/plans/2026-11-11-settings-center-phase-2.md).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| SC2-1 | Flag `ORBIT_SETTINGS_CENTER` (`off`, `preview`, `on`); with `off` nothing differs: routes answer 404 before authentication, no menu entry, `/manage` is not found | `platform/management/flag.ts`, `server.ts`, `settings-center/capabilities.ts` | `management-route-rule.test.ts`, `capabilities.test.tsx`, `user-menu.test.tsx`, Playwright suite with the flag off (28 passed) and a browser check | PASS_TEST |
+| SC2-2 | Capabilities per scope from the existing role checks; no foreign organization, project or personal space; follows role changes and flags | `platform/management/capabilities.ts` | `management-capabilities.integration.test.ts` (per role, "agrees with the routes", personal space, administration off), `access-matrix` (one new entry) | PASS_TEST |
+| SC2-3 | One frame for four scopes at `/manage`: scope switcher, search, grouped section list, overview, one page head per section | `settings-center/{routes,registry,settings-center,scope-switcher,scope-view}.tsx` | unit tests in `settings-center/`, `settings-center.spec.ts` (10 passed) | PASS_TEST |
+| SC2-4 | Members see only permitted scopes and sections; a foreign project or organization and an unknown address are refused without a request for that scope | `capabilities.ts` `centerState`, `registry.ts` `resolveSection` | `capabilities.test.tsx`, `registry.test.tsx`, `settings-center.spec.ts` | PASS_TEST |
+| SC2-5 | Sections mount the existing panels; module settings only while the module is shown for the member; no AI form in the frame | `settings-center/sections/*`, `ShellContext.settings` | `sections/*.test.tsx`, disabled-module browser test | PASS_TEST |
+| SC2-6 | Old pages and links unchanged in every flag state | `orbit.tsx`, `management.tsx`, `admin-area.tsx`, `collection.tsx` | existing web suites, whole Playwright suite with `preview` (37 passed) and with the flag off | PASS_TEST |
+| SC2-7 | A system administrator confirms before assigning a role or invitation in an organization (D-8); no permission changes | `administration/organization-manager.tsx`, `sections/system.tsx` | `system.test.tsx`, browser test (confirmation in the center, none on `/admin`) | PASS_TEST |
+| SC2-8 | German and English complete; keyboard, one `h1`, 390 and 768 px without horizontal scroll | `settings-center/texts.ts`, `globals.css` | `texts.test.tsx`, `settings-center.spec.ts` | PASS_TEST |
+
+Viewer and editor visibility is tested at the API and in unit tests, not in the browser. Not enabled in production; `preview` needs Mario's approval.
+
 ## Daily social automation on assignments (spec 2026-11-07, branch `claude/familyplan-social-media-automation-d7ff4e`; not merged)
 
 Spec [superpowers/specs/2026-11-07-daily-social-automation-design.md](superpowers/specs/2026-11-07-daily-social-automation-design.md); rollout [deployment/FAMILYPLAN_DAILY_SOCIAL.md](deployment/FAMILYPLAN_DAILY_SOCIAL.md).

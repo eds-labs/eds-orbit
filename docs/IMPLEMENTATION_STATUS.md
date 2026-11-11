@@ -1,6 +1,6 @@
 # Implementation status
 
-## System & Administration V2, phase 2: settings center frame (2026-11-11, branch `claude/system-management-v2`; local only, not on `main`, not deployed)
+## System & Administration V2, phase 2: settings center frame (2026-11-11, branch `claude/system-management-v2`; delivered to `main`, flag off, not live-accepted)
 
 Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §7, implementation plan [2026-11-11-settings-center-phase-2.md](superpowers/plans/2026-11-11-settings-center-phase-2.md), [ADR 0027](adr/0027-settings-center.md). No schema, migration, dependency or role change. Environment: local.
 
@@ -14,8 +14,20 @@ Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §7, implementatio
   - Reviews: one review per task and one of the whole branch; their findings are fixed. The CI browser step now sets `ORBIT_ACCOUNT` and `ORBIT_SETTINGS_CENTER=preview`, so the new spec runs there; one existing spec (`administration.spec.ts`) matches the account-menu entry "Administration" exactly since the new entry contains that word.
 - **Open for Mario:** the D-8 confirmation also shows to an administrator who owns the organization and on a role downgrade, where its wording is not exact.
 - **Not in phase 2:** redirects of old addresses, the integrations catalog, the central AI area, the organization pause and the split of the account page. `on` behaves like `preview` until then.
-- **Production:** nothing changed. A push to `main` and each flag stage (`preview`, `on`) need Mario's approval.
+- **Production:** pushed to `main` with Mario's approval of 2026-11-11 (no schema hash needed). The flag stays `off` (default), so nothing is visible; `preview` and `on` each need his approval.
 - **Rollback:** set `ORBIT_SETTINGS_CENTER` back to `off`; no data or schema to undo.
+
+## Marketing: Orbit's objection goes to the owner, not to a closed draft (2026-11-11, branch `claude/review-owner-fallback`; on `main` `d9eb4ac8`, deployed 2026-11-11 09:33 UTC, not live-accepted)
+
+Mario's decision of 2026-11-11: when Orbit's review objects to an assignment draft, the draft must not be closed; it waits for the owner, who rejects, edits or releases it. Risk medium (approval flow of assignment drafts, one new owner-only route); no schema, migration, flag, provider or dependency.
+
+- **Cause:** FamilyPlan run `f1ed316e` (2026-11-11, 18:30 slot) closed both drafts. Round 1: the review model asked to replace the required App Store call to action ("not backed by facts", although it is an official profile link) with a website link its brief mentioned. Round 2: the revision failed `PRIMARY_CTA_REQUIRED` (the call to action must be one of the profile's `primaryCtas`) and was rejected for Facebook and Instagram. A rejected draft is closed for good (`CONTENT_CLOSED`), so nothing could be released.
+- **Review prompt:** each draft now carries its required `cta` (the mission's target action); the instructions say it needs no fact and must never be removed, replaced or reworded, nor another call to action asked for. This changes the review prompt hash used by the review eval.
+- **Owner instead of closed:** a `reject` verdict (model, second round, deterministic problems, a failed revision) now leaves the draft `needs_review` with the decision, reasons and problems (`objectForOwner`, audit `content.agent_objected`, notice `needs_owner` with "Orbit hat Bedenken: …"). A shared text waits on every channel of its slot. Only a draft replaced by its revision, or one barred by the owner's own rules (`MANUAL_CALENDAR_BLOCK`, `QUIET_HOURS`, `CHANNEL_LIMIT_EXCEEDED`, `SCOPE_NOT_ALLOWED`, `ASSIGNMENT_SCOPE_NOT_ALLOWED`) or not this run's draft, is still closed. The release keeps every deterministic blocker absolute at handoff. The daily report adds "Mit Bedenken an dich".
+- **Owner edit:** `POST /api/projects/:projectId/assignment-drafts/:id/edit` (owner only, `owner-edit.ts`) changes the text of a waiting draft and keeps it `needs_review`, so the release still works (the content form would move it back to `draft`). It drops any agent review, records `ownerEdit` (who, when, previous body hash) and audits `content.owner_edited` without text. The approvals page shows Orbit's concerns and an "Bearbeiten" button (one text for a Facebook/Instagram pair).
+- **Verification (local, this worktree's own test database):** new and changed tests were RED before and GREEN after the change (review, shared posts, banners, veto, notifications, owner release and edit, routes, approvals list, review eval replay); whole vitest suite 598 files passed, 1 skipped, 6,920 tests passed, 7 skipped, 0 failed (incl. `rls-matrix` and `access-matrix` with the new route); `tsc --noEmit` (root and web), source and boundary check, `next build --webpack`, `pnpm api:generate` (only the new route added). Not run: Playwright and a browser check of the approvals page (rendered markup covered by unit tests); no live review run.
+- **Not changed:** drafts closed before this change stay closed (the 2026-11-11 FamilyPlan post was scheduled by hand).
+
 
 ## Administration: a project owner sees only their project's part of an invitation (2026-11-11, branch `claude/tenancy-pause-invitations`; delivered to `main`, not live-accepted)
 

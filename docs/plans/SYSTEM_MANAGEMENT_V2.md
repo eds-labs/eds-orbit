@@ -149,7 +149,7 @@ Shown as "configured / missing" plus health, never editable (ADR 0014, decision 
 | --- | --- | --- | --- |
 | F-11 | A system administrator passes `organizationManagerFor` for every organization and can make any user, themselves included, owner of a project or of the organization. The action is audited, but only system administrators can read that audit. ADR 0013 does not forbid it. | `administration/authz.ts:36-49`, `routes.ts:217-251`, `memberships.ts:204-239`; access-matrix fixture `sysadmin: allowed` | Kept in V2, with a confirmation that names the consequence (D-8). V2 changes no permission. |
 | F-12 | **Not a defect (checked 2026-11-11).** `POST /api/workspaces/:id/pause` also pauses the members' personal spaces. ADR 0022 decides exactly that: "Pausing the personal space pauses only the assistant; an organization pause pauses it too." The response lists the paused project ids, personal spaces included; the web does not read them. | `server.ts:1078-1107`; `docs/adr/0022-personal-space-assistant.md:18`; `docs/ORBIT_ASSISTANT.md:28` | No change. The V2 page for the organization pause says that members' assistants pause too. |
-| F-13 | **Confirmed and fixed on branch `claude/tenancy-pause-invitations` (2026-11-11, not on `main`).** `GET P/invitations` returned, for each invitation, every project it covers, so a project owner who is not organization owner saw other projects' names and roles. Resend and revoke were already limited correctly. | `administration/routes.ts:321-329`; failing test first in `administration.integration.test.ts` | Fixed outside V2: a project owner gets only their own project's part; the organization owner still gets the whole invitation. |
+| F-13 | **Confirmed and fixed (2026-11-11, on `main` since `4aa82f83`).** `GET P/invitations` returned, for each invitation, every project it covers, so a project owner who is not organization owner saw other projects' names and roles. Resend and revoke were already limited correctly. | `administration/routes.ts:321-329`; failing test first in `administration.integration.test.ts` | Fixed outside V2: a project owner gets only their own project's part; the organization owner still gets the whole invitation. |
 | F-14 | The administrator's password reset returns the link to the administrator whenever system mail did not send. | `platform/account/service.ts:229-257` | Kept in V2 (D-8). |
 | F-15 | Organization pages use two guards: members and invitations admit system administrators, connections, AI and shares admit owners only. The web mirrors this by hand. | `authz.ts:36-84`, `organization-integrations.tsx:24-27` | The capabilities endpoint (5.5) states it per section, from the same guard functions. |
 | F-16 | New route prefixes are not flag-gated until a predicate and a hook line exist. | `server.ts:377-427` | Phase 2 adds the predicate with a rule test; the access matrix covers every new route. |
@@ -368,7 +368,7 @@ Acceptance: Mario decided D-1 to D-9 on 2026-11-11.
 
 ## 7. Phase 2: settings center frame
 
-Status (2026-11-11): implemented locally on branch `claude/system-management-v2`; not on `main`, not deployed.
+Status (2026-11-11): implemented and delivered to `main` with the flag `off`; not enabled in production.
 
 Implementation plan: [2026-11-11-settings-center-phase-2.md](../superpowers/plans/2026-11-11-settings-center-phase-2.md).
 
