@@ -68,8 +68,8 @@ With the flag `off` every route below `/api/management/` answers 404 `NOT_FOUND`
 | `system.connections`, `system.ai` | the row above and `ORBIT_CONNECTIONS` |
 | `organization.overview`, `organization.members` | `ORBIT_ADMINISTRATION` and organization role `owner` |
 | `organization.connections`, `organization.ai` | the row above and `ORBIT_CONNECTIONS` |
-| `organization.knowledge` | organization owner and `ORBIT_KNOWLEDGE_SHARES` |
-| `organization.apps` | organization owner and `ORBIT_MCP_OAUTH` (the MCP grant routes exist) |
+| `organization.knowledge` | the `organization.overview` condition (administration on, organization owner) and `ORBIT_KNOWLEDGE_SHARES` |
+| `organization.apps` | the `organization.overview` condition and the MCP grant routes are registered (`ORBIT_MCP_OAUTH`) |
 | `project.overview`, `project.profile`, `project.modules`, `project.integrations` | any role in the project |
 | `project.members`, `project.ai`, `project.data` | project role `owner` (an organization owner is owner of every business project, as in `/api/me`) |
 | `account.profile` | `ORBIT_ACCOUNT` |

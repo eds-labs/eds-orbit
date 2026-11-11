@@ -36,7 +36,11 @@ describe.skipIf(!enabled)("Management capabilities (ADR 0027)", () => {
   const password = randomBytes(24).toString("base64url");
   const users: string[] = [];
   const workspaces: string[] = [];
-  let orgId: string, otherOrgId: string, first: string, second: string;
+  let orgId: string,
+    otherOrgId: string,
+    first: string,
+    second: string,
+    personal: string;
   const p: Record<(typeof KEYS)[number], Person> = {} as never;
 
   const ip = () =>
@@ -130,6 +134,18 @@ describe.skipIf(!enabled)("Management capabilities (ADR 0027)", () => {
     second = (
       await authDb.project.create({
         data: { workspaceId: orgId, name: "Synthetic second project" },
+      })
+    ).id;
+    // The organization owner's personal space (ADR 0022): never listed.
+    personal = (
+      await authDb.project.create({
+        data: {
+          workspaceId: orgId,
+          name: "Synthetic personal space",
+          kind: "personal",
+          personalUserId: p.owner.id,
+          members: { create: { userId: p.owner.id, role: "owner" } },
+        },
       })
     ).id;
     for (const key of KEYS) p[key].cookie = await signIn(p[key].email);
@@ -280,16 +296,44 @@ describe.skipIf(!enabled)("Management capabilities (ADR 0027)", () => {
     }
   });
 
+  it("lists no organization while administration is off, but still the projects", async () => {
+    const shares = process.env.ORBIT_KNOWLEDGE_SHARES;
+    process.env.ORBIT_ADMINISTRATION = "false";
+    process.env.ORBIT_KNOWLEDGE_SHARES = "true";
+    try {
+      const c = await caps(p.owner);
+      expect(c.organizations).toEqual([]);
+      expect(c.projects.map((x) => x.role)).toEqual(["owner", "owner"]);
+      expect(c.projects.map((x) => x.id).sort()).toEqual(
+        [first, second].sort(),
+      );
+    } finally {
+      process.env.ORBIT_ADMINISTRATION = "true";
+      if (shares === undefined) delete process.env.ORBIT_KNOWLEDGE_SHARES;
+      else process.env.ORBIT_KNOWLEDGE_SHARES = shares;
+    }
+  });
+
+  it("never lists a personal space", async () => {
+    for (const who of [p.owner, p.projectOwner, p.admin])
+      expect(JSON.stringify(await caps(who))).not.toContain(personal);
+  });
+
   it("follows a role change on the next request", async () => {
     expect(
       projectCaps(await caps(p.projectOwner), first)?.capabilities,
     ).toContain("project.members");
-    await authDb.projectMember.updateMany({
-      where: { projectId: first, userId: p.projectOwner.id },
-      data: { role: "viewer" },
-    });
-    expect(
-      projectCaps(await caps(p.projectOwner), first)?.capabilities,
-    ).not.toContain("project.members");
+    const where = { projectId: first, userId: p.projectOwner.id };
+    try {
+      await authDb.projectMember.updateMany({
+        where,
+        data: { role: "viewer" },
+      });
+      expect(
+        projectCaps(await caps(p.projectOwner), first)?.capabilities,
+      ).not.toContain("project.members");
+    } finally {
+      await authDb.projectMember.updateMany({ where, data: { role: "owner" } });
+    }
   });
 });
