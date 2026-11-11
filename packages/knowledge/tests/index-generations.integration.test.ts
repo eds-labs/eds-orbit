@@ -572,6 +572,32 @@ suite("isolated index generations / synthetic SQL mechanics only", () => {
       await writeEvaluation(largeId, before.large);
     }
   });
+  it("counts only the embeddings of a generation's own snapshot", async () => {
+    const active = await run((tx) => getActiveIndex(tx, s));
+    const described = async () =>
+      (await run((tx) => describeIndexGenerations(tx, s))).find(
+        (g) => g.id === active.id,
+      )!;
+    const before = await described();
+    expect(before.embeddedChunks).toBeLessThanOrEqual(before.chunks);
+    // A document added later is embedded into the active generation, outside
+    // the snapshot that generation was built and checked on.
+    await run((tx) =>
+      ingest(tx, s, {
+        sourceId: privateSource,
+        externalId: randomUUID(),
+        title: "INDEXGEN728 later addition",
+        text: "A passage added after the generation was built.",
+        mimeType: "text/plain",
+        language: "en",
+        validFrom: new Date(Date.now() - 3600000).toISOString(),
+        embeddings: [vector(active.dimensions, 2)],
+      }),
+    );
+    const after = await described();
+    expect(after.chunks).toBe(before.chunks);
+    expect(after.embeddedChunks).toBe(before.embeddedChunks);
+  });
   it("revocation purges every vector generation and prevents stale build activation or rollback", async () => {
     const building = await run((tx) => beginIndexBuild(tx, s, LARGE));
     const phase = async () =>

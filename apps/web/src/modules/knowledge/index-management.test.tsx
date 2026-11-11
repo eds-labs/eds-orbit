@@ -141,6 +141,58 @@ describe("IndexManagement", () => {
       "Abgebrochen: Für eine aussagekräftige Prüfung ist zu wenig Wissen vorhanden",
     );
   });
+  it("warns when the active generation no longer has a valid live check", () => {
+    answer.items = [
+      {
+        ...generation("active", 108),
+        chunks: 108,
+        state: "active",
+        liveEvaluation: {
+          valid: false,
+          reasons: ["INDEX_EVALUATION_CORPUS_CHANGED"],
+        },
+      },
+    ];
+    const html = render("de");
+    expect(html).toContain("108 von 108 Textabschnitten eingebettet");
+    expect(html).toContain("Aktiv · Prüfung ungültig");
+    expect(html).toContain("badge-warning");
+    expect(html).toContain(
+      "Das Wissen hat sich seit der Prüfung dieser Generation geändert.",
+    );
+    expect(html).toContain("Beiträge können erst wieder freigegeben werden");
+    expect(render("en")).toContain(
+      "No valid check: the knowledge changed after this generation was checked.",
+    );
+  });
+  it("names a missing or expired live check of the active generation", () => {
+    answer.items = [
+      {
+        ...generation("active", 108),
+        state: "active",
+        liveEvaluation: {
+          valid: false,
+          reasons: ["LIVE_INDEX_EVALUATION_REQUIRED"],
+        },
+      },
+    ];
+    expect(render("de")).toContain(
+      "Für diese Generation fehlt eine gültige Live-Prüfung oder sie ist älter als 30 Tage.",
+    );
+  });
+  it("keeps the active badge plain while its live check is valid", () => {
+    answer.items = [
+      {
+        ...generation("active", 108),
+        state: "active",
+        liveEvaluation: { valid: true, reasons: [] },
+      },
+    ];
+    const html = render();
+    expect(html).toContain(">Active<");
+    expect(html).not.toContain("badge-warning");
+    expect(html).not.toContain("No valid check");
+  });
   it("offers no step for a generation whose corpus changed", () => {
     answer.items = [generation("corpus_changed", 112)];
     const html = render();

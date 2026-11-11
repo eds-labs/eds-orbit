@@ -56,6 +56,8 @@ export type IndexGeneration = {
   phase?: string;
   evaluationRun?: EvaluationRun | null;
   evaluationSetEstimateMicros?: number | null;
+  /** Only on the active generation: whether its live check still allows releases. */
+  liveEvaluation?: { valid: boolean; reasons: string[] } | null;
 };
 
 const TEXT = {
@@ -87,6 +89,17 @@ const TEXT = {
       corpus_changed:
         "The knowledge changed after this generation was prepared. Prepare a new generation.",
     } as Record<string, string>,
+    activeInvalid: "Active · check not valid",
+    liveInvalid: {
+      INDEX_EVALUATION_CORPUS_CHANGED:
+        "No valid check: the knowledge changed after this generation was checked.",
+      LIVE_INDEX_EVALUATION_REQUIRED:
+        "No valid check: this generation has no live check, or it is older than 30 days.",
+      INDEX_EVALUATION_RECEIPTS_UNAVAILABLE:
+        "No valid check: the cost receipts of its check are incomplete.",
+    } as Record<string, string>,
+    liveInvalidAction:
+      "Posts cannot be released until a newly checked generation is active: prepare, embed, check and activate one.",
     build: "Embed next batch",
     check: "Check",
     review: "Review questions",
@@ -200,6 +213,17 @@ const TEXT = {
       corpus_changed:
         "Das Wissen hat sich geändert, seit diese Generation vorbereitet wurde. Bereite eine neue Generation vor.",
     } as Record<string, string>,
+    activeInvalid: "Aktiv · Prüfung ungültig",
+    liveInvalid: {
+      INDEX_EVALUATION_CORPUS_CHANGED:
+        "Das Wissen hat sich seit der Prüfung dieser Generation geändert.",
+      LIVE_INDEX_EVALUATION_REQUIRED:
+        "Für diese Generation fehlt eine gültige Live-Prüfung oder sie ist älter als 30 Tage.",
+      INDEX_EVALUATION_RECEIPTS_UNAVAILABLE:
+        "Die Kostenbelege ihrer Prüfung sind unvollständig.",
+    } as Record<string, string>,
+    liveInvalidAction:
+      "Beiträge können erst wieder freigegeben werden, wenn eine neu geprüfte Generation aktiv ist: vorbereiten, einbetten, prüfen und aktivieren.",
     build: "Nächstes Paket einbetten",
     check: "Prüfen",
     review: "Fragen durchsehen",
@@ -404,6 +428,9 @@ export function IndexManagement() {
           const run = i.evaluationRun;
           const phase = i.phase ?? i.state;
           const offered = steps(i, text);
+          // The active generation whose live check no longer allows releases.
+          const invalid =
+            phase === "active" && i.liveEvaluation?.valid === false;
           return (
             <div className="data-row index-generation" key={i.id}>
               <div>
@@ -421,20 +448,31 @@ export function IndexManagement() {
                 {text.hint[phase] &&
                   !BUSY.includes(run?.status ?? "") &&
                   run?.status !== "review" && <p>{text.hint[phase]}</p>}
+                {invalid && (
+                  <p>
+                    {(i.liveEvaluation?.reasons ?? [])
+                      .map((r) => text.liveInvalid[r])
+                      .filter(Boolean)
+                      .join(" ")}{" "}
+                    {text.liveInvalidAction}
+                  </p>
+                )}
                 {run && <RunSummary run={run} text={text} />}
               </div>
               <Badge
                 tone={
-                  phase === "active" || phase === "evaluated"
-                    ? "success"
-                    : phase === "evaluation_failed"
-                      ? "danger"
-                      : phase === "ready_for_evaluation"
-                        ? "blue"
-                        : "neutral"
+                  invalid
+                    ? "warning"
+                    : phase === "active" || phase === "evaluated"
+                      ? "success"
+                      : phase === "evaluation_failed"
+                        ? "danger"
+                        : phase === "ready_for_evaluation"
+                          ? "blue"
+                          : "neutral"
                 }
               >
-                {text.phase[phase] ?? phase}
+                {invalid ? text.activeInvalid : (text.phase[phase] ?? phase)}
               </Badge>
               {isOwner && offered.length > 0 && (
                 <div className="form-actions">
