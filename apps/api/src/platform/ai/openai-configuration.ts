@@ -421,7 +421,11 @@ export function storedAiFields(
 }
 
 /** Whether the project saved its own key, per key; no key is read. */
-export function ownAiKeys(row: { data: unknown } | null) {
+export function ownAiKeys(row: { data: unknown } | null): {
+  openai: boolean;
+  image: boolean;
+  anthropic: boolean;
+} {
   const value = row ? stored(row) : null;
   return {
     openai: Boolean(value?.encryptedApiKey),

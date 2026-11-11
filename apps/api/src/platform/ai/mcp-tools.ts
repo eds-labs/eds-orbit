@@ -5,7 +5,6 @@ import {
   anthropicCatalog,
   anthropicCatalogRateCard,
   anthropicCatalogRegistry,
-  environmentRuntimeConfig,
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
   imagePriceConfigured,
@@ -17,7 +16,7 @@ import {
   taskRoutesSchema,
 } from "../../../../../packages/ai/src/index.ts";
 import { audit, data, DomainError } from "../shared.ts";
-import { connectionsEnabled, grantedConnections } from "../connections/central.ts";
+import { connectionsEnabled, type GrantedConnection } from "../connections/central.ts";
 import {
   assertSameChanges,
   requireChanges,
@@ -38,6 +37,11 @@ import {
   routesWithoutKey,
   textModelReady,
 } from "./openai-configuration.ts";
+import {
+  aiConfigurationState,
+  globalModels,
+  type AiConfigurationState,
+} from "./effective-configuration.ts";
 
 // AI models over MCP (docs/MCP_PROJECT_ADMINISTRATION.md). Providers, keys
 // and the system's and organization's AI profiles are global and managed
@@ -58,37 +62,10 @@ async function configurationRow(tx: DbTx, scope: Scope) {
   });
 }
 
-/**
- * The models verified globally, with their global prices: the deployment's
- * configuration, then the system's and the organization's AI profile. A
- * project's own settings replace these in what it uses, so a project can
- * select from them again; prices still come from these sources only.
- */
-async function globalModels(tx: DbTx, scope: Scope) {
-  const environment = environmentRuntimeConfig();
-  const profiles = connectionsEnabled()
-    ? await tx.aiProfile.findMany({
-        where: { OR: [{ scope: "system" }, { workspaceId: scope.workspaceId }] },
-      })
-    : [];
-  const verified = new Set(environment.verifiedModels);
-  const rates: Record<string, unknown> = { ...environment.rateCard };
-  // The organization's profile wins over the system's, as at run time.
-  for (const p of [
-    ...profiles.filter((x) => x.scope === "system"),
-    ...profiles.filter((x) => x.scope === "workspace"),
-  ]) {
-    const d = data(p);
-    for (const m of d.verifiedModels ?? []) verified.add(m);
-    Object.assign(rates, d.rateCard ?? {});
-  }
-  return { verified, rates };
-}
-
 /** The project configuration's version; 0 while the project has none. */
 const versionOf = (row: { version: number } | null) => row?.version ?? 0;
 
-const grantView = (g: Awaited<ReturnType<typeof grantedConnections>>[number] | undefined) =>
+const grantView = (g: GrantedConnection | undefined) =>
   g
     ? {
         connectionId: g.connection.id,
@@ -127,16 +104,10 @@ function modelChecks(effective: Awaited<ReturnType<typeof effectiveAiStatus>>) {
 }
 
 export async function readAiModels(tx: DbTx, scope: Scope) {
-  const row = await configurationRow(tx, scope);
-  const effective = await effectiveAiStatus(tx, scope);
-  const project = row ? publicOpenAiConfiguration(row) : null;
-  const profiles = connectionsEnabled()
-    ? await tx.aiProfile.findMany({
-        where: { OR: [{ scope: "system" }, { workspaceId: scope.workspaceId }] },
-      })
-    : [];
-  const profile = (kind: string) => {
-    const p = profiles.find((x) => x.scope === kind);
+  const state = await aiConfigurationState(tx, scope);
+  const { effective, global } = state;
+  const project = state.stored;
+  const profile = (p: AiConfigurationState["profiles"]["system"]) => {
     if (!p) return null;
     const d = data(p);
     return {
@@ -147,13 +118,7 @@ export async function readAiModels(tx: DbTx, scope: Scope) {
       pricedModels: Object.keys(d.rateCard ?? {}),
     };
   };
-  const [text, image, anthropic] = await Promise.all([
-    grantedConnections(tx, scope, { provider: "openai", purpose: "text" }),
-    grantedConnections(tx, scope, { provider: "openai", purpose: "image" }),
-    grantedConnections(tx, scope, { provider: "anthropic", purpose: "text" }),
-  ]);
   const catalog = anthropicCatalogRateCard();
-  const global = await globalModels(tx, scope);
   const candidates = [
     ...new Set([
       ...effective.verifiedModels,
@@ -180,14 +145,17 @@ export async function readAiModels(tx: DbTx, scope: Scope) {
   return {
     projectId: scope.projectId,
     // Pass as expectedVersion to ai_models_update.
-    version: versionOf(row),
+    version: state.version,
     global: {
       connectionsEnabled: connectionsEnabled(),
-      profiles: { system: profile("system"), organization: profile("workspace") },
+      profiles: {
+        system: profile(state.profiles.system),
+        organization: profile(state.profiles.organization),
+      },
       grantedKeys: {
-        openaiText: grantView(text[0]),
-        openaiImage: grantView(image[0]),
-        anthropic: grantView(anthropic[0]),
+        openaiText: grantView(state.grants.openaiText),
+        openaiImage: grantView(state.grants.openaiImage),
+        anthropic: grantView(state.grants.anthropic),
       },
       anthropicCatalogVerifiedAt: anthropicCatalog.verifiedAt,
     },
