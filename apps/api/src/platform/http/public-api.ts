@@ -335,7 +335,17 @@ export function publicApiModules() {
 }
 
 /** The modules' uses of keys, with their owner (F-5). */
-type KeyUses = readonly (PublicKeyUse & { owner: string })[];
+export type KeyUses = readonly (PublicKeyUse & { owner: string })[];
+
+/**
+ * True for the refusals `revokePublicKey` answers before it writes
+ * anything (ingress off or a key gone: NOT_FOUND; not the owner:
+ * OWNER_REQUIRED). A module's own flow may tolerate these; any other
+ * error may have aborted the caller's transaction and must surface.
+ */
+export const revocationRefused = (error: unknown) =>
+  error instanceof DomainError &&
+  (error.code === "NOT_FOUND" || error.code === "OWNER_REQUIRED");
 
 /**
  * The project's keys, each with the module that uses it (F-5): the first

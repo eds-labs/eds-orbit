@@ -5,6 +5,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   publicOrigin,
+  revocationRefused,
   revokePublicKey,
   setPublicKeyOrigins,
 } from "../../platform/http/public-api.ts";
@@ -511,7 +512,7 @@ async function syncWidgetKey(
     // forgets the key; any other error aborted the transaction and surfaces.
     await revokePublicKey(scope, current.publicClientKeyId, tx).catch(
       (error) => {
-        if (!(error instanceof DomainError)) throw error;
+        if (!revocationRefused(error)) throw error;
       },
     );
     return;

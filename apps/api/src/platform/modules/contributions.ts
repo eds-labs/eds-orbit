@@ -271,7 +271,11 @@ export type PublicKeyUse = {
     scope: Scope,
     keyId: string,
   ): Promise<{ label: string } | null>;
-  /** Drops the module's reference to the key, inside the caller's project transaction. Idempotent. */
+  /**
+   * Drops the module's reference to the key, inside the caller's project
+   * transaction. Idempotent. A release that throws aborts the revocation,
+   * whatever it throws.
+   */
   release(tx: DbTx, scope: Scope, keyId: string): Promise<void>;
 };
 

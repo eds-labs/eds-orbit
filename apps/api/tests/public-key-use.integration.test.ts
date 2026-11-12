@@ -14,6 +14,7 @@ import { registeredPublicKeyUses } from "../src/platform/modules/contributions.t
 import { createInbox, updateInbox } from "../src/modules/support/inboxes.ts";
 import { enableWidgetKey } from "../src/modules/support/widget.ts";
 import { verifiedMailbox } from "./fixtures/mailbox.ts";
+import { DomainError } from "../src/shared.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -296,6 +297,26 @@ describe.skipIf(!enabled)("public key uses (F-5)", () => {
         (a) => a.resourceId === inboxId,
       ),
     ).toHaveLength(0);
+  });
+
+  it("lets an unexpected refusal abort the inbox's own key change", async () => {
+    const { inboxId, keyId: old } = await widgetInbox("Guarded widget");
+    // A release refusing with a code the flow does not expect.
+    const uses = [
+      {
+        owner: "synthetic",
+        usedBy: async () => null,
+        release: async () => {
+          throw new DomainError("SYNTHETIC_CONFLICT", 409);
+        },
+      },
+    ];
+
+    await expect(enableWidgetKey(owner, inboxId, uses)).rejects.toMatchObject({
+      code: "SYNTHETIC_CONFLICT",
+    });
+    expect(await pointer(owner, inboxId)).toBe(old);
+    expect((await key(old)).revokedAt).toBeNull();
   });
 
   it("keeps the inbox's own key change working", async () => {
