@@ -579,8 +579,8 @@ export function ProjectReadinessPanel({
   const { locale, isOwner } = useWorkspace();
   const shell = useContext(ShellContext);
   const setupLinks = shell?.setupLinks ?? [];
-  const settingsHref = shell?.hrefOf("settings") ?? "";
-  const sectionHref = (key: string) => settingsSectionHref(settingsHref, key);
+  const sectionHref = (key: string) =>
+    shell ? shell.settingsHref(key) : settingsSectionHref("", key);
   const de = locale === "de";
   const d = dashboard;
   return (
@@ -701,8 +701,8 @@ export function ProjectSettings() {
     useSearchParams()?.toString() ?? "",
     groups.flatMap((g) => g.tabs.map((s) => s.key)),
   );
-  const settingsHref = shell?.hrefOf("settings") ?? "";
-  const sectionHref = (key: string) => settingsSectionHref(settingsHref, key);
+  const sectionHref = (key: string) =>
+    shell ? shell.settingsHref(key) : settingsSectionHref("", key);
   function select(key: string) {
     const url = new URL(window.location.href);
     if (key === "project") url.searchParams.delete("section");

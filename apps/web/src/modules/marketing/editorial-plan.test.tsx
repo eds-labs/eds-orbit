@@ -28,6 +28,7 @@ vi.mock("@/lib/api", async (original) => ({
 
 import { webRegistry } from "@/modules/registry";
 import { locate, projectHref, routeTable } from "@/platform/shell/routes";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { CalendarView } from "./work";
 
 const P = "11111111-2222-4333-8444-555555555555";
@@ -63,6 +64,11 @@ function workspace(locale: Locale): WorkspaceContextValue {
 }
 
 function shell(social: boolean): ShellContextValue {
+  const hrefOf = (key: string) =>
+    projectHref(
+      P,
+      table.routes.find((r) => r.key === key)!,
+    );
   return {
     features: {},
     modules: [
@@ -78,11 +84,8 @@ function shell(social: boolean): ShellContextValue {
     table,
     platformNav: [],
     homeSections: [],
-    hrefOf: (key) =>
-      projectHref(
-        P,
-        table.routes.find((r) => r.key === key)!,
-      ),
+    hrefOf,
+    ...shellLinks({ stage: undefined, projectId: P, hrefOf, map: (h) => h }),
     chat: [],
     actionRequests: {},
     attention: { loading: false },

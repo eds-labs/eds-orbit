@@ -67,10 +67,13 @@ import {
 import { StandaloneContext } from "@/platform/shell/standalone-context";
 import {
   buildNavGroups,
+  navEntryHref,
+  withCenterEntry,
   withSettingsLinks,
   mobileCurrentKey,
   mobileEntries,
 } from "@/platform/shell/nav-groups";
+import { shellLinks } from "@/platform/shell/shell-links";
 import {
   readCollapsed,
   revealGroup,
@@ -79,10 +82,7 @@ import {
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
 import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
-import {
-  moduleSettingsSection,
-  settingsSectionHref,
-} from "@/platform/shell/settings-nav";
+import { moduleSettingsSection } from "@/platform/shell/settings-nav";
 import {
   attentionRenderers,
   clearAttentionCache,
@@ -116,6 +116,7 @@ import {
 } from "@/platform/settings-center/capabilities";
 import { ScopeView } from "@/platform/settings-center/scope-view";
 import {
+  centerLink,
   mapOldAddress,
   moduleTabIndex,
   redirectFor,
@@ -126,6 +127,7 @@ import {
 import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 
 const LAST_PROJECT = "orbit.project";
+const SAME_HREF = (href: string) => href;
 type ModuleStates = {
   features?: Record<string, boolean>;
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
@@ -267,10 +269,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const [statesSettled, setStatesSettled] =
     useState<SettledModuleStates<ModuleStates> | null>(null);
   useEffect(() => {
-    if (statesNow) setStatesSettled(statesNow);
+    // Only the flag on reads it; any other stage would re-render for nothing.
+    if (settingsCenter === "on" && statesNow) setStatesSettled(statesNow);
     // `statesNow` is rebuilt every render; its fields identify it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statesNow?.projectId, statesNow?.states]);
+  }, [settingsCenter, statesNow?.projectId, statesNow?.states]);
   const redirect: Redirect = redirectFor(
     firstMapping === "wait" && oldAddress
       ? mapOldAddress(oldAddress, {
@@ -296,6 +299,35 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     { stage: settingsCenter, caps: caps.failed ? undefined : caps.data },
   );
   const redirectKey = redirect.kind === "go" ? redirect.href : redirect.kind;
+  // Links with the flag on: an old settings address renders as its center
+  // address. A moved key is decided only by the settled module states of the
+  // project the shell loads them for; any other project, or states not yet
+  // settled, keep the old address, and the redirect decides on arrival.
+  const centerOn = settingsCenter === "on";
+  const centerMap = useMemo((): ((href: string) => string) => {
+    if (!centerOn) return SAME_HREF;
+    const ctx = {
+      table,
+      tabs: settingsTabs,
+      platformKeys: PLATFORM_TAB_KEYS,
+      moduleShown: (id: string, moduleId: string) => {
+        if (id !== statesProjectId) return null;
+        const module = registry.modules.find((m) => m.id === moduleId);
+        return redirectModuleShown(
+          { projectId: statesProjectId, settled: statesSettled },
+          id,
+          (states) =>
+            moduleShown(
+              states.modules,
+              moduleId,
+              module?.optIn === true,
+              module?.minAccess,
+            ),
+        );
+      },
+    };
+    return (href) => centerLink(href, ctx);
+  }, [centerOn, table, settingsTabs, registry, statesProjectId, statesSettled]);
   // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
   // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).
   const memberRole = project
@@ -344,10 +376,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const projectsOfMember = identity.data?.projects;
   const assistantLinks = useMemo(
     (): AssistantLinks => ({
-      hrefFor: (id, href) => projectAwareHref(table, id, href),
+      hrefFor: (id, href) => projectAwareHref(table, id, href, centerMap),
       projectName: (id) => projectsOfMember?.find((p) => p.id === id)?.name,
     }),
-    [table, projectsOfMember],
+    [table, projectsOfMember, centerMap],
   );
   useEffect(() => {
     try {
@@ -485,6 +517,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     const features = { ...knownStates?.features, agentPlatform, googleDrive };
     const nav = navOrder(navigationForFeatures(table.routes, features));
     const active = registry.modules.filter((m) => enabled(m.id));
+    const hrefOf = (key: string) => {
+      const route = table.routes.find((r) => r.key === key);
+      return route ? projectHref(project.id, route) : "/";
+    };
     return {
       features,
       table: {
@@ -503,10 +539,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         settingsSection: moduleSettingsSection(m.id, m.settings ?? []),
       })),
       homeSections: homeSections(registry.modules, enabled),
-      hrefOf: (key) => {
-        const route = table.routes.find((r) => r.key === key);
-        return route ? projectHref(project.id, route) : "/";
-      },
+      hrefOf,
+      ...shellLinks({
+        stage: settingsCenter,
+        projectId: project.id,
+        hrefOf,
+        map: centerMap,
+      }),
       // Contributions of enabled modules only (WP2.4).
       chat: active.flatMap((m) =>
         m.chat
@@ -543,7 +582,17 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       },
       agentSetups: Object.assign({}, ...active.map((m) => m.agentSetups ?? {})),
     };
-  }, [project, knownStates, registry, table, renderers, agentPlatform, googleDrive]);
+  }, [
+    project,
+    knownStates,
+    registry,
+    table,
+    renderers,
+    agentPlatform,
+    googleDrive,
+    settingsCenter,
+    centerMap,
+  ]);
   // Apart, so a loaded attention keeps the functions above unchanged.
   const shell = useMemo(
     (): ShellContextValue | null => base && { ...base, attention },
@@ -771,7 +820,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     isOwner,
     revision,
     refresh: () => setRevision((n) => n + 1),
-    href: (path) => rewriteLegacyHref(table, open.id, path),
+    href: (path) => centerMap(rewriteLegacyHref(table, open.id, path)),
   });
   // An old page never shows on its way to the settings center.
   if (redirect.kind !== "stay")
@@ -1003,10 +1052,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       !moduleShown(states, id, module.optIn === true, module.minAccess)
     );
   })();
-  const navGroups = withSettingsLinks(
-    buildNavGroups(shell.table.routes, shell.modules),
-    shell.modules,
-    (key) => settingsSectionHref(shell.hrefOf("settings"), key),
+  const navGroups = withCenterEntry(
+    withSettingsLinks(
+      buildNavGroups(shell.table.routes, shell.modules),
+      shell.modules,
+      shell.settingsHref,
+    ),
+    centerOn,
   );
   const mobileBar = mobileEntries(shell.table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
@@ -1121,7 +1173,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           <SidebarNav
             groups={navGroups}
             activeKey={activeNavKey(route)}
-            hrefOf={(r) => projectHref(project.id, r)}
+            hrefOf={(r) => navEntryHref(r, project.id, centerOn)}
             badges={badges.counts}
             urgent={badges.urgent}
             locale={locale}

@@ -214,6 +214,21 @@ export function centerHref(target: CenterAddress): string {
   return manageHref(target.scope, target.area, ...target.rest) + target.search + target.hash;
 }
 
+/**
+ * A link as the shell renders it with the flag on: an old settings address
+ * becomes its center address. Any other link stays as it is, and so does one
+ * whose mapping waits for module states: the redirect then decides. A link
+ * never asks for capabilities; at worst it leads through the redirect.
+ */
+export function centerLink(href: string, ctx: MapContext): string {
+  if (!href.startsWith("/") || href.startsWith("//")) return href;
+  const match = /^([^?#]*)(\?[^#]*)?(#.*)?$/.exec(href);
+  if (!match) return href;
+  const [, pathname = "", search = "", hash = ""] = match;
+  const target = mapOldAddress({ pathname, search, hash }, ctx);
+  return target && target !== "wait" ? centerHref(target) : href;
+}
+
 export type RedirectContext = MapContext & {
   stage: "off" | "preview" | "on" | undefined;
   /** The member's capabilities; null while loading; undefined when the request failed. */

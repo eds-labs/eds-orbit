@@ -16,6 +16,8 @@ import { webRegistry } from "@/modules/registry";
 import { takeAssistantDraft } from "./assistant-draft";
 import { attentionRenderers, type AttentionState } from "./attention";
 import { AttentionList, attentionTarget } from "./attention-list";
+import { centerLink, moduleTabIndex } from "@/platform/settings-center/redirects";
+import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 import {
   greeting,
   ProjectHome,
@@ -25,6 +27,7 @@ import {
 import { attentionWhen } from "./relative-time";
 import { homeSections, navOrder, projectHref, routeTable } from "./routes";
 import { ShellContext, type ShellContextValue } from "./shell-context";
+import { shellLinks } from "./shell-links";
 
 const table = routeTable(webRegistry);
 const project = {
@@ -70,6 +73,11 @@ function shell(
   enabled: Record<string, boolean> = {},
 ): ShellContextValue {
   const nav = navOrder(table.routes.filter((r) => r.nav));
+  const hrefOf = (key: string) =>
+    projectHref(
+      project.id,
+      table.routes.find((r) => r.key === key)!,
+    );
   return {
     table,
     platformNav: nav.filter((r) => !r.moduleId),
@@ -82,11 +90,8 @@ function shell(
     homeSections: [
       { moduleId: "marketing", component: () => <p>marketing section</p> },
     ],
-    hrefOf: (key) =>
-      projectHref(
-        project.id,
-        table.routes.find((r) => r.key === key)!,
-      ),
+    hrefOf,
+    ...shellLinks({ stage: undefined, projectId: project.id, hrefOf, map: (h) => h }),
     chat: [],
     actionRequests: {},
     attention,
@@ -332,6 +337,26 @@ describe("attentionTarget", () => {
         (id) => id !== "support",
       ),
     ).toBeNull();
+  });
+  it("renders an attention link as a center address when the flag is on", () => {
+    const map = (href: string) =>
+      centerLink(href, {
+        table,
+        tabs: moduleTabIndex(webRegistry.modules),
+        platformKeys: PLATFORM_TAB_KEYS,
+        moduleShown: () => true,
+      });
+    expect(attentionTarget("/settings?section=ai", "p1", table, on, map)).toBe(
+      "/manage/p/p1/ai",
+    );
+    expect(attentionTarget("/support/tickets?ticket=t1", "p1", table, on, map)).toBe(
+      "/p/p1/support/tickets?ticket=t1",
+    );
+    expect(attentionTarget("/nope", "p1", table, on, map)).toBeNull();
+    // The identity mapping (the default) keeps today's address.
+    expect(attentionTarget("/settings?section=ai", "p1", table, on)).toBe(
+      "/p/p1/settings?section=ai",
+    );
   });
 });
 

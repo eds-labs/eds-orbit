@@ -7,7 +7,6 @@ import { refreshFailureText } from "@/components/google-drive";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { useShell } from "@/platform/shell/shell-context";
-import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { driveFolderParam, drivePaths, type DriveStatus } from "./api";
 import { DriveBrowser } from "./drive-browser";
 import { driveText } from "./labels";
@@ -28,7 +27,7 @@ export function DrivePage() {
   const folderId = driveFolderParam(raw);
   // Shown while the address holds a malformed folder id.
   const ignored = Boolean(raw) && !folderId;
-  const settings = settingsSectionHref(shell.hrefOf("settings"), "integrations");
+  const settings = shell.settingsHref("integrations");
 
   const head = <PageHead title={t.title} description={t.description} />;
   if (status.error)

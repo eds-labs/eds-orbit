@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { AppHint, HiddenAppsNote, appsToHide, readHiddenApps, writeHiddenApps, type SocialApp } from "./app-hints";
 import { PostizMigration } from "./legacy";
@@ -248,6 +249,7 @@ function AccountRow({
 
 export function AccountsView() {
   const { project, identity, locale, isOwner, refresh } = useWorkspace();
+  const shell = useShell();
   const t = socialText(locale).accounts;
   const params = useSearchParams();
   const accounts = useResource<SocialAccounts>(socialPath(project.id, "/accounts"));
@@ -279,7 +281,7 @@ export function AccountsView() {
     writeHiddenApps(project.id, next);
   };
   const settingsHref = identity.workspaces.find((w) => w.id === project.workspaceId)?.canManage
-    ? `/o/${encodeURIComponent(project.workspaceId)}/settings`
+    ? shell.organizationSettingsHref(project.workspaceId)
     : null;
   const connected = params.get("connected");
   const failed = params.get("error");

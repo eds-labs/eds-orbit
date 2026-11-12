@@ -34,6 +34,7 @@ import { WorkspaceContext } from "@/components/workspace-context";
 import { webRegistry } from "@/modules/registry";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { projectHref, routeTable } from "@/platform/shell/routes";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { AccountsView, TelegramChannelForm } from "./accounts";
 import { accountMessage } from "./labels";
 import { socialAttention } from "./attention";
@@ -47,8 +48,10 @@ const identity: Identity = {
 };
 
 function render(node: React.ReactNode, { locale = "en" as Locale, access = "owner" } = {}) {
+  const hrefOf = (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!);
   const shell = {
-    hrefOf: (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!),
+    hrefOf,
+    ...shellLinks({ stage: undefined, projectId: project.id, hrefOf, map: (h) => h }),
     modules: [{ id: "social", access, enabled: true, nav: [], displayName: { en: "", de: "" }, description: { en: "", de: "" } }],
   } as unknown as ShellContextValue;
   return renderToStaticMarkup(

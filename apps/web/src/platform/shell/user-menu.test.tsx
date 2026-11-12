@@ -62,6 +62,44 @@ describe("account menu (ADR 0013)", () => {
     ).not.toContain('href="/manage"');
   });
 
+  it("offers only the center when the flag is on", () => {
+    const owner: Identity = {
+      ...base,
+      systemAdmin: true,
+      account: true,
+      settingsCenter: "on",
+      workspaces: [{ id: "w1", name: "Org", role: "owner", canManage: true }],
+    };
+    const entries = userMenuEntries(owner, "w1");
+    expect(entries.manage).toBe("/manage");
+    expect(entries.account).toBeFalsy();
+    expect(entries.organization).toBeFalsy();
+    expect(entries.admin).toBeFalsy();
+    const html = renderToStaticMarkup(
+      <UserMenu identity={owner} t={t} onSignOut={() => {}} signingOut={false} />,
+    );
+    expect(html).toContain('href="/manage"');
+    expect(html).not.toContain('href="/account"');
+    expect(html).not.toContain('href="/o/w1/settings"');
+    expect(html).not.toContain('href="/admin"');
+  });
+
+  it("keeps every entry in preview", () => {
+    const owner: Identity = {
+      ...base,
+      systemAdmin: true,
+      account: true,
+      settingsCenter: "preview",
+      workspaces: [{ id: "w1", name: "Org", role: "owner", canManage: true }],
+    };
+    expect(userMenuEntries(owner, "w1")).toEqual({
+      manage: "/manage",
+      account: true,
+      organization: "/o/w1/settings",
+      admin: true,
+    });
+  });
+
   it("renders the entries the identity allows", () => {
     const html = (identity: Identity) =>
       renderToStaticMarkup(

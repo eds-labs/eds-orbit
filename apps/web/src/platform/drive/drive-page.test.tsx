@@ -35,6 +35,7 @@ import { WorkspaceContext } from "@/components/workspace-context";
 import { webRegistry } from "@/modules/registry";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { navigationForFeatures, projectHref, routeTable } from "@/platform/shell/routes";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { GoogleDriveSettings } from "@/components/google-drive";
 import { DrivePage } from "./drive-page";
 import type { DriveStatus, DriveToolbarProps } from "./api";
@@ -70,8 +71,10 @@ const listing = {
 const Upload = (_: DriveToolbarProps) => <span>toolbar-upload</span>;
 
 function render(node: React.ReactNode, { locale = "en" as Locale, owner = true } = {}) {
+  const hrefOf = (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!);
   const shell = {
-    hrefOf: (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!),
+    hrefOf,
+    ...shellLinks({ stage: undefined, projectId: project.id, hrefOf, map: (h) => h }),
     modules: [],
     drive: { fileActions: [], toolbar: [Upload] },
   } as unknown as ShellContextValue;

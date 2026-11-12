@@ -21,6 +21,10 @@ export function userMenuEntries(
   identity: Identity,
   organizationId: string | undefined,
 ) {
+  // Settings center phase 5: with the flag on the center holds the account,
+  // the organization settings and the administration.
+  if (identity.settingsCenter === "on")
+    return { account: false, organization: null, admin: false, manage: "/manage" };
   const organization = identity.workspaces.find((w) =>
     organizationId ? w.id === organizationId : w.canManage,
   );
@@ -30,11 +34,8 @@ export function userMenuEntries(
       ? `/o/${encodeURIComponent(organization.id)}/settings`
       : null,
     admin: Boolean(identity.systemAdmin),
-    // The settings center, while its flag is in preview or on.
-    manage:
-      identity.settingsCenter === "preview" || identity.settingsCenter === "on"
-        ? "/manage"
-        : null,
+    // The settings center, while its flag is in preview ("on" returned above).
+    manage: identity.settingsCenter === "preview" ? "/manage" : null,
   };
 }
 

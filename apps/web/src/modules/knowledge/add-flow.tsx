@@ -10,7 +10,6 @@ import {
 import { ChevronRight } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
-import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { languageName } from "@/platform/project-settings/catalog";
 import { AppLink } from "@/platform/ui/app-link";
 import { cn } from "@/lib/utils";
@@ -490,7 +489,7 @@ export function AnalysisStart({
   const linkOf = (code: string) =>
     AI_SETTINGS_BLOCKERS.has(code)
       ? {
-          href: settingsSectionHref(shell.hrefOf("settings"), "ai"),
+          href: shell.settingsHref("ai"),
           text: t.aiSettingsLink,
         }
       : code === "MODEL_USE_FORBIDDEN"

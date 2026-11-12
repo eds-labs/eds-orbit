@@ -54,6 +54,20 @@ export type ShellContextValue = {
   homeSections: ReadonlyArray<{ moduleId: string; component: ComponentType }>;
   /** The URL of a page in the open project. */
   hrefOf: (key: string) => string;
+  /**
+   * The URL of a project settings section by its tab key: the old settings
+   * page, or with the settings center on its place in the center.
+   */
+  settingsHref: (key: string) => string;
+  /** The project's connections: the old connectors page, or the center's. */
+  connectionsHref: () => string;
+  /** An organization's settings: the old page, or the center's. */
+  organizationSettingsHref: (organizationId: string) => string;
+  /**
+   * With the settings center on, an old settings address as its center
+   * address (attention links); otherwise, and when absent, the identity.
+   */
+  centerLink?: (href: string) => string;
   /** Chat parts of the modules, in registry order (WP2.3). */
   chat: ReadonlyArray<ChatExtension & { access?: string }>;
   /** Inbox views of action request types, by type (WP2.3). */

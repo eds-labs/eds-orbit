@@ -8,6 +8,7 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { labels } from "@/lib/i18n";
+import { shellLinks } from "@/platform/shell/shell-links";
 const state = vi.hoisted(() => ({
   paths: [] as string[],
   loading: false,
@@ -164,6 +165,12 @@ function render(
     platformNav: [],
     homeSections: [],
     hrefOf: (key) => `/p/p1/${key}`,
+    ...shellLinks({
+      stage: undefined,
+      projectId: "p1",
+      hrefOf: (key) => `/p/p1/${key}`,
+      map: (h) => h,
+    }),
     chat: [],
     actionRequests: {},
     attention: { loading: false },

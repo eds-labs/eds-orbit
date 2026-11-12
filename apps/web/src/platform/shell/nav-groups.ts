@@ -1,8 +1,10 @@
 import { labels } from "@/lib/i18n";
+import { manageHref } from "@/platform/settings-center/routes";
 import {
   activeNavKey,
   navGroupOf,
   navOrder,
+  projectHref,
   routeEnabled,
   type Route,
 } from "./routes";
@@ -32,6 +34,11 @@ type GroupModule = {
 const PROJECT_LABEL: Label = {
   en: labels.en.navProject,
   de: labels.de.navProject,
+};
+// The settings center's name, as the account menu shows it.
+const CENTER_LABEL: Label = {
+  en: labels.en.manageTitle,
+  de: labels.de.manageTitle,
 };
 const MOBILE_LIMIT = 4;
 
@@ -93,6 +100,37 @@ export function withSettingsLinks(
     const key = modules.find((m) => m.id === group.id)?.settingsSection;
     return key ? { ...group, settingsHref: sectionHref(key) } : group;
   });
+}
+
+/**
+ * Settings center phase 5 (P5-D1): with the flag on, the project's settings
+ * entry opens the center under its name, and the connectors entry goes, as
+ * the center holds the connections. Unless the flag is on: `groups` itself.
+ */
+export function withCenterEntry(
+  groups: readonly NavGroup[],
+  on: boolean,
+): readonly NavGroup[] {
+  if (!on) return groups;
+  return groups
+    .map((group) => ({
+      ...group,
+      entries: group.entries
+        .filter((r) => r.key !== "connectors")
+        .map((r) =>
+          r.key === "settings" && r.nav
+            ? { ...r, nav: { ...r.nav, label: CENTER_LABEL } }
+            : r,
+        ),
+    }))
+    .filter((g) => g.entries.length > 0);
+}
+
+/** The address of a sidebar entry; with the flag on, settings opens the center. */
+export function navEntryHref(route: Route, projectId: string, on: boolean): string {
+  return on && route.key === "settings"
+    ? manageHref({ kind: "project", projectId })
+    : projectHref(projectId, route);
 }
 
 /**

@@ -10,7 +10,6 @@ import type { Locale } from "@/lib/i18n";
 import { Alert, Button, Loading } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
-import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { moduleLabel } from "@/platform/shell/approval-presentation";
 import { AppLink } from "@/platform/ui/app-link";
 import type { AgentSetup } from "@/platform/shell/types";
@@ -226,7 +225,7 @@ function BuilderForm({
   const eventChoices = catalog.events.filter(
     (e) => e.module === "platform" || config.modules.includes(e.module),
   );
-  const settingsHref = settingsSectionHref(shell.hrefOf("settings"), "ai");
+  const settingsHref = shell.settingsHref("ai");
 
   if (setup && guided)
     return (

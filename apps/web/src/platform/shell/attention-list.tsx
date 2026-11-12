@@ -17,13 +17,15 @@ import { useShell } from "./shell-context";
  * Where an item's `link` (a path below /p/:id, with an optional query) leads
  * in the open project, or null when no page of the route table matches it or
  * the page is not available to the member (ruling R22: the row stays, but
- * without a dead link), such as /approvals while marketing is off.
+ * without a dead link), such as /approvals while marketing is off. `map`
+ * is the shell's mapping to the settings center (ShellContextValue.centerLink).
  */
 export function attentionTarget(
   link: string,
   projectId: string,
   table: RouteTable,
   enabled: (moduleId: string) => boolean,
+  map: (href: string) => string = (href) => href,
 ): string | null {
   const match = /^(\/[^?#]*)([?#].*)?$/.exec(link);
   if (!match) return null;
@@ -31,7 +33,7 @@ export function attentionTarget(
   const place = locate(`/p/${encodeURIComponent(projectId)}${path}`, table);
   if (place.kind !== "view" && place.kind !== "redirect") return null;
   return routeEnabled(place.route, enabled)
-    ? projectHref(projectId, place.route) + suffix
+    ? map(projectHref(projectId, place.route) + suffix)
     : null;
 }
 
@@ -45,8 +47,12 @@ function AttentionRow({ item, now }: { item: AttentionItem; now: Date }) {
     shell.modules,
   );
   const when = attentionWhen(item, now, locale);
-  const href = attentionTarget(item.link, project.id, shell.table, (id) =>
-    Boolean(shell.modules.find((m) => m.id === id)?.enabled),
+  const href = attentionTarget(
+    item.link,
+    project.id,
+    shell.table,
+    (id) => Boolean(shell.modules.find((m) => m.id === id)?.enabled),
+    shell.centerLink,
   );
   const owner =
     item.moduleId === "platform"

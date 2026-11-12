@@ -2,7 +2,8 @@ import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { webRegistry } from "@/modules/registry";
-import { buildNavGroups } from "./nav-groups";
+import { labels } from "@/lib/i18n";
+import { buildNavGroups, navEntryHref, withCenterEntry } from "./nav-groups";
 import { projectHref, routeTable, type Route } from "./routes";
 import { SidebarNav } from "./sidebar-nav";
 
@@ -134,5 +135,35 @@ describe("SidebarNav", () => {
     const html = render({ collapsed: ["gone"] });
     for (const id of ["marketing", "support", "knowledge", "project"])
       expect(head(html, id), id).toContain('aria-expanded="true"');
+  });
+
+  it("shows one settings entry and no connectors entry when the flag is on", () => {
+    const renderStage = (on: boolean, locale: "en" | "de") =>
+      renderToStaticMarkup(
+        <SidebarNav
+          groups={withCenterEntry(groups, on)}
+          activeKey={undefined}
+          hrefOf={(r) => navEntryHref(r, "p1", on)}
+          locale={locale}
+          collapsed={new Set()}
+          onToggle={() => {}}
+        />,
+      );
+    for (const locale of ["en", "de"] as const) {
+      const on = renderStage(true, locale);
+      const words = labels[locale].manageTitle.replace("&", "&amp;");
+      expect(on).toContain('href="/manage/p/p1"');
+      expect(on).toContain(`>${words}<`);
+      expect(on).not.toContain(href("connectors"));
+      expect(on).not.toContain(href("settings"));
+      expect(on).not.toContain(`>${labels[locale].connectors}<`);
+      // Every other entry keeps its address.
+      for (const route of groups.flatMap((g) => g.entries))
+        if (route.key !== "settings" && route.key !== "connectors")
+          expect(on, route.key).toContain(href(route.key));
+    }
+    // Unless the flag is on: today's entries and addresses, byte for byte.
+    expect(renderStage(false, "en")).toBe(render());
+    expect(withCenterEntry(groups, false)).toBe(groups);
   });
 });

@@ -34,6 +34,7 @@ import { knowledgeWeb } from "./manifest";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { navigationForFeatures, routeTable } from "@/platform/shell/routes";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { knowledgeCopy } from "./workspace-text";
 import {
   expertCode,
@@ -1017,13 +1018,20 @@ describe("Knowledge error messages", () => {
   });
 });
 
+const knowledgeHrefOf = (key: string) =>
+  `/p/p/knowledge/${key.replace("knowledge-", "")}`;
 const inContext = (node: React.ReactNode, locale: "de" | "en" = "de") =>
   renderToStaticMarkup(
     <ShellContext.Provider
       value={
         {
-          hrefOf: (key: string) =>
-            `/p/p/knowledge/${key.replace("knowledge-", "")}`,
+          hrefOf: knowledgeHrefOf,
+          ...shellLinks({
+            stage: undefined,
+            projectId: "p",
+            hrefOf: knowledgeHrefOf,
+            map: (h) => h,
+          }),
         } as any
       }
     >

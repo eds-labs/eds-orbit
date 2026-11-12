@@ -484,27 +484,29 @@ export function rewriteLegacyHref(
  * An in-app link of a card that names its project (WP3.8): legacy paths
  * ("/content", "/decisions") and project page paths ("/support/tickets?…")
  * open in that project; absolute links, "/p/…" and pages outside projects
- * stay as they are.
+ * stay as they are. `map` is the shell's mapping to the settings center
+ * (ShellContextValue.centerLink), applied to the in-app result.
  */
 export function projectAwareHref(
   table: RouteTable,
   projectId: string,
   href: string,
+  map: (href: string) => string = (href) => href,
 ): string {
   if (!href.startsWith("/") || href.startsWith("//")) return href;
   const legacy = rewriteLegacyHref(table, projectId, href);
-  if (legacy !== href) return legacy;
+  if (legacy !== href) return map(legacy);
   const match = /^(\/[^?#]*)([?#].*)?$/.exec(href);
-  if (!match) return href;
+  if (!match) return map(href);
   const [, path, suffix = ""] = match;
   const first = path!.split("/")[1] ?? "";
   if (
     RESERVED.has(first) ||
     table.standalone.some((v) => v.path.split("/")[0] === first)
   )
-    return href;
+    return map(href);
   const prefixed = `/p/${encodeURIComponent(projectId)}${path}`;
-  return locate(prefixed, table).kind === "view" ? prefixed + suffix : href;
+  return map(locate(prefixed, table).kind === "view" ? prefixed + suffix : href);
 }
 
 /** Same-origin search and hash of a legacy URL, kept across the redirect. */
