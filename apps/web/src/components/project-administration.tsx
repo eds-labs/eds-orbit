@@ -26,7 +26,7 @@ import {
 import { errorText, projectRoleLabel } from "@/platform/administration/texts";
 /**
  * The owner's project actions (settings section "project"): edit the
- * project and manage its public client keys.
+ * project and, unless the center lists them separately, manage its public client keys.
  */
 export function ProjectAdministration({
   publicKeys = true,
@@ -49,9 +49,13 @@ export function ProjectAdministration({
         <div>
           <h2>{de ? "Projektverwaltung" : "Project administration"}</h2>
           <p>
-            {de
-              ? "Name und Zeitzone ändern sowie öffentliche Client-Schlüssel verwalten."
-              : "Change the name and timezone and manage public client keys."}
+            {publicKeys
+              ? de
+                ? "Name und Zeitzone ändern sowie öffentliche Client-Schlüssel verwalten."
+                : "Change the name and timezone and manage public client keys."
+              : de
+                ? "Name und Zeitzone ändern."
+                : "Change the name and timezone."}
           </p>
         </div>
         <div className="page-actions">

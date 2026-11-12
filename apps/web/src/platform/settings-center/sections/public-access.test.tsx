@@ -99,6 +99,36 @@ describe("public keys list", () => {
   });
 });
 
+describe("public keys list in German", () => {
+  const view = (items: PublicKeyItem[], modules = ["support"]) =>
+    renderToStaticMarkup(
+      <PublicKeysView items={items} modules={modules} locale="de" onRevoke={() => {}} />,
+    );
+  it("reads German for an active, a revoked and an empty list", () => {
+    const active = view([key()]);
+    expect(active).toContain("Aktiv");
+    expect(active).toContain(">Widerrufen<");
+    const revoked = view([key({ revokedAt: "2026-11-02T10:00:00Z" })]);
+    expect(revoked).toContain("Widerrufen ");
+    const empty = view([], []);
+    expect(empty).toContain("Noch keine öffentlichen Schlüssel.");
+    expect(empty).toContain(
+      "Noch kein Modul dieser Installation hat eine öffentliche Schnittstelle.",
+    );
+    for (const html of [active, revoked, empty])
+      for (const english of ["Active", "Revoke", "Revoked", "No public keys yet", "No module of"])
+        expect(html).not.toContain(english);
+  });
+  it("has a German text for every key", () => {
+    for (const k of [
+      "usedBy", "revokeAsk", "revokeUsed", "ownerOnly", "active", "revoked", "revoke", "none",
+      "noModules", "module", "origins", "originsHint", "create", "newKey", "ingressOff", "title", "description",
+    ] as const) {
+      expect(publicKeyText("de", k, "L", "D")).not.toBe(publicKeyText("en", k, "L", "D"));
+    }
+  });
+});
+
 describe("public access section", () => {
   const OWNER_CAPS = ["project.integrations"] as const;
 
@@ -133,5 +163,9 @@ describe("public access section", () => {
     const center = inWorkspace(true, <ProjectAdministration publicKeys={false} />);
     expect(center).not.toContain("Public keys");
     expect(center).toContain("Edit project");
+    expect(center).not.toContain("public client keys");
+    expect(old).toContain("public client keys");
+    const profile = projectSections.find((x) => x.id === "profile")!;
+    expect(JSON.stringify(profile.description)).not.toMatch(/public|öffentlich/i);
   });
 });

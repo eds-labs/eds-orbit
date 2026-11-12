@@ -237,8 +237,8 @@ export const projectSections: readonly ManagementSection[] = [
     capability: "project.profile",
     label: { en: "Project profile", de: "Projektprofil" },
     description: {
-      en: "Content languages, profile links, name, timezone and public client keys.",
-      de: "Inhaltssprachen, Profillinks, Name, Zeitzone und öffentliche Client-Schlüssel.",
+      en: "Content languages, profile links, name and timezone.",
+      de: "Inhaltssprachen, Profillinks, Name und Zeitzone.",
     },
     component: ProfileSection,
   },

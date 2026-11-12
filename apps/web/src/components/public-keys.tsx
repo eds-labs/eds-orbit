@@ -43,6 +43,21 @@ const en = {
   revokeUsed:
     "\"{label}\" loses its key and its widget stops. A new key means a new embed code.",
   ownerOnly: "Only owners of the project manage public keys.",
+  active: "Active",
+  revoked: "Revoked {date}",
+  revoke: "Revoke",
+  none: "No public keys yet.",
+  noModules: "No module of this installation has a public API yet.",
+  module: "Module",
+  origins: "Allowed origins",
+  originsHint:
+    "One per line, exactly as the browser sends it: https, host and port, no path. At most 10.",
+  create: "Create key",
+  newKey: "New key",
+  ingressOff: "Public ingress is switched off for this installation.",
+  title: "Public keys",
+  description:
+    "A key lets a website on its origins call one module's public API. Revoking it stops that at once.",
 };
 export type PublicKeyTextKey = keyof typeof en;
 const de: Record<PublicKeyTextKey, string> = {
@@ -52,14 +67,33 @@ const de: Record<PublicKeyTextKey, string> = {
   revokeUsed:
     "\u201E{label}\u201C verliert seinen Schlüssel, und sein Widget funktioniert nicht mehr. Ein neuer Schlüssel bedeutet einen neuen Einbettungscode.",
   ownerOnly: "Öffentliche Schlüssel verwalten nur Owner des Projekts.",
+  active: "Aktiv",
+  revoked: "Widerrufen {date}",
+  revoke: "Widerrufen",
+  none: "Noch keine öffentlichen Schlüssel.",
+  noModules:
+    "Noch kein Modul dieser Installation hat eine öffentliche Schnittstelle.",
+  module: "Modul",
+  origins: "Erlaubte Ursprünge",
+  originsHint:
+    "Einer pro Zeile, genau so, wie der Browser ihn sendet: https, Host und Port, kein Pfad. Höchstens 10.",
+  create: "Schlüssel anlegen",
+  newKey: "Neuer Schlüssel",
+  ingressOff: "Der öffentliche Zugang ist für diese Installation abgeschaltet.",
+  title: "Öffentliche Schlüssel",
+  description:
+    "Mit einem Schlüssel kann eine Website von ihren Ursprüngen aus die öffentliche Schnittstelle eines Moduls aufrufen. Ein Widerruf beendet das sofort.",
 };
 
 export function publicKeyText(
   locale: Locale,
   key: PublicKeyTextKey,
   label = "",
+  date = "",
 ): string {
-  return (locale === "de" ? de[key] : en[key]).replaceAll("{label}", label);
+  return (locale === "de" ? de[key] : en[key])
+    .replaceAll("{label}", label)
+    .replaceAll("{date}", date);
 }
 
 /** The question asked before a key is revoked: the key's user is named when it has one. */
@@ -108,10 +142,12 @@ export function PublicKeysView({
               </div>
               <div className="page-actions">
                 {key.revokedAt ? (
-                  <Badge tone="danger">Revoked {date(key.revokedAt)}</Badge>
+                  <Badge tone="danger">
+                    {publicKeyText(locale, "revoked", "", date(key.revokedAt))}
+                  </Badge>
                 ) : (
                   <>
-                    <Badge tone="success">Active</Badge>
+                    <Badge tone="success">{publicKeyText(locale, "active")}</Badge>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -121,7 +157,7 @@ export function PublicKeysView({
                           onRevoke(key.id);
                       }}
                     >
-                      Revoke
+                      {publicKeyText(locale, "revoke")}
                     </Button>
                   </>
                 )}
@@ -130,11 +166,11 @@ export function PublicKeysView({
           ))}
         </div>
       ) : (
-        <p className="panel-note">No public keys yet.</p>
+        <p className="panel-note">{publicKeyText(locale, "none")}</p>
       )}
       {!modules.length ? (
         <p className="panel-note">
-          No module of this installation has a public API yet.
+          {publicKeyText(locale, "noModules")}
         </p>
       ) : (
         children
@@ -156,7 +192,7 @@ export function PublicKeysPanel() {
   const modules = keys.data?.modules ?? [];
   if (keys.loading) return <Loading />;
   if (keys.error?.status === 404)
-    return <Alert>Public ingress is switched off for this installation.</Alert>;
+    return <Alert>{publicKeyText(locale, "ingressOff")}</Alert>;
   return (
     <>
       <ResourceError error={keys.error} retry={keys.refresh} />
@@ -179,25 +215,25 @@ export function PublicKeysPanel() {
             fields={[
               {
                 name: "moduleId",
-                label: "Module",
+                label: publicKeyText(locale, "module"),
                 type: "select",
                 value: modules[0],
                 options: modules.map((id) => ({ value: id, label: id })),
               },
               {
                 name: "allowedOrigins",
-                label: "Allowed origins",
+                label: publicKeyText(locale, "origins"),
                 type: "textarea",
                 required: true,
                 placeholder: "https://www.example.com",
-                hint: "One per line, exactly as the browser sends it: https, host and port, no path. At most 10.",
+                hint: publicKeyText(locale, "originsHint"),
               },
             ]}
             pending={mutation.pending}
             error={mutation.error}
             t={t}
             onCancel={() => setCreating(false)}
-            submitLabel="Create key"
+            submitLabel={publicKeyText(locale, "create")}
             onSubmit={(v) =>
               mutation.run(() =>
                 api(base, {
@@ -214,7 +250,7 @@ export function PublicKeysPanel() {
           <>
             {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
             <Button variant="outline" onClick={() => setCreating(true)}>
-              New key
+              {publicKeyText(locale, "newKey")}
             </Button>
           </>
         )}
@@ -224,10 +260,11 @@ export function PublicKeysPanel() {
 }
 
 export function PublicKeys({ onClose }: { onClose(): void }) {
+  const { locale } = useWorkspace();
   return (
     <Modal
-      title="Public keys"
-      description="A key lets a website on its origins call one module's public API. Revoking it stops that at once."
+      title={publicKeyText(locale, "title")}
+      description={publicKeyText(locale, "description")}
       onClose={onClose}
     >
       <PublicKeysPanel />
