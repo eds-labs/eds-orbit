@@ -173,6 +173,8 @@ export type IntegrationContribution = {
   providers?: readonly string[];
   /** The component renders its own PageHead. */
   ownHead?: true;
+  /** Shown only while the installation advertises this feature (as nav.feature). */
+  feature?: string;
   component: ComponentType;
 };
 

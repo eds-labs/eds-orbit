@@ -478,7 +478,7 @@ describe("the real registry's module sections", () => {
     );
     return [
       ...projectModuleSections(contributed, modules).sections,
-      ...adaptIntegrationSections(moduleIntegrations(webRegistry.modules, () => true)),
+      ...adaptIntegrationSections(moduleIntegrations(webRegistry.modules, () => true, { knowledgeWorkspace: true })),
     ];
   };
 

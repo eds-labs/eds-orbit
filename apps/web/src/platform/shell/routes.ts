@@ -349,11 +349,14 @@ export function homeSections(
 export function moduleIntegrations(
   modules: readonly WebModule[],
   enabled: (id: string) => boolean,
+  features: Record<string, boolean> = {},
 ): Array<IntegrationContribution & { moduleId: string }> {
   return modules
     .filter((m) => enabled(m.id))
     .flatMap((m) =>
-      (m.integrations ?? []).map((c) => ({ ...c, moduleId: m.id })),
+      (m.integrations ?? [])
+        .filter((c) => !c.feature || features[c.feature] === true)
+        .map((c) => ({ ...c, moduleId: m.id })),
     );
 }
 

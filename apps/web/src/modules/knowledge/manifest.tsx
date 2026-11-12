@@ -103,6 +103,8 @@ export const knowledgeWeb: WebModule = {
       order: 10,
       // The catalog id of the App (apps/api knowledge github configuration).
       providers: ["knowledge_github"],
+      // The GitHub tab exists only with the workspace (alternateNav below).
+      feature: "knowledgeWorkspace",
       // The page renders its own heading, at the level the center provides.
       ownHead: true,
       component: KnowledgeGithubPage,

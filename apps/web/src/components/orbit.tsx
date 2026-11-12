@@ -568,7 +568,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       attentionRenderers: renderers,
       // Each module's sections join its group of the settings list (§5.4).
       settings: moduleSettings(registry.modules, enabled),
-      integrations: moduleIntegrations(registry.modules, enabled),
+      integrations: moduleIntegrations(registry.modules, enabled, features),
       aiCeilings: moduleAiCeilings(registry.modules, enabled),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {

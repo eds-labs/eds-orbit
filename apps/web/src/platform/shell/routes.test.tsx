@@ -716,6 +716,30 @@ describe("Web route registry", () => {
     expect(moduleIntegrations(webRegistry.modules, () => false)).toEqual([]);
   });
 
+  it("leaves out an integration section whose installation feature is not on", () => {
+    const component = () => null;
+    const base = { label: { en: "A", de: "A" }, description: { en: "A", de: "A" }, order: 0, component };
+    const modules = [
+      {
+        id: "demo",
+        integrations: [
+          { ...base, id: "plain" },
+          { ...base, id: "needs-on", feature: "on" },
+          { ...base, id: "needs-off", feature: "off" },
+          { ...base, id: "needs-missing", feature: "missing" },
+        ],
+      },
+    ] as any;
+    const ids = (features?: Record<string, boolean>) =>
+      (features
+        ? moduleIntegrations(modules, () => true, features)
+        : moduleIntegrations(modules, () => true)
+      ).map((c) => c.id);
+    expect(ids({ on: true, off: false })).toEqual(["plain", "needs-on"]);
+    // The two-argument call: only contributions without a feature.
+    expect(ids()).toEqual(["plain"]);
+  });
+
   it("collects settings only from shown modules", () => {
     const withSettings = webRegistry.modules.filter((m) => (m.settings ?? []).length > 0);
     expect(withSettings.length).toBeGreaterThan(1);

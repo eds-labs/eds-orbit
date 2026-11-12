@@ -95,12 +95,26 @@ export function KnowledgeGithubPage() {
   const { project, locale, isOwner } = useWorkspace();
   const shell = useShell();
   // One h1 per page: the settings center owns it and provides "h2".
-  const Heading = useContext(PageHeadLevel);
+  const level = useContext(PageHeadLevel);
+  const Heading = level;
   const t = knowledgeCopy[locale];
   const status = useResource<{ configured: boolean }>(
     isOwner ? `/projects/${project.id}/knowledge/github` : null,
   );
-  if (!isOwner) return <Alert>{t.readOnly}</Alert>;
+  // In the center the section has no head of its own, so a reader keeps one.
+  if (!isOwner)
+    return level === "h2" ? (
+      <div className="knowledge-workspace stack-gap">
+        <header className="knowledge-heading">
+          <div>
+            <Heading>{t.configure}</Heading>
+          </div>
+        </header>
+        <Alert>{t.readOnly}</Alert>
+      </div>
+    ) : (
+      <Alert>{t.readOnly}</Alert>
+    );
   return (
     <div className="knowledge-workspace stack-gap">
       <header className="knowledge-heading">

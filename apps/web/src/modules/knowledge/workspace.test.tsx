@@ -1941,17 +1941,45 @@ describe("add flow", () => {
     expect(page("h2")).toContain("<h2>GitHub App settings</h2>");
     expect(page("h2")).not.toContain("<h1>");
   });
+  it("keeps the heading for a reader in the center only", () => {
+    const page = (level: "h1" | "h2") =>
+      renderToStaticMarkup(
+        <ShellContext.Provider value={{ hrefOf: (k: string) => k } as any}>
+          <PageHeadLevel.Provider value={level}>
+            <WorkspaceContext.Provider
+              value={{ project: { id: "p" }, locale: "en", isOwner: false } as any}
+            >
+              <KnowledgeGithubPage />
+            </WorkspaceContext.Provider>
+          </PageHeadLevel.Provider>
+        </ShellContext.Provider>,
+      );
+    const t = knowledgeCopy.en;
+    expect(page("h2")).toContain(`<h2>${t.configure}</h2>`);
+    expect(page("h2")).toContain(t.readOnly);
+    // The module's tab: the read-only alert alone, as before.
+    expect(page("h1")).not.toContain("<h1>");
+    expect(page("h1")).toContain(t.readOnly);
+  });
   it("contributes the GitHub App to the integrations center", () => {
-    const sections = adaptIntegrationSections(
-      moduleIntegrations(webRegistry.modules, () => true),
-    );
+    const sectionsWith = (features: Record<string, boolean>) =>
+      adaptIntegrationSections(
+        moduleIntegrations(webRegistry.modules, () => true, features),
+      );
+    // An installation without the workspace has no GitHub tab, so no section.
+    expect(
+      sectionsWith({}).find((s) => s.id === "knowledge/github"),
+    ).toBeUndefined();
+    const sections = sectionsWith({ knowledgeWorkspace: true });
     const github = sections.find((s) => s.id === "knowledge/github");
     expect(github?.area).toBe("integrations");
     expect(github?.ownHead).toBe(true);
     expect(github?.label.en).toBe("Knowledge: GitHub App");
     expect(github?.label.de).toBe("Wissen: GitHub-App");
     expect(
-      moduleIntegrations(webRegistry.modules, () => true).find(
+      moduleIntegrations(webRegistry.modules, () => true, {
+        knowledgeWorkspace: true,
+      }).find(
         (c) => c.moduleId === "knowledge",
       )?.providers,
     ).toEqual(["knowledge_github"]);
