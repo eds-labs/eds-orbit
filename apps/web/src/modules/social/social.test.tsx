@@ -28,6 +28,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 import { readFileSync } from "node:fs";
+import { AccountsView } from "./accounts";
+import { SocialAccountsPage } from "./accounts-page";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity, Project } from "@/lib/api";
 import { labels, type Locale } from "@/lib/i18n";
@@ -96,8 +98,10 @@ describe("social module web (ADR 0020, S1)", () => {
         de: "Social-Media-Konten des Projekts verbinden, prüfen und trennen.",
       },
     });
-    // The same component as the module's own accounts page.
-    expect(section.component).toBe(accounts.component);
+    // The center always gets the editor; the module's own page only shows it
+    // while the center is not on (SocialAccountsPage decides).
+    expect(section.component).toBe(AccountsView);
+    expect(accounts.component).toBe(SocialAccountsPage);
     // The catalog ids are the account providers the API registers, read from its source.
     const api = readFileSync("apps/api/src/modules/social/accounts/providers.ts", "utf8");
     const ids = [...api.matchAll(/^\s*"(social\.account\.[a-z]+)":/gm)].map((m) => m[1]);

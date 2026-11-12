@@ -1,6 +1,7 @@
 import { AtSign, BarChart3, CalendarDays, Images, LayoutDashboard, PenSquare } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { AccountsView } from "./accounts";
+import { SocialAccountsPage } from "./accounts-page";
 import { socialActionRequests } from "./action-requests";
 import { socialAttention } from "./attention";
 import { MediaView } from "./media";
@@ -37,7 +38,8 @@ export const socialWeb: WebModule = {
   // Images from the Google Drive page into the media library (design 2026-11-05).
   drive: { fileActions: [AddToSocialAction] },
   // The accounts page in the settings center's Integrations area (ADR 0027);
-  // its own page /p/:id/social/accounts mounts the same view.
+  // its own page /p/:id/social/accounts mounts the same view until the center
+  // is on, then only states the accounts and links here.
   integrations: [
     {
       id: "accounts",
@@ -58,7 +60,7 @@ export const socialWeb: WebModule = {
     { key: "social.calendar", path: "calendar", component: CalendarView, nav: { label: nav("calendar"), icon: CalendarDays, order: 10 } },
     { key: "social.posts", path: "posts", component: PostsView, nav: { label: nav("posts"), icon: PenSquare, order: 20 } },
     { key: "social.media", path: "media", component: MediaView, nav: { label: nav("media"), icon: Images, order: 30 } },
-    { key: "social.accounts", path: "accounts", component: AccountsView, nav: { label: nav("accounts"), icon: AtSign, order: 40 } },
+    { key: "social.accounts", path: "accounts", component: SocialAccountsPage, nav: { label: nav("accounts"), icon: AtSign, order: 40 } },
     { key: "social.analytics", path: "analytics", component: AnalyticsView, nav: { label: nav("analytics"), icon: BarChart3, order: 50 } },
   ],
 };

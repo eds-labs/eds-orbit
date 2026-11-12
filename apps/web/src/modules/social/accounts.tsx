@@ -1,10 +1,12 @@
 "use client";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
+import type { Locale } from "@/lib/i18n";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
+import { AppLink } from "@/platform/ui/app-link";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { AppHint, HiddenAppsNote, appsToHide, readHiddenApps, writeHiddenApps, type SocialApp } from "./app-hints";
 import { PostizMigration } from "./legacy";
@@ -27,6 +29,65 @@ function otherName(account: Pick<SocialAccount, "handle" | "displayName">) {
   return account.displayName && plain(account.displayName) !== plain(account.handle) ? account.displayName : null;
 }
 
+/** An account's handle, name, provider and state: the editor and the read-only list share it. */
+function AccountIdentity({ account, locale }: { account: SocialAccount; locale: Locale }) {
+  const text = socialText(locale);
+  const name = otherName(account);
+  return (
+    <>
+      <strong>{account.handle}</strong>
+      {name && <span className="social-account-name"> · {name}</span>} <span>{text.platform[account.platform]}</span>{" "}
+      <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>
+    </>
+  );
+}
+
+/**
+ * The accounts as a read-only list, for the module page once the settings
+ * center manages them: the same wording as the editor, no control, and one
+ * link to the section where they are connected, checked and disconnected.
+ * `accounts` is null until they are read; `notice` carries a refusal.
+ */
+export function AccountsSummaryView({
+  accounts,
+  locale,
+  manageHref,
+  notice,
+}: {
+  accounts: SocialAccount[] | null;
+  locale: Locale;
+  manageHref: string;
+  notice?: ReactNode;
+}) {
+  const t = socialText(locale).accounts;
+  const live = accounts?.filter((account) => account.status !== "disabled") ?? [];
+  return (
+    <div className="support-page">
+      <PageHead title={t.title} description={t.accountsManaged} />
+      {notice}
+      {accounts &&
+        (live.length ? (
+          <ul className="settings-rows">
+            {live.map((account) => (
+              <li key={account.id} className="work-settings-row">
+                <div>
+                  <AccountIdentity account={account} locale={locale} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty title={t.empty} />
+        ))}
+      <p>
+        <AppLink className="text-link" href={manageHref}>
+          {t.manageAccounts}
+        </AppLink>
+      </p>
+    </div>
+  );
+}
+
 /**
  * A disconnected account (WP4): kept for the history of its posts, shown
  * read-only in the archive, never with an action.
@@ -34,13 +95,10 @@ function otherName(account: Pick<SocialAccount, "handle" | "displayName">) {
 function ArchivedAccountRow({ account }: { account: SocialAccount }) {
   const { locale } = useWorkspace();
   const text = socialText(locale);
-  const name = otherName(account);
   return (
     <li className="work-settings-row">
       <div>
-        <strong>{account.handle}</strong>
-        {name && <span className="social-account-name"> · {name}</span>} <span>{text.platform[account.platform]}</span>{" "}
-        <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>
+        <AccountIdentity account={account} locale={locale} />
         {account.disabledAt && (
           <p className="field-hint">
             {text.accounts.disconnectedOn}: {new Date(account.disabledAt).toLocaleString(locale)}
@@ -129,13 +187,10 @@ function AccountRow({
   const needsImage = account.platform === "instagram";
   const library = useResource<SocialMediaList>(verifying && needsImage ? socialPath(project.id, "/media") : null);
   const verifyId = `social-verify-${account.id}`;
-  const name = otherName(account);
   return (
     <li className="work-settings-row">
       <div>
-        <strong>{account.handle}</strong>
-        {name && <span className="social-account-name"> · {name}</span>} <span>{text.platform[account.platform]}</span>{" "}
-        <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>{" "}
+        <AccountIdentity account={account} locale={locale} />{" "}
         {account.capability === "write_verified" && <Badge tone="success">{t.verified}</Badge>}
         <p className="field-hint">
           {t.lastCheck}: {account.lastCheckedAt ? new Date(account.lastCheckedAt).toLocaleString(locale) : t.never}

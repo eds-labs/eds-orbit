@@ -75,6 +75,8 @@ const en = {
     archivedHint:
       "Disconnected accounts stay here for the history of their posts. Nothing is posted to them; connect an account again to use it.",
     disconnectedOn: "Disconnected on",
+    accountsManaged: "Accounts are connected, checked and disconnected in Administration & settings.",
+    manageAccounts: "Manage accounts",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" } satisfies Record<SocialPlatform, string>,
   status: {
@@ -466,6 +468,8 @@ const de: SocialText = {
     archivedHint:
       "Getrennte Konten bleiben für den Verlauf ihrer Beiträge erhalten. Es wird nichts an sie veröffentlicht; verbinde ein Konto neu, um es wieder zu nutzen.",
     disconnectedOn: "Getrennt am",
+    accountsManaged: "Konten werden in Verwaltung & Einstellungen verbunden, geprüft und getrennt.",
+    manageAccounts: "Konten verwalten",
   },
   platform: { x: "X", facebook: "Facebook", instagram: "Instagram", telegram: "Telegram" },
   status: {
