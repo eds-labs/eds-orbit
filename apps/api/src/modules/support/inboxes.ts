@@ -24,7 +24,10 @@ import { INBOUND_KIND } from "../../platform/email/send.ts";
 import { assertMailboxUnowned } from "../../platform/email/ownership.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
 import { customerContextConnections } from "../../platform/customer-context/connection.ts";
-import type { MailboxUse } from "../../platform/modules/contributions.ts";
+import type {
+  MailboxUse,
+  PublicKeyUse,
+} from "../../platform/modules/contributions.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
 // Support inboxes (06 §2.1): one entry point each, an e-mail address and/or
@@ -455,6 +458,38 @@ export async function archiveInbox(tx: DbTx, scope: Scope, id: string) {
 }
 
 /**
+ * Inboxes refer to their widget key (F-5): the keys list names the inbox,
+ * and a key revoked on the public keys page is let go, so the inbox shows
+ * no key instead of a dead one. Support's own key changes forget the key
+ * before revoking it, so only a revocation from elsewhere is audited here.
+ */
+export const supportPublicKeyUse: PublicKeyUse = {
+  async usedBy(tx, scope, keyId) {
+    const inbox = await tx.supportInbox.findFirst({
+      where: { projectId: scope.projectId, publicClientKeyId: keyId },
+      select: { name: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return inbox ? { label: inbox.name } : null;
+  },
+  async release(tx, scope, keyId) {
+    const inboxes = await tx.supportInbox.findMany({
+      where: { projectId: scope.projectId, publicClientKeyId: keyId },
+      select: { id: true },
+    });
+    if (!inboxes.length) return;
+    await tx.supportInbox.updateMany({
+      where: { projectId: scope.projectId, publicClientKeyId: keyId },
+      data: { publicClientKeyId: null },
+    });
+    for (const { id } of inboxes)
+      await audit(tx, scope, "support.inbox.widget_key_released", id, {
+        inboxId: id,
+      });
+  },
+};
+
+/**
  * Keeps the inbox's widget key in step (review fix 10): new origins go to
  * the key; without the widget channel the key is revoked and forgotten,
  * so a re-added widget never revives it.
@@ -467,13 +502,18 @@ async function syncWidgetKey(
 ) {
   if (!current.publicClientKeyId) return;
   if (!next.channels.includes("widget") || !next.allowedOrigins.length) {
-    await revokePublicKey(scope, current.publicClientKeyId, tx).catch(
-      () => undefined,
-    );
+    // Forgotten first, so the revocation's release finds nothing to audit.
     await tx.supportInbox.update({
       where: { id: current.id },
       data: { publicClientKeyId: null },
     });
+    // A refused revocation (not the owner, ingress off, key gone) still
+    // forgets the key; any other error aborted the transaction and surfaces.
+    await revokePublicKey(scope, current.publicClientKeyId, tx).catch(
+      (error) => {
+        if (!(error instanceof DomainError)) throw error;
+      },
+    );
     return;
   }
   if (

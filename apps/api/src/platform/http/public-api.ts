@@ -4,14 +4,17 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   authDb,
   scoped,
+  scopedRead,
   type DbTx,
 } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, create, data, DomainError } from "../shared.ts";
 import {
   moduleAvailable,
+  registeredPublicKeyUses,
   registeredPublicRoutes,
   registeredRegistry,
+  type PublicKeyUse,
 } from "../modules/contributions.ts";
 import { assertModuleEnabled } from "../modules/enforcement.ts";
 import { ceilingPerKey, publicIngressEnabled } from "./webhooks.ts";
@@ -331,13 +334,39 @@ export function publicApiModules() {
   );
 }
 
-export async function listPublicKeys(scope: Scope) {
+/** The modules' uses of keys, with their owner (F-5). */
+type KeyUses = readonly (PublicKeyUse & { owner: string })[];
+
+/**
+ * The project's keys, each with the module that uses it (F-5): the first
+ * use in registry order that claims the key, read in one project
+ * transaction; a revoked key is used by nobody.
+ */
+export async function listPublicKeys(
+  scope: Scope,
+  uses: KeyUses = registeredPublicKeyUses(),
+) {
   requireOwner(scope);
   const rows = await authDb.publicClientKey.findMany({
     where: { workspaceId: scope.workspaceId, projectId: scope.projectId },
     orderBy: { createdAt: "desc" },
   });
-  return rows.map(publicView);
+  const live = rows.filter((row) => !row.revokedAt);
+  const usedBy = new Map<string, { moduleId: string; label: string }>();
+  if (live.length && uses.length)
+    await scopedRead(scope.workspaceId, scope.projectId, async (tx) => {
+      for (const row of live)
+        for (const use of uses) {
+          const found = await use.usedBy(tx, scope, row.id);
+          if (!found) continue;
+          usedBy.set(row.id, { moduleId: use.owner, label: found.label });
+          break;
+        }
+    });
+  return rows.map((row) => ({
+    ...publicView(row),
+    usedBy: usedBy.get(row.id) ?? null,
+  }));
 }
 
 /**
@@ -369,27 +398,42 @@ export async function setPublicKeyOrigins(
   return { id, allowedOrigins: origins };
 }
 
-/** Revokes a key: its API answers 404 from now on; audited. */
+/**
+ * Revokes a key: its API answers 404 from now on; audited. Every module
+ * that uses the key releases it first (F-5), in the same project
+ * transaction as the audit entry; a failing release rolls that back and
+ * nothing is revoked. An already revoked key is released again (healing a
+ * reference left behind) and keeps its revocation time. Never refused
+ * because a module uses the key (P5-D2).
+ */
 export async function revokePublicKey(
   scope: Scope,
   id: string,
   /** The caller's project transaction, when it holds one (no second lock). */
   tx?: DbTx,
+  uses: KeyUses = registeredPublicKeyUses(),
 ) {
   requireOwner(scope);
   const row = await authDb.publicClientKey.findFirst({
     where: { id, workspaceId: scope.workspaceId, projectId: scope.projectId },
   });
   if (!row) throw new DomainError("NOT_FOUND", 404);
-  const revoked = row.revokedAt
-    ? row
-    : await authDb.publicClientKey.update({
-        where: { id },
-        data: { revokedAt: new Date() },
-      });
-  const write = (t: DbTx) =>
-    audit(t, scope, "public_key.revoked", id, { moduleId: row.moduleId });
-  if (tx) await write(tx);
-  else await scoped(scope.workspaceId, scope.projectId, write);
+  const work = async (t: DbTx) => {
+    for (const use of uses) await use.release(t, scope, id);
+    await audit(t, scope, "public_key.revoked", id, { moduleId: row.moduleId });
+    // Last: the key lives on the auth connection, which cannot join the
+    // project transaction. A failure above leaves the key untouched; should
+    // the commit fail after this write, the key is revoked with its
+    // reference still in place, and revoking it again releases that.
+    return row.revokedAt
+      ? row
+      : authDb.publicClientKey.update({
+          where: { id },
+          data: { revokedAt: new Date() },
+        });
+  };
+  const revoked = tx
+    ? await work(tx)
+    : await scoped(scope.workspaceId, scope.projectId, work);
   return publicView(revoked);
 }

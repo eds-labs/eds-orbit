@@ -49,7 +49,11 @@ const ONLINE_MS = 120_000;
 const MAX_ANONYMOUS_CONVERSATIONS = 5;
 const MAX_MESSAGES_PER_10_MIN = 20;
 
-/** The inbox's public key for the widget; a new one revokes the old one. */
+/**
+ * The inbox's public key for the widget; a new one revokes the old one.
+ * The inbox points at the new key before the old one is revoked, so the
+ * revocation's release (F-5) finds nothing to let go and audits nothing.
+ */
 export async function enableWidgetKey(scope: Scope, inboxId: string) {
   const inbox = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await requireSupport(tx, scope);
@@ -58,10 +62,6 @@ export async function enableWidgetKey(scope: Scope, inboxId: string) {
   if (inbox.archivedAt) throw new DomainError("INBOX_ARCHIVED", 409);
   if (!inbox.channels.includes("widget") || !inbox.allowedOrigins.length)
     throw new DomainError("INBOX_HAS_NO_WIDGET", 409);
-  if (inbox.publicClientKeyId)
-    await revokePublicKey(scope, inbox.publicClientKeyId).catch(
-      () => undefined,
-    );
   const key = await createPublicKey(scope, {
     moduleId: "support",
     allowedOrigins: inbox.allowedOrigins,
@@ -75,6 +75,15 @@ export async function enableWidgetKey(scope: Scope, inboxId: string) {
       inboxId,
       keyId: key.id,
     });
+    // Last, as the revocation's own write cannot join this transaction. A
+    // refused revocation (the old key gone) does not stop the new key; any
+    // other error aborted the transaction and surfaces.
+    if (inbox.publicClientKeyId)
+      await revokePublicKey(scope, inbox.publicClientKeyId, tx).catch(
+        (error) => {
+          if (!(error instanceof DomainError)) throw error;
+        },
+      );
   });
   return { publicKey: key.publicKey, keyId: key.id };
 }

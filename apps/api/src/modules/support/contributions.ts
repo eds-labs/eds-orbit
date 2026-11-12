@@ -18,7 +18,7 @@ import {
 } from "./agent-events.ts";
 import { supportAttention, supportOverview } from "./attention.ts";
 import { widgetRoutes } from "./widget.ts";
-import { supportMailboxUse } from "./inboxes.ts";
+import { supportMailboxUse, supportPublicKeyUse } from "./inboxes.ts";
 import { ticketImportTarget } from "./email-import.ts";
 import { supportScheduler, supportUserNotifications } from "./automations.ts";
 import {
@@ -76,6 +76,9 @@ export const supportContributions: ModuleContributions = {
   periodic: [supportEmailDelivery, supportRetentionTask],
   // The livechat widget's public API (WP5.4).
   publicRoutes: widgetRoutes,
+  // An inbox lets go of its widget key when the key is revoked elsewhere,
+  // and the keys list names the inbox (F-5).
+  publicKeyUse: supportPublicKeyUse,
   // Notifications and automations (WP5.5).
   userNotifications: supportUserNotifications,
   // Urgent tickets join the proactive feed as a mapping only (ADR 0023).

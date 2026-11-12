@@ -60,6 +60,7 @@ window.OrbitSupportConfig = {
 - **Talk to a human.** This hands the ticket to the team.
 - **Limits.** 20 new sessions per minute per IP and key; 120 calls per minute per session; JSON bodies up to 64 KB.
 - **Attachments.** Widget messages are text only in the MVP; the public API takes JSON only.
+- **A key revoked elsewhere.** When the owner revokes an inbox's widget key on the project's public keys page, the inbox lets go of it in the same step: it shows no widget key, the widget answers 404, and "Widget key" issues a new one. The keys page names the inbox that uses each key; it never refuses the revocation. An inbox that still pointed at an already revoked key (before this fix) is cleaned up by revoking that key again.
 
 ## Desk pilot checklist (Q-20)
 

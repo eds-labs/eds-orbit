@@ -141,6 +141,12 @@ With the flag `off` every route below `/api/management/` answers 404 `NOT_FOUND`
 | `account.apps` | `ORBIT_MCP_OAUTH` |
 | `account.assistant` | the personal assistant is enabled |
 
+## Public API keys (WP4.2b; `ORBIT_PUBLIC_INGRESS`, project owner only)
+
+- GET `/api/projects/:projectId/public-keys` -> `{items, modules}`; each item `{id, moduleId, publicKey, allowedOrigins, createdAt, revokedAt, usedBy}`, newest first. `usedBy` is `{moduleId, label}` when a module uses the key (for Support, the inbox whose widget key it is, labelled with the inbox name), else `null`; a revoked key is always `null`. It is information only. `modules` lists the modules a new key can be issued for.
+- POST `/api/projects/:projectId/public-keys` `{moduleId, allowedOrigins}` -> 201 the item without `usedBy`; 409 `MODULE_HAS_NO_PUBLIC_API`.
+- POST `/api/projects/:projectId/public-keys/:keyId/revoke` -> the item without `usedBy`, with `revokedAt` set; 404 for a key of another project. A revocation is never refused because a module uses the key (F-5). Every module that uses the key releases its reference in the same project transaction as the audit entry `public_key.revoked`: a Support inbox forgets its widget key (audit `support.inbox.widget_key_released`, with the inbox id only) and shows no key until the owner issues a new one. When a release fails, nothing is revoked. Revoking an already revoked key releases again and keeps the first `revokedAt`.
+
 ## Errors
 
 Errors `{error:{code,message}}`, no stack, provider text, source snippets or SQL. An error that names what it refused adds `detail`, an object of ids and codes only (never content or secrets): `{assetIds,reasons}` (comma-separated) for `ASSET_RIGHTS`, `{failed:[{contentId,codes}]}` for a package's `CREATIVE_QA_FAILED`, `{codes}` (comma-separated) for refused image copy (`CREATIVE_TEXT_TOO_LONG`, `CREATIVE_TEXT_UNSAFE`, `CREATIVE_LINK_NOT_ALLOWED`), `{artAssetId}` for a failure after a paid image; other errors have none. Specific shapes are validated server-side and generated OpenAPI supplements this contract (it declares `code` and `message` only).

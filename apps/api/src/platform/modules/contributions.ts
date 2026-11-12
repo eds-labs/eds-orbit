@@ -142,6 +142,13 @@ export type ModuleContributions = {
    */
   publicRoutes?: readonly PublicRoute[];
   /**
+   * How the module refers to the project's public keys (F-5): the keys list
+   * names the user of a key, and a revocation lets the module drop its
+   * reference in the same project transaction. Information only: a
+   * revocation is never refused.
+   */
+  publicKeyUse?: PublicKeyUse;
+  /**
    * Inbound e-mail of the project's mailbox (WP4.7): the platform stores
    * each message as `inbound_emails` and enqueues this queue class with the
    * row's id. Bounces are the platform's and never handed over.
@@ -254,6 +261,18 @@ export type MailboxUse = {
     scope: Scope,
     connectionId: string,
   ) => Promise<boolean>;
+};
+
+/** How a module refers to a project's public keys (F-5). */
+export type PublicKeyUse = {
+  /** Who uses this key in the project, as a name to show; null when nobody does. Never a secret. */
+  usedBy(
+    tx: DbTx,
+    scope: Scope,
+    keyId: string,
+  ): Promise<{ label: string } | null>;
+  /** Drops the module's reference to the key, inside the caller's project transaction. Idempotent. */
+  release(tx: DbTx, scope: Scope, keyId: string): Promise<void>;
 };
 
 /** What a public route's handler receives (WP4.2b). */
@@ -391,6 +410,7 @@ type Registered = {
     UserNotificationKind & { owner: string; kind: string }
   >;
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
+  publicKeyUses: readonly (PublicKeyUse & { owner: string })[];
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
   handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
   emailImport: ReadonlyMap<string, EmailImportTarget & { owner: string }>;
@@ -601,6 +621,10 @@ export function registerContributions(
         );
       emailInbound.push({ owner, ...c.emailInbound });
     }
+  // Public key uses (F-5), in registry order.
+  const publicKeyUses: Registered["publicKeyUses"][number][] = [];
+  for (const [owner, c] of ordered)
+    if (c.publicKeyUse) publicKeyUses.push({ ...c.publicKeyUse, owner });
   // Member notification kinds: valid, unique names.
   const userNotifications = new Map<
     string,
@@ -766,6 +790,7 @@ export function registerContributions(
     emailInbound,
     userNotifications,
     publicRoutes,
+    publicKeyUses,
     linkTypes,
     handoffs,
     emailImport,
@@ -1045,6 +1070,11 @@ export function registeredPublicRoutes(): ReadonlyMap<
   readonly PublicRoute[]
 > {
   return current().publicRoutes;
+}
+
+/** The modules' uses of public keys with their owner, in registry order (F-5). */
+export function registeredPublicKeyUses() {
+  return current().publicKeyUses;
 }
 
 /** A member notification kind with its owner, or undefined (WP4.7). */
