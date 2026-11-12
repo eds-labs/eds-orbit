@@ -163,7 +163,6 @@ function expectedRowCount(): number {
   );
 }
 
-/** The address bar's path, search and hash. */
 /**
  * A client navigation through the app's own router, as a <Link> click does:
  * the URL is written to the history only when the navigation commits, unlike
@@ -177,6 +176,7 @@ const routerPush = (page: Page, href: string) =>
     next.router.push(to);
   }, href);
 
+/** The address bar's path, search and hash. */
 const here = (page: Page) => {
   const url = new URL(page.url());
   return url.pathname + url.search + url.hash;
