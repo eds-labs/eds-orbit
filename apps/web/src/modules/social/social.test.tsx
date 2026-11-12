@@ -27,6 +27,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   };
 });
 
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity, Project } from "@/lib/api";
 import { labels, type Locale } from "@/lib/i18n";
@@ -81,6 +82,29 @@ const status = (approval: SocialStatus["settings"]["approval"]): SocialStatus =>
 });
 
 describe("social module web (ADR 0020, S1)", () => {
+  it("contributes the accounts page as an integration section for the API's account providers", () => {
+    const module = webRegistry.modules.find((m) => m.id === "social")!;
+    const accounts = module.views.find((v) => v.key === "social.accounts")!;
+    expect(module.integrations).toHaveLength(1);
+    const [section] = module.integrations!;
+    expect(section).toMatchObject({
+      id: "accounts",
+      ownHead: true,
+      label: { en: "Social accounts", de: "Social-Media-Konten" },
+      description: {
+        en: "Connect, check and disconnect the project's social media accounts.",
+        de: "Social-Media-Konten des Projekts verbinden, prüfen und trennen.",
+      },
+    });
+    // The same component as the module's own accounts page.
+    expect(section.component).toBe(accounts.component);
+    // The catalog ids are the account providers the API registers, read from its source.
+    const api = readFileSync("apps/api/src/modules/social/accounts/providers.ts", "utf8");
+    const ids = [...api.matchAll(/^\s*"(social\.account\.[a-z]+)":/gm)].map((m) => m[1]);
+    expect(ids.length).toBeGreaterThan(0);
+    expect([...section.providers!].sort()).toEqual([...ids].sort());
+  });
+
   it("registers the opt-in module with its six views next to Marketing", () => {
     const module = webRegistry.modules.find((m) => m.id === "social")!;
     expect(module).toMatchObject({ optIn: true, groupOrder: 12, displayName: { en: "Social", de: "Social Media" } });

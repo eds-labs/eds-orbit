@@ -10,6 +10,7 @@ import {
   knownModuleStates,
   waitsForModuleStates,
   locate,
+  moduleIntegrations,
   moduleShown,
   moduleUsable,
   navGroupOf,
@@ -325,6 +326,47 @@ describe("Web route registry", () => {
     expect(locate(`/admin/users/${P}/x`, table)).toEqual({ kind: "notFound" });
   });
 
+  it("knows the settings center and reserves /manage", () => {
+    expect(locate("/manage", table)).toEqual({
+      kind: "manage",
+      target: { scope: null, area: null, rest: [] },
+    });
+    const place = locate("/manage/p/p%201/ai", table);
+    expect(place).toEqual({
+      kind: "manage",
+      target: {
+        scope: { kind: "project", projectId: "p 1" },
+        area: "ai",
+        rest: [],
+      },
+    });
+    expect(locate("/manage/x", table)).toEqual({ kind: "notFound" });
+    const view = (key: string, path: string) => ({
+      key,
+      path,
+      component: () => null,
+    });
+    expect(() =>
+      routeTable({
+        platform: [view("home", ""), view("m", "manage")],
+        modules: [],
+      }),
+    ).toThrow(/WEB_ROUTES_INVALID/);
+    expect(() =>
+      routeTable({
+        platform: [view("home", "")],
+        modules: [
+          {
+            id: "manage",
+            displayName: { en: "m", de: "m" },
+            description: { en: "m", de: "m" },
+            views: [view("manage-root", "")],
+          },
+        ],
+      }),
+    ).toThrow(/WEB_ROUTES_INVALID/);
+  });
+
   it("rewrites only in-app legacy links and keeps query and hash", () => {
     expect(rewriteLegacyHref(table, P, "/settings?googleDrive=ready")).toBe(
       `${href("settings")}?googleDrive=ready`,
@@ -628,6 +670,48 @@ describe("Web route registry", () => {
     );
     for (const [message, registry] of broken)
       expect(() => routeTable(registry), message).toThrow(message);
+  });
+
+  it("rejects an invalid or doubled integration section id", () => {
+    const view = { key: "home", path: "", component: () => null };
+    const module = (ids: string[]) => ({
+      id: "beta",
+      displayName: { en: "B", de: "B" },
+      description: { en: "B", de: "B" },
+      views: [],
+      integrations: ids.map((id) => ({
+        id,
+        label: { en: id, de: id },
+        description: { en: id, de: id },
+        order: 0,
+        component: () => null,
+      })),
+    });
+    const registry = (ids: string[]): WebRegistry => ({ platform: [view], modules: [module(ids)] });
+    expect(() => routeTable(registry(["accounts", "other-2"]))).not.toThrow();
+    expect(() => routeTable(registry(["Accounts"]))).toThrow(/invalid integration section id "Accounts"/);
+    expect(() => routeTable(registry(["a/b"]))).toThrow(/invalid integration section id "a\/b"/);
+    expect(() => routeTable(registry(["accounts", "accounts"]))).toThrow(
+      /integration section beta\/accounts used twice/,
+    );
+  });
+
+  it("collects integration sections only from shown modules", () => {
+    const social = webRegistry.modules.find((m) => m.id === "social")!;
+    const collect = (states: Array<{ id: string; enabled: boolean; access?: string }>) =>
+      moduleIntegrations(webRegistry.modules, (id) => {
+        const m = webRegistry.modules.find((x) => x.id === id);
+        return moduleShown(states, id, m?.optIn === true, m?.minAccess);
+      });
+    const on = collect([{ id: "social", enabled: true, access: "owner" }]);
+    expect(on.map((c) => [c.moduleId, c.id])).toEqual(
+      (social.integrations ?? []).map((c) => ["social", c.id]),
+    );
+    expect(on.length).toBeGreaterThan(0);
+    expect(collect([{ id: "social", enabled: false }])).toEqual([]);
+    expect(collect([{ id: "social", enabled: true, access: "none" }])).toEqual([]);
+    // Social is opt-in: until the states load it contributes nothing.
+    expect(moduleIntegrations(webRegistry.modules, () => false)).toEqual([]);
   });
 
   it("hides the pages of a disabled module and the pages that need it", () => {

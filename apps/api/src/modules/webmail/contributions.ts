@@ -13,4 +13,16 @@ export const webmailContributions: ModuleContributions = {
   emailInbound: { mailboxUse: webmailMailboxUse },
   periodic: [webmailMaintenance],
   retention: webmailRetention,
+  // Roundcube is a separate deployment configured by the environment only.
+  integrations: [
+    {
+      id: "webmail",
+      label: { en: "Webmail", de: "Webmail" },
+      category: "email",
+      authType: "environment",
+      scopes: [],
+      storage: ["environment"],
+      checkable: false,
+    },
+  ],
 };

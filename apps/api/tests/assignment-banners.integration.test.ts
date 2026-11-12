@@ -452,7 +452,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     expect(provider.generateImage).toHaveBeenCalledTimes(1);
   });
 
-  it("sends back a banner that states what no fact backs once, naming the word, and rejects it if it stays", async () => {
+  it("sends back a banner that states what no fact backs once, naming the word, and hands it to the owner if it stays", async () => {
     await linkBot();
     await shared();
     bannerFor = (topic) =>
@@ -483,12 +483,20 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     const claimed = drafts.filter(
       (c) => c.banner.headline1 !== BANNER.headline1,
     );
-    // The original was replaced; the revision still carries the claim and is rejected.
-    expect(claimed.map((c) => c.agentReviewDecision.round).sort()).toEqual([
-      1, 2,
-    ]);
-    const second = claimed.find((c) => c.agentReviewDecision.round === 2)!;
-    expect(second.status).toBe("rejected");
+    // The original was replaced; the revision still carries the claim and
+    // waits for the owner with the problem, on every channel of its slot.
+    expect(
+      claimed
+        .filter((c) => !c.sharedFrom)
+        .map((c) => c.agentReviewDecision.round)
+        .sort(),
+    ).toEqual([1, 2]);
+    const second = claimed.find(
+      (c) => c.agentReviewDecision.round === 2 && !c.sharedFrom,
+    )!;
+    expect(second.status).toBe("needs_review");
+    for (const copy of claimed.filter((c) => c.sharedFrom))
+      expect(copy.status).toBe("needs_review");
     expect(second.agentReviewDecision).toMatchObject({
       verdict: "reject",
       deterministicProblems: ["BANNER_UNSUPPORTED_CLAIM"],

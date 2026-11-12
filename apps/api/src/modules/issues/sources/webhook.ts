@@ -99,5 +99,7 @@ export const issuesWebhook: SignedWebhookProvider = {
 export const issuesWebhookConnectionProvider: ConnectionProvider = {
   scopes: ["project"],
   label: { en: "Issue report webhook", de: "Issue-Webhook" },
+  category: "development",
+  authType: "webhook_secret",
   checkUnsupported: "ISSUES_WEBHOOK_NOT_CHECKABLE",
 };

@@ -29,7 +29,10 @@ import {
   type FormField,
   type FormValues,
 } from "@/platform/ui/form";
-import { WorkspaceContext } from "./workspace-context";
+import {
+  WorkspaceContext,
+  type WorkspaceContextValue,
+} from "./workspace-context";
 import { NotificationBell } from "./notification-bell";
 import {
   activeNavKey,
@@ -51,6 +54,7 @@ import {
   rewriteLegacyHref,
   projectAwareHref,
   routeTable,
+  moduleIntegrations,
   navigationForFeatures,
   routesForFeatures,
   type Route,
@@ -104,6 +108,12 @@ import { driveFeature, type DriveFeature } from "@/platform/drive/feature";
 import { OrganizationAgents } from "@/platform/agents/org-agents";
 import { AssistantProvider } from "@/platform/assistant/assistant-provider";
 import type { AssistantLinks } from "@/platform/assistant/links";
+import {
+  centerState,
+  manageTitleKey,
+  useManagementCapabilities,
+} from "@/platform/settings-center/capabilities";
+import { ScopeView } from "@/platform/settings-center/scope-view";
 
 const LAST_PROJECT = "orbit.project";
 type ModuleStates = {
@@ -147,10 +157,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     identity.refresh();
   });
   const signout = useMutation(identity.refresh);
+  // The settings center (/manage) exists only while /me reports its flag in
+  // preview or on; otherwise its addresses behave as before (not found).
+  const settingsCenter = identity.data?.settingsCenter;
+  const manage =
+    place.kind === "manage" &&
+    (settingsCenter === "preview" || settingsCenter === "on")
+      ? place.target
+      : null;
   const projectId =
     place.kind === "view" || place.kind === "notFound"
       ? place.projectId
-      : undefined;
+      : manage?.scope?.kind === "project"
+        ? manage.scope.projectId
+        : undefined;
   const project = projectId
     ? identity.data?.projects.find((p) => p.id === projectId)
     : undefined;
@@ -160,6 +180,18 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       ? `/projects/${encodeURIComponent(project.id)}/modules?revision=${revision}`
       : null,
   );
+  const caps = useManagementCapabilities(manage !== null);
+  const center =
+    place.kind === "manage"
+      ? centerState({
+          stage: settingsCenter,
+          target: place.target,
+          caps: caps.data,
+          loading: caps.loading,
+          error: caps.error,
+          lastProjectId: lastProject(),
+        })
+      : null;
   // The last settled load per project (null states: it failed), kept while a
   // refresh refetches them.
   const [lastStates, setLastStates] =
@@ -307,6 +339,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     // `place` is derived from the pathname.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identity.data, pathname, table]);
+  // A bare /manage leads to the scope `centerState` picks.
+  const centerRedirect = center?.kind === "redirect" ? center.href : null;
+  useEffect(() => {
+    if (centerRedirect) router.replace(centerRedirect);
+  }, [centerRedirect, router]);
   useEffect(() => {
     if (!menu) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -403,6 +440,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           tab: { ...section.tab, group: section.tab.group ?? m.id },
         })),
       ),
+      integrations: moduleIntegrations(registry.modules, enabled),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {
         providers: active.flatMap((m) => m.connectors?.providers ?? []),
@@ -427,9 +465,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       : group === "project"
         ? t("navProject")
         : registry.modules.find((m) => m.id === group)?.displayName[locale];
+  const manageTitle = manageTitleKey(center?.kind ?? null);
   useEffect(() => {
-    const page =
-      place.kind === "organizations"
+    const page = manageTitle
+      ? t(manageTitle)
+      : place.kind === "organizations"
         ? t("chooseOrganization")
         : place.kind === "organizationAgents"
           ? locale === "de"
@@ -455,8 +495,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
+    // `manageTitle` too: a directly loaded /manage page learns the stage when
+    // /me arrives and its scope when the capabilities arrive (loading → scope
+    // or not found); it is null on every other place, so it never changes
+    // there.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, project?.name, locale, knownStates]);
+  }, [pathname, project?.name, locale, knownStates, manageTitle]);
   async function createProject(v: FormValues, workspaceId?: string) {
     const result = await mutation.run(() =>
       post<Project>("/projects", {
@@ -621,6 +665,23 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         </main>
       </div>,
     );
+  // The workspace of a project page, shared with the project scope of the
+  // settings center so both give module code the same context.
+  const workspaceValue = (
+    open: Project,
+    canEdit: boolean,
+    isOwner: boolean,
+  ): WorkspaceContextValue => ({
+    project: open,
+    identity: me,
+    locale,
+    t,
+    canEdit,
+    isOwner,
+    revision,
+    refresh: () => setRevision((n) => n + 1),
+    href: (path) => rewriteLegacyHref(table, open.id, path),
+  });
   if (standalone)
     return frame(
       <StandaloneContext.Provider
@@ -707,6 +768,92 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         <Loading label={t("loading")} />
       </div>
     );
+  // The settings center; with its flag off /manage stays not found.
+  if (place.kind === "manage" && center) {
+    if (center.kind === "off" || center.kind === "notFound")
+      return frame(<NotFound t={t} project={false} />);
+    if (center.kind === "loading" || center.kind === "redirect")
+      return (
+        <div className="boot">
+          <Brand />
+          <Loading label={t("loading")} />
+        </div>
+      );
+    if (center.kind === "error")
+      return frame(
+        <>
+          <Alert kind="error">{center.message}</Alert>
+          <Button onClick={caps.refresh}>{t("retry")}</Button>
+        </>,
+      );
+    if (!caps.data) return frame(<NotFound t={t} project={false} />);
+    const view = (
+      <ScopeView
+        scope={center.scope}
+        capabilities={center.capabilities}
+        name={center.name}
+        target={place.target}
+        caps={caps.data}
+        identity={me}
+        locale={locale}
+        navigate={(href) => router.push(href)}
+      />
+    );
+    const standaloneValue = {
+      locale,
+      t,
+      identity: me,
+      setLocale,
+      refreshIdentity: identity.refresh,
+    };
+    if (center.scope.kind !== "project")
+      return frame(
+        <StandaloneContext.Provider value={standaloneValue}>
+          {view}
+        </StandaloneContext.Provider>,
+        true,
+      );
+    // The project scope gives module sections the context of a project page:
+    // the role is the project role, as no module page is open.
+    if (!project || !shell) return frame(<NotFound t={t} project={false} />);
+    const scopeRole =
+      project.role ||
+      me.workspaces.find((w) => w.id === project.workspaceId)?.role ||
+      "viewer";
+    return frame(
+      <StandaloneContext.Provider value={standaloneValue}>
+        <ShellContext.Provider value={shell}>
+          <WorkspaceContext.Provider
+            value={workspaceValue(
+              project,
+              scopeRole === "editor" || scopeRole === "owner",
+              scopeRole === "owner",
+            )}
+          >
+            {/* Remounts when modules switch: module sections bring hooks. */}
+            <div
+              key={`${project.id}:manage:${shell.modules
+                .filter((m) => m.enabled)
+                .map((m) => m.id)
+                .join(",")}`}
+            >
+              {waitsForModuleStates(
+                moduleStates.data,
+                moduleStates.error,
+                lastStates,
+                project.id,
+              ) ? (
+                <Loading label={t("loading")} />
+              ) : (
+                view
+              )}
+            </div>
+          </WorkspaceContext.Provider>
+        </ShellContext.Provider>
+      </StandaloneContext.Provider>,
+      true,
+    );
+  }
   if (place.kind === "organizations")
     return frame(<OrganizationPicker identity={me} t={t} />);
   if (place.kind === "organization")
@@ -948,17 +1095,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           <main id="main" className="main">
             {signout.error && <Alert kind="error">{signout.error}</Alert>}
             <WorkspaceContext.Provider
-              value={{
-                project,
-                identity: me,
-                locale,
-                t,
-                canEdit,
-                isOwner,
-                revision,
-                refresh: () => setRevision((n) => n + 1),
-                href: (path) => rewriteLegacyHref(table, project.id, path),
-              }}
+              value={workspaceValue(project, canEdit, isOwner)}
             >
               {/* Remounts when modules switch: module sections bring hooks. */}
               <div

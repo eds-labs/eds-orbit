@@ -197,6 +197,8 @@ export const customerContextConnectionProvider: ConnectionProvider = {
   // secret is the JSON {token, signingSecret}, checked when it is used.
   scopes: ["project", "workspace", "system"],
   label: { en: "Customer context", de: "Kundenkontext" },
+  category: "automation",
+  authType: "json_secret",
   normalizeCentral: (fields) =>
     customerContextConnectionInput
       .pick({ baseUrl: true, sourceSystem: true, timeoutMs: true })

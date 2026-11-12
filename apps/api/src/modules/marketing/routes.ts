@@ -74,6 +74,7 @@ import {
   releaseAssignmentDraft,
   releaseInput,
 } from "./agents/owner-release.ts";
+import { draftEditInput, editAssignmentDraft } from "./agents/owner-edit.ts";
 import { cancelContentPackage } from "./agents/content-packages.ts";
 import { attachPackageImage } from "./agents/package-image.ts";
 import { cancelPackageSchedule } from "./agents/package-schedule.ts";
@@ -376,6 +377,24 @@ export const marketingRoutes: RoutesContribution = (context) => {
           throw new DomainError("NOT_FOUND", 404);
         return decideDraft(tx, scope, row.id, parsed.data, input);
       });
+    },
+  );
+
+  // The owner's edit of a draft waiting for them (owner-edit.ts): it stays releasable.
+  app.post(
+    "/api/projects/:projectId/assignment-drafts/:id/edit",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, id } = req.params as {
+        projectId: string;
+        id: string;
+      };
+      // Roles are checked first, as for the release.
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const input = draftEditInput.parse(req.body);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        editAssignmentDraft(tx, scope, z.uuid().parse(id), input),
+      );
     },
   );
 

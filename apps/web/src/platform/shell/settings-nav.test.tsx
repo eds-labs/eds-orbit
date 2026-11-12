@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { webRegistry } from "@/modules/registry";
 import { buildNavGroups, withSettingsLinks } from "./nav-groups";
-import { projectHref, routeTable, type Route } from "./routes";
+import { locate, projectHref, routeTable, type Route } from "./routes";
 import { SidebarNav } from "./sidebar-nav";
 import {
   collectSettingsTabs,
@@ -202,6 +202,20 @@ describe("sectionFromSearch", () => {
     expect(sectionFromSearch("?googleDrive=ready", available)).toBe(
       "integrations",
     );
+    expect(sectionFromSearch("?googleDrive=choose-root", available)).toBe(
+      "integrations",
+    );
+  });
+
+  it("the callback's address is the settings page of its project", () => {
+    // The API sends the browser to /p/<project>/settings?googleDrive=...;
+    // the path must resolve to that project's settings, not be rewritten.
+    const place = locate("/p/p1/settings", routeTable(webRegistry));
+    expect(place).toMatchObject({
+      kind: "view",
+      projectId: "p1",
+      route: { key: "settings" },
+    });
   });
 });
 
@@ -248,6 +262,43 @@ describe("SettingsNav", () => {
     expect(html).toMatch(/<label[^>]*for="settings-section"[^>]*>Bereich</);
     expect(html).toContain('<optgroup label="Marketing">');
     expect(html).toMatch(/<option value="brand" selected="">Marke<\/option>/);
+  });
+});
+
+describe("SettingsNav placeholder", () => {
+  const groups = groupSettings(
+    collectSettingsTabs(owner, contributed),
+    modules,
+  );
+  const nav = (value: string, placeholder?: string) =>
+    renderToStaticMarkup(
+      <SettingsNav
+        groups={groups}
+        value={value}
+        hrefOf={(key) => `/p/p1/settings?section=${key}`}
+        onSelect={() => {}}
+        locale="en"
+        placeholder={placeholder}
+      />,
+    );
+
+  it("leads the select with the placeholder when no section is open", () => {
+    expect(nav("", "Choose a section")).toContain(
+      '<option value="" disabled="" selected="">Choose a section</option>',
+    );
+    expect(nav("nope", "Choose a section")).toContain(
+      '<option value="" disabled="" selected="">Choose a section</option>',
+    );
+  });
+
+  it("leaves the placeholder out while a section is open", () => {
+    const html = nav("brand", "Choose a section");
+    expect(html).not.toContain("Choose a section");
+    expect(html).toBe(nav("brand"));
+  });
+
+  it("renders no placeholder without the prop", () => {
+    expect(nav("")).not.toContain('<option value=""');
   });
 });
 

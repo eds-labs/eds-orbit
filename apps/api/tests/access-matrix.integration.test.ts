@@ -56,6 +56,8 @@ Object.assign(process.env, {
   // System administration and account self-service (ADR 0013).
   ORBIT_ADMINISTRATION: "true",
   ORBIT_ACCOUNT: "true",
+  // Settings center (ADR 0027): its routes answer 404 while it is off.
+  ORBIT_SETTINGS_CENTER: "preview",
   // Central connections, AI profiles and knowledge shares (ADR 0014).
   ORBIT_CONNECTIONS: "true",
   ORBIT_KNOWLEDGE_SHARES: "true",

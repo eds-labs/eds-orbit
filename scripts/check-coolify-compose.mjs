@@ -72,6 +72,7 @@ for (const key of [
   "ORBIT_MARKETING",
   "ORBIT_TELEGRAM",
   "ORBIT_SPEND_POLICY_SOURCE",
+  "ORBIT_SETTINGS_CENTER",
   "ORBIT_AI_KEY_RULE_V2",
   "ORBIT_AI_CATALOG",
   "ORBIT_AI_DEFAULTS",
@@ -313,6 +314,7 @@ for (const name of apiLike) {
   assert.equal(services[name].environment.ORBIT_MARKETING, "true");
   assert.equal(services[name].environment.ORBIT_TELEGRAM, "");
   assert.equal(services[name].environment.ORBIT_SPEND_POLICY_SOURCE, "platform");
+  assert.equal(services[name].environment.ORBIT_SETTINGS_CENTER, "off");
   assert.equal(services[name].environment.ORBIT_AI_KEY_RULE_V2, "false");
   assert.equal(services[name].environment.ORBIT_AI_CATALOG, "false");
   assert.equal(services[name].environment.ORBIT_AI_DEFAULTS, "false");

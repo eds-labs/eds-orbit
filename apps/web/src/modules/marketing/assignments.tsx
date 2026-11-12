@@ -124,6 +124,12 @@ export type AwaitingOwnerDraft = {
   // code, pending drafts only); absent or null: no reason recorded.
   waitingReason?: string | null;
   problems: string[];
+  // Why Orbit objected (2026-11-11): the review's reasons; the owner decides.
+  concerns?: string[];
+  // The owner changed the text since Orbit's review.
+  ownerEdited?: boolean;
+  // The full text, for the owner's edit (the excerpt is shortened).
+  body?: string;
   // What the release does: schedule the post or book a Postiz draft (R73).
   delivery?: "publish" | "postiz_draft";
   // The original of a channel copy (R76), else the draft itself: a
@@ -930,6 +936,63 @@ function RejectDialog({
   );
 }
 
+/**
+ * The owner's edit of a waiting draft (2026-11-11): one text for the draft,
+ * or for every channel of a Facebook/Instagram pair. The draft keeps
+ * waiting for the release; the release checks the edited text again.
+ */
+function EditDialog({
+  de,
+  pending,
+  initial,
+  onCancel,
+  onConfirm,
+}: {
+  de: boolean;
+  pending: boolean;
+  initial: string;
+  onCancel: () => void;
+  onConfirm: (body: string) => void;
+}) {
+  const [body, setBody] = useState(initial);
+  const text = body.trim();
+  return (
+    <Modal
+      title={de ? "Entwurf bearbeiten" : "Edit draft"}
+      description={
+        de
+          ? "Der Entwurf wartet danach weiter auf deine Freigabe. Bei der Freigabe prüft Orbit den geänderten Text erneut."
+          : "The draft keeps waiting for your release. Orbit checks the changed text again when you release it."
+      }
+      onClose={onCancel}
+    >
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="edit-body">{de ? "Text" : "Text"}</FieldLabel>
+          <Textarea
+            id="edit-body"
+            maxLength={40000}
+            rows={12}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </Field>
+      </FieldGroup>
+      <div className="form-actions approval-actions">
+        <Button variant="outline" onClick={onCancel} disabled={pending}>
+          {de ? "Abbrechen" : "Cancel"}
+        </Button>
+        <Button
+          disabled={pending || !text || text === initial.trim()}
+          onClick={() => onConfirm(text)}
+        >
+          {de ? "Speichern" : "Save"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 /** Confirmation before a draft is discarded or archived (nothing is deleted). */
 function ConfirmDialog({
   title,
@@ -964,6 +1027,7 @@ function ConfirmDialog({
 
 type DraftDialog =
   | { kind: "reject"; item: AwaitingOwnerDraft }
+  | { kind: "edit"; items: AwaitingOwnerDraft[] }
   | { kind: "discard" | "archive"; item: AwaitingOwnerDraft }
   | { kind: "archive-history"; item: DraftHistoryItem };
 
@@ -997,6 +1061,7 @@ export function AwaitingOwnerDraftList({
   onReject = () => {},
   onDiscard = () => {},
   onArchive = () => {},
+  onEdit,
   heading,
   historyAs = "details",
   channelText = (item) => item.channelName ?? item.channel,
@@ -1021,6 +1086,8 @@ export function AwaitingOwnerDraftList({
   onReject?: (draft: AwaitingOwnerDraft, reason: string) => void;
   onDiscard?: (draft: AwaitingOwnerDraft) => void;
   onArchive?: (draft: { id: string; version: number }) => void;
+  /** The owner's edit of a waiting draft (every channel of a pair); absent, no edit is offered. */
+  onEdit?: (drafts: AwaitingOwnerDraft[], body: string) => void;
   /** The panel's head; the default names the release, null leaves it out. */
   heading?: { title: string; text?: string } | null;
   /** "list": the history entries as a plain list (inside a history lane). */
@@ -1108,8 +1175,26 @@ export function AwaitingOwnerDraftList({
   };
   const notes = (item: AwaitingOwnerDraft) => {
     const state: DraftState = item.state ?? "pending";
+    const concerns = item.concerns ?? [];
     return (
       <>
+        {concerns.length > 0 && (
+          <div className="panel-note approval-concerns" role="note">
+            <p>{de ? "Orbit hat Bedenken:" : "Orbit has concerns:"}</p>
+            <ul>
+              {concerns.map((concern) => (
+                <li key={concern}>{concern}</li>
+              ))}
+            </ul>
+            {item.ownerEdited && (
+              <p>
+                {de
+                  ? "Von dir bearbeitet: Die Bedenken betrafen die vorige Fassung."
+                  : "Edited by you: the concerns were about the text before."}
+              </p>
+            )}
+          </div>
+        )}
         {item.delivery === "postiz_draft" && state === "pending" && (
           <p className="panel-note">
             {de
@@ -1126,9 +1211,13 @@ export function AwaitingOwnerDraftList({
               ? de
                 ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
                 : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
-              : de
-                ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
-                : "The review agent left this draft to you."}
+              : concerns.length > 0
+                ? de
+                  ? "Orbit empfiehlt, ihn so nicht zu veröffentlichen. Du entscheidest: freigeben, bearbeiten oder ablehnen."
+                  : "Orbit advises against publishing it as it is. You decide: release, edit or reject."
+                : de
+                  ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
+                  : "The review agent left this draft to you."}
         </p>
         {state === "pending" && item.waitingReason && (
           <div className="panel-note approval-waiting-reason">
@@ -1138,6 +1227,20 @@ export function AwaitingOwnerDraftList({
       </>
     );
   };
+  // The edit of one draft, or of every channel of a pair (one shared text).
+  const editButton = (group: AwaitingOwnerDraft[]) =>
+    onEdit && (group[0]!.state ?? "pending") === "pending" ? (
+      <div className="form-actions approval-actions">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={pending || !canRelease}
+          onClick={() => setDialog({ kind: "edit", items: group })}
+        >
+          {de ? "Bearbeiten" : "Edit"}
+        </Button>
+      </div>
+    ) : null;
   const problems = (codes: string[]) =>
     [...new Set(codes)].map((code) => (
       <span key={code} title={code}>
@@ -1226,6 +1329,7 @@ export function AwaitingOwnerDraftList({
               {thumbnail(first)}
               <pre className="approval-item-body">{first.excerpt}</pre>
               {notes(first)}
+              {editButton([first])}
               {actions(first)}
             </article>
           );
@@ -1241,6 +1345,7 @@ export function AwaitingOwnerDraftList({
             {thumbnail(first)}
             <pre className="approval-item-body">{first.excerpt}</pre>
             {notes(first)}
+            {editButton(group)}
             <ul className="approval-variants">
               {group.map((item) => {
                 const label = channelText(item);
@@ -1276,6 +1381,18 @@ export function AwaitingOwnerDraftList({
           {historyEntries}
         </details>
       ) : null}
+      {dialog?.kind === "edit" && onEdit && (
+        <EditDialog
+          de={de}
+          pending={pending}
+          initial={dialog.items[0]!.body ?? dialog.items[0]!.excerpt}
+          onCancel={close}
+          onConfirm={(body) => {
+            onEdit(dialog.items, body);
+            close();
+          }}
+        />
+      )}
       {dialog?.kind === "reject" && (
         <RejectDialog
           de={de}
@@ -1393,6 +1510,20 @@ export function useAssignmentApprovals() {
       );
       refresh();
     });
+  // The owner's edit (2026-11-11): the same text for every channel of a pair.
+  const edit = (items: Array<{ id: string; version: number }>, body: string) =>
+    mutation.run(async () => {
+      for (const item of items)
+        await refreshOnConflict(
+          () =>
+            post(
+              collectionPath(project.id, `assignment-drafts/${item.id}/edit`),
+              { version: item.version, body },
+            ),
+          refresh,
+        );
+      refresh();
+    });
   const stop = (item: { id: string; version: number }) =>
     mutation.run(async () => {
       const { result } = await refreshOnConflict(
@@ -1424,6 +1555,7 @@ export function useAssignmentApprovals() {
     mutation,
     decide,
     release,
+    edit,
     stop,
   };
 }

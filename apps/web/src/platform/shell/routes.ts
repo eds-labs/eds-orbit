@@ -1,5 +1,8 @@
 import type { ComponentType } from "react";
+import { parseManagePath } from "../settings-center/routes";
+import type { ManageTarget } from "../settings-center/types";
 import type {
+  IntegrationContribution,
   Label,
   StandaloneView,
   ViewDef,
@@ -14,6 +17,7 @@ import type {
 //   /o/:orgId/settings                 organization settings (ADR 0013)
 //   /o/:orgId/agents                   agents of every project (ADR 0021)
 //   /admin[/<section>[/<id>]]          system administration (ADR 0013)
+//   /manage[/…]                        settings center
 //   /p/:projectId                      project home
 //   /p/:projectId/<view>               platform page
 //   /p/:projectId/<view>/<rest…>       platform page that owns subpaths
@@ -39,7 +43,7 @@ export type RouteTable = {
 
 const SEGMENT = /^[a-z][a-z0-9-]*$/;
 // First segments the shell itself uses; no page may claim them.
-const RESERVED = new Set(["o", "p", "api", "admin"]);
+const RESERVED = new Set(["o", "p", "api", "admin", "manage"]);
 // Sidebar groups that no module owns (UI restructure).
 const PLATFORM_GROUPS = ["top", "project"];
 /** The pages of the system administration (/admin/<section>). */
@@ -103,6 +107,15 @@ export function routeTable(registry: WebRegistry): RouteTable {
     if (!SEGMENT.test(m.id) || RESERVED.has(m.id))
       problems.push(`invalid module id ${m.id}`);
     for (const view of m.views) add(view, m.id);
+    // Each becomes the settings center section "<module id>/<id>".
+    const integrationIds = new Set<string>();
+    for (const c of m.integrations ?? []) {
+      if (!SEGMENT.test(c.id))
+        problems.push(`${m.id}: invalid integration section id "${c.id}"`);
+      else if (integrationIds.has(c.id))
+        problems.push(`integration section ${m.id}/${c.id} used twice`);
+      integrationIds.add(c.id);
+    }
   }
   const seen = new Map<string, string>();
   const legacy = new Map<string, Route>();
@@ -191,6 +204,8 @@ export type Place =
   | { kind: "organizationAgents"; organizationId: string }
   /** The system administration; `section` "" is its overview. */
   | { kind: "admin"; section: string; id?: string }
+  /** The settings center; the target is parsed by settings-center/routes. */
+  | { kind: "manage"; target: ManageTarget }
   | { kind: "view"; projectId: string; route: Route }
   /** A page outside any project, such as /connect. */
   | { kind: "standalone"; view: StandaloneView }
@@ -231,6 +246,10 @@ export function locate(pathname: string, table: RouteTable): Place {
       section: second ?? "",
       ...(rest[0] ? { id: rest[0] } : {}),
     };
+  }
+  if (first === "manage") {
+    const target = parseManagePath(parts.slice(1));
+    return target ? { kind: "manage", target } : { kind: "notFound" };
   }
   if (first === "p" && second) {
     const path = rest.join("/");
@@ -319,6 +338,21 @@ export function homeSections(
     .filter((m) => m.home && enabled(m.id))
     .sort((a, b) => (a.homeOrder ?? 0) - (b.homeOrder ?? 0))
     .map((m) => ({ moduleId: m.id, component: m.home! }));
+}
+
+/**
+ * The integration sections of every shown module (WebModule.integrations),
+ * each with its module's id, in registry order.
+ */
+export function moduleIntegrations(
+  modules: readonly WebModule[],
+  enabled: (id: string) => boolean,
+): Array<IntegrationContribution & { moduleId: string }> {
+  return modules
+    .filter((m) => enabled(m.id))
+    .flatMap((m) =>
+      (m.integrations ?? []).map((c) => ({ ...c, moduleId: m.id })),
+    );
 }
 
 /**

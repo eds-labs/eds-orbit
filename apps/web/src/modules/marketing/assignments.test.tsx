@@ -429,6 +429,70 @@ describe("AwaitingOwnerDraftList", () => {
     expect(html).toContain("Er wird nicht nachgeholt");
   });
 
+  // Mario, 2026-11-11: Orbit's objection is a recommendation; the owner
+  // sees why and releases, edits or rejects the draft.
+  it("shows Orbit's concerns and offers an edit next to release and reject", () => {
+    const html = renderToStaticMarkup(
+      <AwaitingOwnerDraftList
+        items={[
+          draft({
+            agentApproved: false,
+            concerns: [
+              "The closing line asks for a link the brief does not name.",
+            ],
+            problems: ["PRIMARY_CTA_REQUIRED"],
+            body: "Full text of the post.",
+          }),
+        ]}
+        projectId="p1"
+        de
+        timezone="Europe/Berlin"
+        canRelease
+        pending={false}
+        onRelease={() => {}}
+        onEdit={() => {}}
+      />,
+    );
+    expect(html).toContain("Orbit hat Bedenken");
+    expect(html).toContain(
+      "The closing line asks for a link the brief does not name.",
+    );
+    expect(html).toContain(
+      "Du entscheidest: freigeben, bearbeiten oder ablehnen.",
+    );
+    expect(html).toContain(">Bearbeiten<");
+    expect(html).toContain(">Freigeben<");
+    expect(html).toContain(">Ablehnen<");
+  });
+
+  it("says the concerns were about the text before the owner's edit, and offers no edit once expired", () => {
+    const html = (changes: Partial<AwaitingOwnerDraft>) =>
+      renderToStaticMarkup(
+        <AwaitingOwnerDraftList
+          items={[
+            draft({
+              agentApproved: false,
+              concerns: ["Off tone."],
+              ...changes,
+            }),
+          ]}
+          projectId="p1"
+          de
+          timezone="Europe/Berlin"
+          canRelease
+          pending={false}
+          onRelease={() => {}}
+          onEdit={() => {}}
+        />,
+      );
+    expect(html({ ownerEdited: true })).toContain(
+      "Von dir bearbeitet: Die Bedenken betrafen die vorige Fassung.",
+    );
+    expect(html({ state: "expired" })).not.toContain(">Bearbeiten<");
+    // Without an edit handler (other pages), no edit button.
+    expect(render([draft()])).not.toContain(">Bearbeiten<");
+  });
+
   it("names a brand mismatch in words", () => {
     const html = render([draft({ problems: ["BANNER_BRAND_MISMATCH"] })]);
     expect(html).toContain("Bildstil passt nicht zum Brandkit");

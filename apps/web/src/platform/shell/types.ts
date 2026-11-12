@@ -132,6 +132,25 @@ export type SettingsSection = {
   } | null;
 };
 
+/**
+ * A section a module adds to the Integrations area of the project scope of
+ * the settings center (ADR 0027). Its address is
+ * /manage/p/:projectId/integrations/<module id>/<id>; it is shown only while
+ * the module is shown for the project.
+ */
+export type IntegrationContribution = {
+  /** Section id segment, /^[a-z][a-z0-9-]*$/. */
+  id: string;
+  label: Label;
+  description: Label;
+  order: number;
+  /** Catalog ids this section manages; their cards link here. */
+  providers?: readonly string[];
+  /** The component renders its own PageHead. */
+  ownHead?: true;
+  component: ComponentType;
+};
+
 /** A connection provider a module manages on the connectors page (WP2.3b). */
 export type ConnectorProvider = {
   id: string;
@@ -206,6 +225,8 @@ export type WebModule = {
   attention?: Readonly<Record<string, AttentionRenderer>>;
   /** Sections of the project settings (WP2.3b). */
   settings?: readonly SettingsSection[];
+  /** Sections of the settings center's Integrations area (ADR 0027). */
+  integrations?: readonly IntegrationContribution[];
   /** Setup links of the settings overview, before the platform's own. */
   setupLinks?: readonly ComponentType[];
   /** Providers and extra cards of the connectors page (WP2.3b). */

@@ -37,6 +37,31 @@ describe("account menu (ADR 0013)", () => {
     );
   });
 
+  it("offers the settings center only while its flag is not off", () => {
+    expect(userMenuEntries(base, "w1").manage).toBeNull();
+    expect(
+      userMenuEntries({ ...base, settingsCenter: "off" }, "w1").manage,
+    ).toBeNull();
+    expect(
+      userMenuEntries({ ...base, settingsCenter: "on" }, "w1").manage,
+    ).toBe("/manage");
+    const preview = { ...base, settingsCenter: "preview" as const, account: true };
+    expect(userMenuEntries(preview, "w1").manage).toBe("/manage");
+    const html = renderToStaticMarkup(
+      <UserMenu identity={preview} t={t} onSignOut={() => {}} signingOut={false} />,
+    );
+    expect(html).toContain('href="/manage"');
+    expect(html).toContain(labels.en.manageTitle.replace("&", "&amp;"));
+    expect(html.indexOf('href="/manage"')).toBeLessThan(
+      html.indexOf('href="/account"'),
+    );
+    expect(
+      renderToStaticMarkup(
+        <UserMenu identity={base} t={t} onSignOut={() => {}} signingOut={false} />,
+      ),
+    ).not.toContain('href="/manage"');
+  });
+
   it("renders the entries the identity allows", () => {
     const html = (identity: Identity) =>
       renderToStaticMarkup(

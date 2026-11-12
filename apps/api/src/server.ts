@@ -124,6 +124,7 @@ import {
   sendWebResponse,
 } from "./platform/mcp-auth/http.ts";
 import { registerMcpConnectRoutes } from "./platform/mcp-auth/routes.ts";
+import { registerManagementRoutes } from "./platform/management/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
@@ -224,6 +225,11 @@ import {
   registerShareRoutes,
 } from "./platform/knowledge/share-routes.ts";
 import { sharesEnabled } from "./platform/knowledge/shares.ts";
+import {
+  isManagementRoute,
+  settingsCenterEnabled,
+  settingsCenterStage,
+} from "./platform/management/flag.ts";
 import {
   isAccountRoute,
   registerAccountRoutes,
@@ -414,6 +420,9 @@ export async function buildServer(
       throw new DomainError("NOT_FOUND", 404);
     if (isShareRoute(req.routeOptions.url ?? "") && !sharesEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    // The settings center (ADR 0027) does not exist while its flag is off.
+    if (isManagementRoute(req.routeOptions.url ?? "") && !settingsCenterEnabled())
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
@@ -551,6 +560,7 @@ export async function buildServer(
   // user's own account (ADR 0013).
   registerAdministrationRoutes(app, auth, { runtimeHealth });
   registerAccountRoutes(app, auth);
+  registerManagementRoutes(app, auth);
   registerConnectionRoutes(app, auth);
   registerShareRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
@@ -695,6 +705,7 @@ export async function buildServer(
       account: accountEnabled(),
       connections: connectionsEnabled(),
       knowledgeShares: sharesEnabled(),
+      settingsCenter: settingsCenterStage(),
       workspaces: memberships.map((x) => ({
         ...x.workspace,
         role: x.role,
@@ -928,9 +939,10 @@ export async function buildServer(
   app.get("/api/projects/:projectId/operations", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
-    const runtime = await runtimeHealth();
+    // Members get the worker fields only: the Redis state is for administrators.
+    const { worker, lastHeartbeat, queues, observedAt } = await runtimeHealth();
     return scoped(scope.workspaceId, projectId, async (tx) => ({
-      runtime,
+      runtime: { worker, lastHeartbeat, queues, observedAt },
       jobs: await list(tx, scope, "jobs"),
       pendingOutbox: await tx.outbox.count({
         where: { projectId, dispatchedAt: null },
@@ -1207,8 +1219,10 @@ export async function buildServer(
     const projectId = z.uuid().parse(state.split(".")[0]);
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     const ready = await finishConnect(scope, state, code);
+    // Back into the project the flow was begun for: the id comes from the
+    // validated state, not from the last project the browser remembers.
     return reply.redirect(
-      `${config.APP_ORIGIN}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
+      `${config.APP_ORIGIN}/p/${encodeURIComponent(scope.projectId)}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
     );
   });
   app.get(

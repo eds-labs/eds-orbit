@@ -3,6 +3,7 @@ import { socialAccountHealth } from "./accounts/health.ts";
 import { socialMetrics } from "./analytics/collect.ts";
 import { socialOAuthStateCleanup } from "./accounts/oauth-state.ts";
 import { socialConnectionProviders } from "./accounts/providers.ts";
+import { socialProjectIntegrations } from "./accounts/accounts.ts";
 import { socialAttention } from "./attention.ts";
 import { socialSwitchedOn } from "./gate.ts";
 import { socialUserNotifications } from "./notifications.ts";
@@ -45,6 +46,8 @@ export const socialContributions: ModuleContributions = {
     publishes: ["social.publication.published", "social.publication.failed", "social.publication.outcome_unknown"],
   },
   attention: socialAttention,
+  // The connected accounts in the project's Integrations Center (ADR 0027).
+  projectIntegrations: socialProjectIntegrations,
   userNotifications: socialUserNotifications,
   // Assistant and MCP reads and proposals (S7, ADR 0020 §6.5).
   tools: socialTools,

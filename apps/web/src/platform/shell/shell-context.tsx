@@ -5,6 +5,7 @@ import type {
   AgentSetup,
   AttentionRenderer,
   ConnectorProvider,
+  IntegrationContribution,
   Label,
   SettingsSection,
 } from "./types";
@@ -65,6 +66,8 @@ export type ShellContextValue = {
    * its group set (the module's id unless the section names one).
    */
   settings: readonly SettingsSection[];
+  /** Integration sections of the shown modules, each with its module's id. */
+  integrations?: ReadonlyArray<IntegrationContribution & { moduleId: string }>;
   /** Setup links of the modules for the settings overview (WP2.3b). */
   setupLinks: readonly ComponentType[];
   /** Connector providers and extra cards of the modules (WP2.3b). */

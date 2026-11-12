@@ -626,6 +626,24 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
       );
       expect([decision, r.statusCode]).toEqual([decision, 404]);
     }
+    // The owner's edit of a waiting draft (2026-11-11): owner only, assignment drafts only.
+    for (const who of ["viewer", "editor"] as const) {
+      r = await request(who, "POST", `assignment-drafts/${plain.id}/edit`, {
+        version: plain.version,
+        body: "Changed.",
+      });
+      expect([who, "edit", r.statusCode]).toEqual([who, "edit", 403]);
+    }
+    r = await request("owner", "POST", `assignment-drafts/${plain.id}/edit`, {
+      version: plain.version,
+      body: "Changed.",
+    });
+    expect([r.statusCode, r.json().error.code]).toEqual([404, "NOT_FOUND"]);
+    r = await request("owner", "POST", `assignment-drafts/${plain.id}/edit`, {
+      version: plain.version,
+      body: "",
+    });
+    expect(r.statusCode).toBe(400);
     r = await request("owner", "POST", `assignment-drafts/${plain.id}/delete`, {
       version: plain.version,
     });
@@ -864,6 +882,12 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
           "POST",
           `assignment-drafts/${post.id}/release`,
           { version: 1 },
+        ],
+        [
+          "owner",
+          "POST",
+          `assignment-drafts/${post.id}/edit`,
+          { version: 1, body: "Changed." },
         ],
         [
           "owner",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import type { StateSource } from "./integrations.ts";
 import {
   create,
   data,
@@ -125,10 +126,28 @@ async function tokenRequest(
 async function one(tx: DbTx, scope: Scope, kind: string) {
   return (await list(tx, scope, kind))[0] ?? null;
 }
+async function driveRows(tx: DbTx, scope: Scope) {
+  return {
+    connection: await one(tx, scope, "drive_connection"),
+    storage: await one(tx, scope, "drive_storage"),
+  };
+}
+/** The Drive facts the Integrations Center maps to a state, in the caller's transaction. */
+export async function driveIntegrationSource(
+  tx: DbTx,
+  scope: Scope,
+): Promise<Extract<StateSource, { kind: "drive" }>> {
+  const { connection, storage } = await driveRows(tx, scope);
+  return {
+    kind: "drive",
+    connected: Boolean(connection && data(connection).encryptedRefreshToken),
+    reconnectRequired: driveReconnectRequired(connection),
+    rootConfigured: Boolean(data(storage).rootFolderId),
+  };
+}
 export async function connectionStatus(scope: Scope) {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const connection = await one(tx, scope, "drive_connection");
-    const storage = await one(tx, scope, "drive_storage");
+    const { connection, storage } = await driveRows(tx, scope);
     return {
       configured: Boolean(
         loadConfig().GOOGLE_DRIVE_CLIENT_ID &&
