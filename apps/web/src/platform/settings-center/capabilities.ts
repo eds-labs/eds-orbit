@@ -17,12 +17,14 @@ export function useManagementCapabilities(enabled: boolean): {
   data: ManagementCapabilities | null;
   loading: boolean;
   error: ApiError | null;
+  /** Whether `error` is the answer to the current request, not an earlier one. */
+  failed: boolean;
   refresh(): void;
 } {
-  const { data, loading, error, refresh } = useResource<ManagementCapabilities>(
-    enabled ? "/management/capabilities" : null,
-  );
-  return { data, loading, error, refresh };
+  const path = enabled ? "/management/capabilities" : null;
+  const { data, loading, error, refresh, errorPath } =
+    useResource<ManagementCapabilities>(path);
+  return { data, loading, error, failed: error !== null && path !== null && errorPath === path, refresh };
 }
 
 /**

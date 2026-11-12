@@ -145,9 +145,14 @@ export function useResource<T>(path: string | null) {
     [revision, setRevision] = useState(0),
     // The path `data` was loaded for: on the first render of a new path,
     // `data` is still the previous path's until the effect clears it.
-    [loadedPath, setLoadedPath] = useState<string | null>(null);
+    [loadedPath, setLoadedPath] = useState<string | null>(null),
+    // The path `error` belongs to; null while no request of the current
+    // path has failed (`error` itself outlives a path change until the
+    // effect runs, and a disabled resource keeps it).
+    [errorPath, setErrorPath] = useState<string | null>(null);
   const refresh = useCallback(() => setRevision((n) => n + 1), []);
   useEffect(() => {
+    setErrorPath(null);
     if (!path) {
       setData(null);
       setLoading(false);
@@ -163,14 +168,16 @@ export function useResource<T>(path: string | null) {
         setLoadedPath(path);
       })
       .catch((e) => {
-        if (!controller.signal.aborted) setError(e);
+        if (controller.signal.aborted) return;
+        setError(e);
+        setErrorPath(path);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
   }, [path, revision]);
-  return { data, error, loading, refresh, path: loadedPath };
+  return { data, error, loading, refresh, path: loadedPath, errorPath };
 }
 export function useMutation(onSuccess?: () => void) {
   const [pending, setPending] = useState(false),

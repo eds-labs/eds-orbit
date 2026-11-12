@@ -118,7 +118,7 @@ import { ScopeView } from "@/platform/settings-center/scope-view";
 import {
   mapOldAddress,
   moduleTabIndex,
-  oldAddressTarget,
+  redirectFor,
   redirectModuleShown,
   type OldAddress,
   type Redirect,
@@ -197,6 +197,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       : null;
   const settingsTabs = useMemo(() => moduleTabIndex(registry.modules), [registry]);
   const mapContext = { table, tabs: settingsTabs, platformKeys: PLATFORM_TAB_KEYS };
+  // Mapped before the module states are known: whether it maps, and every
+  // result but "wait", do not depend on them (pinned in redirects.test.tsx).
+  const firstMapping = oldAddress
+    ? mapOldAddress(oldAddress, { ...mapContext, moduleShown: () => null })
+    : null;
   const projectId =
     place.kind === "view" || place.kind === "notFound"
       ? place.projectId
@@ -209,16 +214,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   // Refetched with the workspace revision, so a module switch shows at once.
   // A legacy address on its way to the center needs the states of the
   // project it leads to (a moved settings key depends on them).
-  const statesProjectId = project?.id ?? legacyProjectId ?? undefined;
+  const statesProjectId =
+    project?.id ?? (firstMapping !== null ? legacyProjectId : null) ?? undefined;
   const statesPath = statesProjectId
     ? `/projects/${encodeURIComponent(statesProjectId)}/modules?revision=${revision}`
     : null;
   const moduleStates = useResource<ModuleStates>(statesPath);
-  const caps = useManagementCapabilities(
-    manage !== null ||
-      (oldAddress !== null &&
-        mapOldAddress(oldAddress, { ...mapContext, moduleShown: () => null }) !== null),
-  );
+  const caps = useManagementCapabilities(manage !== null || firstMapping !== null);
   const center =
     place.kind === "manage"
       ? centerState({
@@ -251,39 +253,48 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     lastStates,
     project?.id,
   );
-  const redirect: Redirect = oldAddress
-    ? oldAddressTarget(oldAddress, {
-        ...mapContext,
-        stage: settingsCenter,
-        caps: caps.error ? undefined : caps.data,
-        moduleShown: (id, moduleId) => {
-          const module = registry.modules.find((m) => m.id === moduleId);
-          const settled =
-            lastStates?.projectId === statesProjectId ? lastStates : null;
-          return redirectModuleShown(
-            {
-              projectId: statesProjectId,
-              // `data` belongs to the previous path on a new path's first render.
-              states:
-                (moduleStates.path === statesPath ? moduleStates.data : null) ??
-                settled?.states ??
-                null,
-              failed:
-                Boolean(moduleStates.error) ||
-                (settled !== null && settled.states === null),
-            },
-            id,
-            (states) =>
-              moduleShown(
-                states.modules,
-                moduleId,
-                module?.optIn === true,
-                module?.minAccess,
-              ),
-          );
-        },
-      })
-    : { kind: "stay" };
+  // The redirect's own record of the last settled module states, tagged with
+  // the project whose path they were loaded for: on a project switch the
+  // resource still holds the previous project's answer for a render, and
+  // lastStates may record it, which must not decide a redirect.
+  const statesNow: SettledModuleStates<ModuleStates> | null = !statesProjectId
+    ? null
+    : moduleStates.path === statesPath && moduleStates.data
+      ? { projectId: statesProjectId, states: moduleStates.data }
+      : moduleStates.error && moduleStates.errorPath === statesPath
+        ? { projectId: statesProjectId, states: null }
+        : null;
+  const [statesSettled, setStatesSettled] =
+    useState<SettledModuleStates<ModuleStates> | null>(null);
+  useEffect(() => {
+    if (statesNow) setStatesSettled(statesNow);
+    // `statesNow` is rebuilt every render; its fields identify it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statesNow?.projectId, statesNow?.states]);
+  const redirect: Redirect = redirectFor(
+    firstMapping === "wait" && oldAddress
+      ? mapOldAddress(oldAddress, {
+          ...mapContext,
+          moduleShown: (id, moduleId) => {
+            const module = registry.modules.find((m) => m.id === moduleId);
+            return redirectModuleShown(
+              { projectId: statesProjectId, settled: statesNow ?? statesSettled },
+              id,
+              (states) =>
+                moduleShown(
+                  states.modules,
+                  moduleId,
+                  module?.optIn === true,
+                  module?.minAccess,
+                ),
+            );
+          },
+        })
+      : firstMapping,
+    // An error from an earlier request (before this one was enabled or
+    // while it loads) is not this request's answer.
+    { stage: settingsCenter, caps: caps.failed ? undefined : caps.data },
+  );
   const redirectKey = redirect.kind === "go" ? redirect.href : redirect.kind;
   // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
   // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).

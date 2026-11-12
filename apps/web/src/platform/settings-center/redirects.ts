@@ -252,9 +252,15 @@ function scopeCapabilities(
 
 /** What the shell does with an address. */
 export function oldAddressTarget(address: OldAddress, ctx: RedirectContext): Redirect {
-  if (ctx.stage !== "on") return STAY;
-  const target = mapOldAddress(address, ctx);
-  if (target === null) return STAY;
+  return ctx.stage === "on" ? redirectFor(mapOldAddress(address, ctx), ctx) : STAY;
+}
+
+/** The decision for an address `mapOldAddress` has already mapped. */
+export function redirectFor(
+  target: CenterAddress | "wait" | null,
+  ctx: Pick<RedirectContext, "stage" | "caps">,
+): Redirect {
+  if (ctx.stage !== "on" || target === null) return STAY;
   if (target === "wait" || ctx.caps === null) return WAIT;
   // Without capabilities the old page still works; better than no page.
   if (ctx.caps === undefined) return STAY;
@@ -266,27 +272,33 @@ export function oldAddressTarget(address: OldAddress, ctx: RedirectContext): Red
   );
   // A scope the member cannot open keeps today's page (e.g. not found).
   if (open.length === 0) return STAY;
-  // visibleSections sorts by area order: the first one is the first area.
-  const href = open.some((s) => s.area === target.area)
-    ? centerHref(target)
-    : manageHref(target.scope, open[0].area);
-  return href === address.pathname + address.search + address.hash
-    ? STAY
-    : { kind: "go", href };
+  // The target never equals the address: a mapped address is never below
+  // /manage, and every target is. visibleSections sorts by area order, so
+  // the first section's area is the scope's first area.
+  return {
+    kind: "go",
+    href: open.some((s) => s.area === target.area)
+      ? centerHref(target)
+      : manageHref(target.scope, open[0].area),
+  };
 }
 
 /**
- * `moduleShown` for the redirect, so a "wait" always ends: unknown only while
- * the module states of that project can still load. Once they failed, or for
- * a project whose states the shell does not load, the module counts as not
- * shown and a moved key goes to its platform home.
+ * `moduleShown` for the redirect, so a "wait" always ends and never decides
+ * on another project's states. `projectId` is the project whose module states
+ * the shell loads; `settled` its last settled load (states null: it failed),
+ * tagged with the project it was loaded for. A project whose states the shell
+ * does not load counts as not shown, and a moved key goes to its platform home.
  */
 export function redirectModuleShown<T>(
-  loading: { projectId: string | undefined; states: T | null; failed: boolean },
+  source: {
+    projectId: string | undefined;
+    settled: { projectId: string; states: T | null } | null;
+  },
   projectId: string,
   shown: (states: T) => boolean,
 ): boolean | null {
-  if (projectId !== loading.projectId) return false;
-  if (loading.states) return shown(loading.states);
-  return loading.failed ? false : null;
+  if (projectId !== source.projectId) return false;
+  if (source.settled?.projectId !== projectId) return null;
+  return source.settled.states ? shown(source.settled.states) : false;
 }

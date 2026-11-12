@@ -347,7 +347,7 @@ describe("the shell's redirect of an old settings address", () => {
     expect(oldAddressTarget(parse("/p/p2/settings"), rctx())).toEqual({ kind: "stay" });
   });
 
-  it("never maps a center address or its own target", () => {
+  it("leaves a center address alone, even while the capabilities load", () => {
     expect(oldAddressTarget(parse("/manage/p/p1/members"), rctx())).toEqual({ kind: "stay" });
     expect(oldAddressTarget(parse("/manage/system"), rctx({ caps: null }))).toEqual({ kind: "stay" });
   });
@@ -355,16 +355,62 @@ describe("the shell's redirect of an old settings address", () => {
 
 describe("module states for the redirect", () => {
   const shown = (states: string[]) => states.includes("marketing");
-
-  it("is unknown only while the states of that project can still load", () => {
-    expect(redirectModuleShown({ projectId: "p1", states: null, failed: false }, "p1", shown)).toBeNull();
-    expect(redirectModuleShown({ projectId: "p1", states: ["marketing"], failed: false }, "p1", shown)).toBe(true);
-    expect(redirectModuleShown({ projectId: "p1", states: [], failed: false }, "p1", shown)).toBe(false);
+  const of = (settled: { projectId: string; states: string[] | null } | null) => ({
+    projectId: "p1",
+    settled,
   });
 
-  it("counts a module as not shown once the states failed or will never load", () => {
-    expect(redirectModuleShown({ projectId: "p1", states: null, failed: true }, "p1", shown)).toBe(false);
-    expect(redirectModuleShown({ projectId: "p1", states: ["marketing"], failed: false }, "p2", shown)).toBe(false);
-    expect(redirectModuleShown({ projectId: undefined, states: null, failed: false }, "p1", shown)).toBe(false);
+  it("is unknown while the states of that project load, then their value", () => {
+    expect(redirectModuleShown(of(null), "p1", shown)).toBeNull();
+    expect(redirectModuleShown(of({ projectId: "p1", states: ["marketing"] }), "p1", shown)).toBe(true);
+    expect(redirectModuleShown(of({ projectId: "p1", states: [] }), "p1", shown)).toBe(false);
+  });
+
+  it("counts a module as not shown once the states of that project failed", () => {
+    expect(redirectModuleShown(of({ projectId: "p1", states: null }), "p1", shown)).toBe(false);
+  });
+
+  it("never decides on states or a failure recorded for another project", () => {
+    expect(redirectModuleShown(of({ projectId: "p0", states: ["marketing"] }), "p1", shown)).toBeNull();
+    expect(redirectModuleShown(of({ projectId: "p0", states: [] }), "p1", shown)).toBeNull();
+    expect(redirectModuleShown(of({ projectId: "p0", states: null }), "p1", shown)).toBeNull();
+  });
+
+  it("counts a module as not shown in a project whose states the shell never loads", () => {
+    expect(redirectModuleShown(of({ projectId: "p1", states: ["marketing"] }), "p2", shown)).toBe(false);
+    expect(redirectModuleShown({ projectId: undefined, settled: null }, "p1", shown)).toBe(false);
+  });
+});
+
+describe("what the shell may read from a first mapping without module states", () => {
+  const addresses = [
+    ...ROWS.map(([from]) => from),
+    ...EVERY_KEY,
+    "/p/p1/settings?section=policy",
+    "/manage/system",
+    "/manage/p/p1/overview",
+    "/p/p1/social/accounts",
+    "/p/p1/knowledge",
+    "/admin/unknown",
+    "/settings",
+    "/connectors",
+    "/",
+  ];
+  const answers = [() => null, () => true, () => false] as const;
+
+  it("whether an address maps does not depend on the module states", () => {
+    for (const a of addresses) {
+      const nulls = answers.map((m) => mapOldAddress(parse(a), ctx({ moduleShown: m })) === null);
+      expect(new Set(nulls).size, a).toBe(1);
+    }
+  });
+
+  it("a mapping that does not wait is the same with any module states", () => {
+    for (const a of addresses) {
+      const first = mapOldAddress(parse(a), ctx({ moduleShown: () => null }));
+      if (first === "wait") continue;
+      for (const m of answers.slice(1))
+        expect(mapOldAddress(parse(a), ctx({ moduleShown: m })), a).toEqual(first);
+    }
   });
 });

@@ -320,6 +320,7 @@ const resource = <T,>(data: T | null) => ({
   error: null,
   refresh() {},
   path: null,
+  errorPath: null,
 });
 
 const balanced = { fast: "luna", standard: "terra", quality: "sol" };
