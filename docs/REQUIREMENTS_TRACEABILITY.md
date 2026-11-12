@@ -1,6 +1,6 @@
 # Requirements traceability
 
-## System & Administration V2, phase 5: flag `on`, module sections, public access (ADR 0027; 2026-11-12, branch `claude/settings-center-phase-5`; delivered to `main`, flag off in production)
+## System & Administration V2, phase 5: flag `on`, module sections, public access (ADR 0027; 2026-11-12, branch `claude/settings-center-phase-5`; delivered to `main`; flag `on` in production since 2026-11-12, not live-accepted)
 
 Plan [plans/SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) sections 5.3 and 10, implementation plan [superpowers/plans/2026-11-12-settings-center-phase-5.md](superpowers/plans/2026-11-12-settings-center-phase-5.md). API tests are under `apps/api/tests/`, web unit tests next to their code under `apps/web/src/`, browser tests in `apps/web/tests/settings-center-on.spec.ts` and the specs adapted for `on`. The result column reports the local implementer runs; the controller's verification is in `IMPLEMENTATION_STATUS.md`.
 

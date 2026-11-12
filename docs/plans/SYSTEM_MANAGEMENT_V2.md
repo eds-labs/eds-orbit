@@ -1,6 +1,6 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main` (flag `off`); phase 4 is on `main` since 2026-11-12 (flag `off`, section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is on `main` since 2026-11-12 (branch `claude/settings-center-phase-5`, section 10); the production flag is unchanged (`off`). Row 5.4 and phase 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main`; phase 4 is on `main` since 2026-11-12 (section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is on `main` since 2026-11-12 (branch `claude/settings-center-phase-5`, section 10). The production flag is `on` since 2026-11-12 18:47 UTC (after `preview` at 18:39 UTC, both on Mario's instruction); the walk over old links in production is open, so `on` is not yet live-accepted. Row 5.4 and phase 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
 This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
@@ -456,7 +456,7 @@ Prerequisite to check before production: which of `ORBIT_AI_CATALOG`, `ORBIT_AI_
 
 ## 10. Phase 5: module settings, redirects, removal
 
-Status (2026-11-12): rows 5.1 to 5.3, the F-5 fix and the public access section are implemented on branch `claude/settings-center-phase-5` and delivered to `main` on 2026-11-12. The production flag is unchanged (`off`). Row 5.4 is not implemented; it gets its own plan after the flag value `on` is accepted in production. Implementation plan: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md); the state of the work and its verification are in `docs/IMPLEMENTATION_STATUS.md`, the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md`.
+Status (2026-11-12): rows 5.1 to 5.3, the F-5 fix and the public access section are implemented on branch `claude/settings-center-phase-5` and delivered to `main` on 2026-11-12. The production flag is `on` since 2026-11-12 18:47 UTC (`preview` at 18:39 UTC before it). Row 5.4 is not implemented; it gets its own plan after the flag value `on` is accepted in production. Implementation plan: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md); the state of the work and its verification are in `docs/IMPLEMENTATION_STATUS.md`, the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md`.
 
 What was built per row:
 
