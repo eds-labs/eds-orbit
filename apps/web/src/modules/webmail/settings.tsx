@@ -281,6 +281,10 @@ export const webmailSettings: readonly SettingsSection[] = [
       label: { en: "Integrations", de: "Integrationen" },
       order: 40,
     },
+    description: {
+      en: "Which mailboxes open in Webmail.",
+      de: "Welche Postfächer in Webmail geöffnet werden.",
+    },
     order: 30,
     useSection() {
       const { isOwner } = useWorkspace();

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { webRegistry } from "@/modules/registry";
+import { moduleIntegrations, moduleSettings } from "@/platform/shell/routes";
 import type { Identity, Project } from "@/lib/api";
 import {
   ShellContext,
@@ -21,6 +22,7 @@ import {
   navGroups,
   resolveSection,
   sectionPath,
+  validateModuleSections,
   validateSections,
   visibleSections,
 } from "../registry";
@@ -311,9 +313,10 @@ describe("adaptModuleSections", () => {
     expect(sections.find((s) => s.id === "webmail/settings")?.label).toEqual(
       webmail.displayName,
     );
-    expect(sections.find((s) => s.id === "webmail/settings")?.description).toEqual(
-      webmail.description,
-    );
+    expect(sections.find((s) => s.id === "webmail/settings")?.description).toEqual({
+      en: "Which mailboxes open in Webmail.",
+      de: "Welche Postfächer in Webmail geöffnet werden.",
+    });
   });
 
   it("groups by module in the modules' order, each by tab order", () => {
@@ -457,6 +460,37 @@ describe("adaptModuleSections", () => {
     expect(resolveSection(all, "modules", ["finance"])?.section).toBe(finance);
     // The platform's switches stay the area's first section.
     expect(resolveSection(all, "modules", [])?.section.id).toBe("switches");
+  });
+});
+
+describe("the real registry's module sections", () => {
+  // Every module shown, each hook replaced by a stub that returns content.
+  const sections = () => {
+    const modules = webRegistry.modules.map((m) => ({ ...m, enabled: true }));
+    const contributed = moduleSettings(webRegistry.modules, () => true).map(
+      ({ moduleId: _moduleId, ...section }) => ({
+        section,
+        shown: { content: <i>stub</i> } as Shown,
+      }),
+    );
+    return [
+      ...projectModuleSections(contributed, modules).sections,
+      ...adaptIntegrationSections(moduleIntegrations(webRegistry.modules, () => true)),
+    ];
+  };
+
+  it("are valid", () => {
+    expect(sections().length).toBeGreaterThan(5);
+    expect(() => validateModuleSections(sections())).not.toThrow();
+  });
+
+  it("each have their own description in both languages", () => {
+    const modulesById = new Map(webRegistry.modules.map((m) => [m.id, m]));
+    for (const s of sections().filter((x) => x.moduleId)) {
+      expect(s.description.en.trim()).not.toBe("");
+      expect(s.description.de.trim()).not.toBe("");
+      expect(s.description).not.toEqual(modulesById.get(s.moduleId!)!.description);
+    }
   });
 });
 

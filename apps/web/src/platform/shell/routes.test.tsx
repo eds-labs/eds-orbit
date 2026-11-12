@@ -12,6 +12,7 @@ import {
   locate,
   moduleAiCeilings,
   moduleIntegrations,
+  moduleSettings,
   moduleShown,
   moduleUsable,
   navGroupOf,
@@ -713,6 +714,36 @@ describe("Web route registry", () => {
     expect(collect([{ id: "social", enabled: true, access: "none" }])).toEqual([]);
     // Social is opt-in: until the states load it contributes nothing.
     expect(moduleIntegrations(webRegistry.modules, () => false)).toEqual([]);
+  });
+
+  it("collects settings only from shown modules", () => {
+    const withSettings = webRegistry.modules.filter((m) => (m.settings ?? []).length > 0);
+    expect(withSettings.length).toBeGreaterThan(1);
+    const collect = (states: Array<{ id: string; enabled: boolean; access?: string }>) =>
+      moduleSettings(webRegistry.modules, (id) => {
+        const m = webRegistry.modules.find((x) => x.id === id);
+        return moduleShown(states, id, m?.optIn === true, m?.minAccess);
+      });
+    const all = collect(withSettings.map((m) => ({ id: m.id, enabled: true, access: "owner" })));
+    // Registry order; every section sits in its module's group.
+    expect(all.map((s) => [s.moduleId, s.tab.key, s.tab.group])).toEqual(
+      withSettings.flatMap((m) =>
+        (m.settings ?? []).map((s) => [m.id, s.tab.key, s.tab.group ?? m.id]),
+      ),
+    );
+    const [off, none] = withSettings;
+    const rest = collect(
+      withSettings.map((m) => ({
+        id: m.id,
+        enabled: m.id !== off!.id,
+        access: m.id === none!.id ? "none" : "owner",
+      })),
+    );
+    expect(rest.some((s) => s.moduleId === off!.id || s.moduleId === none!.id)).toBe(false);
+    expect(new Set(rest.map((s) => s.moduleId))).toEqual(
+      new Set(withSettings.map((m) => m.id).filter((id) => id !== off!.id && id !== none!.id)),
+    );
+    expect(moduleSettings(webRegistry.modules, () => false)).toEqual([]);
   });
 
   it("collects AI ceilings only from shown modules", () => {

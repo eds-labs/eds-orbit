@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { SettingsSection } from "@/platform/shell/types";
 import type { ManagementSection, SectionMeta, SectionProps } from "./types";
 import {
   AREAS,
   adaptIntegrationSections,
+  adaptModuleSections,
+  validateModuleSections,
   moduleSectionId,
   navGroups,
   resolveSection,
@@ -339,5 +342,102 @@ describe("adaptIntegrationSections", () => {
     const props = { scope: { kind: "project", projectId: "p1" }, locale: "en", identity: {}, hrefOf: () => "" } as unknown as SectionProps;
     expect(renderToStaticMarkup(<>{sections[0].render(props)}</>)).toBe("<i>marker</i>");
     expect(adaptIntegrationSections([])).toEqual([]);
+  });
+});
+
+describe("adaptModuleSections descriptions", () => {
+  const mods = [
+    {
+      id: "alpha",
+      displayName: { en: "Alpha module", de: "Alpha-Modul" },
+      description: { en: "About alpha", de: "Über Alpha" },
+    },
+  ];
+  const part = (
+    order: number,
+    extra: Pick<SettingsSection, "description" | "keywords"> = {},
+  ) => ({
+    section: {
+      tab: { key: "alpha", label: { en: "Alpha", de: "Alpha" }, order: 0, group: "alpha" },
+      order,
+      useSection: () => null,
+      ...extra,
+    } as SettingsSection,
+    shown: { content: <i>x</i> },
+  });
+  const adapt = (parts: ReturnType<typeof part>[]) =>
+    adaptModuleSections(parts, mods, []).sections;
+
+  it("uses a section's own description and falls back to the module's", () => {
+    const own = { en: "Own text", de: "Eigener Text" };
+    expect(adapt([part(0, { description: own })])[0]!.description).toEqual(own);
+    expect(adapt([part(0)])[0]!.description).toEqual(mods[0]!.description);
+    // Merged: the first contribution by order that has one, whatever the input order.
+    const first = { en: "First", de: "Erste" };
+    const merged = adapt([part(20, { description: own }), part(5), part(10, { description: first })]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.description).toEqual(first);
+  });
+
+  it("joins the search words of merged contributions", () => {
+    const [s] = adapt([
+      part(20, { keywords: { en: "beta", de: "bravo" } }),
+      part(10, { keywords: { en: "alpha words", de: "alfa" } }),
+      part(30),
+    ]);
+    expect(s!.keywords).toEqual({ en: "alpha words beta", de: "alfa bravo" });
+    expect(adapt([part(0)])[0]!.keywords).toBeUndefined();
+  });
+
+  it("finds a module section by a word of its own description", () => {
+    const [s] = adapt([part(0, { description: { en: "Mailboxes it reads", de: "Gelesene Postfächer" } })]);
+    expect(searchSections([s!], "mailboxes")).toEqual([s]);
+    expect(searchSections([s!], "postfächer")).toEqual([s]);
+    expect(searchSections([s!], "nothing")).toEqual([]);
+  });
+});
+
+describe("validateModuleSections", () => {
+  const ok = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    scope: "project" as const,
+    area: "modules",
+    label: { en: "L", de: "L" },
+    description: { en: "D", de: "D" },
+    order: 0,
+    render: () => null,
+    ...extra,
+  });
+
+  it("accepts module and integration sections", () => {
+    expect(() =>
+      validateModuleSections([
+        ok("finance/ai"),
+        ok("work/settings"),
+        ok("social/accounts", { area: "integrations" }),
+      ]),
+    ).not.toThrow();
+  });
+
+  it("refuses a module section with a bad id, a duplicate or an empty text", () => {
+    let message = "";
+    try {
+      validateModuleSections([
+        ok("Finance/ai"),
+        ok("finance"),
+        ok("work/settings"),
+        ok("work/settings"),
+        ok("a/b", { label: { en: "L", de: " " } }),
+        ok("c/d", { description: { en: "", de: "D" } }),
+      ]);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/^SETTINGS_MODULE_SECTIONS_INVALID: /);
+    expect(message).toContain("invalid section id Finance/ai");
+    expect(message).toContain("invalid section id finance");
+    expect(message).toContain("duplicate section project/modules/work/settings");
+    expect(message).toContain("empty label in a/b");
+    expect(message).toContain("empty description in c/d");
   });
 });

@@ -56,6 +56,7 @@ import {
   routeTable,
   moduleAiCeilings,
   moduleIntegrations,
+  moduleSettings,
   navigationForFeatures,
   routesForFeatures,
   type Route,
@@ -566,12 +567,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       ),
       attentionRenderers: renderers,
       // Each module's sections join its group of the settings list (§5.4).
-      settings: active.flatMap((m) =>
-        (m.settings ?? []).map((section) => ({
-          ...section,
-          tab: { ...section.tab, group: section.tab.group ?? m.id },
-        })),
-      ),
+      settings: moduleSettings(registry.modules, enabled),
       integrations: moduleIntegrations(registry.modules, enabled),
       aiCeilings: moduleAiCeilings(registry.modules, enabled),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),

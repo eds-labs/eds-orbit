@@ -5,6 +5,7 @@ import type {
   AiCeiling,
   IntegrationContribution,
   Label,
+  SettingsSection,
   StandaloneView,
   ViewDef,
   WebModule,
@@ -353,6 +354,25 @@ export function moduleIntegrations(
     .filter((m) => enabled(m.id))
     .flatMap((m) =>
       (m.integrations ?? []).map((c) => ({ ...c, moduleId: m.id })),
+    );
+}
+
+/**
+ * The settings sections of every shown module, each with its module's id and
+ * its tab in the module's group (§5.4), in registry order.
+ */
+export function moduleSettings(
+  modules: readonly WebModule[],
+  enabled: (id: string) => boolean,
+): Array<SettingsSection & { moduleId: string }> {
+  return modules
+    .filter((m) => enabled(m.id))
+    .flatMap((m) =>
+      (m.settings ?? []).map((section) => ({
+        ...section,
+        moduleId: m.id,
+        tab: { ...section.tab, group: section.tab.group ?? m.id },
+      })),
     );
 }
 

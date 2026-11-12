@@ -745,6 +745,10 @@ function useSupportSection() {
 export const supportSettings: readonly SettingsSection[] = [
   {
     tab: { key: "support", label: { en: "Support", de: "Support" }, order: 40 },
+    description: {
+      en: "Inboxes, channels and rules of Support.",
+      de: "Postfächer, Kanäle und Regeln des Supports.",
+    },
     order: 10,
     useSection: useSupportSection,
   },

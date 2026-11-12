@@ -121,6 +121,14 @@ export type SettingsSection = {
   /** Position among the modules' sections of the tab. */
   order: number;
   /**
+   * What this section is for: the settings center shows it as the page
+   * head's explanation and searches it. Without one, the center falls back
+   * to the module's description. The old settings page does not use it.
+   */
+  description?: Label;
+  /** Extra search words of the settings center. */
+  keywords?: Label;
+  /**
    * A hook, called on every render of the settings page in registry order:
    * the content, or null while the section is hidden. `label` overrides the
    * tab's label; `notice` shows above every tab (e.g. a load error).

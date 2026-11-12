@@ -391,6 +391,10 @@ function useIssuesSection() {
 export const issuesSettings: readonly SettingsSection[] = [
   {
     tab: { key: "issues", label: { en: "Issues", de: "Issues" }, order: 35 },
+    description: {
+      en: "Issue intake, triage and its AI ceiling.",
+      de: "Annahme und Einordnung von Meldungen und die KI-Obergrenze dafür.",
+    },
     order: 10,
     useSection: useIssuesSection,
   },

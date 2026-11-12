@@ -67,6 +67,39 @@ export function validateSections(sections: readonly ManagementSection[]): void {
   }
 }
 
+/**
+ * Checks the adapted module and integration sections (adaptModuleSections,
+ * adaptIntegrationSections): the id is "<module id>/<segments>", unique within
+ * its area, and label and description say something in both languages.
+ * Throws one error listing every problem.
+ */
+export function validateModuleSections(
+  sections: readonly ResolvedSection[],
+): void {
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  for (const s of sections) {
+    const key = `${s.scope}/${s.area}/${s.id}`;
+    if (seen.has(key)) problems.push(`duplicate section ${key}`);
+    seen.add(key);
+    const parts = s.id.split("/");
+    if (parts.length < 2 || !parts.every((part) => SEGMENT.test(part))) {
+      problems.push(`invalid section id ${s.id}`);
+    }
+    for (const [name, text] of [
+      ["label", s.label],
+      ["description", s.description],
+    ] as const) {
+      if (!text?.en?.trim() || !text?.de?.trim()) {
+        problems.push(`empty ${name} in ${s.id}`);
+      }
+    }
+  }
+  if (problems.length > 0) {
+    throw new Error("SETTINGS_MODULE_SECTIONS_INVALID: " + problems.join("; "));
+  }
+}
+
 function areaOrder(scope: ScopeKind, area: string): number {
   return AREAS[scope].find((a) => a.id === area)?.order ?? Number.MAX_SAFE_INTEGER;
 }
@@ -211,6 +244,17 @@ type Contribution = {
   shown: ReturnType<SettingsSection["useSection"]>;
 };
 
+/** The search words of merged contributions, joined in their order. */
+function joinedKeywords(parts: readonly Contribution[]): { keywords?: Label } {
+  const words = parts.flatMap((part) =>
+    part.section.keywords ? [part.section.keywords] : [],
+  );
+  if (words.length === 0) return {};
+  const join = (lang: keyof Label) =>
+    words.map((w) => w[lang].trim()).filter(Boolean).join(" ");
+  return { keywords: { en: join("en"), de: join("de") } };
+}
+
 /**
  * The module sections of the project settings as settings center sections.
  * Pure: the caller has already run every section's hook (they must run on
@@ -271,7 +315,11 @@ export function adaptModuleSections(
           label: onPlatformTab
             ? (shellModule?.displayName ?? fallback)
             : (first.shown!.label ?? first.section.tab.label),
-          description: shellModule?.description ?? fallback,
+          description:
+            parts.find((part) => part.section.description)?.section.description ??
+            shellModule?.description ??
+            fallback,
+          ...joinedKeywords(parts),
           order: first.section.tab.order,
           render: () =>
             createElement(

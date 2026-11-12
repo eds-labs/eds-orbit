@@ -68,9 +68,21 @@ function usePolicySection() {
 // budget first, which is always shown and so the sidebar's settings link,
 // then brand.
 export const marketingSettings: readonly SettingsSection[] = [
-  { tab: POLICY_TAB, order: 0, useSection: usePolicySection },
+  {
+    tab: POLICY_TAB,
+    order: 0,
+    description: {
+      en: "Who may publish what, in which language and when.",
+      de: "Wer was, in welcher Sprache und wann veröffentlichen darf.",
+    },
+    useSection: usePolicySection,
+  },
   {
     tab: { key: "brand", label: { en: "Brand", de: "Marke" }, order: 30 },
+    description: {
+      en: "Brand profile, approvals and the brand kit for images.",
+      de: "Markenprofil, Freigaben und das Marken-Kit für Bilder.",
+    },
     order: 0,
     useSection: () => ({
       content: (

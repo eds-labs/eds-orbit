@@ -72,6 +72,7 @@ const en = {
   } as Record<string, string>,
   mailboxes: {
     tab: "Mailboxes",
+    tabDescription: "Which mailboxes Finance reads receipts from.",
     title: "Mailboxes",
     hint: "Bind an existing e-mail connection to finance. Mail that arrives in a bound mailbox goes only to finance, not to Support or any other module. Add mailboxes under Integrations.",
     none: "No e-mail connection yet. Connect a mailbox under Integrations first.",
@@ -97,6 +98,7 @@ const en = {
   },
   accounts: {
     tab: "Accounts & categories",
+    tabDescription: "Accounts and categories for bookings.",
     accounts: "Accounts",
     categories: "Categories",
     none: "None yet.",
@@ -122,6 +124,7 @@ const en = {
   },
   costCenters: {
     tab: "Cost centers",
+    tabDescription: "Cost centers for bookings.",
     title: "Cost centers",
     hint: "Split costs by product, client or project.",
     add: "Add cost center",
@@ -132,6 +135,7 @@ const en = {
   },
   currencies: {
     tab: "Currencies & FX",
+    tabDescription: "Currencies and exchange rates.",
     title: "Currencies",
     base: "Base currency",
     baseHint: "Reports and journal totals are kept in this currency.",
@@ -158,6 +162,7 @@ const en = {
   },
   ai: {
     tab: "AI extraction",
+    tabDescription: "Reading receipts with AI and its daily ceiling.",
     title: "AI extraction",
     consent: "Read receipts with AI",
     consentBody:
@@ -868,6 +873,7 @@ const de: typeof en = {
   },
   mailboxes: {
     tab: "Postfächer",
+    tabDescription: "Aus welchen Postfächern Finance Belege liest.",
     title: "Postfächer",
     hint: "Binde eine bestehende E-Mail-Verbindung an Finanzen. E-Mails, die in einem gebundenen Postfach ankommen, gehen nur an Finanzen, nicht an Support oder ein anderes Modul. Postfächer legst du unter Integrationen an.",
     none: "Noch keine E-Mail-Verbindung. Verbinde zuerst ein Postfach unter Integrationen.",
@@ -894,6 +900,7 @@ const de: typeof en = {
   },
   accounts: {
     tab: "Konten & Kategorien",
+    tabDescription: "Konten und Kategorien für Buchungen.",
     accounts: "Konten",
     categories: "Kategorien",
     none: "Noch keine.",
@@ -919,6 +926,7 @@ const de: typeof en = {
   },
   costCenters: {
     tab: "Kostenstellen",
+    tabDescription: "Kostenstellen für Buchungen.",
     title: "Kostenstellen",
     hint: "Teile Kosten nach Produkt, Kunde oder Projekt auf.",
     add: "Kostenstelle hinzufügen",
@@ -929,6 +937,7 @@ const de: typeof en = {
   },
   currencies: {
     tab: "Währungen & Kurse",
+    tabDescription: "Währungen und Wechselkurse.",
     title: "Währungen",
     base: "Basiswährung",
     baseHint: "Berichte und Journalsummen werden in dieser Währung geführt.",
@@ -953,6 +962,7 @@ const de: typeof en = {
   },
   ai: {
     tab: "KI-Auslesen",
+    tabDescription: "Belege mit KI auslesen und die tägliche Obergrenze dafür.",
     title: "KI-Auslesen",
     consent: "Belege mit KI auslesen",
     consentBody:
