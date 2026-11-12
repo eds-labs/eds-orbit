@@ -115,7 +115,7 @@ export function groupSettings(
 
 // Sections that moved: an old link opens the new place when the old one is
 // not offered. The AI budget left the Marketing policy (ADR 0015).
-const MOVED: Record<string, string> = { policy: "ai" };
+export const MOVED: Readonly<Record<string, string>> = { policy: "ai" };
 
 /**
  * The open section: `?section=` when it is offered, else "project". The
