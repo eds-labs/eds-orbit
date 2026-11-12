@@ -215,6 +215,8 @@ const en = {
     mailboxHint:
       "The inbox receives the mail of this mailbox and answers from its address. Owners connect mailboxes under Connections.",
     mailboxChoose: "Choose a mailbox",
+    mailboxesManaged: "Mailboxes are added and checked under Integrations.",
+    openMailboxes: "Open mailboxes",
     mailboxNone:
       "No verified mailbox yet. An owner connects one under Connections and checks its login.",
     mailboxMissing:
@@ -503,6 +505,9 @@ const de: SupportText = {
     mailboxHint:
       "Der Posteingang empfängt die Mails dieses Postfachs und antwortet von dessen Adresse. Owner verbinden Postfächer unter Verbindungen.",
     mailboxChoose: "Postfach wählen",
+    mailboxesManaged:
+      "Postfächer werden unter Integrationen angelegt und geprüft.",
+    openMailboxes: "Postfächer öffnen",
     mailboxNone:
       "Noch kein geprüftes Postfach. Ein Owner verbindet eines unter Verbindungen und prüft die Anmeldung.",
     mailboxMissing:

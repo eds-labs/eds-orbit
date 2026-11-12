@@ -75,6 +75,8 @@ const en = {
     tabDescription: "Which mailboxes Finance reads receipts from.",
     title: "Mailboxes",
     hint: "Bind an existing e-mail connection to finance. Mail that arrives in a bound mailbox goes only to finance, not to Support or any other module. Add mailboxes under Integrations.",
+    mailboxesManaged: "Mailboxes are added and checked under Integrations.",
+    openMailboxes: "Open mailboxes",
     none: "No e-mail connection yet. Connect a mailbox under Integrations first.",
     bind: "Bind to finance",
     unbind: "Unbind",
@@ -876,6 +878,9 @@ const de: typeof en = {
     tabDescription: "Aus welchen Postfächern Finance Belege liest.",
     title: "Postfächer",
     hint: "Binde eine bestehende E-Mail-Verbindung an Finanzen. E-Mails, die in einem gebundenen Postfach ankommen, gehen nur an Finanzen, nicht an Support oder ein anderes Modul. Postfächer legst du unter Integrationen an.",
+    mailboxesManaged:
+      "Postfächer werden unter Integrationen angelegt und geprüft.",
+    openMailboxes: "Postfächer öffnen",
     none: "Noch keine E-Mail-Verbindung. Verbinde zuerst ein Postfach unter Integrationen.",
     bind: "An Finanzen binden",
     unbind: "Lösen",

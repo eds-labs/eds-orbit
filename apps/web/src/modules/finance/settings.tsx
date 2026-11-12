@@ -9,6 +9,8 @@ import {
   Skeleton,
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
+import { AppLink } from "@/platform/ui/app-link";
 import type { SettingsSection } from "@/platform/shell/types";
 import { ResourceError } from "@/platform/ui/collection";
 import {
@@ -319,6 +321,19 @@ export function LoadState({
   return <>{children}</>;
 }
 
+/** Where the mailboxes listed below are added and checked. */
+export function MailboxesManagedNote({ t }: { t: FinanceText }) {
+  const shell = useShell();
+  return (
+    <p className="panel-note">
+      {t.mailboxes.mailboxesManaged}{" "}
+      <AppLink href={shell.connectionsHref()}>
+        {t.mailboxes.openMailboxes}
+      </AppLink>
+    </p>
+  );
+}
+
 function Mailboxes({ t }: { t: FinanceText }) {
   const { project } = useWorkspace();
   const { owner } = useFinanceAccess();
@@ -337,6 +352,7 @@ function Mailboxes({ t }: { t: FinanceText }) {
   const api = financeApi(project.id);
   return (
     <Panel title={t.mailboxes.title} hint={t.mailboxes.hint}>
+      <MailboxesManagedNote t={t} />
       {!owner ? (
         <p className="panel-note">{t.mailboxes.ownerOnlyList}</p>
       ) : (

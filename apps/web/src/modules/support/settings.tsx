@@ -359,6 +359,19 @@ function Inboxes({ t }: { t: SupportText }) {
   );
 }
 
+/** Where the mailboxes a member chooses from are added and checked. */
+export function MailboxesManagedNote({ t }: { t: SupportText }) {
+  const shell = useShell();
+  return (
+    <p className="panel-note">
+      {t.settings.mailboxesManaged}{" "}
+      <AppLink href={shell.connectionsHref()}>
+        {t.settings.openMailboxes}
+      </AppLink>
+    </p>
+  );
+}
+
 function InboxForm({
   t,
   inbox,
@@ -489,6 +502,7 @@ function InboxForm({
             </small>
           </label>
         )}
+        {form.email && <MailboxesManagedNote t={t} />}
         {form.widget && (
           <label>
             <span>{t.settings.origins}</span>
