@@ -1,17 +1,34 @@
 "use client";
 import Link from "next/link";
 import { useResource } from "@/lib/api";
-import { Button, Loading } from "@/components/ui/primitives";
+import { Alert, Button, Loading } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
 import { OrganizationManager } from "@/platform/administration/organization-manager";
 import type { OrganizationDetail } from "@/platform/administration/organization-manager";
 import { ConnectionsPanel } from "@/platform/administration/connections-ui";
-import { KnowledgeSharesPanel } from "@/platform/administration/ai-knowledge-ui";
-import { AiUsagePanel } from "@/platform/administration/ai-budget-ui";
+import {
+  AiProfileEditor,
+  KnowledgeSharesPanel,
+} from "@/platform/administration/ai-knowledge-ui";
+import { AiBudgetPanel, AiUsagePanel } from "@/platform/administration/ai-budget-ui";
+import { ModelPricesPanel } from "@/platform/administration/ai-catalog-ui";
+import { AiDefaultsPanel } from "@/platform/administration/ai-defaults-ui";
 import type { Locale } from "@/lib/i18n";
+import {
+  CATALOG_SECTION,
+  OrganizationCatalog,
+} from "../integrations/scopes";
+import { SETUP_SECTION, OrganizationSetup } from "../integrations/setup";
+import { OrganizationAffected } from "../ai/affected-projects";
+import { OrganizationAiProjectsSection } from "../ai/organization-projects";
+import { AI_SECTION_TEXT, aiText } from "../ai/texts";
 import { centerText } from "../texts";
-import type { ManageScope, ManagementSection, SectionProps } from "../types";
-import { AiLinkPanel } from "./ai-link";
+import {
+  flagsOf,
+  type ManageScope,
+  type ManagementSection,
+  type SectionProps,
+} from "../types";
 import { GrantsPanel, grantsPath } from "./grants-panel";
 
 // The organization scope mounts the components of /o/:id/settings; that page
@@ -34,7 +51,6 @@ export function organizationPaths(organizationId: string) {
     aiBase: `/organizations/${id}`,
     grants: grantsPath({ kind: "organization", organizationId }),
     agents: `/o/${id}/agents`,
-    aiSettings: `/o/${id}/settings`,
   };
 }
 
@@ -120,14 +136,60 @@ function ConnectionsSection({ scope, locale, identity }: SectionProps) {
   );
 }
 
+// The AI area mounts the panels of /o/:id/settings one per section, with the
+// same props as that page, so the forms behave the same in both places.
+
+function AiStandardSection({ scope, locale }: SectionProps) {
+  const base = pathsOf(scope).aiBase;
+  return (
+    <>
+      <OrganizationAffected organizationId={organizationIdOf(scope)} kind="profile" locale={locale} />
+      <AiDefaultsPanel
+        path={`${base}/ai/defaults`}
+        modelsPath={`${base}/ai/models`}
+        locale={locale}
+      />
+    </>
+  );
+}
+
+function AiModelsSection({ scope, locale, caps }: SectionProps) {
+  // While the catalog is off its prices apply to no project yet, so the
+  // affected notice would claim too much; catalogOff says when they will.
+  return (
+    <>
+      {flagsOf(caps).aiCatalog ? (
+        <OrganizationAffected organizationId={organizationIdOf(scope)} kind="catalog" locale={locale} />
+      ) : (
+        <Alert kind="info">{aiText(locale)("catalogOff")}</Alert>
+      )}
+      <ModelPricesPanel path={`${pathsOf(scope).aiBase}/ai/models`} locale={locale} />
+    </>
+  );
+}
+
+function AiBudgetSection({ scope, locale }: SectionProps) {
+  // The panel renders #assistant-budget itself and scrolls to it on that hash.
+  return <AiBudgetPanel base={pathsOf(scope).aiBase} locale={locale} />;
+}
+
 function UsageSection({ scope, locale }: SectionProps) {
   return (
     <AiUsagePanel base={pathsOf(scope).aiBase} locale={locale} />
   );
 }
 
-function AiSection({ scope, locale }: SectionProps) {
-  return <AiLinkPanel href={pathsOf(scope).aiSettings} locale={locale} />;
+function AiAdvancedSection({ scope, locale }: SectionProps) {
+  return (
+    <>
+      <OrganizationAffected organizationId={organizationIdOf(scope)} kind="profile" locale={locale} />
+      <AiProfileEditor
+        path={`${pathsOf(scope).aiBase}/ai/profile`}
+        locale={locale}
+        scopeLabel={locale === "de" ? "Organisation" : "Organization"}
+      />
+    </>
+  );
 }
 
 function KnowledgeSection({ scope, locale, identity }: SectionProps) {
@@ -175,6 +237,27 @@ export const organizationSections: readonly ManagementSection[] = [
     component: MembersSection,
   },
   {
+    id: "integrations",
+    scope: "organization",
+    area: "integrations",
+    // First, so the area's address opens the catalog.
+    order: -10,
+    capability: "organization.connections",
+    ...CATALOG_SECTION,
+    component: OrganizationCatalog,
+  },
+  {
+    id: "setup",
+    scope: "organization",
+    area: "integrations",
+    // After the catalog, before the panels it guides through.
+    order: -5,
+    capability: "organization.connections",
+    takesId: true,
+    ...SETUP_SECTION,
+    component: OrganizationSetup,
+  },
+  {
     id: "connections",
     scope: "organization",
     area: "integrations",
@@ -188,10 +271,41 @@ export const organizationSections: readonly ManagementSection[] = [
     component: ConnectionsSection,
   },
   {
-    id: "usage",
+    id: "standard",
     scope: "organization",
     area: "ai",
     order: 0,
+    capability: "organization.ai",
+    ...AI_SECTION_TEXT.standard,
+    component: AiStandardSection,
+  },
+  {
+    id: "models",
+    scope: "organization",
+    area: "ai",
+    order: 10,
+    capability: "organization.ai",
+    ...AI_SECTION_TEXT.models,
+    component: AiModelsSection,
+  },
+  {
+    id: "budget",
+    scope: "organization",
+    area: "ai",
+    order: 20,
+    capability: "organization.ai",
+    label: { en: "Budget", de: "Budget" },
+    description: {
+      en: "The organization's monthly AI budget, provider caps and the assistant's cap per member.",
+      de: "Das monatliche KI-Budget der Organisation, Anbieter-Obergrenzen und die Grenze des Assistenten je Mitglied.",
+    },
+    component: AiBudgetSection,
+  },
+  {
+    id: "usage",
+    scope: "organization",
+    area: "ai",
+    order: 30,
     capability: "organization.ai",
     label: { en: "AI usage", de: "KI-Nutzung" },
     description: {
@@ -201,17 +315,27 @@ export const organizationSections: readonly ManagementSection[] = [
     component: UsageSection,
   },
   {
-    id: "overview",
+    id: "projects",
     scope: "organization",
     area: "ai",
-    order: 10,
+    order: 40,
     capability: "organization.ai",
-    label: { en: "AI settings", de: "KI-Einstellungen" },
+    label: { en: "Projects", de: "Projekte" },
     description: {
-      en: "Defaults, budgets, models and profile of the organization's AI.",
-      de: "Standards, Budgets, Modelle und Profil der KI der Organisation.",
+      en: "Which projects follow the standard and which set their own.",
+      de: "Welche Projekte dem Standard folgen und welche eigene Einstellungen haben.",
     },
-    component: AiSection,
+    component: OrganizationAiProjectsSection,
+  },
+  {
+    id: "advanced",
+    scope: "organization",
+    area: "ai",
+    order: 50,
+    capability: "organization.ai",
+    advanced: true,
+    ...AI_SECTION_TEXT.advanced,
+    component: AiAdvancedSection,
   },
   {
     id: "shares",

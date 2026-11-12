@@ -218,20 +218,29 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
     await admin(req);
     return aiProfile({ scope: "system" });
   });
-  app.put("/api/admin/ai/profile", async (req) =>
-    saveAiProfile((await admin(req)).userId, { scope: "system" }, req.body),
-  );
+  // An editor sends the version it loaded; saves without one stay unchecked.
+  const expectedVersion = (req: FastifyRequest) =>
+    z
+      .object({ expectedVersion: z.coerce.number().int().min(0).optional() })
+      .strict()
+      .parse(req.query).expectedVersion;
+  app.put("/api/admin/ai/profile", async (req) => {
+    const actor = await admin(req);
+    return saveAiProfile(actor.userId, { scope: "system" }, req.body, expectedVersion(req));
+  });
   app.get("/api/organizations/:workspaceId/ai/profile", async (req) => {
     await owner(req);
     return aiProfile({ scope: "workspace", workspaceId: id(req, "workspaceId") });
   });
-  app.put("/api/organizations/:workspaceId/ai/profile", async (req) =>
-    saveAiProfile(
-      (await owner(req)).userId,
+  app.put("/api/organizations/:workspaceId/ai/profile", async (req) => {
+    const actor = await owner(req);
+    return saveAiProfile(
+      actor.userId,
       { scope: "workspace", workspaceId: id(req, "workspaceId") },
       req.body,
-    ),
-  );
+      expectedVersion(req),
+    );
+  });
   // "Modelle & Preise" (plans/ai-central-management.md, phase A): the
   // system's catalog overrides (administrators) and an organization's (owners).
   const modelId = (req: FastifyRequest) =>

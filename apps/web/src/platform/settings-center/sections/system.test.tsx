@@ -4,9 +4,10 @@ import {
   grantsAccess,
   needsAdministratorConfirmation,
 } from "@/platform/administration/organization-manager";
-import { resolveSection, validateSections, visibleSections } from "../registry";
+import { resolveSection, sectionPath, validateSections, visibleSections } from "../registry";
 import type { Identity } from "@/lib/api";
-import { adminLinkInCenter, SYSTEM_AI_SETTINGS_HREF, systemSections } from "./system";
+import type { ManagementCapabilities } from "../types";
+import { adminLinkInCenter, systemSections } from "./system";
 
 describe("system scope", () => {
   it("registers valid sections", () => {
@@ -22,7 +23,7 @@ describe("system scope", () => {
     const keys = visible.map((s) => `${s.area}/${s.id}`);
     expect(keys).toEqual(["overview/status", "users/users", "users/invitations"]);
     expect(keys).not.toContain("integrations/connections");
-    expect(keys).not.toContain("ai/overview");
+    expect(keys.some((k) => k.startsWith("ai/"))).toBe(false);
 
     const all = visibleSections(systemSections, "system", [
       "system.overview",
@@ -39,14 +40,37 @@ describe("system scope", () => {
       "users/invitations",
       "organizations/organizations",
       "organizations/projects",
+      "integrations/integrations",
+      "integrations/setup",
       "integrations/connections",
-      "ai/overview",
+      "ai/standard",
+      "ai/models",
+      "ai/advanced",
       "mcp/clients",
       "security/audit",
     ]);
   });
 
-  it("passes an id only to users and organizations", () => {
+  it("opens the area on the catalog and keeps the connections reachable", () => {
+    const list = visibleSections(systemSections, "system", ["system.connections"]);
+    const lead = resolveSection(list, "integrations", []);
+    expect(lead?.section.id).toBe("integrations");
+    expect(sectionPath(lead!.section)).toEqual(["integrations"]);
+    expect(resolveSection(list, "integrations", ["connections"])?.section.id).toBe("connections");
+    expect(list.find((s) => s.id === "integrations")?.label.en).toBe("All integrations");
+    // Without the capability there is no catalog either.
+    expect(visibleSections(systemSections, "system", ["system.users"]).some((s) => s.area === "integrations")).toBe(false);
+  });
+
+  it("opens a provider's setup by address and refuses an unknown one", () => {
+    const list = visibleSections(systemSections, "system", ["system.connections"]);
+    expect(resolveSection(list, "integrations", ["setup", "postiz"])).toMatchObject({ section: { id: "setup" }, id: "postiz" });
+    expect(resolveSection(list, "integrations", ["setup"])).toMatchObject({ section: { id: "setup" }, id: undefined });
+    expect(resolveSection(list, "integrations", ["setup", "postiz", "extra"])).toBeNull();
+    expect(list.find((s) => s.id === "setup")?.label).toEqual({ en: "Set up an integration", de: "Integration einrichten" });
+  });
+
+  it("passes an id only to users, organizations and the setup", () => {
     const all = visibleSections(systemSections, "system", [
       "system.overview",
       "system.users",
@@ -59,6 +83,7 @@ describe("system scope", () => {
     expect(all.filter((s) => s.takesId).map((s) => `${s.area}/${s.id}`)).toEqual([
       "users/users",
       "organizations/organizations",
+      "integrations/setup",
     ]);
     expect(resolveSection(all, "users", ["u1"])).toMatchObject({
       section: { id: "users" },
@@ -107,23 +132,38 @@ describe("system scope", () => {
 
   it("lets each mounted administration view keep its own page head", () => {
     const own = systemSections.filter((s) => s.ownHead).map((s) => `${s.area}/${s.id}`);
-    expect(own).not.toContain("ai/overview");
-    expect(own).toHaveLength(systemSections.length - 1);
+    // Nor have the AI panels; the frame shows each section's head.
+    for (const id of ["standard", "models", "advanced"]) expect(own).not.toContain(`ai/${id}`);
+    // The catalog has no page head of its own; the frame shows the section's.
+    expect(own).not.toContain("integrations/integrations");
+    // Nor has the guided setup; its step list sits under the section head.
+    expect(own).not.toContain("integrations/setup");
+    expect(own).toHaveLength(systemSections.length - 5);
   });
 
-  it("points AI settings to the current page, in both languages", () => {
-    expect(SYSTEM_AI_SETTINGS_HREF).toBe("/admin/ai");
-    const ai = systemSections.find((s) => s.area === "ai" && s.id === "overview")!;
-    const props = {
-      scope: { kind: "system" } as const,
-      identity: {} as Identity,
-      hrefOf: () => "",
-    };
-    const en = renderToStaticMarkup(<ai.component {...props} locale="en" />);
-    expect(en).toContain("AI standards, models and prices are still edited");
-    expect(en).toContain(`href="${SYSTEM_AI_SETTINGS_HREF}"`);
-    expect(en).toContain("Open AI settings");
-    const de = renderToStaticMarkup(<ai.component {...props} locale="de" />);
-    expect(de).toContain("KI-Einstellungen öffnen");
+  it("registers standard, models and advanced, and no link panel", () => {
+    const list = visibleSections(systemSections, "system", ["system.ai"]);
+    expect(list.map((s) => `${s.area}/${s.id}`)).toEqual(["ai/standard", "ai/models", "ai/advanced"]);
+    expect(list.filter((s) => s.advanced).map((s) => s.id)).toEqual(["advanced"]);
+    expect(resolveSection(list, "ai", [])?.section.id).toBe("standard");
+    expect(resolveSection(list, "ai", ["overview"])).toBeNull();
+    expect(list.find((s) => s.id === "models")?.label).toEqual({ en: "Models and prices", de: "Modelle und Preise" });
+  });
+
+  it("shows the catalog notice only while the catalog is off", () => {
+    const models = systemSections.find((s) => s.area === "ai" && s.id === "models")!;
+    const render = (aiCatalog: boolean, locale: "en" | "de" = "en") =>
+      renderToStaticMarkup(
+        <models.component
+          scope={{ kind: "system" }}
+          locale={locale}
+          identity={{} as Identity}
+          caps={{ flags: { connections: true, aiCatalog, aiDefaults: true, aiOrgBudget: true } } as ManagementCapabilities}
+          hrefOf={() => ""}
+        />,
+      );
+    expect(render(false)).toContain("The central price catalog is not switched on for this installation");
+    expect(render(false, "de")).toContain("Der zentrale Preiskatalog ist für diese Installation nicht eingeschaltet");
+    expect(render(true)).not.toContain("price catalog is not switched on");
   });
 });

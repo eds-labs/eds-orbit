@@ -15,9 +15,20 @@ import { McpAdmin } from "@/platform/administration/admin-mcp";
 import { OrganizationManager } from "@/platform/administration/organization-manager";
 import { PageHead } from "@/platform/ui/collection";
 import { manageHref } from "../routes";
+import {
+  CATALOG_SECTION,
+  SystemCatalog,
+} from "../integrations/scopes";
+import { SETUP_SECTION, SystemSetup } from "../integrations/setup";
+import { Alert } from "@/components/ui/primitives";
+import { AiProfileEditor } from "@/platform/administration/ai-knowledge-ui";
+import { ModelPricesPanel } from "@/platform/administration/ai-catalog-ui";
+import { AiDefaultsPanel } from "@/platform/administration/ai-defaults-ui";
+import { SystemAffected } from "../ai/affected-projects";
+import { aiPaths } from "../ai/paths";
+import { AI_SECTION_TEXT, aiText } from "../ai/texts";
 import { centerText } from "../texts";
-import type { ManagementSection, SectionProps } from "../types";
-import { AiLinkPanel } from "./ai-link";
+import { flagsOf, type ManagementSection, type SectionProps } from "../types";
 
 // The system scope (system administrators) mounts the existing administration
 // components; /admin keeps rendering the same components unchanged. Overview
@@ -94,11 +105,50 @@ function ConnectionsSection({ locale }: SectionProps) {
   return <Integrations locale={locale} />;
 }
 
-/** The page where the system's AI settings are still edited. */
-export const SYSTEM_AI_SETTINGS_HREF = adminHref("ai");
+// The AI area mounts the panels of /admin/ai one per section, with the same
+// props as that page, so the forms behave the same in both places.
+const SYSTEM_AI = aiPaths(SYSTEM);
 
-function AiSection({ locale }: SectionProps) {
-  return <AiLinkPanel href={SYSTEM_AI_SETTINGS_HREF} locale={locale} />;
+function AiStandardSection({ locale, caps }: SectionProps) {
+  // While standard models are off the runtime skips them; the advanced
+  // profile still fills open values, so only this notice changes.
+  return (
+    <>
+      <SystemAffected
+        kind="profile"
+        standardApplies={flagsOf(caps).aiDefaults}
+        locale={locale}
+      />
+      <AiDefaultsPanel
+        path={SYSTEM_AI.defaults!}
+        modelsPath={SYSTEM_AI.models!}
+        locale={locale}
+      />
+    </>
+  );
+}
+
+function AiModelsSection({ locale, caps }: SectionProps) {
+  return (
+    <>
+      {/* While the catalog is off its prices apply to no project yet. */}
+      {flagsOf(caps).aiCatalog ? (
+        <SystemAffected kind="catalog" locale={locale} />
+      ) : (
+        <Alert kind="info">{aiText(locale)("catalogOff")}</Alert>
+      )}
+      <ModelPricesPanel path={SYSTEM_AI.models!} locale={locale} />
+    </>
+  );
+}
+
+function AiAdvancedSection({ locale }: SectionProps) {
+  return (
+    <>
+      <SystemAffected kind="profile" locale={locale} />
+      <AiProfileEditor path={SYSTEM_AI.profile!} locale={locale} scopeLabel="System" />
+    </>
+  );
 }
 
 function McpSection({ locale }: SectionProps) {
@@ -179,6 +229,27 @@ export const systemSections: readonly ManagementSection[] = [
     component: ProjectsSection,
   },
   {
+    id: "integrations",
+    scope: "system",
+    area: "integrations",
+    // First, so the area's address opens the catalog.
+    order: -10,
+    capability: "system.connections",
+    ...CATALOG_SECTION,
+    component: SystemCatalog,
+  },
+  {
+    id: "setup",
+    scope: "system",
+    area: "integrations",
+    // After the catalog, before the panels it guides through.
+    order: -5,
+    capability: "system.connections",
+    takesId: true,
+    ...SETUP_SECTION,
+    component: SystemSetup,
+  },
+  {
     id: "connections",
     scope: "system",
     area: "integrations",
@@ -193,17 +264,32 @@ export const systemSections: readonly ManagementSection[] = [
     component: ConnectionsSection,
   },
   {
-    id: "overview",
+    id: "standard",
     scope: "system",
     area: "ai",
     order: 0,
     capability: "system.ai",
-    label: { en: "AI & knowledge", de: "KI & Wissen" },
-    description: {
-      en: "System-wide AI defaults, models and prices.",
-      de: "Systemweite KI-Standards, Modelle und Preise.",
-    },
-    component: AiSection,
+    ...AI_SECTION_TEXT.standard,
+    component: AiStandardSection,
+  },
+  {
+    id: "models",
+    scope: "system",
+    area: "ai",
+    order: 10,
+    capability: "system.ai",
+    ...AI_SECTION_TEXT.models,
+    component: AiModelsSection,
+  },
+  {
+    id: "advanced",
+    scope: "system",
+    area: "ai",
+    order: 20,
+    capability: "system.ai",
+    advanced: true,
+    ...AI_SECTION_TEXT.advanced,
+    component: AiAdvancedSection,
   },
   {
     id: "clients",

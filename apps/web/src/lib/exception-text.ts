@@ -269,6 +269,134 @@ const entries: Record<string, Entry> = {
     },
     href: OPERATIONS_HREF,
   },
+  CREATIVE_AUTHORITY_OFF: {
+    en: {
+      title: "Creative post waits for your release",
+      cause:
+        "The review agent approved the post, but its approval does not cover a post with a Creative Studio image while the creative switch is off.",
+      action:
+        "Release the post yourself, or turn on ORBIT_AGENT_REVIEW_CREATIVES (the switch is off) so a passed vision review can stand in for you.",
+    },
+    de: {
+      title: "Creative-Post wartet auf deine Freigabe",
+      cause:
+        "Der Prüf-Agent hat den Post freigegeben, aber seine Freigabe gilt für einen Post mit Creative-Studio-Bild nicht, solange der Creative-Schalter aus ist.",
+      action:
+        "Den Post selbst freigeben, oder den Schalter ORBIT_AGENT_REVIEW_CREATIVES einschalten (er ist aus), damit eine bestandene Bildprüfung deine Freigabe ersetzen kann.",
+    },
+  },
+  CREATIVE_NOT_FOUND: {
+    en: {
+      title: "Creative of the post not found",
+      cause:
+        "The post names a creative that does not exist in this project, so the agent's approval cannot cover its image.",
+      action:
+        "Check the post's image and release it yourself, or compose the creative again.",
+    },
+    de: {
+      title: "Creative des Posts nicht gefunden",
+      cause:
+        "Der Post nennt ein Creative, das es in diesem Projekt nicht gibt; die Freigabe des Agenten kann sein Bild deshalb nicht abdecken.",
+      action:
+        "Bild des Posts prüfen und selbst freigeben, oder das Creative neu erstellen.",
+    },
+  },
+  CREATIVE_NOT_USABLE: {
+    en: {
+      title: "Creative cannot be used",
+      cause:
+        "The creative was replaced or is waiting for usage rights, so the agent's approval cannot cover it.",
+      action:
+        "Resolve the rights or compose a new creative, or release the post yourself.",
+    },
+    de: {
+      title: "Creative nicht nutzbar",
+      cause:
+        "Das Creative wurde ersetzt oder wartet auf Nutzungsrechte; die Freigabe des Agenten kann es deshalb nicht abdecken.",
+      action:
+        "Rechte klären oder ein neues Creative erstellen, oder den Post selbst freigeben.",
+    },
+  },
+  CREATIVE_RENDITION_NOT_ON_POST: {
+    en: {
+      title: "Post image is not a creative rendition",
+      cause:
+        "The image on the post is not one of the creative's renditions (for example the raw art), so the agent's approval cannot cover it.",
+      action:
+        "Attach the creative's rendition to the post, or release the post yourself.",
+    },
+    de: {
+      title: "Post-Bild ist keine Creative-Variante",
+      cause:
+        "Das Bild am Post ist keine Variante des Creatives (zum Beispiel das rohe Bild); die Freigabe des Agenten kann es deshalb nicht abdecken.",
+      action:
+        "Die Variante des Creatives am Post anhängen, oder den Post selbst freigeben.",
+    },
+  },
+  CREATIVE_VISION_REVIEW_REQUIRED: {
+    en: {
+      title: "No vision review for this creative",
+      cause:
+        "No vision review judged the creative, so the agent's approval cannot stand in for yours.",
+      action:
+        "Turn on the vision review in the brand kit and let the post run again, or release the post yourself.",
+    },
+    de: {
+      title: "Bildprüfung für dieses Creative nicht erfolgt",
+      cause:
+        "Keine Bildprüfung hat das Creative beurteilt; die Freigabe des Agenten kann deine deshalb nicht ersetzen.",
+      action:
+        "Bildprüfung im Brand Kit einschalten und den Post erneut laufen lassen, oder den Post selbst freigeben.",
+    },
+  },
+  CREATIVE_VISION_NOT_PASSED: {
+    en: {
+      title: "Vision review did not pass",
+      cause:
+        "The vision review found the creative below the pass mark, so the agent's approval cannot stand in for yours.",
+      action:
+        "Check the creative and release the post yourself, or correct the creative and review it again.",
+    },
+    de: {
+      title: "Bildprüfung nicht bestanden",
+      cause:
+        "Die Bildprüfung hat das Creative unter der Bestehensgrenze bewertet; die Freigabe des Agenten kann deine deshalb nicht ersetzen.",
+      action:
+        "Creative ansehen und den Post selbst freigeben, oder das Creative korrigieren und erneut prüfen lassen.",
+    },
+  },
+  CREATIVE_RENDITION_NOT_REVIEWED: {
+    en: {
+      title: "Post image changed after the vision review",
+      cause:
+        "The image on the post is not the exact one the vision review judged (the creative was composed again).",
+      action:
+        "Run the vision review again for the new image, or release the post yourself.",
+    },
+    de: {
+      title: "Post-Bild nach der Bildprüfung geändert",
+      cause:
+        "Das Bild am Post ist nicht genau das, das die Bildprüfung beurteilt hat (das Creative wurde neu erstellt).",
+      action:
+        "Bildprüfung für das neue Bild erneut laufen lassen, oder den Post selbst freigeben.",
+    },
+  },
+  CREATIVE_QA_NEEDS_OWNER: {
+    en: {
+      title: "Creative check left a finding for you",
+      cause:
+        "The automatic creative check found something only you can decide, so the agent's approval cannot stand in for yours.",
+      action:
+        "Open the creative, resolve the finding and release the post.",
+    },
+    de: {
+      title: "Creative-Prüfung hat einen Befund für dich",
+      cause:
+        "Die automatische Creative-Prüfung hat etwas gefunden, das nur du entscheiden kannst; die Freigabe des Agenten kann deine deshalb nicht ersetzen.",
+      action:
+        "Creative öffnen, den Befund klären und den Post freigeben.",
+    },
+  },
 };
 
 /** Outcomes Orbit cannot confirm: never repeated automatically. */

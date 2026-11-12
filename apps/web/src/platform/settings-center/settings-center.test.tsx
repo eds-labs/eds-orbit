@@ -47,6 +47,7 @@ const all = [
 ];
 const caps: ManagementCapabilities = {
   stage: "on",
+  flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: ["system.overview", "system.users", "system.mcp"],
   account: [],
   organizations: [],

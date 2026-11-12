@@ -591,6 +591,46 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/management/integrations/catalog": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/management/organizations/{workspaceId}/ai/projects": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/management/organizations/{workspaceId}/integrations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/management/projects/{projectId}/ai/effective": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/management/projects/{projectId}/integrations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/mcp-connect/request": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",

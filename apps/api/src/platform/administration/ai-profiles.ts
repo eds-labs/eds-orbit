@@ -1,5 +1,6 @@
 import { authDb, type Prisma } from "../../../../../packages/db/src/index.ts";
 import { aiProfileInput } from "../ai/central-ai.ts";
+import { DomainError } from "../shared.ts";
 import { systemAudit } from "./audit.ts";
 
 // The system's and an organization's AI profile (ADR 0014): models, rate
@@ -24,27 +25,46 @@ export async function aiProfile(target: Target) {
   };
 }
 
+/**
+ * Saves the whole profile. With `expectedVersion` (an editor's loaded copy)
+ * the save is refused when the stored version moved on, so a form never
+ * writes an old copy back over a newer standard (settings center phase 4).
+ */
 export async function saveAiProfile(
   actorId: string,
   target: Target,
   raw: unknown,
+  expectedVersion?: number,
 ) {
   const data = aiProfileInput.parse(raw) as Prisma.InputJsonValue;
+  const conflict = () => new DomainError("AI_PROFILE_VERSION_CONFLICT", 409);
   return authDb.$transaction(async (tx) => {
     const current = await tx.aiProfile.findFirst({ where: where(target) });
-    const saved = current
-      ? await tx.aiProfile.update({
-          where: { id: current.id },
-          data: {
-            data,
-            version: { increment: 1 },
-            updatedBy: actorId,
-            updatedAt: new Date(),
-          },
-        })
-      : await tx.aiProfile.create({
-          data: { ...where(target), data, updatedBy: actorId },
-        });
+    if (!current && expectedVersion !== undefined && expectedVersion !== 0)
+      throw conflict();
+    const changes = {
+      data,
+      version: { increment: 1 },
+      updatedBy: actorId,
+      updatedAt: new Date(),
+    };
+    let saved;
+    if (!current)
+      saved = await tx.aiProfile.create({
+        data: { ...where(target), data, updatedBy: actorId },
+      });
+    else if (expectedVersion === undefined)
+      saved = await tx.aiProfile.update({ where: { id: current.id }, data: changes });
+    else {
+      // One conditional write: a concurrent save between the read above and
+      // this update leaves the version changed and the count at 0.
+      const { count } = await tx.aiProfile.updateMany({
+        where: { id: current.id, version: expectedVersion },
+        data: changes,
+      });
+      if (count === 0) throw conflict();
+      saved = await tx.aiProfile.findUniqueOrThrow({ where: { id: current.id } });
+    }
     await systemAudit(
       {
         actorId,

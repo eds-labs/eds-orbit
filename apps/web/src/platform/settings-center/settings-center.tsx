@@ -135,6 +135,7 @@ export function SettingsCenterView({
         id,
         locale,
         identity,
+        caps,
         hrefOf: (area, ...rest) => manageHref(scope, area, ...rest),
       });
       return (

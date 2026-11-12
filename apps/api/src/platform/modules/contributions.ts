@@ -38,6 +38,12 @@ import type {
   ConnectionProvider,
   ConnectionsContribution,
 } from "../connections/connections.ts";
+import {
+  INTEGRATION_AUTH_TYPES,
+  INTEGRATION_CATEGORIES,
+  type IntegrationDescriptor,
+  type ProjectIntegrationsContribution,
+} from "../connections/integrations.ts";
 import type {
   NotificationContribution,
   NotificationRender,
@@ -108,6 +114,10 @@ export type ModuleContributions = {
   notifications?: NotificationContribution;
   /** Connection providers: form fields, normalization, check (WP2.5c). */
   connections?: ConnectionsContribution;
+  /** Integrations outside the provider registry, for the Integrations Center. */
+  integrations?: readonly IntegrationDescriptor[];
+  /** The module's project-level integration records, for the Integrations Center. */
+  projectIntegrations?: ProjectIntegrationsContribution;
   /** Sections of the project configuration the module owns, by id. */
   configurationSections?: ConfigurationContribution;
   /**
@@ -340,6 +350,8 @@ export type DirectWebhookProvider = {
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
 const CALLBACK_PREFIX = /^[a-z]{1,16}$/;
+// An integration descriptor id, which is also its catalog id.
+const INTEGRATION_ID = /^[a-z][a-z0-9_.]{1,63}$/;
 // A notification kind, as the job key `notify:<kind>:<ref>` carries it.
 const NOTIFY_KIND = /^[a-z_]{1,40}$/;
 
@@ -364,6 +376,8 @@ type Registered = {
     string,
     ConnectionProvider & { owner: string }
   >;
+  integrationDescriptors: readonly (IntegrationDescriptor & { owner: string })[];
+  projectIntegrations: readonly [string, ProjectIntegrationsContribution][];
   actionPermissions: ReadonlyMap<string, PermissionDef>;
   webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
   emailInbound: readonly {
@@ -432,6 +446,8 @@ export function registerContributions(
     string,
     { owner: string; render: NotificationRender }
   >();
+  const integrationDescriptors: (IntegrationDescriptor & { owner: string })[] = [];
+  const projectIntegrations: [string, ProjectIntegrationsContribution][] = [];
   const connectionProviders = new Map<
     string,
     ConnectionProvider & { owner: string }
@@ -473,8 +489,25 @@ export function registerContributions(
     )) {
       if (connectionProviders.has(id))
         problems.push(`connection provider ${id} registered twice`);
+      if (provider.category && !INTEGRATION_CATEGORIES.includes(provider.category))
+        problems.push(`connection provider ${id} has unknown category ${provider.category}`);
+      if (provider.authType && !INTEGRATION_AUTH_TYPES.includes(provider.authType))
+        problems.push(`connection provider ${id} has unknown auth type ${provider.authType}`);
       connectionProviders.set(id, { ...provider, owner });
     }
+    for (const d of c.integrations ?? []) {
+      if (!INTEGRATION_ID.test(d.id))
+        problems.push(`invalid integration id ${d.id}`);
+      if (integrationDescriptors.some((x) => x.id === d.id))
+        problems.push(`integration ${d.id} registered twice`);
+      if (!INTEGRATION_CATEGORIES.includes(d.category))
+        problems.push(`integration ${d.id} has unknown category ${d.category}`);
+      if (!INTEGRATION_AUTH_TYPES.includes(d.authType))
+        problems.push(`integration ${d.id} has unknown auth type ${d.authType}`);
+      integrationDescriptors.push({ ...d, owner });
+    }
+    if (c.projectIntegrations && owner !== "platform")
+      projectIntegrations.push([owner, c.projectIntegrations]);
     for (const [name, handler] of Object.entries(c.actions ?? {})) {
       if (actions.has(name)) problems.push(`action ${name} registered twice`);
       actions.set(name, handler);
@@ -708,6 +741,10 @@ export function registerContributions(
         }
       signals.push({ ...def, owner });
     }
+  // A descriptor shares the catalog id space with the providers.
+  for (const d of integrationDescriptors)
+    if (connectionProviders.has(d.id))
+      problems.push(`integration ${d.id} is also a connection provider`);
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -722,6 +759,8 @@ export function registerContributions(
     telegramCallbacks,
     notifications,
     connectionProviders,
+    integrationDescriptors,
+    projectIntegrations,
     actionPermissions,
     webhooks,
     emailInbound,
@@ -1198,4 +1237,12 @@ export function registeredConnectionProvider(id: string) {
 /** Every connection provider id: platform first, then registry order. */
 export function registeredConnectionProviderIds(): string[] {
   return [...current().connectionProviders.keys()];
+}
+/** Every integration descriptor with its owner: platform first, then registry order. */
+export function registeredIntegrationDescriptors(): Array<IntegrationDescriptor & { owner: string }> {
+  return [...current().integrationDescriptors];
+}
+/** The modules' project integration listings, in registry order. */
+export function registeredProjectIntegrations(): Array<[string, ProjectIntegrationsContribution]> {
+  return [...current().projectIntegrations];
 }

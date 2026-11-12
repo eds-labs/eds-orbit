@@ -179,6 +179,31 @@ function defaultImageModel(l: Layer) {
   ).data;
 }
 
+export type CentralLayers = {
+  system: Partial<OpenAiRuntimeConfig> | null;
+  organization: Partial<OpenAiRuntimeConfig> | null;
+  standardImageModel: string | undefined;
+};
+
+/** The central layers a project's runtime merges, without keys; null while none applies. */
+export async function centralLayers(
+  tx: DbTx,
+  scope: Scope,
+): Promise<CentralLayers | null> {
+  const l = await layer(tx, scope);
+  if (!l) return null;
+  // The same runtime fields withCentralAi merges, standard models applied.
+  return {
+    system: l.profiles.system
+      ? (profileFields(l.profiles.system) as Partial<OpenAiRuntimeConfig>)
+      : null,
+    organization: l.profiles.workspace
+      ? (profileFields(l.profiles.workspace) as Partial<OpenAiRuntimeConfig>)
+      : null,
+    standardImageModel: defaultImageModel(l),
+  };
+}
+
 /**
  * A project that uses the organization's standard (phase B) adds to it
  * instead of replacing it: its own task routes are per-task deviations,

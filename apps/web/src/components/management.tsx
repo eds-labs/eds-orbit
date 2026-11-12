@@ -80,7 +80,14 @@ import {
 } from "@/platform/ui/collection";
 import { capabilityLabel, liveBlockerText } from "@/lib/capability-text";
 /** `embedded`: inside the settings center, whose frame shows the section head. */
-export function Connectors({ embedded = false }: { embedded?: boolean } = {}) {
+export function Connectors({
+  embedded = false,
+  groupMailboxes = false,
+}: {
+  embedded?: boolean;
+  /** The center lists mailboxes grouped by mail server; the old page stays flat. */
+  groupMailboxes?: boolean;
+} = {}) {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const resource = useCollection("connectors");
   const [configure, setConfigure] = useState<string | null>(null);
@@ -184,7 +191,7 @@ export function Connectors({ embedded = false }: { embedded?: boolean } = {}) {
           })}
           <GrantedConnections connectors={resource.data?.items ?? []} />
           <TelegramConnection />
-          <EmailConnection />
+          <EmailConnection groupByServer={groupMailboxes} />
           <CustomerContextConnection />
           {extras.map((Extra, index) => (
             <Extra key={index} />

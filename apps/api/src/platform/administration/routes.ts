@@ -43,6 +43,7 @@ import {
   viewInvitation,
 } from "./invitations.ts";
 import { createOrganization, renameOrganization } from "./organizations.ts";
+import { environmentStatus } from "./environment-status.ts";
 import {
   listAllMcpGrants,
   listMcpClients,
@@ -71,7 +72,11 @@ export function isAdministrationRoute(url: string) {
 
 type Deps = {
   /** Worker and queue state for the dashboard (modules/runtime.ts). */
-  runtimeHealth: () => Promise<{ worker: string; lastHeartbeat: string | null }>;
+  runtimeHealth: () => Promise<{
+    redis: "ok" | "unreachable";
+    worker: string;
+    lastHeartbeat: string | null;
+  }>;
 };
 
 const param = (req: FastifyRequest, name: string) =>
@@ -126,6 +131,7 @@ export function registerAdministrationRoutes(
         lastHeartbeat: runtime.lastHeartbeat,
         systemMail: systemMailConfigured() ? "configured" : "missing",
         version: process.env.ORBIT_VERSION ?? process.env.npm_package_version ?? null,
+        environment: environmentStatus({ redisReachable: runtime.redis === "ok" }),
       },
     };
   });

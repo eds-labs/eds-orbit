@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   aiBudgetText,
   BudgetLevelBlocks,
+  budgetPayload,
   originText,
   usageProjectRows,
   type BudgetLevels,
@@ -152,5 +153,19 @@ describe("usage by project", () => {
       "FamilyPlan",
     ]);
     expect(rows[0]).toMatchObject({ spentMicros: 300, unknownMicros: 50 });
+  });
+});
+
+describe("the budget form's payload (settings center phase 4, risk 8)", () => {
+  // Characterization: `PUT …/ai/budget` replaces all four parts, so the form
+  // must keep sending every one of them, empty ones included.
+  it("sends every part the budget PUT replaces", () => {
+    const values = { monthly: "", assistant: "", "cap-openai": "", "credit-openai": "" };
+    expect(Object.keys(budgetPayload(values, {}, "2026-11-11T12:00:00.000Z")).sort()).toEqual([
+      "assistantPerUserMonthlyMicros",
+      "credits",
+      "monthlyMicros",
+      "providerCaps",
+    ]);
   });
 });

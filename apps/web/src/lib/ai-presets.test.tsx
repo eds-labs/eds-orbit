@@ -4,6 +4,7 @@ import {
   presetName,
   shownAiTasks,
   taskRoutesFrom,
+  withStoredOption,
 } from "./ai-presets";
 import { budgetRefusalText } from "./budget-refusals";
 
@@ -37,6 +38,45 @@ describe("taskRoutesFrom", () => {
     expect(taskRoutesFrom({ "task-finance_extraction": "gpt-6-luna" })).toEqual({
       finance_extraction: { model: "gpt-6-luna", maxOutputTokens: 4000 },
     });
+  });
+});
+
+// F-8 risk 3: a form saves only the routes it shows.
+describe("taskRoutesFrom without a field", () => {
+  it("keeps the route of a task the form shows no field for", () => {
+    const current = { creative_review: { model: "m1", maxOutputTokens: 1500 } };
+    expect(taskRoutesFrom({ "task-chat_operator": "m2" }, current)).toEqual({
+      creative_review: current.creative_review,
+      chat_operator: { model: "m2", maxOutputTokens: 3000 },
+    });
+    expect(taskRoutesFrom({ "task-creative_review": "" }, current)).toEqual({}); // shown and cleared
+  });
+
+  it("keeps the stored route of a task class the web list does not know", () => {
+    const current = {
+      future_task: { model: "m9", maxOutputTokens: 700 },
+      chat_operator: { model: "m1", maxOutputTokens: 3000 },
+    };
+    expect(taskRoutesFrom({ "task-chat_operator": "" }, current)).toEqual({
+      future_task: current.future_task,
+    });
+  });
+});
+
+// A stored value that is no longer offered stays selectable, so an untouched
+// save keeps it instead of falling back to the first option.
+describe("withStoredOption", () => {
+  const options = [
+    { value: "", label: "None" },
+    { value: "a", label: "A" },
+  ];
+  it("appends a stored value that is not among the options", () => {
+    expect(withStoredOption(options, "old")).toEqual([...options, { value: "old", label: "old" }]);
+  });
+  it("leaves the options alone for an offered or empty value", () => {
+    expect(withStoredOption(options, "a")).toEqual(options);
+    expect(withStoredOption(options, "")).toEqual(options);
+    expect(withStoredOption(options, undefined)).toEqual(options);
   });
 });
 

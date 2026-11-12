@@ -14,12 +14,13 @@ import {
   taskName,
   taskRoutesFrom,
   tiersText,
+  withStoredOption,
   type AiDefaults,
   type Presets,
 } from "@/lib/ai-presets";
 import { Alert, Badge, Button, Loading, Modal } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import { DataForm, str, type FormField, type FormValues } from "@/platform/ui/form";
 
 // "Standard-Modelle" (plans/ai-central-management.md, phase B): the
 // organization's (owners) or the system's (administrators) provider and
@@ -114,9 +115,13 @@ export function AiDefaultsPanel({
           <p>{t.intro}</p>
         </div>
         <div className="page-actions">
-          <Button variant="outline" onClick={() => setEditing(true)}>
-            {current ? t.change : t.set}
-          </Button>
+          {/* The form's options come from the models list: without it every
+              stored model would be dropped by a save (review I4). */}
+          {models.data && (
+            <Button variant="outline" onClick={() => setEditing(true)}>
+              {current ? t.change : t.set}
+            </Button>
+          )}
           {current && (
             <Button
               variant="outline"
@@ -129,6 +134,12 @@ export function AiDefaultsPanel({
         </div>
       </div>
       {!view.data.enabled && <Alert kind="warning">{t.off}</Alert>}
+      {!models.data &&
+        (models.loading ? (
+          <Loading />
+        ) : (
+          <ResourceError error={models.error} retry={models.refresh} />
+        ))}
       {clear.error && <Alert kind="error">{aiErrorText(clear.error, locale)}</Alert>}
       {current ? (
         <div className="capability-readiness">
@@ -163,12 +174,12 @@ export function AiDefaultsPanel({
       ) : (
         <p className="panel-note">{t.none}</p>
       )}
-      {editing && (
+      {editing && models.data && (
         <DefaultsForm
           path={path}
           locale={locale}
           view={view.data}
-          catalog={models.data?.models ?? []}
+          catalog={models.data.models}
           onClose={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -180,29 +191,38 @@ export function AiDefaultsPanel({
   );
 }
 
-function DefaultsForm({
-  path,
-  locale,
-  view,
-  catalog,
-  onClose,
-  onSaved,
-}: {
-  path: string;
-  locale: Locale;
-  view: DefaultsView;
-  catalog: CatalogRow[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+/** The standard the form saves, from its values and the saved standard. */
+export function defaultsPayload(
+  values: FormValues,
+  current: AiDefaults | null,
+): AiDefaults {
+  const image = str(values, "imageModel");
+  return {
+    provider: str(values, "provider") as AiDefaults["provider"],
+    level: str(values, "level") as AiDefaults["level"],
+    ...(image ? { imageModel: image } : {}),
+    // Hidden task fields arrive empty and drop their routes; a task without
+    // a field keeps its route (F-8 risk 3).
+    taskRoutes: taskRoutesFrom(values, current?.taskRoutes),
+  };
+}
+
+/**
+ * The standard form's fields. Options are the active catalog models; a
+ * stored model that is no longer active stays selected (review I4).
+ */
+export function defaultsFields(
+  view: DefaultsView,
+  catalog: CatalogRow[],
+  locale: Locale,
+  features?: Record<string, boolean>,
+): FormField[] {
   const t = text[locale === "de" ? "de" : "en"];
-  const features = useContext(ShellContext)?.features;
-  const mutation = useMutation(onSaved);
   const current = view.defaults;
   const active = catalog.filter((m) => m.active);
   const option = (m: CatalogRow) => ({ value: m.id, label: `${m.displayName} · ${m.id}` });
   const textModels = active.filter((m) => m.purpose === "text").map(option);
-  const fields: FormField[] = [
+  return [
     {
       name: "provider",
       label: t.provider,
@@ -231,10 +251,13 @@ function DefaultsForm({
       label: t.image,
       type: "select",
       value: current?.imageModel ?? "",
-      options: [
-        { value: "", label: t.noImage },
-        ...active.filter((m) => m.purpose === "image").map(option),
-      ],
+      options: withStoredOption(
+        [
+          { value: "", label: t.noImage },
+          ...active.filter((m) => m.purpose === "image").map(option),
+        ],
+        current?.imageModel,
+      ),
     },
     {
       name: "advanced",
@@ -252,11 +275,36 @@ function DefaultsForm({
         label: taskName(task, locale),
         type: "select",
         value: current?.taskRoutes[task.id]?.model ?? "",
-        options: [{ value: "", label: t.levelTask }, ...textModels],
+        options: withStoredOption(
+          [{ value: "", label: t.levelTask }, ...textModels],
+          current?.taskRoutes[task.id]?.model,
+        ),
         showWhen: { name: "advanced", values: ["yes"] },
       }),
     ),
   ];
+}
+
+function DefaultsForm({
+  path,
+  locale,
+  view,
+  catalog,
+  onClose,
+  onSaved,
+}: {
+  path: string;
+  locale: Locale;
+  view: DefaultsView;
+  catalog: CatalogRow[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const t = text[locale === "de" ? "de" : "en"];
+  const features = useContext(ShellContext)?.features;
+  const mutation = useMutation(onSaved);
+  const current = view.defaults;
+  const fields = defaultsFields(view, catalog, locale, features);
   return (
     <Modal title={t.title} onClose={onClose}>
       <DataForm
@@ -266,18 +314,7 @@ function DefaultsForm({
         submitLabel={t.save}
         onCancel={onClose}
         onSubmit={(values) =>
-          mutation.run(() => {
-            const image = str(values, "imageModel");
-            return put(path, {
-              provider: str(values, "provider"),
-              level: str(values, "level"),
-              ...(image ? { imageModel: image } : {}),
-              taskRoutes:
-                str(values, "advanced") === "yes"
-                  ? taskRoutesFrom(values, current?.taskRoutes)
-                  : {},
-            });
-          })
+          mutation.run(() => put(path, defaultsPayload(values, current)))
         }
       />
     </Modal>

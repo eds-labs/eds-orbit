@@ -21,6 +21,7 @@
     "test": "vitest run",
     "eval:generation": "vitest run --config evals/generation/vitest.eval.config.ts",
     "eval:agent-review": "vitest run --config evals/agents/vitest.eval.config.ts",
+    "eval:creative-vision": "vitest run --config evals/creative/vitest.eval.config.ts",
     "eval:support": "vitest run --config evals/support/vitest.eval.config.ts",
     "eval:work-pm": "vitest run --config evals/work-pm/vitest.eval.config.ts",
     "test:coolify-compose": "node scripts/check-coolify-compose.mjs && node scripts/check-pve-compose.mjs",

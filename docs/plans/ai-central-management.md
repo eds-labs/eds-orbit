@@ -1,6 +1,6 @@
 # Central AI management: prices, models and budgets in one place
 
-Status: **phases A and B live, phase C implemented locally** (2026-10-25). Decisions D-1, D-3, D-4, D-5 and D-6 were taken by Mario on 2026-10-25 (section 6). Requested by Mario after the phase 3 rollout: *"Prices should be maintained once per organization instead of as JSON per project. AI is still confusing for new users; billing and budgets must be simpler and centrally managed."* Builds on ADR 0014 (central connections, AI profiles) and ADR 0015 (AI spending authority). Every decision marked **D-n** below is open.
+Status: **phases A and B live, phase C implemented locally** (2026-10-25). **Phase D is replaced by System & Administration V2 phase 4** ([SYSTEM_MANAGEMENT_V2.md](SYSTEM_MANAGEMENT_V2.md) §9; delivered to `main` on 2026-11-12 with the flag `off`). **Phase E is unchanged and open** (separate approval). Decisions D-1, D-3, D-4, D-5 and D-6 were taken by Mario on 2026-10-25 (section 6). Requested by Mario after the phase 3 rollout: *"Prices should be maintained once per organization instead of as JSON per project. AI is still confusing for new users; billing and budgets must be simpler and centrally managed."* Builds on ADR 0014 (central connections, AI profiles) and ADR 0015 (AI spending authority). Every decision marked **D-n** below is open.
 
 ## 1. Where we are (production, 2026-10-25)
 
@@ -143,7 +143,7 @@ The `reserve` order stays the same: authority → module → provider → grant/
 | **A: price catalog** (quick win) | OpenAI and Anthropic catalog in code, image and embedding models included; admin and org "Modelle & Preise" table with forms; projects fall back to the catalog when their rate card lacks a model; the image price comes from the catalog | No more JSON; images work by switching them on; the current FamilyPlan blocker disappears |
 | **B: organization defaults** | Org-level "Standard-Modelle" with presets; project page "use defaults / deviate per task"; one guided first-setup flow (key → model preset → budget) | New projects need two clicks, not ten fields |
 | **C: central budget** | Org monthly budget and provider caps; project monthly budget with derived day and run limits; one explanation of every refusal; org "Verbrauch" overview with unclear outcomes | One budget to understand per level; spend visible across projects |
-| **D: project page rebuild** | Status, budget, models, images; keys and prices removed from the project page (read-only notice for legacy project keys) | The project page fits on one screen |
+| **D: project page rebuild** (**replaced by System & Administration V2 phase 4**) | Status, budget, models, images; keys and prices removed from the project page (read-only notice for legacy project keys). Replaced 2026-11-11: the settings center's AI area mounts the existing panels section by section with an effective view (every value with its origin), safe saves and an organization projects list; keys and prices stay on the project page until phase E | The project page fits on one screen |
 | **E: clean-up** (separate approval) | Remove project rate cards, provider budgets and tier fields after migration and evidence | Less code, one source of truth |
 
 Each phase:
@@ -273,3 +273,11 @@ Still open, recommendations stand unless Mario says otherwise:
   - the project page rebuild (phase D);
   - attention items for organization warnings.
 
+
+### Phase D: replaced by System & Administration V2 phase 4 (2026-11-11, local; flag `ORBIT_SETTINGS_CENTER`)
+
+The project page rebuild is not done as planned here. System & Administration V2 phase 4 ([SYSTEM_MANAGEMENT_V2.md](SYSTEM_MANAGEMENT_V2.md) §9, delivered to `main` on 2026-11-12 with the flag `off`) replaces it: the settings center (`/manage`) shows the project's AI settings section by section (overview with every value's origin and a readiness per provider, providers and keys, models, budget with the modules' AI ceilings, usage, agent permissions), the organization's (standard models, models and prices, budget, usage, projects that follow or override, the AI profile) and the system's. The existing panels are mounted unchanged except for the safe-save fixes (F-8, see [MODEL_ROUTING.md](../MODEL_ROUTING.md), "Effective read and safe saves"). The old pages `/p/:id/settings?section=ai`, `/o/:id/settings` and `/admin/ai` stay as they are.
+
+### Phase E: open
+
+Unchanged and not started: removing project rate cards, provider budgets, tier fields and project keys needs its own approval after migration and evidence. Phase 4 of V2 removes nothing.

@@ -248,6 +248,9 @@ export async function disconnectEmail(tx: DbTx, scope: Scope, raw: unknown) {
  * `write_verified` would need a real test message, which needs approval.
  */
 export const emailConnectionProvider: ConnectionProvider = {
+  label: { en: "E-mail mailbox", de: "E-Mail-Postfach" },
+  category: "email",
+  authType: "password",
   async check(connection, password) {
     // No login to the mailbox while e-mail is off, even for an old row.
     if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);

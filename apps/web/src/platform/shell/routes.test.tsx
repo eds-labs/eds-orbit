@@ -10,6 +10,8 @@ import {
   knownModuleStates,
   waitsForModuleStates,
   locate,
+  moduleAiCeilings,
+  moduleIntegrations,
   moduleShown,
   moduleUsable,
   navGroupOf,
@@ -670,6 +672,72 @@ describe("Web route registry", () => {
     );
     for (const [message, registry] of broken)
       expect(() => routeTable(registry), message).toThrow(message);
+  });
+
+  it("rejects an invalid or doubled integration section id", () => {
+    const view = { key: "home", path: "", component: () => null };
+    const module = (ids: string[]) => ({
+      id: "beta",
+      displayName: { en: "B", de: "B" },
+      description: { en: "B", de: "B" },
+      views: [],
+      integrations: ids.map((id) => ({
+        id,
+        label: { en: id, de: id },
+        description: { en: id, de: id },
+        order: 0,
+        component: () => null,
+      })),
+    });
+    const registry = (ids: string[]): WebRegistry => ({ platform: [view], modules: [module(ids)] });
+    expect(() => routeTable(registry(["accounts", "other-2"]))).not.toThrow();
+    expect(() => routeTable(registry(["Accounts"]))).toThrow(/invalid integration section id "Accounts"/);
+    expect(() => routeTable(registry(["a/b"]))).toThrow(/invalid integration section id "a\/b"/);
+    expect(() => routeTable(registry(["accounts", "accounts"]))).toThrow(
+      /integration section beta\/accounts used twice/,
+    );
+  });
+
+  it("collects integration sections only from shown modules", () => {
+    const social = webRegistry.modules.find((m) => m.id === "social")!;
+    const collect = (states: Array<{ id: string; enabled: boolean; access?: string }>) =>
+      moduleIntegrations(webRegistry.modules, (id) => {
+        const m = webRegistry.modules.find((x) => x.id === id);
+        return moduleShown(states, id, m?.optIn === true, m?.minAccess);
+      });
+    const on = collect([{ id: "social", enabled: true, access: "owner" }]);
+    expect(on.map((c) => [c.moduleId, c.id])).toEqual(
+      (social.integrations ?? []).map((c) => ["social", c.id]),
+    );
+    expect(on.length).toBeGreaterThan(0);
+    expect(collect([{ id: "social", enabled: false }])).toEqual([]);
+    expect(collect([{ id: "social", enabled: true, access: "none" }])).toEqual([]);
+    // Social is opt-in: until the states load it contributes nothing.
+    expect(moduleIntegrations(webRegistry.modules, () => false)).toEqual([]);
+  });
+
+  it("collects AI ceilings only from shown modules", () => {
+    const withCeilings = webRegistry.modules.filter((m) => (m.aiCeilings ?? []).length > 0);
+    expect(withCeilings.length).toBeGreaterThan(0);
+    const shownIds = new Set(withCeilings.map((m) => m.id));
+    const collect = (states: Array<{ id: string; enabled: boolean; access?: string }>) =>
+      moduleAiCeilings(webRegistry.modules, (id) => {
+        const m = webRegistry.modules.find((x) => x.id === id);
+        return moduleShown(states, id, m?.optIn === true, m?.minAccess);
+      });
+    const all = collect(withCeilings.map((m) => ({ id: m.id, enabled: true, access: "owner" })));
+    expect(all.map((c) => [c.moduleId, c.key])).toEqual(
+      withCeilings.flatMap((m) => (m.aiCeilings ?? []).map((c) => [m.id, c.key])),
+    );
+    const off = withCeilings[0]!;
+    const rest = collect(
+      withCeilings.map((m) => ({ id: m.id, enabled: m.id !== off.id, access: "owner" })),
+    );
+    expect(rest.some((c) => c.moduleId === off.id)).toBe(false);
+    expect(new Set(rest.map((c) => c.moduleId))).toEqual(
+      new Set([...shownIds].filter((id) => id !== off.id)),
+    );
+    expect(moduleAiCeilings(webRegistry.modules, () => false)).toEqual([]);
   });
 
   it("hides the pages of a disabled module and the pages that need it", () => {

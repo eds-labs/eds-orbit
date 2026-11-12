@@ -14,6 +14,7 @@ import {
   registeredConnectionProvider,
   registeredConnectionProviderIds,
 } from "../modules/contributions.ts";
+import { integrationState } from "../connections/integrations.ts";
 import { systemAudit } from "./audit.ts";
 
 // Central connections and their grants (ADR 0014), managed on the control
@@ -129,6 +130,7 @@ function view(
   }>,
 ) {
   const active = c.secrets.find((s) => s.state === "active");
+  const checkedAt = (c.health as { at?: unknown } | null)?.at;
   return {
     id: c.id,
     provider: c.provider,
@@ -145,6 +147,17 @@ function view(
     activeGrants: c.grants.filter((g) => !g.revokedAt).length,
     disabled: Boolean(c.disabledAt),
     createdAt: c.createdAt,
+    // Uniform state for the Integrations Center, read without a consuming
+    // organization or project (no grant, no binding).
+    state: integrationState({
+      kind: "central",
+      status: c.status,
+      disabled: Boolean(c.disabledAt),
+      revoked: false,
+      grant: "none",
+      binding: "not_needed",
+    }),
+    checkedAt: typeof checkedAt === "string" ? checkedAt : null,
   };
 }
 

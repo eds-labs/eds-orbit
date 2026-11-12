@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ManagementSection, SectionMeta, SectionProps } from "./types";
 import {
   AREAS,
+  adaptIntegrationSections,
   moduleSectionId,
   navGroups,
   resolveSection,
@@ -303,5 +304,40 @@ describe("moduleSectionId", () => {
     expect(moduleSectionId("finance", "finance-accounts", [])).toBe("finance/accounts");
     expect(moduleSectionId("marketing", "policy", [])).toBe("marketing/policy");
     expect(moduleSectionId("webmail", "integrations", ["integrations"])).toBe("webmail/settings");
+  });
+});
+
+describe("adaptIntegrationSections", () => {
+  const Marker = () => <i>marker</i>;
+  const label = { en: "Social accounts", de: "Social-Media-Konten" };
+  const description = { en: "about", de: "über" };
+
+  it("adapts module integration sections under Integrations", () => {
+    const [s] = adaptIntegrationSections([
+      { moduleId: "social", id: "accounts", label, description, order: 0, component: Marker },
+    ]);
+    expect(s).toMatchObject({ id: "social/accounts", area: "integrations", scope: "project", order: 100 });
+    // Without moduleId: navGroups would move it into the module groups.
+    expect(s.moduleId).toBeUndefined();
+    expect(navGroups([s], "project", () => undefined).map((g) => g.id)).toEqual(["integrations"]);
+    expect(resolveSection([s], "integrations", ["social", "accounts"])).toMatchObject({
+      section: { id: "social/accounts" },
+    });
+    expect(resolveSection([s], "integrations", ["social", "nope"])).toBeNull();
+    expect(sectionPath(s)).toEqual(["integrations", "social", "accounts"]);
+  });
+
+  it("passes ownHead through, orders after the platform's sections and renders the component", () => {
+    const sections = adaptIntegrationSections([
+      { moduleId: "social", id: "accounts", label, description, order: 5, ownHead: true, component: Marker },
+      { moduleId: "beta", id: "x", label, description, order: 0, component: Marker },
+    ]);
+    expect(sections.map((s) => [s.id, s.order, s.ownHead])).toEqual([
+      ["social/accounts", 105, true],
+      ["beta/x", 100, undefined],
+    ]);
+    const props = { scope: { kind: "project", projectId: "p1" }, locale: "en", identity: {}, hrefOf: () => "" } as unknown as SectionProps;
+    expect(renderToStaticMarkup(<>{sections[0].render(props)}</>)).toBe("<i>marker</i>");
+    expect(adaptIntegrationSections([])).toEqual([]);
   });
 });

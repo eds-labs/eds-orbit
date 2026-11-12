@@ -290,6 +290,49 @@ describe.skipIf(!enabled)("Central connections (ADR 0014)", () => {
     expect(await scoped(wsA, a1, (tx) => connectionSecret(tx, connectionId))).toBe(NEXT);
   });
 
+  it("states a connection that was never checked as stored", async () => {
+    const fresh = await call("POST", "/api/admin/connections", people.admin, {
+      provider: "openai",
+      label: "Never checked",
+      secret: `sk-test-${randomBytes(16).toString("hex")}`,
+    });
+    expect(fresh.statusCode).toBe(201);
+    const id = fresh.json().id as string;
+    try {
+      const row = (await call("GET", "/api/admin/connections", people.admin))
+        .json()
+        .items.find((c: { id: string }) => c.id === id);
+      expect(row).toMatchObject({ state: "stored", checkedAt: null });
+    } finally {
+      await authDb.connection.deleteMany({ where: { id } });
+    }
+  });
+
+  it("states each central connection uniformly", async () => {
+    const stateOf = async () => {
+      const r = await call("GET", "/api/admin/connections", people.admin);
+      return r.json().items.find((c: { id: string }) => c.id === connectionId);
+    };
+    const verified = await stateOf();
+    expect(verified).toMatchObject({ status: "read_verified", state: "verified" });
+    expect(typeof verified.checkedAt).toBe("string");
+    await call("POST", `/api/admin/connections/${connectionId}/disable`, people.admin);
+    expect(await stateOf()).toMatchObject({ status: "disabled", state: "disabled" });
+    await call("POST", `/api/admin/connections/${connectionId}/enable`, people.admin);
+    setAiCheckFetchForTests(async () => new Response("{}", { status: 401 }));
+    const failed = await call("POST", `/api/admin/connections/${connectionId}/check`, people.admin);
+    expect(failed.json()).toMatchObject({ status: "failed", state: "needs_attention" });
+    expect(typeof failed.json().checkedAt).toBe("string");
+    // The owner's list carries the same fields.
+    const owner = await call("GET", `/api/organizations/${wsA}/connections`, people.ownerA);
+    expect(owner.json().items.find((c: { id: string }) => c.id === connectionId)).toMatchObject({
+      state: "needs_attention",
+    });
+    setAiCheckFetchForTests(async () => new Response(JSON.stringify({ data: [{}, {}] }), { status: 200 }));
+    const again = await call("POST", `/api/admin/connections/${connectionId}/check`, people.admin);
+    expect(again.json()).toMatchObject({ status: "read_verified", state: "verified" });
+  });
+
   it("stops use at once when a connection is disabled or its organization grant revoked", async () => {
     await call("POST", `/api/admin/connections/${connectionId}/disable`, people.admin);
     expect(await scoped(wsA, a1, (tx) => resolveConnection(tx, { workspaceId: wsA, projectId: a1 }, { provider: "openai" }))).toBeNull();

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity } from "@/lib/api";
-import { validateSections, visibleSections } from "../registry";
-import { AiLinkPanel } from "./ai-link";
+import type { ManagementCapabilities } from "../types";
+import { resolveSection, sectionPath, validateSections, visibleSections } from "../registry";
 import {
   organizationIdOf,
   organizationPaths,
@@ -28,9 +28,18 @@ describe("organization scope", () => {
     const base = keys(["organization.overview", "organization.members"]);
     expect(base).toEqual(["overview/summary", "members/members"]);
     expect(keys(["organization.connections"])).toEqual([
+      "integrations/integrations",
+      "integrations/setup",
       "integrations/connections",
     ]);
-    expect(keys(["organization.ai"])).toEqual(["ai/usage", "ai/overview"]);
+    expect(keys(["organization.ai"])).toEqual([
+      "ai/standard",
+      "ai/models",
+      "ai/budget",
+      "ai/usage",
+      "ai/projects",
+      "ai/advanced",
+    ]);
   });
 
   it("shows knowledge only with organization.knowledge and apps only with organization.apps", () => {
@@ -39,33 +48,59 @@ describe("organization scope", () => {
     expect(keys([])).toEqual([]);
   });
 
-  it("offers no AI form", () => {
-    const ai = organizationSections.filter((s) => s.area === "ai");
-    expect(ai.map((s) => s.id)).toEqual(["usage", "overview"]);
-    const forbidden = ["standard", "budget", "models", "advanced", "profile", "defaults"];
-    for (const s of [...organizationSections, ...accountSections])
-      expect(forbidden).not.toContain(s.id);
-    // The pointer panel is the only AI content besides the read-only usage.
-    const html = renderToStaticMarkup(
-      <AiLinkPanel href={organizationPaths("x").aiSettings} locale="en" />,
-    );
-    expect(html).not.toContain("<form");
+  it("registers the AI sections in order and no link panel", () => {
+    const list = visibleSections(organizationSections, "organization", ["organization.ai"]);
+    const ai = list.filter((s) => s.area === "ai");
+    expect(ai.map((s) => s.id)).toEqual(["standard", "models", "budget", "usage", "projects", "advanced"]);
+    expect(ai.filter((s) => s.advanced).map((s) => s.id)).toEqual(["advanced"]);
+    // The area's address opens the standard models; the old pointer is gone.
+    expect(resolveSection(list, "ai", [])?.section.id).toBe("standard");
+    expect(resolveSection(list, "ai", ["budget"])?.section.id).toBe("budget");
+    expect(resolveSection(list, "ai", ["overview"])).toBeNull();
+    expect(ai.find((s) => s.id === "projects")?.label).toEqual({ en: "Projects", de: "Projekte" });
+    // The account scope offers no AI form.
+    for (const s of accountSections) expect(s.area).not.toBe("ai");
   });
 
-  it("links the AI panel to the organization's settings page with an encoded id", () => {
-    const ai = organizationSections.find(
-      (s) => s.area === "ai" && s.id === "overview",
-    )!;
-    const html = renderToStaticMarkup(
-      <ai.component
-        scope={{ kind: "organization", organizationId: "a/b" }}
-        locale="en"
-        identity={{} as Identity}
-        hrefOf={() => ""}
-      />,
-    );
-    expect(html).toContain(`href="${organizationPaths("a/b").aiSettings}"`);
-    expect(html).toContain('href="/o/a%2Fb/settings"');
+  it("shows the catalog notice only while the catalog is off", () => {
+    const models = organizationSections.find((s) => s.area === "ai" && s.id === "models")!;
+    const render = (aiCatalog: boolean | undefined) =>
+      renderToStaticMarkup(
+        <models.component
+          scope={{ kind: "organization", organizationId: "w1" }}
+          locale="en"
+          identity={{} as Identity}
+          caps={
+            aiCatalog === undefined
+              ? undefined
+              : ({
+                  flags: { connections: true, aiCatalog, aiDefaults: true, aiOrgBudget: true },
+                } as ManagementCapabilities)
+          }
+          hrefOf={() => ""}
+        />,
+      );
+    const notice = "The central price catalog is not switched on for this installation";
+    expect(render(false)).toContain(notice);
+    // Without a capabilities answer every flag reads as off.
+    expect(render(undefined)).toContain(notice);
+    expect(render(true)).not.toContain(notice);
+  });
+
+  it("opens the area on the catalog and keeps the connections reachable", () => {
+    const list = visibleSections(organizationSections, "organization", ["organization.connections"]);
+    const lead = resolveSection(list, "integrations", []);
+    expect(lead?.section.id).toBe("integrations");
+    expect(sectionPath(lead!.section)).toEqual(["integrations"]);
+    expect(resolveSection(list, "integrations", ["connections"])?.section.id).toBe("connections");
+  });
+
+  it("opens a provider's setup by address and refuses an unknown one", () => {
+    const list = visibleSections(organizationSections, "organization", ["organization.connections"]);
+    expect(resolveSection(list, "integrations", ["setup", "postiz"])).toMatchObject({ section: { id: "setup" }, id: "postiz" });
+    expect(resolveSection(list, "integrations", ["setup"])).toMatchObject({ section: { id: "setup" }, id: undefined });
+    expect(resolveSection(list, "integrations", ["setup", "postiz", "extra"])).toBeNull();
+    expect(list.find((s) => s.id === "setup")?.label).toEqual({ en: "Set up an integration", de: "Integration einrichten" });
   });
 
   it("reads the organization from the scope", () => {
@@ -80,14 +115,13 @@ describe("organization paths", () => {
   it("encode the scope's id in every request path and link", () => {
     const paths = organizationPaths("w 1/x");
     const values = Object.values(paths);
-    expect(values.length).toBeGreaterThanOrEqual(6);
+    expect(values.length).toBeGreaterThanOrEqual(5);
     for (const v of values) {
       expect(v).toContain("w%201%2Fx");
       expect(v).not.toContain("w 1/x");
     }
     expect(paths.grants).toBe("/workspaces/w%201%2Fx/mcp-grants");
     expect(paths.agents).toBe("/o/w%201%2Fx/agents");
-    expect(paths.aiSettings).toBe("/o/w%201%2Fx/settings");
   });
 });
 

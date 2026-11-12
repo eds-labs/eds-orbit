@@ -10,7 +10,7 @@ import {
   when,
 } from "@/lib/api";
 import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import { DataForm, str, type FormField, type FormValues } from "@/platform/ui/form";
 import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
 
@@ -97,6 +97,8 @@ const text = {
     save: "Save spending authority",
     modal: "AI spending authority",
     saved: "Every save creates a new version and is recorded in the audit log.",
+    monthlyResave:
+      "Saving a new monthly amount derives the day and run limits from it again and starts a new year from today. Limits set elsewhere (for example through MCP) are replaced.",
   },
   de: {
     title: "KI-Ausgabenfreigabe",
@@ -142,6 +144,8 @@ const text = {
     save: "Ausgabenfreigabe speichern",
     modal: "KI-Ausgabenfreigabe",
     saved: "Jede Speicherung legt eine neue Version an und wird im Audit-Log festgehalten.",
+    monthlyResave:
+      "Ein neuer Monatsbetrag leitet die Tages- und Lauflimits wieder daraus ab und beginnt ein neues Jahr ab heute. Anderswo gesetzte Limits (zum Beispiel über MCP) werden ersetzt.",
   },
 } as const;
 
@@ -269,17 +273,65 @@ function OrganizationRow({
 }
 
 /** The form's choice for a saved record. */
-function choiceOf(view: SpendPolicyView): Choice {
-  const record = view.record as
-    | { profile?: Profile; monthlyBudgetMicros?: number }
-    | null;
-  const profile = record?.profile;
+export function choiceOf(view: Pick<SpendPolicyView, "record">): Choice | "" {
+  // No record: nothing preselected, an authority is written only by choice.
+  if (!view.record) return "";
+  const record = view.record as { profile?: Profile; monthlyBudgetMicros?: number };
+  const profile = record.profile;
   if (!profile) return "monthly-10";
   if (profile === "normal") return "monthly-50";
   if (profile !== "monthly") return profile;
-  if (record?.monthlyBudgetMicros === 10_000_000) return "monthly-10";
-  if (record?.monthlyBudgetMicros === 50_000_000) return "monthly-50";
+  if (record.monthlyBudgetMicros === 10_000_000) return "monthly-10";
+  if (record.monthlyBudgetMicros === 50_000_000) return "monthly-50";
   return "monthly";
+}
+
+/**
+ * The action input, or null when the form changed nothing. `now` is the
+ * current time in milliseconds.
+ */
+export function spendPolicyPayload(
+  values: FormValues,
+  record: SpendPolicyView["record"],
+  now: number,
+): Record<string, unknown> | null {
+  const choice = str(values, "profile") as Choice;
+  const monthly = {
+    "monthly-10": 10_000_000,
+    "monthly-50": 50_000_000,
+    monthly: micros(str(values, "amount")),
+  } as Partial<Record<Choice, number>>;
+  // An unchanged monthly save would still derive day and run anew and
+  // restart the year on the server (F-8 risk 6), so it is skipped while the
+  // stored window is open. Every other save is sent: an expired window is
+  // renewed only by saving, "test" and "off" mean "from now", and "custom"
+  // always saves its own limits.
+  const saved = record as
+    | { profile?: Profile; monthlyBudgetMicros?: number; endAt?: unknown }
+    | null;
+  const open =
+    typeof saved?.endAt === "string" && Date.parse(saved.endAt) > now;
+  if (
+    saved &&
+    open &&
+    monthly[choice] !== undefined &&
+    saved.profile === "monthly" &&
+    saved.monthlyBudgetMicros === monthly[choice]
+  )
+    return null;
+  return monthly[choice] !== undefined
+    ? { profile: "monthly", monthlyBudgetMicros: monthly[choice] }
+    : choice === "custom"
+      ? {
+          profile: choice,
+          startAt: new Date(str(values, "startAt")).toISOString(),
+          endAt: new Date(str(values, "endAt")).toISOString(),
+          approvedPaidUse: values.approvedPaidUse === true,
+          dailyBudgetMicros: micros(str(values, "daily")),
+          monthlyBudgetMicros: micros(str(values, "monthly")),
+          perRunBudgetMicros: micros(str(values, "perRun")),
+        }
+      : { profile: choice };
 }
 
 function SpendPolicyForm({
@@ -304,6 +356,7 @@ function SpendPolicyForm({
       label: t.profile,
       type: "select",
       value: choiceOf(view),
+      required: true,
       options: (
         ["off", "monthly-10", "monthly-50", "monthly", "test", "custom"] as const
       ).map((p) => ({
@@ -377,39 +430,28 @@ function SpendPolicyForm({
   return (
     <Modal title={t.modal} onClose={onClose}>
       <Alert>{t.saved}</Alert>
+      {view.record?.profile === "monthly" && (
+        <Alert kind="warning">{t.monthlyResave}</Alert>
+      )}
       <DataForm
         fields={fields}
         pending={mutation.pending}
         error={mutation.error}
         submitLabel={t.save}
         onCancel={onClose}
-        onSubmit={(values) =>
-          mutation.run(() => {
-            const choice = str(values, "profile") as Choice;
-            const monthly = {
-              "monthly-10": 10_000_000,
-              "monthly-50": 50_000_000,
-              monthly: micros(str(values, "amount")),
-            } as Partial<Record<Choice, number>>;
-            return action(
-              project.id,
-              "ai-spend-policy",
-              monthly[choice] !== undefined
-                ? { profile: "monthly", monthlyBudgetMicros: monthly[choice] }
-                : choice === "custom"
-                ? {
-                    profile: choice,
-                    startAt: new Date(str(values, "startAt")).toISOString(),
-                    endAt: new Date(str(values, "endAt")).toISOString(),
-                    approvedPaidUse: values.approvedPaidUse === true,
-                    dailyBudgetMicros: micros(str(values, "daily")),
-                    monthlyBudgetMicros: micros(str(values, "monthly")),
-                    perRunBudgetMicros: micros(str(values, "perRun")),
-                  }
-                : { profile: choice },
-            );
-          })
-        }
+        onSubmit={(values) => {
+          // Nothing changed: close without a request. "custom" never compares
+          // equal, so its date parsing still fails inside the save as before.
+          const at = Date.now();
+          if (
+            str(values, "profile") !== "custom" &&
+            spendPolicyPayload(values, view.record, at) === null
+          )
+            return onClose();
+          return mutation.run(() =>
+            action(project.id, "ai-spend-policy", spendPolicyPayload(values, view.record, at)),
+          );
+        }}
       />
     </Modal>
   );

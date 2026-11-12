@@ -3,7 +3,7 @@ import { CEILING_MICROS, plan } from "./live-plan.ts";
 
 // Offline checks of the paid support eval's plan (WP5.6).
 describe("support AI eval plan", () => {
-  const now = new Date("2026-10-17T12:00:00Z");
+  const now = new Date("2026-11-12T12:00:00Z");
   it("fits the worst case under the 3 USD ceiling", () => {
     const p = plan({}, now);
     expect(p.calls).toBe(20);

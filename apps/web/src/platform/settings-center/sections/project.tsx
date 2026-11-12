@@ -1,6 +1,21 @@
 "use client";
 import { Fragment, useContext } from "react";
 import { collectionPath, useResource, type Dashboard } from "@/lib/api";
+import type { Locale } from "@/lib/i18n";
+import { AgentMandateSettings } from "@/components/agent-mandates";
+import {
+  AiModelsPanel,
+  AiProjectUsagePanel,
+  AiProviderBudgetPanels,
+  AiProvidersPanel,
+  modelChoiceProps,
+  setupKeyProps,
+  useAiSettingsResources,
+  type AiConfigurationData,
+} from "@/components/ai-settings";
+import { AiSetupPanel, ModelChoicePanel } from "@/components/ai-model-choice";
+import { SpendPolicySettings } from "@/components/spend-policy";
+import { Alert } from "@/components/ui/primitives";
 import {
   Connectors,
   ProjectReadinessPanel,
@@ -21,17 +36,25 @@ import {
 } from "@/platform/project-settings/project-configuration";
 import { groupedModules } from "@/platform/shell/nav-groups";
 import { ShellContext } from "@/platform/shell/shell-context";
-import {
-  platformSettingsTabs,
-  settingsSectionHref,
-} from "@/platform/shell/settings-nav";
+import { platformSettingsTabs } from "@/platform/shell/settings-nav";
 import { ResourceError } from "@/platform/ui/collection";
-import { adaptModuleSections, visibleSections } from "../registry";
+import {
+  CATALOG_SECTION,
+  ProjectCatalog,
+} from "../integrations/scopes";
+import { SETUP_SECTION, ProjectSetup } from "../integrations/setup";
+import {
+  adaptIntegrationSections,
+  adaptModuleSections,
+  visibleSections,
+} from "../registry";
 import { backLink, scopeTitle } from "../scope-links";
 import type { ScopeViewProps } from "../scope-view";
 import { SettingsCenterView } from "../settings-center";
-import type { ManagementSection, SectionProps } from "../types";
-import { AiLinkPanel } from "./ai-link";
+import { EffectiveAiSection } from "../ai/effective-view";
+import { ModuleCeilings } from "../ai/module-ceilings";
+import { aiText } from "../ai/texts";
+import { flagsOf, type ManagementSection, type SectionProps } from "../types";
 
 // The project scope mounts the panels of /p/:id/settings and /p/:id/connectors;
 // those pages keep rendering them unchanged. The shell wraps this scope in
@@ -90,17 +113,105 @@ function SwitchesSection() {
 }
 
 function ConnectionsSection() {
-  return <Connectors embedded />;
+  return <Connectors embedded groupMailboxes />;
 }
 
-/** The AI section of the project's settings page, where the forms stay for now. */
-export const projectAiSettingsHref = (settingsHref: string) =>
-  settingsSectionHref(settingsHref, "ai");
+// The AI area mounts the panels of the old AI tab (/p/:id/settings?section=ai)
+// one per section, with the same props and conditions as AiSettingsView.
+// Each section loads the configuration it needs itself.
 
-function AiSection({ locale }: SectionProps) {
-  const shell = useContext(ShellContext);
-  const href = projectAiSettingsHref(shell?.hrefOf("settings") ?? "");
-  return <AiLinkPanel href={href} locale={locale} />;
+/**
+ * Whether the project follows the organization's standard models: only while
+ * the standard applies (`defaults` is sent while ORBIT_AI_DEFAULTS is on).
+ */
+const followsStandard = (view: AiConfigurationData | null | undefined) =>
+  view?.routing?.source === "organization" && Boolean(view.defaults);
+
+function AiProvidersSection() {
+  const { project, locale } = useWorkspace();
+  const { configuration, refreshAll } = useAiSettingsResources();
+  const view = configuration.data;
+  return (
+    <>
+      {view && (
+        <AiSetupPanel
+          view={view}
+          {...setupKeyProps(project.id, view, locale)}
+          onChanged={refreshAll}
+        />
+      )}
+      <AiProvidersPanel
+        configuration={configuration}
+        refreshAll={refreshAll}
+        followsStandard={followsStandard(view)}
+      />
+    </>
+  );
+}
+
+type AiResources = ReturnType<typeof useAiSettingsResources>;
+
+/** The models section from a loaded configuration; the models stay read-only while the project follows the standard. */
+export function AiModelsSectionView({
+  configuration,
+  refreshAll,
+  aiDefaults,
+  locale,
+}: {
+  configuration: AiResources["configuration"];
+  refreshAll(): void;
+  aiDefaults: boolean;
+  locale: Locale;
+}) {
+  const t = aiText(locale);
+  const view = configuration.data;
+  return (
+    <>
+      {view && (
+        <ModelChoicePanel
+          view={view}
+          {...modelChoiceProps(view, locale)}
+          onChanged={refreshAll}
+        />
+      )}
+      {aiDefaults ? null : <Alert kind="info">{t("defaultsOff")}</Alert>}
+      <details>
+        <summary>{t("modelsAdvanced")}</summary>
+        <AiModelsPanel
+          configuration={configuration}
+          editable={!followsStandard(view)}
+        />
+      </details>
+    </>
+  );
+}
+
+function AiModelsSection({ caps, locale }: SectionProps) {
+  const { configuration, refreshAll } = useAiSettingsResources();
+  return (
+    <AiModelsSectionView
+      configuration={configuration}
+      refreshAll={refreshAll}
+      aiDefaults={flagsOf(caps).aiDefaults}
+      locale={locale}
+    />
+  );
+}
+
+function AiBudgetSection({ locale, hrefOf }: SectionProps) {
+  const { configuration, budget } = useAiSettingsResources();
+  return (
+    <>
+      <SpendPolicySettings />
+      <AiProviderBudgetPanels configuration={configuration} budget={budget} />
+      <ModuleCeilings locale={locale} hrefOf={hrefOf} />
+    </>
+  );
+}
+
+function AiUsageSection() {
+  const { budget } = useAiSettingsResources();
+  return <AiProjectUsagePanel budget={budget} />;
 }
 
 export const projectSections: readonly ManagementSection[] = [
@@ -157,6 +268,27 @@ export const projectSections: readonly ManagementSection[] = [
     component: SwitchesSection,
   },
   {
+    id: "integrations",
+    scope: "project",
+    area: "integrations",
+    // First, so the area's address opens the catalog.
+    order: -10,
+    capability: "project.integrations",
+    ...CATALOG_SECTION,
+    component: ProjectCatalog,
+  },
+  {
+    id: "setup",
+    scope: "project",
+    area: "integrations",
+    // After the catalog, before the panels it guides through.
+    order: -5,
+    capability: "project.integrations",
+    takesId: true,
+    ...SETUP_SECTION,
+    component: ProjectSetup,
+  },
+  {
     id: "connections",
     scope: "project",
     area: "integrations",
@@ -188,12 +320,77 @@ export const projectSections: readonly ManagementSection[] = [
     area: "ai",
     order: 0,
     capability: "project.ai",
-    label: { en: "AI settings", de: "KI-Einstellungen" },
+    label: { en: "AI overview", de: "KI-Übersicht" },
     description: {
-      en: "Spending policy, agent mandates, models and budget of the project's AI.",
-      de: "Ausgabenrichtlinie, Agentenmandate, Modelle und Budget der KI des Projekts.",
+      en: "Which models, keys and budgets apply and where each comes from.",
+      de: "Welche Modelle, Schlüssel und Budgets gelten und woher sie kommen.",
     },
-    component: AiSection,
+    component: EffectiveAiSection,
+  },
+  {
+    id: "providers",
+    scope: "project",
+    area: "ai",
+    order: 10,
+    capability: "project.ai",
+    label: { en: "Providers and keys", de: "Anbieter und Schlüssel" },
+    description: {
+      en: "Keys of OpenAI and Claude, where they come from, and what the project can do with them.",
+      de: "Schlüssel für OpenAI und Claude, woher sie kommen und was das Projekt damit kann.",
+    },
+    component: AiProvidersSection,
+  },
+  {
+    id: "models",
+    scope: "project",
+    area: "ai",
+    order: 20,
+    capability: "project.ai",
+    label: { en: "Models", de: "Modelle" },
+    description: {
+      en: "Follow the standard, choose a level or set own models and task routes.",
+      de: "Dem Standard folgen, eine Stufe wählen oder eigene Modelle und Aufgaben-Routen festlegen.",
+    },
+    component: AiModelsSection,
+  },
+  {
+    id: "budget",
+    scope: "project",
+    area: "ai",
+    order: 30,
+    capability: "project.ai",
+    label: { en: "Budget", de: "Budget" },
+    description: {
+      en: "Spending authority, provider budgets and the modules' AI ceilings.",
+      de: "Ausgabenfreigabe, Anbieter-Budgets und die KI-Obergrenzen der Module.",
+    },
+    component: AiBudgetSection,
+  },
+  {
+    id: "usage",
+    scope: "project",
+    area: "ai",
+    order: 40,
+    capability: "project.ai",
+    label: { en: "Usage and costs", de: "Nutzung und Kosten" },
+    description: {
+      en: "What the project's AI used, calculated by Orbit.",
+      de: "Was die KI des Projekts verbraucht hat, von Orbit berechnet.",
+    },
+    component: AiUsageSection,
+  },
+  {
+    id: "agents",
+    scope: "project",
+    area: "ai",
+    order: 50,
+    capability: "project.ai",
+    label: { en: "Agent permissions", de: "Agentenrechte" },
+    description: {
+      en: "What configured agents may do and spend.",
+      de: "Was eingerichtete Agenten tun und ausgeben dürfen.",
+    },
+    component: AgentMandateSettings,
   },
   {
     id: "retention",
@@ -257,6 +454,8 @@ export function ProjectScopeView({
   const sections = [
     ...visibleSections(projectSections, "project", capabilities),
     ...adapted.sections,
+    // Integration sections of the modules shown for the project (ADR 0027).
+    ...adaptIntegrationSections(shell?.integrations ?? []),
   ];
   const back = backLink(scope, locale);
   return (

@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import type { IntegrationAuthType, IntegrationCategory } from "./integrations.ts";
 import {
   credentialKey,
   data,
@@ -58,6 +59,17 @@ export function cutoverEnabled(provider: string) {
   return (loadConfig().ORBIT_CONNECTIONS_CUTOVER ?? "")
     .split(",")
     .includes(provider);
+}
+
+/**
+ * Whether a provider's central connections can serve a project in this
+ * installation: never while central connections are off; for a provider
+ * that also keeps project connections (`projectPath`), only with its
+ * cutover, because its central use goes through a bound project row
+ * (attachGrantedConnection and connectionAccess refuse it otherwise).
+ */
+export function centralPathEnabled(provider: string, projectPath: boolean) {
+  return projectPath ? cutoverEnabled(provider) : connectionsEnabled();
 }
 
 /**
@@ -153,6 +165,13 @@ export type ConnectionProvider = {
   validateSecret?: (secret: string) => void;
   /** Path on the Orbit origin the provider must call back (OAuth apps). */
   callbackPath?: string;
+  /** Group in the Integrations Center; default "other". Set by the owner. */
+  category?: IntegrationCategory;
+  /**
+   * How the credential is obtained. Default: "oauth_app" with a
+   * `callbackPath`, "json_secret" with `secretFields`, otherwise "api_key".
+   */
+  authType?: IntegrationAuthType;
 };
 
 /** One part of a JSON secret, for the administration forms. */

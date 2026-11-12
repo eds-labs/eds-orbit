@@ -4,6 +4,7 @@ import type { ManageTarget, ManagementCapabilities } from "./types";
 
 const caps: ManagementCapabilities = {
   stage: "preview",
+  flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: [],
   account: ["account.profile"],
   organizations: [
