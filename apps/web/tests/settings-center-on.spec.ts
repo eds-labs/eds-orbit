@@ -18,15 +18,20 @@ import { SEED, signIn } from "./settings-center-helpers";
 //
 // What the file creates and puts back:
 // - a second person (organization member, editor of the seeded project)
-//   through an invitation link without system mail; removed from the
-//   project and the organization at the end, also after a failed assertion;
-//   leftovers of an interrupted run are removed before a new one is invited.
+//   through an invitation link without system mail; at the end, also after
+//   a failed assertion, it is removed from the project and the organization,
+//   a pending invitation is revoked and the account is deactivated (where the
+//   seeded owner is a system administrator), all found by this run's
+//   address; memberships and invitations of an interrupted run are removed
+//   before a new one is invited.
 // Nothing else is written: opening old addresses must not write (one
 // scenario asserts it), and no provider is reached.
 
 const STATE = resolve(".runtime/settings-center-on-state.json");
 const SECOND_PREFIX = "on-editor-";
 const RUN = Date.now().toString(36);
+// This run's second person; afterAll finds every trace of it by this address.
+const SECOND_EMAIL = `${SECOND_PREFIX}${RUN}@example.invalid`;
 
 type Caps = {
   stage: string;
@@ -43,9 +48,9 @@ let caps: Caps;
 let userId = "";
 let origin = "";
 let modules: ModuleList | undefined;
-// The second person, removed in afterAll.
-let second: { userId: string; context: import("@playwright/test").BrowserContext } | undefined;
-let pendingInvitation: string | undefined;
+// Set once this run invited the second person; afterAll then removes it.
+let secondInvited = false;
+let secondContext: import("@playwright/test").BrowserContext | undefined;
 
 /** The seeded project: the redirects are walked in it. */
 const projectId = () => (JSON.parse(readFileSync(SEED, "utf8")) as { projectId: string }).projectId;
@@ -61,8 +66,8 @@ const sectionNav = (page: Page) => page.getByRole("navigation", { name: "Setting
 /**
  * Old address → center address for the seeded owner, from the rows of
  * apps/web/src/platform/settings-center/redirects.test.tsx. A row is listed
- * only where the member can open its target section, so every row asserts
- * the exact target and never the fallback.
+ * only where the member can open its target section (or, for the two account
+ * rows, its fallback), so every row asserts one exact address.
  */
 function redirectRows(): Array<[string, string]> {
   const p = projectId();
@@ -91,7 +96,13 @@ function redirectRows(): Array<[string, string]> {
       orgCan("organization.ai"),
     ],
     ["/account", "/manage/me/profile", caps.account.includes("account.profile")],
-    ["/account/assistant", "/manage/me/assistant", caps.account.includes("account.assistant")],
+    // Without the assistant area the member lands on the account's first
+    // area: the fallback of decision P5-D5.
+    [
+      "/account/assistant",
+      caps.account.includes("account.assistant") ? "/manage/me/assistant" : "/manage/me/profile",
+      caps.account.includes("account.profile"),
+    ],
     [`/p/${p}/settings`, `/manage/p/${p}/overview`, projectCan("project.overview")],
     [`/p/${p}/settings?section=project`, `/manage/p/${p}/overview`, projectCan("project.overview")],
     [`/p/${p}/settings?section=nothing-here`, `/manage/p/${p}/overview`, projectCan("project.overview")],
@@ -100,7 +111,12 @@ function redirectRows(): Array<[string, string]> {
     [`/p/${p}/settings?section=ai`, `/manage/p/${p}/ai`, projectCan("project.ai")],
     [`/p/${p}/settings?section=retention`, `/manage/p/${p}/data`, projectCan("project.data")],
     [`/p/${p}/settings?section=modules`, `/manage/p/${p}/modules`, projectCan("project.modules")],
-    [`/p/${p}/settings?section=apps`, "/manage/me/connections", caps.account.includes("account.apps")],
+    // Without the connected-apps area: the account's first area (P5-D5).
+    [
+      `/p/${p}/settings?section=apps`,
+      caps.account.includes("account.apps") ? "/manage/me/connections" : "/manage/me/profile",
+      caps.account.includes("account.profile"),
+    ],
     [
       `/p/${p}/settings?section=brand`,
       `/manage/p/${p}/modules/marketing/brand`,
@@ -117,13 +133,43 @@ function redirectRows(): Array<[string, string]> {
   return rows.filter(([, , open]) => open).map(([from, to]) => [from, to]);
 }
 
+/**
+ * How many rows the walk must have, tallied per capability apart from the
+ * table: a row lost from the table (or a gate that drops more than it should)
+ * changes the walk but not this number.
+ */
+function expectedRowCount(): number {
+  const has = (list: readonly string[], c: string) => (list.includes(c) ? 1 : 0);
+  const sys = (c: string) => has(caps.system, c);
+  const project = (c: string) => has(projectCaps(), c);
+  return (
+    sys("system.overview") +
+    sys("system.connections") +
+    2 * sys("system.ai") +
+    sys("system.mcp") +
+    sys("system.audit") +
+    3 * sys("system.users") +
+    3 * sys("system.organizations") +
+    has(org().capabilities, "organization.overview") +
+    has(org().capabilities, "organization.ai") +
+    3 * has(caps.account, "account.profile") +
+    3 * project("project.overview") +
+    project("project.members") +
+    2 * project("project.integrations") +
+    project("project.ai") +
+    project("project.data") +
+    project("project.modules") +
+    (moduleOn("marketing") ? 2 * project("project.modules") : 0)
+  );
+}
+
 /** The address bar's path, search and hash. */
 const here = (page: Page) => {
   const url = new URL(page.url());
   return url.pathname + url.search + url.hash;
 };
 
-/** Records every API request that is no read; the walk must leave it empty. */
+/** Records every API request that is no read; the walk must leave it empty. Only `/api/` requests are seen. */
 function recordWrites(page: Page) {
   const writes: string[] = [];
   page.on("request", (r: Request) => {
@@ -163,35 +209,75 @@ test.describe("settings center with the flag on", () => {
   });
 
   test.afterAll(async ({ browser, baseURL }) => {
-    if (!second && !pendingInvitation) return;
+    if (!secondInvited) return;
+    await secondContext?.close().catch(() => {});
     const context = await browser.newContext({ baseURL, storageState: STATE });
     const request = context.request;
-    const errors: string[] = [];
+    const o = org().id;
+    // Every step is attempted on its own; failures are reported together. The
+    // second person is found by this run's address, not by what the scenario
+    // recorded, so an accept interrupted halfway is cleaned up too.
+    const errors: unknown[] = [];
+    const attempt = async (what: string, step: () => Promise<void>) => {
+      try {
+        await step();
+      } catch (error) {
+        errors.push(new Error(`${what}: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    };
+    const ok = async (response: import("@playwright/test").APIResponse, what: string) => {
+      if (!response.ok()) throw new Error(`${what}: ${response.status()}`);
+    };
     try {
-      if (second) {
-        await second.context.close().catch(() => {});
-        const project = await request.delete(
-          `/api/organizations/${org().id}/projects/${projectId()}/members/${second.userId}`,
-          { headers: { origin } },
-        );
-        if (!project.ok() && project.status() !== 404)
-          errors.push(`second person left in the project: ${project.status()}`);
-        const member = await request.delete(`/api/organizations/${org().id}/members/${second.userId}`, {
-          headers: { origin },
+      let detail:
+        | { members: Array<{ id: string; email: string }>; invitations?: Array<{ id: string; email: string }> }
+        | undefined;
+      await attempt("organization read", async () => {
+        const response = await request.get(`/api/organizations/${o}`);
+        await ok(response, "organization read");
+        detail = await response.json();
+      });
+      for (const m of detail?.members.filter((m) => m.email === SECOND_EMAIL) ?? []) {
+        await attempt("project membership removed", async () => {
+          const response = await request.delete(
+            `/api/organizations/${o}/projects/${projectId()}/members/${m.id}`,
+            { headers: { origin } },
+          );
+          if (response.status() !== 404) await ok(response, "project membership removed");
         });
-        if (!member.ok()) errors.push(`second person left in the organization: ${member.status()}`);
-      }
-      if (pendingInvitation) {
-        const revoked = await request.delete(
-          `/api/organizations/${org().id}/invitations/${pendingInvitation}`,
-          { headers: { origin } },
+        await attempt("organization membership removed", async () =>
+          ok(
+            await request.delete(`/api/organizations/${o}/members/${m.id}`, { headers: { origin } }),
+            "organization membership removed",
+          ),
         );
-        if (!revoked.ok()) errors.push(`invitation left open: ${revoked.status()}`);
       }
+      for (const i of detail?.invitations?.filter((i) => i.email === SECOND_EMAIL) ?? [])
+        await attempt("invitation revoked", async () =>
+          ok(
+            await request.delete(`/api/organizations/${o}/invitations/${i.id}`, { headers: { origin } }),
+            "invitation revoked",
+          ),
+        );
+      // No active stray account stays behind where the seeded owner may
+      // deactivate accounts (a system administrator).
+      if (caps.system.includes("system.users"))
+        await attempt("account deactivated", async () => {
+          const response = await request.get(
+            `/api/admin/users?query=${encodeURIComponent(SECOND_EMAIL)}`,
+          );
+          await ok(response, "account search");
+          const list = (await response.json()) as { items: Array<{ id: string; email: string }> };
+          for (const u of list.items.filter((u) => u.email === SECOND_EMAIL))
+            await ok(
+              await request.post(`/api/admin/users/${u.id}/deactivate`, { headers: { origin }, data: {} }),
+              "account deactivated",
+            );
+        });
     } finally {
       await context.close();
     }
-    if (errors.length) throw new Error(`cleanup of settings-center-on.spec.ts failed: ${errors.join("; ")}`);
+    if (errors.length) throw new AggregateError(errors, "cleanup of settings-center-on.spec.ts failed");
   });
 
   test.beforeEach(() => {
@@ -203,7 +289,8 @@ test.describe("settings center with the flag on", () => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     const rows = redirectRows();
-    expect(rows.length, "the seeded owner opens most targets").toBeGreaterThan(20);
+    expect(rows.length, "rows the member's capabilities open").toBe(expectedRowCount());
+    test.info().annotations.push({ type: "rows walked", description: String(rows.length) });
     for (const [from, to] of rows) {
       await test.step(from, async () => {
         const before = await page.evaluate(() => history.length);
@@ -334,9 +421,14 @@ test.describe("settings center with the flag on", () => {
     const hrefs = await page
       .locator(".attention-row a")
       .evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""));
-    // No attention link may lead to an old settings address with the flag on.
-    for (const href of hrefs)
-      expect(href, "attention link").not.toMatch(/^\/(admin|account)(\/|$)|\/settings(\?|#|$)|\/connectors(\?|#|$)/);
+    // No attention link may lead to an old settings address with the flag on:
+    // a project's settings or connectors, an organization's settings, their
+    // project-less legacy forms, the administration or the account. The
+    // shapes are anchored at the start, so no center address (/manage/…)
+    // matches, also not one that ends in /settings.
+    const OLD_SETTINGS =
+      /^\/(?:(?:p\/[^/?#]+\/)?(?:settings|connectors)|o\/[^/?#]+\/settings|admin|account)(?:[/?#]|$)/;
+    for (const href of hrefs) expect(href, "attention link").not.toMatch(OLD_SETTINGS);
     const center = hrefs.find((h) => h.startsWith("/manage/"));
     test.skip(
       !center,
@@ -369,22 +461,22 @@ test.describe("settings center with the flag on", () => {
       const revoked = await page.request.delete(`/api/organizations/${o}/invitations/${i.id}`, { headers: { origin } });
       expect(revoked.ok(), "leftover invitation revoked").toBe(true);
     }
-    const email = `${SECOND_PREFIX}${RUN}@example.invalid`;
+    const email = SECOND_EMAIL;
+    secondInvited = true;
     const invited = await page.request.post(`/api/organizations/${o}/invitations`, {
       headers: { origin },
       data: { email, role: "member", projects: [{ projectId: p, role: "editor" }] },
     });
     expect(invited.status(), "second person invited").toBe(201);
     const invitation = (await invited.json()) as { invitationId?: string; delivery?: string; link?: string };
-    pendingInvitation = invitation.invitationId;
     test.skip(
       invitation.delivery !== "link" || !invitation.link,
       "system mail is configured, so the invitation link is not returned",
     );
-    const context = await page.context().browser()!.newContext({
+    const context = (secondContext = await page.context().browser()!.newContext({
       baseURL: origin,
       storageState: { cookies: [], origins: [] },
-    });
+    }));
     const invitee = await context.newPage();
     const password = randomBytes(18).toString("base64url");
     await invitee.goto(invitation.link!);
@@ -394,9 +486,6 @@ test.describe("settings center with the flag on", () => {
     await invitee.getByLabel(/^Repeat the password/).fill(password);
     await invitee.getByRole("button", { name: "Create account and accept" }).click();
     await expect(invitee.getByLabel(/^Account menu/)).toBeVisible();
-    pendingInvitation = undefined;
-    const me = await invitee.request.get("/api/me").then((r) => r.json());
-    second = { userId: me.user.id, context };
 
     const theirs = (await invitee.request
       .get("/api/management/capabilities")

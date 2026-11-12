@@ -40,32 +40,57 @@ jobs:
           pnpm dev > .runtime/ci-services.log 2>&1 &
           for i in $(seq 1 60); do curl --fail --silent http://localhost:4310/ > /dev/null && break; sleep 1; done
           pnpm test:e2e
-      - name: Browser acceptance with the settings center on
-        # The same flags with ORBIT_SETTINGS_CENTER=on (phase 5): every old
-        # settings address leads to the center, so every spec must pass or
-        # skip there too. A fresh stack and seed: the run above changed data.
-        env:
-          ORBIT_ADMINISTRATION: 'true'
-          ORBIT_ACCOUNT: 'true'
-          ORBIT_SETTINGS_CENTER: 'on'
-        run: |
-          pkill -f 'scripts/dev.ts' || true
-          for i in $(seq 1 30); do curl --silent http://localhost:4310/ > /dev/null || break; sleep 1; done
-          pkill -f 'next/dist/bin/next' || true
-          pkill -f 'apps/api/src/main.ts' || true
-          pkill -f 'apps/worker/src/main.ts' || true
-          docker compose --env-file .runtime/local.env -f infra/compose.local.yml down -v
-          pnpm local:setup
-          rm -f .runtime/e2e-user.json .runtime/*-state.json .runtime/settings-center-ai-standard.json
-          pnpm exec tsx scripts/seed-e2e.ts
-          pnpm dev > .runtime/ci-services-on.log 2>&1 &
-          for i in $(seq 1 60); do curl --fail --silent http://localhost:4310/ > /dev/null && break; sleep 1; done
-          pnpm test:e2e
       - name: Preserve non-secret acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: orbit-acceptance
+          path: |
+            docs/evidence/
+            .runtime/playwright-results/**/*.png
+          retention-days: 14
+  # The browser suite with the settings center on (phase 5, ruling P5-R5):
+  # every old settings address leads to the center, so every spec must pass
+  # or skip there too. Its own job on fresh services, beside the job above;
+  # the same setup and flags, ORBIT_SETTINGS_CENTER=on.
+  browser-settings-center-on:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: {node-version: '24.18.0'}
+      - run: corepack enable && corepack prepare pnpm@11.19.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm local:setup
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Start the stack with the settings center on
+        # Invitations need the administration feature, as in production.
+        # Processes started in the background keep running into the next
+        # steps; the runner ends them when the job ends.
+        env:
+          ORBIT_ADMINISTRATION: 'true'
+          # Account pages and the settings center (ADR 0013, ADR 0027), so their browser specs run.
+          ORBIT_ACCOUNT: 'true'
+          ORBIT_SETTINGS_CENTER: 'on'
+        run: |
+          pnpm exec tsx scripts/seed-e2e.ts
+          pnpm dev > .runtime/ci-services.log 2>&1 &
+          for i in $(seq 1 60); do curl --fail --silent http://localhost:4310/ > /dev/null && break; sleep 1; done
+      - name: Check that the stack serves the settings center stage on
+        # Fails unless the running stack reports the stage this job is for,
+        # so the suite never passes against another stage.
+        run: node scripts/e2e-stage-check.mjs on
+      - name: Browser acceptance with the settings center on
+        run: pnpm test:e2e
+      - name: Preserve non-secret acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: orbit-acceptance-settings-center-on
           path: |
             docs/evidence/
             .runtime/playwright-results/**/*.png
