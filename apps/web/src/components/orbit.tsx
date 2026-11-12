@@ -115,6 +115,15 @@ import {
   useManagementCapabilities,
 } from "@/platform/settings-center/capabilities";
 import { ScopeView } from "@/platform/settings-center/scope-view";
+import {
+  mapOldAddress,
+  moduleTabIndex,
+  oldAddressTarget,
+  redirectModuleShown,
+  type OldAddress,
+  type Redirect,
+} from "@/platform/settings-center/redirects";
+import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 
 const LAST_PROJECT = "orbit.project";
 type ModuleStates = {
@@ -166,6 +175,28 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     (settingsCenter === "preview" || settingsCenter === "on")
       ? place.target
       : null;
+  // Phase 5: with the flag on, an old settings address opens its place in
+  // the settings center. It is read in render only once /me has loaded, so
+  // never on the server; a legacy address counts as the project address it
+  // leads to.
+  const legacyProjectId =
+    settingsCenter === "on" && place.kind === "legacy" && identity.data
+      ? defaultProject(identity.data, lastProject())
+      : null;
+  const oldAddress: OldAddress | null =
+    settingsCenter === "on" && identity.data && typeof window !== "undefined"
+      ? place.kind !== "legacy"
+        ? { pathname, search: window.location.search, hash: window.location.hash }
+        : legacyProjectId
+          ? {
+              pathname: projectHref(legacyProjectId, place.route),
+              search: window.location.search,
+              hash: window.location.hash,
+            }
+          : null
+      : null;
+  const settingsTabs = useMemo(() => moduleTabIndex(registry.modules), [registry]);
+  const mapContext = { table, tabs: settingsTabs, platformKeys: PLATFORM_TAB_KEYS };
   const projectId =
     place.kind === "view" || place.kind === "notFound"
       ? place.projectId
@@ -176,12 +207,18 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     ? identity.data?.projects.find((p) => p.id === projectId)
     : undefined;
   // Refetched with the workspace revision, so a module switch shows at once.
-  const moduleStates = useResource<ModuleStates>(
-    project
-      ? `/projects/${encodeURIComponent(project.id)}/modules?revision=${revision}`
-      : null,
+  // A legacy address on its way to the center needs the states of the
+  // project it leads to (a moved settings key depends on them).
+  const statesProjectId = project?.id ?? legacyProjectId ?? undefined;
+  const statesPath = statesProjectId
+    ? `/projects/${encodeURIComponent(statesProjectId)}/modules?revision=${revision}`
+    : null;
+  const moduleStates = useResource<ModuleStates>(statesPath);
+  const caps = useManagementCapabilities(
+    manage !== null ||
+      (oldAddress !== null &&
+        mapOldAddress(oldAddress, { ...mapContext, moduleShown: () => null }) !== null),
   );
-  const caps = useManagementCapabilities(manage !== null);
   const center =
     place.kind === "manage"
       ? centerState({
@@ -214,6 +251,40 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     lastStates,
     project?.id,
   );
+  const redirect: Redirect = oldAddress
+    ? oldAddressTarget(oldAddress, {
+        ...mapContext,
+        stage: settingsCenter,
+        caps: caps.error ? undefined : caps.data,
+        moduleShown: (id, moduleId) => {
+          const module = registry.modules.find((m) => m.id === moduleId);
+          const settled =
+            lastStates?.projectId === statesProjectId ? lastStates : null;
+          return redirectModuleShown(
+            {
+              projectId: statesProjectId,
+              // `data` belongs to the previous path on a new path's first render.
+              states:
+                (moduleStates.path === statesPath ? moduleStates.data : null) ??
+                settled?.states ??
+                null,
+              failed:
+                Boolean(moduleStates.error) ||
+                (settled !== null && settled.states === null),
+            },
+            id,
+            (states) =>
+              moduleShown(
+                states.modules,
+                moduleId,
+                module?.optIn === true,
+                module?.minAccess,
+              ),
+          );
+        },
+      })
+    : { kind: "stay" };
+  const redirectKey = redirect.kind === "go" ? redirect.href : redirect.kind;
   // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
   // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).
   const memberRole = project
@@ -324,6 +395,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   useEffect(() => {
     const me = identity.data;
     if (!me) return;
+    // Only with the settings center on: an old settings address (a legacy
+    // one after its project is chosen) goes to the center in one step.
+    if (redirect.kind === "wait") return;
+    if (redirect.kind === "go") {
+      router.replace(redirect.href);
+      return;
+    }
     if (place.kind === "redirect")
       router.replace(projectHref(place.projectId, place.route));
     if (place.kind !== "start" && place.kind !== "legacy") return;
@@ -337,9 +415,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           : projectHref(id, place.route) +
             keptSuffix(window.location.search, window.location.hash),
     );
-    // `place` is derived from the pathname.
+    // `place` is derived from the pathname; `redirectKey` stands for `redirect`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identity.data, pathname, table]);
+  }, [identity.data, pathname, table, redirectKey]);
   // A bare /manage leads to the scope `centerState` picks.
   const centerRedirect = center?.kind === "redirect" ? center.href : null;
   useEffect(() => {
@@ -684,6 +762,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     refresh: () => setRevision((n) => n + 1),
     href: (path) => rewriteLegacyHref(table, open.id, path),
   });
+  // An old page never shows on its way to the settings center.
+  if (redirect.kind !== "stay")
+    return (
+      <div className="boot">
+        <Brand />
+        <Loading label={t("loading")} />
+      </div>
+    );
   if (standalone)
     return frame(
       <StandaloneContext.Provider

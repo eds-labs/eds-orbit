@@ -11,9 +11,12 @@ import {
   centerHref,
   mapOldAddress,
   moduleTabIndex,
+  oldAddressTarget,
+  redirectModuleShown,
   type CenterAddress,
   type MapContext,
   type OldAddress,
+  type RedirectContext,
 } from "./redirects";
 import { accountSections } from "./sections/account";
 import { organizationSections } from "./sections/organization";
@@ -23,7 +26,7 @@ import {
   projectSections,
 } from "./sections/project";
 import { systemSections } from "./sections/system";
-import { CAPABILITIES, type ScopeKind } from "./types";
+import { CAPABILITIES, type ManagementCapabilities, type ScopeKind } from "./types";
 
 const table = routeTable(webRegistry);
 const tabs = moduleTabIndex(webRegistry.modules);
@@ -255,5 +258,113 @@ describe("old settings addresses", () => {
         ).not.toBeNull();
       }
     }
+  });
+});
+
+const PROJECT_CAPS = CAPABILITIES.filter((c) => c.startsWith("project."));
+
+/** Capabilities of a member who owns project p1 and nothing else. */
+const caps = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
+  stage: "on",
+  flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
+  system: [],
+  account: [],
+  organizations: [],
+  projects: [
+    { id: "p1", name: "P1", workspaceId: "w1", role: "owner", capabilities: [...PROJECT_CAPS] },
+  ],
+  ...over,
+});
+
+const rctx = (over: Partial<RedirectContext> = {}): RedirectContext => ({
+  ...ctx(),
+  stage: "on",
+  caps: caps(),
+  ...over,
+});
+
+describe("the shell's redirect of an old settings address", () => {
+  const members = parse("/p/p1/settings?section=members");
+
+  it("does nothing unless the stage is on", () => {
+    for (const stage of ["off", "preview", undefined] as const)
+      expect(oldAddressTarget(members, rctx({ stage })), String(stage)).toEqual({ kind: "stay" });
+  });
+
+  it("waits for the capabilities and stays when they cannot be read", () => {
+    expect(oldAddressTarget(members, rctx({ caps: null }))).toEqual({ kind: "wait" });
+    expect(oldAddressTarget(members, rctx({ caps: undefined }))).toEqual({ kind: "stay" });
+    // Unknown module states wait even with capabilities.
+    expect(
+      oldAddressTarget(parse("/p/p1/settings?section=policy"), rctx({ moduleShown: () => null })),
+    ).toEqual({ kind: "wait" });
+    // An address that is no old settings address never waits.
+    expect(oldAddressTarget(parse("/p/p1/knowledge"), rctx({ caps: null }))).toEqual({ kind: "stay" });
+  });
+
+  it("goes to the target the member can open", () => {
+    expect(oldAddressTarget(members, rctx())).toEqual({ kind: "go", href: "/manage/p/p1/members" });
+    expect(oldAddressTarget(parse("/p/p1/settings?section=policy&x=1#a"), rctx())).toEqual({
+      kind: "go",
+      href: "/manage/p/p1/modules/marketing/policy?x=1#a",
+    });
+    const admin = caps({ system: CAPABILITIES.filter((c) => c.startsWith("system.")) });
+    expect(oldAddressTarget(parse("/admin/users/u1"), rctx({ caps: admin }))).toEqual({
+      kind: "go",
+      href: "/manage/system/users/u1",
+    });
+  });
+
+  it("falls back to the scope's first area the member can open", () => {
+    const editor = caps({
+      projects: [
+        {
+          id: "p1",
+          name: "P1",
+          workspaceId: "w1",
+          role: "editor",
+          capabilities: PROJECT_CAPS.filter((c) => c !== "project.members"),
+        },
+      ],
+    });
+    expect(oldAddressTarget(parse("/p/p1/settings?section=members&x=1#a"), rctx({ caps: editor }))).toEqual({
+      kind: "go",
+      href: "/manage/p/p1/overview",
+    });
+    // The first area in registry order the member holds, not always the overview.
+    const narrow = caps({
+      projects: [
+        { id: "p1", name: "P1", workspaceId: "w1", role: "editor", capabilities: ["project.ai", "project.data"] },
+      ],
+    });
+    expect(oldAddressTarget(members, rctx({ caps: narrow }))).toEqual({ kind: "go", href: "/manage/p/p1/ai" });
+  });
+
+  it("stays when the scope is not available to the member", () => {
+    expect(oldAddressTarget(parse("/account"), rctx())).toEqual({ kind: "stay" });
+    expect(oldAddressTarget(parse("/admin"), rctx())).toEqual({ kind: "stay" });
+    expect(oldAddressTarget(parse("/o/w1/settings"), rctx())).toEqual({ kind: "stay" });
+    expect(oldAddressTarget(parse("/p/p2/settings"), rctx())).toEqual({ kind: "stay" });
+  });
+
+  it("never maps a center address or its own target", () => {
+    expect(oldAddressTarget(parse("/manage/p/p1/members"), rctx())).toEqual({ kind: "stay" });
+    expect(oldAddressTarget(parse("/manage/system"), rctx({ caps: null }))).toEqual({ kind: "stay" });
+  });
+});
+
+describe("module states for the redirect", () => {
+  const shown = (states: string[]) => states.includes("marketing");
+
+  it("is unknown only while the states of that project can still load", () => {
+    expect(redirectModuleShown({ projectId: "p1", states: null, failed: false }, "p1", shown)).toBeNull();
+    expect(redirectModuleShown({ projectId: "p1", states: ["marketing"], failed: false }, "p1", shown)).toBe(true);
+    expect(redirectModuleShown({ projectId: "p1", states: [], failed: false }, "p1", shown)).toBe(false);
+  });
+
+  it("counts a module as not shown once the states failed or will never load", () => {
+    expect(redirectModuleShown({ projectId: "p1", states: null, failed: true }, "p1", shown)).toBe(false);
+    expect(redirectModuleShown({ projectId: "p1", states: ["marketing"], failed: false }, "p2", shown)).toBe(false);
+    expect(redirectModuleShown({ projectId: undefined, states: null, failed: false }, "p1", shown)).toBe(false);
   });
 });

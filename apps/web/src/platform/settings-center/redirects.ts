@@ -1,8 +1,20 @@
 import { locate, type RouteTable } from "@/platform/shell/routes";
 import { MOVED, platformSettingsTabs } from "@/platform/shell/settings-nav";
-import { moduleSectionId } from "./registry";
+import { moduleSectionId, visibleSections } from "./registry";
 import { manageHref } from "./routes";
-import type { ManageScope } from "./types";
+// The shell already loads these lists through the settings center's views,
+// so deciding where a member may land adds nothing to its first render.
+import { accountSections } from "./sections/account";
+import { organizationSections } from "./sections/organization";
+import { projectSections } from "./sections/project";
+import { systemSections } from "./sections/system";
+import type {
+  Capability,
+  ManageScope,
+  ManagementCapabilities,
+  ManagementSection,
+  ScopeKind,
+} from "./types";
 
 // Phase 5 (ORBIT_SETTINGS_CENTER=on): every old settings address leads to its
 // section of the settings center. This file is the pure table from an old
@@ -200,4 +212,81 @@ export function mapOldAddress(
 
 export function centerHref(target: CenterAddress): string {
   return manageHref(target.scope, target.area, ...target.rest) + target.search + target.hash;
+}
+
+export type RedirectContext = MapContext & {
+  stage: "off" | "preview" | "on" | undefined;
+  /** The member's capabilities; null while loading; undefined when the request failed. */
+  caps: ManagementCapabilities | null | undefined;
+};
+export type Redirect = { kind: "go"; href: string } | { kind: "wait" } | { kind: "stay" };
+
+const STAY: Redirect = { kind: "stay" };
+const WAIT: Redirect = { kind: "wait" };
+
+// The platform's own sections per scope: an area a member can open is one
+// where they see at least one of them. A module section of a project needs
+// project.modules, the capability of the platform's Modules section.
+const PLATFORM_SECTIONS: Readonly<Record<ScopeKind, readonly ManagementSection[]>> = {
+  system: systemSections,
+  organization: organizationSections,
+  project: projectSections,
+  account: accountSections,
+};
+
+function scopeCapabilities(
+  caps: ManagementCapabilities,
+  scope: ManageScope,
+): readonly Capability[] {
+  switch (scope.kind) {
+    case "system":
+      return caps.system;
+    case "account":
+      return caps.account;
+    case "organization":
+      return caps.organizations.find((o) => o.id === scope.organizationId)?.capabilities ?? [];
+    case "project":
+      return caps.projects.find((p) => p.id === scope.projectId)?.capabilities ?? [];
+  }
+}
+
+/** What the shell does with an address. */
+export function oldAddressTarget(address: OldAddress, ctx: RedirectContext): Redirect {
+  if (ctx.stage !== "on") return STAY;
+  const target = mapOldAddress(address, ctx);
+  if (target === null) return STAY;
+  if (target === "wait" || ctx.caps === null) return WAIT;
+  // Without capabilities the old page still works; better than no page.
+  if (ctx.caps === undefined) return STAY;
+  const kind = target.scope.kind;
+  const open = visibleSections(
+    PLATFORM_SECTIONS[kind],
+    kind,
+    scopeCapabilities(ctx.caps, target.scope),
+  );
+  // A scope the member cannot open keeps today's page (e.g. not found).
+  if (open.length === 0) return STAY;
+  // visibleSections sorts by area order: the first one is the first area.
+  const href = open.some((s) => s.area === target.area)
+    ? centerHref(target)
+    : manageHref(target.scope, open[0].area);
+  return href === address.pathname + address.search + address.hash
+    ? STAY
+    : { kind: "go", href };
+}
+
+/**
+ * `moduleShown` for the redirect, so a "wait" always ends: unknown only while
+ * the module states of that project can still load. Once they failed, or for
+ * a project whose states the shell does not load, the module counts as not
+ * shown and a moved key goes to its platform home.
+ */
+export function redirectModuleShown<T>(
+  loading: { projectId: string | undefined; states: T | null; failed: boolean },
+  projectId: string,
+  shown: (states: T) => boolean,
+): boolean | null {
+  if (projectId !== loading.projectId) return false;
+  if (loading.states) return shown(loading.states);
+  return loading.failed ? false : null;
 }
