@@ -142,7 +142,7 @@ describe.skipIf(!enabled)("social developer apps", () => {
     ]);
     expect(providers.find((p) => p.id === "social.app.x")!.callbackPath).toBe("/api/social/oauth/callback/x");
     expect(providers.find((p) => p.id === "social.app.meta")!.callbackPath).toBe("/api/social/oauth/callback/meta");
-    for (const p of providers.filter((p) => !p.id.startsWith("social.app.")))
+    for (const p of providers.filter((p) => !/^[a-z][a-z0-9_]*\.app\./.test(p.id)))
       expect(p).not.toHaveProperty("secretFields");
     // The browser's patterns accept what the server accepts.
     for (const [id, secret] of [

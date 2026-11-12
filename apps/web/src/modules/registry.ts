@@ -46,6 +46,7 @@ import { issuesWeb } from "./issues/manifest";
 import { socialWeb } from "./social/manifest";
 import { webmailWeb } from "./webmail/manifest";
 import { adsWeb } from "./ads/manifest";
+import { AdsDataDeletionView } from "./ads/data-deletion";
 import { DataDeletionView } from "./social/data-deletion";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
@@ -351,6 +352,14 @@ export const webRegistry: WebRegistry = {
       key: "data-deletion",
       path: "data-deletion",
       component: DataDeletionView,
+      title: { en: "Data-deletion request", de: "Anfrage zur Datenlöschung" },
+      session: "none",
+    },
+    // The same for the ads app's Meta login (ADR 0025).
+    {
+      key: "ads-data-deletion",
+      path: "data-deletion/ads",
+      component: AdsDataDeletionView,
       title: { en: "Data-deletion request", de: "Anfrage zur Datenlöschung" },
       session: "none",
     },

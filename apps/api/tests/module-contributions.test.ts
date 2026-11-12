@@ -17,7 +17,9 @@ import {
   registeredJobs,
   registeredNotification,
   registeredPeriodicTask,
+  registeredEventPublisher,
   registeredPeriodicTasks,
+  registeredUserNotification,
   registeredRetention,
   registeredRoutes,
   registeredRoutesByOwner,
@@ -257,6 +259,18 @@ describe("module contributions", () => {
     } finally {
       delete process.env.ORBIT_SUPPORT;
     }
+    // The ads module's wiring counts only while ORBIT_ADS is on (ADR 0025, A3).
+    process.env.ORBIT_ADS = "true";
+    try {
+      const names = registeredPeriodicTasks().map((t) => t.name);
+      expect(names).toContain("ads-account-health");
+      expect(names).toContain("ads-oauth-state-cleanup");
+      expect(registeredUserNotification("ads_account_reconnect")?.owner).toBe("ads");
+      expect(registeredUserNotification("ads_token_expiring")?.owner).toBe("ads");
+      expect(registeredEventPublisher("ads.account.reconnect_required")).toBeTruthy();
+    } finally {
+      delete process.env.ORBIT_ADS;
+    }
     // The health key and summary of /api/health/postiz stay the same.
     expect(registeredPeriodicTask("postiz-queue")?.health?.summarize).toBe(
       postizQueueHealth,
@@ -471,6 +485,10 @@ describe("module contributions", () => {
       "anthropic",
       "n8n",
       "github_app",
+      // The ads module's Meta app and ad access (ADR 0025); modules
+      // register in registry order, ads before issues.
+      "ads.app.meta",
+      "ads.account.meta",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
       // The social module's developer apps and managed accounts (ADR 0020).
@@ -490,9 +508,11 @@ describe("module contributions", () => {
     );
     expect(registeredConnectionProvider("github_app")?.owner).toBe("platform");
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(7, 13))
+    for (const id of registeredConnectionProviderIds().slice(6, 8))
+      expect(registeredConnectionProvider(id)?.owner).toBe("ads");
+    for (const id of registeredConnectionProviderIds().slice(9, 15))
       expect(registeredConnectionProvider(id)?.owner).toBe("social");
-    for (const id of registeredConnectionProviderIds().slice(13))
+    for (const id of registeredConnectionProviderIds().slice(15))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

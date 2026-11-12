@@ -104,12 +104,18 @@ const PUBLIC_ROUTES = [
   // here, without one) and then needs the owner's session (401/403, pinned
   // in social-oauth-routes.integration.test.ts).
   "GET /api/social/oauth/callback/{app}",
+  // Ads OAuth callback (ADR 0025): the state's shape is checked first (400
+  // here, without one), then the owner's session who started the flow (pinned
+  // in ads-oauth.integration.test.ts).
+  "GET /api/ads/oauth/callback/{provider}",
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
   // A module's provider callback (ADR 0020): Meta's signed data-deletion
   // request; without a valid signature it is refused (400).
   "POST /api/callbacks/social/meta-data-deletion",
+  // The ads app's equivalent (ADR 0025): signed with the ads app secret; 400 without it.
+  "POST /api/callbacks/ads/meta-data-deletion",
   // Signed provider webhooks (WP4.2a): the signature authenticates.
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
   // The support widget's public API (WP5.4): the key, its allowed origins and
@@ -117,6 +123,8 @@ const PUBLIC_ROUTES = [
   // The status of a Meta data-deletion request (ADR 0020): the signed
   // confirmation code authenticates; any other code answers 404.
   "GET /api/public/social/data-deletion/{code}",
+  // The ads app's status page lookup (ADR 0025): same code scheme, any other code answers 404.
+  "GET /api/public/ads/data-deletion/{code}",
   // Signed social media for platforms (ADR 0020, S3): the token authenticates.
   "GET /api/public/social/media/{token}",
   // Social upload sessions (MCP social_media_upload): the signed one-time

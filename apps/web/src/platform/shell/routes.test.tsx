@@ -455,6 +455,7 @@ describe("Web route registry", () => {
       ["/connect/error", "connect-error", "none"],
       // Meta's data-deletion status page (ADR 0020) needs no Orbit account.
       ["/data-deletion", "data-deletion", "none"],
+      ["/data-deletion/ads", "ads-data-deletion", "none"],
     ] as const) {
       const place = locate(path, table);
       expect(place.kind, path).toBe("standalone");

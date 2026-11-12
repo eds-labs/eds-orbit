@@ -1,6 +1,6 @@
 # Requirements traceability
 
-## System & Administration V2, phase 5: flag `on`, module sections, public access (ADR 0027; 2026-11-12, branch `claude/settings-center-phase-5`; local only, not on `main`)
+## System & Administration V2, phase 5: flag `on`, module sections, public access (ADR 0027; 2026-11-12, branch `claude/settings-center-phase-5`; delivered to `main`, flag off in production)
 
 Plan [plans/SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) sections 5.3 and 10, implementation plan [superpowers/plans/2026-11-12-settings-center-phase-5.md](superpowers/plans/2026-11-12-settings-center-phase-5.md). API tests are under `apps/api/tests/`, web unit tests next to their code under `apps/web/src/`, browser tests in `apps/web/tests/settings-center-on.spec.ts` and the specs adapted for `on`. The result column reports the local implementer runs; the controller's verification is in `IMPLEMENTATION_STATUS.md`.
 
@@ -171,7 +171,7 @@ Programme plan [superpowers/plans/2026-11-02-social-module.md](superpowers/plans
 
 ## Ads module (ADR 0025, 2026-11-08, branch `claude/eds-orbit-ads-module-plan-3228d2`; flag off)
 
-Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is on `main` since 2026-11-09 (flag off); A1 Task 0 (ad-blocker test of the id `ads`) is open and gates enabling `ORBIT_ADS` (Mario, 2026-11-09). Step A2 (provider seam, Meta transport, `packages/money`) is on `main` since 2026-11-09 (flag off); its Task 6 (contract tests on sanitized A0 recordings) is open.
+Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/2026-11-07-ads-module.md) (requirements R1–R12), ADR [0025](adr/0025-ads-module.md) (proposed). Step A1 (module skeleton) is on `main` since 2026-11-09 (flag off); A1 Task 0 (ad-blocker test of the id `ads`) is open and gates enabling `ORBIT_ADS` (Mario, 2026-11-09). Step A2 (provider seam, Meta transport, `packages/money`) is on `main` since 2026-11-09 (flag off); its Task 6 (contract tests on sanitized A0 recordings) is open. Step A3 (Meta connection and ad accounts) is implemented and tested locally on the branch (2026-11-11), not pushed.
 
 | ID | Requirement | Code | Local evidence | Result |
 | --- | --- | --- | --- | --- |
@@ -182,7 +182,7 @@ Programme plan [superpowers/plans/2026-11-07-ads-module.md](superpowers/plans/20
 | R3 | Provider adapters | `modules/ads/providers/{types,registry}.ts`, `providers/meta/*` | `ads-meta-errors`, `ads-meta-graph`, `ads-meta-money` and registry tests (fake Graph, no network) | A2 PASS_TEST for the Meta transport; contract tests on A0 recordings OPEN (Task 6); OpenAI and Google OPEN |
 | R3-API | Official APIs only: every Meta call through one pinned (`v27.0`), `appsecret_proof`-signed client, token in the header only, cursor paging, classified failures | `providers/meta/{version,transport,graph,errors,usage}.ts`, `scripts/boundaries.json` | `ads-meta-graph.test.ts`, `ads-meta-errors.test.ts`, `pnpm lint` | PASS_TEST (no live Meta call: NOT_RUN) |
 | R3-M | Money exact in BigInt micros; Meta minor units by documented offset; `spend_cap` read minor, written major; inexact conversion refused | `packages/money`, `providers/meta/money.ts` | `packages/money` tests, `ads-meta-money.test.ts`, `finance-money.test.ts` | PASS_TEST (offsets from Meta's page of 2026-11-08; real-account confirmation in A0 OPEN) |
-| R4 | Meta connection | none | none | OPEN (A3) |
+| R4 | Meta connection: OAuth, list and pick ad accounts, assign one per project and organization, check permissions, sealed tokens, detect broken or expired connections, data deletion | `modules/ads/accounts/*`, `modules/ads/routes/accounts.ts`, `platform/connections/project-secrets.ts` (`claimExclusiveConfigValue`), `apps/web/src/modules/ads/accounts.tsx` | `ads-*` unit and integration tests (fake Graph), `connection-claims.integration.test.ts` (claims, `forget`, `onlyIfConfigEmpty`), access and RLS matrices, `social-meta-data-deletion.integration.test.ts` (regression evidence that the platform's `forget` input leaves Social's deletion unchanged), web `modules/ads` tests | A3 PASS_TEST (local only, not pushed, flag off; live Meta check NOT_RUN until A0 Q20–Q24; independent review pending) |
 | R5 | Meta campaigns | none | none | OPEN (A4, A7, A8) |
 | R6 | Creatives and audiences | none | none | OPEN (A8, A9) |
 | R7 | Analytics | none | none | OPEN (A5) |

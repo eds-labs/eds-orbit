@@ -503,6 +503,14 @@
     "sysadmin": "allowed:200",
     "owner": "not_found"
   },
+  "GET /api/ads/oauth/callback/{provider}": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
   "GET /api/agents/summary": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:200",
@@ -790,6 +798,30 @@
     "editor": "allowed:200",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/ads/accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/ads/connections": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/ads/connections/{connectionId}/available-accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/ads/status": {
     "anonymous": "unauthenticated",
@@ -2367,6 +2399,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/public/ads/data-deletion/{code}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/public/social/data-deletion/{code}": {
     "anonymous": "not_found",
     "outsider": "not_found",
@@ -2502,6 +2542,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "PATCH /api/projects/{projectId}/ads/accounts/{accountId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/agents/{id}": {
     "anonymous": "unauthenticated",
@@ -2878,6 +2926,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "POST /api/callbacks/ads/meta-data-deletion": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
   },
   "POST /api/callbacks/social/meta-data-deletion": {
     "anonymous": "allowed:400",
@@ -3822,6 +3878,46 @@
     "editor": "forbidden:FORBIDDEN",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/ads/accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/ads/accounts/{accountId}/check": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/ads/accounts/{accountId}/unlink": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/ads/connections/meta/connect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/ads/connections/{connectionId}/revoke": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/agent-mandates": {
     "anonymous": "unauthenticated",

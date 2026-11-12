@@ -39,6 +39,9 @@
 | Module id (`ADS_MODULE_ID`), folders `apps/api/src/modules/<id>/`, `apps/web/src/modules/<id>/`, zones `module:<id>`, `web-module:<id>`, registry keys | `ads` | `advertising` |
 | Permission key prefix (Task 2 table) | `ads.` | `advertising.` |
 | API base (`ADS_BASE`), web path helper (`adsPath`), web route `/p/:id/<id>` | `/ads` | `/advertising` |
+| A3 OAuth callback (`/api/<id>/oauth/callback/meta`) | `/api/ads/oauth/callback/meta` | `/api/advertising/oauth/callback/meta` |
+| A3 data-deletion callback (`/api/callbacks/<id>/meta-data-deletion`) | `/api/callbacks/ads/meta-data-deletion` | `/api/callbacks/advertising/meta-data-deletion` |
+| A3 public deletion status (`/api/public/<id>/data-deletion/:code`) and web page (`/data-deletion/<id>`) | `/api/public/ads/data-deletion/:code`, `/data-deletion/ads` | `/api/public/advertising/data-deletion/:code`, `/data-deletion/advertising` |
 
 Unchanged either way: the flag `ORBIT_ADS`, the code `ADS_DISABLED`, the `Ad*` table names, the display name, TypeScript identifiers (`adsModule`, `inAds`, …) and the view paths of Task 6.
 
