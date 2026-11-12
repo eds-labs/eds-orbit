@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { webRegistry } from "@/modules/registry";
 import type { SettingsSection } from "@/platform/shell/types";
-import { ADMIN_SECTIONS, rewriteLegacyHref, routeTable } from "@/platform/shell/routes";
+import {
+  ADMIN_SECTIONS,
+  moduleShown,
+  rewriteLegacyHref,
+  routeTable,
+} from "@/platform/shell/routes";
 import {
   adaptIntegrationSections,
   resolveSection,
@@ -13,7 +18,9 @@ import {
   mapOldAddress,
   moduleTabIndex,
   oldAddressTarget,
+  locationToDecide,
   redirectModuleShown,
+  shownFromStates,
   type CenterAddress,
   type MapContext,
   type OldAddress,
@@ -415,7 +422,7 @@ describe("the shell's redirect of an old settings address", () => {
 });
 
 describe("module states for the redirect", () => {
-  const shown = (states: string[]) => states.includes("marketing");
+  const shown = (states: string[] | null) => states?.includes("marketing") ?? false;
   const of = (settled: { projectId: string; states: string[] | null } | null) => ({
     projectId: "p1",
     settled,
@@ -427,8 +434,9 @@ describe("module states for the redirect", () => {
     expect(redirectModuleShown(of({ projectId: "p1", states: [] }), "p1", shown)).toBe(false);
   });
 
-  it("counts a module as not shown once the states of that project failed", () => {
-    expect(redirectModuleShown(of({ projectId: "p1", states: null }), "p1", shown)).toBe(false);
+  it("asks the caller's rule about a failed load of that project", () => {
+    expect(redirectModuleShown(of({ projectId: "p1", states: null }), "p1", () => true)).toBe(true);
+    expect(redirectModuleShown(of({ projectId: "p1", states: null }), "p1", () => false)).toBe(false);
   });
 
   it("never decides on states or a failure recorded for another project", () => {
@@ -473,5 +481,74 @@ describe("what the shell may read from a first mapping without module states", (
       for (const m of answers.slice(1))
         expect(mapOldAddress(parse(a), ctx({ moduleShown: m })), a).toEqual(first);
     }
+  });
+});
+
+describe("module states after a failed load (M-4)", () => {
+  const modules = webRegistry.modules;
+  const failed = { projectId: "p1", settled: { projectId: "p1", states: null } };
+
+  it("counts a module as shown exactly when the shell shows it after a failed load", () => {
+    for (const m of modules) {
+      const shell = moduleShown(undefined, m.id, m.optIn === true, m.minAccess);
+      expect(shownFromStates(modules, failed, false)("p1", m.id), m.id).toBe(shell);
+      expect(shownFromStates(modules, failed, null)("p1", m.id), m.id).toBe(shell);
+    }
+    // Marketing is not opt-in, so the shell shows it after a failed load.
+    expect(moduleShown(undefined, "marketing", false)).toBe(true);
+  });
+
+  it("keeps Marketing's settings link and redirect on its section while the failure lasts", () => {
+    const address = "/p/p1/settings?section=policy";
+    const shown = ctx({ moduleShown: shownFromStates(modules, failed, null) });
+    const expected = mapOldAddress(parse(address), ctx({ moduleShown: () => true }));
+    expect(centerLink(address, shown)).toBe(hrefOf(expected));
+    expect(hrefOf(mapOldAddress(parse(address), shown))).toContain("/modules/marketing/");
+  });
+
+  it("stays unknown while the states load, and answers for another project as told", () => {
+    const loading = { projectId: "p1", settled: null };
+    expect(shownFromStates(modules, loading, false)("p1", "marketing")).toBeNull();
+    expect(shownFromStates(modules, failed, false)("p2", "marketing")).toBe(false);
+    expect(shownFromStates(modules, failed, null)("p2", "marketing")).toBeNull();
+  });
+});
+
+describe("the location the redirect may decide on (I-1)", () => {
+  const at = (href: string): OldAddress => parse(href);
+
+  it("is the browser's location when it belongs to the router's pathname", () => {
+    expect(locationToDecide("/o/w1/settings", at("/o/w1/settings#assistant-budget"), null)).toEqual({
+      search: "",
+      hash: "#assistant-budget",
+    });
+    expect(locationToDecide("/p/p1/settings", at("/p/p1/settings?section=ai"), null)).toEqual({
+      search: "?section=ai",
+      hash: "",
+    });
+  });
+
+  it("waits while the browser still shows the previous page", () => {
+    // A client navigation writes the new URL only on commit.
+    expect(
+      locationToDecide("/o/w1/settings", at("/manage/me/profile?connected=2"), null),
+    ).toBe("wait");
+    expect(
+      locationToDecide(
+        "/o/w1/settings",
+        at("/manage/me/profile"),
+        at("/manage/me/profile?connected=2"),
+      ),
+    ).toBe("wait");
+  });
+
+  it("is the location recorded after the commit of the router's pathname", () => {
+    // Recorded under the router's pathname, so a differently encoded browser
+    // pathname cannot keep the redirect waiting.
+    const committed = { pathname: "/p/p 1/settings", search: "?section=ai", hash: "#x" };
+    expect(locationToDecide("/p/p 1/settings", at("/p/p%201/settings?section=ai#x"), committed)).toEqual({
+      search: "?section=ai",
+      hash: "#x",
+    });
   });
 });

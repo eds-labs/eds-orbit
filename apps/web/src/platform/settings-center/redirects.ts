@@ -1,4 +1,4 @@
-import { locate, type RouteTable } from "@/platform/shell/routes";
+import { locate, moduleShown, type RouteTable } from "@/platform/shell/routes";
 import { MOVED, platformSettingsTabs } from "@/platform/shell/settings-nav";
 import { moduleSectionId, visibleSections } from "./registry";
 import { manageHref } from "./routes";
@@ -226,7 +226,7 @@ export function centerHref(target: CenterAddress): string {
  * Segments are read as `locate` reads them (empty ones dropped, decoded), so
  * this only skips paths the table would leave alone.
  */
-function mayBeOldAddress(pathname: string): boolean {
+export function mayBeOldAddress(pathname: string): boolean {
   const parts = pathname
     .split("/")
     .filter(Boolean)
@@ -339,6 +339,8 @@ export function redirectFor(
  * the shell loads; `settled` its last settled load (states null: it failed),
  * tagged with the project it was loaded for. A project whose states the shell
  * does not load counts as not shown, and a moved key goes to its platform home.
+ * A failed load is answered by `shown(null)`, so the caller can apply the
+ * shell's own rule for a failed load.
  */
 export function redirectModuleShown<T>(
   source: {
@@ -346,9 +348,55 @@ export function redirectModuleShown<T>(
     settled: { projectId: string; states: T | null } | null;
   },
   projectId: string,
-  shown: (states: T) => boolean,
+  shown: (states: T | null) => boolean,
 ): boolean | null {
   if (projectId !== source.projectId) return false;
   if (source.settled?.projectId !== projectId) return null;
-  return source.settled.states ? shown(source.settled.states) : false;
+  return shown(source.settled.states);
+}
+
+type ModuleStateList = ReadonlyArray<{ id: string; enabled: boolean; access?: string }>;
+
+/**
+ * `MapContext.moduleShown` from the settled module states of the project the
+ * shell loads them for (redirectModuleShown). `otherProject` answers for any
+ * other project: the redirect sends it home (false), a link keeps its old
+ * address (null). A failed load answers as the shell shows modules then
+ * (moduleShown without states: every module but an opt-in one), so a link
+ * or a redirect never disagrees with the sidebar while the failure lasts.
+ */
+export function shownFromStates(
+  modules: ReadonlyArray<{ id: string; optIn?: boolean; minAccess?: "editor" | "owner" }>,
+  source: {
+    projectId: string | undefined;
+    settled: { projectId: string; states: { modules: ModuleStateList } | null } | null;
+  },
+  otherProject: false | null,
+) {
+  return (projectId: string, moduleId: string): boolean | null => {
+    if (projectId !== source.projectId) return otherProject;
+    const module = modules.find((m) => m.id === moduleId);
+    return redirectModuleShown(source, projectId, (states) =>
+      moduleShown(states?.modules, moduleId, module?.optIn === true, module?.minAccess),
+    );
+  };
+}
+
+/**
+ * The search and hash the redirect may decide on. During the render that
+ * first sees a client navigation's pathname, the browser still shows the
+ * previous page: Next.js writes the new URL to the history only on commit.
+ * So the browser's location counts only when its pathname is the router's;
+ * otherwise the location the shell recorded after the commit of the router's
+ * pathname, if any; else "wait". The record is keyed by the router's
+ * pathname, so an encoding difference between the two cannot keep it waiting.
+ */
+export function locationToDecide(
+  pathname: string,
+  browser: OldAddress,
+  committed: OldAddress | null,
+): { search: string; hash: string } | "wait" {
+  if (browser.pathname === pathname) return { search: browser.search, hash: browser.hash };
+  if (committed?.pathname === pathname) return { search: committed.search, hash: committed.hash };
+  return "wait";
 }

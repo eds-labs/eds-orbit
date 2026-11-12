@@ -307,7 +307,7 @@ describe("finance mailbox note", () => {
   it("says where mailboxes are managed and links to the old connectors page", () => {
     const html = note("off");
     expect(html).toContain(
-      "Mailboxes are added and checked under Integrations.",
+      "Mailboxes are added and checked under Connections.",
     );
     expect(html).toContain('href="/p/demo/connectors"');
     expect(html).toContain("Open mailboxes");
@@ -315,10 +315,20 @@ describe("finance mailbox note", () => {
   it("links to the center's connections with the flag on, in German", () => {
     const html = note("on", "de");
     expect(html).toContain(
-      "Postfächer werden unter Integrationen angelegt und geprüft.",
+      "Postfächer werden unter Verbindungen angelegt und geprüft.",
     );
     expect(html).toContain('href="/center/p/demo/connectors"');
     expect(html).toContain("Postfächer öffnen");
+  });
+  it("names the place once: the hint no longer repeats the note", () => {
+    const en = financeText("en").mailboxes;
+    const de = financeText("de").mailboxes;
+    expect(en.hint).toBe(
+      "Bind an existing e-mail connection to finance. Mail that arrives in a bound mailbox goes only to finance, not to Support or any other module.",
+    );
+    expect(de.hint).toBe(
+      "Binde eine bestehende E-Mail-Verbindung an Finanzen. E-Mails, die in einem gebundenen Postfach ankommen, gehen nur an Finanzen, nicht an Support oder ein anderes Modul.",
+    );
   });
   it("leaves the mailbox list as it was", () => {
     const html = renderToStaticMarkup(

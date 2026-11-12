@@ -413,6 +413,47 @@ test.describe("settings center with the flag on", () => {
     await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
   });
 
+  test("an old address reached on the client from a center page decides on its own search and hash", async ({
+    page,
+  }) => {
+    test.skip(!org().capabilities.includes("organization.ai"), "the member cannot open the organization's AI area");
+    test.skip(!projectCaps().includes("project.ai"), "the member cannot open the project's AI area");
+    test.skip(!projectCaps().includes("project.members"), "the member cannot open the project's members");
+    test.skip(!caps.account.includes("account.profile"), "the member cannot open the account's profile");
+    const p = projectId();
+    const o = org().id;
+    // The seeded stack shows no in-app link from a center page to an old
+    // address (the assistant's budget notice needs an exhausted budget), so
+    // the navigation goes through the app's own router, as a <Link> click
+    // does: the URL is written to the history only when the navigation
+    // commits, unlike page.goto (a cold load) or history.pushState (written
+    // before the router renders).
+    const push = (href: string) =>
+      page.evaluate((to) => {
+        const next = (window as unknown as { next?: { router?: { push(href: string): void } } }).next;
+        if (!next?.router) throw new Error("the app router is not exposed");
+        next.router.push(to);
+      }, href);
+    // Each from a center page with a search of its own, which must not reach
+    // the target; the first starts outside any project, as the assistant's
+    // budget notice can.
+    const cases: Array<[string, string, string]> = [
+      ["/manage/me/profile?probe=previous", `/o/${o}/settings#assistant-budget`, `/manage/o/${o}/ai/budget#assistant-budget`],
+      [`/manage/p/${p}/members?probe=previous`, `/p/${p}/settings?section=ai`, `/manage/p/${p}/ai`],
+    ];
+    for (const [start, from, to] of cases) {
+      await test.step(from, async () => {
+        await page.goto(start);
+        await expect.poll(() => here(page)).toBe(start);
+        await expect(sectionNav(page).locator("[aria-current=page]")).toHaveCount(1);
+        await push(from);
+        await expect.poll(() => here(page), from).toBe(to);
+        await expect(sectionNav(page).locator("[aria-current=page]"), from).toHaveCount(1);
+        expect(page.url(), from).not.toContain("probe=previous");
+      });
+    }
+  });
+
   test("an attention link opens the center", async ({ page }) => {
     const p = projectId();
     await page.goto(`/p/${p}`);

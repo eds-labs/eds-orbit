@@ -68,6 +68,7 @@ import {
 import { StandaloneContext } from "@/platform/shell/standalone-context";
 import {
   buildNavGroups,
+  moduleSettingsHref,
   navEntryHref,
   withCenterEntry,
   withSettingsLinks,
@@ -118,10 +119,12 @@ import {
 import { ScopeView } from "@/platform/settings-center/scope-view";
 import {
   centerLink,
+  locationToDecide,
   mapOldAddress,
+  mayBeOldAddress,
   moduleTabIndex,
   redirectFor,
-  redirectModuleShown,
+  shownFromStates,
   type OldAddress,
   type Redirect,
 } from "@/platform/settings-center/redirects";
@@ -133,29 +136,6 @@ type ModuleStates = {
   features?: Record<string, boolean>;
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
 };
-
-/**
- * `MapContext.moduleShown` from the settled module states of the project the
- * shell loads them for (redirectModuleShown). `otherProject` answers for any
- * other project: the redirect sends it home (false), a link keeps its old
- * address (null).
- */
-function shownFromStates(
-  modules: WebRegistry["modules"],
-  source: {
-    projectId: string | undefined;
-    settled: SettledModuleStates<ModuleStates> | null;
-  },
-  otherProject: false | null,
-) {
-  return (projectId: string, moduleId: string): boolean | null => {
-    if (projectId !== source.projectId) return otherProject;
-    const module = modules.find((m) => m.id === moduleId);
-    return redirectModuleShown(source, projectId, (states) =>
-      moduleShown(states.modules, moduleId, module?.optIn === true, module?.minAccess),
-    );
-  };
-}
 
 const lastProject = () => {
   try {
@@ -209,18 +189,49 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     settingsCenter === "on" && place.kind === "legacy" && identity.data
       ? defaultProject(identity.data, lastProject())
       : null;
-  const oldAddress: OldAddress | null =
+  // The location after the commit of the router's pathname (on only): the
+  // render that first sees a client navigation still finds the previous
+  // page's search and hash in window.location (locationToDecide).
+  // Keyed so that any other stage never runs it again after mount.
+  const [committed, setCommitted] = useState<OldAddress | null>(null);
+  const committedKey = settingsCenter === "on" ? pathname : null;
+  useEffect(() => {
+    if (committedKey === null) return;
+    setCommitted({
+      pathname: committedKey,
+      search: window.location.search,
+      hash: window.location.hash,
+    });
+  }, [committedKey]);
+  const location =
     settingsCenter === "on" && identity.data && typeof window !== "undefined"
-      ? place.kind !== "legacy"
-        ? { pathname, search: window.location.search, hash: window.location.hash }
-        : legacyProjectId
-          ? {
-              pathname: projectHref(legacyProjectId, place.route),
-              search: window.location.search,
-              hash: window.location.hash,
-            }
-          : null
+      ? locationToDecide(
+          pathname,
+          {
+            pathname: window.location.pathname,
+            search: window.location.search,
+            hash: window.location.hash,
+          },
+          committed,
+        )
       : null;
+  const addressPath =
+    place.kind !== "legacy"
+      ? pathname
+      : legacyProjectId
+        ? projectHref(legacyProjectId, place.route)
+        : null;
+  const oldAddress: OldAddress | null =
+    location && location !== "wait" && addressPath
+      ? { pathname: addressPath, ...location }
+      : null;
+  // Until the commit, a path the table may map waits; a center page or any
+  // other path cannot map with any search, so it renders at once.
+  const locationWaits =
+    location === "wait" &&
+    place.kind !== "manage" &&
+    addressPath !== null &&
+    mayBeOldAddress(addressPath);
   const settingsTabs = useMemo(() => moduleTabIndex(registry.modules), [registry]);
   const mapContext = { table, tabs: settingsTabs, platformKeys: PLATFORM_TAB_KEYS };
   // Mapped before the module states are known: whether it maps, and every
@@ -241,12 +252,16 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   // A legacy address on its way to the center needs the states of the
   // project it leads to (a moved settings key depends on them).
   const statesProjectId =
-    project?.id ?? (firstMapping !== null ? legacyProjectId : null) ?? undefined;
+    project?.id ??
+    (firstMapping !== null || locationWaits ? legacyProjectId : null) ??
+    undefined;
   const statesPath = statesProjectId
     ? `/projects/${encodeURIComponent(statesProjectId)}/modules?revision=${revision}`
     : null;
   const moduleStates = useResource<ModuleStates>(statesPath);
-  const caps = useManagementCapabilities(manage !== null || firstMapping !== null);
+  const caps = useManagementCapabilities(
+    manage !== null || firstMapping !== null || locationWaits,
+  );
   const center =
     place.kind === "manage"
       ? centerState({
@@ -298,21 +313,23 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     // `statesNow` is rebuilt every render; its fields identify it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsCenter, statesNow?.projectId, statesNow?.states]);
-  const redirect: Redirect = redirectFor(
-    firstMapping === "wait" && oldAddress
-      ? mapOldAddress(oldAddress, {
-          ...mapContext,
-          moduleShown: shownFromStates(
-            registry.modules,
-            { projectId: statesProjectId, settled: statesNow ?? statesSettled },
-            false,
-          ),
-        })
-      : firstMapping,
-    // An error from an earlier request (before this one was enabled or
-    // while it loads) is not this request's answer.
-    { stage: settingsCenter, caps: caps.failed ? undefined : caps.data },
-  );
+  const redirect: Redirect = locationWaits
+    ? { kind: "wait" }
+    : redirectFor(
+        firstMapping === "wait" && oldAddress
+          ? mapOldAddress(oldAddress, {
+              ...mapContext,
+              moduleShown: shownFromStates(
+                registry.modules,
+                { projectId: statesProjectId, settled: statesNow ?? statesSettled },
+                false,
+              ),
+            })
+          : firstMapping,
+        // An error from an earlier request (before this one was enabled or
+        // while it loads) is not this request's answer.
+        { stage: settingsCenter, caps: caps.failed ? undefined : caps.data },
+      );
   const redirectKey = redirect.kind === "go" ? redirect.href : redirect.kind;
   // Links with the flag on: an old settings address renders as its center
   // address. A moved key is decided only by the settled module states of the
@@ -1055,7 +1072,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     withSettingsLinks(
       buildNavGroups(shell.table.routes, shell.modules),
       shell.modules,
-      shell.settingsHref,
+      moduleSettingsHref({
+        on: centerOn,
+        projectId: project.id,
+        platformKeys: PLATFORM_TAB_KEYS,
+        oldHref: shell.settingsHref,
+      }),
     ),
     centerOn,
   );

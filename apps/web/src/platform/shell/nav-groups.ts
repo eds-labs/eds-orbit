@@ -1,4 +1,5 @@
 import { labels } from "@/lib/i18n";
+import { moduleSectionId } from "@/platform/settings-center/registry";
 import { manageHref } from "@/platform/settings-center/routes";
 import {
   activeNavKey,
@@ -89,17 +90,44 @@ export function buildNavGroups(
 /**
  * Gives each module group with a settings section its settings link (spec
  * §3.4), shown after the group's entries; `sectionHref` is the URL of a
- * settings section (settingsSectionHref).
+ * module's settings section (settingsSectionHref, or moduleSettingsHref).
  */
 export function withSettingsLinks(
   groups: readonly NavGroup[],
   modules: ReadonlyArray<{ id: string; settingsSection?: string }>,
-  sectionHref: (key: string) => string,
+  sectionHref: (key: string, moduleId: string) => string,
 ): NavGroup[] {
   return groups.map((group) => {
     const key = modules.find((m) => m.id === group.id)?.settingsSection;
-    return key ? { ...group, settingsHref: sectionHref(key) } : group;
+    return key ? { ...group, settingsHref: sectionHref(key, group.id) } : group;
   });
+}
+
+/**
+ * A module group's settings link (P5-R6). With the flag on it opens the
+ * module's own section of the center (moduleSectionId), not the mapping of
+ * the old tab: a module on a platform tab key (Webmail on "integrations")
+ * would land on the platform's section, which does not hold its panel.
+ * Unless the flag is on: `oldHref`, today's address.
+ */
+export function moduleSettingsHref({
+  on,
+  projectId,
+  platformKeys,
+  oldHref,
+}: {
+  on: boolean;
+  projectId: string;
+  platformKeys: readonly string[];
+  oldHref: (key: string) => string;
+}): (key: string, moduleId: string) => string {
+  if (!on) return (key) => oldHref(key);
+  return (key, moduleId) =>
+    manageHref(
+      { kind: "project", projectId },
+      "modules",
+      ...moduleSectionId(moduleId, key, platformKeys).split("/"),
+    );
 }
 
 /**

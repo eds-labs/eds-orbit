@@ -26,7 +26,7 @@ describe("support mailbox note", () => {
   it("says where mailboxes are managed and links to the old connectors page", () => {
     const html = render("off");
     expect(html).toContain(
-      "Mailboxes are added and checked under Integrations.",
+      "Mailboxes are added and checked under Connections.",
     );
     expect(html).toContain('href="/p/demo/connectors"');
     expect(html).toContain("Open mailboxes");
@@ -34,7 +34,7 @@ describe("support mailbox note", () => {
   it("links to the center's connections with the flag on, in German", () => {
     const html = render("on", "de");
     expect(html).toContain(
-      "Postfächer werden unter Integrationen angelegt und geprüft.",
+      "Postfächer werden unter Verbindungen angelegt und geprüft.",
     );
     expect(html).toContain('href="/center/p/demo/connectors"');
     expect(html).toContain("Postfächer öffnen");
