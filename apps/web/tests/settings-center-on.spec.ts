@@ -164,6 +164,19 @@ function expectedRowCount(): number {
 }
 
 /** The address bar's path, search and hash. */
+/**
+ * A client navigation through the app's own router, as a <Link> click does:
+ * the URL is written to the history only when the navigation commits, unlike
+ * page.goto (a cold load) or history.pushState (written before the router
+ * renders).
+ */
+const routerPush = (page: Page, href: string) =>
+  page.evaluate((to) => {
+    const next = (window as unknown as { next?: { router?: { push(href: string): void } } }).next;
+    if (!next?.router) throw new Error("the app router is not exposed");
+    next.router.push(to);
+  }, href);
+
 const here = (page: Page) => {
   const url = new URL(page.url());
   return url.pathname + url.search + url.hash;
@@ -423,17 +436,8 @@ test.describe("settings center with the flag on", () => {
     const p = projectId();
     const o = org().id;
     // The seeded stack shows no in-app link from a center page to an old
-    // address (the assistant's budget notice needs an exhausted budget), so
-    // the navigation goes through the app's own router, as a <Link> click
-    // does: the URL is written to the history only when the navigation
-    // commits, unlike page.goto (a cold load) or history.pushState (written
-    // before the router renders).
-    const push = (href: string) =>
-      page.evaluate((to) => {
-        const next = (window as unknown as { next?: { router?: { push(href: string): void } } }).next;
-        if (!next?.router) throw new Error("the app router is not exposed");
-        next.router.push(to);
-      }, href);
+    // address (the assistant's budget notice needs an exhausted budget).
+    const push = (href: string) => routerPush(page, href);
     // Each from a center page with a search of its own, which must not reach
     // the target; the first starts outside any project, as the assistant's
     // budget notice can.
@@ -452,6 +456,29 @@ test.describe("settings center with the flag on", () => {
         expect(page.url(), from).not.toContain("probe=previous");
       });
     }
+  });
+
+  test("a client navigation that waits for its location keeps the assistant mounted", async ({ page }) => {
+    // The assistant provider wraps every page and reads its status once per
+    // mount; a remount reads it again. The path may be an old address but is
+    // not mapped without an OAuth result, so the shell waits one render for
+    // the committed location on the way.
+    const p = projectId();
+    const statusReads: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/api/assistant") statusReads.push(request.url());
+    });
+    await page.goto(`/p/${p}`);
+    await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
+    await page.waitForLoadState("networkidle").catch(() => {});
+    // The read is observable on this stack (it answers even without the assistant).
+    expect(statusReads.length).toBeGreaterThan(0);
+    statusReads.length = 0;
+    const to = `/p/${p}/social/accounts`;
+    await routerPush(page, to);
+    await expect.poll(() => here(page)).toBe(to);
+    await page.waitForLoadState("networkidle").catch(() => {});
+    expect(statusReads).toEqual([]);
   });
 
   test("an attention link opens the center", async ({ page }) => {

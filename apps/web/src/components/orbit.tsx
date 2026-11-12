@@ -84,6 +84,7 @@ import {
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
 import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
+import { redirectScreen } from "@/platform/shell/redirect-screen";
 import { moduleSettingsSection } from "@/platform/shell/settings-nav";
 import {
   attentionRenderers,
@@ -118,6 +119,7 @@ import {
 } from "@/platform/settings-center/capabilities";
 import { ScopeView } from "@/platform/settings-center/scope-view";
 import {
+  capabilitiesWanted,
   centerLink,
   locationToDecide,
   mapOldAddress,
@@ -259,8 +261,17 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     ? `/projects/${encodeURIComponent(statesProjectId)}/modules?revision=${revision}`
     : null;
   const moduleStates = useResource<ModuleStates>(statesPath);
+  // Whether the last address the shell knew needed the capabilities (on
+  // only; keyed so that any other stage never runs it again after mount).
+  const capsNeeded = manage !== null || firstMapping !== null;
+  const [capsBefore, setCapsBefore] = useState(false);
+  const capsBeforeKey =
+    settingsCenter === "on" && !locationWaits ? capsNeeded : null;
+  useEffect(() => {
+    if (capsBeforeKey !== null) setCapsBefore(capsBeforeKey);
+  }, [capsBeforeKey]);
   const caps = useManagementCapabilities(
-    manage !== null || firstMapping !== null || locationWaits,
+    capabilitiesWanted({ needed: capsNeeded, locationWaits, before: capsBefore }),
   );
   const center =
     place.kind === "manage"
@@ -838,14 +849,18 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     refresh: () => setRevision((n) => n + 1),
     href: (path) => centerMap(rewriteLegacyHref(table, open.id, path)),
   });
-  // An old page never shows on its way to the settings center.
-  if (redirect.kind !== "stay")
-    return (
-      <div className="boot">
-        <Brand />
-        <Loading label={t("loading")} />
-      </div>
-    );
+  // An old page never shows on its way to the settings center. The loading
+  // screen sits inside withAssistant, the root of every page, so the
+  // assistant keeps its state across that render.
+  const redirecting = redirectScreen(
+    redirect.kind,
+    withAssistant,
+    <div className="boot">
+      <Brand />
+      <Loading label={t("loading")} />
+    </div>,
+  );
+  if (redirecting) return redirecting;
   if (standalone)
     return frame(
       <StandaloneContext.Provider

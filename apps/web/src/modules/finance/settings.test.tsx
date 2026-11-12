@@ -331,6 +331,14 @@ describe("finance mailbox note", () => {
       "Binde eine bestehende E-Mail-Verbindung an Finanzen. E-Mails, die in einem gebundenen Postfach ankommen, gehen nur an Finanzen, nicht an Support oder ein anderes Modul.",
     );
   });
+  it("names the project's connections when no mailbox exists yet", () => {
+    expect(financeText("en").mailboxes.none).toBe(
+      "No e-mail connection yet. Connect a mailbox in the project's connections first.",
+    );
+    expect(financeText("de").mailboxes.none).toBe(
+      "Noch keine E-Mail-Verbindung. Verbinde zuerst ein Postfach unter Verbindungen.",
+    );
+  });
   it("leaves the mailbox list as it was", () => {
     const html = renderToStaticMarkup(
       <MailboxList

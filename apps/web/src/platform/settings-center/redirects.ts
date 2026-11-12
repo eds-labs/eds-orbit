@@ -383,6 +383,22 @@ export function shownFromStates(
 }
 
 /**
+ * Whether the shell requests the member's capabilities. Once the address is
+ * known, when it is needed (a center page, or an address that maps). While
+ * the location waits for its commit, only a request the previous address
+ * already had stays on (coming from a center page, it is not dropped and
+ * fetched again); none is started for a render whose address is not known.
+ * The wait ends with the commit record, not with the capabilities.
+ */
+export function capabilitiesWanted(state: {
+  needed: boolean;
+  locationWaits: boolean;
+  before: boolean;
+}): boolean {
+  return state.locationWaits ? state.before : state.needed;
+}
+
+/**
  * The search and hash the redirect may decide on. During the render that
  * first sees a client navigation's pathname, the browser still shows the
  * previous page: Next.js writes the new URL to the history only on commit.

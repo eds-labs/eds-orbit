@@ -77,7 +77,7 @@ const en = {
     hint: "Bind an existing e-mail connection to finance. Mail that arrives in a bound mailbox goes only to finance, not to Support or any other module.",
     mailboxesManaged: "Mailboxes are added and checked in the project's connections.",
     openMailboxes: "Open mailboxes",
-    none: "No e-mail connection yet. Connect a mailbox under Integrations first.",
+    none: "No e-mail connection yet. Connect a mailbox in the project's connections first.",
     bind: "Bind to finance",
     unbind: "Unbind",
     bound: "Bound",
@@ -881,7 +881,7 @@ const de: typeof en = {
     mailboxesManaged:
       "Postfächer werden unter Verbindungen angelegt und geprüft.",
     openMailboxes: "Postfächer öffnen",
-    none: "Noch keine E-Mail-Verbindung. Verbinde zuerst ein Postfach unter Integrationen.",
+    none: "Noch keine E-Mail-Verbindung. Verbinde zuerst ein Postfach unter Verbindungen.",
     bind: "An Finanzen binden",
     unbind: "Lösen",
     bound: "Gebunden",
