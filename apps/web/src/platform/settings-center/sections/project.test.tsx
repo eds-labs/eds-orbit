@@ -107,6 +107,7 @@ describe("project scope", () => {
       "integrations/setup",
       "integrations/connections",
       "integrations/google-drive",
+      "integrations/public-access",
     ]);
     expect(keys([...OWNER])).toEqual([
       "overview/summary",
@@ -117,6 +118,7 @@ describe("project scope", () => {
       "integrations/setup",
       "integrations/connections",
       "integrations/google-drive",
+      "integrations/public-access",
       "ai/overview",
       "ai/providers",
       "ai/models",
@@ -162,6 +164,7 @@ describe("project scope", () => {
       "setup",
       "connections",
       "google-drive",
+      "public-access",
       "social/accounts",
     ]);
   });

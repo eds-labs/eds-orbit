@@ -260,6 +260,17 @@ describe("old settings addresses", () => {
       }
     }
   });
+
+  it("has the public access section, which no old address maps to", () => {
+    expect(
+      resolveSection(allSections("project"), "integrations", ["public-access"])
+        ?.section.id,
+    ).toBe("public-access");
+    const mapped = [...ROWS.map(([from]) => from), ...EVERY_KEY].map((a) =>
+      hrefOf(mapOldAddress(parse(a), ctx())),
+    );
+    expect(mapped.filter((h) => h?.includes("public-access"))).toEqual([]);
+  });
 });
 
 describe("centerLink", () => {

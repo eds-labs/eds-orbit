@@ -3,22 +3,25 @@
 // a module with a public API, limited to exact origins, and revoke it. A key
 // is a public identifier, not a secret; browsers on its origins open a
 // session with it.
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { api, collectionPath, useMutation, useResource } from "@/lib/api";
+import type { Locale } from "@/lib/i18n";
 import { Alert, Badge, Button, Loading, Modal } from "./ui/primitives";
 import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
 
-type PublicKey = {
+export type PublicKeyItem = {
   id: string;
   moduleId: string;
   publicKey: string;
   allowedOrigins: string[];
   createdAt: string;
   revokedAt: string | null;
+  /** What uses the key (for Support, the inbox); null for an unused or revoked key. */
+  usedBy: { moduleId: string; label: string } | null;
 };
-type KeyList = { items: PublicKey[]; modules: string[] };
+type KeyList = { items: PublicKeyItem[]; modules: string[] };
 
 /** One origin per line or comma; blanks dropped, duplicates kept once. */
 export function parseOrigins(text: string): string[] {
@@ -32,7 +35,116 @@ export function parseOrigins(text: string): string[] {
   ];
 }
 
-export function PublicKeys({ onClose }: { onClose(): void }) {
+// The copy this file adds on top of its English-only modal; German is typed
+// against the English keys. "{label}" is replaced by what uses the key.
+const en = {
+  usedBy: "Used by: {label}",
+  revokeAsk: "Revoke this key? Whatever uses it stops working at once.",
+  revokeUsed:
+    "\"{label}\" loses its key and its widget stops. A new key means a new embed code.",
+  ownerOnly: "Only owners of the project manage public keys.",
+};
+export type PublicKeyTextKey = keyof typeof en;
+const de: Record<PublicKeyTextKey, string> = {
+  usedBy: "Genutzt von: {label}",
+  revokeAsk:
+    "Diesen Schlüssel widerrufen? Was ihn nutzt, funktioniert sofort nicht mehr.",
+  revokeUsed:
+    "\u201E{label}\u201C verliert seinen Schlüssel, und sein Widget funktioniert nicht mehr. Ein neuer Schlüssel bedeutet einen neuen Einbettungscode.",
+  ownerOnly: "Öffentliche Schlüssel verwalten nur Owner des Projekts.",
+};
+
+export function publicKeyText(
+  locale: Locale,
+  key: PublicKeyTextKey,
+  label = "",
+): string {
+  return (locale === "de" ? de[key] : en[key]).replaceAll("{label}", label);
+}
+
+/** The question asked before a key is revoked: the key's user is named when it has one. */
+export function revokeQuestion(key: PublicKeyItem, locale: Locale): string {
+  const ask = publicKeyText(locale, "revokeAsk");
+  return key.usedBy
+    ? `${ask}\n\n${publicKeyText(locale, "revokeUsed", key.usedBy.label)}`
+    : ask;
+}
+
+/** The keys' list with the module, key, origins, state and revoke; `children` follow it (create form or button). */
+export function PublicKeysView({
+  items,
+  modules,
+  locale,
+  pending = false,
+  onRevoke,
+  children,
+}: {
+  items: PublicKeyItem[];
+  modules: string[];
+  locale: Locale;
+  pending?: boolean;
+  onRevoke(id: string): void;
+  children?: ReactNode;
+}) {
+  const date = (value: string) =>
+    new Date(value).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB");
+  return (
+    <>
+      {items.length ? (
+        <div className="member-list">
+          {items.map((key) => (
+            <div className="member-row" key={key.id}>
+              <div>
+                <strong>{key.moduleId}</strong>
+                <small>
+                  <code>{key.publicKey}</code>
+                </small>
+                <small>{key.allowedOrigins.join(", ")}</small>
+                {key.usedBy && (
+                  <small>
+                    {publicKeyText(locale, "usedBy", key.usedBy.label)}
+                  </small>
+                )}
+              </div>
+              <div className="page-actions">
+                {key.revokedAt ? (
+                  <Badge tone="danger">Revoked {date(key.revokedAt)}</Badge>
+                ) : (
+                  <>
+                    <Badge tone="success">Active</Badge>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => {
+                        if (window.confirm(revokeQuestion(key, locale)))
+                          onRevoke(key.id);
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="panel-note">No public keys yet.</p>
+      )}
+      {!modules.length ? (
+        <p className="panel-note">
+          No module of this installation has a public API yet.
+        </p>
+      ) : (
+        children
+      )}
+    </>
+  );
+}
+
+/** The list, the create form and revoke; no frame. */
+export function PublicKeysPanel() {
   const { project, locale, t } = useWorkspace();
   const keys = useResource<KeyList>(collectionPath(project.id, "public-keys"));
   const [creating, setCreating] = useState(false);
@@ -42,112 +154,83 @@ export function PublicKeys({ onClose }: { onClose(): void }) {
   });
   const base = `/projects/${encodeURIComponent(project.id)}/public-keys`;
   const modules = keys.data?.modules ?? [];
-  const date = (value: string) =>
-    new Date(value).toLocaleDateString(locale === "de" ? "de-DE" : "en-GB");
+  if (keys.loading) return <Loading />;
+  if (keys.error?.status === 404)
+    return <Alert>Public ingress is switched off for this installation.</Alert>;
+  return (
+    <>
+      <ResourceError error={keys.error} retry={keys.refresh} />
+      <PublicKeysView
+        items={keys.data?.items ?? []}
+        modules={modules}
+        locale={locale}
+        pending={mutation.pending}
+        onRevoke={(id) =>
+          void mutation.run(() =>
+            api(`${base}/${encodeURIComponent(id)}/revoke`, {
+              method: "POST",
+              body: "{}",
+            }),
+          )
+        }
+      >
+        {creating ? (
+          <DataForm
+            fields={[
+              {
+                name: "moduleId",
+                label: "Module",
+                type: "select",
+                value: modules[0],
+                options: modules.map((id) => ({ value: id, label: id })),
+              },
+              {
+                name: "allowedOrigins",
+                label: "Allowed origins",
+                type: "textarea",
+                required: true,
+                placeholder: "https://www.example.com",
+                hint: "One per line, exactly as the browser sends it: https, host and port, no path. At most 10.",
+              },
+            ]}
+            pending={mutation.pending}
+            error={mutation.error}
+            t={t}
+            onCancel={() => setCreating(false)}
+            submitLabel="Create key"
+            onSubmit={(v) =>
+              mutation.run(() =>
+                api(base, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    moduleId: str(v, "moduleId"),
+                    allowedOrigins: parseOrigins(str(v, "allowedOrigins")),
+                  }),
+                }),
+              )
+            }
+          />
+        ) : (
+          <>
+            {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+            <Button variant="outline" onClick={() => setCreating(true)}>
+              New key
+            </Button>
+          </>
+        )}
+      </PublicKeysView>
+    </>
+  );
+}
+
+export function PublicKeys({ onClose }: { onClose(): void }) {
   return (
     <Modal
       title="Public keys"
       description="A key lets a website on its origins call one module's public API. Revoking it stops that at once."
       onClose={onClose}
     >
-      {keys.loading ? (
-        <Loading />
-      ) : keys.error?.status === 404 ? (
-        <Alert>Public ingress is switched off for this installation.</Alert>
-      ) : (
-        <>
-          <ResourceError error={keys.error} retry={keys.refresh} />
-          {keys.data?.items.length ? (
-            <div className="member-list">
-              {keys.data.items.map((key) => (
-                <div className="member-row" key={key.id}>
-                  <div>
-                    <strong>{key.moduleId}</strong>
-                    <small>
-                      <code>{key.publicKey}</code>
-                    </small>
-                    <small>{key.allowedOrigins.join(", ")}</small>
-                  </div>
-                  <div className="page-actions">
-                    {key.revokedAt ? (
-                      <Badge tone="danger">Revoked {date(key.revokedAt)}</Badge>
-                    ) : (
-                      <>
-                        <Badge tone="success">Active</Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={mutation.pending}
-                          onClick={() =>
-                            mutation.run(() =>
-                              api(
-                                `${base}/${encodeURIComponent(key.id)}/revoke`,
-                                { method: "POST", body: "{}" },
-                              ),
-                            )
-                          }
-                        >
-                          Revoke
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="panel-note">No public keys yet.</p>
-          )}
-          {!modules.length ? (
-            <p className="panel-note">
-              No module of this installation has a public API yet.
-            </p>
-          ) : creating ? (
-            <DataForm
-              fields={[
-                {
-                  name: "moduleId",
-                  label: "Module",
-                  type: "select",
-                  value: modules[0],
-                  options: modules.map((id) => ({ value: id, label: id })),
-                },
-                {
-                  name: "allowedOrigins",
-                  label: "Allowed origins",
-                  type: "textarea",
-                  required: true,
-                  placeholder: "https://www.example.com",
-                  hint: "One per line, exactly as the browser sends it: https, host and port, no path. At most 10.",
-                },
-              ]}
-              pending={mutation.pending}
-              error={mutation.error}
-              t={t}
-              onCancel={() => setCreating(false)}
-              submitLabel="Create key"
-              onSubmit={(v) =>
-                mutation.run(() =>
-                  api(base, {
-                    method: "POST",
-                    body: JSON.stringify({
-                      moduleId: str(v, "moduleId"),
-                      allowedOrigins: parseOrigins(str(v, "allowedOrigins")),
-                    }),
-                  }),
-                )
-              }
-            />
-          ) : (
-            <>
-              {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-              <Button variant="outline" onClick={() => setCreating(true)}>
-                New key
-              </Button>
-            </>
-          )}
-        </>
-      )}
+      <PublicKeysPanel />
     </Modal>
   );
 }

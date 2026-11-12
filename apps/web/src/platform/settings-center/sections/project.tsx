@@ -42,6 +42,7 @@ import {
   CATALOG_SECTION,
   ProjectCatalog,
 } from "../integrations/scopes";
+import { PublicAccessSection } from "./public-access";
 import { SETUP_SECTION, ProjectSetup } from "../integrations/setup";
 import {
   adaptIntegrationSections,
@@ -97,7 +98,7 @@ function ProfileSection() {
     <>
       <ContentLanguagesPanel project={project} isOwner={isOwner} locale={locale} />
       <ProfileLinksPanel project={project} isOwner={isOwner} locale={locale} />
-      <ProjectAdministration />
+      <ProjectAdministration publicKeys={false} />
     </>
   );
 }
@@ -313,6 +314,19 @@ export const projectSections: readonly ManagementSection[] = [
       de: "Google Drive für private Projektdateien und erzeugte Medien.",
     },
     component: GoogleDriveSettings,
+  },
+  {
+    id: "public-access",
+    scope: "project",
+    area: "integrations",
+    order: 30,
+    capability: "project.integrations",
+    label: { en: "Public access", de: "Öffentlicher Zugriff" },
+    description: {
+      en: "Public keys for what the modules offer to the outside, for example the Support widget.",
+      de: "Öffentliche Schlüssel für das, was Module nach außen anbieten, zum Beispiel das Support-Widget.",
+    },
+    component: PublicAccessSection,
   },
   {
     id: "overview",

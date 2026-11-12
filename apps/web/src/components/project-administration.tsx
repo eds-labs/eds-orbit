@@ -28,7 +28,12 @@ import { errorText, projectRoleLabel } from "@/platform/administration/texts";
  * The owner's project actions (settings section "project"): edit the
  * project and manage its public client keys.
  */
-export function ProjectAdministration() {
+export function ProjectAdministration({
+  publicKeys = true,
+}: {
+  /** The settings center lists the keys in its own section and passes false. */
+  publicKeys?: boolean;
+} = {}) {
   const { project, isOwner, t, locale, refresh } = useWorkspace();
   const de = locale === "de";
   const [editing, setEditing] = useState(false);
@@ -54,13 +59,19 @@ export function ProjectAdministration() {
             <Settings data-icon="inline-start" />
             {de ? "Projekt bearbeiten" : "Edit project"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setKeysOpen(true)}>
-            <KeyRound data-icon="inline-start" />
-            {de ? "Öffentliche Schlüssel" : "Public keys"}
-          </Button>
+          {publicKeys && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setKeysOpen(true)}
+            >
+              <KeyRound data-icon="inline-start" />
+              {de ? "Öffentliche Schlüssel" : "Public keys"}
+            </Button>
+          )}
         </div>
       </div>
-      {keysOpen && <PublicKeys onClose={() => setKeysOpen(false)} />}
+      {publicKeys && keysOpen && <PublicKeys onClose={() => setKeysOpen(false)} />}
       {editing && (
         <Modal
           title={de ? "Projekt bearbeiten" : "Edit project"}
