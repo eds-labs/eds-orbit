@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { webRegistry } from "@/modules/registry";
 import type { SettingsSection } from "@/platform/shell/types";
-import { ADMIN_SECTIONS, routeTable } from "@/platform/shell/routes";
+import { ADMIN_SECTIONS, rewriteLegacyHref, routeTable } from "@/platform/shell/routes";
 import {
   adaptIntegrationSections,
   resolveSection,
@@ -9,6 +9,7 @@ import {
 } from "./registry";
 import {
   centerHref,
+  centerLink,
   mapOldAddress,
   moduleTabIndex,
   oldAddressTarget,
@@ -90,8 +91,8 @@ const ROWS: ReadonlyArray<readonly [string, string]> = [
   ["/p/p1/settings?section=work", "/manage/p/p1/modules/work/settings"],
   ["/p/p1/settings?section=brand", "/manage/p/p1/modules/marketing/brand"],
   ["/p/p1/settings?section=policy", "/manage/p/p1/modules/marketing/policy"],
-  ["/p/p1/connectors", "/manage/p/p1/integrations"],
-  ["/p/p1/connectors?x=1", "/manage/p/p1/integrations?x=1"],
+  ["/p/p1/connectors", "/manage/p/p1/integrations/connections"],
+  ["/p/p1/connectors?x=1", "/manage/p/p1/integrations/connections?x=1"],
   ["/p/p1/social/accounts?connected=2", "/manage/p/p1/integrations/social/accounts?connected=2"],
   ["/p/p1/social/accounts?error=denied", "/manage/p/p1/integrations/social/accounts?error=denied"],
 ];
@@ -258,6 +259,55 @@ describe("old settings addresses", () => {
         ).not.toBeNull();
       }
     }
+  });
+});
+
+describe("centerLink", () => {
+  // The legacy addresses as the shell chains them into the open project.
+  const legacy = [...table.legacy.keys()]
+    .flatMap((path) => [path, `${path}?section=ai`, `${path}?connected=2#x`])
+    .map((a) => rewriteLegacyHref(table, "p1", a));
+  const addresses = [
+    ...ROWS.map(([from]) => from),
+    ...EVERY_KEY,
+    ...legacy,
+    "/p/p1/settings?section=policy",
+    "/p/p%201/settings?section=ai",
+    "/o/w%201/settings#assistant-budget",
+    "/admin/users/u%201?x=1",
+  ];
+
+  it("reaches the table for every address the table maps", () => {
+    const contexts = [ctx(), ctx({ moduleShown: () => false }), ctx({ moduleShown: () => null })];
+    let mapped = 0;
+    for (const c of contexts)
+      for (const a of addresses) {
+        const target = mapOldAddress(parse(a), c);
+        if (target && target !== "wait") mapped++;
+        expect(centerLink(a, c), a).toBe(
+          target && target !== "wait" ? centerHref(target) : a,
+        );
+      }
+    // Every row maps in at least the first context.
+    expect(mapped).toBeGreaterThanOrEqual(ROWS.length);
+  });
+
+  it("returns every other input unchanged, character for character", () => {
+    for (const a of [
+      "mailto:a@b.c",
+      "#top",
+      "/api/files/x?download=1",
+      "/p/p1/knowledge?x=%20y#h",
+      "/p/p1/social/accounts",
+      "",
+    ])
+      expect(centerLink(a, ctx()), a).toBe(a);
+  });
+
+  it("sends a moved key whose module is not shown to its moved target", () => {
+    expect(
+      centerLink("/p/p1/settings?section=policy", ctx({ moduleShown: () => false })),
+    ).toBe("/manage/p/p1/ai");
   });
 });
 

@@ -74,7 +74,7 @@ function render(node: React.ReactNode, { locale = "en" as Locale, owner = true }
   const hrefOf = (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!);
   const shell = {
     hrefOf,
-    ...shellLinks({ stage: undefined, projectId: project.id, hrefOf, map: (h) => h }),
+    ...shellLinks({ stage: undefined, hrefOf, map: (h) => h }),
     modules: [],
     drive: { fileActions: [], toolbar: [Upload] },
   } as unknown as ShellContextValue;

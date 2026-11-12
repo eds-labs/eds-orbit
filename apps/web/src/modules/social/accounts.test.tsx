@@ -51,7 +51,7 @@ function render(node: React.ReactNode, { locale = "en" as Locale, access = "owne
   const hrefOf = (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!);
   const shell = {
     hrefOf,
-    ...shellLinks({ stage: undefined, projectId: project.id, hrefOf, map: (h) => h }),
+    ...shellLinks({ stage: undefined, hrefOf, map: (h) => h }),
     modules: [{ id: "social", access, enabled: true, nav: [], displayName: { en: "", de: "" }, description: { en: "", de: "" } }],
   } as unknown as ShellContextValue;
   return renderToStaticMarkup(

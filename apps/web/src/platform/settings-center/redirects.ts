@@ -190,8 +190,13 @@ export function mapOldAddress(
         const to = projectSettingsPlace(projectId, params, ctx);
         return to === "wait" ? to : done(to, keptSearch(params, ["section"]));
       }
+      // The connections section mounts the panel the old page showed.
       if (route.key === "connectors")
-        return done({ scope: { kind: "project", projectId }, area: "integrations" });
+        return done({
+          scope: { kind: "project", projectId },
+          area: "integrations",
+          rest: ["connections"],
+        });
       // The OAuth return of a Social account connection; the accounts page
       // itself stays.
       if (
@@ -215,6 +220,35 @@ export function centerHref(target: CenterAddress): string {
 }
 
 /**
+ * Whether `locate` could place a path where the table maps it: the
+ * administration, the account, or a path ending in an organization's or a
+ * project's settings, the connectors page or the Social accounts page.
+ * Segments are read as `locate` reads them (empty ones dropped, decoded), so
+ * this only skips paths the table would leave alone.
+ */
+function mayBeOldAddress(pathname: string): boolean {
+  const parts = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    });
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  return (
+    first === "admin" ||
+    first === "account" ||
+    last === "settings" ||
+    last === "connectors" ||
+    (last === "accounts" && parts[parts.length - 2] === "social")
+  );
+}
+
+/**
  * A link as the shell renders it with the flag on: an old settings address
  * becomes its center address. Any other link stays as it is, and so does one
  * whose mapping waits for module states: the redirect then decides. A link
@@ -225,6 +259,7 @@ export function centerLink(href: string, ctx: MapContext): string {
   const match = /^([^?#]*)(\?[^#]*)?(#.*)?$/.exec(href);
   if (!match) return href;
   const [, pathname = "", search = "", hash = ""] = match;
+  if (!mayBeOldAddress(pathname)) return href;
   const target = mapOldAddress({ pathname, search, hash }, ctx);
   return target && target !== "wait" ? centerHref(target) : href;
 }

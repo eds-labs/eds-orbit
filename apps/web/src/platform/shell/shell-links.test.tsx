@@ -19,7 +19,7 @@ const hrefOf = (key: string) => {
 const links = (
   stage: "off" | "preview" | "on" | undefined,
   map: (href: string) => string = (href) => centerLink(href, ctx()),
-) => shellLinks({ stage, projectId: "p1", hrefOf, map });
+) => shellLinks({ stage, hrefOf, map });
 
 describe("shell links (settings center phase 5)", () => {
   it("links to the old addresses unless the flag is on", () => {
@@ -84,7 +84,7 @@ describe("centerLink", () => {
       "/manage/p/p2/ai",
     );
     expect(projectAwareHref(table, "p2", "/p/p1/connectors", map)).toBe(
-      "/manage/p/p1/integrations",
+      "/manage/p/p1/integrations/connections",
     );
     expect(projectAwareHref(table, "p2", "/approvals", map)).toBe(
       "/p/p2/approvals",

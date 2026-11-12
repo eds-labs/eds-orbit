@@ -6,7 +6,13 @@ import { Badge, Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { renderAttention } from "./attention";
 import { attentionWhen } from "./relative-time";
-import { locate, projectHref, routeEnabled, type RouteTable } from "./routes";
+import {
+  locate,
+  projectHref,
+  routeEnabled,
+  sameHref,
+  type RouteTable,
+} from "./routes";
 import { useShell } from "./shell-context";
 
 // The home page's list of attention items (UI restructure §5.1): one row per
@@ -25,7 +31,7 @@ export function attentionTarget(
   projectId: string,
   table: RouteTable,
   enabled: (moduleId: string) => boolean,
-  map: (href: string) => string = (href) => href,
+  map: (href: string) => string = sameHref,
 ): string | null {
   const match = /^(\/[^?#]*)([?#].*)?$/.exec(link);
   if (!match) return null;

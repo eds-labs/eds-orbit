@@ -167,7 +167,6 @@ function render(
     hrefOf: (key) => `/p/p1/${key}`,
     ...shellLinks({
       stage: undefined,
-      projectId: "p1",
       hrefOf: (key) => `/p/p1/${key}`,
       map: (h) => h,
     }),

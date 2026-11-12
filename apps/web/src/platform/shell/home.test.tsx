@@ -91,7 +91,7 @@ function shell(
       { moduleId: "marketing", component: () => <p>marketing section</p> },
     ],
     hrefOf,
-    ...shellLinks({ stage: undefined, projectId: project.id, hrefOf, map: (h) => h }),
+    ...shellLinks({ stage: undefined, hrefOf, map: (h) => h }),
     chat: [],
     actionRequests: {},
     attention,

@@ -480,6 +480,9 @@ export function rewriteLegacyHref(
   return route ? projectHref(projectId, route) + suffix : href;
 }
 
+/** The identity on links: the default where no mapping is supplied. */
+export const sameHref = (href: string) => href;
+
 /**
  * An in-app link of a card that names its project (WP3.8): legacy paths
  * ("/content", "/decisions") and project page paths ("/support/tickets?…")
@@ -491,7 +494,7 @@ export function projectAwareHref(
   table: RouteTable,
   projectId: string,
   href: string,
-  map: (href: string) => string = (href) => href,
+  map: (href: string) => string = sameHref,
 ): string {
   if (!href.startsWith("/") || href.startsWith("//")) return href;
   const legacy = rewriteLegacyHref(table, projectId, href);

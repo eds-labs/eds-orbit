@@ -133,6 +133,29 @@ type ModuleStates = {
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
 };
 
+/**
+ * `MapContext.moduleShown` from the settled module states of the project the
+ * shell loads them for (redirectModuleShown). `otherProject` answers for any
+ * other project: the redirect sends it home (false), a link keeps its old
+ * address (null).
+ */
+function shownFromStates(
+  modules: WebRegistry["modules"],
+  source: {
+    projectId: string | undefined;
+    settled: SettledModuleStates<ModuleStates> | null;
+  },
+  otherProject: false | null,
+) {
+  return (projectId: string, moduleId: string): boolean | null => {
+    if (projectId !== source.projectId) return otherProject;
+    const module = modules.find((m) => m.id === moduleId);
+    return redirectModuleShown(source, projectId, (states) =>
+      moduleShown(states.modules, moduleId, module?.optIn === true, module?.minAccess),
+    );
+  };
+}
+
 const lastProject = () => {
   try {
     return localStorage.getItem(LAST_PROJECT);
@@ -278,20 +301,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     firstMapping === "wait" && oldAddress
       ? mapOldAddress(oldAddress, {
           ...mapContext,
-          moduleShown: (id, moduleId) => {
-            const module = registry.modules.find((m) => m.id === moduleId);
-            return redirectModuleShown(
-              { projectId: statesProjectId, settled: statesNow ?? statesSettled },
-              id,
-              (states) =>
-                moduleShown(
-                  states.modules,
-                  moduleId,
-                  module?.optIn === true,
-                  module?.minAccess,
-                ),
-            );
-          },
+          moduleShown: shownFromStates(
+            registry.modules,
+            { projectId: statesProjectId, settled: statesNow ?? statesSettled },
+            false,
+          ),
         })
       : firstMapping,
     // An error from an earlier request (before this one was enabled or
@@ -310,21 +324,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       table,
       tabs: settingsTabs,
       platformKeys: PLATFORM_TAB_KEYS,
-      moduleShown: (id: string, moduleId: string) => {
-        if (id !== statesProjectId) return null;
-        const module = registry.modules.find((m) => m.id === moduleId);
-        return redirectModuleShown(
-          { projectId: statesProjectId, settled: statesSettled },
-          id,
-          (states) =>
-            moduleShown(
-              states.modules,
-              moduleId,
-              module?.optIn === true,
-              module?.minAccess,
-            ),
-        );
-      },
+      moduleShown: shownFromStates(
+        registry.modules,
+        { projectId: statesProjectId, settled: statesSettled },
+        null,
+      ),
     };
     return (href) => centerLink(href, ctx);
   }, [centerOn, table, settingsTabs, registry, statesProjectId, statesSettled]);
@@ -542,7 +546,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       hrefOf,
       ...shellLinks({
         stage: settingsCenter,
-        projectId: project.id,
         hrefOf,
         map: centerMap,
       }),

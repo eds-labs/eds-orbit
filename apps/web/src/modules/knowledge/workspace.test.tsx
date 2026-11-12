@@ -1028,7 +1028,6 @@ const inContext = (node: React.ReactNode, locale: "de" | "en" = "de") =>
           hrefOf: knowledgeHrefOf,
           ...shellLinks({
             stage: undefined,
-            projectId: "p",
             hrefOf: knowledgeHrefOf,
             map: (h) => h,
           }),
