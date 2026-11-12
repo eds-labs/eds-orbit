@@ -31,6 +31,11 @@ import {
 import { KnowledgeHomeCard } from "./home";
 import { Knowledge, ExcludedSources, sourceLabel } from "./knowledge";
 import { knowledgeWeb } from "./manifest";
+import { KnowledgeGithubPage } from "./github-page";
+import { PageHeadLevel } from "@/platform/ui/collection";
+import { webRegistry } from "@/modules/registry";
+import { moduleIntegrations } from "@/platform/shell/routes";
+import { adaptIntegrationSections } from "@/platform/settings-center/registry";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { navigationForFeatures, routeTable } from "@/platform/shell/routes";
@@ -74,6 +79,7 @@ const render = (
   tab: any = "overview",
   owner = true,
   locale: "de" | "en" = "de",
+  stage?: "off" | "preview" | "on",
 ) =>
   renderToStaticMarkup(
     <ShellContext.Provider
@@ -90,6 +96,7 @@ const render = (
             project: { id: "p", name: "FamilyPlan" },
             locale,
             revision: 0,
+            identity: { settingsCenter: stage },
             isOwner: owner,
             canEdit: owner,
             refresh: () => {},
@@ -1877,6 +1884,77 @@ describe("add flow", () => {
     const reader = render("github", false);
     expect(reader).not.toContain(de.clientSecret);
     expect(reader).toContain(de.readOnly);
+  });
+  it("shows state and a link on the module tab when the settings center is on", () => {
+    response.value.configured = true;
+    const html = render("github", true, "en", "on");
+    const t = knowledgeCopy.en;
+    expect(html).toContain(t.githubManaged.replace("&", "&amp;"));
+    expect(html).toContain(t.githubConfigured);
+    expect(html).toContain(t.githubOpen);
+    expect(html).toContain('href="/manage/p/p/integrations/knowledge/github"');
+    expect(html).not.toContain(t.clientSecret);
+    expect(html).not.toContain(t.appSave);
+    response.value.configured = false;
+    expect(render("github", true, "en", "on")).toContain(t.githubMissing);
+    // The editor stays on the tab until the center is on.
+    for (const stage of [undefined, "off", "preview"] as const) {
+      const old = render("github", true, "en", stage);
+      expect(old).toContain(t.clientSecret);
+      expect(old).not.toContain(t.githubOpen);
+    }
+  });
+  it("shows a reader the link and the read-only text, not a state", () => {
+    response.value.configured = true;
+    const html = render("github", false, "en", "on");
+    const t = knowledgeCopy.en;
+    expect(html).toContain(t.readOnly);
+    expect(html).toContain(t.githubOpen);
+    expect(html).not.toContain(t.githubConfigured);
+    expect(html).not.toContain(t.githubMissing);
+  });
+  it("sends the add flow's setup link to the center when it is on", () => {
+    response.value.configured = false;
+    response.value.items = [];
+    nav.search = "github=connected";
+    expect(render("import", true, "de", "on")).toContain(
+      'href="/manage/p/p/integrations/knowledge/github"',
+    );
+    expect(render("import", true, "de", "preview")).toContain(
+      'href="/p/p/knowledge/github"',
+    );
+  });
+  it("keeps one h1 when the page is a section of the center", () => {
+    const page = (level: "h1" | "h2") =>
+      renderToStaticMarkup(
+        <ShellContext.Provider value={{ hrefOf: (k: string) => k } as any}>
+          <PageHeadLevel.Provider value={level}>
+            <WorkspaceContext.Provider
+              value={{ project: { id: "p" }, locale: "en", isOwner: true } as any}
+            >
+              <KnowledgeGithubPage />
+            </WorkspaceContext.Provider>
+          </PageHeadLevel.Provider>
+        </ShellContext.Provider>,
+      );
+    expect(page("h1")).toContain("<h1>");
+    expect(page("h2")).toContain("<h2>GitHub App settings</h2>");
+    expect(page("h2")).not.toContain("<h1>");
+  });
+  it("contributes the GitHub App to the integrations center", () => {
+    const sections = adaptIntegrationSections(
+      moduleIntegrations(webRegistry.modules, () => true),
+    );
+    const github = sections.find((s) => s.id === "knowledge/github");
+    expect(github?.area).toBe("integrations");
+    expect(github?.ownHead).toBe(true);
+    expect(github?.label.en).toBe("Knowledge: GitHub App");
+    expect(github?.label.de).toBe("Wissen: GitHub-App");
+    expect(
+      moduleIntegrations(webRegistry.modules, () => true).find(
+        (c) => c.moduleId === "knowledge",
+      )?.providers,
+    ).toEqual(["knowledge_github"]);
   });
   it("lists the GitHub page in the technical bar for owners", () => {
     nav.search = "expert=1";

@@ -9,7 +9,7 @@ import { useResource } from "@/lib/api";
 import { Alert, Button, Input, Loading } from "@/components/ui/primitives";
 import { knowledgeCopy } from "./workspace-text";
 import { KnowledgeAddFlow } from "./add-flow";
-import { KnowledgeGithubPage } from "./github-page";
+import { GithubAppSummary, KnowledgeGithubPage } from "./github-page";
 import { TechnicalNav } from "./technical-nav";
 import { SourceList } from "./source-list";
 import { countRemoved, StatementList } from "./statements";
@@ -89,7 +89,7 @@ function WorkspaceView({
   tab: KnowledgeTab;
   refresh: () => void;
 }) {
-  const { locale, project, isOwner } = useWorkspace();
+  const { locale, project, isOwner, identity } = useWorkspace();
   const shell = useShell();
   const t = knowledgeCopy[locale];
   const [query, setQuery] = useState("");
@@ -99,7 +99,12 @@ function WorkspaceView({
   const listingRemoved = showRemoved && removedCount > 0;
   if (tab === "import")
     return <KnowledgeAddFlow data={data} refresh={refresh} />;
-  if (tab === "github") return <KnowledgeGithubPage />;
+  if (tab === "github")
+    return identity?.settingsCenter === "on" ? (
+      <GithubAppSummary />
+    ) : (
+      <KnowledgeGithubPage />
+    );
   if (["library", "health", "inspector", "impact"].includes(tab))
     return <LegacyExpert tab={tab} />;
   return (

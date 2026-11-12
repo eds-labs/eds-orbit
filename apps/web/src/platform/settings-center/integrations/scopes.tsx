@@ -202,8 +202,6 @@ export function manageHrefOf(
 ): string | null {
   const owner = ctx.moduleSections.find((s) => s.providers?.includes(entry.id));
   if (owner) return ctx.hrefOf("integrations", ...owner.id.split("/"));
-  // Its page stays in the Knowledge module until phase 5.
-  if (entry.id === "knowledge_github") return null;
   const connections = () => ctx.hrefOf("integrations", "connections");
   const storage = storageOf(entry);
   const scopes = scopesOf(entry);

@@ -84,6 +84,11 @@ export const knowledgeCopy = {
     githubSetupHint:
       "Die GitHub App einmal einrichten, auf ausgewählten Repositorys installieren und den Zugriff mit deinem GitHub-Konto bestätigen.",
     configure: "GitHub-App-Einstellungen",
+    githubManaged:
+      "Die GitHub-App wird in Verwaltung & Einstellungen verwaltet.",
+    githubConfigured: "Eingerichtet",
+    githubMissing: "Nicht eingerichtet",
+    githubOpen: "GitHub-App-Einstellungen öffnen",
     connect: "Mit GitHub verbinden",
     install: "App auf GitHub installieren",
     connection: "GitHub-Konto / Installation",
@@ -385,6 +390,10 @@ export const knowledgeCopy = {
     githubSetupHint:
       "Configure the GitHub App once, install it on selected repositories and confirm access using your GitHub account.",
     configure: "GitHub App settings",
+    githubManaged: "The GitHub App is managed in Administration & settings.",
+    githubConfigured: "Configured",
+    githubMissing: "Not configured",
+    githubOpen: "Open GitHub App settings",
     connect: "Connect with GitHub",
     install: "Install App on GitHub",
     connection: "GitHub account / installation",

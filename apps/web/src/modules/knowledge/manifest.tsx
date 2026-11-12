@@ -16,6 +16,7 @@ import {
   type KnowledgeTab,
 } from "@/modules/knowledge/knowledge";
 import { KnowledgeOverview } from "@/modules/knowledge/overview";
+import { KnowledgeGithubPage } from "./github-page";
 import { knowledgeAttention } from "./attention";
 import { KnowledgeHomeCard } from "./home";
 
@@ -91,6 +92,22 @@ export const knowledgeWeb: WebModule = {
   homeOrder: 20,
   groupOrder: 30,
   attention: knowledgeAttention,
+  integrations: [
+    {
+      id: "github",
+      label: { en: "Knowledge: GitHub App", de: "Wissen: GitHub-App" },
+      description: {
+        en: "The GitHub App Knowledge reads repositories with.",
+        de: "Die GitHub-App, mit der Wissen Repositories liest.",
+      },
+      order: 10,
+      // The catalog id of the App (apps/api knowledge github configuration).
+      providers: ["knowledge_github"],
+      // The page renders its own heading, at the level the center provides.
+      ownHead: true,
+      component: KnowledgeGithubPage,
+    },
+  ],
   views: [
     {
       key: "knowledge",

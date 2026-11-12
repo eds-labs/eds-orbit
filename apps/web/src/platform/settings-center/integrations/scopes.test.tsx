@@ -293,6 +293,11 @@ describe("manageHrefOf", () => {
     expect(manageHrefOf(byId("postiz"), ctx(project, social, []))).toBeNull();
     // Social hidden: no section manages the accounts, and Connectors has no Social provider.
     expect(manageHrefOf(byId("social.account.x"), ctx(project, []))).toBeNull();
+    // Knowledge shown: its GitHub App section manages the entry.
+    expect(
+      manageHrefOf(byId("knowledge_github"), ctx(project, [...social, { id: "knowledge/github", providers: ["knowledge_github"] }])),
+    ).toBe("/manage/p/p1/integrations/knowledge/github");
+    // Knowledge hidden: no section, and no special case that links elsewhere.
     expect(manageHrefOf(byId("knowledge_github"), ctx(project))).toBeNull();
   });
 
@@ -339,7 +344,6 @@ describe("manageNote", () => {
     expect(manageNote(byId("n8n"), ctx(system))).toBe("organization");
     // Module-owned, no section here.
     expect(manageNote(issuesWebhook, ctx(project))).toBe("module");
-    expect(manageNote(byId("knowledge_github"), ctx(project))).toBe("module");
     expect(manageNote(byId("social.account.x"), ctx(project))).toBe("module");
   });
 
