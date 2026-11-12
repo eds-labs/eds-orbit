@@ -599,6 +599,10 @@ test.describe("settings center AI area", () => {
   });
 
   test("old AI pages keep working", async ({ page }) => {
+    test.skip(
+      stage === "on",
+      "the old AI pages redirect with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"every old address opens its section of the center\"",
+    );
     const project = { id: seededProjectId() };
     await page.goto(`/p/${project.id}/settings?section=ai`);
     const projectHeadings = ["AI spending authority", "AI providers", "AI models", "AI usage & costs"];

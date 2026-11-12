@@ -2,6 +2,7 @@ import { test, expect, type Page } from "./fixtures";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
+import { stage } from "./settings-center-helpers";
 
 // System administration (ADR 0013) in the browser: an administrator invites
 // someone, the invited person sets their own password, and deactivation
@@ -35,6 +36,12 @@ test.describe("system administration", () => {
     await login(page, admin.email, admin.password);
     const me = await page.request.get("/api/me").then((r) => r.json());
     test.skip(!me.systemAdmin, "ORBIT_ADMINISTRATION is off or not an admin");
+    // The account menu's "Administration" entry and the old pages are what
+    // this walks; with the flag on the center replaces both.
+    test.skip(
+      (await stage(page)) === "on",
+      "the account menu has no \"Administration\" entry and /admin redirects with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"the user menu and the sidebar offer one entry\" and \"every old address opens its section of the center\", and the center's invitation by settings-center.spec.ts \"asks an administrator before granting a role (D-8)\"",
+    );
 
     // Reached through the account menu, not only by URL.
     await page.getByLabel(/^Account menu/).click();

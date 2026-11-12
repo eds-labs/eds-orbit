@@ -259,6 +259,10 @@ test.describe("settings center", () => {
   });
 
   test("keeps the old pages", async ({ page }) => {
+    test.skip(
+      stage === "on",
+      "the old pages redirect with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"every old address opens its section of the center\" and \"the user menu and the sidebar offer one entry\"",
+    );
     // The old organization settings page heads with an h2 (it had no h1
     // before the settings center either), so the level is not asserted there.
     const pages: Array<[string, string | RegExp, 1 | 2]> = [
@@ -394,8 +398,17 @@ test.describe("settings center", () => {
     await page.waitForTimeout(500);
     expect(sent.map((r) => `${r.method()} ${r.url()}`)).toEqual([]);
 
-    // The old page sends at once. The request is stopped in the browser so
-    // nothing is created.
+    // The old page sends at once. With the flag on the old page leads to the
+    // center section above, so only the center's half applies.
+    if (stage === "on") {
+      test.info().annotations.push({
+        type: "old page",
+        description:
+          "ORBIT_SETTINGS_CENTER=on: /admin/organizations/<id> opens the center section asserted above (settings-center-on.spec.ts \"every old address opens its section of the center\")",
+      });
+      return;
+    }
+    // The request is stopped in the browser so nothing is created.
     await page.route(
       (url) => /\/api\/organizations\/[^/]+\/invitations$/.test(url.pathname),
       (route) =>
@@ -1106,13 +1119,29 @@ test.describe("settings center", () => {
     const target = await integrationsProject(page);
     const other = (JSON.parse(readFileSync(SEED, "utf8")) as { projectId: string }).projectId;
     expect(target.id).not.toBe(other);
-    // The last project opened is another one.
-    await page.goto(`/p/${other}/settings`);
+    // The last project opened is another one. With the flag on, the old
+    // settings address leads to the center, so the project's home is opened.
+    await page.goto(stage === "on" ? `/p/${other}` : `/p/${other}/settings`);
     await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
-    expect(await page.evaluate(() => localStorage.getItem("orbit.project"))).toBe(other);
+    if (stage === "on")
+      await expect
+        .poll(() => page.evaluate(() => localStorage.getItem("orbit.project")))
+        .toBe(other);
+    else expect(await page.evaluate(() => localStorage.getItem("orbit.project"))).toBe(other);
 
     // Where the Drive callback sends the member back.
     await page.goto(`/p/${target.id}/settings?googleDrive=ready`);
+    if (stage === "on") {
+      // The connected project's Drive section of the center (P5).
+      await expect(page).toHaveURL(
+        new RegExp(`/manage/p/${target.id}/integrations/google-drive\\?googleDrive=ready$`),
+      );
+      await expect(
+        sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
+      ).toHaveAttribute("aria-current", "page");
+      await expect(page.getByLabel("Applies to")).toHaveValue(`p:${target.id}`);
+      return;
+    }
     await expect(page).toHaveURL(new RegExp(`/p/${target.id}/settings`));
     await expect(
       sectionNav(page).getByRole("link", { name: "Integrations", exact: true }),
@@ -1121,6 +1150,10 @@ test.describe("settings center", () => {
   });
 
   test("keeps the old connectors and social pages", async ({ page }) => {
+    test.skip(
+      stage === "on",
+      "the old connectors page redirects and the Social accounts page states its accounts with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"every old address opens its section of the center\" and \"the Social accounts page shows state and a link\"",
+    );
     const id = project().id;
     await page.goto(`/p/${id}/connectors`);
     await expect(

@@ -2,6 +2,7 @@ import { test, expect, type Page } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { stage } from "./settings-center-helpers";
 
 // Web shell and navigation (WP1.7, UI restructure): pickers, project home,
 // every page by URL, the grouped and collapsible sidebar, legacy redirects,
@@ -113,12 +114,25 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
 // The sidebar's links in order: PAGES, with each module group ending in its
 // settings link (spec §3.4; its name carries the group: "Marketing Settings").
 // Knowledge has no settings section.
-const SIDEBAR_LINKS = PAGES.flatMap(([group, name], i) => {
-  const last = PAGES[i + 1]?.[0] !== group;
-  return last && (group === "marketing" || group === "support")
-    ? [badged(name), `${group[0]!.toUpperCase()}${group.slice(1)} Settings`]
-    : [badged(name)];
-});
+const sidebarLinks = (pages: typeof PAGES) =>
+  pages.flatMap(([group, name], i) => {
+    const last = pages[i + 1]?.[0] !== group;
+    return last && (group === "marketing" || group === "support")
+      ? [badged(name), `${group[0]!.toUpperCase()}${group.slice(1)} Settings`]
+      : [badged(name)];
+  });
+const SIDEBAR_LINKS = sidebarLinks(PAGES);
+// With the settings center on (P5-D1) the project's Settings entry opens the
+// center under its name and the Connectors entry goes; the center is no
+// page of the shell, so the walk below leaves both out.
+const CENTER_ENTRY = "Administration & settings";
+const CENTER_PAGES = PAGES.filter(([, , path]) => path !== "/connectors").map(
+  ([group, name, path]): [string, string, string] =>
+    path === "/settings" ? [group, CENTER_ENTRY, path] : [group, name, path],
+);
+const CENTER_SIDEBAR_LINKS = sidebarLinks(CENTER_PAGES).map((link) =>
+  link instanceof RegExp && link.test(CENTER_ENTRY) ? CENTER_ENTRY : link,
+);
 
 // The 13 paths from before WP1.7 and the page each one opens now.
 const LEGACY: Array<[string, string]> = [
@@ -143,6 +157,7 @@ test("pickers, project home and every page have their own URL", async ({
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 960 });
   const user = await signIn(page);
+  const center = (await stage(page)) === "on";
   const me = await (await page.request.get("/api/me")).json();
   const project = me.projects.find(
     (p: { id: string }) => p.id === user.projectId,
@@ -193,13 +208,22 @@ test("pickers, project home and every page have their own URL", async ({
 
   // Every page from the sidebar, in order; the URL is shareable.
   const nav = page.getByRole("navigation", { name: "Workspace" });
-  await expect(nav.getByRole("link")).toHaveText(SIDEBAR_LINKS);
+  await expect(nav.getByRole("link")).toHaveText(
+    center ? CENTER_SIDEBAR_LINKS : SIDEBAR_LINKS,
+  );
   const entry = (group: string, name: string) =>
     (group === "top" ? nav : nav.locator(`#nav-group-${group}`)).getByRole(
       "link",
       { name: badged(name) },
     );
-  for (const [group, name, path] of PAGES) {
+  if (center)
+    await expect(entry("project", CENTER_ENTRY)).toHaveAttribute(
+      "href",
+      `/manage/p/${user.projectId}`,
+    );
+  for (const [group, name, path] of center
+    ? CENTER_PAGES.filter(([, n]) => n !== CENTER_ENTRY)
+    : PAGES) {
     await entry(group, name).click();
     await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
     await expect(entry(group, name)).toHaveAttribute("aria-current", "page");
@@ -225,7 +249,9 @@ test("pickers, project home and every page have their own URL", async ({
   // Not every page: the whole suite shares one client address and the API's
   // read limit (600 per minute).
   for (const [group, name, path] of [
-    ["project", "Settings", "/settings"],
+    center
+      ? ["project", "Operations", "/operations"]
+      : ["project", "Settings", "/settings"],
     ["marketing", "Editorial plan", "/marketing/calendar"],
   ]) {
     await page.goto(`${base}${path}`);
@@ -250,6 +276,11 @@ test("module settings links open their section of the grouped settings", async (
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 960 });
   const user = await signIn(page);
+  // This walks the old grouped settings page, which the center replaces.
+  test.skip(
+    (await stage(page)) === "on",
+    "the old settings page redirects with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"a module group's Settings link opens the module's section\" and \"every old address opens its section of the center\"",
+  );
   const base = `/p/${user.projectId}`;
   await openHome(page, base);
   const nav = page.getByRole("navigation", { name: "Workspace" });
@@ -340,15 +371,27 @@ test("legacy paths redirect, unknown paths say so", async ({ page }) => {
   test.setTimeout(120_000);
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
+  // With the settings center on, the two settings paths go on to the center
+  // (settings-center-on.spec.ts covers their sections).
+  const center = (await stage(page)) === "on";
+  const manage = `/manage/p/${user.projectId}`;
+  const landing = (now: string) =>
+    center && now === "/connectors"
+      ? `${manage}/integrations/connections`
+      : center && now === "/settings"
+        ? `${manage}/overview`
+        : `${base}${now}`;
   await openHome(page, base);
   for (const [old, now] of LEGACY) {
     await page.goto(old);
-    await expect(page, old).toHaveURL(new RegExp(`${base}${now}$`));
+    await expect(page, old).toHaveURL(new RegExp(`${landing(now)}$`));
   }
   // Query and hash survive the redirect (the Google Drive callback uses one).
   await page.goto("/settings?googleDrive=ready");
   await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?googleDrive=ready$`),
+    center
+      ? new RegExp(`${manage}/integrations/google-drive\\?googleDrive=ready$`)
+      : new RegExp(`${base}/settings\\?googleDrive=ready$`),
   );
 
   await page.goto(`${base}/nope`);
@@ -556,6 +599,7 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   await page.setViewportSize({ width: 1440, height: 960 });
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
+  const center = (await stage(page)) === "on";
   await openHome(page, base);
   const nav = page.getByRole("navigation", { name: "Workspace" });
   const group = nav.locator("#nav-group-support");
@@ -566,7 +610,12 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   ]);
   await expect(
     group.getByRole("link", { name: "Support Settings", exact: true }),
-  ).toHaveAttribute("href", `${base}/settings?section=support`);
+  ).toHaveAttribute(
+    "href",
+    center
+      ? `/manage/p/${user.projectId}/modules/support/settings`
+      : `${base}/settings?section=support`,
+  );
   for (const [name, path] of [
     ["Overview", "/support"],
     ["Tickets", "/support/tickets"],

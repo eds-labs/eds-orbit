@@ -40,6 +40,27 @@ jobs:
           pnpm dev > .runtime/ci-services.log 2>&1 &
           for i in $(seq 1 60); do curl --fail --silent http://localhost:4310/ > /dev/null && break; sleep 1; done
           pnpm test:e2e
+      - name: Browser acceptance with the settings center on
+        # The same flags with ORBIT_SETTINGS_CENTER=on (phase 5): every old
+        # settings address leads to the center, so every spec must pass or
+        # skip there too. A fresh stack and seed: the run above changed data.
+        env:
+          ORBIT_ADMINISTRATION: 'true'
+          ORBIT_ACCOUNT: 'true'
+          ORBIT_SETTINGS_CENTER: 'on'
+        run: |
+          pkill -f 'scripts/dev.ts' || true
+          for i in $(seq 1 30); do curl --silent http://localhost:4310/ > /dev/null || break; sleep 1; done
+          pkill -f 'next/dist/bin/next' || true
+          pkill -f 'apps/api/src/main.ts' || true
+          pkill -f 'apps/worker/src/main.ts' || true
+          docker compose --env-file .runtime/local.env -f infra/compose.local.yml down -v
+          pnpm local:setup
+          rm -f .runtime/e2e-user.json .runtime/*-state.json .runtime/settings-center-ai-standard.json
+          pnpm exec tsx scripts/seed-e2e.ts
+          pnpm dev > .runtime/ci-services-on.log 2>&1 &
+          for i in $(seq 1 60); do curl --fail --silent http://localhost:4310/ > /dev/null && break; sleep 1; done
+          pnpm test:e2e
       - name: Preserve non-secret acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v6

@@ -8,6 +8,20 @@ import { resolve } from "node:path";
 
 export const SEED = resolve(".runtime/e2e-user.json");
 
+export type Stage = "off" | "preview" | "on";
+
+/**
+ * The settings center's stage (ORBIT_SETTINGS_CENTER) as `/api/me` reports
+ * it to the signed-in member; "off" when it reports none. Specs that pass
+ * through an old settings address branch on it: with "on" every old address
+ * leads to the center.
+ */
+export async function stage(page: Page): Promise<Stage> {
+  const me = await page.request.get("/api/me").then((r) => r.json());
+  const value = me?.settingsCenter;
+  return value === "preview" || value === "on" ? value : "off";
+}
+
 export async function signIn(page: Page) {
   const user = JSON.parse(readFileSync(SEED, "utf8")) as {
     email: string;
