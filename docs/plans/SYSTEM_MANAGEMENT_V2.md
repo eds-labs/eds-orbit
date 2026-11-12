@@ -446,6 +446,8 @@ Prerequisite to check before production: which of `ORBIT_AI_CATALOG`, `ORBIT_AI_
 
 ## 10. Phase 5: module settings, redirects, removal
 
+Status (2026-11-12): not implemented. Implementation plan for rows 5.1 to 5.3, the F-5 fix and the public access section: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md) (written, waiting for Mario's review; it records decisions P5-D1 to P5-D6). Row 5.4 gets its own plan after the flag value `on` is accepted in production.
+
 | WP | Work | Tests |
 | --- | --- | --- |
 | 5.1 | Modules add the registry metadata (category, scope, required permission, canonical route, optional provider) to their sections; the adapter becomes the only path. | registry validation; a disabled module contributes nothing |
