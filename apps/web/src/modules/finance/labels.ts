@@ -75,7 +75,7 @@ const en = {
     tabDescription: "Which mailboxes Finance reads receipts from.",
     title: "Mailboxes",
     hint: "Bind an existing e-mail connection to finance. Mail that arrives in a bound mailbox goes only to finance, not to Support or any other module.",
-    mailboxesManaged: "Mailboxes are added and checked under Connections.",
+    mailboxesManaged: "Mailboxes are added and checked in the project's connections.",
     openMailboxes: "Open mailboxes",
     none: "No e-mail connection yet. Connect a mailbox under Integrations first.",
     bind: "Bind to finance",

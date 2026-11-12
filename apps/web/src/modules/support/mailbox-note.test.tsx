@@ -25,8 +25,9 @@ const render = (stage: "off" | "on", locale: "en" | "de" = "en") => {
 describe("support mailbox note", () => {
   it("says where mailboxes are managed and links to the old connectors page", () => {
     const html = render("off");
+    // React escapes the apostrophe in markup.
     expect(html).toContain(
-      "Mailboxes are added and checked under Connections.",
+      "Mailboxes are added and checked in the project&#x27;s connections.",
     );
     expect(html).toContain('href="/p/demo/connectors"');
     expect(html).toContain("Open mailboxes");

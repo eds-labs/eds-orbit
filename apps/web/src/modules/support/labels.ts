@@ -215,7 +215,7 @@ const en = {
     mailboxHint:
       "The inbox receives the mail of this mailbox and answers from its address. Owners connect mailboxes under Connections.",
     mailboxChoose: "Choose a mailbox",
-    mailboxesManaged: "Mailboxes are added and checked under Connections.",
+    mailboxesManaged: "Mailboxes are added and checked in the project's connections.",
     openMailboxes: "Open mailboxes",
     mailboxNone:
       "No verified mailbox yet. An owner connects one under Connections and checks its login.",
