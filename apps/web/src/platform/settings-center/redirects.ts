@@ -56,8 +56,9 @@ type Place = { scope: ManageScope; area: string; rest?: string[] };
 const SYSTEM: ManageScope = { kind: "system" };
 const ACCOUNT: ManageScope = { kind: "account" };
 
-// /admin/<section> → system area and rest; only users and organizations
-// take an id, as their center sections do.
+// /admin/<section> → system area and rest. Only users and organizations
+// take an id, as their center sections do; the old shell shows any other
+// section and ignores an id below it, so that id is dropped.
 const ADMIN: ReadonlyMap<string, { area: string; rest: string[]; takesId?: true }> =
   new Map([
     ["", { area: "overview", rest: [] }],
@@ -150,11 +151,11 @@ export function mapOldAddress(
   switch (place.kind) {
     case "admin": {
       const row = ADMIN.get(place.section);
-      if (!row || (place.id !== undefined && !row.takesId)) return null;
+      if (!row) return null;
       return done({
         scope: SYSTEM,
         area: row.area,
-        rest: place.id !== undefined ? [...row.rest, place.id] : row.rest,
+        rest: place.id !== undefined && row.takesId ? [...row.rest, place.id] : row.rest,
       });
     }
     case "organizationSettings": {

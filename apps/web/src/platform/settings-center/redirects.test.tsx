@@ -57,6 +57,11 @@ const ROWS: ReadonlyArray<readonly [string, string]> = [
   ["/admin/organizations", "/manage/system/organizations"],
   ["/admin/organizations/w1", "/manage/system/organizations/w1"],
   ["/admin/projects", "/manage/system/organizations/projects"],
+  // The old shell shows the section and ignores an id it does not take.
+  ["/admin/ai/x", "/manage/system/ai"],
+  ["/admin/audit/x", "/manage/system/security/audit"],
+  ["/admin/invitations/x", "/manage/system/users/invitations"],
+  ["/admin/projects/x?y=1", "/manage/system/organizations/projects?y=1"],
   ["/o/w1/settings", "/manage/o/w1/overview"],
   ["/o/w1/settings?x=1", "/manage/o/w1/overview?x=1"],
   ["/o/w1/settings#assistant-budget", "/manage/o/w1/ai/budget#assistant-budget"],
@@ -143,7 +148,7 @@ describe("old settings addresses", () => {
       "/o/w1/agents",
       "/o/w1",
       "/o",
-      "/admin/ai/extra",
+      "/admin/ai/x/y",
       "/admin/unknown",
       "/settings",
       "/connectors",
@@ -196,6 +201,32 @@ describe("old settings addresses", () => {
     expect(hrefOf(mapOldAddress(parse("/p/p1/settings?b=2&section=ai&a=x%20y"), ctx()))).toBe("/manage/p/p1/ai?b=2&a=x+y");
     expect(hrefOf(mapOldAddress(parse("/p/p1/settings?section=ai"), ctx()))).toBe("/manage/p/p1/ai");
     expect(hrefOf(mapOldAddress({ pathname: "/admin", search: "?", hash: "#" }, ctx()))).toBe("/manage/system/overview");
+  });
+
+  it("gives every platform tab but the project its own place", () => {
+    const overview = hrefOf(mapOldAddress(parse("/p/p1/settings"), ctx()));
+    for (const key of PLATFORM_TAB_KEYS.filter((k) => k !== "project"))
+      expect(hrefOf(mapOldAddress(parse(`/p/p1/settings?section=${key}`), ctx())), key).not.toBe(overview);
+  });
+
+  it("keeps the meaning of encoded search values", () => {
+    const target = mapOldAddress(
+      parse("/p/p1/settings?section=ai&q=a%26b%3Dc&name=J%C3%BCrgen%20%E2%9C%93"),
+      ctx(),
+    );
+    if (!target || target === "wait") throw new Error("no target");
+    const kept = new URLSearchParams(target.search);
+    expect([...kept]).toEqual([
+      ["q", "a&b=c"],
+      ["name", "Jürgen ✓"],
+    ]);
+  });
+
+  it("sends an empty section to the overview and lets a section win over googleDrive", () => {
+    expect(hrefOf(mapOldAddress(parse("/p/p1/settings?section="), ctx()))).toBe("/manage/p/p1/overview");
+    expect(hrefOf(mapOldAddress(parse("/p/p1/settings?section=members&googleDrive=ready"), ctx()))).toBe(
+      "/manage/p/p1/members?googleDrive=ready",
+    );
   });
 
   it("maps every admin section, every platform tab and every registered module tab", () => {
