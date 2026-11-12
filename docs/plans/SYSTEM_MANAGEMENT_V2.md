@@ -1,6 +1,6 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main` (flag `off`); phase 4 is on `main` since 2026-11-12 (flag `off`, section 9); phases 5 and 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main` (flag `off`); phase 4 is on `main` since 2026-11-12 (flag `off`, section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is implemented locally on branch `claude/settings-center-phase-5` (section 10); it is not on `main` and the production flag is unchanged (`off`). Row 5.4 and phase 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
 This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
@@ -136,7 +136,7 @@ Shown as "configured / missing" plus health, never editable (ADR 0014, decision 
 | F-2 | Mailboxes in four places: created on `/connectors`, bound in Finance, chosen in the Support inbox form, granted in webmail. | The mailbox (credentials, check) lives in `p/integrations/email`. Modules keep only "which mailbox do I use" and link to it. |
 | F-3 | Telegram bot tokens in three places (project bot, Social channel bot, personal bot). | Three different records by design; each listed once in its scope (`p/integrations`, `me/connections`), named distinctly. |
 | F-4 | Members, roles and invitations in three places; two module-role editors. | One editor component; organization scope edits all projects, project scope its own. |
-| F-5 | Public keys and Support widget keys are issued in two places. Whether they share a store is not verified. | Verified 2026-11-11: one store. Support widget keys are `PublicClientKey` rows with `moduleId: "support"`, issued through the platform's `createPublicKey` (`support/widget.ts:65`); the project's public keys list (`listPublicKeys`, `public-api.ts:334-341`, shown by `public-keys.tsx`, which prints `moduleId`) has no module filter and shows them too, so a widget key appears on two pages and either can revoke it (both call `revokePublicKey`). Revoking on the public keys page does not clear `SupportInbox.publicClientKeyId`, so the inbox keeps pointing at a revoked key until its widget key is enabled again or removed: the widget answers 404 after its key was revoked on the public keys page until the inbox gets a new key. The public keys page can also create a `support` key that no inbox references. No change in phase 3 (the center has no public-access section yet and the old panel stays unchanged); phase 5 lists each key once under `p/integrations/public-access` and marks widget keys as managed by their inbox. |
+| F-5 | Public keys and Support widget keys are issued in two places. Whether they share a store is not verified. | Verified 2026-11-11: one store. Support widget keys are `PublicClientKey` rows with `moduleId: "support"`, issued through the platform's `createPublicKey` (`support/widget.ts:65`); the project's public keys list (`listPublicKeys`, `public-api.ts:334-341`, shown by `public-keys.tsx`, which prints `moduleId`) has no module filter and shows them too, so a widget key appears on two pages and either can revoke it (both call `revokePublicKey`). Revoking on the public keys page does not clear `SupportInbox.publicClientKeyId`, so the inbox keeps pointing at a revoked key until its widget key is enabled again or removed: the widget answers 404 after its key was revoked on the public keys page until the inbox gets a new key. The public keys page can also create a `support` key that no inbox references. No change in phase 3 (the center has no public-access section yet and the old panel stays unchanged); phase 5 lists each key once under `p/integrations/public-access` and marks widget keys as managed by their inbox. **Fixed in phase 5 (local on branch `claude/settings-center-phase-5`, not on `main`):** revoking a key releases the reference of the module that uses it in the same project transaction, so the Support inbox shows no key instead of a dead one; a revocation is never vetoed; the keys list says who uses each key (`usedBy`, for Support the inbox name). |
 | F-6 | AI ceilings in five places (project AI, Finance, Work PM, Issues triage, Support daily budget). | They stay module settings. `p/ai/budget` shows all of them read-only with links ("who may spend what"). |
 | F-7 | AI at organization and system level: three editors each for model tiers, prices and provider limits; all three provider-limit mechanisms are enforced independently. | One guided editor per concept; the raw profile editor becomes a collapsed "advanced" section. The guided UI edits the organization caps (D-7). |
 | F-8 | Ten save risks in the AI forms, for example: a first save freezes environment defaults into the project; saving a provider budget on an "organization standard" project rewrites the stored default provider; the route form deletes routes of tasks it does not show; the profile editor writes back a stale `defaults`; the setup wizard's last step replaces an existing spending authority. | Fixed with regression tests **before** any AI form is mounted in the new frame (phase 4, work package 4.3). |
@@ -221,7 +221,7 @@ Applied only when the flag is `on` (5.7). Search and hash are kept unless mapped
 | `/account`, `/account/assistant` | `/manage/me/profile`, `/manage/me/assistant` |
 | `/p/:id/settings` | `/manage/p/:id/overview` |
 | `…?section=members` | `/manage/p/:id/members` |
-| `…?section=integrations`, `…?googleDrive=…` | `/manage/p/:id/integrations` (`googleDrive` kept → opens the Drive card) |
+| `…?section=integrations`, `…?googleDrive=…` | `/manage/p/:id/integrations`; with `googleDrive` (alone or with `section=integrations`): `/manage/p/:id/integrations/google-drive?googleDrive=…` (P5-D4, see the note below the table) |
 | `…?section=ai`, `…?section=policy` when Marketing is off | `/manage/p/:id/ai` |
 | `…?section=retention` | `/manage/p/:id/data` |
 | `…?section=modules` | `/manage/p/:id/modules` |
@@ -229,10 +229,20 @@ Applied only when the flag is `on` (5.7). Search and hash are kept unless mapped
 | `…?section=policy`, `brand` | `/manage/p/:id/modules/marketing/policy`, `…/brand` |
 | `…?section=work`, `issues`, `support` | `/manage/p/:id/modules/<module>/settings` |
 | `…?section=finance-<x>` | `/manage/p/:id/modules/finance/<x>` |
-| `/p/:id/connectors` | `/manage/p/:id/integrations` |
+| `/p/:id/connectors` | `/manage/p/:id/integrations/connections` (P5-R2: the section that mounts the panel the old page showed; this row printed the catalog before) |
 | `/settings…`, `/connectors` (pre-WP1.7 legacy) | resolved to the last project as today, then mapped as above |
-| `/p/:id/social/accounts?connected=…\|error=…` | stays; with D-6 the page forwards the result to `/manage/p/:id/integrations/social` |
+| `/p/:id/social/accounts?connected=…\|error=…` | `/manage/p/:id/integrations/social/accounts` with the search kept; the table maps it, and with the flag `on` the Social accounts page also forwards a result it receives (see the note below the table) |
 | `/connect…`, `/invite`, `/reset-password`, `/account/confirm-email`, `/data-deletion` | unchanged |
+
+Differences between the table above and phase 5 as built (the table is `apps/web/src/platform/settings-center/redirects.ts`; its literal rows are in `apps/web/src/platform/settings-center/redirects.test.tsx`):
+
+- Google Drive return (P5-D4): `?googleDrive=<value>`, with or without `section=integrations`, lands on the project's Google Drive section, `/manage/p/:id/integrations/google-drive?googleDrive=<value>`, not on the catalog. The `section` parameter is dropped.
+- Connectors (P5-R2): `/p/:id/connectors` lands on `/manage/p/:id/integrations/connections`.
+- Administration sections with an id (P5-R1): `/admin/users/:id` and `/admin/organizations/:id` keep the id. For any other section, `/admin/<section>/<id>` lands on the section and drops the id, because the old shell showed that section and ignored the id.
+- Module settings: a module tab key maps to `/manage/p/:id/modules/<module>/<section>`. A key a module shares with a platform tab follows the platform row. Only `policy` has a moved target (`ai`), used while Marketing is off in that project; while that is not known yet the redirect waits. The address of a module that is off or whose settings the member may not use still maps to the module's address in the center, which says the settings are not available; it never leads back to the old page.
+- Fallback (P5-D5): a redirect needs the member to be able to open the target. When the member lacks the target area, it goes to the first area of that scope they can open, and search and hash are dropped. When the scope is not available to the member (its flag is off or they hold no capability in it), the old page stays, so a non-administrator on `/admin` sees "not found" as before. While the member's capabilities load, the shell shows its loading screen; if they cannot be read, the old page stays.
+- Social accounts: the table maps the OAuth return to `/manage/p/:id/integrations/social/accounts`, and with the flag `on` the Social accounts page itself forwards a result it receives with `router.replace`. The page without `connected` or `error` stays and shows the accounts and a link (section 10, row 5.2).
+- Every redirect uses `router.replace`; a `/manage…` address is never mapped; the table leaves every other address alone (`/connect…`, `/invite`, `/reset-password`, `/account/confirm-email`, `/data-deletion`, `/o/:id/agents`, module pages).
 
 Links sent by the API (attention items, signals, run notices: `/settings?section=ai`, `policy`, `finance-mailboxes`, `finance-currencies`) keep their old form until phase 5 and resolve through this table; the table stays permanently.
 
@@ -446,7 +456,35 @@ Prerequisite to check before production: which of `ORBIT_AI_CATALOG`, `ORBIT_AI_
 
 ## 10. Phase 5: module settings, redirects, removal
 
-Status (2026-11-12): not implemented. Implementation plan for rows 5.1 to 5.3, the F-5 fix and the public access section: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md) (written, waiting for Mario's review; it records decisions P5-D1 to P5-D6). Row 5.4 gets its own plan after the flag value `on` is accepted in production.
+Status (2026-11-12): rows 5.1 to 5.3, the F-5 fix and the public access section are implemented locally on branch `claude/settings-center-phase-5`. The branch is not on `main`, nothing is deployed, and the production flag is unchanged (`off`). Row 5.4 is not implemented; it gets its own plan after the flag value `on` is accepted in production. Implementation plan: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md); the state of the work and its verification are in `docs/IMPLEMENTATION_STATUS.md`, the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md`.
+
+What was built per row:
+
+- 5.1: every module settings section carries its own description (English and German) and optional search words, and the adapter uses them for the center; `validateModuleSections` checks id, uniqueness and both texts, and a test runs it over the real registry. No section declares an access floor (P5-D6). A module integration section can depend on an installation feature (`IntegrationContribution.feature`, P5-R4); Knowledge's GitHub section does.
+- 5.2: Social accounts and the Knowledge "GitHub App" tab show their state and a link to their section in the center when the flag is `on` (P5-D3; Knowledge's section also appears in the center under `preview`, because it is a module contribution). Support's inbox form and Finance's mailbox section state where mailboxes are managed and link to the project's connections section, in every flag state.
+- 5.3: with `on`, one pure table maps every old settings address to its center address (`mapOldAddress`), the shell applies it with the member's capabilities (`oldAddressTarget`), and the same table drives the sidebar, the user menu and the links of the workspace (`centerLink`), so links and redirects cannot disagree. The sidebar shows one entry "Administration & settings" and no Connectors entry (P5-D1).
+- F-5 and the public access section: section 4.1. The keys list moved into the center as the section `integrations/public-access`; the keys panel and the old page's modal ask before revoking and say who uses a key.
+
+Decisions of the plan, as built:
+
+- P5-D1: with `on`, one project sidebar entry "Administration & settings" replaces "Settings", and "Connectors" is not shown.
+- P5-D2: revoking a public key always succeeds; a module that uses the key releases its reference in the same step; nothing can veto a revocation.
+- P5-D3: with `on`, the Social accounts page and the Knowledge GitHub tab show state and a link; the editors live only in the center.
+- P5-D4: the Google Drive return lands on `…/integrations/google-drive`.
+- P5-D5: the capability fallback of section 5.3.
+- P5-D6: module sections get no declared access floor; who may see a section stays in the module's own hook and on the server.
+
+Controller rulings during the work:
+
+- P5-R1: `/admin/<section>/<id>` for a section other than users and organizations lands on the section with the id dropped.
+- P5-R2: the old connectors page maps to `integrations/connections`.
+- P5-R3: the public keys panel and the old page's keys modal are localized; the old modal reads German for German members, which is a text change on the old page. The center's profile section no longer names public keys.
+- P5-R4: an integration contribution may name an installation feature and is left out without it.
+- P5-R5: the browser run with `on` is its own CI job with a stage guard step; the existing job is unchanged.
+
+Other deviations from the plan, as built: `moduleTabIndex` derives the platform keys itself; `useResource` additionally returns `errorPath`, so a redirect never decides on an earlier request's error or on another project's module states (`redirectModuleShown`); while module states load, a legacy address also loads the states of the project it leads to; the module links in the shell are mapped in one place (the workspace `href` behind every `AppLink` and `ProjectLink`) instead of file by file; Support's own key flows forget or replace the inbox's key before revoking and tolerate only the refusals `NOT_FOUND` and `OWNER_REQUIRED`.
+
+Known limits: the key revocation is not one atomic step, because the key row lives on a separate connection and `revokedAt` is written last (a failed commit after it leaves the key revoked with the inbox still pointing at it; revoking again heals it). A failed revocation of the old key inside "Widget key" leaves the new key unreferenced; it shows on the keys list with no user. A Support settings manager who is not an owner can clear the inbox's pointer but not revoke the key. The module pages' summaries list live Social accounts only. The new CI job has not run in CI yet.
 
 | WP | Work | Tests |
 | --- | --- | --- |

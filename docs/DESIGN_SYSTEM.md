@@ -60,6 +60,10 @@ The personal assistant uses it for its panel. The shell's `AssistantProvider` si
 
 Chat cards show a project badge (folder icon, name, truncated) and link into the card's project. A status card for an action request the member may decide from the card shows Approve and Reject (hash- and version-bound, the same decision as the approvals page); otherwise it links "Open approvals in <project>". Notices (`role: notice`) span the message column on the pale blue surface; "Remembered: …" carries Undo. A context proposal card offers Save, Edit and Dismiss. Switches are native checkboxes with `role="switch"` (`.switch`, 40 × 24 px inside a 44 px label row). The project chat page (`/p/:id/assistant`) keeps its layout and deep links; the home prompt opens the panel with the prompt as an unsent draft when the member has the assistant, else the project chat as before.
 
+### State and a link (settings center, phase 5)
+
+When the settings center manages something that a module page used to edit, the module page shows its state and one link to the center section, and offers no action control. The state uses the editor's own parts (the account row with its status badge, the "configured" or "not configured" badge), so a member recognizes it, and one `text-link` names where the setting is managed. A state the member may not read is never shown or guessed: a reader gets the read-only text and the link instead. The page keeps one heading. The pattern applies only with the flag `ORBIT_SETTINGS_CENTER=on`; with `off` and `preview` the module page is the editor as before. Two places use it: the Social accounts page (`AccountsSummaryView`, live accounts and a link to the accounts section) and the Knowledge "GitHub App" tab (`GithubAppSummary`, an owner-only configured badge and a link to the GitHub section).
+
 ## Accessibility and reduced effects
 
 - Visible 3 px focus outline and skip-to-content link.
