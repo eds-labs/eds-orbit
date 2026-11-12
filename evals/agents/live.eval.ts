@@ -4,7 +4,11 @@
  * Without a key and a confirmation it only prints the plan and transmits
  * nothing. Only the review calls are real: the copywriter draft that shapes
  * the cases and every revision (`generate`, `embed`) are stubs that send
- * nothing; a revision keeps the body unchanged and round 2 decides the case.
+ * nothing; a revision keeps the body and image copy unchanged and round 2
+ * decides the case. A case with image copy gets a creative composed from the
+ * offline fixtures (no image provider; vision review off).
+ * The route is review-route-v2.json, FamilyPlan's production route on
+ * Anthropic; the key is the variable or keychain item of the route's provider.
  * With ORBIT_EVAL_DIAGNOSE=good it runs only the good cases and writes the
  * model's reasons to .runtime/ instead of evidence; that is never a gate result.
  */
@@ -21,10 +25,10 @@ import { respond } from "../../packages/ai/src/index.ts";
 import { closeDatabase } from "../../packages/db/src/index.ts";
 import {
   evidenceStamp,
-  isLiveRequested,
   parseCandidatesFile,
   redactSecret,
 } from "../generation/live-plan.ts";
+import { EVAL_KEY_VARIABLES, resolveEvalKey } from "./eval-key.ts";
 import { codeVersion, reviewPromptHash } from "./code-version.ts";
 import { runReviewEval } from "./live-harness.ts";
 import {
@@ -32,7 +36,6 @@ import {
   writeDiagnosis,
   type CaseDiagnosis,
 } from "./diagnosis.ts";
-import { resolveLiveKey } from "./eval-key.ts";
 import {
   evaluatePassRule,
   gateResult,
@@ -43,8 +46,8 @@ import {
   totals,
 } from "./live-plan.ts";
 import { parseReviewSet } from "./review-set.ts";
-import rawSet from "./review-v2.json" with { type: "json" };
-import rawRoute from "./review-route-v1.json" with { type: "json" };
+import rawSet from "./review-v3.json" with { type: "json" };
+import rawRoute from "./review-route-v2.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
 const evidenceDir = fileURLToPath(
@@ -73,22 +76,28 @@ describe("Live agent review eval", () => {
       console.log(
         `  code: commit ${code.commit ?? "unknown"}${code.dirty ? ", tracked files changed" : code.dirty === null ? ", state unknown" : ""}; run on the deployed commit, and re-run after any change to the review prompt, schema or runner, or to the agent_review route or quality tier`,
       );
-      if (!isLiveRequested(env)) {
+      // The route provider's key variable, or its keychain item once the
+      // confirmation matches; null is a dry run (no key, no confirmation).
+      const apiKey = await resolveEvalKey(
+        plan.provider,
+        env,
+        plan.confirmation,
+      );
+      if (apiKey === null) {
         const prefix = diagnostic ? "ORBIT_EVAL_DIAGNOSE=good " : "";
         console.log(
-          "\nDry run only. To run live, review the plan above, then run:\n" +
-            `  ${prefix}ORBIT_EVAL_OPENAI_API_KEY=<key> ORBIT_EVAL_CONFIRM=${plan.confirmation} pnpm eval:agent-review\n` +
+          `\nDry run only. To run live on ${plan.provider}, review the plan above, then run:\n` +
+            `  ${prefix}${EVAL_KEY_VARIABLES[plan.provider]}=<key> ORBIT_EVAL_CONFIRM=${plan.confirmation} pnpm eval:agent-review\n` +
             "or, with the key stored in the macOS keychain (README.md):\n" +
-            `  ${prefix}ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-openai ORBIT_EVAL_CONFIRM=${plan.confirmation} pnpm eval:agent-review`,
+            `  ${prefix}ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-${plan.provider} ORBIT_EVAL_CONFIRM=${plan.confirmation} pnpm eval:agent-review`,
         );
         return;
       }
-      // The key variable, or the keychain item once the confirmation matches.
-      const apiKey = await resolveLiveKey(env, plan.confirmation);
       // The review call must be the real one.
       if (vi.isMockFunction(respond)) throw new Error("EVAL_RESPOND_STUBBED");
       // The run must use only the key it was given.
       delete process.env.OPENAI_API_KEY;
+      delete process.env.ANTHROPIC_API_KEY;
       const startedAt = new Date();
       const diagnosis: CaseDiagnosis[] = [];
       let report;
@@ -96,10 +105,12 @@ describe("Live agent review eval", () => {
         // Errors after the first review call are returned in the report, not thrown.
         report = await runReviewEval({
           cases: plan.cases,
-          brief: set.brief,
+          brands: set.brands,
           route: plan.route,
+          provider: plan.provider,
+          apiKey,
           maxCostMicros: plan.maxCostMicros,
-          runtime: { apiKey, ...plan.runtime },
+          runtime: plan.runtime,
           datasetVersion: set.datasetVersion,
           ...(diagnostic ? { diagnose: (d) => diagnosis.push(d) } : {}),
         });

@@ -1,6 +1,6 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main` (flag `off`); phase 4 is implemented locally on branch `claude/settings-center-phase-4` (section 9); phases 5 and 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main` (flag `off`); phase 4 is on `main` since 2026-11-12 (flag `off`, section 9); phases 5 and 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
 This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
@@ -148,7 +148,7 @@ Shown as "configured / missing" plus health, never editable (ADR 0014, decision 
 | # | Finding | Evidence | Proposal |
 | --- | --- | --- | --- |
 | F-11 | A system administrator passes `organizationManagerFor` for every organization and can make any user, themselves included, owner of a project or of the organization. The action is audited, but only system administrators can read that audit. ADR 0013 does not forbid it. | `administration/authz.ts:36-49`, `routes.ts:217-251`, `memberships.ts:204-239`; access-matrix fixture `sysadmin: allowed` | Kept in V2, with a confirmation that names the consequence (D-8). V2 changes no permission. |
-| F-12 | **Not a defect (checked 2026-11-11).** `POST /api/workspaces/:id/pause` also pauses the members' personal spaces. ADR 0022 decides exactly that: "Pausing the personal space pauses only the assistant; an organization pause pauses it too." The response lists the paused project ids, personal spaces included; the web does not read them. | `server.ts:1078-1107`; `docs/adr/0022-personal-space-assistant.md:18`; `docs/ORBIT_ASSISTANT.md:28` | No change. The V2 page for the organization pause says that members' assistants pause too. |
+| F-12 | **Not a defect (checked 2026-11-11).** `POST /api/workspaces/:id/pause` also pauses the members' personal spaces. ADR 0022 decides exactly that: "Pausing the personal space pauses only the assistant; an organization pause pauses it too." The response lists the paused project ids, personal spaces included; the web does not read them. | `server.ts:1078-1107`; `docs/adr/0022-personal-space-assistant.md` (line 18); `docs/ORBIT_ASSISTANT.md` (line 28) | No change. The V2 page for the organization pause says that members' assistants pause too. |
 | F-13 | **Confirmed and fixed (2026-11-11, on `main` since `4aa82f83`).** `GET P/invitations` returned, for each invitation, every project it covers, so a project owner who is not organization owner saw other projects' names and roles. Resend and revoke were already limited correctly. | `administration/routes.ts:321-329`; failing test first in `administration.integration.test.ts` | Fixed outside V2: a project owner gets only their own project's part; the organization owner still gets the whole invitation. |
 | F-14 | The administrator's password reset returns the link to the administrator whenever system mail did not send. | `platform/account/service.ts:229-257` | Kept in V2 (D-8). |
 | F-15 | Organization pages use two guards: members and invitations admit system administrators, connections, AI and shares admit owners only. The web mirrors this by hand. | `authz.ts:36-84`, `organization-integrations.tsx:24-27` | The capabilities endpoint (5.5) states it per section, from the same guard functions. |
@@ -412,7 +412,7 @@ Acceptance: a Matomo or Postiz connection is created, checked, granted and bound
 
 ## 9. Phase 4: central AI configuration
 
-Status (2026-11-11): implemented locally on branch `claude/settings-center-phase-4`; not on `main`, flag `off` in production. Implementation plan: [2026-11-11-settings-center-phase-4-ai.md](../superpowers/plans/2026-11-11-settings-center-phase-4-ai.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`; the effective read and the safe saves in [MODEL_ROUTING.md](../MODEL_ROUTING.md), "Effective read and safe saves".
+Status (2026-11-12): implemented and delivered to `main` with the flag `off`; not enabled in production. Implementation plan: [2026-11-11-settings-center-phase-4-ai.md](../superpowers/plans/2026-11-11-settings-center-phase-4-ai.md); state of the work in `docs/IMPLEMENTATION_STATUS.md`; the effective read and the safe saves in [MODEL_ROUTING.md](../MODEL_ROUTING.md), "Effective read and safe saves".
 
 Deviations from the table below, decided during the implementation (rulings P4-R1 to P4-R13 of the phase's ledger):
 

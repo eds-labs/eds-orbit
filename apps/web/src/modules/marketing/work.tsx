@@ -19,7 +19,7 @@ import {
 } from "./approvals-lanes";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import { marketingText } from "./labels";
-import { exceptionText, hasExceptionText } from "@/lib/exception-text";
+import { ExceptionWords } from "./exception-words";
 import { APPROVAL_STATUSES } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
 import { ContentGroupRows, contentGroups } from "./content-studio";
@@ -1769,48 +1769,15 @@ function PausedPublications() {
 }
 /** History rows the approvals page shows, newest first. */
 const HISTORY_LIMIT = 50;
-/**
- * An open exception in words (plan 2026-11-10, WP2 D): what happened, why
- * and what to do, with the setting that resolves it. A code with its own
- * text speaks the member's language even when the server stored an English
- * title or message (the Postiz queue watch does); a stored title or message
- * is shown only for codes without one, and a code without either keeps
- * showing the code. The raw code stays readable under "Technical details".
- */
-function ExceptionWords({ exception }: { exception: Entity }) {
-  const { locale } = useWorkspace();
-  const de = locale === "de";
-  const code = value(exception, "code", "");
-  const text = exceptionText(locale, code);
-  const known = hasExceptionText(code);
-  const title = known
-    ? text.title
-    : value(exception, "title", "") || text.title;
-  const stored = known
-    ? ""
-    : value(exception, "message", "") || value(exception, "reason", "");
-  const cause = stored || text.cause;
+function ExceptionRowWords({ exception }: { exception: Entity }) {
   return (
-    <>
-      <strong>{title}</strong>
-      {cause && <p>{cause}</p>}
-      {!stored && text.action && (
-        <p>
-          {text.action}{" "}
-          {text.href && (
-            <AppLink href={text.href}>
-              {de ? "Einstellung öffnen" : "Open the setting"}
-            </AppLink>
-          )}
-        </p>
-      )}
-      {code && title !== code && (
-        <details className="approval-diagnostics">
-          <summary>{de ? "Technische Details" : "Technical details"}</summary>
-          <code>{code}</code>
-        </details>
-      )}
-    </>
+    <ExceptionWords
+      code={value(exception, "code", "")}
+      storedTitle={value(exception, "title", "")}
+      storedMessage={
+        value(exception, "message", "") || value(exception, "reason", "")
+      }
+    />
   );
 }
 /**
@@ -2018,7 +1985,7 @@ export function ApprovalInbox() {
             {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
             {exceptionRows.map((e) => (
               <Alert key={e.id} kind="warning">
-                <ExceptionWords exception={e} />
+                <ExceptionRowWords exception={e} />
                 <small>
                   {de ? "Zuletzt" : "Last seen"}{" "}
                   {when(e.data.lastSeenAt, locale, project.timezone)} ·{" "}

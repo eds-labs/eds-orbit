@@ -1,0 +1,9 @@
+{
+  "description": "The creative_review route of the live vision eval. It mirrors production's creative_review task route as read on 2026-11-11 in FamilyPlan Settings → AI: provider anthropic, model claude-sonnet-5-5, 1,500 output tokens, no reasoning effort. Re-check it in production before the dry run and copy any change here; the dataset hash and the confirmation change with it. Prices come from evals/generation/candidates-v1.json, which must carry claude-sonnet-5-5.",
+  "taskClass": "creative_review",
+  "provider": "anthropic",
+  "route": {
+    "model": "claude-sonnet-5-5",
+    "maxOutputTokens": 1500
+  }
+}

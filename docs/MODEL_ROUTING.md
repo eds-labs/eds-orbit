@@ -175,7 +175,7 @@ Voice in the personal assistant ([ADR 0024](adr/0024-speech-port-voice.md), plan
 
 ## Effective read and safe saves (settings center phase 4, 2026-11-11, local; flag `ORBIT_SETTINGS_CENTER`)
 
-Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §5.9 and §9; implemented locally on branch `claude/settings-center-phase-4`, not on `main`. Nothing here changes routing, key rules, budget enforcement or the route version: the effective read reports what the runtime already does, and the safe saves change only what the forms send.
+Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §5.9 and §9; delivered to `main` on 2026-11-12 with `ORBIT_SETTINGS_CENTER` `off`. Nothing here changes routing, key rules, budget enforcement or the route version: the effective read reports what the runtime already does, and the safe saves change only what the forms send.
 
 **One read of a project's AI layers.** `aiConfigurationState` (`apps/api/src/platform/ai/effective-configuration.ts`) reads, inside the project's own scoped transaction, the project's saved row (its stored fields, which keys it saved itself), the runtime status (`effectiveAiStatus`), the organization's and system's AI profiles, the central layers and the granted AI connections. The MCP model view (`ai_models_get`) and the settings center use the same read. The project view `GET /api/projects/:projectId/openai-configuration` also carries `stored`: the fields a dialog may write, exactly as saved (null for a project without a saved row), next to the effective values it showed before.
 

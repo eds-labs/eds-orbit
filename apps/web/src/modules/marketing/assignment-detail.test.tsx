@@ -153,7 +153,12 @@ describe("AssignmentDetailView", () => {
     expect(html).toContain("Fehler");
     expect(html).toContain("SOMETHING_NEW");
     const en = renderToStaticMarkup(
-      <AssignmentDetailView detail={data} projectId="proj" de={false} isOwner />,
+      <AssignmentDetailView
+        detail={data}
+        projectId="proj"
+        de={false}
+        isOwner
+      />,
     );
     expect(en).toContain("more than 30 minutes");
   });
@@ -174,12 +179,52 @@ describe("AssignmentDetailView", () => {
     expect(html).toContain('href="#run-r2"');
     expect(html).not.toContain("Fehlgeschlagen");
     const en = renderToStaticMarkup(
-      <AssignmentDetailView detail={data} projectId="proj" de={false} isOwner />,
+      <AssignmentDetailView
+        detail={data}
+        projectId="proj"
+        de={false}
+        isOwner
+      />,
     );
     expect(en).toContain("Retried → new run");
   });
 
   it("hides the retry button from non-owners", () => {
     expect(render(false)).not.toContain("Lauf wiederholen");
+  });
+  it("shows the creative authority lines only when the API reports them", () => {
+    const data = detail();
+    const none = renderToStaticMarkup(
+      <AssignmentDetailView detail={data} projectId="proj" de isOwner />,
+    );
+    expect(none).not.toContain("Bildprüfung");
+    data.assignment.creativeAuthority = { flag: false, visionReview: false };
+    const de = renderToStaticMarkup(
+      <AssignmentDetailView detail={data} projectId="proj" de isOwner />,
+    );
+    expect(de).toContain("Agent darf Creative-Beiträge freigeben: aus");
+    expect(de).toContain("Bildprüfung: aus");
+    data.assignment.creativeAuthority = { flag: true, visionReview: true };
+    const on = renderToStaticMarkup(
+      <AssignmentDetailView
+        detail={data}
+        projectId="proj"
+        de={false}
+        isOwner
+      />,
+    );
+    expect(on).toContain("Agent may release creative posts: on");
+    expect(on).toContain("Vision review: on");
+    data.assignment.creativeAuthority = { flag: false, visionReview: false };
+    const en = renderToStaticMarkup(
+      <AssignmentDetailView
+        detail={data}
+        projectId="proj"
+        de={false}
+        isOwner
+      />,
+    );
+    expect(en).toContain("Agent may release creative posts: off");
+    expect(en).toContain("Vision review: off");
   });
 });

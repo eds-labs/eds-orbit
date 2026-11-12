@@ -5,7 +5,11 @@ import { data, entity, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { publishingBackend } from "../publishing/backend.ts";
 import { accountForChannel } from "../../social/contract.ts";
-import { channelNames, rowsById } from "./assignment-overview.ts";
+import {
+  channelNames,
+  creativeAuthorityOf,
+  rowsById,
+} from "./assignment-overview.ts";
 import {
   nextAssignmentRunAt,
   runProblems,
@@ -250,6 +254,7 @@ export async function assignmentDetail(
       },
       delivery: deliveryOf(a),
       approvalMode: approvalModeOf(a),
+      creativeAuthority: await creativeAuthorityOf(tx, scope, a),
       image: a.creative
         ? ("creative" as const)
         : a.banner
