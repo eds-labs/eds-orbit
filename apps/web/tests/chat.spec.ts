@@ -13,7 +13,6 @@ function account() {
 // Pages by their old name; the shell serves them under /p/:projectId (WP1.7).
 const VIEW = {
   knowledge: "knowledge",
-  settings: "settings",
   missions: "marketing/missions",
   content: "marketing/content",
   calendar: "marketing/calendar",
@@ -22,7 +21,6 @@ const VIEW = {
   chat: "assistant",
   // Action requests live on the shared decisions page, not marketing approvals.
   decisions: "decisions",
-  connectors: "connectors",
 } as const;
 const open = (page: Page, projectId: string, view: keyof typeof VIEW) =>
   page.goto(`/p/${projectId}/${VIEW[view]}`);
@@ -1013,7 +1011,8 @@ test("Postiz owner selects exact channels for the current project", async ({
       return route.fulfill({ json: { id: connectorId, version: 2, data: {} } });
     },
   );
-  await open(page, user.projectId, "connectors");
+  // The connectors panel lives in the settings center's connections section.
+  await page.goto(`/manage/p/${user.projectId}/integrations/connections`);
   await expect(page.getByText("Not assigned")).toHaveCount(2);
   await page.getByRole("checkbox", { name: /uLiquid X/ }).check();
   await page.getByRole("button", { name: "Save assignment" }).click();

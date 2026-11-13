@@ -7,14 +7,14 @@ import { SEED, signIn } from "./settings-center-helpers";
 // The AI area of the settings center (phase 4) in the browser: opening every
 // AI section never writes, an organization owner sets the standard and a
 // project owner who is no organization owner sees it inherited, the
-// organization's projects list, the old AI pages, the assistant budget
-// anchor and a phone.
+// organization's projects list, the assistant budget anchor and a phone.
+// The old AI addresses are covered by settings-center-on.spec.ts.
 //
 // Each scenario gates on the flags and capabilities it needs, read from
 // GET /api/management/capabilities (`flags`), and skips otherwise: the suite
-// also runs with the settings center off and with the CI flags (no
-// connections, no AI flags). Fixtures are created only after a scenario's
-// gate passed, so a skipped run leaves nothing behind.
+// also runs with the CI flags (no connections, no AI flags). Fixtures are
+// created only after a scenario's gate passed, so a skipped run leaves
+// nothing behind.
 //
 // What the file creates and puts back:
 // - a project of its own ("AI acceptance project", created once through the
@@ -46,7 +46,6 @@ const SECOND_PREFIX = "ai-second-";
 const SYNTHETIC_SECRET = `orbit-e2e-synthetic-openai-${randomBytes(6).toString("hex")}`;
 
 type Caps = {
-  stage: string;
   flags?: {
     connections: boolean;
     aiCatalog: boolean;
@@ -58,7 +57,6 @@ type Caps = {
   projects: Array<{ id: string; name: string; workspaceId: string; capabilities: string[] }>;
 };
 
-let stage: string | undefined;
 let administration = false;
 let caps: Caps | undefined;
 let origin = "";
@@ -335,10 +333,8 @@ test.describe("settings center AI area", () => {
     try {
       await signIn(page);
       const me = await page.request.get("/api/me").then((r) => r.json());
-      stage = me.settingsCenter;
       administration = me.administration === true;
-      if (stage && stage !== "off")
-        caps = await page.request.get("/api/management/capabilities").then((r) => r.json());
+      caps = await page.request.get("/api/management/capabilities").then((r) => r.json());
       // An earlier run died before restoring the standard: restore it now.
       if (existsSync(STANDARD_BASELINE) && caps?.flags?.connections) {
         const baseline = JSON.parse(readFileSync(STANDARD_BASELINE, "utf8")) as {
@@ -397,10 +393,6 @@ test.describe("settings center AI area", () => {
       await context.close();
     }
     if (errors.length) throw new AggregateError(errors, "cleanup of settings-center-ai.spec.ts failed");
-  });
-
-  test.beforeEach(() => {
-    test.skip(!stage || stage === "off", "ORBIT_SETTINGS_CENTER is off");
   });
 
   const main = (page: Page) => page.getByRole("main");
@@ -596,35 +588,6 @@ test.describe("settings center AI area", () => {
     const name = row.getByRole("rowheader");
     expect(await name.innerText()).toBe(project.name);
     expect(await name.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
-  });
-
-  test("old AI pages keep working", async ({ page }) => {
-    test.skip(
-      stage === "on",
-      "the old AI pages redirect with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"every old address opens its section of the center\"",
-    );
-    const project = { id: seededProjectId() };
-    await page.goto(`/p/${project.id}/settings?section=ai`);
-    const projectHeadings = ["AI spending authority", "AI providers", "AI models", "AI usage & costs"];
-    // The model choice panel renders only while standard models are switched on.
-    if (flags().aiDefaults) projectHeadings.push("Model choice");
-    for (const name of projectHeadings) await expect(heading(page, name), name).toBeVisible();
-    await expect(page.getByLabel("Applies to")).toHaveCount(0);
-    if (!flags().connections || !can.organizationAi() || !can.systemAi()) {
-      test.info().annotations.push({
-        type: "pages skipped",
-        description: "the organization and system AI pages need ORBIT_CONNECTIONS and both roles",
-      });
-      return;
-    }
-    await page.goto(`/o/${org().id}/settings`);
-    for (const name of ["Standard models", "AI budget", "AI usage", "Models & prices", "AI profile · Organization"])
-      await expect(heading(page, name), name).toBeVisible();
-    await page.goto("/admin/ai");
-    await expect(main(page).getByRole("heading", { name: "AI & knowledge" }).first()).toBeVisible();
-    for (const name of ["Standard models", "Models & prices", "AI profile · System"])
-      await expect(heading(page, name), name).toBeVisible();
-    await expect(page.getByLabel("Applies to")).toHaveCount(0);
   });
 
   test("the assistant budget anchor still works", async ({ page }) => {

@@ -66,8 +66,8 @@ test.beforeAll(async ({ browser, baseURL }) => {
       language: "en",
     });
     projectId = created.id;
-    // Settings -> Modules: the owner turns project management on.
-    await page.goto(`/p/${projectId}/settings?section=modules`);
+    // Administration & settings -> Modules: the owner turns project management on.
+    await page.goto(`/manage/p/${projectId}/modules`);
     await page.getByRole("button", { name: "Turn on: Project management" }).click();
     await expect(page.getByRole("button", { name: "Turn off: Project management" })).toBeVisible();
   } finally {

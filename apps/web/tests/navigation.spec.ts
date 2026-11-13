@@ -2,7 +2,6 @@ import { test, expect, type Page } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { stage } from "./settings-center-helpers";
 
 // Web shell and navigation (WP1.7, UI restructure): pickers, project home,
 // every page by URL, the grouped and collapsible sidebar, legacy redirects,
@@ -106,35 +105,28 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["knowledge", "Import", "/knowledge/import"],
   ["knowledge", "Library", "/knowledge/library"],
   ["project", "App approvals", "/decisions"],
-  ["project", "Connectors", "/connectors"],
   ["project", "Operations", "/operations"],
-  ["project", "Settings", "/settings"],
 ];
 
+// The project group ends with the one settings entry, which opens the
+// settings center (P5-D1); the center is no page of the shell, so the walk
+// below leaves it out.
+const CENTER_ENTRY = "Administration & settings";
 // The sidebar's links in order: PAGES, with each module group ending in its
-// settings link (spec §3.4; its name carries the group: "Marketing Settings").
-// Knowledge has no settings section.
-const sidebarLinks = (pages: typeof PAGES) =>
-  pages.flatMap(([group, name], i) => {
-    const last = pages[i + 1]?.[0] !== group;
+// settings link (spec §3.4; its name carries the group: "Marketing Settings"),
+// then the settings entry. Knowledge has no settings section.
+const SIDEBAR_LINKS = [
+  ...PAGES.flatMap(([group, name], i) => {
+    const last = PAGES[i + 1]?.[0] !== group;
     return last && (group === "marketing" || group === "support")
       ? [badged(name), `${group[0]!.toUpperCase()}${group.slice(1)} Settings`]
       : [badged(name)];
-  });
-const SIDEBAR_LINKS = sidebarLinks(PAGES);
-// With the settings center on (P5-D1) the project's Settings entry opens the
-// center under its name and the Connectors entry goes; the center is no
-// page of the shell, so the walk below leaves both out.
-const CENTER_ENTRY = "Administration & settings";
-const CENTER_PAGES = PAGES.filter(([, , path]) => path !== "/connectors").map(
-  ([group, name, path]): [string, string, string] =>
-    path === "/settings" ? [group, CENTER_ENTRY, path] : [group, name, path],
-);
-const CENTER_SIDEBAR_LINKS = sidebarLinks(CENTER_PAGES).map((link) =>
-  link instanceof RegExp && link.test(CENTER_ENTRY) ? CENTER_ENTRY : link,
-);
+  }),
+  CENTER_ENTRY,
+];
 
-// The 13 paths from before WP1.7 and the page each one opens now.
+// The 13 paths from before WP1.7 and the page each one opens now: below the
+// project, or (the two settings paths) in its settings center.
 const LEGACY: Array<[string, string]> = [
   ["/", ""],
   ["/missions", "/marketing/missions"],
@@ -146,10 +138,11 @@ const LEGACY: Array<[string, string]> = [
   ["/approvals", "/approvals"],
   ["/analytics", "/marketing/analytics"],
   ["/memory", "/marketing/memory"],
-  ["/connectors", "/connectors"],
+  ["/connectors", "/integrations/connections"],
   ["/operations", "/operations"],
-  ["/settings", "/settings"],
+  ["/settings", "/overview"],
 ];
+const CENTER_LANDINGS = new Set(["/integrations/connections", "/overview"]);
 
 test("pickers, project home and every page have their own URL", async ({
   page,
@@ -157,7 +150,6 @@ test("pickers, project home and every page have their own URL", async ({
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 960 });
   const user = await signIn(page);
-  const center = (await stage(page)) === "on";
   const me = await (await page.request.get("/api/me")).json();
   const project = me.projects.find(
     (p: { id: string }) => p.id === user.projectId,
@@ -208,22 +200,17 @@ test("pickers, project home and every page have their own URL", async ({
 
   // Every page from the sidebar, in order; the URL is shareable.
   const nav = page.getByRole("navigation", { name: "Workspace" });
-  await expect(nav.getByRole("link")).toHaveText(
-    center ? CENTER_SIDEBAR_LINKS : SIDEBAR_LINKS,
-  );
+  await expect(nav.getByRole("link")).toHaveText(SIDEBAR_LINKS);
   const entry = (group: string, name: string) =>
     (group === "top" ? nav : nav.locator(`#nav-group-${group}`)).getByRole(
       "link",
       { name: badged(name) },
     );
-  if (center)
-    await expect(entry("project", CENTER_ENTRY)).toHaveAttribute(
-      "href",
-      `/manage/p/${user.projectId}`,
-    );
-  for (const [group, name, path] of center
-    ? CENTER_PAGES.filter(([, n]) => n !== CENTER_ENTRY)
-    : PAGES) {
+  await expect(entry("project", CENTER_ENTRY)).toHaveAttribute(
+    "href",
+    `/manage/p/${user.projectId}`,
+  );
+  for (const [group, name, path] of PAGES) {
     await entry(group, name).click();
     await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
     await expect(entry(group, name)).toHaveAttribute("aria-current", "page");
@@ -249,9 +236,7 @@ test("pickers, project home and every page have their own URL", async ({
   // Not every page: the whole suite shares one client address and the API's
   // read limit (600 per minute).
   for (const [group, name, path] of [
-    center
-      ? ["project", "Operations", "/operations"]
-      : ["project", "Settings", "/settings"],
+    ["project", "Operations", "/operations"],
     ["marketing", "Editorial plan", "/marketing/calendar"],
   ]) {
     await page.goto(`${base}${path}`);
@@ -270,117 +255,15 @@ test("pickers, project home and every page have their own URL", async ({
   );
 });
 
-test("module settings links open their section of the grouped settings", async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await page.setViewportSize({ width: 1440, height: 960 });
-  const user = await signIn(page);
-  // This walks the old grouped settings page, which the center replaces.
-  test.skip(
-    (await stage(page)) === "on",
-    "the old settings page redirects with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"a module group's Settings link opens the module's section\" and \"every old address opens its section of the center\"",
-  );
-  const base = `/p/${user.projectId}`;
-  await openHome(page, base);
-  const nav = page.getByRole("navigation", { name: "Workspace" });
-  const sections = page.getByRole("navigation", { name: "Settings sections" });
-  const current = sections.locator('[aria-current="page"]');
-  // A full load would drop this marker; section changes happen in place.
-  await page.evaluate(() => ((window as any).orbitMarker = 1));
-
-  // Marketing's settings link opens its first section, policy & budget.
-  await nav
-    .getByRole("link", { name: "Marketing Settings", exact: true })
-    .click();
-  await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?section=policy$`),
-  );
-  await expect(current).toHaveText("Publishing rules");
-  await expect(
-    page.getByRole("heading", { name: "Versioned operating policy" }),
-  ).toBeVisible();
-  // The settings list: Project first, then the modules in sidebar order.
-  await expect(sections.getByRole("heading", { level: 2 })).toHaveText(
-    SUPPORT ? ["Project", "Marketing", "Support"] : ["Project", "Marketing"],
-  );
-  // The platform's sections (then Connected apps while the stack's OAuth
-  // server is on).
-  const projectLinks = sections
-    .getByRole("list", { name: "Project" })
-    .getByRole("link");
-  for (const [i, name] of [
-    "Project",
-    "Members & roles",
-    "Integrations",
-    "AI & budget",
-    "Retention",
-    "Modules",
-  ].entries())
-    await expect(projectLinks.nth(i)).toHaveText(name);
-  // Marketing: policy & budget, brand (then assignments with Orbit Agents).
-  const marketingLinks = sections
-    .getByRole("list", { name: "Marketing" })
-    .getByRole("link");
-  await expect(marketingLinks.nth(0)).toHaveText("Publishing rules");
-  await expect(marketingLinks.nth(1)).toHaveText("Brand");
-
-  // Picking a section replaces the URL in place: no new history entry.
-  await sections.getByRole("link", { name: "Brand", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`${base}/settings\\?section=brand$`));
-  await expect(current).toHaveText("Brand");
-  if (SUPPORT) {
-    await nav
-      .getByRole("link", { name: "Support Settings", exact: true })
-      .click();
-    await expect(page).toHaveURL(
-      new RegExp(`${base}/settings\\?section=support$`),
-    );
-    await expect(current).toHaveText("Support");
-    // Back returns to the section the link was followed from.
-    await page.goBack();
-    await expect(page).toHaveURL(
-      new RegExp(`${base}/settings\\?section=brand$`),
-    );
-    await expect(current).toHaveText("Brand");
-  }
-  await sections.getByRole("link", { name: "Retention", exact: true }).click();
-  await expect(current).toHaveText("Retention");
-  await expect(
-    page.getByRole("heading", { name: "Memory retention" }),
-  ).toBeVisible();
-  // Back leaves the settings: the section changes replaced their entry.
-  await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`${base}$`));
-  await page.goForward();
-  await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?section=retention$`),
-  );
-  await expect(current).toHaveText("Retention");
-  expect(await page.evaluate(() => (window as any).orbitMarker)).toBe(1);
-
-  // An unknown section opens the project section.
-  await page.goto(`${base}/settings?section=nope`);
-  await expect(current).toHaveText("Project");
-  await expect(
-    page.getByRole("heading", { name: "Autopilot readiness" }),
-  ).toBeVisible();
-});
-
 test("legacy paths redirect, unknown paths say so", async ({ page }) => {
   test.setTimeout(120_000);
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
-  // With the settings center on, the two settings paths go on to the center
-  // (settings-center-on.spec.ts covers their sections).
-  const center = (await stage(page)) === "on";
+  // The two settings paths go on to the center (settings-center-on.spec.ts
+  // covers their sections).
   const manage = `/manage/p/${user.projectId}`;
   const landing = (now: string) =>
-    center && now === "/connectors"
-      ? `${manage}/integrations/connections`
-      : center && now === "/settings"
-        ? `${manage}/overview`
-        : `${base}${now}`;
+    CENTER_LANDINGS.has(now) ? `${manage}${now}` : `${base}${now}`;
   await openHome(page, base);
   for (const [old, now] of LEGACY) {
     await page.goto(old);
@@ -389,9 +272,7 @@ test("legacy paths redirect, unknown paths say so", async ({ page }) => {
   // Query and hash survive the redirect (the Google Drive callback uses one).
   await page.goto("/settings?googleDrive=ready");
   await expect(page).toHaveURL(
-    center
-      ? new RegExp(`${manage}/integrations/google-drive\\?googleDrive=ready$`)
-      : new RegExp(`${base}/settings\\?googleDrive=ready$`),
+    new RegExp(`${manage}/integrations/google-drive\\?googleDrive=ready$`),
   );
 
   await page.goto(`${base}/nope`);
@@ -599,7 +480,6 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   await page.setViewportSize({ width: 1440, height: 960 });
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
-  const center = (await stage(page)) === "on";
   await openHome(page, base);
   const nav = page.getByRole("navigation", { name: "Workspace" });
   const group = nav.locator("#nav-group-support");
@@ -612,9 +492,7 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
     group.getByRole("link", { name: "Support Settings", exact: true }),
   ).toHaveAttribute(
     "href",
-    center
-      ? `/manage/p/${user.projectId}/modules/support/settings`
-      : `${base}/settings?section=support`,
+    `/manage/p/${user.projectId}/modules/support/settings`,
   );
   for (const [name, path] of [
     ["Overview", "/support"],

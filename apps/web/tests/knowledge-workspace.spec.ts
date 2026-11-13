@@ -682,11 +682,18 @@ for (const [name, viewport] of [
       // Old diagnostic deep links remain reachable under the runtime feature.
       await page.goto(`/p/${project.id}/knowledge/health`);
       await expect(page.locator("main")).toBeVisible();
-      // GitHub App setup has its own page.
+      // The GitHub tab states the App's setup and links to its section of
+      // the settings center, where the form lives.
       await page.goto(`/p/${project.id}/knowledge/github`);
       await expect(
-        page.getByRole("heading", { name: "GitHub-App-Einstellungen" }),
+        page.getByRole("heading", { level: 1, name: "GitHub-App-Einstellungen" }),
       ).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: "GitHub-App-Einstellungen öffnen" }),
+      ).toHaveAttribute(
+        "href",
+        `/manage/p/${project.id}/integrations/knowledge/github`,
+      );
     });
   });
 }

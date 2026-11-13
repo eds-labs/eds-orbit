@@ -69,7 +69,7 @@ test.beforeAll(async ({ browser, baseURL }) => {
       language: "en",
     });
     projectId = created.id;
-    await page.goto(`/p/${projectId}/settings?section=modules`);
+    await page.goto(`/manage/p/${projectId}/modules`);
     for (const name of ["Issues", "Project management"]) {
       await page.getByRole("button", { name: `Turn on: ${name}` }).click();
       await expect(page.getByRole("button", { name: `Turn off: ${name}` })).toBeVisible();

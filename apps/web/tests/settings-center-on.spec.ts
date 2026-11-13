@@ -1,20 +1,20 @@
 import { test, expect, type Page, type Request } from "./fixtures";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { SEED, signIn } from "./settings-center-helpers";
 
-// The settings center with ORBIT_SETTINGS_CENTER=on (phase 5) in the
-// browser: every old settings address leads to its section of the center,
+// The settings center as the one settings surface in the browser: every old
+// settings address leads to its section of the center or says why not (a
+// project the member does not have, capabilities that could not be read),
 // the navigation offers one entry "Administration & settings", a member who
 // may not open the target lands on what they may open, the public keys
 // moved to the public access section, and the Social accounts page states
 // its accounts and links to the center.
 //
-// The whole file skips unless /api/me reports `settingsCenter: "on"`. Each
-// scenario gates on the flags, capabilities and module switches it needs and
-// creates its fixtures only after its gate passed, so a skipped run leaves
-// nothing behind.
+// Each scenario gates on the flags, capabilities and module switches it
+// needs and creates its fixtures only after its gate passed, so a skipped
+// run leaves nothing behind.
 //
 // What the file creates and puts back:
 // - a second person (organization member, editor of the seeded project)
@@ -34,7 +34,6 @@ const RUN = Date.now().toString(36);
 const SECOND_EMAIL = `${SECOND_PREFIX}${RUN}@example.invalid`;
 
 type Caps = {
-  stage: string;
   flags?: { connections: boolean };
   system: string[];
   account: string[];
@@ -43,7 +42,6 @@ type Caps = {
 };
 type ModuleList = { switchable: boolean; modules: Array<{ id: string; enabled: boolean }> };
 
-let stage: string | undefined;
 let caps: Caps;
 let userId = "";
 let origin = "";
@@ -193,7 +191,7 @@ function recordWrites(page: Page) {
   return writes;
 }
 
-test.describe("settings center with the flag on", () => {
+test.describe("settings center as the one settings surface", () => {
   test.skip(!existsSync(SEED), "needs the seeded e2e installation");
   test.describe.configure({ mode: "serial" });
   test.use({ storageState: STATE });
@@ -207,14 +205,11 @@ test.describe("settings center with the flag on", () => {
     try {
       await signIn(page);
       const me = await page.request.get("/api/me").then((r) => r.json());
-      stage = me.settingsCenter;
       userId = me.user.id;
-      if (stage === "on") {
-        caps = await page.request.get("/api/management/capabilities").then((r) => r.json());
-        modules = await page.request
-          .get(`/api/projects/${encodeURIComponent(projectId())}/modules`)
-          .then((r) => (r.ok() ? r.json() : undefined));
-      }
+      caps = await page.request.get("/api/management/capabilities").then((r) => r.json());
+      modules = await page.request
+        .get(`/api/projects/${encodeURIComponent(projectId())}/modules`)
+        .then((r) => (r.ok() ? r.json() : undefined));
       await context.storageState({ path: STATE });
     } finally {
       await context.close();
@@ -293,10 +288,6 @@ test.describe("settings center with the flag on", () => {
     if (errors.length) throw new AggregateError(errors, "cleanup of settings-center-on.spec.ts failed");
   });
 
-  test.beforeEach(() => {
-    test.skip(stage !== "on", "ORBIT_SETTINGS_CENTER is not on");
-  });
-
   test("every old address opens its section of the center", async ({ page }) => {
     test.setTimeout(180_000);
     const errors: string[] = [];
@@ -340,10 +331,19 @@ test.describe("settings center with the flag on", () => {
     await page.goto(`/p/${p}`);
     await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
     await expect.poll(() => page.evaluate(() => localStorage.getItem("orbit.project"))).toBe(p);
-    for (const [from, to, section] of [
+    const rows: Array<[string, string, string]> = [
+      ["/settings", `/manage/p/${p}/overview`, "Project"],
       ["/settings?section=ai", `/manage/p/${p}/ai`, "AI overview"],
       ["/connectors", `/manage/p/${p}/integrations/connections`, "Connections"],
-    ]) {
+    ];
+    // A module's section survives the forward.
+    if (moduleOn("marketing") && projectCaps().includes("project.modules"))
+      rows.push([
+        "/settings?section=policy",
+        `/manage/p/${p}/modules/marketing/policy`,
+        "Publishing rules",
+      ]);
+    for (const [from, to, section] of rows) {
       const before = await page.evaluate(() => history.length);
       await page.goto(from);
       await expect.poll(() => here(page), from).toBe(to);
@@ -359,16 +359,74 @@ test.describe("settings center with the flag on", () => {
     test.skip(!projectCaps().includes("project.integrations"), "the member cannot open the project's integrations");
     const p = projectId();
     const writes = recordWrites(page);
-    await page.goto(`/p/${p}/settings?googleDrive=ready`);
-    await expect
-      .poll(() => here(page))
-      .toBe(`/manage/p/${p}/integrations/google-drive?googleDrive=ready`);
-    await expect(
-      sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
-    await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
+    const drive = `/manage/p/${p}/integrations/google-drive`;
+    // The old return address forwards; the Drive callback names the center
+    // address itself, with either result.
+    for (const [from, to] of [
+      [`/p/${p}/settings?googleDrive=ready`, `${drive}?googleDrive=ready`],
+      [`${drive}?googleDrive=ready`, `${drive}?googleDrive=ready`],
+      [`${drive}?googleDrive=choose-root`, `${drive}?googleDrive=choose-root`],
+    ]) {
+      await page.goto(from);
+      await expect.poll(() => here(page), from).toBe(to);
+      await expect(
+        sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
+        from,
+      ).toHaveAttribute("aria-current", "page");
+      await expect(page.getByText("Not available", { exact: true }), from).toHaveCount(0);
+    }
     await page.waitForLoadState("networkidle").catch(() => {});
     expect(writes).toEqual([]);
+  });
+
+  test("an old address of a project the member does not have shows no page of it", async ({ page }) => {
+    // A project that exists nowhere: the member is no member of it.
+    const unknown = randomUUID();
+    const writes = recordWrites(page);
+    for (const from of [
+      `/p/${unknown}/settings`,
+      `/p/${unknown}/settings?section=members`,
+      `/p/${unknown}/connectors`,
+    ]) {
+      await test.step(from, async () => {
+        await page.goto(from);
+        await expect(
+          page
+            .getByRole("heading", { name: "Project not available", exact: true })
+            .or(page.getByText("Not available", { exact: true }))
+            .or(page.getByRole("heading", { name: "Page not found", exact: true })),
+          from,
+        ).toBeVisible();
+        // Neither a center section nor an old settings page renders.
+        expect(new URL(page.url()).pathname, from).not.toMatch(/^\/manage\//);
+        await expect(sectionNav(page), from).toHaveCount(0);
+        await expect(page.getByLabel("Applies to"), from).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Invite member", exact: true }), from).toHaveCount(0);
+      });
+    }
+    await page.waitForLoadState("networkidle").catch(() => {});
+    expect(writes).toEqual([]);
+  });
+
+  test("an old address whose capabilities request failed offers Try again", async ({ page }) => {
+    test.skip(!projectCaps().includes("project.members"), "the member cannot open the project's members");
+    const p = projectId();
+    const from = `/p/${p}/settings?section=members`;
+    const capabilities = "**/api/management/capabilities";
+    await page.route(capabilities, (route) => route.abort());
+    await page.goto(from);
+    await expect(page.getByText("Settings could not be loaded.", { exact: true })).toBeVisible();
+    const retry = page.getByRole("button", { name: "Try again", exact: true });
+    await expect(retry).toBeVisible();
+    // No old page and no center section behind the error.
+    expect(here(page)).toBe(from);
+    await expect(sectionNav(page)).toHaveCount(0);
+    await page.unroute(capabilities);
+    await retry.click();
+    await expect.poll(() => here(page)).toBe(`/manage/p/${p}/members`);
+    await expect(
+      sectionNav(page).getByRole("link", { name: "Members", exact: true }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("a module settings address of a module that is off says the settings are not available", async ({
@@ -489,7 +547,7 @@ test.describe("settings center with the flag on", () => {
     const hrefs = await page
       .locator(".attention-row a")
       .evaluateAll((links) => links.map((a) => a.getAttribute("href") ?? ""));
-    // No attention link may lead to an old settings address with the flag on:
+    // No attention link may lead to an old settings address:
     // a project's settings or connectors, an organization's settings, their
     // project-less legacy forms, the administration or the account. The
     // shapes are anchored at the start, so no center address (/manage/…)
@@ -571,9 +629,13 @@ test.describe("settings center with the flag on", () => {
     await expect(
       sectionNav(invitee).getByRole("link", { name: "Members", exact: true }),
     ).toHaveCount(0);
-    // The organization's settings are not theirs: the old page stays (P5-D5).
+    // The organization's settings are not theirs: the address says so and
+    // offers the start page (P54-D3); no old page renders.
     await invitee.goto(`/o/${o}/settings`);
-    await invitee.waitForLoadState("networkidle").catch(() => {});
+    await expect(invitee.getByText("Not available", { exact: true })).toBeVisible();
+    await expect(
+      invitee.getByRole("link", { name: "Go to the start page", exact: true }),
+    ).toHaveAttribute("href", "/");
     expect(new URL(invitee.url()).pathname).toBe(`/o/${o}/settings`);
     expect(writes).toEqual([]);
     await invitee.close();

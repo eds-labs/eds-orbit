@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import { SEED, signIn } from "./settings-center-helpers";
 
 // The settings center (/manage) in the browser: the four scopes, addresses,
-// search, refusals, module sections, the old pages beside it, phone and
-// keyboard use, German, and the administrator confirmation (D-8). Needs the
-// seeded e2e installation and a stack with ORBIT_ADMINISTRATION=true,
-// ORBIT_ACCOUNT=true and ORBIT_SETTINGS_CENTER=preview (or on). The seeded
+// search, refusals, module sections, phone and keyboard use, German, and
+// the administrator confirmation (D-8). Needs the seeded e2e installation
+// and a stack with ORBIT_ADMINISTRATION=true and ORBIT_ACCOUNT=true. The old
+// settings addresses are covered by settings-center-on.spec.ts. The seeded
 // user is both system administrator and organization owner; viewer and
 // editor visibility is covered by the API integration and unit tests.
 //
@@ -37,7 +37,6 @@ type Caps = {
   }>;
 };
 
-let stage: string | undefined;
 let connectionsOn = false;
 // ORBIT_CONNECTIONS_CUTOVER as the system overview reports it; null when the
 // signed-in member cannot read the overview (not a system administrator).
@@ -63,13 +62,11 @@ test.describe("settings center", () => {
     try {
       await signIn(page);
       const me = await page.request.get("/api/me").then((r) => r.json());
-      stage = me.settingsCenter;
       connectionsOn = me.connections === true;
       userId = me.user.id;
-      if (stage && stage !== "off")
-        caps = await page.request
-          .get("/api/management/capabilities")
-          .then((r) => r.json());
+      caps = await page.request
+        .get("/api/management/capabilities")
+        .then((r) => r.json());
       const overview = await page.request.get("/api/admin/overview");
       if (overview.ok()) {
         const value = (await overview.json())?.system?.environment?.connectionsCutover;
@@ -79,10 +76,6 @@ test.describe("settings center", () => {
     } finally {
       await context.close();
     }
-  });
-
-  test.beforeEach(() => {
-    test.skip(!stage || stage === "off", "ORBIT_SETTINGS_CENTER is off");
   });
 
   const org = () => caps.organizations[0];
@@ -258,37 +251,6 @@ test.describe("settings center", () => {
     }
   });
 
-  test("keeps the old pages", async ({ page }) => {
-    test.skip(
-      stage === "on",
-      "the old pages redirect with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"every old address opens its section of the center\" and \"the user menu and the sidebar offer one entry\"",
-    );
-    // The old organization settings page heads with an h2 (it had no h1
-    // before the settings center either), so the level is not asserted there.
-    const pages: Array<[string, string | RegExp, 1 | 2]> = [
-      ["/admin", "Administration", 1],
-      [`/o/${org().id}/settings`, org().name, 2],
-      [`/p/${project().id}/settings?section=members`, /.+/, 1],
-      // Connectors renders embedded in the center; its own page keeps its head.
-      [`/p/${project().id}/connectors`, "Connectors", 1],
-      ["/account", /.+/, 1],
-    ];
-    for (const [url, name, level] of pages) {
-      await page.goto(url);
-      await expect(
-        page.getByRole("main").getByRole("heading", { level, name }).first(),
-      ).toBeVisible();
-      await expect(page.getByText("Page not found")).toHaveCount(0);
-      await expect(page.getByLabel("Applies to")).toHaveCount(0);
-    }
-    // The account menu keeps its old entries beside the new one.
-    await page.getByLabel(/^Account menu/).click();
-    for (const name of ["Administration & settings", "Administration"])
-      await expect(
-        page.getByRole("menuitem", { name, exact: true }),
-      ).toBeVisible();
-  });
-
   const noHorizontalScroll = (page: Page) =>
     page.evaluate(
       () =>
@@ -362,7 +324,7 @@ test.describe("settings center", () => {
     await expect.poll(() => noHorizontalScroll(page)).toBe(true);
   });
 
-  test("asks an administrator before granting a role (D-8), the old page does not", async ({
+  test("asks an administrator before granting a role (D-8)", async ({
     page,
   }) => {
     const sent: Request[] = [];
@@ -397,38 +359,6 @@ test.describe("settings center", () => {
     await expect(confirmation).toHaveCount(0);
     await page.waitForTimeout(500);
     expect(sent.map((r) => `${r.method()} ${r.url()}`)).toEqual([]);
-
-    // The old page sends at once. With the flag on the old page leads to the
-    // center section above, so only the center's half applies.
-    if (stage === "on") {
-      test.info().annotations.push({
-        type: "old page",
-        description:
-          "ORBIT_SETTINGS_CENTER=on: /admin/organizations/<id> opens the center section asserted above (settings-center-on.spec.ts \"every old address opens its section of the center\")",
-      });
-      return;
-    }
-    // The request is stopped in the browser so nothing is created.
-    await page.route(
-      (url) => /\/api\/organizations\/[^/]+\/invitations$/.test(url.pathname),
-      (route) =>
-        route.request().method() === "POST" ? route.abort() : route.fallback(),
-    );
-    await page.goto(`/admin/organizations/${org().id}`);
-    await page.getByRole("button", { name: "Invite", exact: true }).click();
-    const oldInvite = page.getByRole("dialog", { name: "Invite someone" });
-    await oldInvite.getByLabel(/^E-Mail/).fill(email);
-    const attempt = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().endsWith("/invitations"),
-    );
-    await oldInvite.getByRole("button", { name: "Invite", exact: true }).click();
-    await attempt;
-    await expect(confirmation).toHaveCount(0);
-    await oldInvite.getByRole("button", { name: "Cancel" }).click();
-    const invitations = await page.request
-      .get(`/api/organizations/${org().id}`)
-      .then((r) => r.json());
-    expect(JSON.stringify(invitations.invitations ?? [])).not.toContain(email);
   });
 
   // ---- Integrations center (phase 3) ----
@@ -1119,69 +1049,27 @@ test.describe("settings center", () => {
     const target = await integrationsProject(page);
     const other = (JSON.parse(readFileSync(SEED, "utf8")) as { projectId: string }).projectId;
     expect(target.id).not.toBe(other);
-    // The last project opened is another one. With the flag on, the old
-    // settings address leads to the center, so the project's home is opened.
-    await page.goto(stage === "on" ? `/p/${other}` : `/p/${other}/settings`);
+    // The last project opened is another one: the return must not follow it.
+    await page.goto(`/p/${other}`);
     await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
-    if (stage === "on")
-      await expect
-        .poll(() => page.evaluate(() => localStorage.getItem("orbit.project")))
-        .toBe(other);
-    else expect(await page.evaluate(() => localStorage.getItem("orbit.project"))).toBe(other);
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem("orbit.project")))
+      .toBe(other);
 
-    // Where the Drive callback sends the member back.
-    await page.goto(`/p/${target.id}/settings?googleDrive=ready`);
-    if (stage === "on") {
-      // The connected project's Drive section of the center (P5).
-      await expect(page).toHaveURL(
-        new RegExp(`/manage/p/${target.id}/integrations/google-drive\\?googleDrive=ready$`),
-      );
-      await expect(
-        sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
-      ).toHaveAttribute("aria-current", "page");
-      await expect(page.getByLabel("Applies to")).toHaveValue(`p:${target.id}`);
-      return;
-    }
-    await expect(page).toHaveURL(new RegExp(`/p/${target.id}/settings`));
+    // Where the Drive callback sends the member back: the connected
+    // project's Drive section of the center.
+    const back = `/manage/p/${target.id}/integrations/google-drive?googleDrive=ready`;
+    await page.goto(back);
+    await expect
+      .poll(() => {
+        const url = new URL(page.url());
+        return url.pathname + url.search;
+      })
+      .toBe(back);
     await expect(
-      sectionNav(page).getByRole("link", { name: "Integrations", exact: true }),
+      sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
     ).toHaveAttribute("aria-current", "page");
-    await expect(page.locator("#project")).toHaveValue(target.id);
-  });
-
-  test("keeps the old connectors and social pages", async ({ page }) => {
-    test.skip(
-      stage === "on",
-      "the old connectors page redirects and the Social accounts page states its accounts with ORBIT_SETTINGS_CENTER=on; covered by settings-center-on.spec.ts \"every old address opens its section of the center\" and \"the Social accounts page shows state and a link\"",
-    );
-    const id = project().id;
-    await page.goto(`/p/${id}/connectors`);
-    await expect(
-      page.getByRole("main").getByRole("heading", { level: 1, name: "Connectors" }),
-    ).toBeVisible();
-    await expect(page.getByText("Page not found")).toHaveCount(0);
-    // The old page lists mailboxes flat: no mail server groups.
-    await expect(page.getByRole("heading", { name: /^Mail server / })).toHaveCount(0);
-    // The center's connections section renders the same cards.
-    await page.goto(`/manage/p/${id}/integrations/connections`);
-    await expect(
-      sectionNav(page).getByRole("link", { name: "Connections", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+    await expect(page.getByLabel("Applies to")).toHaveValue(`p:${target.id}`);
     await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
-
-    const modules = (await page.request
-      .get(`/api/projects/${encodeURIComponent(id)}/modules`)
-      .then((r) => r.json())) as { modules: Array<{ id: string; enabled: boolean }> };
-    const social = modules.modules.some((m) => m.id === "social" && m.enabled);
-    if (!social) {
-      test.info().annotations.push({
-        type: "social",
-        description: "Social is not on for the project; its old page does not exist here",
-      });
-      return;
-    }
-    await page.goto(`/p/${id}/social/accounts`);
-    await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
-    await expect(page.getByText("Page not found")).toHaveCount(0);
   });
 });
