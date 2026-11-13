@@ -59,6 +59,13 @@ export type ShellContextValue = {
    * page, or with the settings center on its place in the center.
    */
   settingsHref: (key: string) => string;
+  /**
+   * The open project's settings center address of an area and below
+   * ("ai", "budget" → /manage/p/<id>/ai/budget). Module files use it to name
+   * their section: the platform cannot import a module, and a module cannot
+   * import the center's route builder through the shell.
+   */
+  projectCenterHref: (area: string, ...rest: string[]) => string;
   /** The project's connections: the old connectors page, or the center's. */
   connectionsHref: () => string;
   /** An organization's settings: the old page, or the center's. */

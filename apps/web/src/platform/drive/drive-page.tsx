@@ -27,7 +27,7 @@ export function DrivePage() {
   const folderId = driveFolderParam(raw);
   // Shown while the address holds a malformed folder id.
   const ignored = Boolean(raw) && !folderId;
-  const settings = shell.settingsHref("integrations");
+  const settings = shell.projectCenterHref("integrations", "google-drive");
 
   const head = <PageHead title={t.title} description={t.description} />;
   if (status.error)

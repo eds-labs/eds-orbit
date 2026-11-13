@@ -268,9 +268,9 @@ function MailboxRow({
 }
 
 /**
- * The mailbox rows. Flat by default (the old page); with `groupByServer` one
+ * The mailbox rows. Flat by default; the settings center passes `groupByServer`, which gives one
  * h3 per mail server, each group ending in a button for a new mailbox on that
- * server. The h3 sits under the card's h2 on both pages.
+ * server. The h3 sits under the card's h2 in both forms.
  */
 export function MailboxList({
   mailboxes,

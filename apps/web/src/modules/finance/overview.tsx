@@ -272,7 +272,7 @@ function Dashboard({ now }: { now: Date }) {
               <AppLink href={reviewHref}>{t.reviewAll}</AppLink>
             </Button>
             <Button asChild variant="outline">
-              <AppLink href={shell.hrefOf("settings")}>
+              <AppLink href={shell.projectCenterHref("overview")}>
                 {t.emptySettings}
               </AppLink>
             </Button>

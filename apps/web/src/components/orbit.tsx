@@ -588,6 +588,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       hrefOf,
       ...shellLinks({
         hrefOf,
+        projectId: project.id,
         map: centerMap,
       }),
       // Contributions of enabled modules only (WP2.4).

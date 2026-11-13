@@ -167,6 +167,7 @@ function render(
     hrefOf: (key) => `/p/p1/${key}`,
     ...shellLinks({
       hrefOf: (key) => `/p/p1/${key}`,
+      projectId: "p1",
       map: (h) => h,
     }),
     chat: [],

@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import { useState, type RefObject } from "react";
 import Link from "next/link";
 import {
@@ -212,7 +213,7 @@ export function AssistantPanel({
         </>
       )}
       <div className="sheet-foot">
-        <Link href="/account/assistant" onClick={assistant.closePanel}>
+        <Link href={manageHref({ kind: "account" }, "assistant")} onClick={assistant.closePanel}>
           <BookUser aria-hidden="true" />
           {t.myContext}
         </Link>

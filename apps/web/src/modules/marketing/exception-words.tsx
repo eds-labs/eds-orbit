@@ -2,6 +2,7 @@
 import { AppLink } from "@/platform/ui/app-link";
 import { useWorkspace } from "@/components/workspace-context";
 import { exceptionText, hasExceptionText } from "@/lib/exception-text";
+import { useShell } from "@/platform/shell/shell-context";
 
 /**
  * A code in words (plan 2026-11-10, WP2 D): what happened, why and what to
@@ -22,9 +23,14 @@ export function ExceptionWords({
   storedMessage?: string;
 }) {
   const { locale } = useWorkspace();
+  const shell = useShell();
   const de = locale === "de";
   const text = exceptionText(locale, code);
   const known = hasExceptionText(code);
+  // A settings section is named in the center; a page stays project-relative.
+  const link = text.place
+    ? `${shell.projectCenterHref(text.place.area, ...(text.place.rest ?? []))}${text.place.hash ?? ""}`
+    : text.href;
   const title = known ? text.title : storedTitle || text.title;
   const stored = known ? "" : storedMessage;
   const cause = stored || text.cause;
@@ -35,8 +41,8 @@ export function ExceptionWords({
       {!stored && text.action && (
         <p>
           {text.action}{" "}
-          {text.href && (
-            <AppLink href={text.href}>
+          {link && (
+            <AppLink href={link}>
               {de ? "Einstellung öffnen" : "Open the setting"}
             </AppLink>
           )}

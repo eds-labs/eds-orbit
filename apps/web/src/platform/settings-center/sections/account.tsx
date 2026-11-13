@@ -4,9 +4,9 @@ import { PersonalContextView } from "@/platform/account/personal-context";
 import type { ManagementSection, SectionProps } from "../types";
 import { GrantsPanel } from "./grants-panel";
 
-// The account scope mounts the pages of /account; those keep rendering the
-// same components unchanged. Both read the standalone context the shell
-// provides around the scope.
+// The account scope mounts the account and assistant-context views (the old
+// /account addresses redirect here). Both read the standalone context the
+// shell provides around the scope.
 
 function ProfileSection() {
   return <AccountView />;

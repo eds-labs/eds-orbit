@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import Link from "next/link";
 import { RefreshCw, Settings } from "lucide-react";
 import { Alert, Button } from "@/components/ui/primitives";
@@ -61,7 +62,11 @@ export function assistantBudgetState(
     blocked: true,
     reason,
     audience: "owner",
-    href: `/o/${encodeURIComponent(status.workspaceId)}/settings#${ASSISTANT_BUDGET_ANCHOR}`,
+    href: `${manageHref(
+      { kind: "organization", organizationId: status.workspaceId },
+      "ai",
+      "budget",
+    )}#${ASSISTANT_BUDGET_ANCHOR}`,
   };
 }
 

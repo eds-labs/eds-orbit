@@ -74,7 +74,7 @@ function render(node: React.ReactNode, { locale = "en" as Locale, owner = true }
   const hrefOf = (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!);
   const shell = {
     hrefOf,
-    ...shellLinks({ hrefOf, map: (h) => h }),
+    ...shellLinks({ hrefOf, projectId: "p1", map: (h) => h }),
     modules: [],
     drive: { fileActions: [], toolbar: [Upload] },
   } as unknown as ShellContextValue;
@@ -115,7 +115,7 @@ describe("Drive page", () => {
     answers.status = status({ enabled: false, connected: false });
     const html = render(<DrivePage />);
     expect(html).toContain("Google Drive is not set up for this project");
-    expect(html).toContain('href="/p/p1/settings?section=integrations"');
+    expect(html).toContain('href="/manage/p/p1/integrations/google-drive"');
   });
 
   it("asks a member without ownership to contact an owner", () => {

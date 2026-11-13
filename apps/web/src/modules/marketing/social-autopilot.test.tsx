@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Locale } from "@/lib/i18n";
-import { SOCIAL_AUTOPILOT_HREF } from "@/lib/exception-text";
+import { SOCIAL_AUTOPILOT_PLACE } from "@/lib/exception-text";
 import {
   SOCIAL_AUTOPILOT_ANCHOR,
   SocialAutopilotConfirm,
@@ -139,8 +139,6 @@ describe("Autopilot through Social", () => {
   });
 
   it("is where the exception text links to", () => {
-    expect(SOCIAL_AUTOPILOT_HREF).toBe(
-      `/settings?section=policy#${SOCIAL_AUTOPILOT_ANCHOR}`,
-    );
+    expect(SOCIAL_AUTOPILOT_PLACE.hash).toBe(`#${SOCIAL_AUTOPILOT_ANCHOR}`);
   });
 });

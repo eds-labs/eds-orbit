@@ -12,6 +12,7 @@ import { modeLabel, type Locale } from "@/lib/i18n";
 import { statusLabel } from "@/lib/status-text";
 import { Alert, Badge, Button, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
 import { AppLink } from "@/platform/ui/app-link";
 import { marketingText, type MarketingText } from "./labels";
 
@@ -285,6 +286,7 @@ function PolicyVersionDetail({
   mode: string;
   onClose: () => void;
 }) {
+  const shell = useShell();
   const p = words.policy;
   const d = row.entity.data;
   const interval = count(d.minIntervalMinutes);
@@ -334,7 +336,7 @@ function PolicyVersionDetail({
       </dl>
       <Alert>
         {p.budgetNote}{" "}
-        <AppLink href="/settings?section=ai">{p.budgetLink}</AppLink>.
+        <AppLink href={shell.projectCenterHref("ai")}>{p.budgetLink}</AppLink>.
       </Alert>
     </Modal>
   );

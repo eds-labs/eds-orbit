@@ -57,10 +57,10 @@ import { ModuleCeilings } from "../ai/module-ceilings";
 import { aiText } from "../ai/texts";
 import { flagsOf, type ManagementSection, type SectionProps } from "../types";
 
-// The project scope mounts the panels of /p/:id/settings and /p/:id/connectors;
-// those pages keep rendering them unchanged. The shell wraps this scope in
-// the project's ShellContext and WorkspaceContext, so the panels read the
-// project from there exactly as on their own pages.
+// The project scope mounts the panels the old /p/:id/settings and
+// /p/:id/connectors pages showed; those addresses redirect here. The shell
+// wraps this scope in the project's ShellContext and WorkspaceContext, so the
+// panels read the project from there as they did on their own pages.
 
 /**
  * The tab keys of the old settings page that belong to the platform. A module

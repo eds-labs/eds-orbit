@@ -27,6 +27,16 @@ describe("old settings page shells", () => {
     ).toBeDefined();
   });
 
+  it("requires a session for every standalone route without a page", () => {
+    // The redirect needs the member's capabilities, so a signed-out visitor
+    // signs in first. Project routes always sit behind the project shell.
+    const pageless = webRegistry.standalone!.filter(
+      (r) => r.component === undefined,
+    );
+    expect(pageless.length).toBeGreaterThan(0);
+    for (const route of pageless) expect(route.session, route.key).toBe("required");
+  });
+
   it("no longer exports the project settings page", () => {
     expect("ProjectSettings" in management).toBe(false);
   });

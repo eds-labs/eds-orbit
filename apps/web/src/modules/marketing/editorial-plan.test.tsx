@@ -85,7 +85,7 @@ function shell(social: boolean): ShellContextValue {
     platformNav: [],
     homeSections: [],
     hrefOf,
-    ...shellLinks({ hrefOf, map: (h) => h }),
+    ...shellLinks({ hrefOf, projectId: "p1", map: (h) => h }),
     chat: [],
     actionRequests: {},
     attention: { loading: false },

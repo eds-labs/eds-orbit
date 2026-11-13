@@ -2,6 +2,7 @@ import type { Identity } from "@/lib/api";
 import { locate, moduleShown, type RouteTable } from "@/platform/shell/routes";
 import { MOVED, platformSettingsTabs } from "@/platform/shell/settings-nav";
 import { moduleSectionId, visibleSections } from "./registry";
+import { ADMIN } from "./admin-places";
 import { manageHref } from "./routes";
 // The shell already loads these lists through the settings center's views,
 // so deciding where a member may land adds nothing to its first render.
@@ -87,22 +88,6 @@ type Place = { scope: ManageScope; area: string; rest?: string[] };
 
 const SYSTEM: ManageScope = { kind: "system" };
 const ACCOUNT: ManageScope = { kind: "account" };
-
-// /admin/<section> → system area and rest. Only users and organizations
-// take an id, as their center sections do; the old shell shows any other
-// section and ignores an id below it, so that id is dropped.
-const ADMIN: ReadonlyMap<string, { area: string; rest: string[]; takesId?: true }> =
-  new Map([
-    ["", { area: "overview", rest: [] }],
-    ["integrations", { area: "integrations", rest: [] }],
-    ["ai", { area: "ai", rest: [] }],
-    ["mcp", { area: "mcp", rest: [] }],
-    ["audit", { area: "security", rest: ["audit"] }],
-    ["users", { area: "users", rest: [], takesId: true }],
-    ["invitations", { area: "users", rest: ["invitations"] }],
-    ["organizations", { area: "organizations", rest: [], takesId: true }],
-    ["projects", { area: "organizations", rest: ["projects"] }],
-  ]);
 
 // ?section=<platform key> of the project settings page.
 function platformPlace(key: string, projectId: string): Place | null {

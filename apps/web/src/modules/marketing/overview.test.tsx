@@ -41,6 +41,7 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
+import { shellLinks } from "@/platform/shell/shell-links";
 import {
   MarketingOverview,
   monthStart,
@@ -119,7 +120,14 @@ function render(
   attention: AttentionState = attentionWith({}),
 ) {
   return renderToStaticMarkup(
-    <ShellContext.Provider value={{ attention } as ShellContextValue}>
+    <ShellContext.Provider
+      value={
+        {
+          attention,
+          ...shellLinks({ hrefOf: () => "/", projectId: "p1", map: (h) => h }),
+        } as ShellContextValue
+      }
+    >
       <WorkspaceContext.Provider
         value={{
           project,

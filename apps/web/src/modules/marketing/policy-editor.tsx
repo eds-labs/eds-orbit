@@ -25,6 +25,7 @@ import {
   type FormField,
 } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
 import { modeLabel } from "@/lib/i18n";
 import { activationErrorText } from "@/lib/readiness-text";
 import { marketingText } from "./labels";
@@ -39,6 +40,7 @@ type SpendLimits = {
 
 export function PolicyEditor({ onClose }: { onClose: () => void }) {
   const { project, locale, t, refresh } = useWorkspace();
+  const shell = useShell();
   const words = marketingText(locale).editor;
   const mutation = useMutation(() => {
     refresh();
@@ -132,7 +134,7 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
             )}${limits.approvedPaidTests ? "" : words.budgetUnpaid}. `
           : `${words.budgetNotSet} `}
         {words.budgetScope}{" "}
-        <AppLink href="/settings?section=ai">{words.budgetLink}</AppLink>
+        <AppLink href={shell.projectCenterHref("ai")}>{words.budgetLink}</AppLink>
         {words.budgetKept}
       </Alert>
       <DataForm

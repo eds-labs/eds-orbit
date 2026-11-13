@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
@@ -101,7 +102,7 @@ export function PersonalContextView() {
   const t = contextText(de);
   return (
     <div className="account-page">
-      <Link className="back-link" href="/account">
+      <Link className="back-link" href={manageHref({ kind: "account" }, "profile")}>
         ← {de ? "Dein Konto" : "Your account"}
       </Link>
       <PageHead title={t.title} description={t.intro}>

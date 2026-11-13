@@ -7,6 +7,10 @@ import {
 import { resolveSection, sectionPath, validateSections, visibleSections } from "../registry";
 import type { Identity } from "@/lib/api";
 import type { ManagementCapabilities } from "../types";
+import { webRegistry } from "@/modules/registry";
+import { ADMIN_SECTIONS, routeTable } from "@/platform/shell/routes";
+import { centerHref, mapOldAddress, moduleTabIndex } from "../redirects";
+import { PLATFORM_TAB_KEYS } from "./project";
 import { adminLinkInCenter, systemSections } from "./system";
 
 describe("system scope", () => {
@@ -103,8 +107,30 @@ describe("system scope", () => {
       "/manage/system/organizations/w1",
     );
     expect(adminLinkInCenter("users")).toBe("/manage/system/users");
-    // Sections the center does not address keep their working old page.
-    expect(adminLinkInCenter("audit")).toBe("/admin/audit");
+    expect(adminLinkInCenter("audit")).toBe("/manage/system/security/audit");
+    expect(adminLinkInCenter("invitations")).toBe("/manage/system/users/invitations");
+    expect(adminLinkInCenter("projects")).toBe("/manage/system/organizations/projects");
+    expect(adminLinkInCenter("")).toBe("/manage/system/overview");
+  });
+
+  it("names the center address the redirect table gives for every admin section", () => {
+    const ctx = {
+      table: routeTable(webRegistry),
+      tabs: moduleTabIndex(webRegistry.modules),
+      platformKeys: PLATFORM_TAB_KEYS,
+      moduleShown: () => true,
+    };
+    for (const section of ["", ...ADMIN_SECTIONS]) {
+      const target = mapOldAddress(
+        { pathname: `/admin${section ? `/${section}` : ""}`, search: "", hash: "" },
+        ctx,
+      );
+      expect(target, section).not.toBeNull();
+      expect(adminLinkInCenter(section), section).toBe(
+        centerHref(target as Exclude<typeof target, "wait" | null>),
+      );
+      expect(adminLinkInCenter(section), section).toMatch(/^\/manage\/system\//);
+    }
   });
 
   it("asks before a change that grants access, not before a removal", () => {

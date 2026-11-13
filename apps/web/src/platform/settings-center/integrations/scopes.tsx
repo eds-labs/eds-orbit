@@ -185,7 +185,7 @@ export function scopeCatalog(
  * The section that manages a card's integration, or null (the card then says
  * it is managed in its module). A link only ever leads to a page that can
  * manage the entry: a shown module's section that names it; in a project the
- * Drive section, or the Connectors page for what that page renders (the
+ * Drive section, or the connections section for what it renders (the
  * platform's own project connections and the providers the shown modules
  * contribute to it, `connectorProviders`); in an organization or the system
  * the central connections of that level.
@@ -196,7 +196,7 @@ export function manageHrefOf(
     scope: ManageScope;
     hrefOf(area: string, ...rest: string[]): string;
     moduleSections: ReadonlyArray<{ id: string; providers?: readonly string[] }>;
-    /** Provider ids the Connectors page shows from the modules (shell.connectors.providers). */
+    /** Provider ids the connections section shows from the modules (shell.connectors.providers). */
     connectorProviders: readonly string[];
   },
 ): string | null {
@@ -208,7 +208,7 @@ export function manageHrefOf(
   switch (ctx.scope.kind) {
     case "project":
       if (entry.id === "google_drive") return ctx.hrefOf("integrations", "google-drive");
-      // The Connectors page lists the project's own connections and the
+      // The connections section lists the project's own connections and the
       // granted ones with their bind action.
       if (!storage.includes("project")) return null;
       return entry.owner === "platform" || ctx.connectorProviders.includes(entry.id)
@@ -536,7 +536,7 @@ export function ProjectCatalog({ scope, locale, hrefOf, caps }: SectionProps) {
     id: integrationSectionId(c),
     providers: c.providers,
   }));
-  // The same source the Connectors page lists its module providers from.
+  // The same source the connections section lists its module providers from.
   const connectorProviders = (shell?.connectors?.providers ?? []).map((p) => p.id);
   const waiting = gate([catalog, records]);
   if (waiting) return waiting;

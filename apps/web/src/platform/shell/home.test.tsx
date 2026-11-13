@@ -91,7 +91,7 @@ function shell(
       { moduleId: "marketing", component: () => <p>marketing section</p> },
     ],
     hrefOf,
-    ...shellLinks({ hrefOf, map: (h) => h }),
+    ...shellLinks({ hrefOf, projectId: "p1", map: (h) => h }),
     chat: [],
     actionRequests: {},
     attention,
@@ -322,6 +322,27 @@ describe("attentionTarget", () => {
     );
     expect(attentionTarget("/knowledge", "p1", table, on)).toBe(
       "/p/p1/knowledge",
+    );
+  });
+  it("returns a center address of the API unchanged, without a project prefix or route lookup", () => {
+    for (const link of [
+      "/manage/p/p1/ai/budget",
+      "/manage/p/p1/modules/marketing/policy",
+      "/manage/p/p1/integrations/google-drive?googleDrive=ready",
+    ]) {
+      expect(attentionTarget(link, "p1", table, on)).toBe(link);
+      // Not even a disabled module hides it: it is no page of the route table.
+      expect(attentionTarget(link, "p1", table, () => false)).toBe(link);
+    }
+    const seen: string[] = [];
+    attentionTarget("/manage/p/p1/ai/budget", "p1", table, on, (href) => {
+      seen.push(href);
+      return href;
+    });
+    expect(seen).toEqual([]);
+    // A relative old link keeps today's handling.
+    expect(attentionTarget("/settings?section=ai", "p1", table, on)).toBe(
+      "/p/p1/settings?section=ai",
     );
   });
   it("gives no target for an unknown or disabled page", () => {

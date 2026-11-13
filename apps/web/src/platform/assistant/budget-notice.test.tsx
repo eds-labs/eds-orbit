@@ -70,7 +70,7 @@ describe("assistantBudgetState (WP2 A)", () => {
       blocked: true,
       reason: "not_set",
       audience: "owner",
-      href: "/o/w1/settings#assistant-budget",
+      href: "/manage/o/w1/ai/budget#assistant-budget",
     });
   });
 
@@ -121,14 +121,14 @@ describe("AssistantBudgetNotice", () => {
           blocked: true,
           reason: "zero",
           audience: "owner",
-          href: "/o/w1/settings#assistant-budget",
+          href: "/manage/o/w1/ai/budget#assistant-budget",
         }}
         de={false}
         onRefresh={() => {}}
       />,
     );
     expect(owner).toContain("The assistant budget per member is set to USD 0");
-    expect(owner).toContain('href="/o/w1/settings#assistant-budget"');
+    expect(owner).toContain('href="/manage/o/w1/ai/budget#assistant-budget"');
     expect(owner).toContain("Set the assistant budget");
     expect(owner).toContain("Check again");
     const off = renderToStaticMarkup(

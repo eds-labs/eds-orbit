@@ -4,8 +4,10 @@ import { labels, type Locale } from "@/lib/i18n";
 import type { Label, SettingsSection } from "./types";
 
 // The project settings grouped by module (UI restructure §5.4): the platform's
-// sections under "Project", then one group per module with its sections. The
-// open section lives in the URL (?section=); pure helpers, then the list.
+// sections under "Project", then one group per module with its sections.
+// Pure helpers, then the list. The settings center keeps its own section
+// navigation; the old `?section=<key>` addresses that `settingsSectionHref`
+// builds are mapped to center sections (settings-center/redirects.ts).
 
 export type SettingsTab = {
   key: string;

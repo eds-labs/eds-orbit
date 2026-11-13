@@ -25,29 +25,34 @@ import { AiProfileEditor } from "@/platform/administration/ai-knowledge-ui";
 import { ModelPricesPanel } from "@/platform/administration/ai-catalog-ui";
 import { AiDefaultsPanel } from "@/platform/administration/ai-defaults-ui";
 import { SystemAffected } from "../ai/affected-projects";
+import { ADMIN } from "../admin-places";
 import { aiPaths } from "../ai/paths";
 import { AI_SECTION_TEXT, aiText } from "../ai/texts";
 import { centerText } from "../texts";
 import { flagsOf, type ManagementSection, type SectionProps } from "../types";
 
-// The system scope (system administrators) mounts the existing administration
-// components; /admin keeps rendering the same components unchanged. Overview
+// The system scope (system administrators) mounts the administration
+// components; the old /admin addresses redirect here. Overview
 // already shows the webmail status panel, so the status section needs no
 // second copy of it.
 
 const SYSTEM = { kind: "system" } as const;
 
 /**
- * Where an administration component's link leads inside the center. Users
- * and organizations have sections here; any other admin page keeps its old
- * address so nothing links to a dead page.
+ * Where an administration component's link leads inside the center: the
+ * system section of the redirect table's row for the old administration
+ * section ("" is the overview). A section the table does not know keeps its
+ * old address; the redirect resolves it.
  */
 export function adminLinkInCenter(section: string, id?: string): string {
-  const rest = id === undefined ? [] : [id];
-  if (section === "users") return manageHref(SYSTEM, "users", ...rest);
-  if (section === "organizations")
-    return manageHref(SYSTEM, "organizations", ...rest);
-  return adminHref(section, id);
+  const row = ADMIN.get(section);
+  if (!row) return adminHref(section, id);
+  return manageHref(
+    SYSTEM,
+    row.area,
+    ...row.rest,
+    ...(id !== undefined && row.takesId ? [id] : []),
+  );
 }
 
 function StatusSection({ locale }: SectionProps) {

@@ -27,6 +27,11 @@ vi.mock("@/lib/api", async (original) => ({
 
 import { policyVersionRows, PolicyVersions } from "./policy-versions";
 import { marketingSettings, PolicySetupLink } from "./settings-sections";
+import {
+  ShellContext,
+  type ShellContextValue,
+} from "@/platform/shell/shell-context";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { PolicyEditor } from "./policy-editor";
 
 const NOW = Date.parse("2026-11-10T12:00:00.000Z");
@@ -167,9 +172,17 @@ function workspace(locale: Locale): WorkspaceContextValue {
 
 function render(node: React.ReactNode, locale: Locale = "de") {
   return renderToStaticMarkup(
-    <WorkspaceContext.Provider value={workspace(locale)}>
-      {node}
-    </WorkspaceContext.Provider>,
+    <ShellContext.Provider
+      value={
+        {
+          ...shellLinks({ hrefOf: () => "/", projectId: "p1", map: (h) => h }),
+        } as ShellContextValue
+      }
+    >
+      <WorkspaceContext.Provider value={workspace(locale)}>
+        {node}
+      </WorkspaceContext.Provider>
+    </ShellContext.Provider>,
   );
 }
 

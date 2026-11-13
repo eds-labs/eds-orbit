@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import { useState } from "react";
 import { Monitor } from "lucide-react";
 import {
@@ -80,7 +81,7 @@ export function AccountView() {
                   : "What your personal assistant remembers; only you can see it."}
               </p>
             </div>
-            <Link className="button button-outline button-sm" href="/account/assistant">
+            <Link className="button button-outline button-sm" href={manageHref({ kind: "account" }, "assistant")}>
               {de ? "Mein Kontext" : "My context"}
             </Link>
           </div>

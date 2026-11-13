@@ -296,7 +296,7 @@ describe("finance mailbox note", () => {
     const hrefOf = (key: string) => `/p/demo/${key}`;
     const shell = {
       hrefOf,
-      ...shellLinks({ hrefOf, map: (href) => `/center${href}` }),
+      ...shellLinks({ hrefOf, projectId: "p1", map: (href) => `/center${href}` }),
     } as unknown as ShellContextValue;
     return renderToStaticMarkup(
       <ShellContext.Provider value={shell}>

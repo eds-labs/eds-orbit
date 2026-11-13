@@ -3,7 +3,7 @@ import { ShellContext } from "@/platform/shell/shell-context";
 import { languagesOf } from "@/platform/project-settings/project-configuration";
 import { languageName } from "@/platform/project-settings/catalog";
 import { projectSettingsText } from "@/platform/project-settings/texts";
-import { settingsSectionHref } from "@/platform/shell/settings-nav";
+import { manageHref } from "@/platform/settings-center/routes";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
 import { AiCostDiagnosis } from "./ai-cost-diagnosis";
@@ -532,11 +532,12 @@ export function ProjectReadinessPanel({
   dashboard: Dashboard | null;
   loading: boolean;
 }) {
-  const { locale, isOwner } = useWorkspace();
+  const { locale, isOwner, project } = useWorkspace();
   const shell = useContext(ShellContext);
   const setupLinks = shell?.setupLinks ?? [];
-  const sectionHref = (key: string) =>
-    shell ? shell.settingsHref(key) : settingsSectionHref("", key);
+  // The project's center sections, named directly.
+  const center = (area: string, ...rest: string[]) =>
+    manageHref({ kind: "project", projectId: project.id }, area, ...rest);
   const de = locale === "de";
   const d = dashboard;
   return (
@@ -597,7 +598,7 @@ export function ProjectReadinessPanel({
             ? "Quellenrechte und verifizierte Fakten ergänzen"
             : "Add source rights and verified facts"}
         </AppLink>
-        <AppLink href="/connectors">
+        <AppLink href={center("integrations", "connections")}>
           <Link2 />
           {de
             ? "Verbindungen und ihre Fähigkeiten prüfen"
@@ -608,7 +609,7 @@ export function ProjectReadinessPanel({
         ))}
         {/* One place for AI settings (plan phase 3.3). */}
         {isOwner && (
-          <AppLink href={sectionHref("ai")}>
+          <AppLink href={center("ai")}>
             <Brain />
             {de ? "KI & Budget einrichten" : "Set up AI & budget"}
           </AppLink>

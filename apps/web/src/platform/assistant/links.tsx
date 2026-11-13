@@ -23,7 +23,9 @@ export function useAssistantLinks(): AssistantLinks {
     hrefFor: (projectId, href) =>
       workspace?.project.id === projectId
         ? workspace.href(href)
-        : href.startsWith("/") && !href.startsWith("/p/")
+        : href.startsWith("/") &&
+            !href.startsWith("/p/") &&
+            !href.startsWith("/manage/")
           ? `/p/${encodeURIComponent(projectId)}${href}`
           : href,
     projectName: (projectId) =>

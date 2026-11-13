@@ -17,7 +17,7 @@ const hrefOf = (key: string) => {
   return route ? projectHref("p1", route) : "/";
 };
 const links = (map: (href: string) => string = (href) => centerLink(href, ctx())) =>
-  shellLinks({ hrefOf, map });
+  shellLinks({ hrefOf, projectId: "p1", map });
 
 describe("shell links (settings center phase 5)", () => {
   it("links into the center", () => {
@@ -30,6 +30,15 @@ describe("shell links (settings center phase 5)", () => {
     );
     expect(l.organizationSettingsHref("w 1")).toBe("/manage/o/w%201/overview");
     expect(l.centerLink("/p/p1/settings?section=ai")).toBe("/manage/p/p1/ai");
+  });
+
+  it("names a section of the open project's center without the table", () => {
+    const l = links((href) => href);
+    expect(l.projectCenterHref("ai", "budget")).toBe("/manage/p/p1/ai/budget");
+    expect(l.projectCenterHref("modules", "marketing", "policy")).toBe(
+      "/manage/p/p1/modules/marketing/policy",
+    );
+    expect(l.projectCenterHref("integrations")).toBe("/manage/p/p1/integrations");
   });
 
   it("keeps the old address while the mapping waits, and never asks for capabilities", () => {

@@ -6,28 +6,44 @@ import { budgetRefusalText } from "@/lib/budget-refusals";
 // WP2 D). An exception stores only its code (worker/main.ts); this turns it
 // into what happened, why and what the owner can do, with the setting to
 // open where there is one. Unknown codes stay as they are, so nothing is
-// hidden. Paths are project-relative (AppLink).
+// hidden. A place is a section of the open project's settings center; the
+// page that shows the text builds the address (ShellContextValue.projectCenterHref).
 
 export type ExceptionText = {
   title: string;
   cause: string;
   action: string;
-  /** The project page that resolves it, such as the AI settings. */
+  /** The project page that resolves it, such as the operations page (project-relative, AppLink). */
   href?: string;
+  /** The project settings section that resolves it, such as the AI settings. */
+  place?: ExceptionPlace;
+};
+
+/** A section of the project's settings center, below /manage/p/<id>. */
+export type ExceptionPlace = {
+  area: string;
+  rest?: readonly string[];
+  /** "#…" of an anchor in the section. */
+  hash?: string;
 };
 
 type Entry = {
-  en: Omit<ExceptionText, "href">;
-  de: Omit<ExceptionText, "href">;
+  en: Omit<ExceptionText, "href" | "place">;
+  de: Omit<ExceptionText, "href" | "place">;
   href?: string;
+  place?: ExceptionPlace;
 };
 
 /** Settings → AI & budget, where routes, keys and the spending authority live. */
-export const AI_SETTINGS_HREF = "/settings?section=ai";
+export const AI_SETTINGS_PLACE: ExceptionPlace = { area: "ai" };
 const OPERATIONS_HREF = "/operations";
-const CONNECTIONS_HREF = "/settings?section=integrations";
+const CONNECTIONS_PLACE: ExceptionPlace = { area: "integrations" };
 /** Settings → Publishing rules, at the owner's "Autopilot through Social" switch. */
-export const SOCIAL_AUTOPILOT_HREF = "/settings?section=policy#social-autopilot";
+export const SOCIAL_AUTOPILOT_PLACE: ExceptionPlace = {
+  area: "modules",
+  rest: ["marketing", "policy"],
+  hash: "#social-autopilot",
+};
 
 const entries: Record<string, Entry> = {
   AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA: {
@@ -45,7 +61,7 @@ const entries: Record<string, Entry> = {
       action:
         "Route auf ein verifiziertes OpenAI-Modell stellen (Einstellungen → KI & Budget → Aufgaben-Routen). Orbit wechselt den Anbieter nie von selbst.",
     },
-    href: AI_SETTINGS_HREF,
+    place: AI_SETTINGS_PLACE,
   },
   PAID_CALL_NOT_AUTHORIZED: {
     en: {
@@ -62,7 +78,7 @@ const entries: Record<string, Entry> = {
       action:
         "Key des Anbieters hinterlegen oder die Aufgabe auf einen Anbieter mit Key routen (Einstellungen → KI & Budget).",
     },
-    href: AI_SETTINGS_HREF,
+    place: AI_SETTINGS_PLACE,
   },
   POSTIZ_QUEUE_STALLED: {
     en: {
@@ -93,7 +109,7 @@ const entries: Record<string, Entry> = {
       action:
         "Prüfen, ob Postiz erreichbar und das Token der Verbindung gültig ist. Die Ausnahme schließt sich nach der nächsten erfolgreichen Prüfung.",
     },
-    href: CONNECTIONS_HREF,
+    place: CONNECTIONS_PLACE,
   },
   PUBLISH_PREFLIGHT_BLOCKED: {
     en: {
@@ -126,7 +142,7 @@ const entries: Record<string, Entry> = {
       action:
         "Post selbst in den Freigaben freigeben oder „Autopilot über Social“ unter Einstellungen → Veröffentlichungsregeln einschalten.",
     },
-    href: SOCIAL_AUTOPILOT_HREF,
+    place: SOCIAL_AUTOPILOT_PLACE,
   },
   CONTENT_REVIEW_REQUIRED: {
     en: {
@@ -217,7 +233,7 @@ const entries: Record<string, Entry> = {
       cause: "Der Telegram-Bot konnte eine Nachricht nicht zustellen.",
       action: "Telegram-Verbindung in den Einstellungen prüfen.",
     },
-    href: CONNECTIONS_HREF,
+    place: CONNECTIONS_PLACE,
   },
   MATOMO_SCHEDULED_IMPORT_FAILED: {
     en: {
@@ -230,7 +246,7 @@ const entries: Record<string, Entry> = {
       cause: "Der geplante Import der Matomo-Statistiken ist fehlgeschlagen.",
       action: "Matomo-Verbindung prüfen; der nächste Import läuft planmäßig.",
     },
-    href: CONNECTIONS_HREF,
+    place: CONNECTIONS_PLACE,
   },
   ASSIGNMENT_BUDGET_EXHAUSTED: {
     en: {
@@ -426,7 +442,12 @@ export function exceptionText(locale: Locale, code: string | null | undefined): 
   const lang = locale === "de" ? "de" : "en";
   const entry =
     entries[key] ?? (key.endsWith("_OUTCOME_UNKNOWN") ? outcomeUnknown : undefined);
-  if (entry) return { ...entry[lang], ...(entry.href ? { href: entry.href } : {}) };
+  if (entry)
+    return {
+      ...entry[lang],
+      ...(entry.href ? { href: entry.href } : {}),
+      ...(entry.place ? { place: entry.place } : {}),
+    };
   const budget = budgetRefusalText(key, lang === "de");
   if (budget)
     return {
@@ -436,7 +457,7 @@ export function exceptionText(locale: Locale, code: string | null | undefined): 
         lang === "de"
           ? "Ausgabefreigabe und Budgets prüfen (Einstellungen → KI & Budget)."
           : "Check the spending authority and budgets (Settings → AI & budget).",
-      href: AI_SETTINGS_HREF,
+      place: AI_SETTINGS_PLACE,
     };
   return { title: key || "—", cause: "", action: "" };
 }

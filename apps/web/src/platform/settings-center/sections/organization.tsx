@@ -31,8 +31,8 @@ import {
 } from "../types";
 import { GrantsPanel, grantsPath } from "./grants-panel";
 
-// The organization scope mounts the components of /o/:id/settings; that page
-// keeps rendering them unchanged.
+// The organization scope mounts the components the old /o/:id/settings page
+// showed; that address redirects here.
 
 /** The organization the scope belongs to; no other scope reaches these sections. */
 export function organizationIdOf(scope: ManageScope): string {

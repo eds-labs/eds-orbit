@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { webRegistry } from "@/modules/registry";
+import { centerHref, mapOldAddress, moduleTabIndex } from "@/platform/settings-center/redirects";
+import { manageHref } from "@/platform/settings-center/routes";
+import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
+import { routeTable } from "@/platform/shell/routes";
 import {
-  AI_SETTINGS_HREF,
+  AI_SETTINGS_PLACE,
   dataClassRouteWarning,
   exceptionText,
   hasExceptionText,
-  SOCIAL_AUTOPILOT_HREF,
+  SOCIAL_AUTOPILOT_PLACE,
+  type ExceptionPlace,
 } from "./exception-text";
 
 describe("exceptionText", () => {
@@ -15,10 +21,10 @@ describe("exceptionText", () => {
     expect(de.cause).toContain("bevor etwas gesendet");
     expect(de.action).toContain("Route auf ein verifiziertes OpenAI-Modell stellen");
     expect(de.action).toContain("nie von selbst");
-    expect(de.href).toBe(AI_SETTINGS_HREF);
+    expect(de.place).toBe(AI_SETTINGS_PLACE);
     const en = exceptionText("en", "AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA");
     expect(en.action).toContain("verified OpenAI model");
-    expect(en.href).toBe("/settings?section=ai");
+    expect(en.place).toEqual({ area: "ai" });
   });
 
   it("has German and English texts for the Postiz queue codes", () => {
@@ -41,8 +47,12 @@ describe("exceptionText", () => {
     const en = exceptionText("en", "AUTOPILOT_ON_SOCIAL_NOT_APPROVED");
     expect(en.title).toBe("Autopilot post waits for your release");
     expect(en.action).toContain("“Autopilot through Social”");
-    expect(de.href).toBe(SOCIAL_AUTOPILOT_HREF);
-    expect(en.href).toBe("/settings?section=policy#social-autopilot");
+    expect(de.place).toBe(SOCIAL_AUTOPILOT_PLACE);
+    expect(en.place).toEqual({
+      area: "modules",
+      rest: ["marketing", "policy"],
+      hash: "#social-autopilot",
+    });
     expect(hasExceptionText("AUTOPILOT_ON_SOCIAL_NOT_APPROVED")).toBe(true);
   });
 
@@ -51,7 +61,7 @@ describe("exceptionText", () => {
     expect(text.cause).toBe(
       "The project's AI budget for today or this month is used up.",
     );
-    expect(text.href).toBe(AI_SETTINGS_HREF);
+    expect(text.place).toBe(AI_SETTINGS_PLACE);
   });
 
   it("keeps an unknown code and gives other unclear outcomes a generic text", () => {
@@ -67,6 +77,43 @@ describe("exceptionText", () => {
     // The generic text does not replace the code in lists.
     expect(hasExceptionText("EMAIL_OUTCOME_UNKNOWN")).toBe(false);
     expect(exceptionText("en", null).title).toBe("—");
+  });
+});
+
+describe("exception places", () => {
+  // The center address of a place is what the redirect table gives for the
+  // old address it replaces.
+  const ctx = {
+    table: routeTable(webRegistry),
+    tabs: moduleTabIndex(webRegistry.modules),
+    platformKeys: PLATFORM_TAB_KEYS,
+    moduleShown: () => true,
+  };
+  const viaTable = (search: string, hash = "") => {
+    const target = mapOldAddress(
+      { pathname: "/p/p1/settings", search, hash },
+      ctx,
+    );
+    return centerHref(target as Exclude<typeof target, "wait" | null>);
+  };
+  const named = (place: ExceptionPlace) =>
+    manageHref({ kind: "project", projectId: "p1" }, place.area, ...(place.rest ?? [])) +
+    (place.hash ?? "");
+
+  it("names the sections the old settings addresses led to", () => {
+    expect(named(AI_SETTINGS_PLACE)).toBe(viaTable("?section=ai"));
+    expect(named(SOCIAL_AUTOPILOT_PLACE)).toBe(
+      viaTable("?section=policy", "#social-autopilot"),
+    );
+    for (const code of [
+      "POSTIZ_QUEUE_CHECK_FAILED",
+      "TELEGRAM_DELIVERY_FAILED",
+      "MATOMO_SCHEDULED_IMPORT_FAILED",
+    ]) {
+      const place = exceptionText("en", code).place;
+      expect(place, code).toBeDefined();
+      expect(named(place!), code).toBe(viaTable("?section=integrations"));
+    }
   });
 });
 
