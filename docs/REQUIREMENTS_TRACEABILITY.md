@@ -1,5 +1,24 @@
 # Requirements traceability
 
+## AI image labelling "KI erstellt" (ADR 0028; 2026-11-13, branch `claude/ai-image-labeling`; not delivered, flag off)
+
+API tests under `apps/api/tests/`, engine tests next to the code in `packages/creative/src/`. Results are the controller's full run on the final head (see `IMPLEMENTATION_STATUS.md`).
+
+| ID | Requirement | Code | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| AIL-1 | Central post-processing service for AI images | `packages/creative/src/ai-label.ts`, `apps/api/src/platform/provenance/image-provenance.ts` | `ai-label.test.ts`, `image-provenance.integration.test.ts` | PASS_TEST |
+| AIL-2 | Exact text "KI erstellt" on new AI marketing images, applied after all layout and crop steps | `creative/persist.ts`, `agents/specialists/visual.ts`, `brand/render-asset.ts`, `brand/ai-labels.ts` | `marketing-ai-labels.integration.test.ts`, `assignment-banners.integration.test.ts`, `ai-label-e2e.integration.test.ts` | PASS_TEST |
+| AIL-3 | Discreet bottom-right label, automatic contrast, safety margin, logos and protected layers untouched | `ai-label.ts` (`aiLabelBox`, `chooseColours`) | `ai-label.test.ts` (contrast cases, avoid boxes byte-identical, safe insets), banner and rendition logo-region comparisons | PASS_TEST |
+| AIL-4 | No double label on repeated processing | `applyAiLabel` (XMP / `knownLabel`), `ensureLabeledAsset`, `composableAsset`, upload label detection | `ai-label.test.ts`, `marketing-ai-labels`, `marketing-upload-provenance`, `ai-label-e2e` (re-run step) | PASS_TEST |
+| AIL-5 | Central origin record: generated, substantially AI-modified, unchanged upload | `ImageProvenance` migration `202611130001_image_provenance` | `image-provenance`, `rls-matrix.integration.test.ts` | PASS_TEST |
+| AIL-6 | No label for unchanged uploads or standard edits | `recordOriginalUpload`, Social `provenanceBeforeIngest` | `social-ai-label`, `marketing-upload-provenance` | PASS_TEST |
+| AIL-7 | Machine-readable provenance checked, preserved, added | XMP write/read, C2PA detection, `carriedProvenanceXmp`, `prepareSocialImage({carryProvenance})` | `ai-label.test.ts`, `social-image.test.ts`, `ai-label-e2e` (C2PA manifest kept) | PASS_TEST (C2PA not re-signed, see limitations) |
+| AIL-8 | Approvals, brand rules and logos unchanged | labelling only at asset creation; flag-off byte identity | `marketing-ai-labels` (flag off), `social-ai-label` (flag off), full suite | PASS_TEST |
+| AIL-9 | Label enforced on all export and publishing paths; missing or broken label blocks | preflight, `exportAssetContent({publish})`, Postiz verification, Social `validateVariant` and `deliverPublication` | `marketing-ai-labels`, `social-ai-label`, `ai-label-e2e` negative cases | PASS_TEST |
+| AIL-10 | Existing media not changed retroactively | no rewrite path; legacy AI images blocked | `ai-label-e2e` legacy cases | PASS_TEST (older Social library media not recognisable, open decision) |
+| AIL-11 | PNG, JPEG, WebP × square, vertical, horizontal | `ai-label.test.ts` matrix | 9 combinations plus downscale/JPEG/WebP survival | PASS_TEST |
+| AIL-12 | End-to-end: agent generates → origin recognised → label → media library → Social uses labelled version → export keeps it | whole chain | `ai-label-e2e.integration.test.ts` | PASS_TEST |
+
 ## System & Administration V2, phase 5: flag `on`, module sections, public access (ADR 0027; 2026-11-12, branch `claude/settings-center-phase-5`; delivered to `main`; flag `on` in production since 2026-11-12, not live-accepted)
 
 Plan [plans/SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) sections 5.3 and 10, implementation plan [superpowers/plans/2026-11-12-settings-center-phase-5.md](superpowers/plans/2026-11-12-settings-center-phase-5.md). API tests are under `apps/api/tests/`, web unit tests next to their code under `apps/web/src/`, browser tests in `apps/web/tests/settings-center-on.spec.ts` and the specs adapted for `on`. The result column reports the local implementer runs; the controller's verification is in `IMPLEMENTATION_STATUS.md`.

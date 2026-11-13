@@ -46,11 +46,19 @@ rules expect AI-generated or AI-manipulated images to be recognisable as such.
      already names a label is verified and returned unchanged. A recorded
      label that no longer verifies throws `AI_LABEL_INVALID` instead of being
      covered by a second one.
-   - `verifyAiLabel(bytes, relBox)` renders the expected letter mask at the
-     recorded box (fractions of the canvas, so valid after scaling) and
-     requires the letter cores to stand 3:1 apart from the plate with 90 % of
-     each group on its own side. It tolerates JPEG and downscaling and fails
-     when the label is missing, covered, cut off or a different text.
+   - `verifyAiLabel(bytes, relBox)` first rejects a box that cannot be an
+     Orbit label for the canvas (`LABEL_GEOMETRY_INVALID`: aspect ratio more
+     than ±15 % off the plate, taller than twice the size Orbit would draw,
+     or over 250 000 px), so a forged XMP box cannot make the check
+     expensive. It then renders the expected letter mask at the recorded box
+     (fractions of the canvas, so valid after scaling): the mean letter
+     luminance must reach 3:1 against the plate's 90th percentile on the
+     letters' side, at least 90 % of plate pixels must lie on the far side
+     with 2.5:1 against the letter mean, and at least 90 % of letter-core
+     pixels 2.5:1 against that plate value. The drawing chooses its opacity
+     with the same criterion, so drawing and checking agree on any
+     background. It tolerates JPEG and downscaling and fails when the label
+     is missing, covered, cut off or a different text.
    - `readImageProvenance` reads Orbit/IPTC XMP and detects an embedded C2PA
      manifest store (PNG `caBX`, JPEG APP11 JUMBF, WebP `C2PA`), including
      whether it names an AI source type. `carriedProvenanceXmp` gives the

@@ -85,6 +85,16 @@ of Marketing. The API remains authoritative after every navigation or role chang
 - The platform's `knowledge_search` and the AI spending authority (Settings → AI & budget) stay.
 - Without Marketing, the dashboard shows the platform's AI readiness (spending authority and text model) instead of Marketing's go-live readiness.
 
+## AI image labelling (platform feature flag, 2026-11-13, local; flag off)
+
+AI image labelling ([AI_IMAGE_LABELING.md](AI_IMAGE_LABELING.md), [ADR 0028](adr/0028-ai-image-labeling.md)) is a platform service used by Marketing and Social. It adds no module, manifest entry, permission or project row; the platform owns the table `ImageProvenance`.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_AI_IMAGE_LABELS=true` (default `false`). While off nothing is labelled, recorded or checked, and stored bytes are the same as before. Needs migration `202611130001_image_provenance`. |
+| Project | No per-project switch: with the flag on, every project's new AI images are labelled and every project's outbound AI images are checked (a legal requirement, not a preference). |
+| Member | No new role. Labelling runs inside the existing creation paths; the publish gate applies to everyone, owners included. |
+
 ## Creative Studio (Marketing feature flag, 2026-10-27, local; flag off)
 
 The Creative Studio ([MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md)) is a feature of the Marketing module, not a module of its own. It adds no manifest entry and no project row.
