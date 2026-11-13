@@ -74,6 +74,15 @@ For a release record, capture:
 3. Authenticated HTTPS behavior at `https://orbit.eds-labs.io` (the production web domain; check `APP_ORIGIN` in Coolify if it changes), worker heartbeat, and a safe read-only operational path.
 4. The current backup/recovery state, owner/change reference, and any blocked live connector/model gates.
 
+### Build concurrency on VM102
+
+On 2026-11-13 a push to `main` started `Orbit Production (GitHub)` and `Orbit Webmail` within eight seconds of each other; the parallel builds hung VM102 for about 1 h 20 min until the VM was restarted. Two Coolify settings, approved by Mario the same day, keep that from happening again:
+
+- **Watch paths on `Orbit Webmail`**: `infra/webmail/**` and `docker-compose.webmail.yml`. A push that touches neither is ignored by the webmail application, so most pushes build only Orbit.
+- **Server `localhost` (VM102): concurrent builds = 1** (was 2). Every build on VM102 (Orbit, webmail, n8n, Postiz, Matomo) waits in Coolify's queue until the one before it has finished. A push that changes both applications therefore builds them one after the other.
+
+After a push, `list_deployments` (Coolify MCP) shows which applications started. Rollback: clear the watch paths of `Orbit Webmail` and set concurrent builds back to 2 in the server settings. If a new file outside `infra/webmail/` becomes a build input of the webmail image, add it to the watch paths in the same change.
+
 Coolify documentation: [Docker Compose](https://coolify.io/docs/applications/builds/docker-compose), [Compose networking](https://coolify.io/docs/core/networking-in-coolify), [Traefik routing](https://coolify.io/docs/core/networking/proxy/traefik/overview), and [health checks](https://coolify.io/docs/applications/configuration/health-checks).
 
 

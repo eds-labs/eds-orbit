@@ -79,6 +79,8 @@ The webmail application's volume `orbit_webmail_pg` is kept, and with `ORBIT_WEB
 
 For a critical Roundcube vulnerability with no update available yet, step 2 alone removes the exposed surface immediately.
 
+The webmail application deploys from `main` only when a push changes `infra/webmail/**` or `docker-compose.webmail.yml` (Coolify watch paths, since 2026-11-13; see [COOLIFY.md](COOLIFY.md#build-concurrency-on-vm102)). A change to its Coolify variables, such as `ORBIT_WEBMAIL_REPLICAS`, still needs a manual redeploy of the webmail application.
+
 Every deployment of Orbit's application removes its old containers before it starts the new ones, so each step that redeploys Orbit interrupts it for about half a minute.
 
 ## Monthly Roundcube upgrade
