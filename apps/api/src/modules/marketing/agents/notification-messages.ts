@@ -33,6 +33,7 @@ import {
 import { SLOT_EXPIRED } from "./veto.ts";
 import { budgetMonthStart } from "../../budget.ts";
 import { localDate } from "./scheduling.ts";
+import { inProject } from "../../../platform/management/links.ts";
 
 /**
  * Marketing's notifications for the owner's Telegram bot (Orbit Agents,
@@ -513,7 +514,7 @@ async function runProblem(
   return plain(clip(lines.join("\n"), TEXT_MAX), [
     {
       text: "In Orbit prüfen",
-      url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/p/${scope.projectId}${target}`,
+      url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}${inProject(scope.projectId, target)}`,
     },
   ]);
 }

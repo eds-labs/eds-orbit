@@ -110,13 +110,13 @@ describe.skipIf(!enabled)("Google Drive OAuth callback redirect", () => {
     const ready = await callback(stateFor(projectId));
     expect(ready.statusCode).toBe(302);
     expect(ready.headers.location).toBe(
-      `${origin}/p/${projectId}/settings?googleDrive=ready`,
+      `${origin}/manage/p/${projectId}/integrations/google-drive?googleDrive=ready`,
     );
     finish.mockResolvedValueOnce(false);
     const choose = await callback(stateFor(projectId));
     expect(choose.statusCode).toBe(302);
     expect(choose.headers.location).toBe(
-      `${origin}/p/${projectId}/settings?googleDrive=choose-root`,
+      `${origin}/manage/p/${projectId}/integrations/google-drive?googleDrive=choose-root`,
     );
   });
 

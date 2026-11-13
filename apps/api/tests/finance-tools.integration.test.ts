@@ -419,7 +419,7 @@ describe.skipIf(!enabled)("finance assistant tools", () => {
     // It badges the settings entry and opens finance's currency section.
     expect(
       (await run((tx) => financeAttention(tx, scope(), fresh))).find((i) => i.kind === "finance_fx_stale"),
-    ).toMatchObject({ navKey: "settings", link: "/settings?section=finance-currencies" });
+    ).toMatchObject({ navKey: "settings", link: `/manage/p/${scope().projectId}/modules/finance/currencies` });
     const put = (date: Date) =>
       run((tx) =>
         tx.financeFxRate.create({

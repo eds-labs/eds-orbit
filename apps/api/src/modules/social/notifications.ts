@@ -1,6 +1,7 @@
 import { authDb, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { notifyMembers, type UserNotificationKind } from "../../platform/notifications/members.ts";
+import { socialAccountsLink } from "./links.ts";
 
 // The social module's member notifications. Generic texts: never a handle,
 // a token or a provider message.
@@ -43,6 +44,6 @@ export async function notifyReconnectRequired(tx: DbTx, scope: Scope) {
     userIds: userIds.slice(0, 200),
     title: TITLE[lang],
     body: BODY[lang],
-    link: `/p/${scope.projectId}/social/accounts`,
+    link: socialAccountsLink(scope.projectId),
   });
 }

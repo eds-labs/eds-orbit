@@ -1,0 +1,34 @@
+[
+  {
+    "producer": "ai budget signal and attention items",
+    "link": "/manage/p/p1/ai/budget"
+  },
+  {
+    "producer": "marketing publishing rules attention",
+    "link": "/manage/p/p1/modules/marketing/policy"
+  },
+  {
+    "producer": "finance mailboxes attention",
+    "link": "/manage/p/p1/modules/finance/mailboxes"
+  },
+  {
+    "producer": "finance currencies attention",
+    "link": "/manage/p/p1/modules/finance/currencies"
+  },
+  {
+    "producer": "social accounts attention and notification",
+    "link": "/manage/p/p1/integrations/social/accounts"
+  },
+  {
+    "producer": "marketing resume project recovery",
+    "link": "/manage/p/p1/overview"
+  },
+  {
+    "producer": "google drive callback ready",
+    "link": "/manage/p/p1/integrations/google-drive?googleDrive=ready"
+  },
+  {
+    "producer": "google drive callback choose root",
+    "link": "/manage/p/p1/integrations/google-drive?googleDrive=choose-root"
+  }
+]

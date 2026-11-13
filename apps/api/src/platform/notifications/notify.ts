@@ -10,6 +10,7 @@ import {
 import { proactiveEnabled } from "../proactive/preferences.ts";
 import { notifyMembers } from "./members.ts";
 import { resolveRecipients } from "../signals/deliver.ts";
+import { inProject } from "../management/links.ts";
 
 /**
  * Notifications to the owner's private Telegram bot (WP2.5b; Orbit Agents,
@@ -83,7 +84,7 @@ async function mirrorBotNotice(tx: DbTx, scope: Scope, kind: string, ref: string
     kind: mapped.signal.kind,
     userIds: userIds.slice(0, 200),
     title: target.label[project?.language === "de" ? "de" : "en"],
-    link: `/p/${scope.projectId}${mapped.signal.link ?? ""}`,
+    link: inProject(scope.projectId, mapped.signal.link ?? ""),
     dedupeKey: `notify:${kind}:${ref}`.slice(0, 200),
     severity: mapped.severity,
   });

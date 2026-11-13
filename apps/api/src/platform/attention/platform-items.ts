@@ -12,6 +12,7 @@ import { data } from "../shared.ts";
 import { can, PROJECT_OWN, PROJECT_WRITE } from "../tenancy/permissions.ts";
 import { hiddenKinds } from "../tenancy/module-roles.ts";
 import type { AttentionItem, AttentionStatus } from "./types.ts";
+import { aiBudgetLink } from "../management/links.ts";
 
 // The platform's own attention items and the AI month of the status block
 // (UI restructure §4.2): the worker, unclear AI cost and open action
@@ -169,7 +170,7 @@ export async function platformAttention(
           monthlyMicros: status.budget!.monthlyMicros,
         },
         navKey: "operations",
-        link: "/settings?section=ai",
+        link: aiBudgetLink(scope.projectId),
       });
   }
   // The spending authority ends within a week (never for a personal
@@ -191,7 +192,7 @@ export async function platformAttention(
       dueAt: endAt,
       params: { endAt },
       navKey: "operations",
-      link: "/settings?section=ai",
+      link: aiBudgetLink(scope.projectId),
     });
   return items;
 }

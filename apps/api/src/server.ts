@@ -237,6 +237,7 @@ import {
 import { passwordResetAvailable } from "./platform/account/service.ts";
 import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
 import { emailEnabled } from "./platform/email/connection.ts";
+import { googleDriveReturnLink } from "./platform/management/links.ts";
 const object = z.record(z.string(), z.unknown());
 /**
  * A validation error's own code when a rule named one (custom issues carry
@@ -1222,7 +1223,7 @@ export async function buildServer(
     // Back into the project the flow was begun for: the id comes from the
     // validated state, not from the last project the browser remembers.
     return reply.redirect(
-      `${config.APP_ORIGIN}/p/${encodeURIComponent(scope.projectId)}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
+      `${config.APP_ORIGIN}${googleDriveReturnLink(scope.projectId, ready)}`,
     );
   });
   app.get(

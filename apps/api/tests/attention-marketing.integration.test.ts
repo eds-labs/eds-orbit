@@ -405,7 +405,7 @@ describe.skipIf(!enabled)("marketing attention items", () => {
           dueAt: endAt,
           params: { endAt },
           navKey: "operations",
-          link: "/settings?section=policy",
+          link: `/manage/p/${owner.projectId}/modules/marketing/policy`,
         },
       ]);
     });

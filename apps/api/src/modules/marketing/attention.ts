@@ -13,6 +13,7 @@ import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
 import { expiredDraftIds } from "./agents/draft-state.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
+import { moduleSectionLink } from "../../platform/management/links.ts";
 import { activePolicyRecord } from "../../platform/ai/spend-mandate.ts";
 import {
   approvalLane,
@@ -25,6 +26,10 @@ import {
 // The marketing module's attention items (UI restructure §4.1): what waits on
 // the approvals page, plus failed runs. Params carry names, codes and times
 // only: never a post body or an excerpt.
+
+/** The publishing rules section of the settings center. */
+export const marketingPolicyLink = (projectId: string) =>
+  moduleSectionLink(projectId, "marketing", "policy");
 
 const APPROVALS = { navKey: "approvals", link: "/approvals" } as const;
 
@@ -318,6 +323,8 @@ async function runProblemItems(
         releasedMicros: 0,
         complete: tasks.length <= 100 && evidence.length <= 10000,
       },
+      false,
+      scope.projectId,
     );
     if (operation.state in counts)
       counts[operation.state as keyof typeof counts]++;
@@ -400,7 +407,7 @@ async function policyExpiryItems(
       dueAt: endAt as string,
       params: { endAt: endAt as string },
       navKey: "operations",
-      link: "/settings?section=policy",
+      link: marketingPolicyLink(scope.projectId),
     },
   ];
 }

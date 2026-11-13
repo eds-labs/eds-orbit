@@ -9,6 +9,13 @@ import { financeActive } from "./gate.ts";
 import { mailboxesView } from "./queries.ts";
 import { FINANCE_READ, FINANCE_SETTINGS } from "./permissions.ts";
 import { readFinanceSettings } from "./settings.ts";
+import { moduleSectionLink } from "../../platform/management/links.ts";
+
+/** The mailbox and currency sections of the settings center. */
+export const financeMailboxesLink = (projectId: string) =>
+  moduleSectionLink(projectId, "finance", "mailboxes");
+export const financeCurrenciesLink = (projectId: string) =>
+  moduleSectionLink(projectId, "finance", "currencies");
 
 // The finance module's attention items, computed at read time and never
 // stored. Params stay empty: counts only, no names or amounts. Settings
@@ -110,7 +117,7 @@ export const financeAttention: AttentionContribution = async (
         severity: "info",
         count: failed,
         navKey: "settings",
-        link: "/settings?section=finance-mailboxes",
+        link: financeMailboxesLink(scope.projectId),
       });
   }
 
@@ -123,7 +130,7 @@ export const financeAttention: AttentionContribution = async (
       severity: "info",
       ...(stale.since ? { since: stale.since } : {}),
       navKey: "settings",
-      link: "/settings?section=finance-currencies",
+      link: financeCurrenciesLink(scope.projectId),
     });
   return items;
 };
