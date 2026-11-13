@@ -166,6 +166,8 @@ export const platformDeclaration: PlatformDeclaration = {
     "PublicClientKey",
     "File",
     "FileBlob",
+    // Image provenance and AI labels (ADR 0028).
+    "ImageProvenance",
     "Notification",
     "NotificationPreference",
     "ProjectModule",

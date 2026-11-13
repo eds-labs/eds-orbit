@@ -36,6 +36,8 @@ const PROJECT_TABLES = [
   "EntityVersion",
   "File",
   "FileBlob",
+  // Image provenance (ADR 0028).
+  "ImageProvenance",
   "KnowledgeChunk",
   "KnowledgeDocument",
   "KnowledgeIndex",
@@ -200,6 +202,9 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     DomainEvent: [true, true, false, true],
     // Task history is append-only; deleting a task still cascades.
     WorkEvent: [true, true, false, false],
+    // ADR 0028: an image provenance record is immutable; project deletion
+    // still cascades.
+    ImageProvenance: [true, true, false, false],
     // ADR 0017: applied plans and coding work orders are kept.
     WorkPlanProposal: [true, true, true, false],
     WorkCodingRun: [true, true, true, false],
@@ -416,6 +421,21 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           actorKind: "system",
           origin: "platform",
           correlationId: eventId,
+        },
+      });
+      // Image provenance (ADR 0028).
+      await tx.imageProvenance.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          sha256: "a".repeat(64),
+          origin: "original_upload",
+          labelState: "not_required",
+          subjectModule: "platform",
+          subjectKind: "rls",
+          subjectId: "rls",
+          createdBy: s.userId,
         },
       });
       await tx.budgetReservation.create({
@@ -1398,6 +1418,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         "ChatConversation",
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
+      ],
+      [
+        "ImageProvenance",
+        `INSERT INTO "ImageProvenance" (id, "workspaceId", "projectId", sha256, origin, "labelState", "subjectModule", "subjectKind", "subjectId", "createdBy") VALUES ($1::uuid, $2::uuid, $3::uuid, repeat('b', 64), 'original_upload', 'not_required', 'platform', 'rls', 'rls', 'rls')`,
+        [randomUUID(), b.workspaceId, b.projectId],
       ],
       [
         "AdProviderThrottle",

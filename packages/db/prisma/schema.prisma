@@ -2723,3 +2723,36 @@ model AdProviderThrottle {
 
   @@id([projectId, scope, bucket])
 }
+
+/// One immutable provenance record per exact byte version of an image
+/// (ADR 0028): its origin, the visible AI label and what the bytes declared.
+model ImageProvenance {
+  id                String   @id @db.Uuid
+  workspaceId       String   @db.Uuid
+  projectId         String   @db.Uuid
+  sha256            String
+  /// ai_generated | ai_substantially_modified | original_upload
+  origin            String
+  /// labeled | not_required | unlabeled_source
+  labelState        String
+  labelVersion      Int?
+  /// The label plate in fractions of the canvas ({x,y,w,h}).
+  labelBox          Json?
+  labelContrast     Float?
+  digitalSourceType String?
+  parentSha256      String?
+  componentSha256s  String[] @default([])
+  /// What the bytes declared: XMP fields and C2PA {sha256,size,declaresAi}.
+  embedded          Json?
+  /// The embedded C2PA manifest store (at most 1 MiB), kept as found.
+  c2paManifest      Bytes?
+  subjectModule     String
+  subjectKind       String
+  subjectId         String
+  createdBy         String
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, sha256])
+  @@index([projectId, parentSha256])
+}

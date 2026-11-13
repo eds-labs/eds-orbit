@@ -294,6 +294,9 @@ try {
   );
   // Task history: append-only; deleting a task still cascades.
   await migrator.query('GRANT SELECT,INSERT ON "WorkEvent" TO orbit_app');
+  // ADR 0028: an image provenance record describes one byte version and is
+  // never changed or removed; project deletion still cascades.
+  await migrator.query('GRANT SELECT,INSERT ON "ImageProvenance" TO orbit_app');
   // ADR 0017: applied plans, handoffs and coding work orders stay as the
   // record of what the PM proposed and dispatched; project deletion still
   // cascades.
