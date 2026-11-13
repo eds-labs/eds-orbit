@@ -1,11 +1,21 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
-import type {
-  CreativeCheck,
-  CreativeCopy,
-  LogoPlacement,
-  RasterSource,
-  TextScale,
+import {
+  CREATIVE_FORMATS,
+  type CreativeCheck,
+  type CreativeCopy,
+  type LogoPlacement,
+  type RasterSource,
+  type TextScale,
 } from "../../../../../../packages/creative/src/index.ts";
+import {
+  aiImageLabelsEnabled,
+  labelFinalImage,
+} from "../../../platform/provenance/image-provenance.ts";
+import {
+  assetAiOrigin,
+  labeledAssetFields,
+  protectedBoxes,
+} from "../brand/ai-labels.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
@@ -185,6 +195,13 @@ export async function saveRenditions(
     extra: Record<string, string> = {},
   ) => ({ role, ...extra, assetId: row.id, version: row.version, sha256 });
   const renditions: CreativeRecord["renditions"] = [];
+  // ADR 0028: a creative over AI art is labelled before it is stored, so the
+  // approved, reviewed and attached bytes are the labelled ones. Art that is
+  // no AI image (an upload) or no art at all: no label.
+  const artOrigin =
+    aiImageLabelsEnabled() && plan.art && composed.art
+      ? await assetAiOrigin(tx, scope, data(plan.art))
+      : null;
   for (const { format, variant, result } of composed.outcome.renditions) {
     const drawn = (kind: string) => result.layers.some((l) => l.kind === kind);
     const logo = plan.kit.logos[result.logoRole]!;
@@ -199,16 +216,43 @@ export async function saveRenditions(
           )
         : []),
     ];
+    // Labelling errors (no room, contrast) fail closed: nothing is stored.
+    const labeled =
+      artOrigin && drawn("art")
+        ? (
+            await labelFinalImage(tx, scope, {
+              bytes: result.png,
+              origin: "ai_generated",
+              composite: true,
+              avoid: protectedBoxes(result.layers),
+              safe: {
+                right: CREATIVE_FORMATS[format].safe.right,
+                bottom: CREATIVE_FORMATS[format].safe.bottom,
+              },
+              subject: {
+                module: "marketing",
+                kind: "creative",
+                id: input.creativeId,
+              },
+              createdBy: input.approvedBy || scope.userId,
+              parentSha256: result.sha256,
+              componentSha256s: components.map((c) => c.sha256),
+            })
+          ).result
+        : null;
+    const png = labeled?.bytes ?? result.png;
+    const sha256 = labeled?.sha256 ?? result.sha256;
     const asset = await create(tx, scope, "assets", {
       name: `Creative ${format}: ${input.title}`.slice(0, 160),
       type: "generated_artwork",
       mime: "image/png",
       filename: `creative-${plan.brief.template}-${format}.png`,
-      base64: result.png.toString("base64"),
-      sha256: result.sha256,
+      base64: png.toString("base64"),
+      sha256,
       width: result.width,
       height: result.height,
-      bytes: result.png.length,
+      bytes: png.length,
+      ...(labeled ? labeledAssetFields(labeled, "ai_generated") : {}),
       source: "template",
       sourceType: "TEMPLATE_GENERATED",
       ...approval,
@@ -240,8 +284,8 @@ export async function saveRenditions(
       assetId: asset.id,
       width: result.width,
       height: result.height,
-      bytes: result.png.length,
-      sha256: result.sha256,
+      bytes: png.length,
+      sha256,
     });
   }
   return renditions;

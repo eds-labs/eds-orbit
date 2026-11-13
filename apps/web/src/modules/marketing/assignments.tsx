@@ -827,6 +827,14 @@ export const DRAFT_STATE_LABELS: Record<
 
 /** Readable texts of the refusals a release or decision can meet; others show their code. */
 const DECISION_ERRORS: Record<string, [string, string]> = {
+  AI_LABEL_MISSING: [
+    "Das KI-Bild trägt keine Kennzeichnung „KI erstellt“ und geht so nicht raus. Erzeuge ein neues Bild und gib es frei.",
+    "The AI image carries no “KI erstellt” label and cannot go out like this. Create a new image and approve it.",
+  ],
+  AI_LABEL_INVALID: [
+    "Die Kennzeichnung „KI erstellt“ des Bildes ist nicht mehr lesbar. Erzeuge ein neues Bild und gib es frei.",
+    "The image's “KI erstellt” label is no longer legible. Create a new image and approve it.",
+  ],
   OWNER_REQUIRED: [
     "Dafür fehlen dir die Rechte: Nur ein Owner des Projekts kann Entwürfe freigeben, ablehnen, verwerfen oder archivieren.",
     "You lack the permission: only a project owner can release, reject, discard or archive drafts.",
@@ -870,6 +878,8 @@ const PROBLEM_LABELS: Record<string, [string, string]> = {
     "Image does not match the brand kit",
   ],
   BANNER_IMAGE_MISSING: ["Banner fehlt", "Banner missing"],
+  AI_LABEL_MISSING: ["KI-Kennzeichnung fehlt", "AI label missing"],
+  AI_LABEL_INVALID: ["KI-Kennzeichnung ungültig", "AI label invalid"],
   CREATIVE_QA_FAILED: ["Bildprüfung fehlgeschlagen", "Image check failed"],
 };
 

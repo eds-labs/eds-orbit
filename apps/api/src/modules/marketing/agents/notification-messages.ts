@@ -533,7 +533,11 @@ async function blocked(
     .map((code) =>
       code === SLOT_EXPIRED
         ? "Der Termin war schon vorbei (mehr als 30 Minuten)"
-        : code,
+        : code === "AI_LABEL_MISSING"
+          ? "Das KI-Bild trägt keine Kennzeichnung „KI erstellt“"
+          : code === "AI_LABEL_INVALID"
+            ? "Die Kennzeichnung „KI erstellt“ des Bildes ist nicht lesbar"
+            : code,
     );
   return plain(
     [

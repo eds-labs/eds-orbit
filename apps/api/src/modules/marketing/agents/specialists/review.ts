@@ -164,6 +164,10 @@ const DECIDED_BY_REVIEW = new Set([
 // of: alone they leave the draft for the owner (`needs_review`), never reject it.
 const LEFT_FOR_OWNER = new Set([
   "PROJECT_PAUSED",
+  // An AI image without its valid label (ADR 0028): a new labelled image
+  // needs the owner, the text is not at fault.
+  "AI_LABEL_MISSING",
+  "AI_LABEL_INVALID",
   "POLICY_EXPIRED",
   "POLICY_REQUIRED",
   // A bare host such as `site.example`, which may also be a name (R49).

@@ -5,7 +5,15 @@ import {
   marketingProfile,
   type Scope,
 } from "../../../../../../packages/schemas/src/index.ts";
-import { renderRasterTemplate } from "../../../../../../packages/creative/src/index.ts";
+import {
+  renderRasterTemplate,
+  templateLabelLayout,
+} from "../../../../../../packages/creative/src/index.ts";
+import {
+  aiImageLabelsEnabled,
+  labelFinalImage,
+} from "../../../platform/provenance/image-provenance.ts";
+import { assetAiOrigin, labeledAssetFields } from "./ai-labels.ts";
 import { assetBytes } from "../../assets.ts";
 import {
   connectionStatus,
@@ -101,7 +109,7 @@ export async function renderProjectAsset(scope: Scope, raw: unknown) {
     imageData(prepared.logo),
     imageData(prepared.visual),
   ]);
-  const result = await renderRasterTemplate({
+  const templateInput = {
     ...input,
     brandName: prepared.profileData.productName,
     logoApproved: data(prepared.logo).usageApproved === true,
@@ -110,7 +118,8 @@ export async function renderProjectAsset(scope: Scope, raw: unknown) {
     visualDataUri: visualContent?.uri,
     visualHash: visualContent?.hash,
     palette: prepared.profileData.visualIdentity,
-  });
+  };
+  const result = await renderRasterTemplate(templateInput);
   if (result.status === "blocked_asset") return result;
   const { bytes, ...metadata } = result;
   const driveEnabled =
@@ -129,11 +138,43 @@ export async function renderProjectAsset(scope: Scope, raw: unknown) {
       )
         throw new DomainError("BRAND_ASSET_CHANGED", 409);
     }
+    // ADR 0028: a render over AI art carries the label (clear of the logo,
+    // brand name, copy and CTA) before it is stored; errors store nothing.
+    const origin =
+      aiImageLabelsEnabled() && prepared.visual
+        ? await assetAiOrigin(tx, scope, data(prepared.visual))
+        : null;
+    const labeled = origin
+      ? (
+          await labelFinalImage(tx, scope, {
+            bytes,
+            origin: "ai_generated",
+            composite: true,
+            ...templateLabelLayout(templateInput),
+            subject: {
+              module: "marketing",
+              kind: "template_render",
+              id: prepared.visual!.id,
+            },
+            createdBy: scope.userId,
+            parentSha256: createHash("sha256").update(bytes).digest("hex"),
+            componentSha256s: [visualContent?.hash, logoContent?.hash].filter(
+              (value): value is string => typeof value === "string",
+            ),
+          })
+        ).result
+      : null;
     return await create(tx, scope, "assets", {
       ...metadata,
+      ...(labeled
+        ? {
+            contentHash: labeled.sha256,
+            ...labeledAssetFields(labeled, "ai_generated"),
+          }
+        : {}),
       type: "generated_artwork",
       name: input.title,
-      base64: bytes.toString("base64"),
+      base64: (labeled?.bytes ?? bytes).toString("base64"),
       source: "template",
       sourceType: "TEMPLATE_GENERATED",
       usageApproved: true,

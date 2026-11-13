@@ -31,10 +31,20 @@ import { mayTransmitToProvider } from "../../brand/provider-use.ts";
 import { isApprovedAsset } from "../../brand/asset-rules.ts";
 import { assetContent } from "../../creative/asset-content.ts";
 import {
+  bannerLabelAvoid,
   bannerPalette,
   brandToneCheck,
   renderRasterBanner,
 } from "../../../../../../../packages/creative/src/index.ts";
+import {
+  aiImageLabelsEnabled,
+  labelFinalImage,
+} from "../../../../platform/provenance/image-provenance.ts";
+import {
+  assetAiOrigin,
+  ensureLabeledAsset,
+  labeledAssetFields,
+} from "../../brand/ai-labels.ts";
 import { assignmentHash } from "../assignments.ts";
 import {
   approvedBannerLogo,
@@ -249,6 +259,13 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
   if (!image) return { assetId: null, attached, skipped };
   const bannerRun = data(image).bannerBackground === true;
   const brand = bannerRun ? await currentBrand(tx, scope) : null;
+  // A raw generated image goes on a post as its labelled derivative (ADR
+  // 0028), made once and only for an approved image.
+  let labeled: typeof image | null = null;
+  const postImage = async () =>
+    approvedRow(image)
+      ? (labeled ??= await ensureLabeledAsset(tx, scope, image, scope.userId))
+      : image;
   const drafts = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -264,7 +281,7 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
     if (["archived", "rejected"].includes(v.status) || draftReplaced(v)) continue;
     const asset = bannerRun
       ? await draftBanner(tx, scope, assets, image, v, brand)
-      : image;
+      : await postImage();
     if (!asset) {
       skipped.push({ contentId: draft.id, code: "BANNER_NOT_COMPOSED" });
       continue;
@@ -966,14 +983,39 @@ export async function composeRunBanners(scope: Scope, runId: string) {
           (row) => data(row).bannerKey === key,
         );
         if (existing) return null;
+        // ADR 0028: the background is AI art, so the banner carries the
+        // label (clear of the logo, wordmark and card) before it is stored.
+        const origin = aiImageLabelsEnabled()
+          ? await assetAiOrigin(tx, scope, data(background))
+          : null;
+        const labeled = origin
+          ? (
+              await labelFinalImage(tx, scope, {
+                bytes,
+                origin: "ai_generated",
+                composite: true,
+                avoid: bannerLabelAvoid(),
+                subject: { module: "marketing", kind: "banner", id: runId },
+                createdBy: plan.approvedBy || scope.userId,
+                parentSha256: createHash("sha256").update(bytes).digest("hex"),
+                componentSha256s: [
+                  sha(plan.background),
+                  plan.logo.brand.logoSha256,
+                ].filter((value) => /^[0-9a-f]{64}$/.test(value)),
+              })
+            ).result
+          : null;
+        const stored = labeled?.bytes ?? bytes;
         const asset = await create(tx, scope, "assets", {
           ...metadata,
+          ...(labeled ? { contentHash: labeled.sha256 } : {}),
           name: `Banner: ${plan.assignmentName}`.slice(0, 160),
           type: "generated_artwork",
           filename: "banner-brand-landscape.png",
-          base64: bytes.toString("base64"),
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-          bytes: bytes.length,
+          base64: stored.toString("base64"),
+          sha256: createHash("sha256").update(stored).digest("hex"),
+          bytes: stored.length,
+          ...(labeled ? labeledAssetFields(labeled, "ai_generated") : {}),
           source: "template",
           sourceType: "TEMPLATE_GENERATED",
           usageApproved: true,

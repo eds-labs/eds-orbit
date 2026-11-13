@@ -1,4 +1,5 @@
 import { exportAssetContent } from "../pipeline/content-export.ts";
+import { aiLabelBlocker } from "../brand/ai-labels.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -136,6 +137,15 @@ async function approvedAsset(
     bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
   )
     throw new DomainError("POSTIZ_TEST_ASSET_INVALID", 409);
+  // A test post is public too: an AI image needs its valid label (ADR 0028).
+  const refused = await aiLabelBlocker(
+    tx,
+    s,
+    a,
+    bytes,
+    "marketing.postiz_verification",
+  );
+  if (refused) throw new DomainError(refused, 409);
   const metadata = {
     assetId,
     version: row.version,

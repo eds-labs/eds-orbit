@@ -31,6 +31,9 @@ import {
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { renditionComponentsHold } from "./rendition-rights.ts";
+import { aiImageLabelsEnabled } from "../../../platform/provenance/image-provenance.ts";
+import { aiLabelBlocker, labeledSourceHolds } from "../brand/ai-labels.ts";
+import { assetBytes } from "../../assets.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import { channelPostsNear } from "../agents/channel-posts.ts";
 import { agentReviewAccepted, confirmedHash } from "../agents/agent-review.ts";
@@ -725,9 +728,26 @@ export async function preflight(
       // A creative rendition counts only while its components stay approved
       // and unchanged (R36); banners (bound to a run) keep their own rule.
       (typeof data(asset).boundTo?.creativeId === "string" &&
-        !(await renditionComponentsHold(tx, scope, data(asset))))
+        !(await renditionComponentsHold(tx, scope, data(asset)))) ||
+      // A labelled derivative (ADR 0028) counts only while its source stays
+      // approved with the bytes it was labelled from.
+      (data(asset).labeledFrom !== undefined &&
+        !(await labeledSourceHolds(tx, scope, data(asset))))
     )
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
+    else if (aiImageLabelsEnabled() && typeof data(asset).base64 === "string") {
+      // The AI label gate on the exact stored bytes (ADR 0028 §4).
+      let bytes: Buffer | null = null;
+      try {
+        bytes = assetBytes(data(asset)).bytes;
+      } catch {
+        blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
+      }
+      const refused = bytes
+        ? await aiLabelBlocker(tx, scope, data(asset), bytes, "marketing.preflight")
+        : null;
+      if (refused) blockers.push(refused);
+    }
   } else if (
     c.type === "social" &&
     // Only with the Creative Studio on (R64); off, the check is as before.

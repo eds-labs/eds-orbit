@@ -1,3 +1,4 @@
+import { missionAssetId } from "../brand/ai-labels.ts";
 import { refuseWhileDraining } from "../publishing/backend.ts";
 import { summarizeMetrics } from "../analytics/metric-report.ts";
 import { finishMissionRun } from "./planning.ts";
@@ -353,7 +354,16 @@ export async function deterministicDraft(
     channel,
     missionId,
     ...(v.assetIds?.length
-      ? { assetId: v.assetIds[(v.completedRuns ?? 0) % v.assetIds.length] }
+      ? {
+          // Raw AI art goes on the post as its labelled derivative (ADR 0028).
+          assetId: await missionAssetId(
+            tx,
+            scope,
+            v.assetIds,
+            v.completedRuns ?? 0,
+            scope.userId,
+          ),
+        }
       : {}),
     campaignType: v.campaignType,
     profileVersion: v.profileVersion,

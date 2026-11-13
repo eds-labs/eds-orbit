@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { BrandPalette } from "./brand.ts";
 import { CreativeError } from "./errors.ts";
+import type { Box } from "./templates.ts";
 import {
   bannerPaletteValid,
   DEFAULT_BANNER_PALETTE,
@@ -213,6 +214,63 @@ export function renderTemplate(input: TemplateInput) {
   };
 }
 
+/**
+ * The layers of a rendered template the AI label must not cover (ADR 0028):
+ * the logo, the brand name, the title and subtitle lines and the CTA, in
+ * canvas pixels, with the template margin as the label's safe insets. Same
+ * geometry as `renderTemplate`; call it only for a rendered template.
+ */
+export function templateLabelLayout(input: TemplateInput) {
+  const [w, h] = templateFormats[input.format];
+  const margin = Math.round(w * 0.08);
+  const textWidth = w - 2 * margin;
+  const landscape = input.format === "landscape";
+  const titleSize = landscape ? 54 : 64;
+  const bodySize = landscape ? 26 : 32;
+  const titleLines = wrap(input.title, textWidth, titleSize, landscape ? 3 : 6);
+  const bodyLines = input.subtitle?.trim()
+    ? wrap(input.subtitle, textWidth, bodySize, landscape ? 2 : 4)
+    : [];
+  const brand = input.brandName ?? "EDS Labs";
+  const cta = input.cta?.trim() ?? "";
+  const titleY = landscape ? 240 : Math.round(h * 0.31);
+  const titleHeight = titleLines.length * titleSize * 1.18;
+  const bodyY = titleY + titleHeight + 24;
+  const lineWidth = (lines: string[], size: number) =>
+    Math.ceil(Math.max(0, ...lines.map((line) => width(line, size))));
+  const avoid: Box[] = [
+    { x: margin, y: margin, w: 96, h: 96 },
+    { x: margin + 120, y: margin + 30, w: Math.ceil(width(brand, 25)), h: 40 },
+    {
+      x: margin,
+      y: titleY - titleSize,
+      w: lineWidth(titleLines, titleSize),
+      h: Math.ceil(titleHeight),
+    },
+    ...(bodyLines.length
+      ? [
+          {
+            x: margin,
+            y: Math.round(bodyY - bodySize),
+            w: lineWidth(bodyLines, bodySize),
+            h: Math.ceil(bodyLines.length * bodySize * 1.45),
+          },
+        ]
+      : []),
+    ...(cta
+      ? [
+          {
+            x: margin,
+            y: h - margin - 62,
+            w: Math.ceil(width(cta, 26)) + 48,
+            h: 62,
+          },
+        ]
+      : []),
+  ].filter((box) => box.w > 0 && box.h > 0);
+  return { avoid, safe: { right: Math.round(margin / 2), bottom: Math.round(margin / 2) } };
+}
+
 /** Rasterizes only our fixed template, never arbitrary SVG, remote URLs, or user markup. */
 export async function renderRasterTemplate(input: TemplateInput) {
   const rendered = renderTemplate(input);
@@ -332,6 +390,25 @@ const BANNER = {
   card: { x: 1188, y: 450, size: 248 },
 } as const;
 const upper = (value: string) => value.trim().toUpperCase();
+
+/**
+ * The layers of the brand banner the AI label must not cover (ADR 0028), in
+ * canvas pixels: the logo with its wordmark at the top left and the glass
+ * card with the logo on the right. The text column, divider and footer sit
+ * on the left half, away from the label's bottom-right corner.
+ */
+export function bannerLabelAvoid(): Box[] {
+  const { margin, card } = BANNER;
+  return [
+    { x: margin, y: 58, w: BANNER.column, h: 72 },
+    {
+      x: card.x - card.size / 2,
+      y: card.y - card.size / 2,
+      w: card.size,
+      h: card.size,
+    },
+  ];
+}
 
 function bannerInputValid(text: BannerText, brandName: string, footer: string) {
   const fields = [text.headline1, text.headline2, text.subline, text.button];
