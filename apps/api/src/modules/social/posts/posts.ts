@@ -10,6 +10,7 @@ import { cancelDelivery } from "../dispatch/control.ts";
 import { stopDelivery } from "../dispatch/dispatch.ts";
 import { publicationView, type PublicationView } from "../dispatch/publication-view.ts";
 import { validationContext } from "../dispatch/gates.ts";
+import { assetsMissingAiLabel } from "../media/provenance.ts";
 import { validateVariant, type ValidationIssue } from "./validation.ts";
 
 // Social posts (ADR 0020, S4): a base text and image set, and one variant
@@ -434,7 +435,8 @@ export async function currentIssues(tx: DbTx, scope: Scope, post: { id: string }
     where: { projectId: scope.projectId, fileId: { in: media.map((m) => m.fileId) } },
   });
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
-  const assetOf = new Map(assets.map((a) => [a.fileId, a]));
+  const unlabeled = await assetsMissingAiLabel(tx, scope, assets);
+  const assetOf = new Map(assets.map((a) => [a.fileId, { ...a, aiLabelMissing: unlabeled.has(a.id) }]));
   const result: Array<{ accountId: string; issues: ValidationIssue[] }> = [];
   for (const v of variants) {
     const account = accountOf.get(v.accountId)!;
@@ -479,6 +481,7 @@ async function resolveContent(tx: DbTx, scope: Scope, input: z.infer<typeof post
   const wanted = [...new Set([...input.baseMedia, ...input.variants.flatMap((v) => v.media ?? [])])];
   const assets = await tx.socialMediaAsset.findMany({ where: { projectId: scope.projectId, id: { in: wanted } } });
   if (assets.length !== wanted.length) throw notFound();
+  const unlabeled = await assetsMissingAiLabel(tx, scope, assets);
   const assetOf = new Map(assets.map((a) => [a.id, a]));
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
   return input.variants.map((v) => {
@@ -496,7 +499,7 @@ async function resolveContent(tx: DbTx, scope: Scope, input: z.infer<typeof post
         settings: account.settings as { xLongPosts?: boolean },
       },
       body,
-      media: images,
+      media: images.map((a) => ({ ...a, aiLabelMissing: unlabeled.has(a.id) })),
       options,
     }, validationContext(account.platform as SocialPlatform));
     return { input: v, platform: account.platform as SocialPlatform, body, images, options, issues };

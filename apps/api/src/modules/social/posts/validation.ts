@@ -12,6 +12,12 @@ import { carouselIssues, type MediaFacts } from "../media/rules.ts";
 // the platforms' documentation. Validation never blocks saving a draft.
 
 export type ValidationIssue = { code: string; severity: "error" | "warning"; path?: string };
+/**
+ * One image of a variant: its sizes and, with ORBIT_AI_IMAGE_LABELS on,
+ * whether its provenance record says it is AI without a valid label
+ * (ADR 0028), from `assetsMissingAiLabel`.
+ */
+export type VariantMedia = MediaFacts & { aiLabelMissing?: boolean };
 export type VariantFacts = {
   account: {
     id: string;
@@ -22,7 +28,7 @@ export type VariantFacts = {
     settings: { xLongPosts?: boolean };
   };
   body: string;
-  media: MediaFacts[];
+  media: VariantMedia[];
   options: Record<string, unknown>;
 };
 
@@ -115,6 +121,8 @@ export function validateVariant(v: VariantFacts, ctx?: ValidationContext): Valid
   else for (const code of textIssues(v)) error(code, "body");
   if (v.account.platform === "instagram" && !v.media.length) error("SOCIAL_MEDIA_REQUIRED", "media");
   if (v.media.length) for (const code of carouselIssues(v.media, v.account.platform)) error(code, "media");
+  // ADR 0028: an AI image goes out only with its visible label, in any mode.
+  if (v.media.some((m) => m.aiLabelMissing)) error("SOCIAL_AI_LABEL_MISSING", "media");
   if (!OPTIONS[v.account.platform].safeParse(v.options).success) error("SOCIAL_OPTIONS_INVALID", "options");
   const live = ctx?.mode === "live";
   if (live && !ctx.platformEnabled) error("SOCIAL_PLATFORM_NOT_AVAILABLE");

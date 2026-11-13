@@ -12,6 +12,7 @@ import {
   storeFile,
 } from "../../../platform/files/files.ts";
 import { audit, DomainError } from "../../../shared.ts";
+import { provenanceBeforeIngest, recordStoredRenditions } from "./provenance.ts";
 
 // The social module's media library (ADR 0020, S3): every image is stored
 // twice in the platform file storage (private to the module): the
@@ -111,9 +112,13 @@ export async function ingestMedia(
   const bytes = Buffer.isBuffer(input.bytes)
     ? input.bytes
     : Buffer.from(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength);
-  const prepared = await withMediaSlot(async () => {
+  const assetId = randomUUID();
+  const { prepared, source } = await withMediaSlot(async () => {
+    // ADR 0028: provenance is settled on the input (an AI image is labelled
+    // first), so the stored renditions derive from the labelled bytes.
+    const source = await provenanceBeforeIngest(scope, bytes, assetId);
     try {
-      return await prepareSocialImage(bytes);
+      return { prepared: await prepareSocialImage(source?.bytes ?? bytes), source };
     } catch {
       throw new DomainError("SOCIAL_MEDIA_INVALID", 422);
     }
@@ -121,12 +126,16 @@ export async function ingestMedia(
   if (options.reuseIdentical) {
     // The normalized original is deterministic, so its hash finds the same image.
     const digest = createHash("sha256").update(prepared.original.bytes).digest("hex");
-    const existing = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      tx.socialMediaAsset.findFirst({
+    const existing = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await tx.socialMediaAsset.findFirst({
         where: { projectId: scope.projectId, sha256: digest, archivedAt: null },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      }),
-    );
+      });
+      // An image listed before provenance was recorded gets its records now.
+      if (row && source)
+        await recordStoredRenditions(tx, scope, { source, original: prepared.original.bytes, jpeg: prepared.jpeg.bytes, assetId: row.id });
+      return row;
+    });
     if (existing) return { media: view(existing), duplicate: true };
   }
   const ext = prepared.original.mime === "image/png" ? "png" : "jpg";
@@ -164,9 +173,11 @@ export async function ingestMedia(
         });
         if (first) return { media: view(first), duplicate: true };
       }
+      if (source)
+        await recordStoredRenditions(tx, scope, { source, original: prepared.original.bytes, jpeg: prepared.jpeg.bytes, assetId });
       const row = await tx.socialMediaAsset.create({
         data: {
-          id: randomUUID(),
+          id: assetId,
           workspaceId: scope.workspaceId,
           projectId: scope.projectId,
           fileId: original.id,
