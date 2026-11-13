@@ -339,7 +339,7 @@ export function PolicyVersionDetail({
       </dl>
       <Alert>
         {p.budgetNote}{" "}
-        <AppLink href={shell.projectCenterHref("ai")}>{p.budgetLink}</AppLink>.
+        <AppLink href={shell.projectCenterHref("ai", "budget")}>{p.budgetLink}</AppLink>.
       </Alert>
     </Modal>
   );

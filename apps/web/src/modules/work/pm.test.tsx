@@ -234,7 +234,9 @@ describe("AI project manager views (ADR 0017)", () => {
     expect(planHtml).toContain("Kostet höchstens $1.00");
     // Failed plans say why in words (2026-10-26 EOP incident).
     expect(pmText("de").failure("MODEL_OVERLOADED")).toContain("überlastet");
-    expect(pmText("en").failure("MODEL_NOT_AVAILABLE")).toContain("Settings → AI");
+    expect(pmText("en").failure("MODEL_NOT_AVAILABLE")).toContain(
+      "Administration & settings → AI → Models",
+    );
     expect(pmText("en").failure("SOMETHING_NEW")).toBe("Planning failed. (SOMETHING_NEW)");
     expect(workAttention.work_pm_critical!({ count: 2 } as never, "en").title).toBe("2 critical findings in initiatives");
     expect(workAttention.work_coding_unknown!({ count: 1 } as never, "de").title).toBe("1 Coding-Auftrag mit unklarem Ausgang");

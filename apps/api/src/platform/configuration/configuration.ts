@@ -199,7 +199,7 @@ const getTool = readOperation({
   feature: "project_configuration",
   mcpProjectRequired: true,
   description:
-    "Reads the project's editable configuration (project settings, Marketing profile: product, audience, positioning, strategies, voice, links and more) with its version and which fields are required, optional or not used. Never returns credentials.",
+    "Reads the project's editable configuration (project profile, Marketing profile: product, audience, positioning, strategies, voice, links and more) with its version and which fields are required, optional or not used. Never returns credentials.",
   input: z.object({}).strict(),
   permission: PROJECT_READ,
   run: (tx, scope) => readConfiguration(tx, scope),

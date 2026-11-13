@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import ts from "typescript";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   aiBudgetLink,
@@ -12,6 +12,7 @@ import { financeCurrenciesLink, financeMailboxesLink } from "../src/modules/fina
 import { marketingPolicyLink } from "../src/modules/marketing/attention.ts";
 import { operationFromEvidence } from "../src/modules/marketing/agents/run-operation.ts";
 import { socialAccountsLink } from "../src/modules/social/links.ts";
+import { oldPlaces, treeProblems } from "./place-words-scan.ts";
 
 // Every link the API sends to a place in the settings center, for project p1.
 // The web test api-links.test.tsx reads the fixture and resolves each link
@@ -69,67 +70,33 @@ describe("links to the settings center", () => {
   });
 });
 
-// Texts that send the reader to a settings place name it as the center shows
-// it ("Administration & settings → AI → Budget"), not by an old page
-// ("Settings → AI & budget"). Only string literals count, so a module page
-// that is called "Settings" is no old place.
+// Every text of the API that sends the reader to a settings place names it as
+// the center shows it ("Administration & settings → AI → Budget"), not by an
+// old page. The scan covers the whole source tree (scanner: place-words-scan.ts);
+// the two Meta provider files describe Meta's own console and are skipped there.
 describe("texts name settings places as the center shows them", () => {
-  const files = [
-    "platform/proactive/briefing.ts",
-    "platform/proactive/digest.ts",
-    "platform/ai/mcp-tools.ts",
-    "modules/marketing/publishing/integrations-admin.ts",
-    "platform/agents/work-orders/execute.ts",
-    "modules/marketing/readiness/blocker-catalog.ts",
-  ];
-  const oldPlace = /(Settings|Einstellungen|Account|Konto|Administration) → /g;
-
-  function literalsOf(source: string, name: string): string[] {
-    const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true);
-    const found: string[] = [];
-    const visit = (node: ts.Node) => {
-      if (
-        ts.isStringLiteral(node) ||
-        ts.isNoSubstitutionTemplateLiteral(node) ||
-        ts.isTemplateHead(node) ||
-        ts.isTemplateMiddle(node) ||
-        ts.isTemplateTail(node)
-      ) {
-        found.push(node.text);
-      }
-      ts.forEachChild(node, visit);
-    };
-    visit(file);
-    return found;
-  }
-
-  function oldPlaces(text: string): string[] {
-    const bad: string[] = [];
-    for (const match of text.matchAll(oldPlace)) {
-      // The lower-case "settings" of the English name never matches; the
-      // German name ends in the word that matches, later steps follow it.
-      const before = text.slice(0, match.index);
-      const named =
-        before.includes("Administration & settings") ||
-        before.includes("Verwaltung & Einstellungen") ||
-        (before + match[1]).endsWith("Verwaltung & Einstellungen");
-      if (!named) bad.push(text);
-    }
-    return bad;
-  }
-
-  for (const path of files) {
-    it(`${path} has no old place`, () => {
-      const source = readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8");
-      expect(literalsOf(source, path).flatMap(oldPlaces)).toEqual([]);
-    });
-  }
+  it("finds no old place in the API source", () => {
+    const root = fileURLToPath(new URL("../src", import.meta.url));
+    expect(treeProblems(root)).toEqual([]);
+  });
 
   it("lets the center's own names and module pages through", () => {
     expect(oldPlaces("Administration & settings → AI → Budget")).toEqual([]);
     expect(oldPlaces("Verwaltung & Einstellungen → Mein Konto → Assistent")).toEqual([]);
     expect(oldPlaces("Support → Settings")).toEqual([]);
-    expect(oldPlaces("Account → Orbit Assistant")).toHaveLength(1);
-    expect(oldPlaces("Orbit → Settings → Integrations → Google Drive")).toHaveLength(1);
+  });
+
+  it("flags the forms of the old places", () => {
+    for (const text of [
+      "Orbit digest. Change it in Orbit under Account → Orbit Assistant.",
+      "Orbit → Settings → Integrations → Google Drive",
+      "Set the route (Settings → AI & budget); Orbit",
+      "See Administration & settings. Then Settings → AI.",
+      "Administration → Connections (granted to the project)",
+      "Settings, Support",
+      "Check it in the organization settings.",
+      "Integrations are managed under Connectors.",
+    ])
+      expect(oldPlaces(text), text).not.toEqual([]);
   });
 });

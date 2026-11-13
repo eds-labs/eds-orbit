@@ -231,7 +231,7 @@ describe.skipIf(!enabled)("ai_models_get read (characterization)", () => {
       source: "anthropic_catalog",
     }));
   const notes = {
-    keys: "API keys are never returned. A missing key is added in Orbit: Administration & settings → Integrations → Central connections (granted to the project) or, in the project, Administration & settings → AI → Providers and keys.",
+    keys: "API keys are never returned. A missing key is added in Orbit: Administration & settings → Integrations → Central connections of the whole system (granted to the project) or, in the project, Administration & settings → AI → Providers and keys.",
     selection:
       "ai_models_update accepts verified models only (in use, verified globally, or in the reviewed Anthropic catalog); prices come from the configured or global rate cards or that catalog, never from the request.",
   };

@@ -632,8 +632,8 @@ function BuilderForm({
                 : "To let single proposals of this agent run without a decision each time, use "}
               <AppLink href={settingsHref}>
                 {de
-                  ? "Einstellungen → KI & Budget → Agentenberechtigungen"
-                  : "Settings → AI & budget → Agent permissions"}
+                  ? "Verwaltung & Einstellungen → KI → Agentenrechte"
+                  : "Administration & settings → AI → Agent permissions"}
               </AppLink>
               .
             </p>

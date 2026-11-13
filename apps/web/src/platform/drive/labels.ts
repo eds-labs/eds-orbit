@@ -39,7 +39,7 @@ const en = {
   outsideRoot: "Folder not found in the project folder. Showing the project folder.",
   toRoot: "Go to the project folder",
   notReadyTitle: "Google Drive is not set up for this project",
-  notReadyOwner: "Connect Google Drive and choose the project folder in the settings.",
+  notReadyOwner: "Connect Google Drive and choose the project folder.",
   notReadyMember: "Ask a project owner to connect Google Drive.",
   toSettings: "Open the Drive settings",
   reconnect:
@@ -108,7 +108,7 @@ const de: DriveText = {
   outsideRoot: "Ordner nicht im Projektordner gefunden. Der Projektordner wird angezeigt.",
   toRoot: "Zum Projektordner",
   notReadyTitle: "Google Drive ist für dieses Projekt nicht eingerichtet",
-  notReadyOwner: "Verbinde Google Drive und wähle den Projektordner in den Einstellungen.",
+  notReadyOwner: "Verbinde Google Drive und wähle den Projektordner.",
   notReadyMember: "Bitte einen Projekteigentümer, Google Drive zu verbinden.",
   toSettings: "Drive-Einstellungen öffnen",
   reconnect:

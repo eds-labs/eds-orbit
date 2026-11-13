@@ -275,7 +275,7 @@ export async function mandateApprovalsToday(
 }
 
 /**
- * What Settings → Agent permissions shows: the types an owner may cover,
+ * What Administration & settings → AI → Agent permissions shows: the types an owner may cover,
  * each type's mandate in force (or its latest ended one) and today's use.
  */
 export async function readAgentMandates(

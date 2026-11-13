@@ -1,7 +1,7 @@
 import type { ConfigurationSection } from "./types.ts";
 
 // The project's own settings in the configuration document. Read-only over
-// MCP: owners edit them in Orbit (Settings → Project), whose save path
+// MCP: owners edit them in Orbit (Administration & settings → Profile → Project profile), whose save path
 // writes the control plane and has no version number.
 
 const FIELDS = ["name", "timezone", "language", "contentLanguages", "links"] as const;

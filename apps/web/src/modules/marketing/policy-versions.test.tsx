@@ -255,8 +255,8 @@ describe("policy settings in German", () => {
         onClose={() => {}}
       />,
     );
-    expect(html).toContain('href="/manage/p/p1/ai"');
-    expect(html).toContain("Verwaltung &amp; Einstellungen → KI → Budget");
+    expect(html).toContain('href="/manage/p/p1/ai/budget"');
+    expect(html).toContain("Budget-Einstellungen");
   });
 
   it("localizes the policy editor", () => {
@@ -267,8 +267,8 @@ describe("policy settings in German", () => {
       "Beobachtungsmodus",
       "Mindestabstand (Minuten)",
       "Richtlinienversion speichern",
-      "Verwaltung &amp; Einstellungen → KI → Budget",
-      'href="/manage/p/p1/ai"',
+      "Budget-Einstellungen",
+      'href="/manage/p/p1/ai/budget"',
     ])
       expect(html).toContain(text);
     expect(html).not.toContain("Operating mode");

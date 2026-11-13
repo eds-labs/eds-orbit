@@ -269,8 +269,8 @@ export function ApprovalContext({
             : "No agent permission covers this request."}
           {isOwner &&
             (de
-              ? " Du kannst Agenten diese Aktion innerhalb fester Grenzen ohne Einzelfreigabe erlauben: Einstellungen → KI & Budget → Agentenberechtigungen."
-              : " You can let agents do this within fixed limits without a decision each time: Settings → AI & budget → Agent permissions.")}
+              ? " Du kannst Agenten diese Aktion innerhalb fester Grenzen ohne Einzelfreigabe erlauben: Verwaltung & Einstellungen → KI → Agentenrechte."
+              : " You can let agents do this within fixed limits without a decision each time: Administration & settings → AI → Agent permissions.")}
         </p>
       )}
     </div>

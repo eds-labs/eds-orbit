@@ -130,8 +130,8 @@ export function digestMail(locale: "en" | "de", items: readonly DigestItem[]) {
       ...lines,
       "--",
       de
-        ? "Orbit-Zusammenfassung. Einstellungen in Orbit unter Verwaltung & Einstellungen → Mein Konto → Assistent → Mein Kontext."
-        : "Orbit digest. Change it in Orbit under Administration & settings → My account → Assistant → My context.",
+        ? "Orbit-Zusammenfassung. Ändere sie in Orbit unter Verwaltung & Einstellungen → Mein Konto → Assistent → Mein Kontext (Benachrichtigungen und Briefing)."
+        : "Orbit digest. Change it in Orbit under Administration & settings → My account → Assistant → My context (Notifications and briefing).",
     ].join("\n"),
   };
 }

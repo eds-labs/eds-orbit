@@ -81,8 +81,8 @@ export const budgetNoticeText = (de: boolean) => ({
     ? "Der persönliche Assistent wird nur aus diesem Budget der Organisation bezahlt, nicht aus Projektbudgets. Solange es fehlt, macht er keine bezahlten Aufrufe."
     : "The personal assistant is paid only from this organization budget, not from project budgets. Until it is set, it makes no paid calls.",
   owner: de
-    ? "Als Owner der Organisation legst du die monatliche Obergrenze pro Mitglied in den Organisationseinstellungen fest."
-    : "As an owner of the organization, you set the monthly cap per member in the organization settings.",
+    ? "Als Owner der Organisation legst du die monatliche Obergrenze pro Mitglied unter Verwaltung & Einstellungen → deine Organisation → KI → Budget fest."
+    : "As an owner of the organization, you set the monthly cap per member under Administration & settings → your organization → AI → Budget.",
   ownerLink: de ? "Assistentenbudget festlegen" : "Set the assistant budget",
   ownerUnavailable: de
     ? "Diese Einstellung ist auf dieser Installation nicht verfügbar (Administration oder zentrale Verbindungen sind ausgeschaltet)."

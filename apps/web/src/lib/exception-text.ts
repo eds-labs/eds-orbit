@@ -226,12 +226,12 @@ const entries: Record<string, Entry> = {
     en: {
       title: "Telegram message not delivered",
       cause: "The Telegram bot could not deliver a message.",
-      action: "Check the Telegram connection in the settings.",
+      action: "Check the Telegram connection.",
     },
     de: {
       title: "Telegram-Nachricht nicht zugestellt",
       cause: "Der Telegram-Bot konnte eine Nachricht nicht zustellen.",
-      action: "Telegram-Verbindung in den Einstellungen prüfen.",
+      action: "Telegram-Verbindung prüfen.",
     },
     place: CONNECTIONS_PLACE,
   },

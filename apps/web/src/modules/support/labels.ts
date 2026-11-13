@@ -42,7 +42,7 @@ const en = {
   category: "Category",
   none: "None",
   tags: "Tags",
-  noTagsDefined: "No tags yet. The owner adds them in Settings, Support.",
+  noTagsDefined: "No tags yet. The owner adds them in Administration & settings → Modules → Support.",
   anyTag: "Any tag",
   anyCategory: "Any category",
   noCategory: "No category",
@@ -87,7 +87,7 @@ const en = {
     binding: "Customer account from",
     bindingNone: "No customer account",
     bindingHint:
-      "Agents and AI drafts read plan, features and limits of signed-in widget customers from this integration. Integrations are managed under Connectors.",
+      "Agents and AI drafts read plan, features and limits of signed-in widget customers from this integration. Integrations are managed under Administration & settings → Integrations.",
     bindingUnverified: "check pending",
   },
   tickets: "Tickets",
@@ -177,7 +177,7 @@ const en = {
     noDue: "No due time",
     allTickets: "All tickets",
     inboxes: "Inboxes",
-    inboxesEmpty: "No inbox yet. An owner creates one in Settings, Support.",
+    inboxesEmpty: "No inbox yet. An owner creates one in Administration & settings → Modules → Support.",
     openCount: "{n} open",
     perDay: "New tickets per day, 14 days",
     perDayEmpty: "No new tickets in the last 14 days.",
@@ -330,7 +330,7 @@ const de: SupportText = {
   none: "Keine",
   tags: "Tags",
   noTagsDefined:
-    "Noch keine Tags. Der Owner legt sie unter Einstellungen, Support an.",
+    "Noch keine Tags. Der Owner legt sie unter Verwaltung & Einstellungen → Module → Support an.",
   anyTag: "Jeder Tag",
   anyCategory: "Jede Kategorie",
   noCategory: "Keine Kategorie",
@@ -375,7 +375,7 @@ const de: SupportText = {
     binding: "Kundenkonto aus",
     bindingNone: "Kein Kundenkonto",
     bindingHint:
-      "Agenten und KI-Entwürfe lesen Tarif, Funktionen und Limits angemeldeter Widget-Kunden aus dieser Integration. Integrationen werden unter Verbindungen verwaltet.",
+      "Agenten und KI-Entwürfe lesen Tarif, Funktionen und Limits angemeldeter Widget-Kunden aus dieser Integration. Integrationen werden unter Verwaltung & Einstellungen → Integrationen verwaltet.",
     bindingUnverified: "Prüfung ausstehend",
   },
   tickets: "Tickets",
@@ -466,7 +466,7 @@ const de: SupportText = {
     allTickets: "Alle Tickets",
     inboxes: "Posteingänge",
     inboxesEmpty:
-      "Noch kein Posteingang. Ein Owner legt einen unter Einstellungen, Support an.",
+      "Noch kein Posteingang. Ein Owner legt einen unter Verwaltung & Einstellungen → Module → Support an.",
     openCount: "{n} offen",
     perDay: "Neue Tickets pro Tag, 14 Tage",
     perDayEmpty: "Keine neuen Tickets in den letzten 14 Tagen.",

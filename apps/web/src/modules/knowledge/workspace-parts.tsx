@@ -111,8 +111,8 @@ export function knowledgeErrorText(
       ? "GitHub verweigert den Abruf oder begrenzt Anfragen. Prüfe die Repository-Freigabe und versuche es später erneut."
       : "GitHub denied access or limited requests. Check repository permissions and try later.",
     KNOWLEDGE_COST_UNKNOWN: de
-      ? "Der Modellaufruf hat einen unklaren Ausgang. Prüfe zuerst die Kosten in den Einstellungen; starte keine weitere Analyse."
-      : "The model call has an uncertain outcome. Reconcile costs in Settings before another analysis.",
+      ? "Der Modellaufruf hat einen unklaren Ausgang. Prüfe zuerst die Kosten unter Verwaltung & Einstellungen → KI → Budget; starte keine weitere Analyse."
+      : "The model call has an uncertain outcome. Reconcile costs in Administration & settings → AI → Budget before another analysis.",
     KNOWLEDGE_NO_READABLE_FILES: de
       ? "Aus deiner Auswahl ließ sich nichts lesen. Wähle andere Seiten oder Dateien aus."
       : "Nothing in your selection could be read. Select other pages or files.",

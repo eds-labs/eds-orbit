@@ -106,7 +106,7 @@ const text = {
       `${spent} this month across ${spaces} personal ${spaces === 1 ? "space" : "spaces"} (one sum, never per member)`,
     projectsLevel: "Project limits",
     projectsHint:
-      "Each project's own AI spending authority (Settings → AI & budget in the project). A project call needs it and, while switched on, also fits the organization limit.",
+      "Each project's own AI spending authority (in the project under Administration & settings → AI → Budget). A project call needs it and, while switched on, also fits the organization limit.",
     projectsEmpty: "No business projects yet.",
     projectLimits: (month: string, day: string, run: string) =>
       `${month} a month · ${day} a day · ${run} per run`,
@@ -161,7 +161,7 @@ const text = {
     usageIntro: "Spend of the current month across projects: settled, open and unclear reservations.",
     unclear: "unclear",
     unclearHint:
-      "Confirm unclear amounts in the project (Settings → AI & budget) after checking the provider's billing.",
+      "Confirm unclear amounts in the project under Administration & settings → AI → Budget after checking the provider's billing.",
     byProject: "By project",
     byProvider: "By provider",
     byModel: "By model",
@@ -185,7 +185,7 @@ const text = {
       `${spent} diesen Monat über ${spaces} ${spaces === 1 ? "persönlichen Bereich" : "persönliche Bereiche"} (eine Summe, nie pro Mitglied)`,
     projectsLevel: "Limits der Projekte",
     projectsHint:
-      "Die eigene KI-Ausgabefreigabe jedes Projekts (im Projekt unter Einstellungen → KI & Budget). Ein Projektaufruf braucht sie und muss, wenn eingeschaltet, auch in das Limit der Organisation passen.",
+      "Die eigene KI-Ausgabefreigabe jedes Projekts (im Projekt unter Verwaltung & Einstellungen → KI → Budget). Ein Projektaufruf braucht sie und muss, wenn eingeschaltet, auch in das Limit der Organisation passen.",
     projectsEmpty: "Noch keine Projekte.",
     projectLimits: (month: string, day: string, run: string) =>
       `${month} im Monat · ${day} am Tag · ${run} pro Lauf`,
@@ -241,7 +241,7 @@ const text = {
     usageIntro: "Ausgaben des laufenden Monats über alle Projekte: abgerechnet, offen und unklar.",
     unclear: "unklar",
     unclearHint:
-      "Unklare Beträge bestätigst du im jeweiligen Projekt (Einstellungen → KI & Budget), nachdem du die Abrechnung des Anbieters geprüft hast.",
+      "Unklare Beträge bestätigst du im jeweiligen Projekt unter Verwaltung & Einstellungen → KI → Budget, nachdem du die Abrechnung des Anbieters geprüft hast.",
     byProject: "Nach Projekt",
     byProvider: "Nach Anbieter",
     byModel: "Nach Modell",

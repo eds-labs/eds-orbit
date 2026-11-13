@@ -134,7 +134,7 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
             )}${limits.approvedPaidTests ? "" : words.budgetUnpaid}. `
           : `${words.budgetNotSet} `}
         {words.budgetScope}{" "}
-        <AppLink href={shell.projectCenterHref("ai")}>{words.budgetLink}</AppLink>
+        <AppLink href={shell.projectCenterHref("ai", "budget")}>{words.budgetLink}</AppLink>
         {words.budgetKept}
       </Alert>
       <DataForm

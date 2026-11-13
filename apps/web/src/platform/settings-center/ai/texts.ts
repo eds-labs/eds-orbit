@@ -70,7 +70,7 @@ const en = {
     "Standard models and presets are not switched on for this installation; a project uses its own AI settings, or the profiles and the environment where it has none.",
   ceilingsTitle: "AI ceilings of the modules",
   ceilingsIntro:
-    "Modules limit their own AI use on top of the spending authority. They are changed in each module's settings.",
+    "Modules limit their own AI use on top of the spending authority. They are changed in the module's own section; each row links to it.",
   ceilingsNone: "No module of this project sets an AI ceiling.",
   ceilingOff: "switched off",
   openSetting: "Open setting",
@@ -181,7 +181,7 @@ const de: Record<AiTextKey, string> = {
     "Standard-Modelle und Stufen sind für diese Installation nicht eingeschaltet; ein Projekt nutzt seine eigenen KI-Einstellungen oder, wo es keine hat, die Profile und die Umgebung.",
   ceilingsTitle: "KI-Obergrenzen der Module",
   ceilingsIntro:
-    "Module begrenzen ihre KI-Nutzung zusätzlich zur Ausgabenfreigabe. Geändert werden sie in den Einstellungen des jeweiligen Moduls.",
+    "Module begrenzen ihre KI-Nutzung zusätzlich zur Ausgabenfreigabe. Geändert werden sie im eigenen Abschnitt des Moduls; jede Zeile verlinkt dorthin.",
   ceilingsNone: "Kein Modul dieses Projekts legt eine KI-Obergrenze fest.",
   ceilingOff: "ausgeschaltet",
   openSetting: "Einstellung öffnen",

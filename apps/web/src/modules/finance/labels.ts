@@ -404,7 +404,7 @@ const en = {
       FINANCE_EXTRACTION_NOT_POSSIBLE:
         "This document can no longer be read again.",
       FINANCE_SETUP_REQUIRED:
-        "Set up the chart of accounts first (Settings, finance accounts).",
+        "Set up the chart of accounts first (Administration & settings → Modules → Finance → Accounts & categories).",
     } as Record<string, string>,
     requestFailed: "Request failed.",
   },
@@ -1220,7 +1220,7 @@ const de: typeof en = {
       FINANCE_EXTRACTION_NOT_POSSIBLE:
         "Dieser Beleg kann nicht mehr neu ausgelesen werden.",
       FINANCE_SETUP_REQUIRED:
-        "Richte zuerst den Kontenrahmen ein (Einstellungen, Finanzkonten).",
+        "Richte zuerst den Kontenrahmen ein (Verwaltung & Einstellungen → Module → Finanzen → Konten & Kategorien).",
     },
     requestFailed: "Anfrage fehlgeschlagen.",
   },
