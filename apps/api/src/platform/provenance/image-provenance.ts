@@ -409,10 +409,10 @@ const CONTEXT = /^[a-z0-9_.:-]{1,64}$/;
 
 /**
  * THE publish gate (ADR 0028 §4): every outbound path calls it with the
- * exact bytes that leave Orbit. Off (flag), it checks nothing. On, the
- * bytes' record decides whether a label is required (else the caller's
- * `declaredOrigin`, else the bytes' own XMP/C2PA), and the label must
- * verify in the pixels at the recorded (or embedded) box.
+ * exact bytes that leave Orbit. Off (flag), it checks nothing. On, a label
+ * is required when the bytes' record, the caller's `declaredOrigin` or the
+ * bytes' own XMP/C2PA names an AI origin, and the label must verify in the
+ * pixels at the recorded (or embedded) box.
  *
  * Refusals: 409 AI_LABEL_MISSING (required, no label known) and 409
  * AI_LABEL_INVALID (a label box that does not verify). The error's detail
@@ -441,11 +441,12 @@ export async function assertAiLabelPublishable(
     input.declaredOrigin && IMAGE_ORIGINS.includes(input.declaredOrigin)
       ? input.declaredOrigin
       : null;
-  const requireLabel = row
-    ? labelRequired(row.origin)
-    : declared
-      ? labelRequired(declared)
-      : false;
+  // Either source naming an AI origin requires the label: an earlier
+  // `original_upload` record of the same pixels never outweighs the caller's
+  // AI declaration (an asset whose upload declared AI), and vice versa.
+  const requireLabel =
+    (row !== null && labelRequired(row.origin)) ||
+    (declared !== null && labelRequired(declared));
   const inspection = await inspectAiLabel(input.bytes, {
     requireLabel,
     ...(row?.labelBox ? { knownLabel: row.labelBox } : {}),

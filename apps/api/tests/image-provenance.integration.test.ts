@@ -368,6 +368,21 @@ describe.skipIf(!enabled)("image provenance (ADR 0028)", () => {
       await expect(gate(declared)).rejects.toMatchObject({ code: "AI_LABEL_MISSING" });
     });
 
+    it("requires the label when the caller declares AI over an original_upload record", async () => {
+      setFlag("true");
+      const same = await noise(640, 480, 23).png().toBuffer();
+      await run(a, (tx) =>
+        recordOriginalUpload(tx, a, {
+          bytes: same,
+          subject: { module: "test", kind: "upload", id: "plain" },
+          createdBy: a.userId,
+        }),
+      );
+      expect(await gate(same)).toMatchObject({ checked: true, labelState: "not_declared" });
+      // The same pixels uploaded again with an AI declaration (asset aiProvenance).
+      await expect(gate(same, "ai_generated")).rejects.toMatchObject({ code: "AI_LABEL_MISSING" });
+    });
+
     it("blocks a recorded label that no longer verifies", async () => {
       setFlag("true");
       // The labelled image's XMP stripped and the label painted over.
