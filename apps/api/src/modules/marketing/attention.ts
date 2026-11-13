@@ -323,7 +323,6 @@ async function runProblemItems(
         releasedMicros: 0,
         complete: tasks.length <= 100 && evidence.length <= 10000,
       },
-      false,
       scope.projectId,
     );
     if (operation.state in counts)

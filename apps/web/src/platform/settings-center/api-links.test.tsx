@@ -53,8 +53,13 @@ describe("links the API sends to the settings center", () => {
       expect(target?.scope?.kind).toBe("project");
       const found = resolveSection(ownerSections(), target!.area, target!.rest);
       expect(found, link).not.toBeNull();
-      // The section's own address, not a fallback to the area's first section.
-      expect(found!.section.area).toBe(target!.area);
+      // A link that names a section must land on that section: its id is the
+      // path after the area (`budget`, `finance/currencies`, `social/accounts`),
+      // not the area's lead section that resolveSection falls back to.
+      if (target!.rest.length > 0) {
+        expect(found!.section.area).toBe(target!.area);
+        expect(found!.section.id).toBe(target!.rest.join("/"));
+      }
     },
   );
 });

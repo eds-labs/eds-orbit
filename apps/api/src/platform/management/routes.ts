@@ -16,8 +16,8 @@ import {
   unavailableIntegrations,
 } from "./project-integrations.ts";
 
-// Settings center (ADR 0027). 404 while ORBIT_SETTINGS_CENTER is off
-// (server onRequest hook, before authentication).
+// Settings center (ADR 0027). Always registered; every route keeps its own
+// authentication and permission checks.
 
 export function registerManagementRoutes(app: FastifyInstance, auth: Auth) {
   app.get("/api/management/capabilities", async (req) =>

@@ -15,7 +15,6 @@ Object.assign(process.env, {
   ORBIT_ADMINISTRATION: "true",
   ORBIT_ACCOUNT: "true",
   ORBIT_CONNECTIONS: "true",
-  ORBIT_SETTINGS_CENTER: "preview",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
@@ -157,22 +156,14 @@ describe.skipIf(!enabled)("Management capabilities (ADR 0027)", () => {
     await closeDatabase();
   });
 
-  it("answers 404 before authentication while the flag is off", async () => {
-    process.env.ORBIT_SETTINGS_CENTER = "off";
-    try {
-      expect((await get("/api/management/capabilities")).statusCode).toBe(404);
-    } finally {
-      process.env.ORBIT_SETTINGS_CENTER = "preview";
-    }
-  });
-
   it("answers 401 without a session", async () => {
     expect((await get("/api/management/capabilities")).statusCode).toBe(401);
   });
 
   it("gives a system administrator the system scope and nothing of the organization", async () => {
     const c = await caps(p.admin);
-    expect(c.stage).toBe("preview");
+    // The center has no rollout stage any more: it is always there.
+    expect(c).not.toHaveProperty("stage");
     expect(c.system).toContain("system.users");
     expect(c.system).toContain("system.connections");
     expect(c.organizations).toEqual([]);

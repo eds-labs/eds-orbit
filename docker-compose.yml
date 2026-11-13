@@ -120,8 +120,6 @@ x-api-environment: &api-environment
   # System administration, invitations and account self-service (ADR 0013).
   ORBIT_ADMINISTRATION: ${ORBIT_ADMINISTRATION:-false}
   ORBIT_ACCOUNT: ${ORBIT_ACCOUNT:-false}
-  # Settings center (ADR 0027): off | preview | on
-  ORBIT_SETTINGS_CENTER: ${ORBIT_SETTINGS_CENTER:-off}
   # Central connections, AI profiles and knowledge shares (ADR 0014).
   ORBIT_CONNECTIONS: ${ORBIT_CONNECTIONS:-false}
   ORBIT_KNOWLEDGE_SHARES: ${ORBIT_KNOWLEDGE_SHARES:-false}

@@ -45,7 +45,6 @@ const ENV_KEYS = [
   "ORBIT_AI_CATALOG",
   "ORBIT_AI_DEFAULTS",
   "ORBIT_AI_KEY_RULE_V2",
-  "ORBIT_SETTINGS_CENTER",
   "OPENAI_API_KEY",
   "OPENAI_IMAGE_API_KEY",
   "ANTHROPIC_API_KEY",
@@ -71,7 +70,6 @@ beforeAll(() => {
     ORBIT_CONNECTIONS: "true",
     ORBIT_AI_CATALOG: "true",
     ORBIT_AI_DEFAULTS: "true",
-    ORBIT_SETTINGS_CENTER: "preview",
     OPENAI_API_KEY: ENV_KEY,
     OPENAI_VERIFIED_MODELS: "synthetic-env-a,synthetic-env-b",
     OPENAI_RATE_CARD_JSON: JSON.stringify({ "synthetic-env-a": rate, "synthetic-env-b": rate }),
@@ -620,15 +618,6 @@ describe.skipIf(!enabled)("GET /api/management/projects/:projectId/ai/effective"
     await authDb.user.deleteMany({ where: { id: { in: users } } });
     await app?.close();
     await closeDatabase();
-  });
-
-  it("answers 404 before authentication while the settings center is off", async () => {
-    process.env.ORBIT_SETTINGS_CENTER = "off";
-    try {
-      expect((await get(fx.envOnly)).statusCode).toBe(404);
-    } finally {
-      process.env.ORBIT_SETTINGS_CENTER = "preview";
-    }
   });
 
   it("is for project owners only", async () => {

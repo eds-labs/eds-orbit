@@ -284,21 +284,10 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
       );
     });
 
-    it("reports the settings center rollout stage in /api/me", async () => {
-      const before = process.env.ORBIT_SETTINGS_CENTER;
-      try {
-        delete process.env.ORBIT_SETTINGS_CENTER;
-        expect((await call("GET", "/api/me", p.owner)).json().settingsCenter).toBe(
-          "off",
-        );
-        process.env.ORBIT_SETTINGS_CENTER = "preview";
-        expect((await call("GET", "/api/me", p.owner)).json().settingsCenter).toBe(
-          "preview",
-        );
-      } finally {
-        if (before === undefined) delete process.env.ORBIT_SETTINGS_CENTER;
-        else process.env.ORBIT_SETTINGS_CENTER = before;
-      }
+    it("carries no settings center rollout stage in /api/me", async () => {
+      expect(await call("GET", "/api/me", p.owner).then((r) => r.json())).not.toHaveProperty(
+        "settingsCenter",
+      );
     });
 
     it("lists and searches users with their memberships", async () => {

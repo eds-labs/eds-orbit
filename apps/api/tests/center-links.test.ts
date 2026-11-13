@@ -26,7 +26,6 @@ function resumeRecovery(projectId: string) {
     [{ id: "t1", status: "failed", stepKey: "s", errorCode: "PROJECT_PAUSED" }],
     [],
     { settledMicros: 0, heldMicros: 0, unknownMicros: 0, releasedMicros: 0, complete: true },
-    false,
     projectId,
   );
   const step = operation.recovery.find((r) => r.action === "resume_project");

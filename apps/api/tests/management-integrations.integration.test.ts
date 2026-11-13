@@ -25,7 +25,6 @@ Object.assign(process.env, {
   ORBIT_TELEGRAM: "true",
   ORBIT_KNOWLEDGE_WORKSPACE: "true",
   ORBIT_CONNECTIONS_CUTOVER: "postiz,matomo",
-  ORBIT_SETTINGS_CENTER: "preview",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
@@ -240,15 +239,6 @@ describe.skipIf(!enabled)("Management integrations (ADR 0027)", () => {
     await authDb.user.deleteMany({ where: { id: { in: users } } });
     await app?.close();
     await closeDatabase();
-  });
-
-  it("answers 404 before authentication while the flag is off", async () => {
-    process.env.ORBIT_SETTINGS_CENTER = "off";
-    try {
-      expect((await get("/api/management/integrations/catalog")).statusCode).toBe(404);
-    } finally {
-      process.env.ORBIT_SETTINGS_CENTER = "preview";
-    }
   });
 
   it("answers 401 without a session", async () => {

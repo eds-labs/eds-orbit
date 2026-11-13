@@ -68,8 +68,8 @@ export async function runOperation(
     tasks,
     deliverables,
     costs,
-    unknownReservation,
     scope.projectId,
+    unknownReservation,
   );
 }
 
@@ -92,8 +92,8 @@ export function operationFromEvidence(
   tasks: TaskEvidence[],
   deliverables: Array<Record<string, unknown>>,
   costs: Costs,
-  unknownReservation = false,
   projectId: string,
+  unknownReservation = false,
 ) {
   const complete = costs.complete;
   const steps = (Array.isArray(d.steps) ? d.steps : []).map((s: WorkStep) => ({

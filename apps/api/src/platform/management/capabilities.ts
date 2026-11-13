@@ -12,7 +12,6 @@ import { sharesEnabled } from "../knowledge/shares.ts";
 import { personalAssistantEnabled } from "../assistant/personal-space.ts";
 import { mcpConnectEnabled } from "../mcp-auth/routes.ts";
 import { businessProjectsWhere } from "../tenancy/member-scope.ts";
-import { settingsCenterStage } from "./flag.ts";
 
 // What a member may open in the settings center (ADR 0027). A hint for
 // navigation only: every route keeps its own server-side check. Control-plane
@@ -56,7 +55,6 @@ export type ManagementFlags = {
 };
 
 export type ManagementCapabilities = {
-  stage: "preview" | "on";
   flags: ManagementFlags;
   system: Capability[];
   account: Capability[];
@@ -178,8 +176,6 @@ export async function managementCapabilities(
   });
 
   return {
-    // The route answers 404 while the stage is "off" (server hook).
-    stage: settingsCenterStage() === "on" ? "on" : "preview",
     flags: {
       connections,
       aiCatalog: aiCatalogEnabled(),
