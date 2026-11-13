@@ -1,10 +1,18 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import sharp from "sharp";
-import { prepareSocialImage } from "./index.ts";
+import {
+  AI_LABEL_TEXT,
+  applyAiLabel,
+  prepareSocialImage,
+  provenanceXmp,
+  readImageProvenance,
+  verifyAiLabel,
+} from "./index.ts";
 
 // Social media images (ADR 0020, S3): a normalized original and a JPEG
-// rendition that Instagram accepts; no metadata survives.
+// rendition that Instagram accepts; no metadata survives except the minimal
+// provenance XMP of an AI image (ADR 0028).
 
 const solid = (width: number, height: number, alpha = false) =>
   sharp({
@@ -98,5 +106,71 @@ describe("prepareSocialImage", () => {
     await expect(prepareSocialImage(Buffer.from("not an image at all"))).rejects.toThrow("SOCIAL_MEDIA_INVALID");
     const gif = await solid(64, 64).gif().toBuffer();
     await expect(prepareSocialImage(gif)).rejects.toThrow("SOCIAL_MEDIA_INVALID");
+  });
+
+  it("carries an AI label's provenance XMP to both outputs, and the label still verifies", async () => {
+    const art = await sharp({
+      create: { width: 2400, height: 1600, channels: 3, background: { r: 230, g: 180, b: 90 } },
+    })
+      .png()
+      .toBuffer();
+    const labelled = await applyAiLabel(art, { origin: "ai_generated" });
+    const result = await prepareSocialImage(labelled.bytes);
+    expect(result.original).toMatchObject({ mime: "image/jpeg", width: 2400, height: 1600 });
+    expect(result.jpeg).toMatchObject({ width: 1440, height: 960 });
+    for (const bytes of [result.original.bytes, result.jpeg.bytes]) {
+      const provenance = await readImageProvenance(bytes);
+      expect(provenance.xmp).toEqual({
+        digitalSourceType: "trainedAlgorithmicMedia",
+        origin: "ai_generated",
+        label: { text: AI_LABEL_TEXT, version: labelled.label.version, box: labelled.label.box },
+      });
+      expect(provenance.declaresAi).toBe(true);
+      expect((await verifyAiLabel(bytes, labelled.label.box)).ok).toBe(true);
+      expect((await sharp(bytes).metadata()).exif).toBeUndefined();
+    }
+  });
+
+  it("keeps the provenance XMP on a transparent PNG original", async () => {
+    const labelled = await applyAiLabel(await solid(1200, 900, true).png().toBuffer(), { origin: "ai_generated" });
+    const result = await prepareSocialImage(labelled.bytes);
+    expect(result.original.mime).toBe("image/png");
+    for (const bytes of [result.original.bytes, result.jpeg.bytes]) {
+      expect((await readImageProvenance(bytes)).xmp.label?.box).toEqual(labelled.label.box);
+      expect((await verifyAiLabel(bytes, labelled.label.box)).ok).toBe(true);
+    }
+  });
+
+  it("writes no XMP at all for an image without provenance", async () => {
+    const result = await prepareSocialImage(await solid(800, 600).jpeg().toBuffer());
+    for (const bytes of [result.original.bytes, result.jpeg.bytes])
+      expect((await sharp(bytes).metadata()).xmp).toBeUndefined();
+  });
+
+  it("drops private XMP fields and keeps only the provenance", async () => {
+    const privateXmp =
+      `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">` +
+      `<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="48,8.123N">` +
+      `<dc:creator><rdf:Seq><rdf:li>Ada Lovelace</rdf:li></rdf:Seq></dc:creator></rdf:Description></rdf:RDF></x:xmpmeta>`;
+    // Without provenance the private packet disappears completely.
+    const tagged = await solid(800, 600).jpeg().withXmp(privateXmp).toBuffer();
+    expect((await sharp(tagged).metadata()).xmp?.toString("utf8")).toContain("Ada Lovelace");
+    const plain = await prepareSocialImage(tagged);
+    for (const bytes of [plain.original.bytes, plain.jpeg.bytes])
+      expect((await sharp(bytes).metadata()).xmp).toBeUndefined();
+    // With provenance (here: the declaration added to the same packet) only
+    // the provenance fields are written.
+    const declared = privateXmp.replace(
+      'exif:GPSLatitude="48,8.123N"',
+      'exif:GPSLatitude="48,8.123N" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" Iptc4xmpExt:DigitalSourceType="http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"',
+    );
+    const result = await prepareSocialImage(await solid(800, 600).jpeg().withXmp(declared).toBuffer());
+    for (const bytes of [result.original.bytes, result.jpeg.bytes]) {
+      const xmp = (await sharp(bytes).metadata()).xmp!.toString("utf8");
+      expect(xmp).toContain("trainedAlgorithmicMedia");
+      for (const leak of ["Ada", "Lovelace", "GPS", "dc:creator"]) expect(xmp).not.toContain(leak);
+      expect((await readImageProvenance(bytes)).xmp).toEqual({ digitalSourceType: "trainedAlgorithmicMedia" });
+    }
+    expect(provenanceXmp({ digitalSourceType: "trainedAlgorithmicMedia" })).not.toContain("Ada");
   });
 });

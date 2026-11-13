@@ -198,7 +198,7 @@ const fromRel = (rel: RelBox, width: number, height: number): Box => ({
 // ---------------------------------------------------------------------------
 // Pixels
 
-type Sharp = typeof import("sharp");
+type Sharp = Awaited<typeof import("sharp")>["default"];
 let sharpModule: Sharp | null = null;
 async function loadSharp(): Promise<Sharp> {
   sharpModule ??= (await import("sharp")).default;
@@ -669,7 +669,8 @@ const MIME = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp" } as con
 /**
  * Draws "KI erstellt" on a finished image and writes the provenance XMP.
  * Call it on the final bytes, after every layout, crop and resize step; it
- * keeps the input's format (PNG, JPEG, WebP) and size. An image that already
+ * keeps the input's format (PNG, JPEG, WebP) and displayed size (an EXIF
+ * orientation is applied to the pixels). An image that already
  * carries Orbit's label (in its XMP, or as `knownLabel`) is checked and
  * returned unchanged, so running it twice never draws a second label; a
  * recorded label that no longer checks out throws `AI_LABEL_INVALID` rather
@@ -683,7 +684,8 @@ export async function applyAiLabel(
     throw new CreativeError("AI_LABEL_INPUT_INVALID");
   const sharp = await loadSharp();
   const source = await readImageProvenance(bytes);
-  const { width, height, format } = source;
+  const { format } = source;
+  let { width, height } = source;
   const digitalSourceType = digitalSourceTypeFor(input.origin, input.composite);
   const existing = source.xmp.label?.box ?? input.knownLabel;
   if (existing) {
@@ -712,11 +714,30 @@ export async function applyAiLabel(
       source,
     };
   }
+  // The output carries no EXIF, so an EXIF orientation (a phone photo) is
+  // applied first: otherwise the labelled image would display turned and
+  // the label would not sit at the visible bottom right. The upright copy
+  // is lossless, so a JPEG is compressed only once more.
+  let canvas = bytes;
+  const { orientation, hasAlpha } = await open(sharp, bytes).metadata();
+  if (orientation && orientation !== 1) {
+    try {
+      const upright = await open(sharp, bytes)
+        .rotate()
+        .png({ compressionLevel: 0 })
+        .toBuffer({ resolveWithObject: true });
+      canvas = upright.data;
+      width = upright.info.width;
+      height = upright.info.height;
+    } catch {
+      throw new CreativeError("AI_LABEL_RENDER_FAILED");
+    }
+  }
   const box = aiLabelBox(width, height, {
     ...(input.safe ? { safe: input.safe } : {}),
     ...(input.avoid ? { avoid: input.avoid } : {}),
   });
-  const { lum, rgb } = await regionLuminance(sharp, bytes, box);
+  const { lum, rgb } = await regionLuminance(sharp, canvas, box);
   const colours = chooseColours(rgb, lum);
   const rel = toRel(box, width, height);
   const xmp = provenanceXmp({
@@ -729,9 +750,12 @@ export async function applyAiLabel(
       ? { sourceDigitalSourceType: source.xmp.digitalSourceType }
       : {}),
   });
-  let pipeline = open(sharp, bytes).composite([
+  let pipeline = open(sharp, canvas).composite([
     { input: labelSvg(box.w, box.h, colours), left: box.x, top: box.y },
   ]);
+  // Compositing adds an alpha channel; an opaque input stays opaque, so a
+  // PNG does not grow and later steps do not treat it as transparent.
+  if (!hasAlpha) pipeline = pipeline.removeAlpha();
   pipeline =
     format === "png"
       ? pipeline.png({ compressionLevel: 9, adaptiveFiltering: true })
