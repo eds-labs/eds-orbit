@@ -33,7 +33,7 @@ Both modes use the same conversations, runs, jobs, limits (8 model calls, 16 too
 - The assistant's own model calls are paid by the personal space.
 - Its spending authority is a read-only projection of the organization setting **assistant cap per member and month** (organization settings → AI). A day may use a tenth of it, and a run at most a day's share (USD 2 at most).
 - Without a cap the assistant makes no paid calls (`POLICY_REQUIRED`); with a cap of 0, or one whose limit per answer is below the call, it refuses `BUDGET_NOT_APPROVED`. Project budgets never fund it, also not the focus project's. Orbit never sets the cap by itself (no seed, no default; reading the status writes nothing).
-- Before sending, the panel and the full page show a notice above a blocked composer while the cap is missing or 0 (`platform/assistant/budget-notice.tsx`, from `capMicros` in `GET /api/assistant` and the shell identity): organization owners with administration and connections on get a link to `/o/<organization>/settings#assistant-budget`; owners without them are told the setting is not available on this installation; members are told only organization owners set it and project budgets do not apply. The personal error texts say the same instead of the project text.
+- Before sending, the panel and the full page show a notice above a blocked composer while the cap is missing or 0 (`platform/assistant/budget-notice.tsx`, from `capMicros` in `GET /api/assistant` and the shell identity): organization owners with administration and connections on get a link to `/manage/o/<organization>/ai/budget#assistant-budget`; owners without them are told the setting is not available on this installation; members are told only organization owners set it and project budgets do not apply. The personal error texts say the same instead of the project text.
 - The user cannot raise the cap (`PERSONAL_SPACE_SPEND_READ_ONLY`).
 - The organization budget counts this spend like any project's.
 - Paid work inside a business project, such as a knowledge search, a creative preview or an agent work order, is reserved against that project's own authority and approvals.
@@ -85,7 +85,7 @@ Both modes use the same conversations, runs, jobs, limits (8 model calls, 16 too
 
 ## Personal context (D-17)
 
-Short notes the assistant may use: preferences, project notes, decisions, ways of working. They are stored in the personal space, visible only to their user, and managed on **My context** (`/account/assistant`): list, edit, archive, delete, export as JSON.
+Short notes the assistant may use: preferences, project notes, decisions, ways of working. They are stored in the personal space, visible only to their user, and managed on **My context** (Administration & settings → My account → Assistant → My context, `/manage/me/assistant`): list, edit, archive, delete, export as JSON.
 
 - **Automatic memory** (default): the assistant saves an entry itself with `context_remember`. Each save shows "Remembered: …" with **Undo** in the conversation, so nothing is saved silently.
 - **Propose and confirm**: switch off "Remember automatically". The assistant then only proposes entries, and the user saves them.
@@ -124,7 +124,7 @@ Orbit tells the user about relevant situations without being asked ([ADR 0023](a
   - Work task completed and task due;
   - urgent Support tickets and Marketing assignment problems. These two are mappings of the existing notices, so nothing is detected twice.
 
-  Signals carry ids, counts and codes, never free text. Owners can switch signals off per project (Settings → Modules).
+  Signals carry ids, counts and codes, never free text. Owners can switch signals off per project (Administration & settings → Modules → Modules and signals).
 - **No duplicates.** Every signal has a fingerprint with its period bucket (for example agent, code and UTC day). A repeat raises the notice's count instead of adding a row or sending another e-mail. A rise in severity marks it unread again.
 - **Delivery preferences** live in the personal space ("My context" → Notifications):
   - quiet hours in the user's time zone;
@@ -162,7 +162,7 @@ Push-to-talk input and "Read aloud" in the personal assistant ([ADR 0024](adr/00
 - **Read aloud:** a button under each assistant answer. It reads the visible text without Markdown, code blocks or link targets, then the card titles, never card content; at most 3,000 characters, cut at a word. "Read answers aloud automatically" is off by default and reads only answers that arrive after the conversation was opened.
 - **Privacy (D-19):** audio is held in memory for the request only. It is not written to the database, platform files or logs, and the browser drops the recording after the upload. The transcript becomes a chat message only when the user sends it. Synthesized audio is streamed through and not stored. The provider must be on the personal-data allow-list (OpenAI only), else `SPEECH_PROVIDER_NOT_ALLOWED`.
 - **Cost:** the transcription is estimated from the duration the server measures in the container and the speech from its characters, reserved before the call (`speech_stt`, `speech_tts`) and settled with actual usage. An unclear outcome is never retried (`SPEECH_OUTCOME_UNKNOWN`). Prices and routing: [MODEL_ROUTING.md](MODEL_ROUTING.md), "Speech".
-- **Settings:** "Voice" on "My context" (`/account/assistant`), stored as `voice {autoSend, autoRead}` in the user-private `assistant_settings` entity; saving merges, so automatic memory and other preferences stay.
+- **Settings:** "Voice" on "My context" (Administration & settings → My account → Assistant → My context, `/manage/me/assistant`), stored as `voice {autoSend, autoRead}` in the user-private `assistant_settings` entity; saving merges, so automatic memory and other preferences stay.
 
 Routes (all 404 while `ORBIT_VOICE` is off; `workspaceId` as above):
 

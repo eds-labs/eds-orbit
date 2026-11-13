@@ -122,7 +122,7 @@ marked unavailable must not be guessed or fetched through another project.
 
 ## Category and tag definitions
 
-Definitions are project-wide, matching Settings → Support; they are not scoped
+Definitions are project-wide, matching Administration & settings → Modules → Support; they are not scoped
 to an inbox. Every tool requires an explicit `projectId` and existing Support
 activation/grant/scope checks. Members with ticket-read access can list them;
 mutations require the existing sensitive owner settings permission and a separate
@@ -176,7 +176,7 @@ binding was implemented also requires a new proposal. Existing messages and
 already consumed approvals are preserved.
 
 By default, only an explicit owner's Orbit decision runs the native
-`replyToTicket` service. Owners can instead enable **Settings → Support →
+`replyToTicket` service. Owners can instead enable **Administration & settings → Modules → Support →
 Inboxes → Edit the inbox → Replies through connected apps → Send my MCP
 replies without individual approval** (`SupportInbox.rules.mcpOwnerRepliesWithoutApproval`).
 Each inbox defaults to requiring approval: only an explicit `true` on the

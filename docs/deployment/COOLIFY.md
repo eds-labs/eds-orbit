@@ -8,6 +8,8 @@ The repository root [`docker-compose.yml`](../../docker-compose.yml) is the cano
 
 Orbit production runs on **`https://coolify-pve.eds-labs.io`** (server VM102), project EDS Orbit, environment production. The resource is the Git application `Orbit Production (GitHub)`: repository `eds-labs/eds-orbit`, branch `main`, compose `/docker-compose.pve.yml`. A push to `main` starts a webhook deployment. The VM102 section below explains how that application builds, including the schema approval hash. The previous Coolify at `coolify.eds-labs.io` and the migrated service `Orbit Production` (stopped, kept for rollback) no longer serve production. Never run them against the production data.
 
+The variable `ORBIT_SETTINGS_CENTER`, set to `on` in this application on 2026-11-12, is unused once row 5.4 is delivered (the settings center has no rollout flag any more; nothing reads the variable and the compose files do not pass it on). It can be deleted in Coolify once the delivery is accepted; leaving it set does no harm, and a revert of row 5.4 would read it again.
+
 ## Architecture and isolation
 
 - `web` is the only service assigned a Coolify domain. It listens internally on port `4310` and proxies application API requests to `http://api:4311` through Docker DNS.
@@ -46,9 +48,8 @@ The Compose definition uses Coolify's documented `SERVICE_*` variables to genera
 | Internal defaults | `POSTGRES_DB`, `REDIS_URL`, `QUEUE_NAMESPACE` | Defaults are `orbit`, `redis://redis:6379`, and `orbit`; retain Docker service names. |
 | Safety gates | `EXECUTION_MODE`, `ENABLE_EXTERNAL_WRITES`, `LIVE_RAG_EVAL_PASSED` | Defaults keep the system in test mode with external writes and live RAG evaluation disabled. Changing them requires separate authorization. |
 | Feature flags | `ORBIT_CONTENT_PACKAGES`, `ORBIT_TOOL_SEARCH`, `ORBIT_AGENTS` | Default `false`; passed to API and worker (Orbit Chat runs in the worker). Set to `true` in the Coolify environment variables and redeploy only after the matching approval in `docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`. |
-| Rollout flag | `ORBIT_SETTINGS_CENTER` | Settings center at `/manage` ([ADR 0027](../adr/0027-settings-center.md)); passed to the API, which reports the stage in `/api/me`. Three stages: `off` (default; `/manage` is not found, `/api/management/*` answers 404, nothing differs), `preview` (the center is reachable next to the old pages through one account-menu entry; every old page stays), `on` (old settings addresses open their center section, the sidebar has one entry for the center and no Connectors entry, links point to the center; the old pages still exist behind `preview` and `off`). Setting `preview` and setting `on` each need the owner's approval. Production: `on` since 2026-11-12 (set in Coolify, followed by a redeploy). Rollback: back to `preview` or `off` and redeploy; the flag has no data or schema. |
 | Optional integration | `OPENAI_API_KEY`, `OPENAI_VERIFIED_MODELS`, `OPENAI_RATE_CARD_JSON` | Leave blank until model, budget, and provider controls have been approved and verified. |
-| Optional integration | `ANTHROPIC_API_KEY`, `AI_DEFAULT_PROVIDER` | Bootstrap fallbacks for the Anthropic Claude provider; prefer the encrypted owner field under Settings → AI and leave these blank (`AI_DEFAULT_PROVIDER` defaults to `openai`). |
+| Optional integration | `ANTHROPIC_API_KEY`, `AI_DEFAULT_PROVIDER` | Bootstrap fallbacks for the Anthropic Claude provider; prefer the encrypted owner field under Administration & settings → AI → Providers and keys (project scope) and leave these blank (`AI_DEFAULT_PROVIDER` defaults to `openai`). |
 | Legacy only | `ORBIT_HOSTNAME` | Used only by the old Caddy standalone configuration under `infra/`; Coolify ignores it. |
 
 `ORBIT_IMAGE_TAG` is optional metadata for locally invoked Compose. Coolify builds the Git revision itself. Build arguments are not required and no secret is passed as a Docker build argument.

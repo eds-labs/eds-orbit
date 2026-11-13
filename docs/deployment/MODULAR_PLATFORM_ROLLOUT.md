@@ -50,7 +50,7 @@ If `migrate` fails:
 |---|---|---|
 | 1 | `GET https://orbit.eds-labs.io/api/health/ready` and `/api/health/postiz` | `{status: "ok", database: "ok", worker: "ready"}`; Postiz delivery not degraded |
 | 2 | Sign in, open uLiquid Desk | Home with Marketing and Knowledge sections. Navigation: Orbit Chat, Marketing pages, Knowledge, Approvals, Connectors, Operations, Settings |
-| 3 | Settings → Modules | Knowledge and Marketing "on"; "Switching modules is not enabled on this installation" |
+| 3 | Administration & settings → Modules → Modules and signals | Knowledge and Marketing "on"; "Switching modules is not enabled on this installation" |
 | 4 | Settings sections | Assignments/Autopilot, Policy & budget, Brand, Project, Integrations as before; policy and assignment card unchanged. (Since the UI restructure phase 5 the settings are grouped sections opened by `?section=`, not tabs.) |
 | 5 | Connectors | Postiz (channels), Matomo, Slack, Telegram (linked) in the former order |
 | 6 | Operations → AI runs and costs | Spend attributed as before |
@@ -77,7 +77,7 @@ Checks 1–7 right after the deployment; 8 and 9 at the next run and report. Inv
 
 Recommended: only after Step A has run cleanly for a few days, and never disable Marketing in uLiquid Desk. After the switch:
 1. Repeat checks 2, 3 and 5.
-2. Check that Settings → Modules now offers the toggle.
+2. Check that Administration & settings → Modules → Modules and signals now offers the toggle.
 
 To roll back, set the flag back to `false` and redeploy.
 

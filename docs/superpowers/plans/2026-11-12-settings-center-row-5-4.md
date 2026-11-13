@@ -57,7 +57,7 @@
 - Create `apps/web/src/platform/shell/old-address.tsx`: the screens for an old address that cannot be forwarded.
 - Modify `apps/web/src/components/orbit.tsx`, `platform/shell/{shell-links.ts,user-menu.tsx,nav-groups.ts,routes.ts,settings-nav.tsx,attention-list.tsx,shell-context.tsx}`, `platform/settings-center/{redirects.ts,capabilities.ts,types.ts}`, `modules/registry.ts`, `lib/api.ts`.
 - Delete page shells and code only they use (Task 3 lists them).
-- Modify API producers (Task 5 lists them), `packages/config/src/index.ts`, `apps/api/src/server.ts`, `apps/api/src/platform/management/{flag.ts,capabilities.ts,routes.ts}`, both compose files, `scripts/check-coolify-compose.mjs`, `.env.example`, `.github/workflows/orbit-ci.yml`; delete `scripts/e2e-stage-check.mjs`.
+- Modify API producers (Task 5 lists them), `packages/config/src/index.ts`, `apps/api/src/server.ts`, `apps/api/src/platform/management/{flag.ts,capabilities.ts,routes.ts}`, both compose files, `scripts/check-coolify-compose.mjs`, `.env.example`, `.github/workflows/orbit-ci.yml`; delete scripts/e2e-stage-check.mjs.
 
 ---
 
@@ -144,7 +144,7 @@
 
 **Files:**
 - Modify: `packages/config/src/index.ts`, `apps/api/src/server.ts` (the 404 gate, the `settingsCenter` field of `/api/me`), `apps/api/src/platform/management/capabilities.ts` (`stage`), `routes.ts`, `docker-compose.yml`, `docker-compose.pve.yml`, `scripts/check-coolify-compose.mjs`, `.env.example`, `docs/API_CONTRACT.md`
-- Delete: `apps/api/src/platform/management/flag.ts`
+- Delete: apps/api/src/platform/management/flag.ts
 - Test: `management-capabilities`, `management-ai`, `management-integrations`, `administration`, `access-matrix` integration tests
 
 - [ ] **Step 1:** In the tests, delete the cases "answers 404 while the flag is off" and the `/api/me` stage cases, remove the flag from their environment set-up, and add to `management-capabilities.integration.test.ts`: the answer has no `stage`; an unauthenticated request answers 401. Run: the new cases fail.
@@ -169,7 +169,7 @@
 
 **Files:**
 - Modify: `apps/web/tests/{settings-center.spec.ts,settings-center-ai.spec.ts,settings-center-on.spec.ts,settings-center-helpers.ts,navigation.spec.ts,workspace.spec.ts,administration.spec.ts,knowledge-workspace.spec.ts}`, `.github/workflows/orbit-ci.yml`
-- Delete: `scripts/e2e-stage-check.mjs`
+- Delete: scripts/e2e-stage-check.mjs
 
 - [ ] **Step 1:** Delete the five tests that assert old pages (the inventory's list: "keeps the old pages", "keeps the old connectors and social pages", "old AI pages keep working", "module settings links open their section of the grouped settings", "settings open by ?section and the legacy path forwards"); keep from the last one the legacy forwards as rows of the redirect walk. Remove the `stage` helper and every branch on it, keeping the center side; `settings-center-on.spec.ts` runs without its stage gate.
 - [ ] **Step 2:** Add to `settings-center-on.spec.ts`: an old address of a project the member has no access to shows "Not available" or "not found" and never an old page heading; with the capabilities request aborted (route interception) an old address shows the error and "Try again" loads the section; the Drive return address of Task 5 shows the Drive section.

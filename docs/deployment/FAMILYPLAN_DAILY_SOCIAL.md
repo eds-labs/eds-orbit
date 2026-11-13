@@ -78,7 +78,7 @@ Orbit does not crosspost. Mario checks in Meta that Instagram's "share to Facebo
 
 ## Policy and spend authority extension
 
-Before 2026-11-19 extend the marketing policy `endAt` (Settings → Policy) and the AI spend authority `endAt` (Settings → AI). Seven days ahead the owner gets the attention items `marketing_policy_expiring` and `platform_spend_authority_expiring` (counts and dates only, links to the place to extend). After expiry there are no slots and paid calls fail with `PAID_MANDATE_EXPIRED`.
+Before 2026-11-19 extend the marketing policy `endAt` (Administration & settings → Modules → Marketing → Publishing rules) and the AI spend authority `endAt` (Administration & settings → AI → Budget). Seven days ahead the owner gets the attention items `marketing_policy_expiring` and `platform_spend_authority_expiring` (counts and dates only, links to the place to extend). After expiry there are no slots and paid calls fail with `PAID_MANDATE_EXPIRED`.
 
 ## Rollback
 

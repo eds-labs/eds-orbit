@@ -6,7 +6,7 @@ Any system that can sign an HTTP request, n8n included, may send product problem
 
 ## Source and secret
 
-A project owner creates a source in Settings → Issues → Sources (`POST /api/projects/:projectId/issues/sources` with `{ "name": "…", "kind": "webhook" | "n8n" }`). The answer contains the source's `path` and its signing `secret`. The secret is shown **once**; store it in the sending system's credential store. Disabling a source drops its secret, and later deliveries are refused.
+A project owner creates a source in Administration & settings → Modules → Issues (Inbound sources) (`POST /api/projects/:projectId/issues/sources` with `{ "name": "…", "kind": "webhook" | "n8n" }`). The answer contains the source's `path` and its signing `secret`. The secret is shown **once**; store it in the sending system's credential store. Disabling a source drops its secret, and later deliveries are refused.
 
 ## Request
 
@@ -68,7 +68,7 @@ Unknown fields are dropped and never stored.
 | 413 / 415 | Body too large / not JSON. |
 | 429 | Rate limited. |
 
-A delivery that does not fit the contract, or that exceeds the project's daily report cap (Settings → Issues, default 500), is accepted at the door but recorded as rejected (`issues.intake.rejected`, `issues.intake.dropped`) and creates no report.
+A delivery that does not fit the contract, or that exceeds the project's daily report cap (Administration & settings → Modules → Issues, default 500), is accepted at the door but recorded as rejected (`issues.intake.rejected`, `issues.intake.dropped`) and creates no report.
 
 ## What happens next
 

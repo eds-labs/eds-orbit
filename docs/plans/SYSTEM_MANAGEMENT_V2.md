@@ -1,6 +1,6 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main`; phase 4 is on `main` since 2026-11-12 (section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is on `main` since 2026-11-12 (branch `claude/settings-center-phase-5`, section 10). The production flag is `on` since 2026-11-12 18:47 UTC (after `preview` at 18:39 UTC, both on Mario's instruction); the walk over old links in production is open, so `on` is not yet live-accepted. Row 5.4 and phase 6 are not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main`; phase 4 is on `main` since 2026-11-12 (section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is on `main` since 2026-11-12 (branch `claude/settings-center-phase-5`, section 10). The production flag is `on` since 2026-11-12 18:47 UTC (after `preview` at 18:39 UTC, both on Mario's instruction); the walk over old links in production is open, so `on` is not yet live-accepted. Row 5.4 (center addresses from the API, removal of the old pages and of the flag) is implemented on branch `claude/settings-center-row-5-4` (2026-11-13), reviewed, not pushed, not on `main` and not deployed (section 10, "Row 5.4 as built"); Mario accepted `on` and the plan's decisions on 2026-11-13. Phase 6 is not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
 This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
@@ -209,7 +209,7 @@ Sections are path segments, so every section has a stable address; `?section=` s
 
 ### 5.3 Old URL → new URL
 
-Applied only when the flag is `on` (5.7). Search and hash are kept unless mapped.
+Applied always since row 5.4 (before it, only with the flag value `on`, 5.7). Search and hash are kept unless mapped. The table is permanent: no row is removed.
 
 | Old | New |
 | --- | --- |
@@ -240,15 +240,15 @@ Differences between the table above and phase 5 as built (the table is `apps/web
 - Connectors (P5-R2): `/p/:id/connectors` lands on `/manage/p/:id/integrations/connections`.
 - Administration sections with an id (P5-R1): `/admin/users/:id` and `/admin/organizations/:id` keep the id. For any other section, `/admin/<section>/<id>` lands on the section and drops the id, because the old shell showed that section and ignored the id.
 - Module settings: a module tab key maps to `/manage/p/:id/modules/<module>/<section>`. A key a module shares with a platform tab follows the platform row. Only `policy` has a moved target (`ai`), used while Marketing is off in that project; while that is not known yet the redirect waits. The address of a module that is off or whose settings the member may not use still maps to the module's address in the center, which says the settings are not available; it never leads back to the old page.
-- Fallback (P5-D5): a redirect needs the member to be able to open the target. When the member lacks the target area, it goes to the first area of that scope they can open, and search and hash are dropped. When the scope is not available to the member (its flag is off or they hold no capability in it), the old page stays, so a non-administrator on `/admin` sees "not found" as before. While the member's capabilities load, the shell shows its loading screen; if they cannot be read, the old page stays.
-- Social accounts: the table maps the OAuth return to `/manage/p/:id/integrations/social/accounts`, and with the flag `on` the Social accounts page itself forwards a result it receives with `router.replace`. The page without `connected` or `error` stays and shows the accounts and a link (section 10, row 5.2).
+- Fallback (P5-D5, changed by P54-D3): a redirect needs the member to be able to open the target. When the member lacks the target area, it goes to the first area of that scope they can open, and search and hash are dropped. When the scope is not available to the member (its flag is off or they hold no capability in it), the center's "Not available" message shows with a link to the start page; since row 5.4 there is no old page to stay on (phase 5 as delivered kept the old page). While the member's capabilities load, the shell shows its loading screen; if they cannot be read, an error with "Try again" shows. One more exception (P54-D4): a system administrator who is not an owner of the organization and opens `/o/:id/settings` lands on `/manage/system/organizations/:id`, search and hash dropped.
+- Social accounts: the table maps the OAuth return to `/manage/p/:id/integrations/social/accounts`, and the Social accounts page itself forwards a result it receives with `router.replace`. The page without `connected` or `error` stays and shows the accounts and a link (section 10, row 5.2).
 - Every redirect uses `router.replace`; a `/manage…` address is never mapped; the table leaves every other address alone (`/connect…`, `/invite`, `/reset-password`, `/account/confirm-email`, `/data-deletion`, `/o/:id/agents`, module pages).
 
-Links sent by the API (attention items, signals, run notices: `/settings?section=ai`, `policy`, `finance-mailboxes`, `finance-currencies`) keep their old form until row 5.4 (not implemented) and resolve through this table; the table stays permanently.
+Links sent by the API (attention items, signals, notifications, run notices, Telegram buttons, the Drive return) name center addresses since row 5.4 (P54-D7, section 10): budget and spending-authority items lead to `ai/budget`, the Drive return to `integrations/google-drive`, and every other link equals what this table gives for the old address. Stored links and messages already sent keep their old form (`/settings?section=ai`, `policy`, `finance-mailboxes`, `finance-currencies` and the like) and resolve through this table; the table stays permanently.
 
 ### 5.4 Google Drive return
 
-The callback redirects to `${APP_ORIGIN}/settings?googleDrive=…` without the project, although it knows the project from the OAuth state. The browser then lands in the last project stored in `localStorage`, which can be another project. Phase 3 (task 3.7, done) changes the redirect to `/p/<projectId>/settings?googleDrive=…`, with the id of the project the member's access was checked against, not a query value. That address works with the old page and, through 5.3, with the new one.
+The callback redirects to `${APP_ORIGIN}/settings?googleDrive=…` without the project, although it knows the project from the OAuth state. The browser then lands in the last project stored in `localStorage`, which can be another project. Phase 3 (task 3.7, done) changes the redirect to `/p/<projectId>/settings?googleDrive=…`, with the id of the project the member's access was checked against, not a query value. That address works with the old page and, through 5.3, with the new one. Row 5.4 (P54-D7) changes it once more, to `${APP_ORIGIN}/manage/p/<projectId>/integrations/google-drive?googleDrive=ready|choose-root`; a sign-in started before that delivery still returns to the `/p/<projectId>/settings` address, which the table resolves.
 
 ### 5.5 Web components (`apps/web/src/platform/settings-center/`)
 
@@ -304,7 +304,9 @@ All are **read-only**, need no schema change and no new permission, return expli
 
 Two small changes to existing writes, both additive: the AI profile `PUT` accepts an expected version (the column exists) and answers 409 on a stale copy (F-8); the Drive callback redirect (5.4).
 
-### 5.7 Feature flag
+### 5.7 Feature flag (history: removed with row 5.4)
+
+The flag no longer exists on the row 5.4 branch: the center is unconditional, the stage is gone from `/api/me` (except the constant `settingsCenter: "on"` kept for one release for open tabs on the previous bundle, ruling R54-5), from the capabilities answer, both compose files, `scripts/check-coolify-compose.mjs` and CI, and `/api/management/*` is always registered with its own authentication. The variable in Coolify is unused and can be deleted. What follows describes the flag as it was used in phases 2 to 5.
 
 `ORBIT_SETTINGS_CENTER` with three values, default `off`:
 
@@ -314,7 +316,7 @@ Two small changes to existing writes, both additive: the AI profile `PUT` accept
 | `preview` | The center is reachable (user menu entry, `/manage`). All old pages and links stay as they are. |
 | `on` | The navigation points to the center and old URLs redirect (5.3). |
 
-The web learns the value from `/api/me`. The scopes follow their existing flags: system and organization need `ORBIT_ADMINISTRATION`, the account `ORBIT_ACCOUNT`, integrations and central AI `ORBIT_CONNECTIONS`. The flag is added the way earlier flags were (config schema, `.env.example`, both compose files and their hash, `scripts/check-coolify-compose.mjs`, a route predicate in the `onRequest` hook with a rule test, the access-matrix environment). It is removed in phase 6 together with the old pages.
+The web learns the value from `/api/me`. The scopes follow their existing flags: system and organization need `ORBIT_ADMINISTRATION`, the account `ORBIT_ACCOUNT`, integrations and central AI `ORBIT_CONNECTIONS`. The flag is added the way earlier flags were (config schema, `.env.example`, both compose files and their hash, `scripts/check-coolify-compose.mjs`, a route predicate in the `onRequest` hook with a rule test, the access-matrix environment). It was removed with the old pages in row 5.4, not in phase 6.
 
 ### 5.8 Integrations center
 
@@ -456,7 +458,7 @@ Prerequisite to check before production: which of `ORBIT_AI_CATALOG`, `ORBIT_AI_
 
 ## 10. Phase 5: module settings, redirects, removal
 
-Status (2026-11-12): rows 5.1 to 5.3, the F-5 fix and the public access section are implemented on branch `claude/settings-center-phase-5` and delivered to `main` on 2026-11-12. The production flag is `on` since 2026-11-12 18:47 UTC (`preview` at 18:39 UTC before it). Row 5.4 is not implemented; it gets its own plan after the flag value `on` is accepted in production. Implementation plan: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md); the state of the work and its verification are in `docs/IMPLEMENTATION_STATUS.md`, the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md`.
+Status (2026-11-12): rows 5.1 to 5.3, the F-5 fix and the public access section are implemented on branch `claude/settings-center-phase-5` and delivered to `main` on 2026-11-12. The production flag is `on` since 2026-11-12 18:47 UTC (`preview` at 18:39 UTC before it). Row 5.4 is implemented on branch `claude/settings-center-row-5-4` (2026-11-13) and not delivered; it is described under "Row 5.4 as built" below. Implementation plan: [2026-11-12-settings-center-phase-5.md](../superpowers/plans/2026-11-12-settings-center-phase-5.md); the state of the work and its verification are in `docs/IMPLEMENTATION_STATUS.md`, the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md`.
 
 What was built per row:
 
@@ -493,9 +495,43 @@ Known limits: the key revocation is not one atomic step, because the key row liv
 | 5.1 | Modules add the registry metadata (category, scope, required permission, canonical route, optional provider) to their sections; the adapter becomes the only path. As built: module sections carry an id, both titles and descriptions, and optional search words, validated in tests (`validateModuleSections`); no declared access floor (P5-D6); the adapter is used for the center. Not built: category, scope, required permission, canonical route and provider as declared metadata, and the adapter as the only path (the old settings page still reads the module sections as before until row 5.4). | registry validation; a disabled module contributes nothing |
 | 5.2 | Module pages that duplicated central configuration keep state and a link (social accounts, Knowledge GitHub, mailbox choice in Support and Finance). | module suites; links resolve |
 | 5.3 | Flag `on`: redirect table (5.3) in the shell; navigation points to the center. | every row of 5.3 as a unit test; Playwright for bookmarks, `?section=`, `googleDrive`, the social return, attention links |
-| 5.4 | After acceptance of 5.3 in production: API-sent links switch to the new addresses; remove `ProjectSettings`, `Connectors`, the admin area's own navigation, the unsectioned organization page and dead code. The redirect table stays. | full suite; `navigation.spec.ts`, `workspace.spec.ts`, `administration.spec.ts` updated |
+| 5.4 | After acceptance of 5.3 in production: API-sent links switch to the new addresses; remove `ProjectSettings`, `Connectors`, the admin area's own navigation, the unsectioned organization page and dead code. The redirect table stays. | full suite; `navigation.spec.ts`, `workspace.spec.ts`, `administration.spec.ts` updated | As built on the branch (not delivered): see "Row 5.4 as built" below; the old pages, the flag and the stage are gone, the table stays.
 
 Nothing in this phase deletes stored settings or data. The review's deferred minors and known limits are recorded in `docs/IMPLEMENTATION_STATUS.md` only.
+
+### Row 5.4 as built (2026-11-13, branch `claude/settings-center-row-5-4`; implemented and reviewed, not pushed, not on `main`, not deployed)
+
+Implementation plan: [2026-11-12-settings-center-row-5-4.md](../superpowers/plans/2026-11-12-settings-center-row-5-4.md). Mario confirmed the plan, its decisions and his acceptance of the flag value `on` on 2026-11-13. The state of the work and the review results are in `docs/IMPLEMENTATION_STATUS.md` (entry "row 5.4"), the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md` (block "row 5.4"). No schema, migration, dependency, role, permission or write-path change; no stored data changes.
+
+What was built, in the order of the commits:
+
+- The web no longer reads a stage: link helpers, the user menu, the redirect context and the capabilities state have only the former `on` side.
+- An old address never renders an old page: it forwards, waits, shows "Not available" with a link to the start page, or shows an error with "Try again" (section 5.3, fallback bullet).
+- The old page shells are deleted (`ProjectSettings`, the page head of `Connectors`, `AiSettings` and `AiSettingsView`, the keys modal, `AdminArea` with its navigation, the `OrganizationIntegrations` component, three helpers of `settings-nav.tsx`, the page components of the routes `settings`, `connectors`, `account` and `account-assistant`). The panels that the center mounts stay.
+- The web's own links and the links the API sends name the center section; `apps/api/tests/fixtures/center-links.json` and `apps/web/src/platform/settings-center/api-links.test.tsx` keep the two sides in step.
+- The flag is removed (section 5.7); `/api/management/*` is always registered.
+- Texts that name an old settings place name the center's path instead; tree scans keep it that way.
+- The browser suite has one settings surface and CI has one browser job.
+
+Decisions of the plan, as built (confirmed by Mario on 2026-11-13):
+
+- P54-D1: one delivery after the acceptance of `on`; rollback is a revert of the delivery's commits, grouped so that a part can be reverted alone (links, old addresses, deletions, flag).
+- P54-D2: `ORBIT_SETTINGS_CENTER` is removed everywhere; `/api/me` loses `settingsCenter` (but see R54-5), the capabilities answer loses `stage`, `/api/management/*` is always registered with its own authentication. The variable in Coolify is unused.
+- P54-D3: an old address whose scope the member cannot open shows "Not available" with a link home; a failed capabilities request shows an error with "Try again"; the fallback to the first open area stays.
+- P54-D4: a system administrator who is not an owner of the organization and opens `/o/:id/settings` lands on `/manage/system/organizations/:id`; the organization's connections and AI panels are no longer reachable for them (D-9).
+- P54-D5: stored notification links and messages already sent are not rewritten.
+- P54-D6: the Social OAuth return keeps landing on the module's accounts page, which forwards to the center.
+- P54-D7: where a section fits better than the table's area, the API's links name it (budget and spending authority to `ai/budget`, the Drive return to `integrations/google-drive`); every other link equals what the table gives.
+
+Rulings during the work:
+
+- R54-1: the absence test for the deleted export reads the module's export names.
+- R54-2: the stale Drive callback sentence in `docs/API_CONTRACT.md` was fixed together with the API change.
+- R54-3: Finance's empty-state "Open settings" keeps the table's target (the project overview); a Finance section would be a behaviour change and stays a follow-up.
+- R54-4: the scoped re-review of the browser tests' fix was folded into the whole-branch review.
+- R54-5: `/api/me` keeps the constant `settingsCenter: "on"` for one release, so that browser tabs that still run the previous web bundle do not show "not found" for an open `/manage` page after their next `/api/me`. This deviates from P54-D2 and costs one follow-up removal in the next delivery.
+
+Done differently from the original row 5.4: the row named the removal of "the unsectioned organization page" and dead code; the organization page's panels stay in the center and only its page branch is gone. The row did not name the flag's removal (it was planned for phase 6), the stage in the capabilities answer, the CI job `browser-settings-center-on`, the three things that existed only in a shell (the "AI providers" pointer panel is dropped, the keys modal is replaced by the Public access section, the old page head texts are dropped), the one-release constant (R54-5) or the exact link targets of P54-D7. The row said API-sent links "switch to the new addresses"; the as-built rule is that they equal the table's result except for the two P54-D7 cases and the Social, Marketing and Finance items listed in the status entry.
 
 ## 11. Decisions (Mario, 2026-11-11)
 
@@ -524,13 +560,15 @@ Mario took every recommendation as the decision.
 
 **New (web):** `apps/web/src/platform/settings-center/` as listed in 5.5, each with its test file; `apps/web/tests/settings-center.spec.ts`.
 
-**New (API):** `apps/api/src/platform/management/` (`routes.ts`, `capabilities.ts`, `integrations-catalog.ts`, `project-integrations.ts`, `organization-integrations.ts`, `ai-effective.ts`, `ai-projects.ts`, `flag.ts`); tests `management-capabilities`, `management-integrations`, `management-ai`, `management-route-rule` in `apps/api/tests/`.
+**New (API):** `apps/api/src/platform/management/` (`routes.ts`, `capabilities.ts`, `integrations-catalog.ts`, `project-integrations.ts`, `organization-integrations.ts`, `ai-effective.ts`, `ai-projects.ts`, flag.ts); tests `management-capabilities`, `management-integrations`, `management-ai`, `management-route-rule` (the last and flag.ts deleted in row 5.4) in `apps/api/tests/`.
 
-**Changed (web):** `platform/shell/routes.ts`, `routes.test.tsx`, `types.ts`, `settings-nav.tsx`, `nav-groups.ts`, `user-menu.tsx`, `sidebar-nav.tsx`; `components/orbit.tsx`, `workspace-context.tsx`; `modules/registry.ts` and each module manifest that contributes settings or integrations; `components/ai-settings.tsx`, `ai-model-choice.tsx`, `spend-policy.tsx`, `platform/administration/ai-knowledge-ui.tsx` (4.3); `lib/api.ts`, `lib/i18n.ts`, `lib/exception-text.ts`; `app/globals.css`. Removed in 5.4: the page shells in `components/management.tsx` and `platform/administration/admin-area.tsx` (their panels stay).
+**Changed (web):** `platform/shell/routes.ts`, `routes.test.tsx`, `types.ts`, `settings-nav.tsx`, `nav-groups.ts`, `user-menu.tsx`, `sidebar-nav.tsx`; `components/orbit.tsx`, `workspace-context.tsx`; `modules/registry.ts` and each module manifest that contributes settings or integrations; `components/ai-settings.tsx`, `ai-model-choice.tsx`, `spend-policy.tsx`, `platform/administration/ai-knowledge-ui.tsx` (4.3); `lib/api.ts`, `lib/i18n.ts`, `lib/exception-text.ts`; `app/globals.css`. Removed in 5.4: the page shells in `components/management.tsx`, `components/ai-settings.tsx`, `components/public-keys.tsx` (the modal) and `platform/administration/admin-area.tsx`, and the file platform/administration/organization-integrations.tsx (their panels stay).
 
 **Changed (API):** `packages/config/src/index.ts`; `apps/api/src/server.ts` (`/api/me`, hook, Drive redirect); `platform/administration/ai-profiles.ts` (expected version); `platform/ai/mcp-tools.ts` (logic moves to the shared service); `packages/module-contracts` (integration descriptors); module contributions for social, marketing, knowledge, issues, webmail; `apps/api/tests/fixtures/access-matrix.json`; OpenAPI and the generated client.
 
 **Changed (operations and docs):** `.env.example`, `docker-compose.yml`, `docker-compose.pve.yml`, `docker-compose.pve.source.sha256`, `scripts/check-coolify-compose.mjs`; `docs/adr/0027-settings-center.md` (new), `docs/DESIGN_SYSTEM.md`, `docs/API_CONTRACT.md`, `docs/MODEL_ROUTING.md`, `docs/IMPLEMENTATION_STATUS.md`, `docs/REQUIREMENTS_TRACEABILITY.md`, `docs/deployment/COOLIFY.md`.
+
+**Row 5.4 (branch `claude/settings-center-row-5-4`):** new `apps/api/src/platform/management/links.ts`, `apps/api/src/modules/social/links.ts`, `apps/api/tests/center-links.test.ts`, `apps/api/tests/fixtures/center-links.json`, `apps/web/src/platform/shell/old-address.tsx`, `apps/web/src/platform/settings-center/{admin-places.ts,api-links.test.tsx,place-words.test.tsx}`, `apps/web/src/lib/safe-link.ts`, `scripts/place-words-scan.ts`. Deleted: the former apps/api/src/platform/management/flag.ts and its rule test management-route-rule.test.ts, the former apps/web/src/platform/administration/organization-integrations.tsx, the former scripts/e2e-stage-check.mjs. Changed for the flag: `packages/config/src/index.ts`, `.env.example`, `docker-compose.yml`, `docker-compose.pve.yml` with `docker-compose.pve.source.sha256`, `scripts/check-coolify-compose.mjs`, `.github/workflows/orbit-ci.yml` (the job `browser-settings-center-on` and its guard step are gone).
 
 **Database:** no migration, no schema hash change.
 
@@ -553,7 +591,7 @@ Mario took every recommendation as the decision.
 | Two UIs in parallel confuse members during `preview` | `preview` only adds a menu entry; no old link changes |
 | Scope creep into backend rebuilds | Section 12; every endpoint in 5.6 is read-only |
 
-**Rollback.** Per stage: set the flag back (`on` → `preview` → `off`) and redeploy. There is no data or schema to undo. Until 5.4 the old pages exist in the code; after 5.4, rollback is a revert of that commit. The two additive write changes (profile version check, Drive redirect) are compatible with the old UI and stay.
+**Rollback.** Per stage: set the flag back (`on` → `preview` → `off`) and redeploy. There is no data or schema to undo. Until 5.4 the old pages exist in the code; after 5.4 there is no flag any more, and rollback is a revert of the delivery's commits (row 5.4's commits are grouped as links, old addresses, deletions and flag, so a part can be reverted alone). The variable in Coolify is unused after row 5.4 and can be deleted. A revert brings the flag back with its default `off` unless the variable is set, so delete the variable only after the delivery is accepted; with it deleted, a revert needs it set to `on` again to keep the center. The two additive write changes (profile version check, Drive redirect) are compatible with the old UI and stay.
 
 ## 15. Phase 6: tests, acceptance criteria and rollout
 
@@ -587,7 +625,7 @@ Mario took every recommendation as the decision.
 1. Phase 2 to `main`, flag `off`. Then `preview` in production; smoke test with Mario's session.
 2. Phase 3, then phase 4, each to `main` under `preview`, each followed by a production smoke test (read-only first, then one edit per area).
 3. Flag `on` (5.3). Regression and smoke tests on old links.
-4. After acceptance: 5.4, then removal of the flag.
+4. After acceptance: 5.4 (done on its branch, 2026-11-13, which also removes the flag).
 
 Each push to `main` and each flag change needs Mario's approval.
 

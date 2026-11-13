@@ -43,8 +43,8 @@ First `marketing_policy_get` (version 1), then `marketing_policy_update`:
 
 Embeddings, which the live RAG evaluation needs, and images need an OpenAI key for FamilyPlan. MCP never takes keys. Choose one:
 
-- **a) Central:** Administration → Connections: create an OpenAI connection in the organization with the existing key, and grant it to FamilyPlan with purposes `text` and `image` and a monthly budget.
-- **b) Project:** Orbit → FamilyPlan → Settings → AI: add the OpenAI key.
+- **a) Central:** Administration & settings → the organization → Integrations → Connections: create an OpenAI connection in the organization with the existing key, and grant it to FamilyPlan with purposes `text` and `image` and a monthly budget.
+- **b) Project:** in the FamilyPlan project, Administration & settings → AI → Providers and keys: add the OpenAI key.
 
 Then select the models with `ai_models_update`. `text-embedding-3-small` must be verified and priced globally (`OPENAI_VERIFIED_MODELS` / `OPENAI_RATE_CARD_JSON` in the deployment); `ai_models_get` → `candidates` shows `source: "global"` and `price: "current"`. The image ceiling (`imageGeneration.maxCostMicrosPerImage`, `pricingVerifiedAt`) needs a price checked by Mario on the official OpenAI pricing page; Orbit does not invent one.
 
@@ -71,7 +71,7 @@ If the corpus changes after `begin_index`, the chunk ids change and the dataset 
 
 ## 5. Matomo (administration, then MCP)
 
-1. **Grant.** Administration → Connections: grant an existing Matomo connection with read access to FamilyPlan. If none exists, create it for the existing Matomo instance with a token; no new Matomo instance is needed.
+1. **Grant.** Administration & settings → the organization → Integrations → Connections: grant an existing Matomo connection with read access to FamilyPlan. If none exists, create it for the existing Matomo instance with a token; no new Matomo instance is needed.
 2. **Bind.** `integrations_configure` `attach_connection` with `connectionId` and the FamilyPlan `siteId`, then approve.
 3. **Verify.** `integration_verify` target `matomo` with the `connectorId`; afterwards `MATOMO_READ_VERIFICATION_REQUIRED` clears.
 
