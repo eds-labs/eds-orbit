@@ -1,8 +1,12 @@
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   AI_LABEL_TEXT,
+  CreativeError,
+  digitalSourceTypeFor,
+  readImageProvenance,
   type AiLabelResult,
   type Box,
+  type EmbeddedProvenance,
   type ImageOrigin,
   type LayerRecord,
 } from "../../../../../../packages/creative/src/index.ts";
@@ -12,6 +16,8 @@ import {
   assertAiLabelPublishable,
   imageProvenance,
   labelFinalImage,
+  recordOriginalUpload,
+  recordUnlabeledSource,
 } from "../../../platform/provenance/image-provenance.ts";
 import { create, data, DomainError } from "../../../shared.ts";
 import { assetBytes } from "../../assets.ts";
@@ -295,7 +301,9 @@ export async function missionAssetId(
  * The publish gate for an asset's exact bytes in the caller's transaction:
  * null when they may leave Orbit (or the flag is off), else the refusal code
  * (`AI_LABEL_MISSING`, `AI_LABEL_INVALID`). The asset's AI origin (also of
- * assets made before ADR 0028) is the declared origin.
+ * assets made before ADR 0028) is the declared origin. `audit: false` is for
+ * checks that only inform (preflight, also run for UI previews): no
+ * `image.ai_label.blocked` record; outbound gates keep the default (true).
  */
 export async function aiLabelBlocker(
   tx: DbTx,
@@ -303,6 +311,7 @@ export async function aiLabelBlocker(
   asset: Record<string, any>,
   bytes: Buffer,
   context: string,
+  options: { audit?: boolean } = {},
 ): Promise<string | null> {
   if (!aiImageLabelsEnabled()) return null;
   try {
@@ -310,6 +319,7 @@ export async function aiLabelBlocker(
       bytes,
       declaredOrigin: await assetAiOrigin(tx, scope, asset),
       context,
+      audit: options.audit !== false,
     });
     return null;
   } catch (error) {
@@ -335,4 +345,72 @@ export async function assertAssetPublishable(
     aiLabelBlocker(tx, scope, asset, bytes, context),
   );
   if (code) throw new DomainError(code, 409);
+}
+
+/**
+ * What an upload's ORIGINAL bytes declare about themselves (ADR 0028 §6),
+ * read before normalization strips their XMP and C2PA. Null with the flag
+ * off. Bytes the reader cannot open are refused like any invalid image.
+ */
+export async function readUploadProvenance(
+  original: Buffer,
+): Promise<EmbeddedProvenance | null> {
+  if (!aiImageLabelsEnabled()) return null;
+  try {
+    return await readImageProvenance(original);
+  } catch (error) {
+    if (error instanceof CreativeError)
+      throw new DomainError("ASSET_IMAGE_INVALID");
+    throw error;
+  }
+}
+
+/**
+ * The asset fields of an upload whose original bytes declare AI: it is AI
+ * source material (`unlabeled_source`), so compositions over it are
+ * labelled, a direct attach gets a labelled derivative and preflight blocks
+ * the raw upload. Nothing for any other upload (or with the flag off).
+ */
+export const uploadAssetFields = (original: EmbeddedProvenance | null) =>
+  original?.declaresAi
+    ? {
+        aiProvenance: aiProvenanceField(
+          "ai_generated",
+          "unlabeled_source",
+          digitalSourceTypeFor("ai_generated"),
+        ),
+      }
+    : {};
+
+/**
+ * Records the stored (normalized) bytes of an uploaded asset (ADR 0028 §6):
+ * AI-declaring originals as `unlabeled_source` with the original's embedded
+ * provenance (a C2PA manifest store is kept with the record); anything else
+ * as `original_upload`, which never gets a label. Null with the flag off.
+ */
+export async function recordUploadProvenance(
+  tx: DbTx,
+  scope: Scope,
+  input: {
+    original: EmbeddedProvenance | null;
+    stored: Buffer;
+    assetId: string;
+    createdBy?: string;
+  },
+) {
+  if (!input.original || !aiImageLabelsEnabled()) return null;
+  const subject = { module: "marketing", kind: "asset", id: input.assetId };
+  const createdBy = input.createdBy || scope.userId;
+  if (input.original.declaresAi)
+    return recordUnlabeledSource(tx, scope, {
+      bytes: input.stored,
+      origin: "ai_generated",
+      subject,
+      createdBy,
+      embedded: input.original,
+    });
+  // Stored bytes already recorded as AI (an earlier AI upload of the same
+  // pixels) keep that record; the gate then decides by it.
+  return (await recordOriginalUpload(tx, scope, { bytes: input.stored, subject, createdBy }))
+    .provenance;
 }

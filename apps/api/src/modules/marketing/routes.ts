@@ -46,6 +46,11 @@ import {
   saveMarketingProfile,
 } from "./brand/marketing-profile.ts";
 import { generateProjectImage } from "./brand/image-generation.ts";
+import {
+  readUploadProvenance,
+  recordUploadProvenance,
+  uploadAssetFields,
+} from "./brand/ai-labels.ts";
 import { handleSlackInteraction } from "./publishing/slack.ts";
 import {
   readMarketingSettings,
@@ -436,16 +441,26 @@ export const marketingRoutes: RoutesContribution = (context) => {
     async (req, reply) => {
       const { projectId } = req.params as { projectId: string };
       const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      const normalized = await normalizeBrandAsset(
-        brandAssetUploadInput.parse(req.body),
+      const input = brandAssetUploadInput.parse(req.body);
+      const normalized = await normalizeBrandAsset(input);
+      // ADR 0028 §6: what the original bytes declare (normalizing strips
+      // their XMP and C2PA); null with the label flag off.
+      const original = await readUploadProvenance(
+        Buffer.from(input.base64, "base64"),
       );
       const row = await scoped(scope.workspaceId, projectId, async (tx) => {
         const asset = await create(tx, scope, "assets", {
           ...normalized,
+          ...uploadAssetFields(original),
           assetStatus: "reference",
           usageApproved: false,
           uploadedBy: scope.userId,
           uploadedAt: new Date().toISOString(),
+        });
+        await recordUploadProvenance(tx, scope, {
+          original,
+          stored: Buffer.from(normalized.base64, "base64"),
+          assetId: asset.id,
         });
         await audit(tx, scope, "asset.upload", asset.id, {
           type: normalized.type,

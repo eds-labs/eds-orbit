@@ -5,6 +5,11 @@ import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, DomainError, list, update } from "../../../shared.ts";
 import {
+  readUploadProvenance,
+  recordUploadProvenance,
+  uploadAssetFields,
+} from "./ai-labels.ts";
+import {
   driveAccessToken as accessToken,
   driveChildren as children,
   driveContains as isWithin,
@@ -62,6 +67,9 @@ export async function importDriveFile(
     !meta.mimeType.startsWith("image/")
   )
     throw new DomainError("GOOGLE_DRIVE_IMAGE_REQUIRED", 415);
+  // No bytes are read here, so no provenance is recorded (ADR 0028 §6): the
+  // publish gate checks the bytes whenever they are read for an outbound
+  // path, including their own XMP/C2PA declaration of AI.
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const prior = (await list(tx, scope, "assets")).find(
       (row) => data(row).driveFileId === fileId,
@@ -316,6 +324,11 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
     .parse(raw);
   const { folderId: selectedFolderId, ...assetInput } = input;
   const normalized = await normalizeBrandAsset(assetInput);
+  // ADR 0028 §6: what the original bytes declare (normalizing strips their
+  // XMP and C2PA); null with the label flag off.
+  const original = await readUploadProvenance(
+    Buffer.from(assetInput.base64, "base64"),
+  );
   const conf = await storage(scope),
     token = await accessToken(scope);
   const folderId = selectedFolderId ?? conf.rootFolderId;
@@ -353,8 +366,8 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       body,
     },
   );
-  return scoped(scope.workspaceId, scope.projectId, (tx) =>
-    create(tx, scope, "assets", {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const asset = await create(tx, scope, "assets", {
       name: input.name,
       type: input.type,
       mime,
@@ -378,8 +391,16 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       driveSyncStatus: "SYNCED",
       uploadedBy: scope.userId,
       uploadedAt: new Date().toISOString(),
-    }),
-  );
+      ...uploadAssetFields(original),
+    });
+    // The record follows the bytes stored in Drive (PNG or WebP).
+    await recordUploadProvenance(tx, scope, {
+      original,
+      stored: bytes,
+      assetId: asset.id,
+    });
+    return asset;
+  });
 }
 export async function markSyncFailed(scope: Scope, assetId: string) {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
