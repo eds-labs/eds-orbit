@@ -231,12 +231,143 @@ async function regionLuminance(sharp: Sharp, bytes: Buffer, box: Box) {
 }
 
 /**
+ * Which pixels of a label box of `w`×`h` the check reads: the letter cores
+ * (fully inside a stroke of the expected letters) and the plate (at least
+ * `spread` away from every letter, off the rounded corners and the border).
+ * Drawing and checking use the same classes, so they agree by construction.
+ */
+async function labelPixelClasses(sharp: Sharp, w: number, h: number) {
+  const { data: mask } = await sharp(labelSvg(w, h, "mask"))
+    .ensureAlpha()
+    .extractChannel(3)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const ink = new Uint8Array(w * h);
+  for (let i = 0; i < ink.length; i++) ink[i] = mask[i]! > 0 ? 1 : 0;
+  const spread = Math.max(1, Math.round(h * 0.06));
+  const nearInk = dilate(ink, w, h, spread);
+  const radius = Math.ceil(h * 0.28);
+  const edge = Math.max(1, Math.round(h * 0.04));
+  const text: number[] = [];
+  const plate: number[] = [];
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (mask[i]! >= 250) text.push(i);
+      else if (!nearInk[i]) {
+        const cornerX = x < radius || x >= w - radius;
+        const cornerY = y < radius || y >= h - radius;
+        const border = x < edge || y < edge || x >= w - edge || y >= h - edge;
+        if (!(cornerX && cornerY) && !border) plate.push(i);
+      }
+    }
+  return { text: Uint32Array.from(text), plate: Uint32Array.from(plate) };
+}
+
+/**
+ * Square dilation of a 0/1 mask by `r` pixels (every pixel within `r` in x
+ * and y of a set pixel). Separable, with running window counts: a
+ * horizontal pass, then a vertical one, O(pixels) whatever `r` is.
+ */
+function dilate(src: Uint8Array, w: number, h: number, r: number) {
+  const horizontal = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let count = 0;
+    for (let x = 0; x < Math.min(r, w); x++) count += src[row + x]!;
+    for (let x = 0; x < w; x++) {
+      if (x + r < w) count += src[row + x + r]!;
+      if (x - r - 1 >= 0) count -= src[row + x - r - 1]!;
+      horizontal[row + x] = count > 0 ? 1 : 0;
+    }
+  }
+  const out = new Uint8Array(w * h);
+  for (let x = 0; x < w; x++) {
+    let count = 0;
+    for (let y = 0; y < Math.min(r, h); y++) count += horizontal[y * w + x]!;
+    for (let y = 0; y < h; y++) {
+      if (y + r < h) count += horizontal[(y + r) * w + x]!;
+      if (y - r - 1 >= 0) count -= horizontal[(y - r - 1) * w + x]!;
+      out[y * w + x] = count > 0 ? 1 : 0;
+    }
+  }
+  return out;
+}
+
+/** The `p` quantile (0..1) of the values, by nearest rank. */
+function quantile(sorted: Float64Array, p: number) {
+  const at = Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))));
+  return sorted[at]!;
+}
+
+/**
+ * The legibility criterion shared by drawing and checking. With `textAbove`
+ * the letters are lighter than the plate on average, and the plate pixels
+ * nearest to the letters are the plate's 90th luminance percentile toward
+ * them (`plateNear`). The label reads when
+ * - the mean letter luminance reaches 3:1 against `plateNear`,
+ * - 90 % of the plate lies on the far side of the mean letter luminance
+ *   with at least 2.5:1 against it, and
+ * - 90 % of the letter cores lie beyond `plateNear` with at least 2.5:1.
+ * A two-tone or noisy plate passes as long as all of it stays clearly apart
+ * from the letters; a missing, covered, cut or different text fails because
+ * its letter cores then share the plate's luminance.
+ */
+function legibility(text: Float64Array, plate: Float64Array) {
+  const mean = (values: Float64Array) => {
+    let sum = 0;
+    for (const v of values) sum += v;
+    return sum / values.length;
+  };
+  const lt = mean(text);
+  const textAbove = lt > mean(plate);
+  const sortedPlate = Float64Array.from(plate).sort();
+  const plateNear = quantile(sortedPlate, textAbove ? 0.9 : 0.1);
+  const contrast = contrastRatio(lt, plateNear);
+  const share = (values: Float64Array, test: (v: number) => boolean) => {
+    let n = 0;
+    for (const v of values) if (test(v)) n++;
+    return n / values.length;
+  };
+  const plateApart = share(
+    plate,
+    (v) => (textAbove ? v < lt : v > lt) && contrastRatio(v, lt) >= 2.5,
+  );
+  const textApart = share(
+    text,
+    (v) =>
+      (textAbove ? v > plateNear : v < plateNear) &&
+      contrastRatio(v, plateNear) >= 2.5,
+  );
+  return {
+    ok:
+      (textAbove ? lt > plateNear : lt < plateNear) &&
+      contrast >= 3 &&
+      plateApart >= 0.9 &&
+      textApart >= 0.9,
+    contrast: Math.round(contrast * 100) / 100,
+  };
+}
+
+const pick = (lum: Float64Array, indices: Uint32Array) => {
+  const out = new Float64Array(indices.length);
+  for (let i = 0; i < indices.length; i++) out[i] = lum[indices[i]!]!;
+  return out;
+};
+
+/**
  * The plate colours for a region: a dark plate with white letters on dark or
  * mid backgrounds, a light plate with near-black letters on light ones. The
  * plate starts translucent (0.6) and gets more opaque until the letters
- * reach 4.5:1 against even the brightest (or darkest) 5 % of the plate.
+ * reach 4.5:1 against even the brightest (or darkest) 5 % of the plate and
+ * the predicted plate passes the same legibility criterion `verifyAiLabel`
+ * applies afterwards.
  */
-function chooseColours(rgb: Buffer, lum: Float64Array): LabelColours & {
+function chooseColours(
+  rgb: Buffer,
+  lum: Float64Array,
+  classes: { plate: Uint32Array },
+): LabelColours & {
   scheme: "dark" | "light";
   contrast: number;
 } {
@@ -244,7 +375,9 @@ function chooseColours(rgb: Buffer, lum: Float64Array): LabelColours & {
   const scheme = mean > 0.4 ? "light" : "dark";
   const plate = scheme === "light" ? 255 : 0;
   const text = scheme === "light" ? "#111111" : "#FFFFFF";
-  for (let opacity = 0.6; opacity <= 0.96 + 1e-9; opacity += 0.06) {
+  const textLum = Float64Array.of(scheme === "light" ? LINEAR_CHANNEL[0x11]! : 1);
+  for (let step = 0; step <= 6; step++) {
+    const opacity = 0.6 + step * 0.06;
     const blended = new Float64Array(lum.length);
     for (let i = 0; i < lum.length; i++) {
       const c = (k: number) =>
@@ -254,6 +387,7 @@ function chooseColours(rgb: Buffer, lum: Float64Array): LabelColours & {
         0.7152 * LINEAR_CHANNEL[c(1)]! +
         0.0722 * LINEAR_CHANNEL[c(2)]!;
     }
+    const predictedPlate = pick(blended, classes.plate);
     blended.sort();
     // The plate pixels closest to the letter colour decide.
     const worst =
@@ -261,7 +395,7 @@ function chooseColours(rgb: Buffer, lum: Float64Array): LabelColours & {
         ? blended[Math.floor(blended.length * 0.05)]!
         : blended[Math.ceil(blended.length * 0.95) - 1]!;
     const contrast = contrastRatio(text, worst);
-    if (contrast >= 4.5)
+    if (contrast >= 4.5 && legibility(textLum, predictedPlate).ok)
       return {
         plate: scheme === "light" ? "#FFFFFF" : "#000000",
         text,
@@ -281,18 +415,45 @@ export type AiLabelCheck =
       reason:
         | "LABEL_OUT_OF_BOUNDS"
         | "LABEL_TOO_SMALL"
+        | "LABEL_GEOMETRY_INVALID"
         | "LABEL_NOT_LEGIBLE"
         | "IMAGE_UNREADABLE";
       contrast?: number;
     };
 
+/** Aspect ratio of the plate; every Orbit label keeps it at any scale. */
+const PLATE_RATIO = PLATE_W / PLATE_H;
+/** Upper bound for a label box: the largest real label is about 494×148 px. */
+const MAX_LABEL_AREA = 250_000;
+
+/**
+ * Whether a pixel box can be an Orbit label on a `width`×`height` canvas:
+ * the plate's aspect ratio (±15 %, which covers rounding down to a 10 px
+ * plate), at most twice the height Orbit draws on a canvas of that size and
+ * at most `MAX_LABEL_AREA` pixels. A copy scaled down keeps the ratio, and
+ * its label is never larger than the label Orbit would draw at the new size
+ * (the 16 px minimum only makes that expected label larger; the 72 px
+ * maximum scales down with the canvas), so legitimate renditions pass. A
+ * forged box (the whole canvas, say) is refused before any pixel work.
+ */
+function plausibleLabelBox(box: Box, width: number, height: number) {
+  const ratio = box.w / box.h;
+  return (
+    Math.abs(ratio / PLATE_RATIO - 1) <= 0.15 &&
+    box.h <= 2 * aiLabelSize(width, height).h &&
+    box.w * box.h <= MAX_LABEL_AREA
+  );
+}
+
 /**
  * Whether an image shows the label at `rel` (fractions of the canvas). The
- * letters of the expected label are rendered at that box as a mask; the
- * image's pixels under the letter cores must stand clearly apart from the
- * plate around them (3:1 at least, 90 % of each group on its own side).
- * That tolerates JPEG compression and scaling, and fails when the label is
- * missing, covered, cut off or a different text.
+ * box must have a plausible label geometry for the canvas
+ * (`LABEL_GEOMETRY_INVALID` otherwise). The letters of the expected label
+ * are rendered at that box as a mask; the image's pixels under the letter
+ * cores must stand clearly apart from the plate around them (see
+ * `legibility`). That tolerates JPEG compression, scaling and two-tone or
+ * busy backgrounds, and fails when the label is missing, covered, cut off
+ * or a different text.
  */
 export async function verifyAiLabel(
   bytes: Buffer,
@@ -319,69 +480,28 @@ export async function verifyAiLabel(
     return { ok: false, reason: "LABEL_OUT_OF_BOUNDS" };
   // Below 10 px of plate height the letters no longer read (cap ~5 px).
   if (box.h < 10) return { ok: false, reason: "LABEL_TOO_SMALL" };
+  // Before any pixel work: the cost below grows with the box area.
+  if (!plausibleLabelBox(box, width, height))
+    return { ok: false, reason: "LABEL_GEOMETRY_INVALID" };
   let lum: Float64Array;
   try {
     ({ lum } = await regionLuminance(sharp, bytes, box));
   } catch {
     return { ok: false, reason: "IMAGE_UNREADABLE" };
   }
-  const { data: mask } = await sharp(labelSvg(box.w, box.h, "mask"))
-    .ensureAlpha()
-    .extractChannel(3)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  // Plate pixels: away from every letter by `spread`, and off the rounded corners.
-  const spread = Math.max(1, Math.round(box.h * 0.06));
-  const radius = Math.ceil((box.h * 0.28) / 1);
-  const nearInk = new Uint8Array(box.w * box.h);
-  for (let y = 0; y < box.h; y++)
-    for (let x = 0; x < box.w; x++) {
-      if (mask[y * box.w + x]! === 0) continue;
-      for (let dy = -spread; dy <= spread; dy++)
-        for (let dx = -spread; dx <= spread; dx++) {
-          const yy = y + dy,
-            xx = x + dx;
-          if (yy >= 0 && yy < box.h && xx >= 0 && xx < box.w)
-            nearInk[yy * box.w + xx] = 1;
-        }
-    }
-  const text: number[] = [];
-  const plate: number[] = [];
-  const edge = Math.max(1, Math.round(box.h * 0.04));
-  for (let y = 0; y < box.h; y++)
-    for (let x = 0; x < box.w; x++) {
-      const i = y * box.w + x;
-      if (mask[i]! >= 250) text.push(lum[i]!);
-      else if (!nearInk[i]) {
-        const cornerX = x < radius || x >= box.w - radius;
-        const cornerY = y < radius || y >= box.h - radius;
-        const border =
-          x < edge || y < edge || x >= box.w - edge || y >= box.h - edge;
-        if (!(cornerX && cornerY) && !border) plate.push(lum[i]!);
-      }
-    }
-  if (text.length < 20 || plate.length < 20)
+  const classes = await labelPixelClasses(sharp, box.w, box.h);
+  if (classes.text.length < 20 || classes.plate.length < 20)
     return { ok: false, reason: "LABEL_TOO_SMALL" };
-  const mean = (values: number[]) =>
-    values.reduce((a, b) => a + b, 0) / values.length;
-  const lt = mean(text),
-    lp = mean(plate);
-  const contrast = Math.round(contrastRatio(lt, lp) * 100) / 100;
-  const mid = (lt + lp) / 2;
-  const side = (values: number[], above: boolean) =>
-    values.filter((v) => (above ? v > mid : v < mid)).length / values.length;
-  const textAbove = lt > lp;
-  if (
-    contrast < 3 ||
-    side(text, textAbove) < 0.9 ||
-    side(plate, !textAbove) < 0.9
-  )
-    return { ok: false, reason: "LABEL_NOT_LEGIBLE", contrast };
+  const { ok, contrast } = legibility(
+    pick(lum, classes.text),
+    pick(lum, classes.plate),
+  );
+  if (!ok) return { ok: false, reason: "LABEL_NOT_LEGIBLE", contrast };
   return {
     ok: true,
     contrast,
-    textPixels: text.length,
-    platePixels: plate.length,
+    textPixels: classes.text.length,
+    platePixels: classes.plate.length,
   };
 }
 
@@ -738,7 +858,11 @@ export async function applyAiLabel(
     ...(input.avoid ? { avoid: input.avoid } : {}),
   });
   const { lum, rgb } = await regionLuminance(sharp, canvas, box);
-  const colours = chooseColours(rgb, lum);
+  const colours = chooseColours(
+    rgb,
+    lum,
+    await labelPixelClasses(sharp, box.w, box.h),
+  );
   const rel = toRel(box, width, height);
   const xmp = provenanceXmp({
     digitalSourceType,

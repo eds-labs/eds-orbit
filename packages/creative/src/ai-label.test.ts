@@ -425,6 +425,150 @@ describe("verifyAiLabel", () => {
   });
 });
 
+/** An image whose every pixel is `colour(x, y)`. */
+function pattern(width: number, height: number, colour: (x: number, y: number) => number[]) {
+  const data = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const [r, g, b] = colour(x, y);
+      const i = (y * width + x) * 3;
+      data[i] = r!;
+      data[i + 1] = g ?? r!;
+      data[i + 2] = b ?? r!;
+    }
+  return sharp(data, { raw: { width, height, channels: 3 } });
+}
+
+describe("legibility on two-tone and busy backgrounds", () => {
+  const W = 1080;
+  const H = 1350;
+  const box = aiLabelBox(W, H);
+  let state = 99;
+  const random = () => {
+    state = (Math.imul(state, 1103515245) + 12345) >>> 0;
+    return state / 2 ** 32;
+  };
+  const cases: { name: string; colour: (x: number, y: number) => number[] }[] = [
+    // 30 % of the label area black, 70 % white: the 5 % worst pixels are the
+    // black ones, so the plate is drawn for them, and the check must accept
+    // a plate that is two clearly separate tones.
+    { name: "30/70 black/white", colour: (x) => [x < box.x + box.w * 0.3 ? 0 : 255] },
+    { name: "30/70 grey 30/230", colour: (x) => [x < box.x + box.w * 0.3 ? 30 : 230] },
+    { name: "70/30 black/white", colour: (x) => [x < box.x + box.w * 0.7 ? 0 : 255] },
+    { name: "salt and pepper", colour: () => [0, 1, 2].map(() => (random() < 0.5 ? 0 : 255)) },
+    {
+      name: "hard diagonal split",
+      colour: (x, y) => [(x - box.x) * box.h > (y - box.y) * box.w ? 0 : 255],
+    },
+    {
+      name: "photo-like gradient",
+      colour: (x, y) => {
+        // A sky-to-ground gradient with a bright sun near the label.
+        const sun = Math.hypot(x - box.x - box.w * 0.6, y - box.y) < box.h * 0.8 ? 120 : 0;
+        const base = 230 - (y / H) * 180;
+        return [base + sun, base * 0.9 + sun, base * 0.7 + sun].map((v) =>
+          Math.max(0, Math.min(255, Math.round(v + (random() - 0.5) * 30))),
+        );
+      },
+    },
+  ];
+
+  it.each(cases)("$name labels, self-verifies and still fails without the label", async ({ colour }) => {
+    const input = await pattern(W, H, colour).png().toBuffer();
+    const result = await applyAiLabel(input, ORIGIN);
+    expect(result.label.pixels).toEqual(box);
+    expect(result.label.contrast).toBeGreaterThanOrEqual(4.5);
+    expect(result.label.verifiedContrast).toBeGreaterThanOrEqual(3);
+    expect((await verifyAiLabel(result.bytes, result.label.box)).ok).toBe(true);
+    // The same background without the label never passes.
+    expect(await verifyAiLabel(input, result.label.box)).toMatchObject({
+      ok: false,
+      reason: "LABEL_NOT_LEGIBLE",
+    });
+    // And the label survives a JPEG delivery copy.
+    const jpeg = await sharp(result.bytes).resize({ width: 720 }).jpeg({ quality: 85 }).toBuffer();
+    expect((await verifyAiLabel(jpeg, result.label.box)).ok).toBe(true);
+  });
+});
+
+describe("forged label boxes", () => {
+  const forgedXmp = (box: RelBox) =>
+    provenanceXmp({
+      digitalSourceType: "trainedAlgorithmicMedia",
+      label: { text: AI_LABEL_TEXT, version: AI_LABEL_VERSION, box },
+    });
+  const WHOLE: RelBox = { x: 0, y: 0, w: 1, h: 1 };
+
+  it.each([
+    { width: 1600, height: 1600 },
+    { width: 4000, height: 3000 },
+  ])("refuses a whole-canvas box on $width x $height fast", async ({ width, height }) => {
+    const bytes = await solid(width, height, { r: 128, g: 128, b: 128 })
+      .jpeg()
+      .withXmp(forgedXmp(WHOLE))
+      .toBuffer();
+    const started = performance.now();
+    expect(await verifyAiLabel(bytes, WHOLE)).toEqual({ ok: false, reason: "LABEL_GEOMETRY_INVALID" });
+    expect(await inspectAiLabel(bytes)).toEqual({
+      state: "invalid",
+      declaresAi: true,
+      reason: "LABEL_GEOMETRY_INVALID",
+    });
+    expect(await codeOf(applyAiLabel(bytes, ORIGIN))).toBe("AI_LABEL_INVALID");
+    // Before the fix this took 24 s at 1600 px and hours at 40 MP.
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it("refuses boxes with the wrong aspect ratio, too high for the canvas or too large", async () => {
+    const W = 4000;
+    const H = 3000;
+    const bytes = await solid(W, H, BACKGROUND).jpeg().toBuffer();
+    const { w, h } = aiLabelSize(W, H);
+    const rel = (pw: number, ph: number): RelBox => ({ x: 0.01, y: 0.01, w: pw / W, h: ph / H });
+    for (const forged of [
+      rel(h * 2, h), // aspect 2 instead of 3.33
+      rel(w * 1.3, h), // 30 % too wide
+      rel(w * 2.5, h * 2.5), // right aspect, 2.5x the drawn height
+      rel(1000, 300), // right aspect, 300 000 px
+    ])
+      expect(await verifyAiLabel(bytes, forged)).toMatchObject({
+        ok: false,
+        reason: "LABEL_GEOMETRY_INVALID",
+      });
+    // The real geometry gets past the check to the pixels (and fails there).
+    expect(await verifyAiLabel(bytes, rel(w, h))).toMatchObject({ reason: "LABEL_NOT_LEGIBLE" });
+  });
+
+  it("keeps the pixel check fast for the largest box the geometry check admits", async () => {
+    const W = 6000;
+    const H = 6000;
+    const bytes = await noise(W, 60).resize(W, H, { kernel: "nearest" }).jpeg().toBuffer();
+    // 2x the drawn height of 148 px would be 296; the area cap stops at 273x910.
+    const rel: RelBox = { x: 0.1, y: 0.1, w: 910 / W, h: 273 / H };
+    const started = performance.now();
+    expect(await verifyAiLabel(bytes, rel)).toMatchObject({ ok: false, reason: "LABEL_NOT_LEGIBLE" });
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
+  it.each([
+    { size: 1080, widths: [720, 540, 320] },
+    { size: 2048, widths: [1440, 1080, 600] },
+    { size: 4096, widths: [2048, 1440, 1080, 640] },
+  ])("lets downscales of a labelled $size px image pass", async ({ size, widths }) => {
+    // Coarse noise (1 px of noise per 4 px of canvas) keeps the fixture cheap.
+    const source = await sharp(await noise(size / 4, size / 4, size).png().toBuffer())
+      .resize(size, size, { kernel: "nearest" })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+    const labelled = await applyAiLabel(source, ORIGIN);
+    expect((await verifyAiLabel(labelled.bytes, labelled.label.box)).ok).toBe(true);
+    for (const width of widths) {
+      const copy = await sharp(labelled.bytes).resize({ width }).jpeg({ quality: 85 }).toBuffer();
+      expect((await verifyAiLabel(copy, labelled.label.box)).ok, `${size} -> ${width}`).toBe(true);
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // C2PA containers, built by hand around a synthetic JUMBF payload.
 
