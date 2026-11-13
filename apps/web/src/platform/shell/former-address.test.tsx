@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { centerText } from "@/platform/settings-center/texts";
-import { OldAddressScreen } from "./old-address";
+import { OldAddressScreen } from "./former-address";
 
 // What an old settings address shows when it cannot lead to the settings
 // center (P54-D3): never the old page.

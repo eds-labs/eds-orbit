@@ -85,7 +85,7 @@ import {
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
 import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
 import { redirectScreen } from "@/platform/shell/redirect-screen";
-import { OldAddressScreen } from "@/platform/shell/old-address";
+import { OldAddressScreen } from "@/platform/shell/former-address";
 import { moduleSettingsSection } from "@/platform/shell/settings-nav";
 import {
   attentionRenderers,

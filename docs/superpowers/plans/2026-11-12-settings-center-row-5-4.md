@@ -54,7 +54,7 @@
 - Create `apps/api/src/platform/management/links.ts`: builders for center addresses (API side).
 - Create `apps/api/tests/fixtures/center-links.json` and `apps/api/tests/center-links.test.ts`: every address the API sends.
 - Create `apps/web/src/platform/settings-center/api-links.test.tsx`: resolves the fixture in the real registry.
-- Create `apps/web/src/platform/shell/old-address.tsx`: the screens for an old address that cannot be forwarded.
+- Create `apps/web/src/platform/shell/former-address.tsx`: the screens for an old address that cannot be forwarded.
 - Modify `apps/web/src/components/orbit.tsx`, `platform/shell/{shell-links.ts,user-menu.tsx,nav-groups.ts,routes.ts,settings-nav.tsx,attention-list.tsx,shell-context.tsx}`, `platform/settings-center/{redirects.ts,capabilities.ts,types.ts}`, `modules/registry.ts`, `lib/api.ts`.
 - Delete page shells and code only they use (Task 3 lists them).
 - Modify API producers (Task 5 lists them), `packages/config/src/index.ts`, `apps/api/src/server.ts`, `apps/api/src/platform/management/{flag.ts,capabilities.ts,routes.ts}`, both compose files, `scripts/check-coolify-compose.mjs`, `.env.example`, `.github/workflows/orbit-ci.yml`; delete scripts/e2e-stage-check.mjs.
@@ -78,7 +78,7 @@
 ### Task 2: An old address never renders an old page
 
 **Files:**
-- Create: `apps/web/src/platform/shell/old-address.tsx`, `old-address.test.tsx`
+- Create: `apps/web/src/platform/shell/former-address.tsx`, `former-address.test.tsx`
 - Modify: `apps/web/src/platform/settings-center/redirects.ts`, `redirects.test.tsx`, `apps/web/src/components/orbit.tsx`, `apps/web/src/platform/settings-center/texts.ts`
 
 **Interfaces:**
@@ -86,7 +86,7 @@
 - Produces: `redirectFor(ctx): { kind: "none" } | { kind: "wait" } | { kind: "go"; href: string } | { kind: "closed" } | { kind: "failed" }`, where `none` is returned only for an address that is not an old address; `OldAddressScreen({ kind, onRetry })` for `closed` and `failed`, rendered inside the assistant wrapper like the loading screen.
 - `mapOldAddress` gains one input, `systemAdminOnly(organizationId): boolean` (true when the member is a system administrator and not an owner of that organization): then `/o/:id/settings` maps to `/manage/system/organizations/:id`, hash and search dropped (P54-D4).
 
-- [ ] **Step 1: Failing tests** in `redirects.test.tsx`: an old project address with a failed capabilities request gives `failed`; an old organization address for a member without that organization gives `closed`; for a system administrator who is not an owner it gives `go` to `/manage/system/organizations/w1`; an owner still gets `/manage/o/w1/overview` and `/manage/o/w1/ai/budget#assistant-budget`; a member without the target area still gets the first open area; `/account/confirm-email` and a path that is no old address give `none`; every row of the existing table test still passes unchanged. In `old-address.test.tsx`: `closed` renders the "Not available" text and a link to `/`; `failed` renders the error text and a "Try again" button; both in German.
+- [ ] **Step 1: Failing tests** in `redirects.test.tsx`: an old project address with a failed capabilities request gives `failed`; an old organization address for a member without that organization gives `closed`; for a system administrator who is not an owner it gives `go` to `/manage/system/organizations/w1`; an owner still gets `/manage/o/w1/overview` and `/manage/o/w1/ai/budget#assistant-budget`; a member without the target area still gets the first open area; `/account/confirm-email` and a path that is no old address give `none`; every row of the existing table test still passes unchanged. In `former-address.test.tsx`: `closed` renders the "Not available" text and a link to `/`; `failed` renders the error text and a "Try again" button; both in German.
 - [ ] **Step 2:** Run them. Expected: fail.
 - [ ] **Step 3:** Implement. In `orbit.tsx` the places `admin`, `organizationSettings`, the standalone `account` and `account-assistant` routes and the project routes `settings` and `connectors` no longer render a page: each is decided by `redirectFor` alone. "Try again" refetches the capabilities.
 - [ ] **Step 4:** Run the tests of Step 1, the web unit tests under `platform/shell/` and `platform/settings-center/`, and both type checks. Expected: pass.
@@ -103,7 +103,7 @@
 - `apps/web/src/modules/registry.ts`: the page components of the routes `settings` and `connectors` (the route entries and legacy paths stay as redirect-only entries; `connectors` leaves the sidebar).
 - Their unit tests: `lib/capability-text.test.tsx` "project settings capability list", the `groupSettings`, `sectionFromSearch` and old-page cases of `settings-nav.test.tsx`, the modal cases of `public-keys.test.tsx`, the editor-on-module-page cases of Social and Knowledge.
 
-- [ ] **Step 1:** Add a test `apps/web/src/platform/shell/old-pages.test.tsx` that fails while an old shell exists: the module registry's routes `settings` and `connectors` have no page component, and `@/components/management` does not export `ProjectSettings`.
+- [ ] **Step 1:** Add a test `apps/web/src/platform/shell/removed-pages.test.tsx` that fails while an old shell exists: the module registry's routes `settings` and `connectors` have no page component, and `@/components/management` does not export `ProjectSettings`.
 - [ ] **Step 2:** Run it. Expected: fail.
 - [ ] **Step 3:** Delete as listed. For each deleted export run a search for remaining imports; a remaining import is a finding to report, not a reason to keep the shell. Remove CSS rules in `app/globals.css` that only the deleted shells used (search each class name first).
 - [ ] **Step 4:** Run the whole web unit suite, both type checks, the source check and `(cd apps/web && ./node_modules/.bin/next build)`. Expected: pass.
