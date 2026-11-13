@@ -7,6 +7,7 @@ import {
   DEFAULT_BANNER_PALETTE,
   type BannerPalette,
 } from "./banner-brand.ts";
+export * from "./ai-label.ts";
 export * from "./analysis.ts";
 export * from "./banner-brand.ts";
 export * from "./brand.ts";

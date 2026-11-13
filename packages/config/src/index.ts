@@ -103,6 +103,11 @@ const baseConfigSchema = z.object({
   // and prompts and tool schemas are those from before it (docs/
   // MARKETING_CREATIVE_STUDIO.md names the one intended MCP fix).
   ORBIT_CREATIVE_STUDIO: z.enum(["false", "true"]).default("false"),
+  // AI image labelling (ADR 0028): new AI marketing images get the visible
+  // "KI erstellt" label and a central provenance record, and every publish
+  // and export path blocks an AI image without a valid label. While "false"
+  // nothing is labelled, recorded or gated.
+  ORBIT_AI_IMAGE_LABELS: z.enum(["false", "true"]).default("false"),
   // Agent mandates (ADR 0019): an owner may let the assistant or MCP clients
   // run one internal action type within limits without a per-request
   // approval. While "false" every stored mandate is inert and every request
