@@ -12,31 +12,13 @@ import type { Identity } from "@/lib/api";
 import type { Text } from "@/lib/i18n";
 
 /**
- * The entries of the account menu (ADR 0013): the account for everyone,
- * organization settings for organization owners and the administration for
- * system administrators. Hiding an entry is convenience; the API refuses
- * the pages to anyone else.
+ * The entries of the account menu (ADR 0013, settings center phase 5): one
+ * entry, the center, which holds the account, the organization settings and
+ * the administration. What a member sees there follows their capabilities;
+ * the API refuses the pages to anyone else.
  */
-export function userMenuEntries(
-  identity: Identity,
-  organizationId: string | undefined,
-) {
-  // Settings center phase 5: with the flag on the center holds the account,
-  // the organization settings and the administration.
-  if (identity.settingsCenter === "on")
-    return { account: false, organization: null, admin: false, manage: "/manage" };
-  const organization = identity.workspaces.find((w) =>
-    organizationId ? w.id === organizationId : w.canManage,
-  );
-  return {
-    account: Boolean(identity.account),
-    organization: organization?.canManage
-      ? `/o/${encodeURIComponent(organization.id)}/settings`
-      : null,
-    admin: Boolean(identity.systemAdmin),
-    // The settings center, while its flag is in preview ("on" returned above).
-    manage: identity.settingsCenter === "preview" ? "/manage" : null,
-  };
+export function userMenuEntries() {
+  return { account: false, organization: null, admin: false, manage: "/manage" };
 }
 
 export function UserMenu({
@@ -56,7 +38,7 @@ export function UserMenu({
   signingOut: boolean;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
-  const entries = userMenuEntries(identity, organizationId);
+  const entries = userMenuEntries();
   // Closes on a click outside or Escape.
   useEffect(() => {
     const close = (e: Event) => {

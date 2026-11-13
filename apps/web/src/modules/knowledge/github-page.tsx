@@ -31,25 +31,19 @@ type Repo = {
   private: boolean;
 };
 
-/**
- * Where the GitHub App is configured: the settings center's section once the
- * center is on, else the module's own tab.
- */
+/** Where the GitHub App is configured: the settings center's section. */
 function useGithubSettingsHref(): string {
-  const { project, identity } = useWorkspace();
-  const shell = useShell();
-  return identity?.settingsCenter === "on"
-    ? manageHref(
-        { kind: "project", projectId: project.id },
-        "integrations",
-        "knowledge",
-        "github",
-      )
-    : shell.hrefOf("knowledge-github");
+  const { project } = useWorkspace();
+  return manageHref(
+    { kind: "project", projectId: project.id },
+    "integrations",
+    "knowledge",
+    "github",
+  );
 }
 
 /**
- * With the center on, the module's tab only states whether the App is
+ * The module's tab only states whether the App is
  * configured and leads to its section; the form lives there. A reader cannot
  * read the state (the endpoint is for owners), so it gets the page's
  * read-only text instead of a guess.

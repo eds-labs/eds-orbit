@@ -137,33 +137,30 @@ describe("SidebarNav", () => {
       expect(head(html, id), id).toContain('aria-expanded="true"');
   });
 
-  it("shows one settings entry and no connectors entry when the flag is on", () => {
-    const renderStage = (on: boolean, locale: "en" | "de") =>
+  it("shows one settings entry and no connectors entry", () => {
+    const renderCenter = (locale: "en" | "de") =>
       renderToStaticMarkup(
         <SidebarNav
-          groups={withCenterEntry(groups, on)}
+          groups={withCenterEntry(groups)}
           activeKey={undefined}
-          hrefOf={(r) => navEntryHref(r, "p1", on)}
+          hrefOf={(r) => navEntryHref(r, "p1")}
           locale={locale}
           collapsed={new Set()}
           onToggle={() => {}}
         />,
       );
     for (const locale of ["en", "de"] as const) {
-      const on = renderStage(true, locale);
+      const html = renderCenter(locale);
       const words = labels[locale].manageTitle.replace("&", "&amp;");
-      expect(on).toContain('href="/manage/p/p1"');
-      expect(on).toContain(`>${words}<`);
-      expect(on).not.toContain(href("connectors"));
-      expect(on).not.toContain(href("settings"));
-      expect(on).not.toContain(`>${labels[locale].connectors}<`);
+      expect(html).toContain('href="/manage/p/p1"');
+      expect(html).toContain(`>${words}<`);
+      expect(html).not.toContain(href("connectors"));
+      expect(html).not.toContain(href("settings"));
+      expect(html).not.toContain(`>${labels[locale].connectors}<`);
       // Every other entry keeps its address.
       for (const route of groups.flatMap((g) => g.entries))
         if (route.key !== "settings" && route.key !== "connectors")
-          expect(on, route.key).toContain(href(route.key));
+          expect(html, route.key).toContain(href(route.key));
     }
-    // Unless the flag is on: today's entries and addresses, byte for byte.
-    expect(renderStage(false, "en")).toBe(render());
-    expect(withCenterEntry(groups, false)).toBe(groups);
   });
 });

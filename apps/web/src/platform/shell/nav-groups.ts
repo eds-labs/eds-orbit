@@ -104,24 +104,18 @@ export function withSettingsLinks(
 }
 
 /**
- * A module group's settings link (P5-R6). With the flag on it opens the
- * module's own section of the center (moduleSectionId), not the mapping of
- * the old tab: a module on a platform tab key (Webmail on "integrations")
- * would land on the platform's section, which does not hold its panel.
- * Unless the flag is on: `oldHref`, today's address.
+ * A module group's settings link (P5-R6). It opens the module's own section
+ * of the center (moduleSectionId), not the mapping of the old tab: a module
+ * on a platform tab key (Webmail on "integrations") would land on the
+ * platform's section, which does not hold its panel.
  */
 export function moduleSettingsHref({
-  on,
   projectId,
   platformKeys,
-  oldHref,
 }: {
-  on: boolean;
   projectId: string;
   platformKeys: readonly string[];
-  oldHref: (key: string) => string;
 }): (key: string, moduleId: string) => string {
-  if (!on) return (key) => oldHref(key);
   return (key, moduleId) =>
     manageHref(
       { kind: "project", projectId },
@@ -131,15 +125,13 @@ export function moduleSettingsHref({
 }
 
 /**
- * Settings center phase 5 (P5-D1): with the flag on, the project's settings
- * entry opens the center under its name, and the connectors entry goes, as
- * the center holds the connections. Unless the flag is on: `groups` itself.
+ * Settings center phase 5 (P5-D1): the project's settings entry opens the
+ * center under its name, and the connectors entry goes, as the center holds
+ * the connections.
  */
 export function withCenterEntry(
   groups: readonly NavGroup[],
-  on: boolean,
 ): readonly NavGroup[] {
-  if (!on) return groups;
   return groups
     .map((group) => ({
       ...group,
@@ -154,9 +146,9 @@ export function withCenterEntry(
     .filter((g) => g.entries.length > 0);
 }
 
-/** The address of a sidebar entry; with the flag on, settings opens the center. */
-export function navEntryHref(route: Route, projectId: string, on: boolean): string {
-  return on && route.key === "settings"
+/** The address of a sidebar entry; settings opens the center. */
+export function navEntryHref(route: Route, projectId: string): string {
+  return route.key === "settings"
     ? manageHref({ kind: "project", projectId })
     : projectHref(projectId, route);
 }

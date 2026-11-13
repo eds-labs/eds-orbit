@@ -79,7 +79,6 @@ const render = (
   tab: any = "overview",
   owner = true,
   locale: "de" | "en" = "de",
-  stage?: "off" | "preview" | "on",
 ) =>
   renderToStaticMarkup(
     <ShellContext.Provider
@@ -96,7 +95,6 @@ const render = (
             project: { id: "p", name: "FamilyPlan" },
             locale,
             revision: 0,
-            identity: { settingsCenter: stage },
             isOwner: owner,
             canEdit: owner,
             refresh: () => {},
@@ -1034,7 +1032,6 @@ const inContext = (node: React.ReactNode, locale: "de" | "en" = "de") =>
         {
           hrefOf: knowledgeHrefOf,
           ...shellLinks({
-            stage: undefined,
             hrefOf: knowledgeHrefOf,
             map: (h) => h,
           }),
@@ -1873,21 +1870,33 @@ describe("add flow", () => {
     response.value.items = [];
     nav.search = "github=connected";
     const html = render("import");
-    expect(html).toContain('href="/p/p/knowledge/github"');
+    expect(html).toContain('href="/manage/p/p/integrations/knowledge/github"');
     expect(html).not.toContain(de.clientSecret);
     expect(html).not.toContain(de.privateKey);
   });
   it("keeps the credential fields on the GitHub page, for owners only", () => {
-    const html = render("github");
+    // The page itself (the module route and the center's section), not the
+    // module tab, which only links to the center.
+    const page = (isOwner: boolean) =>
+      renderToStaticMarkup(
+        <ShellContext.Provider value={{ hrefOf: (k: string) => k } as any}>
+          <WorkspaceContext.Provider
+            value={{ project: { id: "p" }, locale: "de", isOwner } as any}
+          >
+            <KnowledgeGithubPage />
+          </WorkspaceContext.Provider>
+        </ShellContext.Provider>,
+      );
+    const html = page(true);
     expect(html).toContain(de.clientSecret);
     expect(html).toContain(de.privateKey);
-    const reader = render("github", false);
+    const reader = page(false);
     expect(reader).not.toContain(de.clientSecret);
     expect(reader).toContain(de.readOnly);
   });
-  it("shows state and a link on the module tab when the settings center is on", () => {
+  it("shows state and a link on the module tab", () => {
     response.value.configured = true;
-    const html = render("github", true, "en", "on");
+    const html = render("github", true, "en");
     const t = knowledgeCopy.en;
     expect(html).toContain(t.githubManaged.replace("&", "&amp;"));
     expect(html).toContain(t.githubConfigured);
@@ -1896,32 +1905,23 @@ describe("add flow", () => {
     expect(html).not.toContain(t.clientSecret);
     expect(html).not.toContain(t.appSave);
     response.value.configured = false;
-    expect(render("github", true, "en", "on")).toContain(t.githubMissing);
-    // The editor stays on the tab until the center is on.
-    for (const stage of [undefined, "off", "preview"] as const) {
-      const old = render("github", true, "en", stage);
-      expect(old).toContain(t.clientSecret);
-      expect(old).not.toContain(t.githubOpen);
-    }
+    expect(render("github", true, "en")).toContain(t.githubMissing);
   });
   it("shows a reader the link and the read-only text, not a state", () => {
     response.value.configured = true;
-    const html = render("github", false, "en", "on");
+    const html = render("github", false, "en");
     const t = knowledgeCopy.en;
     expect(html).toContain(t.readOnly);
     expect(html).toContain(t.githubOpen);
     expect(html).not.toContain(t.githubConfigured);
     expect(html).not.toContain(t.githubMissing);
   });
-  it("sends the add flow's setup link to the center when it is on", () => {
+  it("sends the add flow's setup link to the center", () => {
     response.value.configured = false;
     response.value.items = [];
     nav.search = "github=connected";
-    expect(render("import", true, "de", "on")).toContain(
+    expect(render("import", true, "de")).toContain(
       'href="/manage/p/p/integrations/knowledge/github"',
-    );
-    expect(render("import", true, "de", "preview")).toContain(
-      'href="/p/p/knowledge/github"',
     );
   });
   it("keeps one h1 when the page is a section of the center", () => {

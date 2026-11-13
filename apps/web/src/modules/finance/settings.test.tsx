@@ -291,12 +291,12 @@ describe("archiving in settings", () => {
 });
 
 describe("finance mailbox note", () => {
-  // The production link builder, so the flag states are the real ones.
-  const note = (stage: "off" | "on", locale: "en" | "de" = "en") => {
+  // The production link builder.
+  const note = (locale: "en" | "de" = "en") => {
     const hrefOf = (key: string) => `/p/demo/${key}`;
     const shell = {
       hrefOf,
-      ...shellLinks({ stage, hrefOf, map: (href) => `/center${href}` }),
+      ...shellLinks({ hrefOf, map: (href) => `/center${href}` }),
     } as unknown as ShellContextValue;
     return renderToStaticMarkup(
       <ShellContext.Provider value={shell}>
@@ -304,17 +304,17 @@ describe("finance mailbox note", () => {
       </ShellContext.Provider>,
     );
   };
-  it("says where mailboxes are managed and links to the old connectors page", () => {
-    const html = note("off");
+  it("says where mailboxes are managed and links to the center's connections", () => {
+    const html = note();
     // React escapes the apostrophe in markup.
     expect(html).toContain(
       "Mailboxes are added and checked in the project&#x27;s connections.",
     );
-    expect(html).toContain('href="/p/demo/connectors"');
+    expect(html).toContain('href="/center/p/demo/connectors"');
     expect(html).toContain("Open mailboxes");
   });
-  it("links to the center's connections with the flag on, in German", () => {
-    const html = note("on", "de");
+  it("words the note in German too", () => {
+    const html = note("de");
     expect(html).toContain(
       "Postfächer werden unter Verbindungen angelegt und geprüft.",
     );

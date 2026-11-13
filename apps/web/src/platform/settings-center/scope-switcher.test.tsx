@@ -4,7 +4,6 @@ import type { ManagementCapabilities } from "./types";
 import { ScopeSwitcher, scopeOptions } from "./scope-switcher";
 
 const none: ManagementCapabilities = {
-  stage: "on",
   flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: [],
   account: [],

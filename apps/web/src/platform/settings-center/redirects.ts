@@ -265,7 +265,6 @@ export function centerLink(href: string, ctx: MapContext): string {
 }
 
 export type RedirectContext = MapContext & {
-  stage: "off" | "preview" | "on" | undefined;
   /** The member's capabilities; null while loading; undefined when the request failed. */
   caps: ManagementCapabilities | null | undefined;
 };
@@ -302,15 +301,15 @@ function scopeCapabilities(
 
 /** What the shell does with an address. */
 export function oldAddressTarget(address: OldAddress, ctx: RedirectContext): Redirect {
-  return ctx.stage === "on" ? redirectFor(mapOldAddress(address, ctx), ctx) : STAY;
+  return redirectFor(mapOldAddress(address, ctx), ctx);
 }
 
 /** The decision for an address `mapOldAddress` has already mapped. */
 export function redirectFor(
   target: CenterAddress | "wait" | null,
-  ctx: Pick<RedirectContext, "stage" | "caps">,
+  ctx: Pick<RedirectContext, "caps">,
 ): Redirect {
-  if (ctx.stage !== "on" || target === null) return STAY;
+  if (target === null) return STAY;
   if (target === "wait" || ctx.caps === null) return WAIT;
   // Without capabilities the old page still works; better than no page.
   if (ctx.caps === undefined) return STAY;

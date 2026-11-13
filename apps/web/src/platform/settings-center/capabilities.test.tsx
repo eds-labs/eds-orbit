@@ -3,7 +3,6 @@ import { centerState, manageTitleKey } from "./capabilities";
 import type { ManageTarget, ManagementCapabilities } from "./types";
 
 const caps: ManagementCapabilities = {
-  stage: "preview",
   flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: [],
   account: ["account.profile"],
@@ -35,7 +34,6 @@ const target = (scope: ManageTarget["scope"]): ManageTarget => ({
 const input = (
   extra: Partial<Parameters<typeof centerState>[0]> = {},
 ): Parameters<typeof centerState>[0] => ({
-  stage: "preview",
   target: target({ kind: "account" }),
   caps,
   loading: false,
@@ -49,9 +47,6 @@ describe("settings center title", () => {
     expect(manageTitleKey(null)).toBeNull();
   });
   it("says not found where the center shows no page", () => {
-    // Flag off (or /me still loading): the address is not found, as before
-    // the settings center.
-    expect(manageTitleKey("off")).toBe("notFound");
     expect(manageTitleKey("notFound")).toBe("notFound");
   });
   it("names the center wherever it renders, loads or redirects", () => {
@@ -61,11 +56,6 @@ describe("settings center title", () => {
 });
 
 describe("settings center state", () => {
-  it("is off without the flag", () => {
-    expect(centerState(input({ stage: undefined }))).toEqual({ kind: "off" });
-    expect(centerState(input({ stage: "off" }))).toEqual({ kind: "off" });
-  });
-
   it("waits, then reports an error with its message", () => {
     expect(centerState(input({ caps: null, loading: true }))).toEqual({
       kind: "loading",

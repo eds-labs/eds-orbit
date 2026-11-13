@@ -166,7 +166,6 @@ function render(
     homeSections: [],
     hrefOf: (key) => `/p/p1/${key}`,
     ...shellLinks({
-      stage: undefined,
       hrefOf: (key) => `/p/p1/${key}`,
       map: (h) => h,
     }),

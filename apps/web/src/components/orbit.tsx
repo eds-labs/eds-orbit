@@ -133,7 +133,6 @@ import {
 import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 
 const LAST_PROJECT = "orbit.project";
-const SAME_HREF = (href: string) => href;
 type ModuleStates = {
   features?: Record<string, boolean>;
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
@@ -175,38 +174,28 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     identity.refresh();
   });
   const signout = useMutation(identity.refresh);
-  // The settings center (/manage) exists only while /me reports its flag in
-  // preview or on; otherwise its addresses behave as before (not found).
-  const settingsCenter = identity.data?.settingsCenter;
-  const manage =
-    place.kind === "manage" &&
-    (settingsCenter === "preview" || settingsCenter === "on")
-      ? place.target
-      : null;
-  // Phase 5: with the flag on, an old settings address opens its place in
-  // the settings center. It is read in render only once /me has loaded, so
-  // never on the server; a legacy address counts as the project address it
-  // leads to.
+  // The settings center (/manage) is always there.
+  const manage = place.kind === "manage" ? place.target : null;
+  // An old settings address opens its place in the settings center. It is
+  // read in render only once /me has loaded, so never on the server; a
+  // legacy address counts as the project address it leads to.
   const legacyProjectId =
-    settingsCenter === "on" && place.kind === "legacy" && identity.data
+    place.kind === "legacy" && identity.data
       ? defaultProject(identity.data, lastProject())
       : null;
-  // The location after the commit of the router's pathname (on only): the
-  // render that first sees a client navigation still finds the previous
-  // page's search and hash in window.location (locationToDecide).
-  // Keyed so that any other stage never runs it again after mount.
+  // The location after the commit of the router's pathname: the render that
+  // first sees a client navigation still finds the previous page's search
+  // and hash in window.location (locationToDecide).
   const [committed, setCommitted] = useState<OldAddress | null>(null);
-  const committedKey = settingsCenter === "on" ? pathname : null;
   useEffect(() => {
-    if (committedKey === null) return;
     setCommitted({
-      pathname: committedKey,
+      pathname,
       search: window.location.search,
       hash: window.location.hash,
     });
-  }, [committedKey]);
+  }, [pathname]);
   const location =
-    settingsCenter === "on" && identity.data && typeof window !== "undefined"
+    identity.data && typeof window !== "undefined"
       ? locationToDecide(
           pathname,
           {
@@ -261,12 +250,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     ? `/projects/${encodeURIComponent(statesProjectId)}/modules?revision=${revision}`
     : null;
   const moduleStates = useResource<ModuleStates>(statesPath);
-  // Whether the last address the shell knew needed the capabilities (on
-  // only; keyed so that any other stage never runs it again after mount).
+  // Whether the last address the shell knew needed the capabilities.
   const capsNeeded = manage !== null || firstMapping !== null;
   const [capsBefore, setCapsBefore] = useState(false);
-  const capsBeforeKey =
-    settingsCenter === "on" && !locationWaits ? capsNeeded : null;
+  const capsBeforeKey = !locationWaits ? capsNeeded : null;
   useEffect(() => {
     if (capsBeforeKey !== null) setCapsBefore(capsBeforeKey);
   }, [capsBeforeKey]);
@@ -276,7 +263,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const center =
     place.kind === "manage"
       ? centerState({
-          stage: settingsCenter,
           target: place.target,
           caps: caps.data,
           loading: caps.loading,
@@ -319,11 +305,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const [statesSettled, setStatesSettled] =
     useState<SettledModuleStates<ModuleStates> | null>(null);
   useEffect(() => {
-    // Only the flag on reads it; any other stage would re-render for nothing.
-    if (settingsCenter === "on" && statesNow) setStatesSettled(statesNow);
+    if (statesNow) setStatesSettled(statesNow);
     // `statesNow` is rebuilt every render; its fields identify it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsCenter, statesNow?.projectId, statesNow?.states]);
+  }, [statesNow?.projectId, statesNow?.states]);
   const redirect: Redirect = locationWaits
     ? { kind: "wait" }
     : redirectFor(
@@ -339,16 +324,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           : firstMapping,
         // An error from an earlier request (before this one was enabled or
         // while it loads) is not this request's answer.
-        { stage: settingsCenter, caps: caps.failed ? undefined : caps.data },
+        { caps: caps.failed ? undefined : caps.data },
       );
   const redirectKey = redirect.kind === "go" ? redirect.href : redirect.kind;
-  // Links with the flag on: an old settings address renders as its center
+  // Links: an old settings address renders as its center
   // address. A moved key is decided only by the settled module states of the
   // project the shell loads them for; any other project, or states not yet
   // settled, keep the old address, and the redirect decides on arrival.
-  const centerOn = settingsCenter === "on";
   const centerMap = useMemo((): ((href: string) => string) => {
-    if (!centerOn) return SAME_HREF;
     const ctx = {
       table,
       tabs: settingsTabs,
@@ -360,7 +343,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       ),
     };
     return (href) => centerLink(href, ctx);
-  }, [centerOn, table, settingsTabs, registry, statesProjectId, statesSettled]);
+  }, [table, settingsTabs, registry, statesProjectId, statesSettled]);
   // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
   // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).
   const memberRole = project
@@ -574,7 +557,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       homeSections: homeSections(registry.modules, enabled),
       hrefOf,
       ...shellLinks({
-        stage: settingsCenter,
         hrefOf,
         map: centerMap,
       }),
@@ -617,7 +599,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     renderers,
     agentPlatform,
     googleDrive,
-    settingsCenter,
     centerMap,
   ]);
   // Apart, so a loaded attention keeps the functions above unchanged.
@@ -662,10 +643,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
-    // `manageTitle` too: a directly loaded /manage page learns the stage when
-    // /me arrives and its scope when the capabilities arrive (loading → scope
-    // or not found); it is null on every other place, so it never changes
-    // there.
+    // `manageTitle` too: a directly loaded /manage page learns its scope when
+    // the capabilities arrive (loading → scope or not found); it is null on
+    // every other place, so it never changes there.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, project?.name, locale, knownStates, manageTitle]);
   async function createProject(v: FormValues, workspaceId?: string) {
@@ -947,9 +927,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         <Loading label={t("loading")} />
       </div>
     );
-  // The settings center; with its flag off /manage stays not found.
+  // The settings center.
   if (place.kind === "manage" && center) {
-    if (center.kind === "off" || center.kind === "notFound")
+    if (center.kind === "notFound")
       return frame(<NotFound t={t} project={false} />);
     if (center.kind === "loading" || center.kind === "redirect")
       return (
@@ -1088,13 +1068,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       buildNavGroups(shell.table.routes, shell.modules),
       shell.modules,
       moduleSettingsHref({
-        on: centerOn,
         projectId: project.id,
         platformKeys: PLATFORM_TAB_KEYS,
-        oldHref: shell.settingsHref,
       }),
     ),
-    centerOn,
   );
   const mobileBar = mobileEntries(shell.table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
@@ -1209,7 +1186,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           <SidebarNav
             groups={navGroups}
             activeKey={activeNavKey(route)}
-            hrefOf={(r) => navEntryHref(r, project.id, centerOn)}
+            hrefOf={(r) => navEntryHref(r, project.id)}
             badges={badges.counts}
             urgent={badges.urgent}
             locale={locale}

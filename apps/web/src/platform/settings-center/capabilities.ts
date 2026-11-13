@@ -30,20 +30,17 @@ export function useManagementCapabilities(enabled: boolean): {
 /**
  * The page part of the document title on /manage, from the kind of
  * `centerState` (null: not a /manage place). Where the center shows no page
- * (flag off, or a scope the member cannot open) the address is not found, as
- * before the settings center, so the title says so too.
+ * (a scope the member cannot open) the address is not found, so the title
+ * says so too.
  */
 export function manageTitleKey(
   centerKind: CenterState["kind"] | null,
 ): "manageTitle" | "notFound" | null {
   if (centerKind === null) return null;
-  return centerKind === "off" || centerKind === "notFound"
-    ? "notFound"
-    : "manageTitle";
+  return centerKind === "notFound" ? "notFound" : "manageTitle";
 }
 
 export type CenterState =
-  | { kind: "off" }
   | { kind: "loading" }
   | { kind: "error"; message: string }
   | { kind: "redirect"; href: string }
@@ -62,15 +59,13 @@ export type CenterState =
  * whether it does not exist or the member's role does not include it.
  */
 export function centerState(input: {
-  stage: "off" | "preview" | "on" | undefined;
   target: ManageTarget;
   caps: ManagementCapabilities | null;
   loading: boolean;
   error: { message: string } | null;
   lastProjectId: string | null;
 }): CenterState {
-  const { stage, target, caps, error } = input;
-  if (!stage || stage === "off") return { kind: "off" };
+  const { target, caps, error } = input;
   if (error) return { kind: "error", message: error.message };
   if (!caps) return { kind: "loading" };
   const scope = target.scope;

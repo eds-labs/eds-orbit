@@ -37,12 +37,11 @@ import { SocialAccountsPage, socialReturnTarget } from "./accounts-page";
 
 const project = { id: "p1", workspaceId: "w1", name: "Synthetic", timezone: "Europe/Berlin", role: "owner" } as Project;
 
-function render(node: React.ReactNode, { locale = "en" as Locale, stage = "on" as "off" | "preview" | "on" } = {}) {
+function render(node: React.ReactNode, { locale = "en" as Locale } = {}) {
   const identity = {
     user: { id: "u1", name: "Ada", email: "ada@example.invalid" },
     workspaces: [{ id: "w1", name: "Org", role: "owner" }],
     projects: [project],
-    settingsCenter: stage,
   } as Identity;
   const shell = { hrefOf: () => "/p/p1/social/accounts", modules: [] } as unknown as ShellContextValue;
   return renderToStaticMarkup(
@@ -76,14 +75,11 @@ const accounts = {
 const center = "/manage/p/p1/integrations/social/accounts";
 
 describe("social accounts page with the settings center", () => {
-  it("forwards an OAuth result to the center only when the flag is on", () => {
-    expect(socialReturnTarget("on", "p1", "?connected=2")).toBe(`${center}?connected=2`);
-    expect(socialReturnTarget("on", "p1", "?error=SOCIAL_OAUTH_CANCELLED")).toBe(`${center}?error=SOCIAL_OAUTH_CANCELLED`);
-    expect(socialReturnTarget("on", "p1", "")).toBeNull();
-    expect(socialReturnTarget("on", "p1", "?other=1")).toBeNull();
-    expect(socialReturnTarget("preview", "p1", "?connected=2")).toBeNull();
-    expect(socialReturnTarget("off", "p1", "?connected=2")).toBeNull();
-    expect(socialReturnTarget(undefined, "p1", "?connected=2")).toBeNull();
+  it("forwards an OAuth result to the center", () => {
+    expect(socialReturnTarget("p1", "?connected=2")).toBe(`${center}?connected=2`);
+    expect(socialReturnTarget("p1", "?error=SOCIAL_OAUTH_CANCELLED")).toBe(`${center}?error=SOCIAL_OAUTH_CANCELLED`);
+    expect(socialReturnTarget("p1", "")).toBeNull();
+    expect(socialReturnTarget("p1", "?other=1")).toBeNull();
   });
 
   it("lists the live accounts with their state and no action, and links to the center", () => {
@@ -101,20 +97,19 @@ describe("social accounts page with the settings center", () => {
     expect(de).toContain("Konten werden in Verwaltung &amp; Einstellungen verbunden, geprüft und getrennt.");
   });
 
-  it("renders the summary page with the flag on, the editor otherwise", () => {
+  it("renders the summary page, never the editor", () => {
     answers["/social/accounts"] = accounts;
     search.value = "";
     const on = render(<SocialAccountsPage />);
     expect(on).toContain(`href="${center}"`);
     expect(on).not.toMatch(/<button/);
-    for (const stage of ["off", "preview"] as const) expect(render(<SocialAccountsPage />, { stage })).toContain("Connect X");
+    expect(on).not.toContain("Connect X");
   });
 
-  it("renders nothing while an OAuth result is forwarded, and never forwards with off or preview", () => {
+  it("renders nothing while an OAuth result is forwarded", () => {
     answers["/social/accounts"] = accounts;
     search.value = "?connected=2";
     expect(render(<SocialAccountsPage />)).toBe("");
-    expect(render(<SocialAccountsPage />, { stage: "preview" })).toContain("Connect X");
     search.value = "";
   });
 

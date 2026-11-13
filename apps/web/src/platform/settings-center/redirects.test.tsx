@@ -334,7 +334,6 @@ const PROJECT_CAPS = CAPABILITIES.filter((c) => c.startsWith("project."));
 
 /** Capabilities of a member who owns project p1 and nothing else. */
 const caps = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
-  stage: "on",
   flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: [],
   account: [],
@@ -347,18 +346,12 @@ const caps = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilitie
 
 const rctx = (over: Partial<RedirectContext> = {}): RedirectContext => ({
   ...ctx(),
-  stage: "on",
   caps: caps(),
   ...over,
 });
 
 describe("the shell's redirect of an old settings address", () => {
   const members = parse("/p/p1/settings?section=members");
-
-  it("does nothing unless the stage is on", () => {
-    for (const stage of ["off", "preview", undefined] as const)
-      expect(oldAddressTarget(members, rctx({ stage })), String(stage)).toEqual({ kind: "stay" });
-  });
 
   it("waits for the capabilities and stays when they cannot be read", () => {
     expect(oldAddressTarget(members, rctx({ caps: null }))).toEqual({ kind: "wait" });

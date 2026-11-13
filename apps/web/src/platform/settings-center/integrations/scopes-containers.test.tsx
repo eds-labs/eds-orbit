@@ -94,7 +94,7 @@ describe("SystemCatalog", () => {
       "/admin/connections": { items: [] },
       "/admin/overview": { system: { environment } },
     });
-    const admin = { stage: "preview", flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false }, system: ["system.connections"], account: [], organizations: [], projects: [] } as ManagementCapabilities;
+    const admin = { flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false }, system: ["system.connections"], account: [], organizations: [], projects: [] } as ManagementCapabilities;
     const html = renderToStaticMarkup(<SystemCatalog {...props({ kind: "system" }, admin)} />);
     const card = (id: string) => html.slice(html.indexOf(`data-provider="${id}"`)).split("</article>")[0]!;
     expect(card("openai")).toContain('href="/manage/system/integrations/setup/openai"');
@@ -183,7 +183,7 @@ describe("ProjectCatalog", () => {
     const scope: ManageScope = { kind: "project", projectId: "p1" };
     const viewerCaps = ["project.overview", "project.profile", "project.modules", "project.integrations"] as Capability[];
     const asRole = (role: "owner" | "viewer"): ManagementCapabilities => ({
-      stage: "preview", flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false }, system: [], account: [], organizations: [],
+      flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false }, system: [], account: [], organizations: [],
       projects: [{ id: "p1", name: "P", workspaceId: "w1", role, capabilities: role === "owner" ? [...viewerCaps, "project.members"] : viewerCaps }],
     });
     const viewer = renderToStaticMarkup(<ProjectCatalog {...props(scope, asRole("viewer"))} />);

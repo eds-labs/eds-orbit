@@ -46,7 +46,6 @@ const all = [
   section("security", "audit", { component: OwnHead, ownHead: true }),
 ];
 const caps: ManagementCapabilities = {
-  stage: "on",
   flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: ["system.overview", "system.users", "system.mcp"],
   account: [],

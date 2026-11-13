@@ -381,25 +381,24 @@ describe("module settings links in the sidebar", () => {
   });
 });
 
-describe("module settings links with the settings center (P5-R6)", () => {
+describe("module settings links into the settings center (P5-R6)", () => {
   const table = routeTable(webRegistry);
   const shellModules = webRegistry.modules.map((m) => ({
     ...m,
     enabled: true,
     settingsSection: moduleSettingsSection(m.id, m.settings ?? []),
   }));
-  const oldHref = (key: string) => settingsSectionHref("/p/p1/settings", key);
-  const links = (on: boolean) =>
+  const links = () =>
     Object.fromEntries(
       withSettingsLinks(
         buildNavGroups(table.routes, shellModules),
         shellModules,
-        moduleSettingsHref({ on, projectId: "p1", platformKeys: PLATFORM_TAB_KEYS, oldHref }),
+        moduleSettingsHref({ projectId: "p1", platformKeys: PLATFORM_TAB_KEYS }),
       ).flatMap((g) => (g.settingsHref ? [[g.id, g.settingsHref]] : [])),
     );
 
-  it("with on, opens each module's own section in the center", () => {
-    expect(links(true)).toEqual({
+  it("opens each module's own section in the center", () => {
+    expect(links()).toEqual({
       marketing: "/manage/p/p1/modules/marketing/policy",
       work: "/manage/p/p1/modules/work/settings",
       support: "/manage/p/p1/modules/support/settings",
@@ -410,7 +409,7 @@ describe("module settings links with the settings center (P5-R6)", () => {
     });
   });
 
-  it("with on, every link lands on a section the center has", () => {
+  it("every link lands on a section the center has", () => {
     const sections = projectModuleSections(
       webRegistry.modules.flatMap((m) =>
         (m.settings ?? []).map((s) => ({
@@ -420,19 +419,9 @@ describe("module settings links with the settings center (P5-R6)", () => {
       ),
       shellModules,
     ).sections;
-    for (const [id, href] of Object.entries(links(true))) {
+    for (const [id, href] of Object.entries(links())) {
       const rest = href.replace("/manage/p/p1/modules/", "").split("/");
       expect(resolveSection(sections, "modules", rest)?.section.id, id).toBeDefined();
     }
-  });
-
-  it("without on, each link is the old address", () => {
-    const old = Object.fromEntries(
-      shellModules.flatMap((m) =>
-        m.settingsSection ? [[m.id, oldHref(m.settingsSection)]] : [],
-      ),
-    );
-    expect(links(false)).toEqual(old);
-    expect(links(false).webmail).toBe("/p/p1/settings?section=integrations");
   });
 });

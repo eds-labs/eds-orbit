@@ -45,7 +45,6 @@ export type ManagementFlags = {
 };
 
 export type ManagementCapabilities = {
-  stage: "preview" | "on";
   flags: ManagementFlags;
   system: Capability[];
   account: Capability[];

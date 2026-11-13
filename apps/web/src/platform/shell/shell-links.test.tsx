@@ -16,30 +16,12 @@ const hrefOf = (key: string) => {
   const route = table.routes.find((r) => r.key === key);
   return route ? projectHref("p1", route) : "/";
 };
-const links = (
-  stage: "off" | "preview" | "on" | undefined,
-  map: (href: string) => string = (href) => centerLink(href, ctx()),
-) => shellLinks({ stage, hrefOf, map });
+const links = (map: (href: string) => string = (href) => centerLink(href, ctx())) =>
+  shellLinks({ hrefOf, map });
 
 describe("shell links (settings center phase 5)", () => {
-  it("links to the old addresses unless the flag is on", () => {
-    for (const stage of [undefined, "off", "preview"] as const) {
-      const l = links(stage);
-      expect(l.settingsHref("ai")).toBe("/p/p1/settings?section=ai");
-      expect(l.settingsHref("project")).toBe("/p/p1/settings");
-      expect(l.settingsHref("finance-mailboxes")).toBe(
-        "/p/p1/settings?section=finance-mailboxes",
-      );
-      expect(l.connectionsHref()).toBe("/p/p1/connectors");
-      expect(l.organizationSettingsHref("w 1")).toBe("/o/w%201/settings");
-      expect(l.centerLink("/p/p1/settings?section=ai")).toBe(
-        "/p/p1/settings?section=ai",
-      );
-    }
-  });
-
-  it("links into the center when the flag is on", () => {
-    const l = links("on");
+  it("links into the center", () => {
+    const l = links();
     expect(l.settingsHref("ai")).toBe("/manage/p/p1/ai");
     expect(l.settingsHref("project")).toBe("/manage/p/p1/overview");
     expect(l.connectionsHref()).toBe("/manage/p/p1/integrations/connections");
@@ -53,7 +35,7 @@ describe("shell links (settings center phase 5)", () => {
   it("keeps the old address while the mapping waits, and never asks for capabilities", () => {
     // "policy" moved: while the module states are unknown the mapping waits,
     // so the link keeps the old address and the redirect decides.
-    const waiting = links("on", (href) => centerLink(href, ctx(() => null)));
+    const waiting = links((href) => centerLink(href, ctx(() => null)));
     expect(waiting.settingsHref("policy")).toBe("/p/p1/settings?section=policy");
     expect(waiting.settingsHref("ai")).toBe("/manage/p/p1/ai");
   });

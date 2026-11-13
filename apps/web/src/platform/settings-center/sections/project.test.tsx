@@ -537,7 +537,6 @@ describe("projectModuleSections", () => {
 describe("ProjectScopeView", () => {
   const scope: ManageScope = { kind: "project", projectId: "p1" };
   const caps: ManagementCapabilities = {
-    stage: "on",
     flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
     system: [],
     account: [],

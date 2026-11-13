@@ -8,7 +8,6 @@ import {
 import type { Capability, ManagementCapabilities } from "./types";
 
 const caps = (over: Partial<ManagementCapabilities> = {}): ManagementCapabilities => ({
-  stage: "on",
   flags: { connections: false, aiCatalog: false, aiDefaults: false, aiOrgBudget: false },
   system: [],
   account: [],
