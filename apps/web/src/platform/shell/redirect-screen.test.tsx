@@ -11,17 +11,27 @@ function Root({ children }: { children: ReactNode }) {
 }
 const wrap = (tree: ReactNode) => createElement(Root, null, tree);
 const loading = createElement("div", { className: "boot" });
+const refusal = (kind: "closed" | "failed") => createElement("p", { className: kind });
 
 describe("redirectScreen", () => {
   it("renders the loading screen inside the pages' root wrapper while it waits or goes", () => {
     for (const kind of ["wait", "go"] as const) {
-      const element = redirectScreen(kind, wrap, loading);
+      const element = redirectScreen(kind, wrap, loading, refusal);
       expect(element?.type, kind).toBe(wrap(null).type);
       expect((element?.props as { children: ReactNode }).children, kind).toBe(loading);
     }
   });
 
-  it("renders nothing of its own when the page stays", () => {
-    expect(redirectScreen("stay", wrap, loading)).toBeNull();
+  it("renders the refusal inside the same wrapper when the area is closed or failed", () => {
+    for (const kind of ["closed", "failed"] as const) {
+      const element = redirectScreen(kind, wrap, loading, refusal);
+      expect(element?.type, kind).toBe(wrap(null).type);
+      const child = (element?.props as { children: ReturnType<typeof refusal> }).children;
+      expect(child, kind).toEqual(refusal(kind));
+    }
+  });
+
+  it("renders nothing of its own for an address that is no old address", () => {
+    expect(redirectScreen("none", wrap, loading, refusal)).toBeNull();
   });
 });

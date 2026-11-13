@@ -85,6 +85,7 @@ import {
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
 import { useScrollTopOnNavigate } from "@/platform/shell/scroll-reset";
 import { redirectScreen } from "@/platform/shell/redirect-screen";
+import { OldAddressScreen } from "@/platform/shell/old-address";
 import { moduleSettingsSection } from "@/platform/shell/settings-nav";
 import {
   attentionRenderers,
@@ -97,9 +98,6 @@ import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
 import { UserMenu } from "@/platform/shell/user-menu";
-import { AdminArea } from "@/platform/administration/admin-area";
-import { OrganizationManager } from "@/platform/administration/organization-manager";
-import { OrganizationIntegrations } from "@/platform/administration/organization-integrations";
 import {
   OrganizationPicker,
   ProjectPicker,
@@ -133,6 +131,10 @@ import {
 import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 
 const LAST_PROJECT = "orbit.project";
+// The old settings pages the route table still recognises: the redirect
+// decides them (settings center row 5.4); the shell never renders them.
+const OLD_STANDALONE: ReadonlySet<string> = new Set(["account", "account-assistant"]);
+const OLD_PROJECT_ROUTES: ReadonlySet<string> = new Set(["settings", "connectors"]);
 type ModuleStates = {
   features?: Record<string, boolean>;
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
@@ -228,12 +230,22 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     addressPath !== null &&
     mayBeOldAddress(addressPath);
   const settingsTabs = useMemo(() => moduleTabIndex(registry.modules), [registry]);
-  const mapContext = { table, tabs: settingsTabs, platformKeys: PLATFORM_TAB_KEYS };
-  // Mapped before the module states are known: whether it maps, and every
-  // result but "wait", do not depend on them (pinned in redirects.test.tsx).
-  const firstMapping = oldAddress
-    ? mapOldAddress(oldAddress, { ...mapContext, moduleShown: () => null })
-    : null;
+  // A system administrator who does not own an organization manages it on
+  // its system page (P54-D4); for the redirect and for links alike.
+  const member = identity.data;
+  const systemAdminOnly = useMemo(
+    () =>
+      (organizationId: string) =>
+        member?.systemAdmin === true &&
+        !member.workspaces.some((w) => w.id === organizationId && w.canManage),
+    [member],
+  );
+  const mapContext = {
+    table,
+    tabs: settingsTabs,
+    platformKeys: PLATFORM_TAB_KEYS,
+    systemAdminOnly,
+  };
   const projectId =
     place.kind === "view" || place.kind === "notFound"
       ? place.projectId
@@ -243,6 +255,15 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const project = projectId
     ? identity.data?.projects.find((p) => p.id === projectId)
     : undefined;
+  // Mapped before the module states are known: whether it maps, and every
+  // result but "wait", do not depend on them (pinned in redirects.test.tsx).
+  // An old address of a project the member does not have keeps the shell's
+  // own answer for an unknown project (not found, or the loading screen of
+  // a project just created); no old page renders there either.
+  const firstMapping =
+    oldAddress && !(place.kind === "view" && !project)
+      ? mapOldAddress(oldAddress, { ...mapContext, moduleShown: () => null })
+      : null;
   // Refetched with the workspace revision, so a module switch shows at once.
   // A legacy address on its way to the center needs the states of the
   // project it leads to (a moved settings key depends on them).
@@ -345,6 +366,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       table,
       tabs: settingsTabs,
       platformKeys: PLATFORM_TAB_KEYS,
+      systemAdminOnly,
       moduleShown: shownFromStates(
         registry.modules,
         { projectId: statesProjectId, settled: statesSettled },
@@ -352,7 +374,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       ),
     };
     return (href) => centerLink(href, ctx);
-  }, [table, settingsTabs, registry, statesProjectId, statesSettled]);
+  }, [table, settingsTabs, registry, statesProjectId, statesSettled, systemAdminOnly]);
   // The agents entry (ADR 0021, WP1.8): owners and editors only, and only
   // while the agents API answers (it is 404 with ORBIT_AGENT_PLATFORM off).
   const memberRole = project
@@ -470,6 +492,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       router.replace(redirect.href);
       return;
     }
+    // The address says why it does not lead on; a legacy one stays put.
+    if (redirect.kind === "closed" || redirect.kind === "failed") return;
     if (place.kind === "redirect")
       router.replace(projectHref(place.projectId, place.route));
     if (place.kind !== "start" && place.kind !== "legacy") return;
@@ -803,23 +827,25 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       {tree}
     </AssistantProvider>
   );
-  // Pages outside a project: pickers, administration and unknown addresses.
+  // Pages outside a project: pickers, the settings center and unknown
+  // addresses. `framed` is the page without the assistant around it.
+  const framed = (children: ReactNode, wide = false) => (
+    <div className="picker-page">
+      <header>
+        <Brand />
+        <div className="topbar-actions">
+          {languageControl}
+          {userMenu()}
+        </div>
+      </header>
+      <main id="main" className={wide ? "admin-main" : "picker-main"}>
+        {signout.error && <Alert kind="error">{signout.error}</Alert>}
+        {children}
+      </main>
+    </div>
+  );
   const frame = (children: ReactNode, wide = false) =>
-    withAssistant(
-      <div className="picker-page">
-        <header>
-          <Brand />
-          <div className="topbar-actions">
-            {languageControl}
-            {userMenu()}
-          </div>
-        </header>
-        <main id="main" className={wide ? "admin-main" : "picker-main"}>
-          {signout.error && <Alert kind="error">{signout.error}</Alert>}
-          {children}
-        </main>
-      </div>,
-    );
+    withAssistant(framed(children, wide));
   // The workspace of a project page, shared with the project scope of the
   // settings center so both give module code the same context.
   const workspaceValue = (
@@ -837,9 +863,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     refresh: () => setRevision((n) => n + 1),
     href: (path) => centerMap(rewriteLegacyHref(table, open.id, path)),
   });
-  // An old page never shows on its way to the settings center. The loading
-  // screen sits inside withAssistant, the root of every page, so the
-  // assistant keeps its state across that render.
+  // An old settings address never renders its old page (P54-D3): it waits,
+  // goes to the settings center, or says why not. These screens sit inside
+  // withAssistant, the root of every page, so the assistant keeps its state
+  // across them.
   const redirecting = redirectScreen(
     redirect.kind,
     withAssistant,
@@ -847,8 +874,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       <Brand />
       <Loading label={t("loading")} />
     </div>,
+    (kind) =>
+      framed(
+        <OldAddressScreen kind={kind} locale={locale} onRetry={caps.refresh} />,
+      ),
   );
   if (redirecting) return redirecting;
+  // The old settings places are decided by the redirect alone (above); they
+  // reach this point only if it had nothing to decide, and then show no page.
+  if (
+    place.kind === "admin" ||
+    place.kind === "organizationSettings" ||
+    (standalone && OLD_STANDALONE.has(standalone.key))
+  )
+    return frame(<NotFound t={t} project={false} />);
   if (standalone)
     return frame(
       <StandaloneContext.Provider
@@ -862,47 +901,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       >
         <standalone.component />
       </StandaloneContext.Provider>,
-      ["account", "account-assistant", "assistant"].includes(standalone.key),
+      standalone.key === "assistant",
     );
-  // The system administration (ADR 0013); the API refuses everyone else.
-  if (place.kind === "admin")
-    return me.systemAdmin
-      ? frame(
-          <AdminArea
-            section={place.section}
-            id={place.id}
-            locale={locale}
-            currentUserId={me.user.id}
-            connections={Boolean(me.connections)}
-          />,
-          true,
-        )
-      : frame(<NotFound t={t} project={false} />);
-  if (place.kind === "organizationSettings")
-    return me.workspaces.some(
-      (w) => w.id === place.organizationId && w.canManage,
-    ) || me.systemAdmin
-      ? frame(
-          <>
-            <Link
-              className="back-link"
-              href={`/o/${encodeURIComponent(place.organizationId)}`}
-            >
-              ← {t("chooseProject")}
-            </Link>
-            <OrganizationManager
-              organizationId={place.organizationId}
-              locale={locale}
-            />
-            <OrganizationIntegrations
-              identity={me}
-              organizationId={place.organizationId}
-              locale={locale}
-            />
-          </>,
-          true,
-        )
-      : frame(<NotFound t={t} project={false} />);
   // The agents of all projects (ADR 0021); the summary API lists only
   // projects the member may read agents in.
   if (place.kind === "organizationAgents")
@@ -1277,7 +1277,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                   .join(",")}`}
               >
                 {!canEdit && route && <Alert>{t("viewer")}</Alert>}
-                {!route ? (
+                {!route || OLD_PROJECT_ROUTES.has(route.key) ? (
+                  // An old settings page is decided by the redirect alone.
                   <NotFound t={t} homeHref={homeHref} />
                 ) : waitsForModuleStates(
                     moduleStates.data,

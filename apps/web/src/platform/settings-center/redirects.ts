@@ -61,6 +61,12 @@ export type MapContext = {
   platformKeys: readonly string[];
   /** Whether the module is shown in that project; null while unknown. Asked only for a key that has a MOVED entry. */
   moduleShown(projectId: string, moduleId: string): boolean | null;
+  /**
+   * Whether the member is a system administrator and not an owner of that
+   * organization (P54-D4); then its old settings address leads to the
+   * organization's system page. Missing: false.
+   */
+  systemAdminOnly?(organizationId: string): boolean;
 };
 
 type Place = { scope: ManageScope; area: string; rest?: string[] };
@@ -171,6 +177,15 @@ export function mapOldAddress(
       });
     }
     case "organizationSettings": {
+      // Hash and search belong to the organization's own page.
+      if (ctx.systemAdminOnly?.(place.organizationId))
+        return {
+          scope: SYSTEM,
+          area: "organizations",
+          rest: [place.organizationId],
+          search: "",
+          hash: "",
+        };
       const scope: ManageScope = {
         kind: "organization",
         organizationId: place.organizationId,
@@ -268,10 +283,23 @@ export type RedirectContext = MapContext & {
   /** The member's capabilities; null while loading; undefined when the request failed. */
   caps: ManagementCapabilities | null | undefined;
 };
-export type Redirect = { kind: "go"; href: string } | { kind: "wait" } | { kind: "stay" };
+/**
+ * What the shell does with an address: "none" only for an address that is
+ * not an old settings address (its page renders); an old one never renders
+ * its old page (P54-D3): it waits, goes to the center, or says the area is
+ * closed to the member or that the capabilities could not be read.
+ */
+export type Redirect =
+  | { kind: "none" }
+  | { kind: "wait" }
+  | { kind: "go"; href: string }
+  | { kind: "closed" }
+  | { kind: "failed" };
 
-const STAY: Redirect = { kind: "stay" };
+const NONE: Redirect = { kind: "none" };
 const WAIT: Redirect = { kind: "wait" };
+const CLOSED: Redirect = { kind: "closed" };
+const FAILED: Redirect = { kind: "failed" };
 
 // The platform's own sections per scope: an area a member can open is one
 // where they see at least one of them. A module section of a project needs
@@ -309,18 +337,16 @@ export function redirectFor(
   target: CenterAddress | "wait" | null,
   ctx: Pick<RedirectContext, "caps">,
 ): Redirect {
-  if (target === null) return STAY;
+  if (target === null) return NONE;
   if (target === "wait" || ctx.caps === null) return WAIT;
-  // Without capabilities the old page still works; better than no page.
-  if (ctx.caps === undefined) return STAY;
+  if (ctx.caps === undefined) return FAILED;
   const kind = target.scope.kind;
   const open = visibleSections(
     PLATFORM_SECTIONS[kind],
     kind,
     scopeCapabilities(ctx.caps, target.scope),
   );
-  // A scope the member cannot open keeps today's page (e.g. not found).
-  if (open.length === 0) return STAY;
+  if (open.length === 0) return CLOSED;
   // The target never equals the address: a mapped address is never below
   // /manage, and every target is. visibleSections sorts by area order, so
   // the first section's area is the scope's first area.

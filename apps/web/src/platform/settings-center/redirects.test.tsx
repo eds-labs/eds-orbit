@@ -352,16 +352,24 @@ const rctx = (over: Partial<RedirectContext> = {}): RedirectContext => ({
 
 describe("the shell's redirect of an old settings address", () => {
   const members = parse("/p/p1/settings?section=members");
+  const ORG_CAPS = CAPABILITIES.filter((c) => c.startsWith("organization."));
+  const SYSTEM_CAPS = CAPABILITIES.filter((c) => c.startsWith("system."));
+  const owner = caps({
+    organizations: [{ id: "w1", name: "W1", capabilities: [...ORG_CAPS] }],
+  });
 
-  it("waits for the capabilities and stays when they cannot be read", () => {
+  it("waits for the capabilities and says so when they cannot be read", () => {
     expect(oldAddressTarget(members, rctx({ caps: null }))).toEqual({ kind: "wait" });
-    expect(oldAddressTarget(members, rctx({ caps: undefined }))).toEqual({ kind: "stay" });
+    expect(oldAddressTarget(members, rctx({ caps: undefined }))).toEqual({ kind: "failed" });
+    expect(oldAddressTarget(parse("/o/w1/settings"), rctx({ caps: undefined }))).toEqual({
+      kind: "failed",
+    });
     // Unknown module states wait even with capabilities.
     expect(
       oldAddressTarget(parse("/p/p1/settings?section=policy"), rctx({ moduleShown: () => null })),
     ).toEqual({ kind: "wait" });
     // An address that is no old settings address never waits.
-    expect(oldAddressTarget(parse("/p/p1/knowledge"), rctx({ caps: null }))).toEqual({ kind: "stay" });
+    expect(oldAddressTarget(parse("/p/p1/knowledge"), rctx({ caps: null }))).toEqual({ kind: "none" });
   });
 
   it("goes to the target the member can open", () => {
@@ -370,7 +378,7 @@ describe("the shell's redirect of an old settings address", () => {
       kind: "go",
       href: "/manage/p/p1/modules/marketing/policy?x=1#a",
     });
-    const admin = caps({ system: CAPABILITIES.filter((c) => c.startsWith("system.")) });
+    const admin = caps({ system: SYSTEM_CAPS });
     expect(oldAddressTarget(parse("/admin/users/u1"), rctx({ caps: admin }))).toEqual({
       kind: "go",
       href: "/manage/system/users/u1",
@@ -402,16 +410,64 @@ describe("the shell's redirect of an old settings address", () => {
     expect(oldAddressTarget(members, rctx({ caps: narrow }))).toEqual({ kind: "go", href: "/manage/p/p1/ai" });
   });
 
-  it("stays when the scope is not available to the member", () => {
-    expect(oldAddressTarget(parse("/account"), rctx())).toEqual({ kind: "stay" });
-    expect(oldAddressTarget(parse("/admin"), rctx())).toEqual({ kind: "stay" });
-    expect(oldAddressTarget(parse("/o/w1/settings"), rctx())).toEqual({ kind: "stay" });
-    expect(oldAddressTarget(parse("/p/p2/settings"), rctx())).toEqual({ kind: "stay" });
+  it("says the area is closed when the scope is not available to the member", () => {
+    expect(oldAddressTarget(parse("/account"), rctx())).toEqual({ kind: "closed" });
+    expect(oldAddressTarget(parse("/admin"), rctx())).toEqual({ kind: "closed" });
+    expect(oldAddressTarget(parse("/o/w1/settings"), rctx())).toEqual({ kind: "closed" });
+    expect(oldAddressTarget(parse("/p/p2/settings"), rctx())).toEqual({ kind: "closed" });
+    expect(oldAddressTarget(parse("/p/p2/connectors"), rctx())).toEqual({ kind: "closed" });
   });
 
-  it("leaves a center address alone, even while the capabilities load", () => {
-    expect(oldAddressTarget(parse("/manage/p/p1/members"), rctx())).toEqual({ kind: "stay" });
-    expect(oldAddressTarget(parse("/manage/system"), rctx({ caps: null }))).toEqual({ kind: "stay" });
+  it("keeps an owner's organization targets", () => {
+    expect(oldAddressTarget(parse("/o/w1/settings"), rctx({ caps: owner }))).toEqual({
+      kind: "go",
+      href: "/manage/o/w1/overview",
+    });
+    expect(oldAddressTarget(parse("/o/w1/settings#assistant-budget"), rctx({ caps: owner }))).toEqual({
+      kind: "go",
+      href: "/manage/o/w1/ai/budget#assistant-budget",
+    });
+  });
+
+  it("sends a system administrator who does not own the organization to its system page (P54-D4)", () => {
+    const admin = caps({ system: SYSTEM_CAPS });
+    const asked: string[] = [];
+    const notOwner = (id: string) => {
+      asked.push(id);
+      return id === "w1";
+    };
+    expect(
+      oldAddressTarget(
+        parse("/o/w1/settings?x=1#assistant-budget"),
+        rctx({ caps: admin, systemAdminOnly: notOwner }),
+      ),
+    ).toEqual({ kind: "go", href: "/manage/system/organizations/w1" });
+    expect(asked).toEqual(["w1"]);
+    expect(hrefOf(mapOldAddress(parse("/o/w%201/settings"), ctx({ systemAdminOnly: () => true })))).toBe(
+      "/manage/system/organizations/w%201",
+    );
+    // Without the system scope either, the area is closed.
+    expect(
+      oldAddressTarget(parse("/o/w1/settings"), rctx({ systemAdminOnly: notOwner })),
+    ).toEqual({ kind: "closed" });
+    // An owner keeps the organization's own targets.
+    expect(
+      oldAddressTarget(parse("/o/w1/settings"), rctx({ caps: owner, systemAdminOnly: () => false })),
+    ).toEqual({ kind: "go", href: "/manage/o/w1/overview" });
+  });
+
+  it("leaves a center address and every page alone, even while the capabilities load", () => {
+    expect(oldAddressTarget(parse("/manage/p/p1/members"), rctx())).toEqual({ kind: "none" });
+    expect(oldAddressTarget(parse("/manage/system"), rctx({ caps: null }))).toEqual({ kind: "none" });
+    for (const a of ["/account/confirm-email", "/p/p1/social/accounts", "/p/p1/knowledge", "/o/w1"])
+      for (const c of [caps(), null, undefined])
+        expect(oldAddressTarget(parse(a), rctx({ caps: c })), a).toEqual({ kind: "none" });
+  });
+
+  it("gives none only for an address that is not an old address", () => {
+    for (const [from] of ROWS)
+      for (const c of [caps(), owner, null, undefined])
+        expect(oldAddressTarget(parse(from), rctx({ caps: c })).kind, from).not.toBe("none");
   });
 });
 

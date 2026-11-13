@@ -30,6 +30,12 @@ const en = {
   orgProjects: "Projects",
   orgOpenMembers: "Manage members and projects",
   orgOpenAgents: "Agents of all projects",
+  // An old settings address that cannot lead to the center (P54-D3); the
+  // closed screen's title is notPermittedTitle.
+  oldAddressClosedBody: "You cannot open this area.",
+  oldAddressHome: "Go to the start page",
+  oldAddressFailed: "Settings could not be loaded.",
+  oldAddressRetry: "Try again",
 };
 
 export type CenterTextKey = keyof typeof en;
@@ -56,6 +62,10 @@ const de: Record<CenterTextKey, string> = {
   orgProjects: "Projekte",
   orgOpenMembers: "Mitglieder und Projekte verwalten",
   orgOpenAgents: "Agenten aller Projekte",
+  oldAddressClosedBody: "Diesen Bereich kannst du nicht öffnen.",
+  oldAddressHome: "Zur Startseite",
+  oldAddressFailed: "Die Einstellungen konnten nicht geladen werden.",
+  oldAddressRetry: "Erneut versuchen",
 };
 
 export const CENTER_TEXTS: Record<
