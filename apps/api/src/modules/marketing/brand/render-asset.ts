@@ -13,7 +13,11 @@ import {
   aiImageLabelsEnabled,
   labelFinalImage,
 } from "../../../platform/provenance/image-provenance.ts";
-import { assetAiOrigin, labeledAssetFields } from "./ai-labels.ts";
+import {
+  assetAiOrigin,
+  composableAsset,
+  labeledAssetFields,
+} from "./ai-labels.ts";
 import { assetBytes } from "../../assets.ts";
 import {
   connectionStatus,
@@ -54,8 +58,14 @@ export async function renderProjectAsset(scope: Scope, raw: unknown) {
       const parsed = marketingProfile.parse(profile.data);
       const logoId = input.logoAssetId ?? parsed.visualIdentity.logoAssetId;
       const logo = logoId ? await entity(tx, scope, "assets", logoId) : null;
+      // ADR 0028: a labelled visual is drawn from its unlabelled source, or
+      // refused (409 AI_LABELED_COMPONENT), so the render carries one label.
       const visual = input.visualAssetId
-        ? await entity(tx, scope, "assets", input.visualAssetId)
+        ? await composableAsset(
+            tx,
+            scope,
+            await entity(tx, scope, "assets", input.visualAssetId),
+          )
         : null;
       for (const [row, isLogo] of [
         [logo, true],
@@ -181,7 +191,8 @@ export async function renderProjectAsset(scope: Scope, raw: unknown) {
       assetStatus: "approved",
       approvedBy: scope.userId,
       brandAssetId: prepared.logoId,
-      visualAssetId: input.visualAssetId,
+      // The visual drawn: a labelled visual's unlabelled source (ADR 0028).
+      visualAssetId: prepared.visual?.id ?? input.visualAssetId,
       profileVersion: prepared.profileVersion,
       channel: input.channel ?? "Other",
       driveSyncStatus: driveEnabled ? "PENDING" : "LOCAL_ONLY",

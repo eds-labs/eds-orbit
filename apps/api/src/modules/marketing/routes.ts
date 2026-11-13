@@ -443,23 +443,26 @@ export const marketingRoutes: RoutesContribution = (context) => {
       const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       const input = brandAssetUploadInput.parse(req.body);
       const normalized = await normalizeBrandAsset(input);
+      const stored = Buffer.from(normalized.base64, "base64");
       // ADR 0028 §6: what the original bytes declare (normalizing strips
-      // their XMP and C2PA); null with the label flag off.
-      const original = await readUploadProvenance(
+      // their XMP and C2PA), with a label they carry checked on the stored
+      // bytes; null with the label flag off.
+      const upload = await readUploadProvenance(
         Buffer.from(input.base64, "base64"),
+        stored,
       );
       const row = await scoped(scope.workspaceId, projectId, async (tx) => {
         const asset = await create(tx, scope, "assets", {
           ...normalized,
-          ...uploadAssetFields(original),
+          ...uploadAssetFields(upload),
           assetStatus: "reference",
           usageApproved: false,
           uploadedBy: scope.userId,
           uploadedAt: new Date().toISOString(),
         });
         await recordUploadProvenance(tx, scope, {
-          original,
-          stored: Buffer.from(normalized.base64, "base64"),
+          upload,
+          stored,
           assetId: asset.id,
         });
         await audit(tx, scope, "asset.upload", asset.id, {

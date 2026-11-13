@@ -12,6 +12,7 @@ import {
   storeFile,
 } from "../../../platform/files/files.ts";
 import { audit, DomainError } from "../../../shared.ts";
+import { aiImageLabelsEnabled } from "../../../platform/provenance/image-provenance.ts";
 import { provenanceBeforeIngest, recordStoredRenditions } from "./provenance.ts";
 
 // The social module's media library (ADR 0020, S3): every image is stored
@@ -118,7 +119,12 @@ export async function ingestMedia(
     // first), so the stored renditions derive from the labelled bytes.
     const source = await provenanceBeforeIngest(scope, bytes, assetId);
     try {
-      return { prepared: await prepareSocialImage(source?.bytes ?? bytes), source };
+      // The provenance XMP is carried only with the label switch on, so
+      // with it off the stored bytes (and the dedup hash) stay as before.
+      return {
+        prepared: await prepareSocialImage(source?.bytes ?? bytes, { carryProvenance: aiImageLabelsEnabled() }),
+        source,
+      };
     } catch {
       throw new DomainError("SOCIAL_MEDIA_INVALID", 422);
     }

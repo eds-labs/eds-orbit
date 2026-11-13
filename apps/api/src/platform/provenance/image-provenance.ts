@@ -152,7 +152,7 @@ export async function imageProvenance(
 /**
  * Records one image version. An existing record of the same bytes wins and
  * is returned unchanged (first record wins, never downgraded); records are
- * never updated. Inconsistent input is refused (422
+ * never updated. C2PA manifest bytes are stored only for AI images. Inconsistent input is refused (422
  * IMAGE_PROVENANCE_INVALID).
  */
 export async function recordImageProvenance(
@@ -165,7 +165,15 @@ export async function recordImageProvenance(
   const v = parsed.data;
   const existing = await imageProvenance(tx, scope, v.sha256);
   if (existing) return existing;
-  const c2paManifest = input.c2paManifest ?? manifestOf(input.embedded);
+  // The manifest store's bytes are kept only for an AI image (an AI origin,
+  // or bytes that declare AI): a camera's manifest names its signer and may
+  // carry location assertions, and records are never deleted. For any other
+  // image the stored reading keeps at most presence, SHA-256 and size.
+  const aiSource =
+    labelRequired(v.origin) || input.embedded?.declaresAi === true;
+  const c2paManifest = aiSource
+    ? (input.c2paManifest ?? manifestOf(input.embedded))
+    : null;
   if (c2paManifest && (c2paManifest.length === 0 || c2paManifest.length > MAX_MANIFEST))
     throw new DomainError("IMAGE_PROVENANCE_INVALID", 422);
   // ON CONFLICT DO NOTHING: a record written meanwhile for the same bytes

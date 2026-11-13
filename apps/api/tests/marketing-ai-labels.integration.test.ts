@@ -12,6 +12,7 @@ import {
 } from "vitest";
 import {
   closeDatabase,
+  db,
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
@@ -29,7 +30,10 @@ import {
 } from "../../../packages/creative/fixtures/demo-brands.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
-import { imageProvenance } from "../src/platform/provenance/image-provenance.ts";
+import {
+  imageProvenance,
+  labelFinalImage,
+} from "../src/platform/provenance/image-provenance.ts";
 import { generateProjectImage } from "../src/modules/marketing/brand/image-generation.ts";
 import { renderProjectAsset } from "../src/modules/marketing/brand/render-asset.ts";
 import {
@@ -46,6 +50,7 @@ import {
 import { preflight } from "../src/modules/marketing/policy/policy.ts";
 import { exportAssetContent } from "../src/modules/marketing/pipeline/content-export.ts";
 import { sendDraftHandoff } from "../src/modules/marketing/publishing/postiz-draft.ts";
+import { preparePostizVerification } from "../src/modules/marketing/publishing/postiz-verification.ts";
 import { createConversation } from "../src/modules/chat.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { deterministicDraft } from "../src/modules/workflow.ts";
@@ -487,6 +492,101 @@ describe.skipIf(!enabled)("Marketing AI image labels (ADR 0028)", () => {
     expect(sha256Hex(bytesOf(row))).toBe(d.sha256);
   });
 
+  it("composes from the unlabelled source of a labelled art or visual, and refuses other labelled images", async () => {
+    setLabels(true);
+    const sourceArt = await variant(13);
+    const sourceId = await legacyAiArt({
+      base64: sourceArt.toString("base64"),
+      sha256: sha256Hex(sourceArt),
+      bytes: sourceArt.length,
+    });
+    const derivative = await runIn(async (tx) =>
+      ensureLabeledAsset(
+        tx,
+        p.owner,
+        await entity(tx, p.owner, "assets", sourceId),
+        p.owner.userId,
+      ),
+    );
+    // A creative over the labelled derivative draws the source: one label only.
+    const creative = await produceWithArt(derivative.id);
+    for (const rendition of creative.renditions) {
+      const d = data(await asset(rendition.assetId));
+      const art = d.rightsSource.components.find(
+        (c: { role: string }) => c.role === "art",
+      );
+      expect(art).toMatchObject({ assetId: sourceId, sha256: sha256Hex(sourceArt) });
+      expect(d.aiLabel).toMatchObject({ text: "KI erstellt" });
+      const record = await runIn((tx) => imageProvenance(tx, p.owner, d.sha256));
+      expect(record!.componentSha256s).toContain(sha256Hex(sourceArt));
+      expect(record!.componentSha256s).not.toContain(data(derivative).sha256);
+    }
+    // A template render over the derivative draws the source as well.
+    const rendered = (await renderProjectAsset(p.owner, {
+      title: "Evenings feel softer",
+      format: "square",
+      visualAssetId: derivative.id,
+      saveToDrive: false,
+    })) as { id: string };
+    expect(data(await asset(rendered.id))).toMatchObject({ visualAssetId: sourceId });
+
+    // A labelled image without an unlabelled source asset (here: a labelled
+    // template render, and labelled bytes recorded on their own) is refused.
+    const labelledBytes = (
+      await runIn((tx) =>
+        labelFinalImage(tx, p.owner, {
+          bytes: sourceArt,
+          origin: "ai_generated",
+          subject: { module: "marketing", kind: "asset", id: "synthetic" },
+          createdBy: p.owner.userId,
+        }),
+      )
+    ).result;
+    const orphanSource = await variant(14);
+    const orphan = (
+      await runIn((tx) =>
+        labelFinalImage(tx, p.owner, {
+          bytes: orphanSource,
+          origin: "ai_generated",
+          subject: { module: "marketing", kind: "asset", id: "synthetic" },
+          createdBy: p.owner.userId,
+        }),
+      )
+    ).result;
+    const orphanId = await addAsset("photo", orphan.bytes);
+    await expect(produceWithArt(rendered.id)).rejects.toMatchObject({
+      code: "AI_LABELED_COMPONENT",
+      status: 409,
+    });
+    await expect(produceWithArt(orphanId)).rejects.toMatchObject({
+      code: "AI_LABELED_COMPONENT",
+      status: 409,
+    });
+    await expect(
+      renderProjectAsset(p.owner, {
+        title: "Evenings feel softer",
+        format: "square",
+        visualAssetId: orphanId,
+        saveToDrive: false,
+      }),
+    ).rejects.toMatchObject({ code: "AI_LABELED_COMPONENT", status: 409 });
+    // Labelled bytes whose recorded parent is an available unlabelled asset
+    // compose from that asset (the source's own labelled bytes, stored again).
+    const viaRecordId = await addAsset("photo", labelledBytes.bytes);
+    const viaRecord = await produceWithArt(viaRecordId);
+    const drawn = data(await asset(viaRecord.renditions[0]!.assetId)).rightsSource.components.find(
+      (c: { role: string }) => c.role === "art",
+    );
+    expect(drawn.assetId).toBe(sourceId);
+    // Off, a labelled art is used as it is.
+    setLabels(false);
+    const off = await produceWithArt(orphanId);
+    const offArt = data(await asset(off.renditions[0]!.assetId)).rightsSource.components.find(
+      (c: { role: string }) => c.role === "art",
+    );
+    expect(offArt.assetId).toBe(orphanId);
+  });
+
   it("puts a raw run image on drafts as one labelled derivative", async () => {
     setLabels(true);
     const runId = randomUUID();
@@ -662,6 +762,44 @@ describe.skipIf(!enabled)("Marketing AI image labels (ADR 0028)", () => {
     }
   });
 
+  it("creates one labelled derivative when two runs label the same source at once", async () => {
+    setLabels(true);
+    const art = await variant(11);
+    const id = await legacyAiArt({
+      base64: art.toString("base64"),
+      sha256: sha256Hex(art),
+      bytes: art.length,
+    });
+    // Plain transactions without the project lock that `scoped` takes, so
+    // only ensureLabeledAsset's own lock keeps the two runs apart.
+    const label = () =>
+      db.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.workspace_id',${p.owner.workspaceId},true)`;
+          await tx.$executeRaw`SELECT set_config('app.project_id',${p.owner.projectId},true)`;
+          return ensureLabeledAsset(
+            tx,
+            p.owner,
+            await entity(tx, p.owner, "assets", id),
+            p.owner.userId,
+          );
+        },
+        { maxWait: 10000, timeout: 30000 },
+      );
+    const [first, second] = await Promise.all([label(), label()]);
+    expect(first.id).toBe(second.id);
+    const count = await runIn((tx) =>
+      tx.entity.count({
+        where: {
+          projectId: p.owner.projectId,
+          kind: "assets",
+          data: { path: ["labeledFrom"], equals: id },
+        },
+      }),
+    );
+    expect(count).toBe(1);
+  });
+
   it("blocks an unlabelled AI image in preflight and passes a labelled or uploaded one", async () => {
     const legacyId = await legacyAiArt();
     const legacy = await newContent({ channel: X, assetId: legacyId });
@@ -780,6 +918,54 @@ describe.skipIf(!enabled)("Marketing AI image labels (ADR 0028)", () => {
         context: "marketing.postiz",
       }),
     ]);
+  });
+
+  it("refuses a Postiz test post with an unlabelled AI image and keeps the audit record", async () => {
+    setLabels(true);
+    const instance = process.env.PUBLISHER_INSTANCE_ID;
+    process.env.PUBLISHER_INSTANCE_ID = "synthetic-instance";
+    try {
+      // Own bytes, so no other test's audit record matches.
+      const art = await variant(9);
+      const id = await legacyAiArt({
+        base64: art.toString("base64"),
+        sha256: sha256Hex(art),
+        bytes: art.length,
+      });
+      const connector = (await runIn((tx) => list(tx, p.owner, "connectors"))).find(
+        (row) => data(row).provider === "postiz",
+      )!;
+      await expect(
+        preparePostizVerification(p.owner, {
+          connectorId: connector.id,
+          integrationId: X,
+          confirmSandboxAccount: true,
+          assetId: id,
+        }),
+      ).rejects.toMatchObject({ code: "AI_LABEL_MISSING", status: 409 });
+      const audits = await runIn((tx) =>
+        tx.auditEvent.findMany({
+          where: {
+            projectId: p.owner.projectId,
+            action: "image.ai_label.blocked",
+            resourceId: sha256Hex(art),
+          },
+        }),
+      );
+      // Committed in the gate's own transaction although the preparation rolled back.
+      expect(audits.map((row) => row.metadata)).toEqual([
+        expect.objectContaining({
+          code: "AI_LABEL_MISSING",
+          context: "marketing.postiz_verification",
+        }),
+      ]);
+      expect(
+        (await runIn((tx) => list(tx, p.owner, "connector_verifications"))).length,
+      ).toBe(0);
+    } finally {
+      if (instance === undefined) delete process.env.PUBLISHER_INSTANCE_ID;
+      else process.env.PUBLISHER_INSTANCE_ID = instance;
+    }
   });
 
   it("stops a Postiz or Social handoff of an unlabelled AI image before anything is uploaded", async () => {

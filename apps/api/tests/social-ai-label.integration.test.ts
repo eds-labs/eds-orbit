@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { closeDatabase, type DbTx } from "../../../packages/db/src/index.ts";
-import { provenanceXmp, verifyAiLabel, type RelBox } from "../../../packages/creative/src/index.ts";
+import { applyAiLabel, provenanceXmp, verifyAiLabel, type RelBox } from "../../../packages/creative/src/index.ts";
 import type { Sharp } from "../../../packages/creative/src/raster.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import {
@@ -214,6 +214,21 @@ describe.skipIf(!enabled)("social AI image labels", () => {
     expect((await verifyAiLabel(sent, labelled.result.label.box)).ok).toBe(true);
   });
 
+  it("stores an image that already carries Orbit's label unchanged, without a second label", async () => {
+    // Labelled elsewhere (no record in this project): only the XMP names the label.
+    const labelled = await applyAiLabel(await noise(1200, 900, 25).png().toBuffer(), { origin: "ai_generated" });
+    const media = await uploadMedia(p.editor, { bytes: labelled.bytes, mime: "image/png" });
+    const source = await p.run((tx) => imageProvenance(tx, p.owner, labelled.sha256));
+    // The ingest source is the upload itself: recorded labelled, not derived from a second labelling.
+    expect(source).toMatchObject({ origin: "ai_generated", labelState: "labeled", labelBox: labelled.label.box, parentSha256: null });
+    for (const row of await records(media.id))
+      expect(row).toMatchObject({ labelState: "labeled", labelBox: labelled.label.box, parentSha256: labelled.sha256 });
+    for (const rendition of ["original", "jpeg"] as const) {
+      const { bytes } = await mediaContent(p.owner, media.id, rendition);
+      expect((await verifyAiLabel(Buffer.from(bytes), labelled.label.box)).ok).toBe(true);
+    }
+  });
+
   it("refuses raw generated art pushed into the library without a label", async () => {
     const raw = await noise(800, 600, 31).png().toBuffer();
     await p.run((tx) => recordUnlabeledSource(tx, p.owner, { bytes: raw, origin: "ai_generated", subject, createdBy: p.owner.userId }));
@@ -306,6 +321,11 @@ describe.skipIf(!enabled)("social AI image labels", () => {
     const media = await uploadMedia(p.editor, { bytes: declared, mime: "image/png" });
     expect(await provenanceCount()).toBe(before);
     expect(await records(media.id)).toEqual([null, null]);
+    // Off, the stored bytes are as before ADR 0028: no provenance XMP is carried.
+    for (const rendition of ["original", "jpeg"] as const) {
+      const { bytes } = await mediaContent(p.owner, media.id, rendition);
+      expect((await sharp(Buffer.from(bytes)).metadata()).xmp).toBeUndefined();
+    }
     // An unlabelled AI record does not stop a delivery while the flag is off.
     const row = await asset(media.id);
     await p.run((tx) =>

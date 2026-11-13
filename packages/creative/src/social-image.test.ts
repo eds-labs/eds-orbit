@@ -115,7 +115,7 @@ describe("prepareSocialImage", () => {
       .png()
       .toBuffer();
     const labelled = await applyAiLabel(art, { origin: "ai_generated" });
-    const result = await prepareSocialImage(labelled.bytes);
+    const result = await prepareSocialImage(labelled.bytes, { carryProvenance: true });
     expect(result.original).toMatchObject({ mime: "image/jpeg", width: 2400, height: 1600 });
     expect(result.jpeg).toMatchObject({ width: 1440, height: 960 });
     for (const bytes of [result.original.bytes, result.jpeg.bytes]) {
@@ -133,7 +133,7 @@ describe("prepareSocialImage", () => {
 
   it("keeps the provenance XMP on a transparent PNG original", async () => {
     const labelled = await applyAiLabel(await solid(1200, 900, true).png().toBuffer(), { origin: "ai_generated" });
-    const result = await prepareSocialImage(labelled.bytes);
+    const result = await prepareSocialImage(labelled.bytes, { carryProvenance: true });
     expect(result.original.mime).toBe("image/png");
     for (const bytes of [result.original.bytes, result.jpeg.bytes]) {
       expect((await readImageProvenance(bytes)).xmp.label?.box).toEqual(labelled.label.box);
@@ -142,7 +142,38 @@ describe("prepareSocialImage", () => {
   });
 
   it("writes no XMP at all for an image without provenance", async () => {
-    const result = await prepareSocialImage(await solid(800, 600).jpeg().toBuffer());
+    const result = await prepareSocialImage(await solid(800, 600).jpeg().toBuffer(), { carryProvenance: true });
+    for (const bytes of [result.original.bytes, result.jpeg.bytes])
+      expect((await sharp(bytes).metadata()).xmp).toBeUndefined();
+  });
+
+  it("writes no XMP without carryProvenance (the label switch off), even for an AI-declaring input", async () => {
+    const art = await solid(1200, 900).png().toBuffer();
+    const labelled = await applyAiLabel(art, { origin: "ai_generated" });
+    const declared = await solid(800, 600)
+      .jpeg()
+      .withXmp(provenanceXmp({ digitalSourceType: "trainedAlgorithmicMedia" }))
+      .toBuffer();
+    for (const input of [labelled.bytes, declared]) {
+      const off = await prepareSocialImage(input);
+      for (const bytes of [off.original.bytes, off.jpeg.bytes])
+        expect((await sharp(bytes).metadata()).xmp).toBeUndefined();
+      // The same input with the option carries it, so only the option differs.
+      const on = await prepareSocialImage(input, { carryProvenance: true });
+      for (const bytes of [on.original.bytes, on.jpeg.bytes])
+        expect((await readImageProvenance(bytes)).declaresAi).toBe(true);
+    }
+    // Off, the output is exactly what an input without any XMP gives.
+    const plain = await solid(800, 600).jpeg().toBuffer();
+    expect((await prepareSocialImage(declared)).original.bytes.equals((await prepareSocialImage(plain)).original.bytes)).toBe(true);
+  });
+
+  it("carries nothing for a non-AI source type such as a camera's digitalCapture", async () => {
+    const camera = await solid(800, 600)
+      .jpeg()
+      .withXmp(provenanceXmp({ digitalSourceType: "digitalCapture" }))
+      .toBuffer();
+    const result = await prepareSocialImage(camera, { carryProvenance: true });
     for (const bytes of [result.original.bytes, result.jpeg.bytes])
       expect((await sharp(bytes).metadata()).xmp).toBeUndefined();
   });
@@ -155,7 +186,7 @@ describe("prepareSocialImage", () => {
     // Without provenance the private packet disappears completely.
     const tagged = await solid(800, 600).jpeg().withXmp(privateXmp).toBuffer();
     expect((await sharp(tagged).metadata()).xmp?.toString("utf8")).toContain("Ada Lovelace");
-    const plain = await prepareSocialImage(tagged);
+    const plain = await prepareSocialImage(tagged, { carryProvenance: true });
     for (const bytes of [plain.original.bytes, plain.jpeg.bytes])
       expect((await sharp(bytes).metadata()).xmp).toBeUndefined();
     // With provenance (here: the declaration added to the same packet) only
@@ -164,7 +195,9 @@ describe("prepareSocialImage", () => {
       'exif:GPSLatitude="48,8.123N"',
       'exif:GPSLatitude="48,8.123N" xmlns:Iptc4xmpExt="http://iptc.org/std/Iptc4xmpExt/2008-02-29/" Iptc4xmpExt:DigitalSourceType="http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia"',
     );
-    const result = await prepareSocialImage(await solid(800, 600).jpeg().withXmp(declared).toBuffer());
+    const result = await prepareSocialImage(await solid(800, 600).jpeg().withXmp(declared).toBuffer(), {
+      carryProvenance: true,
+    });
     for (const bytes of [result.original.bytes, result.jpeg.bytes]) {
       const xmp = (await sharp(bytes).metadata()).xmp!.toString("utf8");
       expect(xmp).toContain("trainedAlgorithmicMedia");

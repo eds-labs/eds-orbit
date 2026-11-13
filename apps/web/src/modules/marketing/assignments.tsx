@@ -835,6 +835,10 @@ const DECISION_ERRORS: Record<string, [string, string]> = {
     "Die Kennzeichnung „KI erstellt“ des Bildes ist nicht mehr lesbar. Erzeuge ein neues Bild und gib es frei.",
     "The image's “KI erstellt” label is no longer legible. Create a new image and approve it.",
   ],
+  AI_LABELED_COMPONENT: [
+    "Das Bild trägt schon die Kennzeichnung „KI erstellt“ und kann nicht in einem neuen Bild verwendet werden. Wähle das Originalbild oder ein anderes Bild.",
+    "The image already carries the “KI erstellt” label and cannot be used inside a new image. Choose its original art or another image.",
+  ],
   OWNER_REQUIRED: [
     "Dafür fehlen dir die Rechte: Nur ein Owner des Projekts kann Entwürfe freigeben, ablehnen, verwerfen oder archivieren.",
     "You lack the permission: only a project owner can release, reject, discard or archive drafts.",

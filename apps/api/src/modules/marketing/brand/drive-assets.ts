@@ -324,11 +324,6 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
     .parse(raw);
   const { folderId: selectedFolderId, ...assetInput } = input;
   const normalized = await normalizeBrandAsset(assetInput);
-  // ADR 0028 §6: what the original bytes declare (normalizing strips their
-  // XMP and C2PA); null with the label flag off.
-  const original = await readUploadProvenance(
-    Buffer.from(assetInput.base64, "base64"),
-  );
   const conf = await storage(scope),
     token = await accessToken(scope);
   const folderId = selectedFolderId ?? conf.rootFolderId;
@@ -341,6 +336,13 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       : Buffer.from(normalized.base64, "base64");
   if (bytes.length > 5_000_000)
     throw new DomainError("ASSET_UPLOAD_TOO_LARGE", 413);
+  // ADR 0028 §6: what the original bytes declare (normalizing strips their
+  // XMP and C2PA), with a label they carry checked on the bytes stored in
+  // Drive (PNG or WebP); null with the label flag off.
+  const upload = await readUploadProvenance(
+    Buffer.from(assetInput.base64, "base64"),
+    bytes,
+  );
   const slug =
     input.name
       .normalize("NFKD")
@@ -391,11 +393,11 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       driveSyncStatus: "SYNCED",
       uploadedBy: scope.userId,
       uploadedAt: new Date().toISOString(),
-      ...uploadAssetFields(original),
+      ...uploadAssetFields(upload),
     });
     // The record follows the bytes stored in Drive (PNG or WebP).
     await recordUploadProvenance(tx, scope, {
-      original,
+      upload,
       stored: bytes,
       assetId: asset.id,
     });

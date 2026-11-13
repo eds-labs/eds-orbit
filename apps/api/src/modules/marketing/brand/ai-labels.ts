@@ -1,9 +1,12 @@
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
+  AI_DIGITAL_SOURCE_TYPES,
   AI_LABEL_TEXT,
+  applyAiLabel,
   CreativeError,
   digitalSourceTypeFor,
   readImageProvenance,
+  verifyAiLabel,
   type AiLabelResult,
   type Box,
   type EmbeddedProvenance,
@@ -16,6 +19,7 @@ import {
   assertAiLabelPublishable,
   imageProvenance,
   labelFinalImage,
+  recordImageProvenance,
   recordOriginalUpload,
   recordUnlabeledSource,
 } from "../../../platform/provenance/image-provenance.ts";
@@ -43,6 +47,9 @@ export const AI_LABEL_CODES: readonly string[] = [
   AI_LABEL_MISSING,
   AI_LABEL_INVALID,
 ];
+
+/** A labelled image chosen as a component of a new composition (art, template visual). */
+export const AI_LABELED_COMPONENT = "AI_LABELED_COMPONENT";
 
 /** Whether an error is the publish gate's refusal (409 AI_LABEL_MISSING / AI_LABEL_INVALID). */
 export const isAiLabelRefusal = (error: unknown): error is DomainError =>
@@ -161,6 +168,7 @@ export async function assetAiOrigin(
 const isRawGenerated = (d: Record<string, any>) =>
   !d.aiLabel &&
   !d.labeledFrom &&
+  d.aiProvenance?.labelState !== "labeled" &&
   (generatedRaw(d) || d.aiProvenance?.labelState === "unlabeled_source");
 
 // Fields a labelled derivative never copies from its source: lookups by
@@ -201,6 +209,10 @@ export async function ensureLabeledAsset<Row extends AssetRow>(
   if (!isRawGenerated(d)) return row;
   const origin = await assetAiOrigin(tx, scope, d);
   if (!origin) return row;
+  // One derivative per source: concurrent runs wait here (until the first
+  // commits) and then find its derivative. `scoped` also holds the project
+  // lock; this one keeps the guarantee for any other transaction.
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"orbit:ai-label-derivative:" + row.id}, 0))`;
   const sourceSha = String(d.sha256 ?? "").toLowerCase();
   const existing = await tx.entity.findFirst({
     where: {
@@ -243,6 +255,68 @@ export async function ensureLabeledAsset<Row extends AssetRow>(
     driveSyncStatus: "LOCAL_ONLY",
   });
   return derivative as unknown as Row;
+}
+
+/** Whether asset fields describe a labelled AI image. */
+const labeledFields = (d: Record<string, any>) =>
+  Boolean(d.aiLabel) || d.aiProvenance?.labelState === "labeled";
+
+/**
+ * What a new composition (Creative art, a template's visual) draws for an
+ * asset (ADR 0028): a labelled image would keep its label inside the new
+ * picture, which then gets a label of its own. A labelled derivative
+ * composes from its unlabelled source (`labeledFrom`, while the source still
+ * has the bytes it was labelled from), and so does a labelled image whose
+ * record names an unlabelled asset of this project as its parent; any other
+ * labelled image (a labelled upload, a labelled render or creative) is
+ * refused with 409 AI_LABELED_COMPONENT. Unlabelled assets, and everything
+ * with the flag off: the row itself. The caller checks the returned row's
+ * type and approval as before.
+ */
+export async function composableAsset<Row extends { data: unknown }>(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  row: Row,
+): Promise<Row> {
+  if (!aiImageLabelsEnabled()) return row;
+  const d = data(row);
+  const sha = String(d.sha256 ?? "").toLowerCase();
+  const record = HEX64.test(sha) ? await imageProvenance(tx, scope, sha) : null;
+  if (!labeledFields(d) && record?.labelState !== "labeled") return row;
+  const where = {
+    kind: "assets",
+    workspaceId: scope.workspaceId,
+    projectId: scope.projectId,
+  };
+  const usable = async (source: { data: unknown } | null) => {
+    if (!source) return false;
+    const s = data(source);
+    if (labeledFields(s) || s.labeledFrom) return false;
+    const own = HEX64.test(String(s.sha256 ?? "").toLowerCase())
+      ? await imageProvenance(tx, scope, String(s.sha256).toLowerCase())
+      : null;
+    return own?.labelState !== "labeled";
+  };
+  if (typeof d.labeledFrom === "string" && UUID.test(d.labeledFrom)) {
+    const source = await tx.entity.findFirst({
+      where: { ...where, id: d.labeledFrom },
+    });
+    if (
+      source &&
+      String(data(source).sha256 ?? "").toLowerCase() ===
+        String(d.labeledFromSha256 ?? "") &&
+      (await usable(source))
+    )
+      return source as unknown as Row;
+  }
+  if (record?.parentSha256) {
+    const source = await tx.entity.findFirst({
+      where: { ...where, data: { path: ["sha256"], equals: record.parentSha256 } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    if (await usable(source)) return source as unknown as Row;
+  }
+  throw new DomainError(AI_LABELED_COMPONENT, 409);
 }
 
 /**
@@ -348,66 +422,141 @@ export async function assertAssetPublishable(
 }
 
 /**
- * What an upload's ORIGINAL bytes declare about themselves (ADR 0028 §6),
- * read before normalization strips their XMP and C2PA. Null with the flag
- * off. Bytes the reader cannot open are refused like any invalid image.
+ * What an upload declares about itself (ADR 0028 §6): the ORIGINAL bytes'
+ * reading (taken before normalization strips their XMP and C2PA), the AI
+ * origin they name, and, when they carry Orbit's label, that label as it
+ * verifies on the STORED bytes.
+ */
+export type UploadProvenance = {
+  embedded: EmbeddedProvenance;
+  origin: AiOrigin;
+  /** The already drawn label, checked on the stored bytes; null when there is none. */
+  label: AiLabelResult | null;
+};
+
+/**
+ * Reads an upload's provenance from its original bytes and checks a label
+ * they carry on the stored (normalized) bytes, so an already labelled image
+ * is recorded as labelled and never gets a second label. A label named in
+ * the XMP that does not show in the original's pixels counts as no label
+ * (the image is then AI source material); one that shows in the original but
+ * no longer in the stored bytes is refused (409 AI_LABEL_INVALID) rather
+ * than covered by another. Null with the flag off. Bytes the reader cannot
+ * open are refused like any invalid image.
  */
 export async function readUploadProvenance(
   original: Buffer,
-): Promise<EmbeddedProvenance | null> {
+  stored: Buffer,
+): Promise<UploadProvenance | null> {
   if (!aiImageLabelsEnabled()) return null;
+  let embedded: EmbeddedProvenance;
   try {
-    return await readImageProvenance(original);
+    embedded = await readImageProvenance(original);
   } catch (error) {
     if (error instanceof CreativeError)
       throw new DomainError("ASSET_IMAGE_INVALID");
     throw error;
   }
+  const origin = aiOrigin(embedded.xmp.origin) ?? "ai_generated";
+  const box = embedded.xmp.label?.box;
+  if (!box || !(await verifyAiLabel(original, box)).ok)
+    return { embedded, origin, label: null };
+  try {
+    return {
+      embedded,
+      origin,
+      label: await applyAiLabel(stored, { origin, knownLabel: box }),
+    };
+  } catch (error) {
+    if (error instanceof CreativeError)
+      throw new DomainError(
+        error.code === "AI_LABEL_INPUT_INVALID"
+          ? "ASSET_IMAGE_INVALID"
+          : AI_LABEL_INVALID,
+        error.code === "AI_LABEL_INPUT_INVALID" ? 400 : 409,
+      );
+    throw error;
+  }
 }
 
+/** The IPTC term of a labelled upload: what the original declared, else Orbit's. */
+const uploadSourceType = (upload: UploadProvenance, label: AiLabelResult) =>
+  (AI_DIGITAL_SOURCE_TYPES as readonly string[]).includes(
+    upload.embedded.xmp.digitalSourceType ?? "",
+  )
+    ? upload.embedded.xmp.digitalSourceType!
+    : label.digitalSourceType;
+
 /**
- * The asset fields of an upload whose original bytes declare AI: it is AI
- * source material (`unlabeled_source`), so compositions over it are
- * labelled, a direct attach gets a labelled derivative and preflight blocks
- * the raw upload. Nothing for any other upload (or with the flag off).
+ * The asset fields of an upload whose original bytes declare AI: with a
+ * verified label it is a labelled AI image (`aiProvenance.labelState`
+ * "labeled" and `aiLabel`), used as it is; otherwise AI source material
+ * (`unlabeled_source`), so compositions over it are labelled, a direct
+ * attach gets a labelled derivative and preflight blocks the raw upload.
+ * Nothing for any other upload (or with the flag off).
  */
-export const uploadAssetFields = (original: EmbeddedProvenance | null) =>
-  original?.declaresAi
-    ? {
-        aiProvenance: aiProvenanceField(
-          "ai_generated",
-          "unlabeled_source",
-          digitalSourceTypeFor("ai_generated"),
-        ),
-      }
-    : {};
+export const uploadAssetFields = (upload: UploadProvenance | null) =>
+  !upload?.embedded.declaresAi
+    ? {}
+    : upload.label
+      ? {
+          aiProvenance: aiProvenanceField(
+            upload.origin,
+            "labeled",
+            uploadSourceType(upload, upload.label),
+          ),
+          aiLabel: aiLabelField(upload.label),
+        }
+      : {
+          aiProvenance: aiProvenanceField(
+            "ai_generated",
+            "unlabeled_source",
+            digitalSourceTypeFor("ai_generated"),
+          ),
+        };
 
 /**
  * Records the stored (normalized) bytes of an uploaded asset (ADR 0028 §6):
- * AI-declaring originals as `unlabeled_source` with the original's embedded
- * provenance (a C2PA manifest store is kept with the record); anything else
- * as `original_upload`, which never gets a label. Null with the flag off.
+ * an already labelled upload as `labeled` with its label box (verified on
+ * the stored bytes); other AI-declaring originals as `unlabeled_source`;
+ * both with the original's embedded provenance (a C2PA manifest store is
+ * kept with the record). Anything else as `original_upload`, which never
+ * gets a label. Null with the flag off.
  */
 export async function recordUploadProvenance(
   tx: DbTx,
   scope: Scope,
   input: {
-    original: EmbeddedProvenance | null;
+    upload: UploadProvenance | null;
     stored: Buffer;
     assetId: string;
     createdBy?: string;
   },
 ) {
-  if (!input.original || !aiImageLabelsEnabled()) return null;
+  const { upload } = input;
+  if (!upload || !aiImageLabelsEnabled()) return null;
   const subject = { module: "marketing", kind: "asset", id: input.assetId };
   const createdBy = input.createdBy || scope.userId;
-  if (input.original.declaresAi)
+  if (upload.embedded.declaresAi && upload.label)
+    return recordImageProvenance(tx, scope, {
+      sha256: upload.label.sha256,
+      origin: upload.origin,
+      labelState: "labeled",
+      labelVersion: upload.label.label.version,
+      labelBox: upload.label.label.box,
+      labelContrast: upload.label.label.verifiedContrast,
+      digitalSourceType: uploadSourceType(upload, upload.label),
+      embedded: upload.embedded,
+      subject,
+      createdBy,
+    });
+  if (upload.embedded.declaresAi)
     return recordUnlabeledSource(tx, scope, {
       bytes: input.stored,
       origin: "ai_generated",
       subject,
       createdBy,
-      embedded: input.original,
+      embedded: upload.embedded,
     });
   // Stored bytes already recorded as AI (an earlier AI upload of the same
   // pixels) keep that record; the gate then decides by it.

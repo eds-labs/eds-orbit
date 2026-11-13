@@ -65,7 +65,10 @@ export type RecordImageProvenanceInput = {
   digitalSourceType?: string | null;
   parentSha256?: string | null;
   componentSha256s?: readonly string[];
-  /** The engine's reading; its C2PA bytes go to `c2paManifest` unless given. */
+  /**
+   * The engine's reading; its C2PA bytes go to `c2paManifest` unless given.
+   * Manifest bytes are kept only for an AI origin or AI-declaring bytes.
+   */
   embedded?: EmbeddedProvenance | StoredEmbeddedProvenance | null;
   c2paManifest?: Buffer | null;
   subject: ImageProvenanceSubject;

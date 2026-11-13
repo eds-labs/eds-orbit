@@ -39,7 +39,11 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { provenanceXmp } from "../../../packages/creative/src/index.ts";
+import {
+  applyAiLabel,
+  provenanceXmp,
+  verifyAiLabel,
+} from "../../../packages/creative/src/index.ts";
 import type { Sharp } from "../../../packages/creative/src/raster.ts";
 import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
 import { makeAuth } from "../src/auth.ts";
@@ -47,6 +51,7 @@ import { buildServer } from "../src/server.ts";
 import { create, data, entity, update } from "../src/shared.ts";
 import { imageProvenance } from "../src/platform/provenance/image-provenance.ts";
 import { uploadUserRaster } from "../src/modules/marketing/brand/drive-assets.ts";
+import { ensureLabeledAsset } from "../src/modules/marketing/brand/ai-labels.ts";
 import { preflight } from "../src/modules/marketing/policy/policy.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 
@@ -249,6 +254,74 @@ describe.skipIf(!enabled)("Marketing upload provenance (ADR 0028 §6)", () => {
       sha256: sha(payload),
     });
     expect(record!.c2paManifest?.equals(payload)).toBe(true);
+  });
+
+  it("keeps an already labelled upload labelled: no unlabelled source, no second label", async () => {
+    setLabels(true);
+    const labelled = await applyAiLabel(await image(9).toBuffer(), {
+      origin: "ai_generated",
+    });
+    const row = await upload(labelled.bytes);
+    const d = data(row);
+    const box = labelled.label.box;
+    expect(d.aiProvenance).toEqual({
+      origin: "ai_generated",
+      labelState: "labeled",
+      digitalSourceType: "trainedAlgorithmicMedia",
+    });
+    expect(d.aiLabel).toMatchObject({ box, version: labelled.label.version });
+    // The normalized bytes lost the XMP; the record keeps the verified box.
+    const stored = Buffer.from(String(d.base64), "base64");
+    expect((await verifyAiLabel(stored, box)).ok).toBe(true);
+    expect(await recordOf(row)).toMatchObject({
+      origin: "ai_generated",
+      labelState: "labeled",
+      labelBox: box,
+      subjectId: row.id,
+    });
+    // A post carries the upload itself; no labelled derivative is made.
+    const used = await runIn(async (tx) =>
+      ensureLabeledAsset(tx, p.owner, await entity(tx, p.owner, "assets", row.id), p.owner.userId),
+    );
+    expect(used.id).toBe(row.id);
+    const derivatives = await runIn((tx) =>
+      tx.entity.count({
+        where: {
+          projectId: p.owner.projectId,
+          kind: "assets",
+          data: { path: ["labeledFrom"], equals: row.id },
+        },
+      }),
+    );
+    expect(derivatives).toBe(0);
+    const blockers = await blockersWith(row);
+    expect(blockers).not.toContain("AI_LABEL_MISSING");
+    expect(blockers).not.toContain("AI_LABEL_INVALID");
+    // The Drive path records the bytes it stores in the same way.
+    const viaDrive = await uploadUserRaster(p.owner, body(labelled.bytes));
+    expect(data(viaDrive).aiProvenance).toMatchObject({ labelState: "labeled" });
+    expect(await recordOf(viaDrive)).toMatchObject({
+      labelState: "labeled",
+      labelBox: box,
+    });
+  });
+
+  it("treats a label the XMP names but the pixels do not show as no label", async () => {
+    setLabels(true);
+    const plain = await image(10).toBuffer();
+    const claimed = await image(10)
+      .withXmp(
+        provenanceXmp({
+          digitalSourceType: "trainedAlgorithmicMedia",
+          label: { text: "KI erstellt", version: 1, box: { x: 0.7, y: 0.9, w: 0.2, h: 0.06 } },
+        }),
+      )
+      .toBuffer();
+    expect(claimed.equals(plain)).toBe(false);
+    const row = await upload(claimed);
+    expect(data(row).aiProvenance).toMatchObject({ labelState: "unlabeled_source" });
+    expect(data(row).aiLabel).toBeUndefined();
+    expect(await recordOf(row)).toMatchObject({ labelState: "unlabeled_source" });
   });
 
   it("records a plain upload as original, never labelled, and lets preflight pass it", async () => {

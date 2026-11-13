@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
+import { crc32 } from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   authDb,
@@ -48,6 +49,18 @@ function noise(width: number, height: number, seed: number) {
 }
 
 const subject = { module: "marketing", kind: "asset", id: "synthetic" };
+
+/** A PNG with an embedded C2PA manifest store (`caBX` chunk with a correct CRC) before IEND. */
+function withC2pa(png: Buffer, manifest: string) {
+  const type = Buffer.from("caBX", "latin1");
+  const payload = Buffer.from(manifest, "latin1");
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(payload.length);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([type, payload])) >>> 0);
+  const iend = png.length - 12;
+  return Buffer.concat([png.subarray(0, iend), length, type, payload, crc, png.subarray(iend)]);
+}
 
 // ADR 0028: the central record of each image version and the publish gate.
 describe.skipIf(!enabled)("image provenance (ADR 0028)", () => {
@@ -312,6 +325,43 @@ describe.skipIf(!enabled)("image provenance (ADR 0028)", () => {
       declaresAi: false,
       provenance: { sha256: sha(photo), origin: "original_upload", labelState: "not_required" },
     });
+  });
+
+  it("keeps C2PA manifest bytes only for AI images, never for a camera photo", async () => {
+    // A camera's manifest (signer, location) without any AI source type.
+    const camera = withC2pa(await noise(640, 480, 12).png().toBuffer(), "c2pa camera manifest signer=Example Cam gps=48.1N");
+    const plain = await run(a, (tx) => recordOriginalUpload(tx, a, { bytes: camera, subject, createdBy: a.userId }));
+    expect(plain.declaresAi).toBe(false);
+    expect(plain.provenance).toMatchObject({ origin: "original_upload", c2paManifest: null });
+    // Presence, hash and size stay in the stored reading; the bytes do not.
+    expect(plain.provenance!.embedded!.c2pa).toEqual({
+      present: true,
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      size: expect.any(Number),
+      declaresAi: false,
+    });
+    const stored = await run(a, (tx) => tx.imageProvenance.findFirstOrThrow({ where: { projectId: a.projectId, sha256: sha(camera) } }));
+    expect(stored.c2paManifest).toBeNull();
+    expect(JSON.stringify(stored.embedded)).not.toContain("Example Cam");
+    // An explicitly passed manifest of an original is dropped, too.
+    const other = await noise(640, 480, 13).png().toBuffer();
+    const explicit = await run(a, (tx) =>
+      recordImageProvenance(tx, a, {
+        sha256: sha(other),
+        origin: "original_upload",
+        labelState: "not_required",
+        c2paManifest: Buffer.from("c2pa camera manifest"),
+        subject,
+        createdBy: a.userId,
+      }),
+    );
+    expect(explicit.c2paManifest).toBeNull();
+    // An AI generator's manifest is kept with the record of the AI image.
+    const generated = withC2pa(await noise(640, 480, 14).png().toBuffer(), "c2pa generator trainedAlgorithmicMedia");
+    const ai = await run(a, (tx) =>
+      recordUnlabeledSource(tx, a, { bytes: generated, origin: "ai_generated", subject, createdBy: a.userId }),
+    );
+    expect(ai.c2paManifest?.toString("latin1")).toContain("trainedAlgorithmicMedia");
   });
 
   describe("the publish gate", () => {
