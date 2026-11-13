@@ -736,7 +736,9 @@ export async function preflight(
     )
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
     else if (aiImageLabelsEnabled() && typeof data(asset).base64 === "string") {
-      // The AI label gate on the exact stored bytes (ADR 0028 §4).
+      // The AI label gate on the exact stored bytes (ADR 0028 §4). Preflight
+      // only informs (it also runs for UI previews), so it writes no audit
+      // record; the outbound export/publish gates audit their blocks.
       let bytes: Buffer | null = null;
       try {
         bytes = assetBytes(data(asset)).bytes;
@@ -744,7 +746,9 @@ export async function preflight(
         blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
       }
       const refused = bytes
-        ? await aiLabelBlocker(tx, scope, data(asset), bytes, "marketing.preflight")
+        ? await aiLabelBlocker(tx, scope, data(asset), bytes, "marketing.preflight", {
+            audit: false,
+          })
         : null;
       if (refused) blockers.push(refused);
     }

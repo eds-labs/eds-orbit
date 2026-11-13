@@ -418,12 +418,20 @@ const CONTEXT = /^[a-z0-9_.:-]{1,64}$/;
  * AI_LABEL_INVALID (a label box that does not verify). The error's detail
  * carries only `context` and the bytes' SHA-256. An audit record
  * `image.ai_label.blocked` is written in the caller's transaction, so it is
- * kept when the caller catches the refusal and commits its block.
+ * kept when the caller catches the refusal and commits its block. Checks
+ * that only inform (Marketing preflight, which also runs for UI previews)
+ * pass `audit: false`, so the audit trail holds real outbound blocks only.
  */
 export async function assertAiLabelPublishable(
   tx: DbTx,
   scope: Pick<Scope, "workspaceId" | "projectId" | "userId">,
-  input: { bytes: Buffer; declaredOrigin?: ImageOrigin | null; context: string },
+  input: {
+    bytes: Buffer;
+    declaredOrigin?: ImageOrigin | null;
+    context: string;
+    /** Write the `image.ai_label.blocked` audit record on a refusal (default true). */
+    audit?: boolean;
+  },
 ): Promise<PublishCheck> {
   if (!aiImageLabelsEnabled()) return { checked: false };
   const context = CONTEXT.test(input.context) ? input.context : "unknown";
@@ -446,11 +454,12 @@ export async function assertAiLabelPublishable(
   if (inspection.state === "labeled" || inspection.state === "not_declared")
     return { checked: true, origin: origin ?? null, labelState: inspection.state };
   const code = inspection.state === "missing" ? "AI_LABEL_MISSING" : "AI_LABEL_INVALID";
-  await audit(tx, scope, "image.ai_label.blocked", sha256, {
-    code,
-    context,
-    ...(origin ? { origin } : {}),
-    recorded: Boolean(row),
-  });
+  if (input.audit !== false)
+    await audit(tx, scope, "image.ai_label.blocked", sha256, {
+      code,
+      context,
+      ...(origin ? { origin } : {}),
+      recorded: Boolean(row),
+    });
   throw Object.assign(new DomainError(code, 409), { detail: { context, sha256 } });
 }

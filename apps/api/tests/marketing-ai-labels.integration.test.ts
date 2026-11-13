@@ -744,6 +744,44 @@ describe.skipIf(!enabled)("Marketing AI image labels (ADR 0028)", () => {
     ).not.toBeNull();
   });
 
+  it("blocks in preflight without an audit record; the publish gate audits its block", async () => {
+    setLabels(true);
+    // Own bytes, so no other test's audit record matches.
+    const art = await variant(7);
+    const id = await legacyAiArt({
+      base64: art.toString("base64"),
+      sha256: sha256Hex(art),
+      bytes: art.length,
+    });
+    const post = await newContent({ channel: X, assetId: id });
+    const blocked = () =>
+      runIn((tx) =>
+        tx.auditEvent.findMany({
+          where: {
+            projectId: p.owner.projectId,
+            action: "image.ai_label.blocked",
+            resourceId: sha256Hex(art),
+          },
+        }),
+      );
+    // Preflight also runs for UI previews: it informs, it does not audit.
+    expect(await blockersOf(post.id)).toContain("AI_LABEL_MISSING");
+    expect(await blockersOf(post.id)).toContain("AI_LABEL_MISSING");
+    expect(await blocked()).toHaveLength(0);
+    // The outbound gate on the same bytes keeps its audit record.
+    await expect(
+      exportAssetContent(p.owner, data(await asset(id)), undefined, {
+        publish: "marketing.postiz",
+      }),
+    ).rejects.toMatchObject({ code: "AI_LABEL_MISSING", status: 409 });
+    expect((await blocked()).map((row) => row.metadata)).toEqual([
+      expect.objectContaining({
+        code: "AI_LABEL_MISSING",
+        context: "marketing.postiz",
+      }),
+    ]);
+  });
+
   it("stops a Postiz or Social handoff of an unlabelled AI image before anything is uploaded", async () => {
     setLabels(true);
     const legacyId = await legacyAiArt();
