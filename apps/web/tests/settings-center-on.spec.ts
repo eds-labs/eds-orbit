@@ -373,6 +373,12 @@ test.describe("settings center as the one settings surface", () => {
         sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
         from,
       ).toHaveAttribute("aria-current", "page");
+      // The section itself renders, in the project's scope.
+      await expect(
+        page.getByRole("main").getByRole("heading", { level: 2, name: "Integrations · Google Drive" }),
+        from,
+      ).toBeVisible();
+      await expect(page.getByLabel("Applies to"), from).toHaveValue(`p:${p}`);
       await expect(page.getByText("Not available", { exact: true }), from).toHaveCount(0);
     }
     await page.waitForLoadState("networkidle").catch(() => {});
@@ -390,13 +396,17 @@ test.describe("settings center as the one settings surface", () => {
     ]) {
       await test.step(from, async () => {
         await page.goto(from);
+        // The shell's "not found" for a project the member cannot open.
         await expect(
-          page
-            .getByRole("heading", { name: "Project not available", exact: true })
-            .or(page.getByText("Not available", { exact: true }))
-            .or(page.getByRole("heading", { name: "Page not found", exact: true })),
+          page.getByRole("heading", { name: "Project not available", exact: true }),
           from,
         ).toBeVisible();
+        // No old page heading either.
+        for (const name of ["Connectors", "Settings", "Project settings"])
+          await expect(
+            page.getByRole("heading", { level: 1, name, exact: true }),
+            `${from}: ${name}`,
+          ).toHaveCount(0);
         // Neither a center section nor an old settings page renders.
         expect(new URL(page.url()).pathname, from).not.toMatch(/^\/manage\//);
         await expect(sectionNav(page), from).toHaveCount(0);

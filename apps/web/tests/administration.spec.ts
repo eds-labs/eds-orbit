@@ -85,8 +85,9 @@ test.describe("system administration", () => {
     await expect(invitee.getByLabel(/^Account menu/)).toBeVisible();
     // A member sees no administration: the menu's one entry is every
     // member's, and what keeps the administration from them is that the
-    // center offers no system scope.
+    // center offers no system scope (the capabilities check below).
     await invitee.getByLabel(/^Account menu/).click();
+    // Guards against the old "Administration" entry coming back.
     await expect(
       invitee.getByRole("menuitem", { name: "Administration", exact: true }),
     ).toHaveCount(0);

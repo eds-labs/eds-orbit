@@ -127,22 +127,21 @@ const SIDEBAR_LINKS = [
 
 // The 13 paths from before WP1.7 and the page each one opens now: below the
 // project, or (the two settings paths) in its settings center.
-const LEGACY: Array<[string, string]> = [
-  ["/", ""],
-  ["/missions", "/marketing/missions"],
-  ["/chat", "/assistant"],
-  ["/content", "/marketing/content"],
-  ["/calendar", "/marketing/calendar"],
-  ["/knowledge", "/knowledge"],
-  ["/assets", "/marketing/assets"],
-  ["/approvals", "/approvals"],
-  ["/analytics", "/marketing/analytics"],
-  ["/memory", "/marketing/memory"],
-  ["/connectors", "/integrations/connections"],
-  ["/operations", "/operations"],
-  ["/settings", "/overview"],
+const LEGACY: Array<[old: string, now: string, where: "project" | "center"]> = [
+  ["/", "", "project"],
+  ["/missions", "/marketing/missions", "project"],
+  ["/chat", "/assistant", "project"],
+  ["/content", "/marketing/content", "project"],
+  ["/calendar", "/marketing/calendar", "project"],
+  ["/knowledge", "/knowledge", "project"],
+  ["/assets", "/marketing/assets", "project"],
+  ["/approvals", "/approvals", "project"],
+  ["/analytics", "/marketing/analytics", "project"],
+  ["/memory", "/marketing/memory", "project"],
+  ["/connectors", "/integrations/connections", "center"],
+  ["/operations", "/operations", "project"],
+  ["/settings", "/overview", "center"],
 ];
-const CENTER_LANDINGS = new Set(["/integrations/connections", "/overview"]);
 
 test("pickers, project home and every page have their own URL", async ({
   page,
@@ -262,12 +261,12 @@ test("legacy paths redirect, unknown paths say so", async ({ page }) => {
   // The two settings paths go on to the center (settings-center-on.spec.ts
   // covers their sections).
   const manage = `/manage/p/${user.projectId}`;
-  const landing = (now: string) =>
-    CENTER_LANDINGS.has(now) ? `${manage}${now}` : `${base}${now}`;
   await openHome(page, base);
-  for (const [old, now] of LEGACY) {
+  for (const [old, now, where] of LEGACY) {
     await page.goto(old);
-    await expect(page, old).toHaveURL(new RegExp(`${landing(now)}$`));
+    await expect(page, old).toHaveURL(
+      new RegExp(`${where === "center" ? manage : base}${now}$`),
+    );
   }
   // Query and hash survive the redirect (the Google Drive callback uses one).
   await page.goto("/settings?googleDrive=ready");

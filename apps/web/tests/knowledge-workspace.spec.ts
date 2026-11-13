@@ -689,11 +689,12 @@ for (const [name, viewport] of [
         page.getByRole("heading", { level: 1, name: "GitHub-App-Einstellungen" }),
       ).toBeVisible();
       await expect(
-        page.getByRole("link", { name: "GitHub-App-Einstellungen öffnen" }),
-      ).toHaveAttribute(
-        "href",
-        `/manage/p/${project.id}/integrations/knowledge/github`,
-      );
+        page
+          .getByRole("main")
+          .locator(
+            `a[href="/manage/p/${project.id}/integrations/knowledge/github"]`,
+          ),
+      ).toBeVisible();
     });
   });
 }

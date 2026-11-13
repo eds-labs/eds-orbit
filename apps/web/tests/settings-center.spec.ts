@@ -1050,26 +1050,32 @@ test.describe("settings center", () => {
     const other = (JSON.parse(readFileSync(SEED, "utf8")) as { projectId: string }).projectId;
     expect(target.id).not.toBe(other);
     // The last project opened is another one: the return must not follow it.
-    await page.goto(`/p/${other}`);
-    await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
-    await expect
-      .poll(() => page.evaluate(() => localStorage.getItem("orbit.project")))
-      .toBe(other);
-
-    // Where the Drive callback sends the member back: the connected
-    // project's Drive section of the center.
+    const openOther = async () => {
+      await page.goto(`/p/${other}`);
+      await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => localStorage.getItem("orbit.project")))
+        .toBe(other);
+    };
+    const here = () => {
+      const url = new URL(page.url());
+      return url.pathname + url.search;
+    };
     const back = `/manage/p/${target.id}/integrations/google-drive?googleDrive=ready`;
-    await page.goto(back);
-    await expect
-      .poll(() => {
-        const url = new URL(page.url());
-        return url.pathname + url.search;
-      })
-      .toBe(back);
-    await expect(
-      sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
-    await expect(page.getByLabel("Applies to")).toHaveValue(`p:${target.id}`);
-    await expect(page.getByText("Not available", { exact: true })).toHaveCount(0);
+    // Where the Drive callback sends the member back today (the center
+    // address), and where a sign-in started before the settings center
+    // returns to (the old address, which forwards): both open the connected
+    // project's Drive section.
+    for (const from of [back, `/p/${target.id}/settings?googleDrive=ready`]) {
+      await openOther();
+      await page.goto(from);
+      await expect.poll(here, from).toBe(back);
+      await expect(
+        sectionNav(page).getByRole("link", { name: "Google Drive", exact: true }),
+        from,
+      ).toHaveAttribute("aria-current", "page");
+      await expect(page.getByLabel("Applies to"), from).toHaveValue(`p:${target.id}`);
+      await expect(page.getByText("Not available", { exact: true }), from).toHaveCount(0);
+    }
   });
 });
