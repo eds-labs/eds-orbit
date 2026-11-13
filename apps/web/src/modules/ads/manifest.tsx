@@ -1,6 +1,7 @@
 import { BarChart3, Images, LayoutDashboard, LayoutGrid, Link2, Megaphone } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { adsText } from "./labels";
+import { AdsAccounts } from "./accounts";
 import { AdsOverview } from "./overview";
 import { AdsPlaceholder } from "./placeholder";
 
@@ -31,6 +32,6 @@ export const adsWeb: WebModule = {
     { key: "ads.units", path: "units", component: AdsPlaceholder, nav: { label: nav("units"), icon: LayoutGrid, order: 20 } },
     { key: "ads.creatives", path: "creatives", component: AdsPlaceholder, nav: { label: nav("creatives"), icon: Images, order: 30 } },
     { key: "ads.performance", path: "performance", component: AdsPlaceholder, nav: { label: nav("performance"), icon: BarChart3, order: 40 } },
-    { key: "ads.accounts", path: "accounts", component: AdsPlaceholder, nav: { label: nav("accounts"), icon: Link2, order: 50 } },
+    { key: "ads.accounts", path: "accounts", component: AdsAccounts, nav: { label: nav("accounts"), icon: Link2, order: 50 } },
   ],
 };

@@ -2,6 +2,7 @@ import type { AttentionContribution } from "../../platform/attention/types.ts";
 import { can } from "../../platform/tenancy/permissions.ts";
 import { socialActive } from "./gate.ts";
 import { SOCIAL_READ } from "./permissions.ts";
+import { socialAccountsLink } from "./links.ts";
 
 // What needs attention in the social module, computed at read time.
 // Counts only, no handles.
@@ -52,7 +53,7 @@ export const socialAttention: AttentionContribution = async (tx, scope, now) => 
             count: reconnect,
             params: {},
             navKey: "social.accounts",
-            link: "/social/accounts",
+            link: socialAccountsLink(scope.projectId),
           },
         ]
       : []),

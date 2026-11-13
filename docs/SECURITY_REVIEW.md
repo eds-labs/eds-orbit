@@ -547,6 +547,16 @@ Residual and open:
 - the redaction is pattern-based and cannot recognise every free-text name or address, so human hand-in review stays the first control;
 - independent review pending.
 
+## Ads Meta connection and ad accounts (ADR 0025, A3, prepared 2026-11-11; local only, flag off)
+
+- **Scope built:** Facebook Login for Business connect, one-time OAuth state, token vault, ad account discovery and assignment (one project per ad account and organization), health task with expiry warning, clean-up, Meta data-deletion callback and public status route. No migration, no new flag, no new dependency. Plan: [step plan](superpowers/plans/2026-11-11-ads-a3-meta-connection.md).
+- **Tokens:** sealed `ConnectionSecret`s only (`ads.account.meta`, purpose `ads_manage`); the app secret is a system connection (`ads.app.meta`, purpose `ads_oauth`). The code exchange is a POST form body; identity and scopes come from `/me` and `/me/permissions` with Bearer plus `appsecret_proof`; no `debug_token`, so no token is ever in a URL. No route, audit, notification, event or error returns a token; leak-scan tests cover every OAuth flow.
+- **Cross-project claim:** `claimExclusiveConfigValue` takes an advisory lock per organization and value on `Connection` config; disabled connections keep their claims, only revocation frees them. Negative tests: other project, editor, viewer, reused or foreign state, foreign redirect.
+- **Authority:** connecting, assigning, unlinking, checking and revoking need `ads.accounts.manage` (owner); editors read the list; viewers see nothing. `writesEnabled` is stored and audited but inert until A7.
+- **Data deletion:** signed request verified by HMAC-SHA256 in constant time; the confirmation code is self-verifying (key info `orbit-ads-data-deletion-v1`), nothing is stored. Revocation uses the new `forget` flag (label "Meta (deleted)", Meta user id cleared). Both routes need `ORBIT_PUBLIC_INGRESS=true` and answer 404 `ADS_DISABLED` while `ORBIT_ADS` is off.
+- **Health:** a refused token or a lost ads permission flips all accounts of the connection once and notifies once; outages only record health; audit and notification text carry codes, not provider messages.
+- **Open:** independent review before the first production use (A12); no live Meta check yet (A0 Q20–Q24); Mario's legal wording check of the status page texts; Social keeps the person's name and id on revoked Social connections after a deletion request (follow-up, not changed in A3).
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

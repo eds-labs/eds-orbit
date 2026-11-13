@@ -1,0 +1,58 @@
+{
+	admin off
+	auto_https off
+	log {
+		output stdout
+		format json
+	}
+}
+
+(certs) {
+	tls /certs/site.crt /certs/site.key
+}
+
+{$POC_APEX}:443 {
+	import certs
+	log
+	header X-Frame-Options "DENY"
+
+	@sameOrigin path /rp/same-origin
+	header @sameOrigin Referrer-Policy "same-origin"
+	rewrite @sameOrigin /index.html
+
+	@strict path /rp/strict
+	header @strict Referrer-Policy "strict-origin-when-cross-origin"
+	rewrite @strict /index.html
+
+	root * /srv/parent
+	file_server
+}
+
+webmail.{$POC_APEX}:443 {
+	import certs
+	log
+
+	handle /__poc/echo {
+		header Content-Type "application/json"
+		respond `{"origin":"{http.request.header.Origin}"}` 200
+	}
+
+	handle {
+		reverse_proxy roundcube:8000 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+}
+
+evil.{$POC_APEX}:443 {
+	import certs
+	log
+	root * /srv/parent
+	file_server
+}
+
+tracker.{$POC_APEX}:443 {
+	import certs
+	log
+	respond "tracked" 200
+}

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none" role="img" aria-labelledby="titlei">
+  <title id="titlei">EDS Labs Layer Stack Logo</title>
+  
+    <defs>
+      <linearGradient id="gradBluei" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#0969FF"/>
+        <stop offset=".54" stop-color="#00C6FF"/>
+        <stop offset="1" stop-color="#8CE9FF"/>
+      </linearGradient>
+      <linearGradient id="gradNavyi" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#071522"/>
+        <stop offset="1" stop-color="#10273D"/>
+      </linearGradient>
+      <linearGradient id="gradMinti" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#00C6FF"/>
+        <stop offset="1" stop-color="#9DF8E5"/>
+      </linearGradient>
+      <linearGradient id="glassi" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="#FFFFFF" stop-opacity=".92"/>
+        <stop offset="1" stop-color="#EAF7FF" stop-opacity=".76"/>
+      </linearGradient>
+      <radialGradient id="radialIcei" cx="34%" cy="18%" r="80%">
+        <stop offset="0" stop-color="#FFFFFF" stop-opacity=".85"/>
+        <stop offset=".48" stop-color="#8CE9FF" stop-opacity=".36"/>
+        <stop offset="1" stop-color="#0969FF" stop-opacity=".08"/>
+      </radialGradient>
+      <filter id="softShadowi" x="-40%" y="-40%" width="180%" height="180%">
+        <feDropShadow dx="0" dy="22" stdDeviation="20" flood-color="#16325C" flood-opacity=".18"/>
+      </filter>
+      <filter id="tinyShadowi" x="-30%" y="-30%" width="160%" height="160%">
+        <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#16325C" flood-opacity=".16"/>
+      </filter>
+      <filter id="glowi" x="-70%" y="-70%" width="240%" height="240%">
+        <feGaussianBlur stdDeviation="5" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+  <style>
+  .word{font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;}
+  .headline{font-weight:900; letter-spacing:-0.055em;}
+  .tag{font-weight:760; letter-spacing:.13em; text-transform:uppercase;}
+  .sub{font-weight:650; letter-spacing:-0.01em;}
+</style>
+  
+  <g transform="translate(0 0) scale(1.0)" filter="url(#softShadowi)">
+      <rect x="0" y="0" width="512" height="512" rx="132" fill="rgba(255,255,255,.78)" stroke="rgba(7,21,34,.12)" stroke-width="2"/>
+      <rect x="30" y="30" width="452" height="452" rx="106" fill="url(#radialIcei)" opacity=".72"/>
+    
+      <g filter="url(#tinyShadowi)">
+        <g class="lyr-a">
+          <path d="M146 178 L256 112 L366 178 L256 244 Z" fill="url(#gradBluei)" opacity=".95"/>
+          <path d="M146 178 L256 112 L366 178" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/>
+        </g>
+        <g>
+          <path d="M146 256 L256 190 L366 256 L256 322 Z" fill="#071522" opacity=".93"/>
+          <path d="M164 256 L256 202 L348 256 L256 310 Z" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="2"/>
+        </g>
+        <g class="lyr-c">
+          <path d="M146 334 L256 268 L366 334 L256 400 Z" fill="url(#gradMinti)" opacity=".9"/>
+          <path d="M146 334 L256 400 L366 334" fill="none" stroke="rgba(7,21,34,.10)" stroke-width="2"/>
+        </g>
+      </g>
+      <path d="M92 128 H132 M380 128 H420 M92 392 H132 M380 392 H420" stroke="#00C6FF" stroke-width="14" stroke-linecap="round" opacity=".76"/>
+      <circle class="node" cx="92" cy="128" r="12" fill="#0969FF"/>
+      <circle class="node" cx="420" cy="128" r="12" fill="#8CE9FF"/>
+      <circle class="node" cx="92" cy="392" r="12" fill="#00C6FF"/>
+      <circle class="node" cx="420" cy="392" r="12" fill="#0969FF"/>
+    </g>
+</svg>

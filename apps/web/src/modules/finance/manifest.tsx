@@ -16,6 +16,7 @@ import { FinanceOverview } from "./overview";
 import { FinanceRecurring } from "./recurring";
 import { FinanceReports } from "./reports";
 import { FinanceReview } from "./review";
+import { financeAiCeilings } from "./ai-ceiling";
 import { financeSettings } from "./settings";
 
 const label = (key: keyof typeof labels.en): Label => ({
@@ -45,6 +46,7 @@ export const financeWeb: WebModule = {
   homeOrder: 25,
   groupOrder: 40,
   settings: financeSettings,
+  aiCeilings: financeAiCeilings,
   attention: financeAttention,
   views: [
     {

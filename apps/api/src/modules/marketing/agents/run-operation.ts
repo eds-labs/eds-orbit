@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data } from "../../../shared.ts";
+import { projectCenterLink } from "../../../platform/management/links.ts";
 import { isOptionalStep, type WorkStep } from "./assignment-runs.ts";
 import { reservationPrefixes } from "./specialists/runner.ts";
 
@@ -67,6 +68,7 @@ export async function runOperation(
     tasks,
     deliverables,
     costs,
+    scope.projectId,
     unknownReservation,
   );
 }
@@ -90,6 +92,7 @@ export function operationFromEvidence(
   tasks: TaskEvidence[],
   deliverables: Array<Record<string, unknown>>,
   costs: Costs,
+  projectId: string,
   unknownReservation = false,
 ) {
   const complete = costs.complete;
@@ -177,7 +180,7 @@ export function operationFromEvidence(
     add("inspect_delivery", "/approvals");
   if (failed || degraded) add("inspect_run", "/operations");
   if (issues.some((i) => i.code === "PROJECT_PAUSED"))
-    add("resume_project", "/settings");
+    add("resume_project", projectCenterLink(projectId, "overview"));
   return {
     state,
     lifecycle: String(d.status),

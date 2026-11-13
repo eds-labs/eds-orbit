@@ -46,11 +46,17 @@ import {
   saveMarketingProfile,
 } from "./brand/marketing-profile.ts";
 import { generateProjectImage } from "./brand/image-generation.ts";
+import {
+  readUploadProvenance,
+  recordUploadProvenance,
+  uploadAssetFields,
+} from "./brand/ai-labels.ts";
 import { handleSlackInteraction } from "./publishing/slack.ts";
 import {
   readMarketingSettings,
   saveMarketingSettings,
 } from "./publishing/backend.ts";
+import { channelDirectory } from "./publishing/channel-directory.ts";
 import {
   mapPostizChannel,
   mirrorPostizHistory,
@@ -73,6 +79,7 @@ import {
   releaseAssignmentDraft,
   releaseInput,
 } from "./agents/owner-release.ts";
+import { draftEditInput, editAssignmentDraft } from "./agents/owner-edit.ts";
 import { cancelContentPackage } from "./agents/content-packages.ts";
 import { attachPackageImage } from "./agents/package-image.ts";
 import { cancelPackageSchedule } from "./agents/package-schedule.ts";
@@ -179,6 +186,18 @@ export const marketingRoutes: RoutesContribution = (context) => {
     return scoped(scope.workspaceId, projectId, (tx) =>
       saveMarketingSettings(tx, scope, settings, version),
     );
+  });
+
+  // The channels content names, with name and platform (WP3): read-only,
+  // the same access as reading content.
+  app.get("/api/projects/:projectId/marketing/channels", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        channelDirectory(tx, scope),
+      ),
+    };
   });
 
   // Moving from Postiz to Social (S10): channel mapping and history mirror.
@@ -366,6 +385,24 @@ export const marketingRoutes: RoutesContribution = (context) => {
     },
   );
 
+  // The owner's edit of a draft waiting for them (owner-edit.ts): it stays releasable.
+  app.post(
+    "/api/projects/:projectId/assignment-drafts/:id/edit",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, id } = req.params as {
+        projectId: string;
+        id: string;
+      };
+      // Roles are checked first, as for the release.
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const input = draftEditInput.parse(req.body);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        editAssignmentDraft(tx, scope, z.uuid().parse(id), input),
+      );
+    },
+  );
+
   app.post(
     "/api/projects/:projectId/assignment-drafts/:id/release",
     async (req) => {
@@ -404,16 +441,29 @@ export const marketingRoutes: RoutesContribution = (context) => {
     async (req, reply) => {
       const { projectId } = req.params as { projectId: string };
       const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      const normalized = await normalizeBrandAsset(
-        brandAssetUploadInput.parse(req.body),
+      const input = brandAssetUploadInput.parse(req.body);
+      const normalized = await normalizeBrandAsset(input);
+      const stored = Buffer.from(normalized.base64, "base64");
+      // ADR 0028 §6: what the original bytes declare (normalizing strips
+      // their XMP and C2PA), with a label they carry checked on the stored
+      // bytes; null with the label flag off.
+      const upload = await readUploadProvenance(
+        Buffer.from(input.base64, "base64"),
+        stored,
       );
       const row = await scoped(scope.workspaceId, projectId, async (tx) => {
         const asset = await create(tx, scope, "assets", {
           ...normalized,
+          ...uploadAssetFields(upload),
           assetStatus: "reference",
           usageApproved: false,
           uploadedBy: scope.userId,
           uploadedAt: new Date().toISOString(),
+        });
+        await recordUploadProvenance(tx, scope, {
+          upload,
+          stored,
+          assetId: asset.id,
         });
         await audit(tx, scope, "asset.upload", asset.id, {
           type: normalized.type,

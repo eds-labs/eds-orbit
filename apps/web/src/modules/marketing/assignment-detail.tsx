@@ -38,6 +38,8 @@ export type AssignmentDetailData = {
     };
     delivery: string;
     approvalMode: string;
+    /** Set only for a creative assignment the agent approves (delegated review). */
+    creativeAuthority?: { flag: boolean; visionReview: boolean } | null;
     image: "none" | "plain" | "banner" | "creative";
     historyDays: number;
     monthlyBudgetMicros: number;
@@ -78,7 +80,11 @@ const STATE: Record<DeliverableState, [string, string, Tone]> = {
   awaiting_release: ["Waiting for release", "Wartet auf Freigabe", "warning"],
   expired: ["Expired", "Abgelaufen", "neutral"],
   released: ["Released", "Freigegeben", "blue"],
-  handoff_pending: ["Approved, moving to Social", "Freigegeben, geht an Social", "blue"],
+  handoff_pending: [
+    "Approved, moving to Social",
+    "Freigegeben, geht an Social",
+    "blue",
+  ],
   scheduled: ["Scheduled in Social", "In Social geplant", "blue"],
   published: ["Published", "Veröffentlicht", "success"],
   failed: ["Failed", "Fehlgeschlagen", "danger"],
@@ -224,6 +230,20 @@ export function AssignmentDetailView({
             {label(APPROVAL_MODE, a.approvalMode, de)}
           </dd>
         </div>
+        {a.creativeAuthority && (
+          <div>
+            <dt>{de ? "Creative-Freigabe" : "Creative release"}</dt>
+            <dd>
+              {de
+                ? `Agent darf Creative-Beiträge freigeben: ${a.creativeAuthority.flag ? "an" : "aus"}`
+                : `Agent may release creative posts: ${a.creativeAuthority.flag ? "on" : "off"}`}
+              <br />
+              {de
+                ? `Bildprüfung: ${a.creativeAuthority.visionReview ? "an" : "aus"}`
+                : `Vision review: ${a.creativeAuthority.visionReview ? "on" : "off"}`}
+            </dd>
+          </div>
+        )}
         <div>
           <dt>{de ? "Bild" : "Image"}</dt>
           <dd>{IMAGE[a.image][de ? 1 : 0]}</dd>

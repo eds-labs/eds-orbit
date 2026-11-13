@@ -295,8 +295,8 @@ export async function runBriefing(base: Scope, jobId: string, now = new Date()) 
         ...projects.filter(hasNews).map((p) => `${p.projectName}: ${origin}/p/${p.projectId}`),
         "--",
         contact.locale === "de"
-          ? "Orbit-Briefing. Einstellungen in Orbit unter Konto → Orbit Assistant."
-          : "Orbit briefing. Change it in Orbit under Account → Orbit Assistant.",
+          ? "Orbit-Briefing. Ändere es in Orbit unter Verwaltung & Einstellungen → Mein Konto → Assistent → Mein Kontext."
+          : "Orbit briefing. Change it in Orbit under Administration & settings → My account → Assistant → My context.",
       ].join("\n"),
     });
     mail = result.status === "failed" ? `failed:${result.code}` : result.status;

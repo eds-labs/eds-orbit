@@ -171,6 +171,30 @@ const countBy = (values: string[]) =>
   values.reduce<Record<string, number>>((all, v) => ({ ...all, [v]: (all[v] ?? 0) + 1 }), {});
 
 /**
+ * How many publications and drafts Postiz still holds unsettled: what the
+ * switch to Social waits for (§9.6 step 4), what a drain is finishing and
+ * what the queue watch keeps an eye on. A count only; test and Social
+ * records do not count. Reads only rows in an unsettled state.
+ */
+export async function postizBacklog(tx: DbTx, scope: Scope): Promise<number> {
+  const unsettled = async (kind: string, statuses: string[]) =>
+    (
+      await tx.entity.findMany({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind,
+          OR: statuses.map((status) => ({ data: { path: ["status"], equals: status } })),
+        },
+        select: { data: true },
+      })
+    ).map((row) => data(row));
+  const publications = (await unsettled("publications", UNSETTLED)).filter((p) => !p.test && p.publishingBackend !== "social");
+  const drafts = (await unsettled("postiz_drafts", UNSETTLED_DRAFTS)).filter((h) => h.publishingBackend !== "social");
+  return publications.length + drafts.length;
+}
+
+/**
  * What the project still has with Postiz (spec §9.2), counts only: no
  * texts, no tokens, no names. The switch to Social is safe once nothing is
  * unsettled (§9.6 step 4).
@@ -187,9 +211,7 @@ export async function postizInventory(tx: DbTx, scope: Scope) {
   const exceptions = (await list(tx, scope, "exceptions"))
     .map((row) => data(row))
     .filter((e) => e.status === "open" && /^(POSTIZ_|REMOTE_|PUBLISH_OUTCOME_UNKNOWN|RECONCILIATION_)/.test(String(e.code)));
-  const blockingSwitch =
-    publications.filter((p) => UNSETTLED.includes(String(p.status))).length +
-    drafts.filter((h) => UNSETTLED_DRAFTS.includes(String(h.status))).length;
+  const blockingSwitch = await postizBacklog(tx, scope);
   return {
     backend: await publishingBackend(tx, scope),
     channels: {

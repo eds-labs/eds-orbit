@@ -44,6 +44,7 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { FinanceHome } from "./home";
 import { FinanceOverview } from "./overview";
 import { periodOf, periodRange } from "./period";
@@ -62,10 +63,12 @@ const identity: Identity = {
 };
 const NOW = Date.parse("2026-10-23T10:00:00.000Z");
 
+const hrefOf = (key: string) =>
+  key === "finance" ? "/p/p1/finance" : `/p/p1/${key}`;
 const shell = {
   modules: [],
-  hrefOf: (key: string) =>
-    key === "finance" ? "/p/p1/finance" : `/p/p1/${key}`,
+  hrefOf,
+  ...shellLinks({ hrefOf, projectId: "p1", map: (h) => h }),
 } as unknown as ShellContextValue;
 
 const zeroBucket = {
@@ -237,6 +240,9 @@ describe("FinanceOverview", () => {
     });
     const html = render(<FinanceOverview />);
     expect(html).toContain("No bookings yet");
+    // The settings button names the project's center overview.
+    expect(html).toContain('href="/manage/p/p1/overview"');
+    expect(html).not.toContain('href="/p/p1/settings"');
     expect(html).not.toContain("finance-chart");
   });
 

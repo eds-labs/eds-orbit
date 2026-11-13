@@ -5,6 +5,7 @@ import {
   type Scope,
 } from "../../../../../../packages/schemas/src/index.ts";
 import { data, DomainError, entity, update } from "../../../shared.ts";
+import { composableAsset } from "../brand/ai-labels.ts";
 import { isRasterMime, PRODUCT_ASSET_TYPES } from "../brand/asset-rules.ts";
 import { assetContent } from "./asset-content.ts";
 import type { EntityRow } from "./brand-kit.ts";
@@ -70,9 +71,18 @@ export async function keptAssets(
   });
 }
 
-/** A requested art: a raster picture of this project, never a logo or screenshot. */
+/**
+ * A requested art: a raster picture of this project, never a logo or
+ * screenshot. A labelled AI image is drawn from its unlabelled source, or
+ * refused (409 AI_LABELED_COMPONENT), so the creative carries one label
+ * only (ADR 0028; `composableAsset`, inert with the flag off).
+ */
 export async function artAsset(tx: DbTx, scope: Scope, id: string) {
-  const row = await projectRow(tx, scope, "assets", id);
+  const row = await composableAsset(
+    tx,
+    scope,
+    await projectRow(tx, scope, "assets", id),
+  );
   if (
     !ART_ASSET_TYPES.includes(data(row).type) ||
     !isRasterMime(data(row).mime)

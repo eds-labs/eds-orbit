@@ -1,0 +1,791 @@
+{
+    "roundcube": "1.7.6",
+    "defaultCapability": "deny",
+    "counts": {
+        "read": 18,
+        "deny": 104,
+        "send": 18,
+        "organize": 9,
+        "convert": 1
+    },
+    "actions": {
+        "*/keep-alive": {
+            "capability": "read",
+            "kind": "core",
+            "source": "program/include/rcmail.php:action_handler"
+        },
+        "*/save-pref": {
+            "capability": "read",
+            "kind": "core",
+            "source": "program/include/rcmail.php:action_handler"
+        },
+        "addressbook/add": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/index.php"
+        },
+        "addressbook/copy": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/copy.php"
+        },
+        "addressbook/delete": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/delete.php"
+        },
+        "addressbook/edit": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/edit.php"
+        },
+        "addressbook/export": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/export.php"
+        },
+        "addressbook/group-addmembers": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/group_addmembers.php"
+        },
+        "addressbook/group-create": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/group_create.php"
+        },
+        "addressbook/group-delete": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/group_delete.php"
+        },
+        "addressbook/group-delmembers": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/group_delmembers.php"
+        },
+        "addressbook/group-rename": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/group_rename.php"
+        },
+        "addressbook/import": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/import.php"
+        },
+        "addressbook/index": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/index.php"
+        },
+        "addressbook/list": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/list.php"
+        },
+        "addressbook/mailto": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/mailto.php"
+        },
+        "addressbook/move": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/move.php"
+        },
+        "addressbook/photo": {
+            "capability": "read",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/photo.php"
+        },
+        "addressbook/print": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/print.php"
+        },
+        "addressbook/qrcode": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/qrcode.php"
+        },
+        "addressbook/save": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/save.php"
+        },
+        "addressbook/search": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/search.php"
+        },
+        "addressbook/search-create": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/search_create.php"
+        },
+        "addressbook/search-delete": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/search_delete.php"
+        },
+        "addressbook/show": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/show.php"
+        },
+        "addressbook/undo": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/undo.php"
+        },
+        "addressbook/upload-photo": {
+            "capability": "deny",
+            "kind": "task-alias",
+            "source": "program/actions/contacts/upload_photo.php"
+        },
+        "contacts/add": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/contacts/index.php",
+            "aliasOf": "edit"
+        },
+        "contacts/copy": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/copy.php"
+        },
+        "contacts/delete": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/delete.php"
+        },
+        "contacts/edit": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/edit.php"
+        },
+        "contacts/export": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/export.php"
+        },
+        "contacts/group-addmembers": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/group_addmembers.php"
+        },
+        "contacts/group-create": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/group_create.php"
+        },
+        "contacts/group-delete": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/group_delete.php"
+        },
+        "contacts/group-delmembers": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/group_delmembers.php"
+        },
+        "contacts/group-rename": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/group_rename.php"
+        },
+        "contacts/import": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/import.php"
+        },
+        "contacts/index": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/index.php"
+        },
+        "contacts/list": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/list.php"
+        },
+        "contacts/mailto": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/mailto.php"
+        },
+        "contacts/move": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/move.php"
+        },
+        "contacts/photo": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/photo.php"
+        },
+        "contacts/print": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/print.php"
+        },
+        "contacts/qrcode": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/qrcode.php"
+        },
+        "contacts/save": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/save.php"
+        },
+        "contacts/search": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/search.php"
+        },
+        "contacts/search-create": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/search_create.php"
+        },
+        "contacts/search-delete": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/search_delete.php"
+        },
+        "contacts/show": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/show.php"
+        },
+        "contacts/undo": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/undo.php"
+        },
+        "contacts/upload-photo": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/contacts/upload_photo.php"
+        },
+        "dummy/index": {
+            "capability": "deny",
+            "kind": "core",
+            "source": "program/include/rcmail.php:$main_tasks"
+        },
+        "login/login": {
+            "capability": "deny",
+            "kind": "core",
+            "source": "public_html/index.php"
+        },
+        "login/oauth": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/login/oauth.php"
+        },
+        "login/oauth-backchannel": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/login/oauth_backchannel.php"
+        },
+        "logout/index": {
+            "capability": "deny",
+            "kind": "core",
+            "source": "public_html/index.php"
+        },
+        "mail/addcontact": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/mail/addcontact.php"
+        },
+        "mail/attachment-delete": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/attachment_delete.php"
+        },
+        "mail/attachment-display": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/attachment_display.php"
+        },
+        "mail/attachment-rename": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/attachment_rename.php"
+        },
+        "mail/attachment-upload": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/attachment_upload.php"
+        },
+        "mail/autocomplete": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/autocomplete.php"
+        },
+        "mail/bounce": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/bounce.php"
+        },
+        "mail/check-recent": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/check_recent.php"
+        },
+        "mail/compose": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/compose.php"
+        },
+        "mail/copy": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/copy.php"
+        },
+        "mail/delete": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/delete.php"
+        },
+        "mail/display-attachment": {
+            "capability": "send",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "attachment-display"
+        },
+        "mail/expunge": {
+            "capability": "organize",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "folder-expunge"
+        },
+        "mail/folder-expunge": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/folder_expunge.php"
+        },
+        "mail/folder-purge": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/folder_purge.php"
+        },
+        "mail/get": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/get.php"
+        },
+        "mail/getunread": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/getunread.php"
+        },
+        "mail/group-expand": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/group_expand.php"
+        },
+        "mail/headers": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/headers.php"
+        },
+        "mail/import": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/import.php"
+        },
+        "mail/index": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/index.php"
+        },
+        "mail/list": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/list.php"
+        },
+        "mail/list-contacts": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/list_contacts.php"
+        },
+        "mail/mark": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/mark.php"
+        },
+        "mail/move": {
+            "capability": "organize",
+            "kind": "handler",
+            "source": "program/actions/mail/move.php"
+        },
+        "mail/pagenav": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/pagenav.php"
+        },
+        "mail/plugin.orbit_bridge.convert_reference": {
+            "capability": "convert",
+            "kind": "plugin",
+            "source": "plugins/orbit_bridge/orbit_bridge.php"
+        },
+        "mail/preview": {
+            "capability": "read",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "show"
+        },
+        "mail/print": {
+            "capability": "read",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "show"
+        },
+        "mail/purge": {
+            "capability": "organize",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "folder-purge"
+        },
+        "mail/refresh": {
+            "capability": "read",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "check-recent"
+        },
+        "mail/remove-attachment": {
+            "capability": "send",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "attachment-delete"
+        },
+        "mail/rename-attachment": {
+            "capability": "send",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "attachment-rename"
+        },
+        "mail/search": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/search.php"
+        },
+        "mail/search-contacts": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/search_contacts.php"
+        },
+        "mail/send": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/send.php"
+        },
+        "mail/sendmdn": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/mail/sendmdn.php"
+        },
+        "mail/show": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/show.php"
+        },
+        "mail/upload": {
+            "capability": "send",
+            "kind": "alias",
+            "source": "program/actions/mail/index.php",
+            "aliasOf": "attachment-upload"
+        },
+        "mail/viewsource": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/mail/viewsource.php"
+        },
+        "settings/about": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/about.php"
+        },
+        "settings/add-folder": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-create"
+        },
+        "settings/add-identity": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "identity-create"
+        },
+        "settings/add-response": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "response-create"
+        },
+        "settings/delete-folder": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-delete"
+        },
+        "settings/delete-identity": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "identity-delete"
+        },
+        "settings/delete-response": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "response-delete"
+        },
+        "settings/edit-folder": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-edit"
+        },
+        "settings/edit-identity": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "identity-edit"
+        },
+        "settings/edit-prefs": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "prefs-edit"
+        },
+        "settings/edit-response": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "response-edit"
+        },
+        "settings/folder-create": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_create.php"
+        },
+        "settings/folder-delete": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_delete.php"
+        },
+        "settings/folder-edit": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_edit.php"
+        },
+        "settings/folder-purge": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_purge.php"
+        },
+        "settings/folder-rename": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_rename.php"
+        },
+        "settings/folder-save": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_save.php"
+        },
+        "settings/folder-size": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_size.php"
+        },
+        "settings/folder-subscribe": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_subscribe.php"
+        },
+        "settings/folder-unsubscribe": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folder_unsubscribe.php"
+        },
+        "settings/folders": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/folders.php"
+        },
+        "settings/identities": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/identities.php"
+        },
+        "settings/identity-create": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/identity_create.php"
+        },
+        "settings/identity-delete": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/identity_delete.php"
+        },
+        "settings/identity-edit": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/identity_edit.php"
+        },
+        "settings/identity-save": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/identity_save.php"
+        },
+        "settings/index": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/index.php"
+        },
+        "settings/prefs-edit": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/prefs_edit.php"
+        },
+        "settings/prefs-save": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/prefs_save.php"
+        },
+        "settings/purge": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-purge"
+        },
+        "settings/rename-folder": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-rename"
+        },
+        "settings/response-create": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/response_create.php"
+        },
+        "settings/response-delete": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/response_delete.php"
+        },
+        "settings/response-edit": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/response_edit.php"
+        },
+        "settings/response-get": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/response_get.php"
+        },
+        "settings/response-save": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/response_save.php"
+        },
+        "settings/responses": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/responses.php"
+        },
+        "settings/save-folder": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-save"
+        },
+        "settings/save-identity": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "identity-save"
+        },
+        "settings/save-prefs": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "prefs-save"
+        },
+        "settings/save-response": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "response-save"
+        },
+        "settings/subscribe": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-subscribe"
+        },
+        "settings/unsubscribe": {
+            "capability": "deny",
+            "kind": "alias",
+            "source": "program/actions/settings/index.php",
+            "aliasOf": "folder-unsubscribe"
+        },
+        "settings/upload": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/upload.php"
+        },
+        "settings/upload-display": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/settings/upload_display.php"
+        },
+        "utils/error": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/utils/error.php"
+        },
+        "utils/html2text": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/utils/html2text.php"
+        },
+        "utils/killcache": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/utils/killcache.php"
+        },
+        "utils/modcss": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/utils/modcss.php"
+        },
+        "utils/save-pref": {
+            "capability": "read",
+            "kind": "handler",
+            "source": "program/actions/utils/save_pref.php"
+        },
+        "utils/spell": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/utils/spell.php"
+        },
+        "utils/spell-html": {
+            "capability": "deny",
+            "kind": "handler",
+            "source": "program/actions/utils/spell_html.php"
+        },
+        "utils/text2html": {
+            "capability": "send",
+            "kind": "handler",
+            "source": "program/actions/utils/text2html.php"
+        }
+    }
+}

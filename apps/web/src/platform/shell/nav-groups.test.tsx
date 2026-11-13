@@ -23,6 +23,7 @@ describe("buildNavGroups", () => {
       "ads",
       "work",
       "support",
+      "webmail",
       "issues",
       "knowledge",
       "finance",

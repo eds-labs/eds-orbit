@@ -1,0 +1,736 @@
+{
+  "datasetVersion": "agents-review-v3",
+  "description": "Review agent cases v3 (spec docs/superpowers/specs/2026-11-11-agent-review-creatives-design.md §6). All 26 cases of review-v2.json, unchanged, for the English synthetic brand 'en' (fact beta.access, CTA 'Learn more.', voice 'clear', guardrail 'No unsupported claims'; drafts for one X slot). New: German long-form posts with Creative Studio image copy for the fictional brand 'de', 'Familienzeit' (no FamilyPlan text or data; one fact familienzeit.wochenplan, CTA 'Jetzt ausprobieren.', voice 'warm, klar', guardrail 'keine Preise nennen'; drafts for one Facebook slot of a creative assignment). Each 'de' case is reviewed with a real creative the harness composes from the offline fixtures (lifestyle template, no image provider, vision review off), so the review model judges the body together with the image copy. Good 'de' cases (5, bodies of 600 to 2,200 characters) restate the fact and add only everyday moments, plain questions or invitations; their image copy restates the fact or is a plain invitation or question. Bad 'de' cases (7) cover image copy with a wrong number, a profit promise, a contradiction of the body, an unbacked capability and an off-brand tone; in two of them (de-bad-image-number-words, de-bad-image-holidays) the body is clean and only the image copy breaks a rule, so the model must read both. A figure written in digits on the image is blocked by Orbit's deterministic image copy check (CREATIVE_UNSUPPORTED_CLAIM, one deterministic revision that the worst-case copywriter ignores, then rejected without the model); a number word outside that check reaches the model. 'recorded' is the model answer replayed offline (written for this set, not captured from a live model); deterministic cases deliberately record a wrong 'approve'. review-v2.json stays unchanged as the record of run 3.",
+  "brands": {
+    "en": {
+      "profile": {
+        "productName": "Synthetic Orbit",
+        "contentLanguage": "en",
+        "audience": "Product teams",
+        "positioning": "Test only",
+        "voice": ["clear"],
+        "guardrails": ["No unsupported claims"],
+        "primaryCtas": ["Learn more."]
+      },
+      "facts": [
+        {
+          "key": "beta.access",
+          "value": "open for product teams"
+        }
+      ],
+      "brief": {
+        "angle": "Announce that beta access is open for product teams.",
+        "cta": "Learn more.",
+        "notARepeatBecause": "This post announces the open beta for product teams in its own words."
+      }
+    },
+    "de": {
+      "profile": {
+        "productName": "Familienzeit",
+        "contentLanguage": "de",
+        "audience": "Familien mit Kindern, die ihren Alltag gemeinsam planen",
+        "positioning": "Nur für Tests",
+        "voice": ["warm", "klar"],
+        "guardrails": ["keine Preise nennen"],
+        "primaryCtas": ["Jetzt ausprobieren."]
+      },
+      "facts": [
+        {
+          "key": "familienzeit.wochenplan",
+          "value": "Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan"
+        }
+      ],
+      "assignment": {
+        "name": "Familienzeit Wochenplan",
+        "topicFrame": "Der gemeinsame Wochenplan von Familienzeit im Familienalltag",
+        "tone": "Warm und konkret"
+      },
+      "brief": {
+        "topic": "Der gemeinsame Wochenplan von Familienzeit",
+        "angle": "Zeigen, dass Familienzeit Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan zusammenbringt, an einem Moment aus dem Familienalltag.",
+        "cta": "Jetzt ausprobieren.",
+        "notARepeatBecause": "Dieser Beitrag stellt den gemeinsamen Wochenplan in eigenen Worten und mit einem eigenen Alltagsmoment vor."
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "good-join-now",
+      "label": "good",
+      "category": "good",
+      "body": "Product teams can join today: beta access is open for product teams. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-invite",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Invite the colleagues who plan your releases. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-needs",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Tell us what your team needs next. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-question-planning",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. How does your team plan its releases today? Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-share",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Share this with a team that plans releases. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-reply",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Questions? Reply to this post. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-your-team",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Is your team one of them? Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-tag",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Tag a colleague who should see this. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-unbacked-day-one",
+      "label": "bad",
+      "category": "unbacked_claim",
+      "body": "Beta access is open for product teams. Set up your first workspace on day one. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["States a workspace setup capability that no fact backs."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-unbacked-real-project",
+      "label": "bad",
+      "category": "unbacked_claim",
+      "body": "Beta access is open for product teams. Bring one real project and see how it fits your week. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "Implies the product fits a real project and a week's work; no fact backs that."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-unbacked-planning-cycle",
+      "label": "bad",
+      "category": "unbacked_claim",
+      "body": "Beta access is open for product teams, so your team can start with its next planning cycle. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "Promises a start with the next planning cycle; no fact backs that."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-unbacked-start-small",
+      "label": "bad",
+      "category": "unbacked_claim",
+      "body": "Beta access is open for product teams. Start small with one board and grow from there. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "States boards and growth from one board; no fact backs that."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-unbacked-feedback",
+      "label": "bad",
+      "category": "unbacked_claim",
+      "body": "Beta access is open for product teams. Your feedback shapes what we build next. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "Promises that feedback shapes the product; no fact backs that."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-wrong-number-free-text",
+      "label": "bad",
+      "category": "wrong_number",
+      "body": "Beta access is open for 500 product teams already. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["States 500 teams; no fact supports that number."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-wrong-number-price",
+      "label": "bad",
+      "category": "wrong_number",
+      "body": "Beta access costs just $49 a month for product teams. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["UNSUPPORTED_PRICE_CLAIM"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-profit-guaranteed",
+      "label": "bad",
+      "category": "profit_promise",
+      "body": "Guaranteed returns for every product team that joins the beta. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["PROFILE_GUARDRAIL_PROHIBITED_LANGUAGE"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-profit-revenue",
+      "label": "bad",
+      "category": "profit_promise",
+      "body": "Teams in the beta will double their revenue within a quarter. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Promises a revenue outcome."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-advice-savings",
+      "label": "bad",
+      "category": "investment_advice",
+      "body": "Product teams should move their savings into our token while beta access is open. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Gives investment advice."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-advice-buy-early",
+      "label": "bad",
+      "category": "investment_advice",
+      "body": "Joining the beta is the smartest investment your team can make this year, so buy in early. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Frames the product as an investment to buy."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-link-scheme",
+      "label": "bad",
+      "category": "disallowed_link",
+      "body": "Beta access is open, sign up at https://beta-signup.example/teams today. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["LINK_NOT_ALLOWED"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-link-www",
+      "label": "bad",
+      "category": "disallowed_link",
+      "body": "Beta access is open for product teams, details on www.other-site.example today. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["LINK_NOT_ALLOWED"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-link-bare-host",
+      "label": "bad",
+      "category": "disallowed_link",
+      "body": "Beta access is open for product teams, sign up at beta-signup.example/teams. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "owner",
+        "deterministic": ["LINK_UNVERIFIED"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-tone-shouting",
+      "label": "bad",
+      "category": "off_brand_tone",
+      "body": "OMG!!! Beta access is OPEN and you would be crazy to miss it!!! Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Shouting and hype do not fit a clear voice."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-tone-mocking",
+      "label": "bad",
+      "category": "off_brand_tone",
+      "body": "Still planning releases in spreadsheets like it is 1999? Cute. Beta access is open. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Mocks the audience."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-repeat-exact",
+      "label": "bad",
+      "category": "repeated_post",
+      "body": "Beta access is open for product teams. Learn more.",
+      "channelHistory": ["Beta access is open for product teams! Learn more"],
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["DUPLICATE_CONTENT"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-repeat-paraphrase",
+      "label": "bad",
+      "category": "repeated_post",
+      "body": "Beta access is open for product teams. This week, start with a single board. Learn more.",
+      "channelHistory": [
+        "Beta access is open for product teams. Start with one board this week. Learn more."
+      ],
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Paraphrases yesterday's post on this channel."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-good-montag",
+      "label": "good",
+      "category": "good",
+      "brand": "de",
+      "body": "Montagmorgen, sieben Uhr: Wer hat heute eigentlich Training, und wer bringt den Kuchen für den Kindergarten mit? ☕\n\nKennt ihr diese Fragen zwischen Brotdosen und Turnbeuteln? Auf dem Kühlschrank hängen Zettel, im Familienchat stehen drei verschiedene Uhrzeiten, und am Ende fehlt doch wieder die Milch.\n\nDazu kommt der Blick auf den Rest der Woche: Am Mittwoch ist Elternabend, am Freitag hat der Kleine einen Termin bei der Kinderärztin, und für das Wochenende hat sich Besuch angekündigt.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan.\n\nWie startet ihr in eure Familienwoche? Erzählt es uns gern in den Kommentaren.\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Euer gemeinsamer Wochenplan",
+        "subline": "Termine, Aufgaben und Einkaufslisten für eure Familie.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-good-abholen",
+      "label": "good",
+      "category": "good",
+      "brand": "de",
+      "body": "Wer holt heute die Kinder ab? 🚲\n\nEs ist Dienstag, die Arbeit zieht sich, und auf dem Handy blinken zwei Nachrichten gleichzeitig: Die Musikschule fällt aus, und das Fußballtraining beginnt eine Stunde früher. Kurz danach fragt jemand im Familienchat, ob noch Nudeln da sind.\n\nSolche Nachmittage kennen viele Eltern. Zwischen Schule, Arbeit, Hobbys und Einkauf geht schnell unter, wer heute was übernimmt.\n\nFamilienzeit bringt Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einen gemeinsamen Wochenplan.\n\nWie regelt ihr bei euch das Abholen? Mit festen Tagen, mit einer Liste am Kühlschrank oder ganz spontan? Schreibt uns, was bei euch gut klappt. 💬\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienalltag",
+        "headline": "Wer holt heute die Kinder ab?",
+        "subline": "Wie plant ihr eure Familienwoche?",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-good-sonntag",
+      "label": "good",
+      "category": "good",
+      "brand": "de",
+      "body": "Sonntagabend am Küchentisch: Der Tee wird kalt, und vor euch liegt eine neue Woche. 🍵\n\nElternabend am Mittwoch, Zahnarzt am Donnerstag, der Geburtstag von Oma am Samstag. Dazu die Frage, wer diese Woche den Müll rausbringt und wer die Pflanzen gießt. Und irgendwo zwischen all dem steht noch: Geschenk besorgen.\n\nViele Familien setzen sich am Wochenende kurz zusammen und gehen die nächsten Tage gemeinsam durch. Manche mit einem Block, manche mit bunten Magneten am Kühlschrank, manche ganz nebenbei im Gespräch beim Abendessen.\n\nMit Familienzeit habt ihr dafür einen gemeinsamen Wochenplan: Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder an einer Stelle.\n\nVielleicht wird daraus euer neues Sonntagsritual. Setzt euch zusammen, sprecht durch, was ansteht, und nehmt euch einen Moment für die Woche, die vor euch liegt.\n\nWie plant ihr eure Woche? Habt ihr ein festes Ritual oder entscheidet ihr von Tag zu Tag? Wir freuen uns auf eure Geschichten in den Kommentaren. 💛\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Plant eure Woche gemeinsam",
+        "subline": "Termine, Aufgaben und Einkaufslisten in einem Wochenplan.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-good-woche",
+      "label": "good",
+      "category": "good",
+      "brand": "de",
+      "body": "Wie sieht eigentlich eine ganz normale Woche bei euch aus? 🗓️\n\nBei vielen Familien beginnt sie schon am Sonntag mit der Frage, was in den nächsten Tagen alles ansteht. Am Montag ist Schwimmen, am Dienstag kommt die Tante zu Besuch, am Mittwoch muss das Auto in die Werkstatt. Donnerstag ist Elternsprechtag, und am Freitag will die Große bei ihrer Freundin übernachten.\n\nDazwischen laufen die kleinen Dinge, die niemand vergessen möchte: das Pausenbrot, die unterschriebene Einverständniserklärung für den Ausflug, der Rückruf bei der Kinderärztin, die Blumen für die Nachbarin, die im Urlaub ist.\n\nUnd dann ist da noch der Einkauf. Wer kauft das Brot? Haben wir noch Haferflocken? Wer bringt Windeln mit, wenn er sowieso am Drogeriemarkt vorbeikommt?\n\nManche Familien halten das alles auf Papier fest, andere in Nachrichten, wieder andere im Kopf von Mama oder Papa. Jede Familie findet ihren eigenen Weg.\n\nFamilienzeit bietet euch einen gemeinsamen Wochenplan für Termine, Aufgaben und Einkaufslisten von bis zu sechs Familienmitgliedern.\n\nUns interessiert, wie ihr das macht: Wer behält bei euch die Woche im Blick? Gibt es eine Person, die alles plant, oder teilt ihr euch das auf? Und welcher Wochentag ist bei euch der vollste?\n\nErzählt es uns in den Kommentaren. 😊\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Eure Woche",
+        "headline": "Wie sieht eure Familienwoche aus?",
+        "subline": "Erzählt es uns in den Kommentaren.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-good-alltag",
+      "label": "good",
+      "category": "good",
+      "brand": "de",
+      "body": "Es ist kurz nach sechs, und in der Küche duftet es nach Toast. 🍞\n\nDie Kleine sucht ihren zweiten Hausschuh, der Große fragt, ob heute Sport ist, und irgendwer ruft aus dem Flur, dass das Busticket verschwunden ist. Draußen wird es langsam hell, drinnen wird die Liste im Kopf immer länger.\n\nAm Nachmittag geht es weiter: Die Oma hat angerufen, ob sie am Wochenende vorbeikommen darf. Die Schule hat eine Nachricht geschickt, dass am Freitag ein Ausflug ansteht und alle Kinder Regenkleidung mitbringen sollen. Und im Kühlschrank steht nur noch ein halbes Glas Gurken.\n\nAbends sitzt ihr dann vielleicht zusammen und versucht, alles zu sortieren. Wer bringt die Kinder morgen in die Schule? Wer kauft ein? Wann passt der Besuch bei Oma am besten? Und hat eigentlich schon jemand das Geschenk für den Kindergeburtstag am Samstag besorgt?\n\nSo sieht der Alltag in vielen Familien aus. Bunt, laut, manchmal chaotisch und meistens sehr schön. Er besteht aus vielen kleinen Momenten, aus Absprachen am Frühstückstisch und aus Zetteln, die irgendwo zwischen Schulranzen und Einkaufstasche verschwinden.\n\nAm Wochenende wird es selten ruhiger. Samstags stehen Fußballspiel, Kindergeburtstag und der Großeinkauf an, sonntags vielleicht ein Ausflug zu den Großeltern oder ein langer Spaziergang am See. Und schon am Sonntagabend stellt sich wieder die Frage, wer am Montag die Brotdosen packt, wer an die Turnbeutel denkt und wer den Elternbrief unterschreibt, der seit Donnerstag im Ranzen liegt.\n\nFür diese Absprachen habt ihr mit Familienzeit Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan.\n\nWir sind neugierig auf euren Alltag. Was ist bei euch der Moment am Tag, an dem alle gleichzeitig etwas wollen? Ist es der Morgen vor der Schule, der späte Nachmittag oder das Abendessen? Und welche kleine Gewohnheit hilft euch, den Überblick zu behalten?\n\nTeilt eure Erfahrungen gern in den Kommentaren. Vielleicht entdeckt ihr dabei auch eine Idee, die bei einer anderen Familie schon gut funktioniert. 💬\n\nUnd wenn ihr Lust habt, euren eigenen gemeinsamen Wochenplan anzulegen: Wir freuen uns auf euch.\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Ein Wochenplan für eure Familie",
+        "subline": "Termine, Aufgaben und Einkaufslisten an einer Stelle.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-bad-image-number-digits",
+      "label": "bad",
+      "category": "image_copy_wrong_number",
+      "brand": "de",
+      "body": "Wie viele Termine stehen bei euch diese Woche im Kalender? 📅\n\nTraining, Elternabend, Zahnarzt und dazwischen der Einkauf: Eine Familienwoche hat viele bewegliche Teile, und oft weiß nur eine Person, was wann passiert.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu zehn Familienmitglieder in einem gemeinsamen Wochenplan.\n\nWer plant bei euch die Woche? Schreibt es uns in die Kommentare.\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Für bis zu 10 Familienmitglieder",
+        "subline": "Termine, Aufgaben und Einkaufslisten in einem Plan.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["CREATIVE_UNSUPPORTED_CLAIM"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "de-bad-image-money",
+      "label": "bad",
+      "category": "image_copy_profit_promise",
+      "brand": "de",
+      "body": "Was landet bei euch jede Woche im Einkaufswagen, das eigentlich schon zu Hause im Schrank steht? 🛒\n\nDoppelt gekaufte Nudeln, die dritte Packung Kaffee, Joghurt, der im Kühlschrank vergessen wird: Ohne Absprache passiert das schnell.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan. So spart eure Familie jeden Monat, und am Monatsende bleibt mehr Geld in der Haushaltskasse.\n\nWas steht bei euch immer auf der Einkaufsliste? Verratet es uns in den Kommentaren.\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Mehr Geld in der Haushaltskasse",
+        "subline": "Mit dem Wochenplan spart eure Familie jeden Monat.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "Promises a monthly money saving in the image copy and the body; no fact backs any financial outcome."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-bad-image-contradiction",
+      "label": "bad",
+      "category": "image_copy_contradiction",
+      "brand": "de",
+      "body": "Mittwochabend, die Spülmaschine läuft, und auf dem Sofa fällt euch ein: Morgen ist ja der Laternenumzug! 🏮\n\nWer bastelt noch die Laterne fertig, wer besorgt die Teelichter, und wer holt die Kinder danach ab? Solche Fragen klären viele Familien zwischen Tür und Angel, oft erst dann, wenn die Kinder schon im Schlafanzug sind.\n\nIm Herbst wird es in vielen Familienkalendern voller. Der Kindergarten lädt zum Laternenbasteln ein, in der Schule steht der erste Elternabend des Schuljahres an, und am Wochenende wollen alle noch einmal Kastanien sammeln, bevor es draußen richtig kalt wird.\n\nDazu kommen die kleinen Dinge, die im Trubel gern untergehen: die Turnschuhe für die Halle, die warme Mütze für den Ausflug, der Elternbrief für die Klassenfahrt und die Zutaten für den Kürbiskuchen, den die Großen am Sonntag backen möchten.\n\nManche Familien besprechen das morgens am Frühstückstisch, andere schreiben Zettel für den Kühlschrank, und bei manchen steht alles in einer langen Nachricht im Familienchat, die irgendwann niemand mehr ganz nach oben scrollt.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan.\n\nUnd wenn die Kinder am Donnerstagabend müde und glücklich mit ihren leuchtenden Laternen nach Hause kommen, ist die Aufregung vom Vorabend meistens schon vergessen. Bis zur nächsten Frage auf dem Sofa.\n\nWelche Termine im Herbst sind bei euch fest eingeplant? Geht ihr zum Laternenumzug, sammelt ihr Kastanien oder backt ihr gemeinsam? Erzählt es uns in den Kommentaren. 🍂\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Jeder plant für sich allein",
+        "subline": "Getrennte Kalender für jedes Familienmitglied.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "The image copy promises separate calendars for each family member, which contradicts the body and the fact of one shared weekly plan."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-bad-image-reminders",
+      "label": "bad",
+      "category": "image_copy_unbacked_claim",
+      "brand": "de",
+      "body": "Wie oft habt ihr diese Woche schon gedacht: Das hätte ich mir aufschreiben sollen? 🙈\n\nDer Termin beim Kieferorthopäden, das Geschenk für die Kita-Erzieherin, die Anmeldung für den Schwimmkurs: Im Alltag rutscht schnell etwas durch.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan, und Familienzeit erinnert euch rechtzeitig an jeden Termin.\n\nWas habt ihr zuletzt fast vergessen? Schreibt es uns in die Kommentare.\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Erinnert euch an jeden Termin",
+        "subline": "Rechtzeitig, bevor es losgeht.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "States reminders before every appointment in the image copy and the body; no fact backs a reminder feature."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-bad-image-tone",
+      "label": "bad",
+      "category": "image_copy_off_brand_tone",
+      "brand": "de",
+      "body": "Ihr klebt immer noch Zettel an den Kühlschrank? Ernsthaft? 🙄\n\nWer seine Familienwoche so plant, braucht sich über vergessene Termine wirklich nicht zu wundern. Ein bisschen mehr Mühe darf es schon sein.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan.\n\nAlso hört auf mit dem Zettelchaos.\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Ehrlich jetzt",
+        "headline": "SCHLUSS MIT DEM ZETTELCHAOS!!!",
+        "subline": "Wer noch Zettel schreibt, ist selbst schuld.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "Shouts and mocks the audience in the image copy and the body; that does not fit a warm, clear voice."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-bad-image-number-words",
+      "label": "bad",
+      "category": "image_copy_wrong_number",
+      "brand": "de",
+      "body": "Freitagnachmittag, der Wocheneinkauf steht an, und alle haben noch einen Wunsch. 🥕\n\nDie Kinder möchten Pfannkuchen, Papa braucht Kaffee, und für das Grillen am Samstag fehlen noch Würstchen und Maiskolben. Jeder schreibt seinen Wunsch an eine andere Stelle, und im Supermarkt steht man dann vor dem Regal und überlegt, was eigentlich auf dem Zettel stand, der noch zu Hause am Kühlschrank hängt.\n\nKennt ihr das? Eine Nachricht im Familienchat sagt: Bitte Milch mitbringen. Eine Stunde später kommt die nächste: Milch haben wir doch noch, aber das Brot ist alle. Und am Abend stehen dann zwei Packungen Milch im Kühlschrank und kein Brot im Kasten.\n\nAm Wochenende geht es weiter. Die Großeltern kommen zum Kaffee, die Kleine hat Schwimmen, und der Große möchte unbedingt mit seinen Freunden ins Kino. Wer fährt wen, wer holt wen ab, und wer denkt an den Kuchen für den Besuch?\n\nViele Familien finden dafür ihre eigenen kleinen Rituale. Manche setzen sich am Donnerstagabend kurz zusammen und gehen die nächsten Tage durch, andere hängen eine große Tafel in den Flur, und wieder andere verlassen sich ganz auf das Gedächtnis von einer Person.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan.\n\nWas darf bei eurem Wocheneinkauf nie fehlen? Und wer schreibt bei euch die Einkaufsliste: alle zusammen oder immer dieselbe Person? Schreibt es uns in die Kommentare, wir sind gespannt auf eure Antworten. 🛒\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Platz für bis zu fünfzehn Familienmitglieder",
+        "subline": "Termine, Aufgaben und Einkaufslisten in einem Plan.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "The image copy names up to fifteen family members; the fact and the body say up to six."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "de-bad-image-holidays",
+      "label": "bad",
+      "category": "image_copy_unbacked_claim",
+      "brand": "de",
+      "body": "Die Sommerferien sind vorbei, und schon fragt jemand am Abendbrottisch: Wann sind eigentlich die Herbstferien? 🍂\n\nZwischen Elternbriefen, Vereinsterminen und Urlaubsplänen der Großeltern ist es gar nicht so leicht, die nächsten Wochen im Blick zu behalten. Die Musikschule macht eine Woche später Pause als die Schule, der Sportverein plant ein Trainingslager, und die Tante fragt schon jetzt, ob ihr über die Feiertage zu Besuch kommt.\n\nGerade in den ersten Wochen nach dem Sommer stapeln sich die Fragen. Wer nimmt sich in den Ferien frei? Brauchen die Kinder eine Betreuung für die Tage, an denen beide Eltern arbeiten? Und wann bleibt eigentlich Zeit für einen gemeinsamen Ausflug, auf den sich alle freuen?\n\nManche Familien planen die Ferien schon im Frühjahr, andere entscheiden lieber spontan, wenn das Wetter mitspielt. Beides hat seinen Reiz, und beides braucht ein paar Absprachen, damit am Ende niemand vergeblich vor der verschlossenen Tür der Ferienbetreuung steht.\n\nMit Familienzeit habt ihr Termine, Aufgaben und Einkaufslisten für bis zu sechs Familienmitglieder in einem gemeinsamen Wochenplan.\n\nVielleicht ist der nächste Sonntag ein guter Moment, um euch zusammenzusetzen und gemeinsam auf die kommenden Wochen zu schauen. Mit einer Tasse Kakao, einem Blick in die Elternbriefe und den Wünschen von allen am Tisch, von den Kleinsten bis zu den Großeltern.\n\nWas habt ihr für die Herbstferien geplant? Fahrt ihr weg, bleibt ihr zu Hause oder besucht ihr Familie? Erzählt es uns in den Kommentaren. 🍁\n\nJetzt ausprobieren.",
+      "creativeCopy": {
+        "eyebrow": "Familienzeit",
+        "headline": "Schulferien sind schon eingetragen",
+        "subline": "Für euer Bundesland, jedes Jahr neu.",
+        "cta": "Jetzt ausprobieren"
+      },
+      "recorded": {
+        "verdict": "reject",
+        "reasons": [
+          "The image copy states that school holidays are pre-filled for each state; no fact backs that feature."
+        ]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    }
+  ]
+}

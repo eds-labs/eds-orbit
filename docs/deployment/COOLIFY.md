@@ -8,11 +8,14 @@ The repository root [`docker-compose.yml`](../../docker-compose.yml) is the cano
 
 Orbit production runs on **`https://coolify-pve.eds-labs.io`** (server VM102), project EDS Orbit, environment production. The resource is the Git application `Orbit Production (GitHub)`: repository `eds-labs/eds-orbit`, branch `main`, compose `/docker-compose.pve.yml`. A push to `main` starts a webhook deployment. The VM102 section below explains how that application builds, including the schema approval hash. The previous Coolify at `coolify.eds-labs.io` and the migrated service `Orbit Production` (stopped, kept for rollback) no longer serve production. Never run them against the production data.
 
+The variable `ORBIT_SETTINGS_CENTER`, set to `on` in this application on 2026-11-12, is unused once row 5.4 is delivered (the settings center has no rollout flag any more; nothing reads the variable and the compose files do not pass it on). It can be deleted in Coolify once the delivery is accepted; leaving it set does no harm, and a revert of row 5.4 would read it again.
+
 ## Architecture and isolation
 
 - `web` is the only service assigned a Coolify domain. It listens internally on port `4310` and proxies application API requests to `http://api:4311` through Docker DNS.
 - `api` listens internally on `4311`; `worker`, PostgreSQL, and Redis have no public listener. Compose publishes no `ports:`.
-- `frontend` and `database` are internal networks. `egress` is used only by API and worker for separately approved external integrations.
+- `frontend` and `database` are internal networks. `egress` is used by the API, worker, MCP gateway, webmail bridge and backup for separately approved external integrations.
+- `webmail-bridge` ([ADR 0026](../adr/0026-webmail-module.md)) starts only with `ORBIT_WEBMAIL_REPLICAS=1`; the default is 0. Roundcube and its database are not part of this application: Coolify attaches every service of an application to one shared network, so they run as a second Coolify application from `docker-compose.webmail.yml` and meet Orbit only on `orbit-webmail-link` (bridge) and `orbit-webmail-backup` (backup), which this application creates. See [WEBMAIL.md](WEBMAIL.md), including the isolation check under Coolify.
 - PostgreSQL uses the pinned `pgvector/pgvector` PostgreSQL 17 image with the named `orbit_pg` volume. Redis uses the pinned Redis 7.4 image, append-only persistence, and the named `orbit_redis` volume.
 - API, worker, web, database, and Redis have Compose health checks. API and worker wait for `migrate` to complete successfully; migrations cannot run concurrently with normal application startup in the same stack.
 - Application containers use a multi-stage Node image, prune development dependencies, run as `node`, use read-only roots, a limited tmpfs, dropped Linux capabilities, no-new-privileges, an init process, bounded logs, and durable restart policies. The migration job intentionally exits after success and has no restart policy.
@@ -46,7 +49,7 @@ The Compose definition uses Coolify's documented `SERVICE_*` variables to genera
 | Safety gates | `EXECUTION_MODE`, `ENABLE_EXTERNAL_WRITES`, `LIVE_RAG_EVAL_PASSED` | Defaults keep the system in test mode with external writes and live RAG evaluation disabled. Changing them requires separate authorization. |
 | Feature flags | `ORBIT_CONTENT_PACKAGES`, `ORBIT_TOOL_SEARCH`, `ORBIT_AGENTS` | Default `false`; passed to API and worker (Orbit Chat runs in the worker). Set to `true` in the Coolify environment variables and redeploy only after the matching approval in `docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`. |
 | Optional integration | `OPENAI_API_KEY`, `OPENAI_VERIFIED_MODELS`, `OPENAI_RATE_CARD_JSON` | Leave blank until model, budget, and provider controls have been approved and verified. |
-| Optional integration | `ANTHROPIC_API_KEY`, `AI_DEFAULT_PROVIDER` | Bootstrap fallbacks for the Anthropic Claude provider; prefer the encrypted owner field under Settings → AI and leave these blank (`AI_DEFAULT_PROVIDER` defaults to `openai`). |
+| Optional integration | `ANTHROPIC_API_KEY`, `AI_DEFAULT_PROVIDER` | Bootstrap fallbacks for the Anthropic Claude provider; prefer the encrypted owner field under Administration & settings → AI → Providers and keys (project scope) and leave these blank (`AI_DEFAULT_PROVIDER` defaults to `openai`). |
 | Legacy only | `ORBIT_HOSTNAME` | Used only by the old Caddy standalone configuration under `infra/`; Coolify ignores it. |
 
 `ORBIT_IMAGE_TAG` is optional metadata for locally invoked Compose. Coolify builds the Git revision itself. Build arguments are not required and no secret is passed as a Docker build argument.
@@ -72,6 +75,15 @@ For a release record, capture:
 3. Authenticated HTTPS behavior at `https://orbit.eds-labs.io` (the production web domain; check `APP_ORIGIN` in Coolify if it changes), worker heartbeat, and a safe read-only operational path.
 4. The current backup/recovery state, owner/change reference, and any blocked live connector/model gates.
 
+### Build concurrency on VM102
+
+On 2026-11-13 a push to `main` started `Orbit Production (GitHub)` and `Orbit Webmail` within eight seconds of each other; the parallel builds hung VM102 for about 1 h 20 min until the VM was restarted. Two Coolify settings, approved by Mario the same day, keep that from happening again:
+
+- **Watch paths on `Orbit Webmail`**: `infra/webmail/**` and `docker-compose.webmail.yml`. A push that touches neither is ignored by the webmail application, so most pushes build only Orbit.
+- **Server `localhost` (VM102): concurrent builds = 1** (was 2). Every build on VM102 (Orbit, webmail, n8n, Postiz, Matomo) waits in Coolify's queue until the one before it has finished. A push that changes both applications therefore builds them one after the other.
+
+After a push, `list_deployments` (Coolify MCP) shows which applications started. Rollback: clear the watch paths of `Orbit Webmail` and set concurrent builds back to 2 in the server settings. If a new file outside `infra/webmail/` becomes a build input of the webmail image, add it to the watch paths in the same change.
+
 Coolify documentation: [Docker Compose](https://coolify.io/docs/applications/builds/docker-compose), [Compose networking](https://coolify.io/docs/core/networking-in-coolify), [Traefik routing](https://coolify.io/docs/core/networking/proxy/traefik/overview), and [health checks](https://coolify.io/docs/applications/configuration/health-checks).
 
 
@@ -81,12 +93,14 @@ The migrated `Orbit Production` resource is a user-defined Coolify Service with 
 
 The replacement must be a GitHub Application using `eds-labs/eds-orbit`, branch `main`, the Docker Compose build pack, base `/`, and **`/docker-compose.pve.yml`**. Keep automatic deployments and previews off, leave domains empty, and do not deploy the preparation resource until the production change is approved. Keep Raw Compose Deployment off.
 
-`docker-compose.pve.yml` is generated from the canonical root definition by `node scripts/render-pve-compose.mjs`. It retains builds, migration gating, flags, commands, images, health checks and isolation. The only runtime adaptations are the five existing VM102 internal host mappings and the existing bind-mounted PostgreSQL and Redis data paths under `/data/orbit-production`. Missing directories must fail instead of silently creating an empty database. Never run both resources against these data directories. The Compose check also rejects a stale generated adapter after changes to the canonical file; regenerate and review both together. The generator also writes `docker-compose.pve.source.sha256`. Keep it with the adapter: Coolify normalizes the selected YAML before the custom build and removes its comments, so the build guard checks this separate source fingerprint. CI still compares the complete original adapter against the canonical definition.
+`docker-compose.pve.yml` is generated from the canonical root definition by `node scripts/render-pve-compose.mjs`. It retains builds, migration gating, flags, commands, images, health checks and isolation. The only runtime adaptations are the three VM102 internal host mappings (Orbit, n8n and Postiz) and the existing bind-mounted PostgreSQL and Redis data paths under `/data/orbit-production`. Missing directories must fail instead of silently creating an empty database. Never run both resources against these data directories. The Compose check also rejects a stale generated adapter after changes to the canonical file; regenerate and review both together. The generator also writes `docker-compose.pve.source.sha256`. Keep it with the adapter: Coolify normalizes the selected YAML before the custom build and removes its comments, so the build guard checks this separate source fingerprint. CI still compares the complete original adapter against the canonical definition.
+
+Matomo (`analytics.eds-labs.io` and `analytics.uliquid.vip`) intentionally uses public DNS. Do not add either name to `extra_hosts`: the reporting transport rejects private targets (`PRIVATE_ENDPOINT`) before transmitting credentials. Its public HTTPS endpoint retains DNS address validation, pinned transport, certificate checks and redirect rejection. Regenerate and validate the adapter after any routing change.
 
 Before cutover:
 
 1. Copy the existing runtime variable values directly within the server into the inactive application. Preserve database role passwords, authentication/encryption keys, feature flags and provider credentials. Do not use newly generated replacement credentials and do not print values. Copy application configuration, not image-internal environment defaults such as `PATH`: Coolify supplies runtime variables to Compose services, and a Node image path can hide PostgreSQL executables in the database container. Preserve each image's own defaults.
-2. Compare rendered environments against the running services. Confirm both bind paths, five internal host mappings, worker queue identity and database/auth roles. Keep all production domains off the draft.
+2. Compare rendered environments against the running services. Confirm both bind paths, the three internal host mappings, worker queue identity and database/auth roles. Keep all production domains off the draft.
 3. Build the reviewed commit without stopping production. Validate against isolated database/Redis copies with worker/provider actions disabled and no public route. A healthy container alone does not establish authenticated feature acceptance.
 4. Obtain explicit production-change approval. Pause/drain workers, take a fresh protected backup, stop the current resource, and ensure no process still mounts the data directories before starting the Git application. Keep data and the fixed migration images available for rollback.
 5. Move the existing domain routes and backup job target to the replacement (resolve its running backup container by application UUID and Compose service labels, because container names change on deployment), check HTTPS, authentication, API readiness, MCP health, worker readiness and all internal service connections, and test backup invocation against the correct new container. No public DNS change is needed.

@@ -8,30 +8,48 @@ const replay = vi.hoisted(() => ({
   maxBytes: 0,
   // Bodies the model saw, per round.
   seen: { 1: [] as string[], 2: [] as string[] },
+  // Image copy the model saw, per round and body.
+  copies: { 1: new Map<string, unknown>(), 2: new Map<string, unknown>() },
+  // Every review request as the runner sizes it, and its size per body.
+  requests: [] as string[],
+  bytes: new Map<string, number>(),
+  // The route of every review call and the keys of the runtime it was sent with.
+  routes: [] as unknown[],
+  keys: [] as Array<{ openai?: string; anthropic?: string }>,
 }));
 vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../packages/ai/src/index.ts")>()),
   ...(await import("./stubs.ts")).draftStubs(),
   respond: vi.fn(async (request: any) => {
     replay.calls++;
-    // The size the runner reserves for (see runSpecialist).
-    replay.maxBytes = Math.max(
-      replay.maxBytes,
-      Buffer.byteLength(
-        JSON.stringify({
-          input: request.input,
-          instructions: request.instructions,
-          tools: request.tools,
-          outputSchema: request.outputSchema,
-        }),
-      ),
-    );
+    // The request the runner reserves for (see runStructured).
+    const serialized = JSON.stringify({
+      input: request.input,
+      instructions: request.instructions,
+      tools: request.tools,
+      outputSchema: request.outputSchema,
+    });
+    replay.requests.push(serialized);
+    replay.routes.push(request.route);
+    replay.keys.push({
+      openai: request.runtime?.apiKey,
+      anthropic: request.runtime?.anthropicApiKey,
+    });
+    replay.maxBytes = Math.max(replay.maxBytes, Buffer.byteLength(serialized));
     const input = JSON.parse(request.input[0].content) as {
       round: 1 | 2;
-      drafts: Array<{ contentId: string; body: string }>;
+      drafts: Array<{
+        contentId: string;
+        body: string;
+        creativeCopy?: unknown;
+      }>;
     };
     const drafts = input.drafts;
-    for (const draft of drafts) replay.seen[input.round].push(draft.body);
+    for (const draft of drafts) {
+      replay.seen[input.round].push(draft.body);
+      replay.copies[input.round].set(draft.body, draft.creativeCopy);
+      replay.bytes.set(draft.body, Buffer.byteLength(serialized));
+    }
     return {
       output: [
         {
@@ -79,6 +97,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
+import { estimateCost } from "../../packages/ai/src/index.ts";
 import { parseCandidatesFile } from "../generation/live-plan.ts";
 import { REVIEW_EVAL_MARKER, runReviewEval } from "./live-harness.ts";
 import {
@@ -88,15 +107,16 @@ import {
   REVIEW_REQUEST_BYTES,
   renderReport,
 } from "./live-plan.ts";
-import { parseReviewSet, type ReviewCase } from "./review-set.ts";
+import { CATEGORIES, parseReviewSet, type ReviewCase } from "./review-set.ts";
 import {
   DIAGNOSIS_DIR,
   writeDiagnosis,
   type CaseDiagnosis,
 } from "./diagnosis.ts";
 import { reviewPromptHash } from "./code-version.ts";
-import rawSet from "./review-v2.json" with { type: "json" };
+import rawSet from "./review-v3.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
+import rawRouteV2 from "./review-route-v2.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
 const enabled = Boolean(
@@ -112,10 +132,42 @@ const plan = planReviewEval(
   reviewPromptHash(),
   new Date(rates.verifiedAt).valueOf() + 3600_000,
 );
+// Deliberately not credential-shaped, so the repository secret scan stays clean.
 const runtime = {
   apiKey: "synthetic-eval-key-not-real-0123456789",
   ...plan.runtime,
 };
+// The production Anthropic route (review-route-v2.json), priced with a fixture
+// rate card, never the repository file: Orbit's verified catalog prices of
+// claude-opus-5-5 and of the embedding model (stubbed, but priced before its
+// reservation) in USD micros per million tokens.
+const claudeRates = {
+  verifiedAt: "2026-11-11T00:00:00.000Z",
+  rateCard: {
+    "claude-opus-5-5": {
+      inputMicrosPerMillion: 4_000_000,
+      cachedInputMicrosPerMillion: 200_000,
+      cacheWriteMicrosPerMillion: 5_000_000,
+      outputMicrosPerMillion: 20_000_000,
+    },
+    "text-embedding-3-small": {
+      inputMicrosPerMillion: 20_000,
+      outputMicrosPerMillion: 0,
+    },
+  },
+};
+const planV2 = planReviewEval(
+  {},
+  set,
+  parseRouteFile(rawRouteV2),
+  claudeRates,
+  reviewPromptHash(),
+  new Date(claudeRates.verifiedAt).valueOf() + 3600_000,
+);
+const ANTHROPIC_KEY = "synthetic-anthropic-key-not-real-0123456789";
+type Target = { plan: typeof plan; apiKey: string };
+const openAiTarget: Target = { plan, apiKey: runtime.apiKey };
+const anthropicTarget: Target = { plan: planV2, apiKey: ANTHROPIC_KEY };
 const byId = (id: string) => set.cases.find((c) => c.id === id)!;
 
 describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
@@ -128,24 +180,33 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     verdicts: Record<string, { 1: string; 2?: string }>,
     maxCostMicros = plan.maxCostMicros,
     diagnose?: (entry: CaseDiagnosis) => void,
+    target: Target = openAiTarget,
   ) {
+    const caseOf = (id: string) => cases.find((c) => c.id === id) ?? byId(id);
     replay.verdicts = new Map(
-      Object.entries(verdicts).map(([id, v]) => [byId(id).body, v]),
+      Object.entries(verdicts).map(([id, v]) => [caseOf(id).body, v]),
     );
     replay.calls = 0;
     replay.seen = { 1: [], 2: [] };
+    replay.copies = { 1: new Map(), 2: new Map() };
+    replay.requests = [];
+    replay.bytes = new Map();
+    replay.routes = [];
+    replay.keys = [];
     return runReviewEval({
       cases,
-      brief: set.brief,
-      route: plan.route,
+      brands: set.brands,
+      route: target.plan.route,
+      provider: target.plan.provider,
+      apiKey: target.apiKey,
       maxCostMicros,
-      runtime,
+      runtime: target.plan.runtime,
       datasetVersion: set.datasetVersion,
       diagnose,
     });
   }
 
-  it("runs the whole set as planned with the recorded answers, metrics only, and deletes the project", async () => {
+  it("runs the whole set as planned with the recorded answers, metrics only, and deletes the projects", async () => {
     replay.maxBytes = 0;
     const report = await run(
       set.cases,
@@ -155,7 +216,9 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     );
     expect(report.stoppedReason).toBeNull();
     expect(report.cleanupError).toBeNull();
-    expect(report.results).toHaveLength(26);
+    expect(report.results).toHaveLength(38);
+    expect(report.provider).toBe("openai");
+    for (const key of replay.keys) expect(key.openai).toBe(runtime.apiKey);
     const outcome = evaluatePassRule(set.cases, report.results, null);
     expect(outcome.rules).toEqual({
       noBadApproved: true,
@@ -171,26 +234,201 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       expect(r.reviewCalls).toBe(r.modelCalled ? 1 : 0);
       expect(r.costMicros).toBe(r.modelCalled ? 3000 : null);
       expect(r.settledMicros).toBe(r.modelCalled ? 3000 : null);
-      expect(r.revised).toBe(false);
+      // Only a figure on the image is revised: once, without the model.
+      expect(r.revised).toBe(r.caseId === "de-bad-image-number-digits");
     }
+    const digits = report.results.find(
+      (r) => r.caseId === "de-bad-image-number-digits",
+    )!;
+    expect(digits).toMatchObject({
+      verdict: "blocked",
+      modelCalled: false,
+      deterministicProblems: ["CREATIVE_UNSUPPORTED_CLAIM"],
+    });
+    // The German creative posts reached the model with their image copy.
+    expect(
+      replay.seen[1].filter((body) =>
+        set.cases.some((c) => c.brand === "de" && c.body === body),
+      ),
+    ).toHaveLength(11);
     expect(replay.calls).toBe(
       set.cases.filter((c) => c.expected.modelSees).length,
     );
     // Every review request of the set stays below the planning bound.
     expect(replay.maxBytes).toBeGreaterThan(0);
     expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+    // No request names a case, its label or its category: the model judges
+    // the post, never the set's answer key (the draft title is the template's).
+    expect(replay.requests).toHaveLength(replay.calls);
+    for (const request of replay.requests) {
+      for (const c of set.cases) expect(request).not.toContain(c.id);
+      expect(request).not.toMatch(/\b(?:good|bad)\b/iu);
+      for (const category of CATEGORIES)
+        expect(request).not.toContain(category);
+      expect(request).not.toContain("eval:");
+    }
     // Metrics only: the model's reasons, the draft bodies and the key never reach the report.
     const written = JSON.stringify(report) + renderReport(report, outcome);
     expect(written).not.toContain("Synthetic reason");
     expect(written).not.toContain(runtime.apiKey);
     for (const c of set.cases) expect(written).not.toContain(c.body);
-    expect(
-      await authDb.workspace.findUnique({ where: { id: report.workspaceId } }),
-    ).toBeNull();
+    // One synthetic project (and workspace) per brand, all deleted.
+    expect(report.workspaceIds).toHaveLength(2);
+    for (const id of report.workspaceIds)
+      expect(await authDb.workspace.findUnique({ where: { id } })).toBeNull();
     expect(
       await authDb.user.count({ where: { name: REVIEW_EVAL_MARKER } }),
     ).toBe(0);
   }, 300_000);
+
+  // The route production uses for FamilyPlan's review: the eval key is stored
+  // as the project's Anthropic key and agent_review resolves to the route file.
+  it("runs the whole set end to end on the production Anthropic route with the recorded answers, without transmission", async () => {
+    expect(planV2.provider).toBe("anthropic");
+    const report = await run(
+      set.cases,
+      Object.fromEntries(
+        set.cases.map((c) => [c.id, { 1: c.recorded.verdict }]),
+      ),
+      planV2.maxCostMicros,
+      undefined,
+      anthropicTarget,
+    );
+    expect(report.stoppedReason).toBeNull();
+    expect(report.cleanupError).toBeNull();
+    expect(report.provider).toBe("anthropic");
+    expect(report.route).toEqual({
+      model: "claude-opus-5-5",
+      reasoningEffort: "medium",
+      maxOutputTokens: 5000,
+    });
+    expect(report.datasetHash).toBe(planV2.hash);
+    expect(report.results).toHaveLength(38);
+    const outcome = evaluatePassRule(set.cases, report.results, null);
+    expect(outcome.rules).toEqual({
+      noBadApproved: true,
+      bareHostNotApproved: true,
+      goodApprovedOrOwner: true,
+      complete: true,
+      asPlanned: true,
+      costsKnown: true,
+    });
+    expect(outcome.pass).toBe(true);
+    for (const r of report.results) {
+      expect(r.asPlanned).toBe(true);
+      expect(r.reviewCalls).toBe(r.modelCalled ? 1 : 0);
+      expect(r.costMicros).toBe(r.modelCalled ? 3000 : null);
+    }
+    expect(replay.calls).toBe(
+      set.cases.filter((c) => c.expected.modelSees).length,
+    );
+    // Every review call went out on the route file's route, with the run's
+    // key as the project's Anthropic key (never the project's OpenAI key).
+    expect(replay.routes).toHaveLength(replay.calls);
+    for (const route of replay.routes) expect(route).toEqual(planV2.route);
+    for (const key of replay.keys) {
+      expect(key.anthropic).toBe(ANTHROPIC_KEY);
+      expect(key.openai).not.toBe(ANTHROPIC_KEY);
+    }
+    expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+    // Metrics only: the key never reaches the report.
+    const written = JSON.stringify(report) + renderReport(report, outcome);
+    expect(written).not.toContain(ANTHROPIC_KEY);
+    expect(written).not.toContain("Synthetic reason");
+    expect(renderReport(report, outcome)).toContain(
+      "Route (agent_review): provider anthropic, model claude-opus-5-5, reasoning medium, max output 5000",
+    );
+    expect(report.workspaceIds).toHaveLength(2);
+    for (const id of report.workspaceIds)
+      expect(await authDb.workspace.findUnique({ where: { id } })).toBeNull();
+    expect(
+      await authDb.user.count({ where: { name: REVIEW_EVAL_MARKER } }),
+    ).toBe(0);
+  }, 300_000);
+
+  it("refuses a route its provider does not serve, a blank key and an unpriced route before any project exists", async () => {
+    const base = {
+      cases: [byId("good-join-now")],
+      brands: set.brands,
+      maxCostMicros: plan.maxCostMicros,
+      datasetVersion: set.datasetVersion,
+    };
+    replay.calls = 0;
+    const before = await authDb.user.count({
+      where: { name: REVIEW_EVAL_MARKER },
+    });
+    // The OpenAI route with the Anthropic key, and the reverse.
+    await expect(
+      runReviewEval({
+        ...base,
+        route: plan.route,
+        provider: "anthropic",
+        apiKey: ANTHROPIC_KEY,
+        runtime: plan.runtime,
+      }),
+    ).rejects.toThrow("EVAL_ROUTE_MISMATCH");
+    await expect(
+      runReviewEval({
+        ...base,
+        route: planV2.route,
+        provider: "openai",
+        apiKey: runtime.apiKey,
+        runtime: planV2.runtime,
+      }),
+    ).rejects.toThrow("EVAL_ROUTE_MISMATCH");
+    await expect(
+      runReviewEval({
+        ...base,
+        route: planV2.route,
+        provider: "anthropic",
+        apiKey: "  ",
+        runtime: planV2.runtime,
+      }),
+    ).rejects.toThrow("EVAL_KEY_REQUIRED");
+    await expect(
+      runReviewEval({
+        ...base,
+        route: planV2.route,
+        provider: "anthropic",
+        apiKey: ANTHROPIC_KEY,
+        runtime: plan.runtime,
+      }),
+    ).rejects.toThrow("EVAL_ROUTE_NOT_CONFIGURED");
+    expect(replay.calls).toBe(0);
+    expect(
+      await authDb.user.count({ where: { name: REVIEW_EVAL_MARKER } }),
+    ).toBe(before);
+  });
+
+  // Bytes, never characters: umlauts take two bytes and emoji four.
+  it("keeps every review request of v3 under the request bound", async () => {
+    const base = byId("de-good-alltag");
+    const cta = "Jetzt ausprobieren.";
+    const filler =
+      "Grüße aus der Küche: Frühstück, Müsli, Äpfel und Brötchen für die Pausenbrote, dazu Übungshefte und Schlüssel. 🍎☕ ";
+    let body = "Wie läuft eure Woche? 🗓️\n\n";
+    while (body.length + filler.length + cta.length + 1 < 2_200) body += filler;
+    body += "ü".repeat(2_200 - body.length - cta.length - 1) + " " + cta;
+    // 2,200 characters as the schema counts them, many more bytes.
+    expect(body.length).toBe(2_200);
+    expect(Buffer.byteLength(body)).toBeGreaterThan(2_400);
+    expect(body).toMatch(/[äöüß]/u);
+    expect(body).toMatch(/\p{Extended_Pictographic}/u);
+    const long = { ...base, id: "de-long-2200", body };
+    replay.maxBytes = 0;
+    const report = await run([long], { [long.id]: { 1: "approve" } });
+    expect(report.stoppedReason).toBeNull();
+    expect(report.results[0]).toMatchObject({
+      verdict: "approve",
+      modelCalled: true,
+      asPlanned: true,
+    });
+    expect(replay.seen[1]).toEqual([body]);
+    // The longest request: instructions, schema, brand, the 2,200-character
+    // body with its image copy, facts and brief.
+    expect(replay.maxBytes).toBeGreaterThan(Buffer.byteLength(body));
+    expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+  }, 120_000);
 
   it("runs the production revision with an unchanged body and lets round 2 decide", async () => {
     const cases = [
@@ -199,6 +437,8 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       "bad-advice-savings",
       "bad-repeat-paraphrase",
       "bad-unbacked-day-one",
+      // A creative case: the revision keeps its image copy and gets a creative of its own.
+      "de-bad-image-holidays",
     ].map(byId);
     const report = await run(cases, {
       "good-reply": { 1: "revise", 2: "approve" },
@@ -208,6 +448,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       "bad-repeat-paraphrase": { 1: "revise", 2: "reject" },
       // A live revise of an unbacked claim: the unchanged revision is rejected in round 2.
       "bad-unbacked-day-one": { 1: "revise", 2: "reject" },
+      "de-bad-image-holidays": { 1: "revise", 2: "reject" },
     });
     expect(report.stoppedReason).toBeNull();
     const result = Object.fromEntries(report.results.map((r) => [r.caseId, r]));
@@ -217,6 +458,14 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     expect(result["bad-advice-savings"]!.verdict).toBe("reject");
     expect(result["bad-repeat-paraphrase"]!.verdict).toBe("reject");
     expect(result["bad-unbacked-day-one"]!.verdict).toBe("reject");
+    expect(result["de-bad-image-holidays"]!.verdict).toBe("reject");
+    // Round 2 saw the creative revision with the same body and the same image
+    // copy. It reached the model at all only because the revision carried a
+    // composed creative of that copy (else CREATIVE_MISSING leaves it for the
+    // owner without a call, and the case is not as planned).
+    const holidays = byId("de-bad-image-holidays");
+    expect(replay.copies[1].get(holidays.body)).toEqual(holidays.creativeCopy);
+    expect(replay.copies[2].get(holidays.body)).toEqual(holidays.creativeCopy);
     for (const r of report.results) {
       expect(r.revised).toBe(true);
       expect(r.reviewCalls).toBe(2);
@@ -225,7 +474,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       expect(r.deterministicProblems).toEqual([]);
       expect(r.asPlanned).toBe(true);
     }
-    expect(replay.calls).toBe(10);
+    expect(replay.calls).toBe(12);
     // Round 2 judged exactly the original texts.
     expect(replay.seen[2].sort()).toEqual(cases.map((c) => c.body).sort());
     const outcome = evaluatePassRule(cases, report.results, null);
@@ -347,6 +596,52 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, 120_000);
+
+  // The ceiling is one budget across the projects of all brands.
+  it("stops the second brand's case when the shared ceiling allows only one review reservation", async () => {
+    const cases = ["good-join-now", "de-good-abholen"].map(byId);
+    const answers = {
+      "good-join-now": { 1: "approve" },
+      "de-good-abholen": { 1: "approve" },
+    };
+    // Calibration with the full ceiling: the exact size of both requests.
+    expect((await run(cases, answers)).stoppedReason).toBeNull();
+    const reservation = (c: ReviewCase) =>
+      estimateCost(
+        plan.route.model,
+        replay.bytes.get(c.body)!,
+        plan.route.maxOutputTokens,
+        { rateCard: plan.runtime.rateCard },
+      );
+    const [en, de] = cases.map(reservation) as [number, number];
+    // Room for the English reservation (and the stubbed drafts' few micros),
+    // not for the German one once the first review is settled at 3,000.
+    const ceiling = en + 1_000;
+    expect(ceiling - 3_000).toBeLessThan(de);
+    const report = await run(cases, answers, ceiling);
+    expect(replay.calls).toBe(1);
+    expect(report.results).toHaveLength(2);
+    expect(report.results[0]).toMatchObject({
+      caseId: "good-join-now",
+      verdict: "approve",
+      modelCalled: true,
+    });
+    expect(report.results[1]).toMatchObject({
+      caseId: "de-good-abholen",
+      verdict: "error",
+      modelCalled: false,
+      errorCode: "AGENT_LIMIT",
+    });
+    expect(report.stoppedReason).toBe("AGENT_LIMIT");
+    expect(report.workspaceIds).toHaveLength(2);
+    const outcome = evaluatePassRule(
+      cases,
+      report.results,
+      report.stoppedReason,
+    );
+    expect(outcome.rules.complete).toBe(false);
+    expect(outcome.pass).toBe(false);
+  }, 180_000);
 
   it("stops at the ceiling before a reservation it cannot afford", async () => {
     const cases = ["good-join-now", "good-invite"].map(byId);

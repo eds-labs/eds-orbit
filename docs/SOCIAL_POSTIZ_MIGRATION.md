@@ -19,6 +19,24 @@ The screen for all of it is **Social → Accounts → Move from Postiz** (owner)
 6. **Switch.** "Switch to Social" sets `publishingBackend: social`; the server refuses it (`PUBLISHING_BACKEND_NOT_READY`) while a channel is unmapped or not available in Social, or Postiz still has something unsettled. Marketing now hands posts to Social at their slot and creates assignment drafts in Social ([SOCIAL.md](SOCIAL.md#marketing-on-social-s9)). Posts approved before the switch fail their package check (`PACKAGE_CHANGED`) and need a new approval; nothing goes out by the old path.
 7. **Watch.** The next three slots: each publication `published` with a Social link, the attention list empty (`SOCIAL_DELIVERY_BLOCKED`, `PUBLISH_OUTCOME_UNKNOWN`, `RECONCILIATION_POLL_LIMIT`). *Evidence:* recorded in `docs/IMPLEMENTATION_STATUS.md`.
 
+## Readiness and the Postiz queue watch per backend
+
+Marketing's readiness (the settings readiness card, Operations, the overview's action list, `project_readiness_get` and `marketing_project_status`) mirrors what preflight checks on the project's backend. Readiness returns `publishing: { backend, postizBacklog }`. `postizBacklog` is the inventory's `blockingSwitch`: publications and drafts Postiz holds unsettled.
+
+| Backend | Readiness blockers | Actions |
+| --- | --- | --- |
+| `postiz` | As before: `PUBLISHER_WRITE_VERIFICATION_REQUIRED`, `CHANNEL_WRITE_VERIFICATION_REQUIRED` and the other Postiz codes. The output is unchanged and pinned by a test. | `publish_*` equal `postiz_*`. |
+| `postiz_draining` | The Postiz checks stay, because Postiz still sends and reconciles what was approved before the drain. `PUBLISHING_BACKEND_DRAINING` is added; over MCP its `details.postizBacklog` gives the backlog. | `postiz_*` and `publish_*` are blocked by `PUBLISHING_BACKEND_DRAINING`, since new work is refused. |
+| `social` | No Postiz code. Social's checks of the policy channels replace them: `SOCIAL_DISABLED`, `SOCIAL_CHANNEL_NOT_MAPPED`, `SOCIAL_ACCOUNT_NOT_ACTIVE`, `SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED`, `SOCIAL_PLATFORM_NOT_AVAILABLE`, `SOCIAL_MEDIA_PUBLIC_REQUIRED`. `POLICY_CHANNELS_REQUIRED` applies when the policy has no channels. | `postiz_*` are `not_configured` (`PUBLISHING_BACKEND_SOCIAL`). `publish_draft` needs the module, an account behind each channel and `ENABLE_POSTIZ_DRAFTS`. `publish_schedule`/`publish_live` need Social's channel checks plus live mode, external writes and readable Drive images. |
+
+The Social codes come from the same check preflight runs (`publishingBlockers`), run without a post. A platform that is switched off and Instagram without public media links are live-mode checks, as in preflight. An account whose posting was not verified counts in test mode as well, as the Postiz write verification always has. On Social, `marketing_project_status` also lists the connected accounts in `availableChannels` as `social:<accountId>`.
+
+**Live autopilot on Social needs the owner's switch.** Before readiness knew the backend, a project with `social:` policy channels could never activate live autopilot: the Postiz write checks always failed. Now that readiness checks Social instead, autopilot through Social is an explicit owner decision per project: the switch "Autopilot through Social" under Settings → Publishing rules (Marketing setting `socialAutopilot`, decided by Mario on 2026-11-10). Saving a policy with `mode: autopilot` while `EXECUTION_MODE=live` is refused with `409 LIVE_ACTIVATION_BLOCKED:AUTOPILOT_ON_SOCIAL_NOT_APPROVED` on `social` without the switch and always on `postiz_draining` (same prefix as the readiness refusal; the save rolls back). With the switch only the readiness blockers remain, as on Postiz. Turning the switch off, or switching the backend, works as an emergency stop: preflight then asks for the approval of each autopilot post's exact package, so pending autopilot publications are blocked at their claim and the autopilot generation job leaves new posts for the owner (`AUTOPILOT_ON_SOCIAL_NOT_APPROVED`). Leaving Social turns the switch off; it is never carried over to another backend. The code is not a readiness blocker, so the readiness card and Operations do not show it to assisted projects as missing configuration. Assisted mode and test mode are unaffected.
+
+**Queue watch.** The read-only Postiz queue check (`postiz-queue`, feeds `/api/health/postiz`) keeps running for `postiz`, for `postiz_draining`, and for `social` while Postiz still holds a backlog. On `social` with no backlog it stops: it calls Postiz no more and the project has no next check time.
+
+**Queue notices.** A stopped check never closed its own notices. That is how the "Orbit cannot read the Postiz queue" notice stayed open and kept counting. Open `POSTIZ_QUEUE_STALLED` and `POSTIZ_QUEUE_CHECK_FAILED` notices are now resolved when the watch stops on Social, and when the owner switches the project to Social. A resolved notice gets `status: resolved`, `resolvedBy`, `resolvedAt` and `resolution: publishing_backend_social`. Each notice writes an entity version and an audit event (`marketing.postiz_queue_notice_resolved` with code, count and reason). Nothing is deleted, other notices (`REMOTE_*` and so on) stay open, and a pass with nothing open writes nothing. After a rollback to Postiz the watch starts again and reopens nothing; a new failure opens a new notice.
+
 ## Rollback (any time after step 6)
 
 "Back to Postiz" sets `publishingBackend: postiz`. Posts approved under Social fail their package check and need a new approval for Postiz; a post already handed to Social stays with Social (its publication keeps reading Social) and is never re-sent through Postiz. Assignments keep their channels (the Postiz integration ids); no change to policies or assignments is needed.
@@ -29,7 +47,7 @@ Rollback of the history mirror is a maintenance step: with the migration role, d
 
 ## Decommissioning Postiz (after all projects switched and 30 days without a Social incident)
 
-1. `ENABLE_POSTIZ_DRAFTS=false`; the Postiz queue watch off; the Postiz connectors and connections disabled (not deleted).
+1. `ENABLE_POSTIZ_DRAFTS=false`; the Postiz connectors and connections disabled (not deleted). The queue watch has already stopped for each project on Social without a backlog. Note: the same switch also gates draft handoffs on Social (`publish_draft`), so turning it off stops those too.
 2. Keep the Postiz code path for one release as rollback.
 3. A separate, approved change removes the Postiz runtime code; the mirror and the inventory script stay.
 4. Shutting the Postiz instance down is an infrastructure step outside this repository.

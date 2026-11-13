@@ -1,9 +1,12 @@
 "use client";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, ApiError, useResource } from "@/lib/api";
 import { Alert, Badge, Button, Empty, Field, FieldGroup, FieldLabel, Input, Modal } from "@/components/ui/primitives";
+import type { Locale } from "@/lib/i18n";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
+import { AppLink } from "@/platform/ui/app-link";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { AppHint, HiddenAppsNote, appsToHide, readHiddenApps, writeHiddenApps, type SocialApp } from "./app-hints";
 import { PostizMigration } from "./legacy";
@@ -18,6 +21,92 @@ const tone = { active: "success", reconnect_required: "warning", disabled: "neut
 
 function codeOf(error: unknown) {
   return error instanceof ApiError ? error.code : "REQUEST_FAILED";
+}
+
+/** The display name, when it says more than the handle (e.g. a Page name). */
+function otherName(account: Pick<SocialAccount, "handle" | "displayName">) {
+  const plain = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
+  return account.displayName && plain(account.displayName) !== plain(account.handle) ? account.displayName : null;
+}
+
+/** An account's handle, name, provider and state: the editor and the read-only list share it. */
+function AccountIdentity({ account, locale }: { account: SocialAccount; locale: Locale }) {
+  const text = socialText(locale);
+  const name = otherName(account);
+  return (
+    <>
+      <strong>{account.handle}</strong>
+      {name && <span className="social-account-name"> · {name}</span>} <span>{text.platform[account.platform]}</span>{" "}
+      <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>
+    </>
+  );
+}
+
+/**
+ * The accounts as a read-only list, for the module page once the settings
+ * center manages them: the same wording as the editor, no control, and one
+ * link to the section where they are connected, checked and disconnected.
+ * `accounts` is null until they are read; `notice` carries a refusal.
+ */
+export function AccountsSummaryView({
+  accounts,
+  locale,
+  manageHref,
+  notice,
+}: {
+  accounts: SocialAccount[] | null;
+  locale: Locale;
+  manageHref: string;
+  notice?: ReactNode;
+}) {
+  const t = socialText(locale).accounts;
+  const live = accounts?.filter((account) => account.status !== "disabled") ?? [];
+  return (
+    <div className="support-page">
+      <PageHead title={t.title} description={t.accountsManaged} />
+      {notice}
+      {accounts &&
+        (live.length ? (
+          <ul className="settings-rows">
+            {live.map((account) => (
+              <li key={account.id} className="work-settings-row">
+                <div>
+                  <AccountIdentity account={account} locale={locale} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Empty title={t.empty} />
+        ))}
+      <p>
+        <AppLink className="text-link" href={manageHref}>
+          {t.manageAccounts}
+        </AppLink>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A disconnected account (WP4): kept for the history of its posts, shown
+ * read-only in the archive, never with an action.
+ */
+function ArchivedAccountRow({ account }: { account: SocialAccount }) {
+  const { locale } = useWorkspace();
+  const text = socialText(locale);
+  return (
+    <li className="work-settings-row">
+      <div>
+        <AccountIdentity account={account} locale={locale} />
+        {account.disabledAt && (
+          <p className="field-hint">
+            {text.accounts.disconnectedOn}: {new Date(account.disabledAt).toLocaleString(locale)}
+          </p>
+        )}
+      </div>
+    </li>
+  );
 }
 
 export function TelegramChannelForm({ onDone }: { onDone: (message: string) => void }) {
@@ -101,8 +190,7 @@ function AccountRow({
   return (
     <li className="work-settings-row">
       <div>
-        <strong>{account.handle}</strong> <span>{text.platform[account.platform]}</span>{" "}
-        <Badge tone={tone[account.status]}>{text.status[account.status]}</Badge>{" "}
+        <AccountIdentity account={account} locale={locale} />{" "}
         {account.capability === "write_verified" && <Badge tone="success">{t.verified}</Badge>}
         <p className="field-hint">
           {t.lastCheck}: {account.lastCheckedAt ? new Date(account.lastCheckedAt).toLocaleString(locale) : t.never}
@@ -216,9 +304,13 @@ function AccountRow({
 
 export function AccountsView() {
   const { project, identity, locale, isOwner, refresh } = useWorkspace();
+  const shell = useShell();
   const t = socialText(locale).accounts;
   const params = useSearchParams();
   const accounts = useResource<SocialAccounts>(socialPath(project.id, "/accounts"));
+  // Disconnected accounts stay for their history (WP4): apart, collapsed.
+  const live = accounts.data?.items.filter((account) => account.status !== "disabled") ?? [];
+  const archived = accounts.data?.items.filter((account) => account.status === "disabled") ?? [];
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [telegram, setTelegram] = useState(false);
   const [disconnecting, setDisconnecting] = useState<SocialAccount | null>(null);
@@ -244,7 +336,7 @@ export function AccountsView() {
     writeHiddenApps(project.id, next);
   };
   const settingsHref = identity.workspaces.find((w) => w.id === project.workspaceId)?.canManage
-    ? `/o/${encodeURIComponent(project.workspaceId)}/settings`
+    ? shell.organizationSettingsHref(project.workspaceId)
     : null;
   const connected = params.get("connected");
   const failed = params.get("error");
@@ -319,9 +411,9 @@ export function AccountsView() {
       )}
       <ResourceError error={accounts.error} retry={accounts.refresh} />
       {accounts.data &&
-        (accounts.data.items.length ? (
+        (live.length ? (
           <ul className="settings-rows">
-            {accounts.data.items.map((account) => (
+            {live.map((account) => (
               <AccountRow
                 key={account.id}
                 account={account}
@@ -337,6 +429,17 @@ export function AccountsView() {
         ) : (
           <Empty title={t.empty} />
         ))}
+      {archived.length > 0 && (
+        <details className="social-archived-accounts">
+          <summary>{t.archivedTitle(archived.length)}</summary>
+          <p className="field-hint">{t.archivedHint}</p>
+          <ul className="settings-rows">
+            {archived.map((account) => (
+              <ArchivedAccountRow key={account.id} account={account} />
+            ))}
+          </ul>
+        </details>
+      )}
       <PostizMigration />
       {disconnecting && (
         <Modal title={t.confirmTitle(disconnecting.handle)} description={t.confirmBody} onClose={() => setDisconnecting(null)}>

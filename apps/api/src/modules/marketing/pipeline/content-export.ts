@@ -5,16 +5,24 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, DomainError, entity } from "../../../shared.ts";
 import { assetBytes } from "../../assets.ts";
 import { driveContent } from "../../../platform/connections/google-drive.ts";
+import { assertAssetPublishable } from "../brand/ai-labels.ts";
 
 /**
  * Resolve the approved PNG attached to exported content. Drive-imported assets
  * keep no inline bytes, so they are read from Drive with the recorded checksum,
  * as the asset preview does.
+ *
+ * `options.publish` names an outbound path (Postiz, the Social handoff, the
+ * content bundle): the exact bytes then pass the AI label gate (ADR 0028 §4)
+ * in their own project transaction, and an AI image without a valid label
+ * throws 409 AI_LABEL_MISSING / AI_LABEL_INVALID. Owner-internal previews
+ * read without it and must never publish what they read.
  */
 export async function exportAssetContent(
   scope: Scope,
   asset: Record<string, any> | null,
   readDrive: typeof driveContent = driveContent,
+  options: { publish?: string } = {},
 ) {
   if (!asset || asset.usageApproved !== true || asset.mime !== "image/png")
     return null;
@@ -25,10 +33,11 @@ export async function exportAssetContent(
           modifiedTime: asset.driveModifiedTime,
         })
       : assetBytes(asset);
+  if (content.mime !== "image/png") return null;
+  if (options.publish)
+    await assertAssetPublishable(scope, asset, content.bytes, options.publish);
   // Bytes and type only, whatever else the Drive read returns.
-  return content.mime === "image/png"
-    ? { bytes: content.bytes, mime: content.mime }
-    : null;
+  return { bytes: content.bytes, mime: content.mime };
 }
 
 /**
@@ -64,7 +73,9 @@ export async function exportContentBundle(
   const { c, evidence, asset } = loaded,
     v = data(c),
     a = asset ? data(asset) : null;
-  const assetContent = await exportAssetContent(scope, a);
+  const assetContent = await exportAssetContent(scope, a, undefined, {
+    publish: "marketing.content_export",
+  });
   const article = exportBlogArticle({
     title: v.title,
     slug:

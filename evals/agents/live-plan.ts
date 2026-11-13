@@ -1,16 +1,20 @@
 /**
  * Planning, gating and the pass rule of the manual live review eval
  * (rollout Approval J). Pure functions: nothing here reads a database, calls
- * a provider or prints a secret. The gates and the rate card are the
- * generation eval's (`evals/generation/live-plan.ts`).
+ * a provider or prints a secret. The rate card rules and the ceiling are the
+ * generation eval's (`evals/generation/live-plan.ts`); the key gate is
+ * `eval-key.ts`.
  */
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   estimateCost,
   modelRouteSchema,
+  providerIdSchema,
+  providerOfModel,
   type ModelRoute,
   type OpenAiRuntimeConfig,
+  type ProviderId,
 } from "../../packages/ai/src/index.ts";
 import { canonical } from "../generation/harness.ts";
 import {
@@ -20,33 +24,59 @@ import {
   type LiveEnv,
 } from "../generation/live-plan.ts";
 import {
+  caseBrand,
   isBareHost,
-  type ReviewBrief,
+  type ReviewBrands,
   type ReviewCase,
   type ReviewSet,
 } from "./review-set.ts";
 
 // Hard ceiling of this eval; ORBIT_EVAL_MAX_USD can only lower it. It covers
-// the worst case of two review calls (round 1 and round 2) for every case.
-export const REVIEW_CEILING_USD = 2;
+// the worst case of two review calls (round 1 and round 2) for every case of
+// review-v3 (the worst case of review-v2 alone was $1.98 at 8,000 bytes).
+export const REVIEW_CEILING_USD = 3;
 // Hard ceiling of the diagnostic mode (ORBIT_EVAL_DIAGNOSE=good).
 export const DIAGNOSTIC_CEILING_USD = 0.5;
 // Review calls per case at most: round 1 and, after a `revise`, round 2.
 const CALLS_PER_CASE = 2;
-// Upper bound of one review request (base and review instructions, output
-// schema, assignment, brand, one draft with facts and brief, up to five
-// channel posts of 240 characters). Measured at about 3,800 bytes for this
-// set (live-harness.test.ts checks the bound); a planning bound only, because
+// Upper bound of one review request in bytes, never characters (base and
+// review instructions, output schema, assignment, brand, one draft of up to
+// 2,200 characters with its image copy, core message, hook, facts and brief,
+// up to five channel posts of 240 characters). German umlauts take two bytes
+// and emoji four; live-harness.test.ts checks every request of the set and a
+// 2,200-character German body against it. A planning bound only, because
 // each reservation uses the exact size.
-export const REVIEW_REQUEST_BYTES = 8_000;
+export const REVIEW_REQUEST_BYTES = 16_000;
+// The stubbed embeddings (retrieval, and the similarity check of a revision)
+// send nothing, but their reservation is still priced: a rate card without
+// this model would stop the run at the first revision, after paid review calls.
+const EMBEDDING_MODEL = "text-embedding-3-small";
 
-const routeFileSchema = z
-  .object({
-    description: z.string().min(1),
-    taskClass: z.literal("agent_review"),
-    route: modelRouteSchema,
-  })
-  .strict();
+/**
+ * The route file of a live eval for `taskClass`: `provider` names who serves
+ * the route (absent: OpenAI, as in review-route-v1.json); it must be the
+ * provider of the route's model, the one production derives from it
+ * (`providerOfModel`). The vision eval reuses it for `creative_review`.
+ */
+export function routeFileSchemaFor<T extends string>(taskClass: T) {
+  return z
+    .object({
+      description: z.string().min(1),
+      taskClass: z.literal(taskClass),
+      provider: providerIdSchema.default("openai"),
+      route: modelRouteSchema,
+    })
+    .strict()
+    .superRefine((file, context) => {
+      if (providerOfModel(file.route.model) !== file.provider)
+        context.addIssue({
+          code: "custom",
+          message: "EVAL_ROUTE_PROVIDER_MISMATCH",
+          path: ["provider"],
+        });
+    });
+}
+const routeFileSchema = routeFileSchemaFor("agent_review");
 export type RouteFile = z.infer<typeof routeFileSchema>;
 
 export function parseRouteFile(raw: unknown): RouteFile {
@@ -77,34 +107,44 @@ export type ReviewPlan = {
   good: number;
   bad: number;
   bareHost: number;
+  // The cases per synthetic brand (one project each), and those with image copy.
+  brands: Array<{ brand: string; cases: number; creative: number }>;
   // At most two review calls per case: round 1 and, after a `revise`, round 2.
   calls: number;
   // Cases the set expects the model to see (the others are decided by the deterministic checks).
   expectedModelCalls: number;
+  // Who serves the route; the run's key is stored for this provider.
+  provider: ProviderId;
   route: ModelRoute;
   // Reservation estimate of one review call at its full output limit.
   perCallMicros: number;
   worstCaseMicros: number;
   maxCostMicros: number;
-  // Hash of the cases, the route and the ceiling (also in the report).
+  // Hash of the cases, the provider, the route and the ceiling (also in the report).
   hash: string;
   // Hash of the review instructions and output schema the run sends (code-version.ts).
   promptHash: string;
   // Value for ORBIT_EVAL_CONFIRM: binds the hash, the complete rate card with
-  // its verification date, the route, the prompt hash and the ceiling; in
-  // diagnostic mode also the mode and the case ids.
+  // its verification date, the provider, the route, the prompt hash and the
+  // ceiling; in diagnostic mode also the mode and the case ids.
   confirmation: string;
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
 };
 
+/** Hash of the cases, the provider, the route, the ceiling and every brand (profile, facts, assignment, brief). */
 export function reviewDatasetHash(
   cases: ReviewCase[],
   route: ModelRoute,
   maxCostMicros: number,
-  brief: ReviewBrief,
+  brands: ReviewBrands,
+  provider: ProviderId,
 ) {
   return createHash("sha256")
-    .update(JSON.stringify(canonical({ cases, route, maxCostMicros, brief })))
+    .update(
+      JSON.stringify(
+        canonical({ cases, provider, route, maxCostMicros, brands }),
+      ),
+    )
     .digest("hex");
 }
 
@@ -119,9 +159,11 @@ export function planReviewEval(
   if (!/^[0-9a-f]{64}$/.test(promptHash))
     throw new Error("EVAL_PROMPT_HASH_INVALID");
   const rateCard = evalRateCard(rates, now);
-  const { route } = routeFile;
-  // Prices are never invented: an unpriced route is refused.
+  const { route, provider } = routeFile;
+  // Prices are never invented: an unpriced route is refused, and so is a card
+  // without the embedding price, before any transmission.
   if (!rateCard[route.model]) throw new Error("EVAL_ROUTE_NOT_PRICED");
+  if (!rateCard[EMBEDDING_MODEL]) throw new Error("EVAL_EMBEDDING_NOT_PRICED");
   const diagnose = diagnoseMode(env);
   const mode: ReviewMode = diagnose ? "diagnose-good" : "normal";
   const cases = diagnose
@@ -137,7 +179,13 @@ export function planReviewEval(
     route.maxOutputTokens,
     { rateCard },
   );
-  const hash = reviewDatasetHash(cases, route, maxCostMicros, set.brief);
+  const hash = reviewDatasetHash(
+    cases,
+    route,
+    maxCostMicros,
+    set.brands,
+    provider,
+  );
   return {
     mode,
     cases,
@@ -146,8 +194,19 @@ export function planReviewEval(
     good: cases.filter((c) => c.label === "good").length,
     bad: cases.filter((c) => c.label === "bad" && !isBareHost(c)).length,
     bareHost: cases.filter(isBareHost).length,
+    brands: Object.keys(set.brands)
+      .map((brand) => {
+        const own = cases.filter((c) => caseBrand(set, c) === brand);
+        return {
+          brand,
+          cases: own.length,
+          creative: own.filter((c) => c.creativeCopy !== undefined).length,
+        };
+      })
+      .filter((entry) => entry.cases > 0),
     calls: cases.length * CALLS_PER_CASE,
     expectedModelCalls: cases.filter((c) => c.expected.modelSees).length,
+    provider,
     route,
     perCallMicros,
     worstCaseMicros: perCallMicros * cases.length * CALLS_PER_CASE,
@@ -161,12 +220,13 @@ export function planReviewEval(
             datasetHash: hash,
             rateCard,
             verifiedAt: rates.verifiedAt,
+            provider,
             route,
             promptHash,
             maxCostMicros,
-            // The normal confirmation keeps its earlier shape; a diagnostic
-            // one also binds the mode and the case subset, so neither can
-            // start the other run.
+            // The confirmation binds the provider and route as well; a
+            // diagnostic one also binds the mode and the case subset, so
+            // neither can start the other run.
             ...(diagnose ? { mode, caseIds: cases.map((c) => c.id) } : {}),
           }),
         ),
@@ -191,10 +251,11 @@ export function renderPlan(plan: ReviewPlan): string {
       : []),
     `  dataset version: ${plan.datasetVersion}`,
     `  cases: ${plan.caseCount} (${plan.good} good, ${plan.bad} bad, ${plan.bareHost} bare host)`,
-    `  route (agent_review): ${route.model}, reasoning ${route.reasoningEffort ?? "default"}, max output ${route.maxOutputTokens}`,
+    `  brands: ${plan.brands.map((b) => `${b.brand} ${b.cases} cases (${b.creative} with image copy)`).join(", ")}; one synthetic project per brand, a creative composed from offline fixtures for every case with image copy (no image provider, vision review off)`,
+    `  route (agent_review): provider ${plan.provider}, model ${route.model}, reasoning ${route.reasoningEffort ?? "default"}, max output ${route.maxOutputTokens}`,
     "  verify in Orbit Settings that this equals production's agent_review route (or the quality tier if none is saved); a later route or tier change invalidates a PASS",
     `  ${plan.calls} review calls at most (two per case: round 1, and round 2 after a \`revise\`); ${plan.expectedModelCalls} cases are expected to reach the model, the other ${plan.caseCount - plan.expectedModelCalls} to be decided by the deterministic checks without a call`,
-    "  a round-1 `revise` runs the production revision with a worst-case copywriter stub (the revised draft keeps the body unchanged; nothing is sent for it) and the round-2 review decides the case",
+    "  a round-1 `revise` runs the production revision with a worst-case copywriter stub (the revised draft keeps the body and image copy unchanged; nothing is sent for it) and the round-2 review decides the case",
     `  worst-case estimate: ${usd(plan.worstCaseMicros)} (${plan.worstCaseMicros} micros; ${plan.calls} calls at ${plan.perCallMicros} micros, each at its full output limit)`,
     `  cost ceiling: ${usd(plan.maxCostMicros)} (${plan.maxCostMicros} micros; the run stops when a reservation is refused)`,
     ...(plan.worstCaseMicros > plan.maxCostMicros
@@ -267,8 +328,10 @@ export function casePasses(c: Pick<CaseResult, "label" | "verdict">): boolean {
 
 /**
  * Whether a case ran as the set plans it: the model saw it exactly when the
- * set expects that, a revised case was judged by the model again in round 2,
- * and every expected deterministic code was recorded.
+ * set expects that, a revised case the model sees was judged by the model
+ * again in round 2 (one it never sees, such as a figure on the image, was
+ * revised and judged again by the deterministic checks alone), and every
+ * expected deterministic code was recorded.
  */
 export function caseAsPlanned(
   c: Pick<ReviewCase, "expected">,
@@ -277,7 +340,7 @@ export function caseAsPlanned(
 ): boolean {
   return (
     r.modelCalled === c.expected.modelSees &&
-    (!r.revised || r.reviewCalls === 2) &&
+    (!r.revised || r.reviewCalls === (c.expected.modelSees ? 2 : 0)) &&
     c.expected.deterministic.every((code) =>
       r.deterministicProblems.includes(code),
     )
@@ -347,8 +410,9 @@ export type ReviewReport = {
   datasetVersion: string;
   datasetHash: string;
   startedAt: string;
-  // Deleted synthetic workspace; lets callers verify the cleanup.
-  workspaceId: string;
+  // Deleted synthetic workspaces, one per brand; let callers verify the cleanup.
+  workspaceIds: string[];
+  provider: ProviderId;
   route: ModelRoute;
   // Why the eval stopped before all cases; null when complete.
   stoppedReason: string | null;
@@ -424,7 +488,7 @@ export function renderReport(
     "",
     `- Dataset: ${report.datasetVersion}`,
     `- Dataset hash: \`${report.datasetHash}\``,
-    `- Route (agent_review): ${report.route.model}, reasoning ${report.route.reasoningEffort ?? "default"}, max output ${report.route.maxOutputTokens}`,
+    `- Route (agent_review): provider ${report.provider}, model ${report.route.model}, reasoning ${report.route.reasoningEffort ?? "default"}, max output ${report.route.maxOutputTokens}`,
     `- Started: ${report.startedAt}`,
     `- Stopped early: ${report.stoppedReason ?? "no"}`,
     ...(report.cleanupError

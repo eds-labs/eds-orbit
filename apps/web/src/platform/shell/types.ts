@@ -57,7 +57,12 @@ export type ViewDef = {
    * the pathname itself. Not for a root view (path "").
    */
   subpaths?: true;
-  component: ComponentType;
+  /**
+   * Missing for a redirect-only entry: an old address the route table still
+   * recognises and the redirect sends to the settings center; the shell
+   * renders no page for it.
+   */
+  component?: ComponentType;
   nav?: NavEntry;
   /** Server-advertised feature may replace or hide navigation without losing the route. */
   alternateNav?: { feature: string; nav: NavEntry | null };
@@ -91,7 +96,8 @@ export type StandaloneView = {
   key: string;
   /** Path below the site root, without a leading slash: "connect/login". */
   path: string;
-  component: ComponentType;
+  /** Missing for a redirect-only entry (see ViewDef.component). */
+  component?: ComponentType;
   title: Label;
   /**
    * "required" shows the sign-in first when there is no session; "none" opens
@@ -121,6 +127,14 @@ export type SettingsSection = {
   /** Position among the modules' sections of the tab. */
   order: number;
   /**
+   * What this section is for: the settings center shows it as the page
+   * head's explanation and searches it. Without one, the center falls back
+   * to the module's description. The old settings page does not use it.
+   */
+  description?: Label;
+  /** Extra search words of the settings center. */
+  keywords?: Label;
+  /**
    * A hook, called on every render of the settings page in registry order:
    * the content, or null while the section is hidden. `label` overrides the
    * tab's label; `notice` shows above every tab (e.g. a load error).
@@ -130,6 +144,44 @@ export type SettingsSection = {
     label?: Label;
     notice?: ReactNode;
   } | null;
+};
+
+/**
+ * An AI spending ceiling a module keeps in its own settings. The settings
+ * center lists it read-only and links to the section that edits it.
+ */
+export type AiCeiling = {
+  /** Unique within the module. */
+  key: string;
+  label: Label;
+  /** The settings-center section that edits it, below the project's modules area ("finance/ai"). */
+  section: string;
+  /**
+   * Called on every render in registry order (a hook): the ceiling, or null
+   * while loading or when the module's settings cannot be read.
+   */
+  useCeiling(): { micros: number; period: "day" | "month"; on?: boolean } | null;
+};
+
+/**
+ * A section a module adds to the Integrations area of the project scope of
+ * the settings center (ADR 0027). Its address is
+ * /manage/p/:projectId/integrations/<module id>/<id>; it is shown only while
+ * the module is shown for the project.
+ */
+export type IntegrationContribution = {
+  /** Section id segment, /^[a-z][a-z0-9-]*$/. */
+  id: string;
+  label: Label;
+  description: Label;
+  order: number;
+  /** Catalog ids this section manages; their cards link here. */
+  providers?: readonly string[];
+  /** The component renders its own PageHead. */
+  ownHead?: true;
+  /** Shown only while the installation advertises this feature (as nav.feature). */
+  feature?: string;
+  component: ComponentType;
 };
 
 /** A connection provider a module manages on the connectors page (WP2.3b). */
@@ -206,6 +258,10 @@ export type WebModule = {
   attention?: Readonly<Record<string, AttentionRenderer>>;
   /** Sections of the project settings (WP2.3b). */
   settings?: readonly SettingsSection[];
+  /** Sections of the settings center's Integrations area (ADR 0027). */
+  integrations?: readonly IntegrationContribution[];
+  /** AI ceilings of the module's settings, listed by the settings center. */
+  aiCeilings?: readonly AiCeiling[];
   /** Setup links of the settings overview, before the platform's own. */
   setupLinks?: readonly ComponentType[];
   /** Providers and extra cards of the connectors page (WP2.3b). */

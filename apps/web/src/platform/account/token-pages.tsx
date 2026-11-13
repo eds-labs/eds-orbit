@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { post, useMutation } from "@/lib/api";
@@ -283,7 +284,7 @@ export function ConfirmEmailView() {
         <Alert kind="error">{errorText("INVALID_TOKEN", locale)}</Alert>
       )}
       <p>
-        <Link href="/account">{de ? "Zum Konto" : "To your account"}</Link>
+        <Link href={manageHref({ kind: "account" }, "profile")}>{de ? "Zum Konto" : "To your account"}</Link>
       </p>
     </div>
   );

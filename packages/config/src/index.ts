@@ -95,11 +95,19 @@ const baseConfigSchema = z.object({
   // The review agent's approval stands in for the owner's only when "true"; set after the review
   // eval passed (Approval J). While "false", assignment posts wait for the owner.
   ORBIT_AGENT_REVIEW_AUTHORITY: z.enum(["false", "true"]).default("false"),
+  // Lets an accepted agent review stand in for a post with a creative, only while
+  // ORBIT_AGENT_REVIEW_AUTHORITY is also "true" and the vision review passed the exact rendition.
+  ORBIT_AGENT_REVIEW_CREATIVES: z.enum(["false", "true"]).default("false"),
   // Marketing Creative Studio: composed creatives (art, headline, approved logo)
   // per channel format. While "false" there is no creative route, tool or UI,
   // and prompts and tool schemas are those from before it (docs/
   // MARKETING_CREATIVE_STUDIO.md names the one intended MCP fix).
   ORBIT_CREATIVE_STUDIO: z.enum(["false", "true"]).default("false"),
+  // AI image labelling (ADR 0028): new AI marketing images get the visible
+  // "KI erstellt" label and a central provenance record, and every publish
+  // and export path blocks an AI image without a valid label. While "false"
+  // nothing is labelled, recorded or gated.
+  ORBIT_AI_IMAGE_LABELS: z.enum(["false", "true"]).default("false"),
   // Agent mandates (ADR 0019): an owner may let the assistant or MCP clients
   // run one internal action type within limits without a per-request
   // approval. While "false" every stored mandate is inert and every request
@@ -198,6 +206,18 @@ const baseConfigSchema = z.object({
   // Finance module: off until its rollout is approved. Even when "true",
   // finance works only in projects whose owner enabled the module.
   ORBIT_FINANCE: z.enum(["false", "true"]).default("false"),
+  // Webmail module (ADR 0026): off until its rollout is approved. Even when
+  // "true", it works only in projects whose owner enabled the module, and a
+  // member sees only the mailboxes granted to them.
+  ORBIT_WEBMAIL: z.enum(["false", "true"]).default("false"),
+  // Public origin of the separately hosted webmail client, a sibling of
+  // APP_ORIGIN and never the same origin (ADR 0026, E1); required with
+  // ORBIT_WEBMAIL.
+  WEBMAIL_ORIGIN: z.string().default(""),
+  // Shared secret of the internal webmail bridge; required with ORBIT_WEBMAIL.
+  WEBMAIL_BRIDGE_SECRET: z.string().default(""),
+  // Port of the internal webmail bridge (apps/api/src/webmail-bridge-main.ts).
+  WEBMAIL_BRIDGE_PORT: z.coerce.number().int().min(1).max(65535).default(4313),
   // Project management module (ADR 0016): off until its rollout is approved.
   // Even when "true", it works only in projects whose owner enabled it.
   ORBIT_WORK: z.enum(["false", "true"]).default("false"),

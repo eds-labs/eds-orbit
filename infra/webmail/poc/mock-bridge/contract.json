@@ -1,0 +1,82 @@
+{
+  "transport": {
+    "method": "POST",
+    "contentType": "application/json",
+    "authorization": "Bearer <WEBMAIL_BRIDGE_SECRET>",
+    "clientTimeoutSeconds": 5,
+    "failureSemantics": "Any non-200 status, transport error or undecodable body is treated as a refusal by the plugin."
+  },
+  "types": {
+    "serverTarget": {
+      "host": "IP address already checked by the bridge",
+      "tlsPeerName": "Host name verified against the server certificate",
+      "port": "integer",
+      "tlsMode": "ssl | tls (STARTTLS) | none",
+      "user": "real mailbox login",
+      "password": "real mailbox password; only ever in this response"
+    },
+    "selection": [
+      { "type": "uids", "uids": ["strings, exactly as Roundcube parsed them: 12, 12:40"] },
+      { "type": "all" }
+    ]
+  },
+  "endpoints": {
+    "/v1/handoff/consume": {
+      "request": { "token": "one-time token", "origin": "Origin header the plugin already matched against the Orbit origin" },
+      "200": { "ok": true, "handle": "opaque session handle", "user": "mb-<id>@orbit.invalid" },
+      "403": { "ok": false, "error": "origin_mismatch" },
+      "410": { "ok": false, "error": "token_invalid | token_consumed | token_expired" },
+      "notes": "Atomic. The token is not consumed when the plugin rejects the Origin, because the bridge is not called."
+    },
+    "/v1/session/authorize": {
+      "request": { "handle": "session handle", "task": "Roundcube task, audit only", "action": "Roundcube action, audit only" },
+      "200": {
+        "ok": true,
+        "capabilities": ["read", "send", "organize", "convert"],
+        "projectId": "project of the mailbox; for the convert link of a page that is not embedded",
+        "email": "mailbox address, used for the identity and the From check",
+        "displayName": "mailbox display name",
+        "imap": "serverTarget",
+        "smtp": "serverTarget"
+      },
+      "401": { "ok": false, "error": "session_unknown | session_revoked | session_expired" },
+      "403": { "ok": false, "error": "not_authorized" },
+      "503": { "ok": false, "error": "mailbox_unavailable" },
+      "notes": "Called once per PHP request and memoized for the action check, IMAP and SMTP. The plugin reads the error code from the body whatever the non-200 status."
+    },
+    "/v1/session/barrier": {
+      "request": {
+        "handle": "session handle",
+        "operation": "move | delete | mark_deleted | expunge | purge",
+        "folder": "INBOX",
+        "selection": "selection"
+      },
+      "200": [
+        { "status": "ok" },
+        { "status": "retry", "reason": "machine readable reason" }
+      ],
+      "notes": "Only status ok lets the action run. Selection type all is a superset when a search narrows _uid=*."
+    },
+    "/v1/session/end": {
+      "request": { "handle": "session handle", "reason": "logout | session_destroy" },
+      "200": { "ok": true }
+    }
+  },
+  "browserToWebmail": {
+    "handoff": "POST https://<webmail-host>/ with form fields _task=login, _action=login, _orbit_handoff=<token>; the Origin header must equal the Orbit origin"
+  },
+  "webmailToParent": {
+    "convert": { "type": "orbit.webmail.convert", "mailboxId": "the id from the opaque user mb-<id>@orbit.invalid", "folder": "IMAP folder name", "uid": "integer", "uidValidity": "integer" },
+    "ready": {
+      "type": "orbit.webmail.ready",
+      "notes": "Sent whenever a top-level Roundcube page of a live session finished rendering, so more than once per session."
+    },
+    "convertWhenNotEmbedded": "<orbit origin>/p/<projectId>/webmail?mailbox=<mailboxId>&convert=1&folder=<folder>&uid=<uid>&uidValidity=<uidValidity>, opened as a link instead of a message, every value URL-encoded",
+    "sessionLost": {
+      "type": "orbit.webmail.session_lost",
+      "reason": "session_unknown | session_revoked | session_expired | not_authorized | mailbox_unavailable | bridge_unavailable | no_session | handoff_failed",
+      "notes": "mailbox_unavailable and bridge_unavailable leave the Roundcube session intact and are only sent when a full page could not be shown; everything else ended the session. Roundcube's background polling never sends a temporary reason."
+    },
+    "targetOrigin": "the configured Orbit origin, never *"
+  }
+}

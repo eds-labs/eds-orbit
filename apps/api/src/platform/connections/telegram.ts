@@ -162,6 +162,17 @@ async function activeConnections(tx: DbTx, scope: Scope) {
 /** Owner-only status: no token, secret or code, ever. */
 export async function telegramStatus(tx: DbTx, scope: Scope) {
   owner(scope);
+  return telegramIntegrationSource(tx, scope);
+}
+
+/**
+ * The same status without the owner check, for the Integrations Center;
+ * the caller decides who sees it.
+ */
+export async function telegramIntegrationSource(
+  tx: DbTx,
+  scope: Scope,
+): Promise<{ status: TelegramStatus; linkedAt: string | null }> {
   const newest = await tx.entity.findFirst({
     where: {
       workspaceId: scope.workspaceId,

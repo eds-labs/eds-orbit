@@ -1,0 +1,52 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Orbit parent stand-in</title>
+<style>iframe { width: 1280px; height: 760px; border: 0; } body { margin: 0; }</style>
+<!-- Stand-in for the Orbit web app. Query: ?token=<one time token>&target=login|echo&evil=1 -->
+<iframe id="webmail" name="webmail"
+    sandbox="allow-same-origin allow-scripts allow-forms allow-downloads allow-popups"></iframe>
+<form id="handoff" method="post" target="webmail">
+    <input type="hidden" name="_orbit_handoff">
+    <input type="hidden" name="_task" value="login">
+    <input type="hidden" name="_action" value="login">
+</form>
+<script>
+    const WEBMAIL_ORIGIN = `https://webmail.${location.host}`;
+    const params = new URLSearchParams(location.search);
+    const form = document.getElementById('handoff');
+    const iframe = document.getElementById('webmail');
+
+    window.received = [];
+    window.lost = [];
+    window.ready = [];
+    window.ignored = [];
+
+    window.addEventListener('message', (event) => {
+        const isFromWebmail = event.origin === WEBMAIL_ORIGIN && event.source === iframe.contentWindow;
+        if (isFromWebmail && event.data?.type === 'orbit.webmail.convert') {
+            window.received.push(event.data);
+        } else if (isFromWebmail && event.data?.type === 'orbit.webmail.session_lost') {
+            window.lost.push(event.data);
+        } else if (isFromWebmail && event.data?.type === 'orbit.webmail.ready') {
+            window.ready.push(event.data);
+        } else {
+            window.ignored.push({ origin: event.origin, type: event.data?.type });
+        }
+    });
+
+    form.action = params.get('target') === 'echo'
+        ? `${WEBMAIL_ORIGIN}/__poc/echo`
+        : `${WEBMAIL_ORIGIN}/`;
+    form.elements._orbit_handoff.value = params.get('token') ?? '';
+
+    if (params.has('evil')) {
+        const evil = document.createElement('iframe');
+        evil.id = 'evil';
+        evil.src = `https://evil.${location.host}/evil.html`;
+        document.body.append(evil);
+    }
+
+    if (params.has('token')) {
+        form.submit();
+    }
+</script>

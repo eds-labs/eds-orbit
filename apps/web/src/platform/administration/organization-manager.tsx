@@ -151,12 +151,40 @@ export function OneTimeLink({
 
 const roles = ["none", "viewer", "editor", "owner"] as const;
 
+/** A change to who may do what in an organization. */
+export type MembershipChange = {
+  kind: "organizationRole" | "projectRole" | "invitation" | "removal";
+};
+
+/**
+ * Whether a change can hand someone access to project content. A system
+ * administrator confirms these before sending (D-8); taking access away
+ * needs no extra step.
+ */
+export function grantsAccess(change: MembershipChange): boolean {
+  return change.kind !== "removal";
+}
+
+/** Whether a change waits for the D-8 confirmation before it is sent. */
+export function needsAdministratorConfirmation(
+  asAdministrator: boolean,
+  change: MembershipChange,
+): boolean {
+  return asAdministrator && grantsAccess(change);
+}
+
 export function OrganizationManager({
   organizationId,
   locale,
+  asAdministrator = false,
 }: {
   organizationId: string;
   locale: Locale;
+  /**
+   * Shown to a system administrator who need not belong to the
+   * organization: every change that grants access asks first (D-8).
+   */
+  asAdministrator?: boolean;
 }) {
   const de = locale === "de";
   const base = `/organizations/${encodeURIComponent(organizationId)}`;
@@ -176,6 +204,15 @@ export function OrganizationManager({
     projectId: string;
     userId: string;
   } | null>(null);
+  // The change waiting for the administrator's confirmation; cancel drops it.
+  const [confirming, setConfirming] = useState<{
+    send: () => void;
+  } | null>(null);
+  const gate = (kind: MembershipChange["kind"], send: () => void) => {
+    if (needsAdministratorConfirmation(asAdministrator, { kind }))
+      setConfirming({ send });
+    else send();
+  };
   if (detail.loading && !detail.data)
     return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!detail.data)
@@ -189,10 +226,12 @@ export function OrganizationManager({
       .find((p) => p.id === projectId)
       ?.members.find((m) => m.userId === userId);
   const setProjectRole = (projectId: string, userId: string, role: string) =>
-    change.run(() =>
-      role === "none"
-        ? remove(`${base}/projects/${projectId}/members/${userId}`)
-        : put(`${base}/projects/${projectId}/members/${userId}`, { role }),
+    gate(role === "none" ? "removal" : "projectRole", () =>
+      void change.run(() =>
+        role === "none"
+          ? remove(`${base}/projects/${projectId}/members/${userId}`)
+          : put(`${base}/projects/${projectId}/members/${userId}`, { role }),
+      ),
     );
   const showLink = (result: InvitationResult | undefined) => {
     if (result?.delivery === "link" && result.link) setLink(result.link);
@@ -258,13 +297,14 @@ export function OrganizationManager({
                       aria-label={`${de ? "Organisationsrolle von" : "Organization role of"} ${m.name}`}
                       value={m.role}
                       disabled={change.pending}
-                      onChange={(e) =>
-                        change.run(() =>
-                          put(`${base}/members/${m.id}`, {
-                            role: e.target.value,
-                          }),
-                        )
-                      }
+                      onChange={(e) => {
+                        const role = e.target.value;
+                        gate("organizationRole", () =>
+                          void change.run(() =>
+                            put(`${base}/members/${m.id}`, { role }),
+                          ),
+                        );
+                      }}
                     >
                       <option value="owner">{orgRoleLabel("owner", locale)}</option>
                       <option value="member">
@@ -381,6 +421,11 @@ export function OrganizationManager({
           base={base}
           projects={d.projects}
           locale={locale}
+          confirm={
+            asAdministrator
+              ? (send) => gate("invitation", send)
+              : undefined
+          }
           onClose={() => setInviting(false)}
           onDone={(result) => {
             setInviting(false);
@@ -422,20 +467,51 @@ export function OrganizationManager({
           current={editing.moduleRoles}
           locale={locale}
           onClose={() => setModuleCell(null)}
-          onSave={async (moduleRoles) => {
-            const done = await change.run(() =>
-              put(
-                `${base}/projects/${moduleCell.projectId}/members/${moduleCell.userId}`,
-                { role: editing.role, moduleRoles },
-              ),
-            );
-            if (done !== undefined) setModuleCell(null);
-          }}
+          onSave={(moduleRoles) =>
+            gate("projectRole", async () => {
+              const done = await change.run(() =>
+                put(
+                  `${base}/projects/${moduleCell.projectId}/members/${moduleCell.userId}`,
+                  { role: editing.role, moduleRoles },
+                ),
+              );
+              if (done !== undefined) setModuleCell(null);
+            })
+          }
           pending={change.pending}
         />
       )}
       {link && (
         <OneTimeLink link={link} locale={locale} onClose={() => setLink(null)} />
+      )}
+      {confirming && (
+        <Modal
+          title={
+            de
+              ? "Diese Rolle als Systemadministrator vergeben?"
+              : "Assign this role as system administrator?"
+          }
+          description={
+            de
+              ? "Du handelst als Systemadministrator, nicht als Inhaber dieser Organisation. Die Rolle gibt der Person Zugriff auf die Inhalte der betroffenen Projekte. Die Änderung wird im System-Audit protokolliert."
+              : "You are acting as a system administrator, not as an owner of this organization. The role gives the person access to the content of the projects it covers. The change is recorded in the system audit log."
+          }
+          onClose={() => setConfirming(null)}
+        >
+          <div className="modal-actions">
+            <Button variant="outline" onClick={() => setConfirming(null)}>
+              {de ? "Abbrechen" : "Cancel"}
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirming(null);
+                confirming.send();
+              }}
+            >
+              {de ? "Rolle vergeben" : "Assign role"}
+            </Button>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -616,12 +692,15 @@ export function InviteDialog({
   base,
   projects,
   locale,
+  confirm,
   onClose,
   onDone,
 }: {
   base: string;
   projects: Array<{ id: string; name: string }>;
   locale: Locale;
+  /** Runs before sending and decides whether `send` happens (D-8). */
+  confirm?: (send: () => void) => void;
   onClose: () => void;
   onDone: (result: InvitationResult | undefined) => void;
 }) {
@@ -692,18 +771,22 @@ export function InviteDialog({
         error={errorText(mutation.error, locale)}
         submitLabel={de ? "Einladen" : "Invite"}
         onCancel={onClose}
-        onSubmit={async (v) => {
-          const result = await mutation.run(() =>
-            post<InvitationResult>(`${base}/invitations`, {
-              email: str(v, "email"),
-              role: str(v, "role"),
-              locale: str(v, "locale"),
-              projects: Object.entries(grants)
-                .filter(([, role]) => role !== "none")
-                .map(([projectId, role]) => ({ projectId, role })),
-            }),
-          );
-          if (result) onDone(result);
+        onSubmit={(v) => {
+          const send = async () => {
+            const result = await mutation.run(() =>
+              post<InvitationResult>(`${base}/invitations`, {
+                email: str(v, "email"),
+                role: str(v, "role"),
+                locale: str(v, "locale"),
+                projects: Object.entries(grants)
+                  .filter(([, role]) => role !== "none")
+                  .map(([projectId, role]) => ({ projectId, role })),
+              }),
+            );
+            if (result) onDone(result);
+          };
+          if (confirm) confirm(() => void send());
+          else return send();
         }}
       />
     </Modal>

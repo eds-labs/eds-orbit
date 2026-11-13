@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { labels } from "@/lib/i18n";
 import type { Identity } from "@/lib/api";
-import { UserMenu, userMenuEntries } from "./user-menu";
+import { UserMenu } from "./user-menu";
 import { shortAgent } from "@/platform/account/account-view";
 import { errorText } from "@/platform/administration/texts";
 
@@ -13,41 +13,26 @@ const base: Identity = {
 };
 const t = (k: keyof typeof labels.en) => labels.en[k];
 
-describe("account menu (ADR 0013)", () => {
-  it("shows administration only to system administrators", () => {
-    expect(userMenuEntries(base, "w1").admin).toBe(false);
-    expect(userMenuEntries({ ...base, systemAdmin: true }, "w1").admin).toBe(
-      true,
-    );
-  });
-
-  it("links the organization settings only for an organization the user manages", () => {
-    expect(userMenuEntries(base, "w1").organization).toBeNull();
-    const owner = {
+describe("account menu (ADR 0013, settings center)", () => {
+  it("renders the center entry for every identity and no old page entry", () => {
+    const owner: Identity = {
       ...base,
-      workspaces: [
-        { id: "w1", name: "Org", role: "owner", canManage: true },
-        { id: "w 2", name: "Other", role: "owner", canManage: true },
-      ],
+      systemAdmin: true,
+      account: true,
+      workspaces: [{ id: "w1", name: "Org", role: "owner", canManage: true }],
     };
-    expect(userMenuEntries(owner, "w 2").organization).toBe("/o/w%202/settings");
-    // Outside a project: the first organization the user manages.
-    expect(userMenuEntries(owner, undefined).organization).toBe(
-      "/o/w1/settings",
-    );
-  });
-
-  it("renders the entries the identity allows", () => {
-    const html = (identity: Identity) =>
-      renderToStaticMarkup(
+    for (const identity of [base, owner]) {
+      const html = renderToStaticMarkup(
         <UserMenu identity={identity} t={t} onSignOut={() => {}} signingOut={false} />,
       );
-    expect(html(base)).not.toContain('href="/admin"');
-    expect(html(base)).not.toContain('href="/account"');
-    const full = html({ ...base, systemAdmin: true, account: true });
-    expect(full).toContain('href="/admin"');
-    expect(full).toContain('href="/account"');
-    expect(full).toContain("ada@example.invalid");
+      expect(html).toContain('href="/manage"');
+      expect(html).toContain(labels.en.manageTitle.replace("&", "&amp;"));
+      expect(html).not.toContain('href="/account"');
+      expect(html).not.toContain('href="/o/w1/settings"');
+      expect(html).not.toContain('href="/admin"');
+      expect(html.match(/role="menuitem"/g)).toHaveLength(2);
+      expect(html).toContain("ada@example.invalid");
+    }
   });
 });
 

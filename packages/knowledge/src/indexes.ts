@@ -155,21 +155,21 @@ export function indexGenerationPhase(input: {
                 : "ready_for_evaluation";
   return { phase, nextStep: NEXT_STEP[phase] };
 }
-/** Every generation, newest first, with its embedding coverage and phase. */
+/**
+ * Every generation, newest first, with its embedding coverage and phase.
+ * Coverage counts only the chunks of the generation's own snapshot: documents
+ * added later are embedded into the active generation too, but they are not
+ * part of what it was built and checked on.
+ */
 export async function describeIndexGenerations(tx: DbTx, s: Scope) {
   const generations = await listIndexGenerations(tx, s);
-  const embedded = await tx.chunkEmbedding.groupBy({
-    by: ["profile", "indexGeneration"],
-    where: where(s),
-    _count: { _all: true },
-  });
+  const embedded = await tx.$queryRaw<
+    { id: string; embedded: number }[]
+  >`SELECT i.id, count(e.id)::int AS embedded FROM "KnowledgeIndex" i CROSS JOIN LATERAL jsonb_array_elements(i.manifest) m JOIN "ChunkEmbedding" e ON e."chunkId"=(m->>'chunkId')::uuid AND e.profile=i.profile AND e."indexGeneration"=i.generation AND e."workspaceId"=i."workspaceId" AND e."projectId"=i."projectId" WHERE i."workspaceId"=${s.workspaceId}::uuid AND i."projectId"=${s.projectId}::uuid AND jsonb_typeof(i.manifest)='array' GROUP BY i.id`;
   const corpusHash = hash(JSON.stringify(await manifest(tx, s)));
   return generations.map((g) => {
     const chunks = Array.isArray(g.manifest) ? g.manifest.length : 0;
-    const embeddedChunks =
-      embedded.find(
-        (e) => e.profile === g.profile && e.indexGeneration === g.generation,
-      )?._count._all ?? 0;
+    const embeddedChunks = embedded.find((e) => e.id === g.id)?.embedded ?? 0;
     return {
       ...g,
       chunks,
@@ -497,6 +497,41 @@ function currentEvaluationConfig(
     Number.isFinite(when) &&
     when <= at.getTime() + 300000 &&
     at.getTime() - when <= EVALUATION_MAX_AGE_MS,
+  );
+}
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * Whether evidence retrieved from `indexId`, which is no longer the active
+ * generation, still came from a quality-gated retriever: that generation's
+ * stored evaluation passed, is live, belongs to its manifest and was at most
+ * 30 days old when the evidence was created. Malformed or missing records
+ * fail closed. `activatedAt` is not checked because a rollback overwrites it.
+ * Spec: docs/superpowers/specs/2026-11-10-evidence-across-index-generations-design.md
+ */
+export async function evidenceOriginEvaluated(
+  tx: DbTx,
+  s: Scope,
+  indexId: string,
+  evidenceCreatedAt: string,
+): Promise<boolean> {
+  if (!UUID.test(indexId)) return false;
+  const origin = await tx.knowledgeIndex.findFirst({
+    where: { ...where(s), id: indexId },
+  });
+  const e = origin?.evaluation as Record<string, unknown> | null | undefined;
+  const created =
+    typeof evidenceCreatedAt === "string" ? Date.parse(evidenceCreatedAt) : NaN;
+  const executed =
+    typeof e?.executedAt === "string" ? Date.parse(e.executedAt) : NaN;
+  return Boolean(
+    origin &&
+    e?.passed === true &&
+    e.provenance === "live" &&
+    e.manifestHash === origin.manifestHash &&
+    Number.isFinite(created) &&
+    Number.isFinite(executed) &&
+    executed <= created &&
+    created - executed <= EVALUATION_MAX_AGE_MS,
   );
 }
 /** Runtime release gate: actual current corpus/config/receipts, never an environment assertion. */

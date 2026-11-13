@@ -221,10 +221,17 @@ function useWorkSection() {
   return { content: <WorkSettingsForm /> };
 }
 
+// Both contributions share one center section; the first by order carries it.
+const WORK_SECTION_DESCRIPTION = {
+  en: "Workflow of project management and the AI project manager.",
+  de: "Ablauf des Projektmanagements und der KI-Projektleiter.",
+};
+
 /** The module's section of the project settings. */
 export const workSettings: readonly SettingsSection[] = [
   {
     tab: { key: "work", label: { en: "Project management", de: "Projektmanagement" }, order: 30 },
+    description: WORK_SECTION_DESCRIPTION,
     order: 10,
     useSection: useWorkSection,
   },

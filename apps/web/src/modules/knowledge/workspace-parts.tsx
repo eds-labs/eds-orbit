@@ -70,8 +70,8 @@ export function knowledgeErrorText(
       ? "Die Modellantwort wurde am Antwortlimit abgeschnitten. Es wurde kein Wissen übernommen. Erstelle eine neue Vorschau mit weniger Dateien oder passe das Antwortlimit der Analyse-Route an."
       : "The model response reached its output limit. No knowledge was accepted. Preview fewer files or adjust the analysis route's output limit.",
     MODEL_CAPABILITY_NOT_VERIFIED: de
-      ? "Die Analyse-Route verwendet ein nicht freigegebenes Modell. Prüfe unter Einstellungen → KI den Standardprovider und die Aufgaben-Routen."
-      : "The analysis route uses an unverified model. Check the default provider and task routes under Settings → AI.",
+      ? "Die Analyse-Route verwendet ein nicht freigegebenes Modell. Prüfe unter Verwaltung & Einstellungen → KI → Modelle den Standardprovider und die Aufgaben-Routen."
+      : "The analysis route uses an unverified model. Check the default provider and task routes under Administration & settings → AI → Models.",
     VERIFIED_PRICE_CONFIGURATION_REQUIRED: de
       ? "Für das ausgewählte Modell fehlt ein aktueller verifizierter Preis. Prüfe die KI-Einstellungen."
       : "The selected model needs a current verified price. Check AI settings.",
@@ -79,8 +79,8 @@ export function knowledgeErrorText(
       ? "Füge den vollständigen Inhalt der privaten PEM-Datei ein, einschließlich BEGIN- und END-Zeile. Ein SHA256-Fingerabdruck reicht nicht aus."
       : "Paste the complete private PEM file, including its BEGIN and END lines. A SHA256 fingerprint is not sufficient.",
     KNOWLEDGE_MODEL_NOT_CONFIGURED: de
-      ? "Für die KI-Analyse fehlt ein eingerichteter Modellanbieter. Hinterlege den Zugang unter Einstellungen → KI."
-      : "AI analysis needs a configured model provider. Add its credentials under Settings → AI.",
+      ? "Für die KI-Analyse fehlt ein eingerichteter Modellanbieter. Hinterlege den Zugang unter Verwaltung & Einstellungen → KI → Anbieter und Schlüssel."
+      : "AI analysis needs a configured model provider. Add its credentials under Administration & settings → AI → Providers and keys.",
     KNOWLEDGE_PREVIEW_EXPIRED: t.previewExpired,
     KNOWLEDGE_ANALYSIS_IN_PROGRESS: de
       ? "Eine KI-Analyse läuft bereits. Warte ihren Abschluss ab und versuche es danach erneut."
@@ -97,8 +97,8 @@ export function knowledgeErrorText(
       ? "Dieser Eintrag wurde inzwischen geändert. Lade die Seite neu und prüfe den aktuellen Stand."
       : "This entry changed. Reload and review the current version.",
     POLICY_REQUIRED: de
-      ? "Für KI-Analysen fehlt eine KI-Ausgabenfreigabe. Ein Owner legt sie unter Einstellungen → KI & Budget fest."
-      : "AI analysis needs an AI spending authority. An owner sets it under Settings → AI & budget.",
+      ? "Für KI-Analysen fehlt eine KI-Ausgabenfreigabe. Ein Owner legt sie unter Verwaltung & Einstellungen → KI → Budget fest."
+      : "AI analysis needs an AI spending authority. An owner sets it under Administration & settings → AI → Budget.",
     // The consent is the start button; what remains is a source closed to AI.
     MODEL_USE_FORBIDDEN: de
       ? "KI-Funktionen dürfen diese Inhalte nicht lesen. Erlaube es bei der Quelle oder wähle eine andere Verwendung."
@@ -111,8 +111,8 @@ export function knowledgeErrorText(
       ? "GitHub verweigert den Abruf oder begrenzt Anfragen. Prüfe die Repository-Freigabe und versuche es später erneut."
       : "GitHub denied access or limited requests. Check repository permissions and try later.",
     KNOWLEDGE_COST_UNKNOWN: de
-      ? "Der Modellaufruf hat einen unklaren Ausgang. Prüfe zuerst die Kosten in den Einstellungen; starte keine weitere Analyse."
-      : "The model call has an uncertain outcome. Reconcile costs in Settings before another analysis.",
+      ? "Der Modellaufruf hat einen unklaren Ausgang. Prüfe zuerst die Kosten unter Verwaltung & Einstellungen → KI → Budget; starte keine weitere Analyse."
+      : "The model call has an uncertain outcome. Reconcile costs in Administration & settings → AI → Budget before another analysis.",
     KNOWLEDGE_NO_READABLE_FILES: de
       ? "Aus deiner Auswahl ließ sich nichts lesen. Wähle andere Seiten oder Dateien aus."
       : "Nothing in your selection could be read. Select other pages or files.",
@@ -125,8 +125,8 @@ export function knowledgeErrorText(
       ? "Die Analyse konnte nicht abgeschlossen werden. Es wurde kein Wissen übernommen. Prüfe die KI-Einstellungen und starte die Analyse erneut."
       : "The analysis could not be completed. No knowledge was accepted. Check AI settings and start the analysis again.",
     KNOWLEDGE_MODEL_REJECTED: de
-      ? "Der Modellanbieter hat die Anfrage abgelehnt. Es sind keine Kosten entstanden. Prüfe das Modell unter Einstellungen → KI."
-      : "The model provider rejected the request. No cost was incurred. Check the model under Settings → AI.",
+      ? "Der Modellanbieter hat die Anfrage abgelehnt. Es sind keine Kosten entstanden. Prüfe das Modell unter Verwaltung & Einstellungen → KI → Modelle."
+      : "The model provider rejected the request. No cost was incurred. Check the model under Administration & settings → AI → Models.",
     KNOWLEDGE_DEPENDENCY_CHANGED: de
       ? "Projekt, Budgetfreigabe oder KI-Einstellungen wurden während der Analyse geändert. Starte die Analyse erneut."
       : "The project, spending authority or AI settings changed during the analysis. Start the analysis again.",
@@ -167,26 +167,26 @@ export function knowledgeErrorText(
       ? "Als eine Aussage geht ein Text nur bis 1.000 Zeichen. Wähle eine andere Verwendung oder kürze ihn."
       : "A single statement can have at most 1,000 characters. Choose another use or shorten the text.",
     POLICY_INTERVAL_INVALID: de
-      ? "Der Zeitraum der KI-Ausgabenfreigabe ist ungültig: Das Ende liegt vor dem Beginn. Ein Owner korrigiert ihn unter Einstellungen → KI & Budget."
-      : "The period of the AI spending authority is invalid: its end is before its start. An owner corrects it under Settings → AI & budget.",
+      ? "Der Zeitraum der KI-Ausgabenfreigabe ist ungültig: Das Ende liegt vor dem Beginn. Ein Owner korrigiert ihn unter Verwaltung & Einstellungen → KI → Budget."
+      : "The period of the AI spending authority is invalid: its end is before its start. An owner corrects it under Administration & settings → AI → Budget.",
     CURRENT_PRICE_REQUIRED: de
-      ? "Für das ausgewählte Modell ist der hinterlegte Preis nicht mehr aktuell. Aktualisiere ihn unter Einstellungen → KI."
-      : "The stored price for the selected model is out of date. Update it under Settings → AI.",
+      ? "Für das ausgewählte Modell ist der hinterlegte Preis nicht mehr aktuell. Aktualisiere ihn unter Verwaltung & Einstellungen → KI → Modelle."
+      : "The stored price for the selected model is out of date. Update it under Administration & settings → AI → Models.",
     ROUTE_EFFORT_UNSUPPORTED: de
-      ? "Das ausgewählte Modell unterstützt die eingestellte Denkstufe nicht. Passe die Route „Wissensanalyse“ unter Einstellungen → KI an."
-      : "The selected model does not support the configured reasoning effort. Adjust the “Knowledge analysis” route under Settings → AI.",
+      ? "Das ausgewählte Modell unterstützt die eingestellte Denkstufe nicht. Passe die Route „Wissensanalyse“ unter Verwaltung & Einstellungen → KI → Modelle an."
+      : "The selected model does not support the configured reasoning effort. Adjust the “Knowledge analysis” route under Administration & settings → AI → Models.",
     PAID_MANDATE_EXPIRED: de
-      ? "Die KI-Ausgabenfreigabe ist abgelaufen. Ein Owner verlängert sie unter Einstellungen → KI & Budget."
-      : "The AI spending authority has expired. An owner renews it under Settings → AI & budget.",
+      ? "Die KI-Ausgabenfreigabe ist abgelaufen. Ein Owner verlängert sie unter Verwaltung & Einstellungen → KI → Budget."
+      : "The AI spending authority has expired. An owner renews it under Administration & settings → AI → Budget.",
     BUDGET_NOT_APPROVED: de
-      ? "Für KI-Ausgaben ist noch kein Budget freigegeben. Ein Owner gibt es unter Einstellungen → KI & Budget frei."
-      : "No budget has been approved for AI spending yet. An owner approves it under Settings → AI & budget.",
+      ? "Für KI-Ausgaben ist noch kein Budget freigegeben. Ein Owner gibt es unter Verwaltung & Einstellungen → KI → Budget frei."
+      : "No budget has been approved for AI spending yet. An owner approves it under Administration & settings → AI → Budget.",
     BUDGET_EXCEEDED: de
-      ? "Das KI-Budget reicht für diese Analyse nicht aus. Erhöhe es unter Einstellungen → KI & Budget oder wähle weniger Inhalte aus."
-      : "The AI budget does not cover this analysis. Raise it under Settings → AI & budget or select less content.",
+      ? "Das KI-Budget reicht für diese Analyse nicht aus. Erhöhe es unter Verwaltung & Einstellungen → KI → Budget oder wähle weniger Inhalte aus."
+      : "The AI budget does not cover this analysis. Raise it under Administration & settings → AI → Budget or select less content.",
     PROVIDER_BUDGET_STOP: de
-      ? "Für diesen Modellanbieter sind die KI-Ausgaben gestoppt. Prüfe das Anbieter-Budget unter Einstellungen → KI & Budget."
-      : "AI spending is stopped for this model provider. Check the provider budget under Settings → AI & budget.",
+      ? "Für diesen Modellanbieter sind die KI-Ausgaben gestoppt. Prüfe das Anbieter-Budget unter Verwaltung & Einstellungen → KI → Budget."
+      : "AI spending is stopped for this model provider. Check the provider budget under Administration & settings → AI → Budget.",
     KNOWLEDGE_EDIT_UNAVAILABLE: de
       ? "Diese Aussage lässt sich gerade nicht bearbeiten, weil sie oder ihre Quelle nicht mehr aktiv ist. Lade die Seite neu."
       : "This statement cannot be edited because it or its source is no longer active. Reload the page.",

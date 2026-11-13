@@ -8,7 +8,7 @@ import { deleteFile, filesConfig } from "../../platform/files/files.ts";
 import type { PeriodicTask } from "../../platform/jobs/types.ts";
 import { publishEvent } from "../../platform/events/events.ts";
 import { audit, data, DomainError, update } from "../../shared.ts";
-import { supportSettings } from "./common.ts";
+import { inboundIdOf, supportSettings } from "./common.ts";
 import { requireSupport, supportActive } from "./gate.ts";
 import { WIDGET_SESSION_KIND } from "./widget.ts";
 import { SUPPORT_TICKET_SUBJECT } from "./agent-events.ts";
@@ -95,7 +95,7 @@ async function deleteTickets(tx: DbTx, scope: Scope, ticketIds: string[]) {
   await deleteWorkOrdersForSubject(tx, scope, SUPPORT_TICKET_SUBJECT, ticketIds);
   const messages = await tx.supportMessage.findMany({
     where: { ticketId: { in: ticketIds } },
-    select: { id: true, externalId: true, channel: true },
+    select: { id: true, externalId: true, channel: true, ticketId: true },
   });
   const attachments = await tx.supportAttachment.findMany({
     where: { messageId: { in: messages.map((m) => m.id) } },
@@ -108,15 +108,34 @@ async function deleteTickets(tx: DbTx, scope: Scope, ticketIds: string[]) {
   const sentIds = externalIds.flatMap((id) =>
     [...id.matchAll(ORBIT_MESSAGE_ID)].map((m) => m[1]!),
   );
+  // A takeover may record an id standing for its mailbox row (email-import.ts).
+  const imported = new Set(
+    (
+      await tx.supportTicket.findMany({
+        where: { id: { in: ticketIds }, importSource: { not: null } },
+        select: { id: true },
+      })
+    ).map((t) => t.id),
+  );
+  const standIns = messages.flatMap((m) => {
+    const id =
+      imported.has(m.ticketId) && m.externalId
+        ? inboundIdOf(m.externalId)
+        : null;
+    return id ? [id] : [];
+  });
   // Received mail: the mailbox row with the same Message-ID, and its raw file.
   const received = externalIds.length
     ? await tx.entity.findMany({
         where: {
           projectId: scope.projectId,
           kind: INBOUND_KIND,
-          OR: externalIds.map((id) => ({
-            data: { path: ["messageId"], equals: id },
-          })),
+          OR: [
+            ...externalIds.map((id) => ({
+              data: { path: ["messageId"], equals: id },
+            })),
+            ...(standIns.length ? [{ id: { in: standIns } }] : []),
+          ],
         },
       })
     : [];
@@ -393,11 +412,19 @@ export async function supportRetention(scope: Scope, now = new Date()) {
          WHERE e."projectId" = ${scope.projectId}::uuid
            AND e.kind = ${INBOUND_KIND}
            AND NOT (e.data ? 'retainedUntil')
-           AND e.data->>'messageId' IN (
+           AND (e.data->>'messageId' IN (
              SELECT m."externalId" FROM "SupportMessage" m
               WHERE m."projectId" = ${scope.projectId}::uuid
                 AND m.channel = 'email' AND m.kind = 'customer'
                 AND m."createdAt" < ${rawCutoff})
+             OR '<inbound.' || e.id::text || '@orbit.invalid>' IN (
+             SELECT m."externalId" FROM "SupportMessage" m
+               JOIN "SupportTicket" t
+                 ON t."projectId" = m."projectId" AND t.id = m."ticketId"
+              WHERE m."projectId" = ${scope.projectId}::uuid
+                AND t."importSource" IS NOT NULL
+                AND m.channel = 'email' AND m.kind = 'customer'
+                AND m."createdAt" < ${rawCutoff}))
          ORDER BY e."createdAt"
          LIMIT 500`;
       const rawFiles: string[] = [];
@@ -413,6 +440,11 @@ export async function supportRetention(scope: Scope, now = new Date()) {
               connectionId: d.connectionId ?? null,
               uid: d.uid ?? null,
               uidValidity: d.uidValidity ?? null,
+              // Dedupe keys of mail without a Message-ID or read from a folder.
+              ...(d.rawSha256 ? { rawSha256: d.rawSha256 } : {}),
+              ...(d.importedFromConnectionId
+                ? { importedFromConnectionId: d.importedFromConnectionId }
+                : {}),
               retainedUntil: now.toISOString(),
             },
           },
@@ -494,6 +526,8 @@ export async function allowNewTicket(tx: DbTx, scope: Scope, email: string) {
       projectId: scope.projectId,
       contactId: { in: contacts.map((c) => c.id) },
       createdAt: { gte: new Date(Date.now() - 3_600_000) },
+      // A member's takeover says nothing about what the sender is doing.
+      importSource: null,
     },
   });
   return recent < NEW_TICKETS_PER_SENDER_HOUR;

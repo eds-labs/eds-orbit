@@ -1,4 +1,5 @@
 import { exportAssetContent } from "../pipeline/content-export.ts";
+import { isAiLabelRefusal } from "../brand/ai-labels.ts";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
@@ -122,8 +123,16 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
       const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
         entity(tx, scope, "assets", content.assetId),
       );
-      // Approved PNGs may live inline or in Drive (checksum-bound read).
-      const file = await exportAssetContent(scope, data(asset));
+      // Approved PNGs may live inline or in Drive (checksum-bound read). An
+      // AI image without a valid label never reaches Postiz (ADR 0028): the
+      // refusal comes before any upload, so nothing was sent.
+      const file = await exportAssetContent(scope, data(asset), undefined, {
+        publish: "marketing.postiz",
+      }).catch((error) => {
+        if (isAiLabelRefusal(error))
+          throw new ConnectorError(error.code, "not_sent");
+        throw error;
+      });
       if (!file) throw new ConnectorError("ASSET_NOT_SUPPORTED");
       const media = await client.uploadMedia({
         bytes: file.bytes,
@@ -366,7 +375,10 @@ async function originMedia(scope: Scope, content: Record<string, any>) {
   const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     entity(tx, scope, "assets", content.assetId),
   );
-  const file = await exportAssetContent(scope, data(asset));
+  // An AI image without a valid label is refused before Social gets it (ADR 0028).
+  const file = await exportAssetContent(scope, data(asset), undefined, {
+    publish: "marketing.social_handoff",
+  });
   if (!file) throw new DomainError("ASSET_NOT_SUPPORTED");
   return [await importOriginMedia(scope, { bytes: file.bytes, mime: "image/png" })];
 }

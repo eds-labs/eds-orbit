@@ -1,0 +1,18 @@
+The Orbit skin for Roundcube Webmail is an adaptation of the Elastic skin.
+
+Elastic: Copyright (c) The Roundcube Dev Team, by Aleksander Machniak.
+https://github.com/roundcube/roundcubemail/tree/master/skins/elastic
+
+Elastic is licensed under the Creative Commons Attribution-ShareAlike 3.0 License.
+As required by its ShareAlike term, this adaptation is distributed under the same
+license: http://creativecommons.org/licenses/by-sa/3.0/
+
+Changes: colours, typography and corner radii follow the EDS Orbit design system; the
+task menu and the login page are reduced for use inside Orbit; controls a session
+may not use are hidden. No Elastic file is modified. The compiled stylesheets are built
+from Elastic's own sources, unchanged, at image build time.
+
+The Elastic files this skin inherits at runtime keep their own licenses, listed in
+Elastic's README.md (Bootstrap, FontAwesome, Roboto).
+
+images/logo.svg is the EDS Labs mark. It is not covered by the license above.

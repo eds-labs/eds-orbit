@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import { useState, type RefObject } from "react";
 import Link from "next/link";
 import {
@@ -21,6 +22,7 @@ import {
 } from "./assistant-context";
 import { ConversationHistory, ConversationView } from "./conversation-view";
 import { useAssistantVoice, voiceViewProps } from "./voice";
+import { assistantBudgetProps } from "./budget-notice";
 
 // The personal assistant's panel (WP3.8): a header with the focus project,
 // "new conversation", history, the full page and "My context", and the
@@ -109,6 +111,8 @@ export function AssistantPanel({
   const de = assistant.locale === "de";
   const t = assistantText(de);
   const { conversation } = assistant;
+  // No paid assistant turns without the organization's per-member cap.
+  const budget = assistantBudgetProps(assistant, assistant.closePanel);
   return (
     <Sheet
       id="assistant-panel"
@@ -204,11 +208,12 @@ export function AssistantPanel({
             emptyTitle={t.emptyTitle}
             emptyDescription={t.emptyDescription}
             className="assistant-conversation"
+            {...budget}
           />
         </>
       )}
       <div className="sheet-foot">
-        <Link href="/account/assistant" onClick={assistant.closePanel}>
+        <Link href={manageHref({ kind: "account" }, "assistant")} onClick={assistant.closePanel}>
           <BookUser aria-hidden="true" />
           {t.myContext}
         </Link>

@@ -1,41 +1,15 @@
 "use client";
 import { ShellContext } from "@/platform/shell/shell-context";
-import { RetentionControl } from "./retention-control";
-import { SignalSettingsSection } from "./signal-settings";
-import { ModuleSettings } from "./module-settings";
-import {
-  ProjectAdministration,
-  ProjectMembers,
-} from "./project-administration";
-import { useSearchParams } from "next/navigation";
-import {
-  ContentLanguagesPanel,
-  ProfileLinksPanel,
-  languagesOf,
-} from "@/platform/project-settings/project-configuration";
+import { languagesOf } from "@/platform/project-settings/project-configuration";
 import { languageName } from "@/platform/project-settings/catalog";
 import { projectSettingsText } from "@/platform/project-settings/texts";
-import {
-  collectSettingsTabs,
-  groupSettings,
-  platformSettingsTabs,
-  sectionFromSearch,
-  settingsSectionHref,
-  SettingsNav,
-} from "@/platform/shell/settings-nav";
+import { manageHref } from "@/platform/settings-center/routes";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
-import { UnclearAiCost } from "./unclear-ai-cost";
+import { AiCostDiagnosis } from "./ai-cost-diagnosis";
+import { operationsBudget, operationsText } from "./operations-text";
 import { blockerReason } from "@/lib/readiness-text";
-import { AiSettings } from "./ai-settings";
-import { SpendPolicySettings } from "./spend-policy";
-import { AgentMandateSettings } from "./agent-mandates";
-import { GoogleDriveSettings } from "./google-drive";
-import {
-  ConnectedApps,
-  type McpGrant,
-} from "@/platform/connect/connected-apps";
-import { Fragment, useContext, useEffect, useState } from "react";
+import { useContext, useState } from "react";
 import { WorkspacePause } from "./operator-tools";
 import { TelegramConnection } from "./telegram-connection";
 import { EmailConnection } from "./email-connection";
@@ -54,7 +28,6 @@ import {
   collectionPath,
   useMutation,
   useResource,
-  usd,
   value,
   when,
   type Dashboard,
@@ -69,7 +42,7 @@ import {
   Modal,
   Status,
 } from "./ui/primitives";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { GrantedConnections } from "./granted-connections";
 import {
@@ -78,6 +51,8 @@ import {
   ResourceError,
   useCollection,
 } from "@/platform/ui/collection";
+import { capabilityLabel, liveBlockerText } from "@/lib/capability-text";
+/** The connections section of the settings center, whose frame shows the section head. */
 export function Connectors() {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const resource = useCollection("connectors");
@@ -90,14 +65,6 @@ export function Connectors() {
   const configuring = providers.find((p) => p.id === configure);
   return (
     <>
-      <PageHead
-        title={t("connectors")}
-        description={
-          locale === "de"
-            ? "Verbindungen mit überprüfbaren Fähigkeiten."
-            : "Connections with capabilities you can verify."
-        }
-      />
       <Alert>
         {locale === "de"
           ? "Codex- und ChatGPT-Verbindungen stellen dieser Installation keine Zugangsdaten bereit."
@@ -180,7 +147,7 @@ export function Connectors() {
           })}
           <GrantedConnections connectors={resource.data?.items ?? []} />
           <TelegramConnection />
-          <EmailConnection />
+          <EmailConnection groupByServer />
           <CustomerContextConnection />
           {extras.map((Extra, index) => (
             <Extra key={index} />
@@ -276,6 +243,8 @@ export function Operations() {
   const [selected, setSelected] = useState<Entity | null>(null);
   const mutation = useMutation(refresh);
   const d = resource.data;
+  const ops = operationsText(locale);
+  const aiMonth = d ? operationsBudget(d.budget, locale) : null;
   return (
     <>
       <PageHead
@@ -322,7 +291,7 @@ export function Operations() {
         }}
       />
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      {mutation.success && <Alert kind="success">Project state updated.</Alert>}
+      {mutation.success && <Alert kind="success">{ops.stateUpdated}</Alert>}
       {resource.loading ? (
         <Loading />
       ) : (
@@ -330,7 +299,7 @@ export function Operations() {
           <>
             <div className="operations-band">
               <div>
-                <span>Project execution</span>
+                <span>{ops.execution}</span>
                 {/* The mode is Marketing's (ADR 0015, E-6). */}
                 <Status
                   value={
@@ -343,25 +312,28 @@ export function Operations() {
                 />
               </div>
               <div>
-                <span>Readiness</span>
+                <span>{ops.readiness}</span>
                 <Status value={d.readiness.state} />
               </div>
+              {/* This UTC month, as the monthly limit counts it (WP2 C). */}
               <div>
-                <span>Spend</span>
-                <strong>{usd(d.budget.spentMicros)}</strong>
+                <span>{ops.spend}</span>
+                <strong>{aiMonth?.spend}</strong>
+                {aiMonth?.since && <small>{aiMonth.since}</small>}
               </div>
               <div>
-                <span>Reserved</span>
-                <strong>{usd(d.budget.reservedMicros)}</strong>
+                <span>{ops.open}</span>
+                <strong>{aiMonth?.open}</strong>
+                {aiMonth?.split && <small>{aiMonth.split}</small>}
               </div>
             </div>
             {runtime.data && (
               <section className="panel administration-panel">
                 <div className="panel-head">
                   <div>
-                    <h2>Worker and dispatch</h2>
+                    <h2>{ops.worker}</h2>
                     <p>
-                      Last observed{" "}
+                      {ops.lastObserved}{" "}
                       {when(
                         runtime.data.runtime.observedAt,
                         locale,
@@ -372,7 +344,7 @@ export function Operations() {
                   <Status value={runtime.data.runtime.worker} />
                 </div>
                 <dl className="detail-grid">
-                  <dt>Worker heartbeat</dt>
+                  <dt>{ops.heartbeat}</dt>
                   <dd>
                     {when(
                       runtime.data.runtime.lastHeartbeat,
@@ -380,20 +352,17 @@ export function Operations() {
                       project.timezone,
                     )}
                   </dd>
-                  <dt>Pending outbox</dt>
+                  <dt>{ops.outbox}</dt>
                   <dd>{runtime.data.pendingOutbox}</dd>
-                  <dt>Queue classes</dt>
+                  <dt>{ops.queues}</dt>
                   <dd>{runtime.data.runtime.queues.join(", ") || "—"}</dd>
                 </dl>
                 {runtime.data.runtime.worker !== "ready" && (
-                  <Alert kind="warning">
-                    The worker heartbeat is unavailable. Queued work is not
-                    evidence of execution.
-                  </Alert>
+                  <Alert kind="warning">{ops.workerDown}</Alert>
                 )}
               </section>
             )}
-            <UnclearAiCost />
+            <AiCostDiagnosis />
             {d.readiness.blockers.length > 0 && (
               <Alert kind="warning">
                 <strong>
@@ -484,27 +453,14 @@ export function Operations() {
     </>
   );
 }
-export function ProjectSettings() {
+/**
+ * The project's facts, the caller's role and the export. The project
+ * settings page and the settings center both show it; the caller passes the
+ * dashboard it loaded, so the page keeps its single request.
+ */
+export function ProjectSummaryPanel({ dashboard }: { dashboard: Dashboard | null }) {
   const marketingOn = useMarketingOn();
-  const { t, locale, project, revision, isOwner, identity, refresh } =
-    useWorkspace();
-  const dashboard = useResource<Dashboard>(
-    collectionPath(project.id, `dashboard?revision=${revision}`),
-  );
-  // The caller's connected MCP apps. The routes exist only while the OAuth
-  // server is on (404 otherwise), and then the section is not offered.
-  const grants = useResource<{ grants: McpGrant[] }>("/mcp-grants");
-  const appsAvailable = Boolean(
-    grants.data || (grants.error && grants.error.status !== 404),
-  );
-  // A reload empties the resource for a moment; the section must not vanish then.
-  const [appsSeen, setAppsSeen] = useState(false);
-  useEffect(() => {
-    if (appsAvailable) setAppsSeen(true);
-  }, [appsAvailable]);
-  const connectedApps = appsAvailable || appsSeen;
-  const d = dashboard.data;
-  const de = locale === "de";
+  const { locale, project, identity } = useWorkspace();
   const pt = projectSettingsText(locale);
   const roleText = (role?: string) =>
     pt(
@@ -516,245 +472,150 @@ export function ProjectSettings() {
             ? "roleViewer"
             : "roleMember",
     );
+  const d = dashboard;
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>{pt("projectHeading")}</h2>
+          <p>{pt("projectHint")}</p>
+        </div>
+        <Badge>{roleText(project.role)}</Badge>
+      </div>
+      <dl className="detail-grid">
+        <dt>{pt("name")}</dt>
+        <dd>{project.name}</dd>
+        <dt>{pt("timezone")}</dt>
+        <dd>{project.timezone}</dd>
+        <dt>{pt("defaultLanguage")}</dt>
+        <dd>
+          {languageName(project.language, locale)}
+          <small>
+            {languagesOf(project)
+              .map((code) => languageName(code, locale))
+              .join(" · ")}
+          </small>
+        </dd>
+        <dt>{pt("signedInAs")}</dt>
+        <dd>
+          {identity.user.name}
+          <small>{identity.user.email}</small>
+        </dd>
+        {/* Marketing's autonomy mode, only while it is on (E-6). */}
+        {marketingOn && (
+          <>
+            <dt>{pt("mode")}</dt>
+            <dd>
+              <Status value={d?.project.mode || project.mode} />
+            </dd>
+          </>
+        )}
+      </dl>
+      <Button asChild variant="outline">
+        <a
+          href={`/api${collectionPath(project.id, "export")}`}
+          download
+        >
+          <Download data-icon="inline-start" />
+          {pt("exportProject")}
+        </a>
+      </Button>
+    </section>
+  );
+}
+
+/** Autopilot readiness with the links that resolve its blockers. */
+export function ProjectReadinessPanel({
+  dashboard,
+  loading,
+}: {
+  dashboard: Dashboard | null;
+  loading: boolean;
+}) {
+  const { locale, isOwner, project } = useWorkspace();
   const shell = useContext(ShellContext);
   const setupLinks = shell?.setupLinks ?? [];
-  // Module sections (WP2.3b). Their hooks run on every render in registry
-  // order, which never changes while the app runs.
-  const modules = (shell?.settings ?? []).map((section) => ({
-    section,
-    shown: section.useSection(),
-  }));
-  // Grouped by module (UI restructure §5.4); the open section is the URL's
-  // ?section=, so links and back/forward change it without a remount, and an
-  // unknown or hidden one (e.g. assignments before they answer) is "project".
-  const groups = groupSettings(
-    collectSettingsTabs(
-      platformSettingsTabs({ isOwner, connectedApps }),
-      modules.map(({ section, shown }) => ({ tab: section.tab, shown })),
-    ),
-    shell?.modules ?? [],
-  );
-  const tab = sectionFromSearch(
-    useSearchParams()?.toString() ?? "",
-    groups.flatMap((g) => g.tabs.map((s) => s.key)),
-  );
-  const settingsHref = shell?.hrefOf("settings") ?? "";
-  const sectionHref = (key: string) => settingsSectionHref(settingsHref, key);
-  function select(key: string) {
-    const url = new URL(window.location.href);
-    if (key === "project") url.searchParams.delete("section");
-    else url.searchParams.set("section", key);
-    // The Google Drive callback's marker has done its job once a section is picked.
-    url.searchParams.delete("googleDrive");
-    window.history.replaceState(null, "", url);
-  }
+  // The project's center sections, named directly.
+  const center = (area: string, ...rest: string[]) =>
+    manageHref({ kind: "project", projectId: project.id }, area, ...rest);
+  const de = locale === "de";
+  const d = dashboard;
   return (
-    <>
-      <PageHead
-        title={t("settings")}
-        description={
-          de
-            ? "Dein Workspace. Deine Regeln."
-            : "Your workspace. Your boundaries."
-        }
-      />
-      <div className="settings-layout">
-        <SettingsNav
-          groups={groups}
-          value={tab}
-          hrefOf={sectionHref}
-          onSelect={select}
-          locale={locale}
-        />
-        <div className="settings-content">
-          <ResourceError error={dashboard.error} retry={dashboard.refresh} />
-          {modules.map(({ section, shown }, index) =>
-            shown?.notice ? (
-              <Fragment key={index}>{shown.notice}</Fragment>
-            ) : null,
-          )}
-          {modules
-            .filter(({ section, shown }) => shown && section.tab.key === tab)
-            .sort((a, b) => a.section.order - b.section.order)
-            .map(({ shown }, index) => (
-              <Fragment key={index}>{shown!.content}</Fragment>
-            ))}
-          {tab === "project" && (
-            <div className="settings-grid">
-              <section className="panel">
-                <div className="panel-head">
-                  <div>
-                    <h2>{pt("projectHeading")}</h2>
-                    <p>{pt("projectHint")}</p>
-                  </div>
-                  <Badge>{roleText(project.role)}</Badge>
-                </div>
-                <dl className="detail-grid">
-                  <dt>{pt("name")}</dt>
-                  <dd>{project.name}</dd>
-                  <dt>{pt("timezone")}</dt>
-                  <dd>{project.timezone}</dd>
-                  <dt>{pt("defaultLanguage")}</dt>
-                  <dd>
-                    {languageName(project.language, locale)}
-                    <small>
-                      {languagesOf(project)
-                        .map((code) => languageName(code, locale))
-                        .join(" · ")}
-                    </small>
-                  </dd>
-                  <dt>{pt("signedInAs")}</dt>
-                  <dd>
-                    {identity.user.name}
-                    <small>{identity.user.email}</small>
-                  </dd>
-                  {/* Marketing's autonomy mode, only while it is on (E-6). */}
-                  {marketingOn && (
-                    <>
-                      <dt>{pt("mode")}</dt>
-                      <dd>
-                        <Status value={d?.project.mode || project.mode} />
-                      </dd>
-                    </>
-                  )}
-                </dl>
-                <Button asChild variant="outline">
-                  <a
-                    href={`/api${collectionPath(project.id, "export")}`}
-                    download
-                  >
-                    <Download data-icon="inline-start" />
-                    {pt("exportProject")}
-                  </a>
-                </Button>
-              </section>
-              <section className="panel">
-                <div className="panel-head">
-                  <h2>
-                    {de ? "Autopilot-Bereitschaft" : "Autopilot readiness"}
-                  </h2>
-                  {d && <Status value={d.readiness.state} />}
-                </div>
-                {d?.readiness.blockers.length ? (
-                  <ul className="checklist">
-                    {d.readiness.blockers.map((s) => (
-                      <li key={s}>
-                        <span className="checklist-dot" />
-                        {blockerReason(locale, s)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="panel-note">
-                    {dashboard.loading
-                      ? de
-                        ? "Wird geprüft…"
-                        : "Checking…"
-                      : de
-                        ? "Die Bereitschaft richtet sich nach verifizierten Fähigkeiten."
-                        : "Readiness is scoped to verified capabilities."}
-                  </p>
-                )}
-                {d?.readiness.capabilities && (
-                  <div className="capability-readiness">
-                    {Object.entries(d.readiness.capabilities).map(
-                      ([name, capability]) => (
-                        <div className="data-row" key={name}>
-                          <div>
-                            <strong>
-                              {name.charAt(0).toUpperCase() + name.slice(1)}
-                            </strong>
-                            {capability.liveBlocker && (
-                              <p>
-                                {capability.liveBlocker.replaceAll("_", " ")}
-                              </p>
-                            )}
-                          </div>
-                          <Status value={capability.state} />
-                        </div>
-                      ),
-                    )}
-                  </div>
-                )}
-                <div className="setup-links">
-                  <AppLink href="/knowledge">
-                    <BookOpenIcon />
-                    {de
-                      ? "Quellenrechte und verifizierte Fakten ergänzen"
-                      : "Add source rights and verified facts"}
-                  </AppLink>
-                  <AppLink href="/connectors">
-                    <Link2 />
-                    {de
-                      ? "Verbindungen und ihre Fähigkeiten prüfen"
-                      : "Verify connector capabilities"}
-                  </AppLink>
-                  {setupLinks.map((Link, index) => (
-                    <Link key={index} />
-                  ))}
-                  {/* One place for AI settings (plan phase 3.3). */}
-                  {isOwner && (
-                    <AppLink href={sectionHref("ai")}>
-                      <Brain />
-                      {de ? "KI & Budget einrichten" : "Set up AI & budget"}
-                    </AppLink>
-                  )}
-                </div>
-              </section>
-            </div>
-          )}
-          {tab === "project" && (
-            <ContentLanguagesPanel
-              project={project}
-              isOwner={isOwner}
-              locale={locale}
-            />
-          )}
-          {tab === "project" && (
-            <ProfileLinksPanel
-              project={project}
-              isOwner={isOwner}
-              locale={locale}
-            />
-          )}
-          {tab === "project" && <ProjectAdministration />}
-          {tab === "members" && <ProjectMembers />}
-          {tab === "retention" && <RetentionControl />}
-          {tab === "modules" && <ModuleSettings />}
-          {/* Proactive signal switches (ADR 0023); hidden while off. */}
-          {tab === "modules" && <SignalSettingsSection />}
-          {tab === "apps" && <ConnectedApps mine={grants} />}
-          {tab === "ai" && (
-            <>
-              <SpendPolicySettings />
-              <AgentMandateSettings />
-              <AiSettings />
-            </>
-          )}
-          {tab === "integrations" && <GoogleDriveSettings />}
-          {tab === "integrations" && isOwner && (
-            <section className="panel">
-              <div className="panel-head">
+    <section className="panel">
+      <div className="panel-head">
+        <h2>
+          {de ? "Autopilot-Bereitschaft" : "Autopilot readiness"}
+        </h2>
+        {d && <Status value={d.readiness.state} />}
+      </div>
+      {d?.readiness.blockers.length ? (
+        <ul className="checklist">
+          {d.readiness.blockers.map((s) => (
+            <li key={s}>
+              <span className="checklist-dot" />
+              {blockerReason(locale, s)}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="panel-note">
+          {loading
+            ? de
+              ? "Wird geprüft…"
+              : "Checking…"
+            : de
+              ? "Die Bereitschaft richtet sich nach verifizierten Fähigkeiten."
+              : "Readiness is scoped to verified capabilities."}
+        </p>
+      )}
+      {d?.readiness.capabilities && (
+        <div className="capability-readiness">
+          {Object.entries(d.readiness.capabilities).map(
+            ([name, capability]) => (
+              <div className="data-row" key={name}>
                 <div>
-                  <h2>{de ? "KI-Anbieter" : "AI providers"}</h2>
-                  <p>
-                    {de
-                      ? "Keys, Modelle, Routen und Budgets von OpenAI und Claude sind unter KI & Budget."
-                      : "Keys, models, routes and budgets of OpenAI and Claude are under AI & budget."}
-                  </p>
+                  <strong>{capabilityLabel(locale, name)}</strong>
+                  {/* A sentence; the raw code only as a tooltip. */}
+                  {capability.liveBlocker && (
+                    <p title={capability.liveBlocker}>
+                      {liveBlockerText(
+                        locale,
+                        capability.liveBlocker,
+                      )}
+                    </p>
+                  )}
                 </div>
-                <Button asChild variant="outline">
-                  <AppLink href={sectionHref("ai")}>
-                    <Brain data-icon="inline-start" />
-                    {de ? "Öffnen" : "Open"}
-                  </AppLink>
-                </Button>
+                <Status value={capability.state} />
               </div>
-            </section>
+            ),
           )}
         </div>
+      )}
+      <div className="setup-links">
+        <AppLink href="/knowledge">
+          <BookOpenIcon />
+          {de
+            ? "Quellenrechte und verifizierte Fakten ergänzen"
+            : "Add source rights and verified facts"}
+        </AppLink>
+        <AppLink href={center("integrations", "connections")}>
+          <Link2 />
+          {de
+            ? "Verbindungen und ihre Fähigkeiten prüfen"
+            : "Verify connector capabilities"}
+        </AppLink>
+        {setupLinks.map((Link, index) => (
+          <Link key={index} />
+        ))}
+        {/* One place for AI settings (plan phase 3.3). */}
+        {isOwner && (
+          <AppLink href={center("ai")}>
+            <Brain />
+            {de ? "KI einrichten" : "Set up AI"}
+          </AppLink>
+        )}
       </div>
-    </>
+    </section>
   );
 }
 const BookOpenIcon = FileText;

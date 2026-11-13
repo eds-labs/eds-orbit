@@ -91,6 +91,10 @@ export const ERROR_LABELS: Record<string, Pair> = {
     "Enter at least a headline.",
     "Geben Sie mindestens eine Überschrift ein.",
   ],
+  AI_LABELED_COMPONENT: [
+    "This image already carries the “KI erstellt” label and cannot be used inside a new image. Choose its original art or another image.",
+    "Dieses Bild trägt schon die Kennzeichnung „KI erstellt“ und kann nicht in einem neuen Bild verwendet werden. Wählen Sie das Originalbild oder ein anderes Bild.",
+  ],
   ART_REQUIRED: [
     "This template needs a picture. Choose approved art or generate new art.",
     "Diese Vorlage braucht ein Bild. Wählen Sie freigegebene Bilder oder erzeugen Sie ein neues.",

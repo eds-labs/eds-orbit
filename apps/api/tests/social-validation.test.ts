@@ -45,6 +45,14 @@ describe("validateVariant", () => {
     expect(codes(facts("x", { body: links }))).toEqual([]);
   });
 
+  it("refuses an AI image without a valid label on every platform (ADR 0028)", () => {
+    for (const platform of ["x", "facebook", "telegram", "instagram"] as const)
+      expect(validateVariant(facts(platform, { media: [image(), { ...image(), aiLabelMissing: true }] }))).toEqual([
+        { code: "SOCIAL_AI_LABEL_MISSING", severity: "error", path: "media" },
+      ]);
+    expect(codes(facts("x", { media: [{ ...image(), aiLabelMissing: false }] }))).toEqual([]);
+  });
+
   it("refuses more than four images on X", () => {
     expect(codes(facts("x", { media: Array.from({ length: 5 }, () => image()) }))).toEqual(["error:SOCIAL_MEDIA_TOO_MANY"]);
   });

@@ -21,11 +21,14 @@ import {
   dateField,
   iso,
   num,
-  options,
   str,
   type FormField,
 } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
+import { modeLabel } from "@/lib/i18n";
+import { activationErrorText } from "@/lib/readiness-text";
+import { marketingText } from "./labels";
 type SpendLimits = {
   startAt: string;
   endAt: string;
@@ -36,7 +39,9 @@ type SpendLimits = {
 };
 
 export function PolicyEditor({ onClose }: { onClose: () => void }) {
-  const { project, t, refresh } = useWorkspace();
+  const { project, locale, t, refresh } = useWorkspace();
+  const shell = useShell();
+  const words = marketingText(locale).editor;
   const mutation = useMutation(() => {
     refresh();
     onClose();
@@ -49,32 +54,35 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
   const fields: FormField[] = [
     {
       name: "mode",
-      label: "Operating mode",
+      label: words.mode,
       type: "select",
       value: "observe",
-      options: options(["observe", "assisted", "autopilot"]),
+      options: ["observe", "assisted", "autopilot"].map((mode) => ({
+        value: mode,
+        label: modeLabel(mode, t),
+      })),
     },
     {
       name: "channels",
-      label: "Authorized channels (comma separated)",
+      label: words.channels,
       required: true,
     },
     {
       name: "contentTypes",
-      label: "Authorized content types (comma separated)",
+      label: words.contentTypes,
       required: true,
       placeholder: "social, blog",
     },
     {
       name: "allowedOrigins",
-      label: "Approved target origins (comma separated)",
+      label: words.allowedOrigins,
       placeholder: "https://example.com",
     },
-    dateField("startAt", "Mandate start"),
-    dateField("endAt", "Mandate end"),
+    dateField("startAt", words.startAt),
+    dateField("endAt", words.endAt),
     {
       name: "maxPerDay",
-      label: "Maximum publications per day",
+      label: words.maxPerDay,
       type: "number",
       min: 0,
       max: 20,
@@ -82,7 +90,7 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
     },
     {
       name: "minIntervalMinutes",
-      label: "Minimum spacing (minutes)",
+      label: words.minInterval,
       type: "number",
       min: 1,
       max: 1440,
@@ -90,47 +98,51 @@ export function PolicyEditor({ onClose }: { onClose: () => void }) {
     },
     {
       name: "quietStart",
-      label: "Quiet hours start (project hour 0–23)",
+      label: words.quietStart,
       type: "number",
       min: 0,
       max: 23,
     },
     {
       name: "quietEnd",
-      label: "Quiet hours end (project hour 0–23)",
+      label: words.quietEnd,
       type: "number",
       min: 0,
       max: 23,
     },
     {
       name: "confirm",
-      label:
-        "I approve this exact version, its channels and dates.",
+      label: words.confirm,
       type: "checkbox",
       required: true,
     },
   ];
   return (
     <Modal
-      title="New operating policy"
-      description="Only a verified capability can act under this mandate. Infrastructure, new spending permissions and unrelated channels remain outside its scope."
+      title={words.title}
+      description={words.description}
       onClose={onClose}
     >
       <Alert>
-        AI budget:{" "}
+        {words.budgetPrefix}{" "}
         {limits
-          ? `${usd(limits.dailyBudgetMicros)} per day, ${usd(limits.monthlyBudgetMicros)} per month, ${usd(limits.perRunBudgetMicros)} per run, until ${when(limits.endAt)}${limits.approvedPaidTests ? "" : " (paid use not allowed)"}. `
-          : "not set, so no paid AI runs. "}
-        It applies to every module and is set under{" "}
-        <AppLink href="/settings?section=ai">Settings → AI &amp; budget</AppLink>
-        ; this policy keeps it unchanged.
+          ? `${words.budgetLimits(
+              usd(limits.dailyBudgetMicros),
+              usd(limits.monthlyBudgetMicros),
+              usd(limits.perRunBudgetMicros),
+              when(limits.endAt, locale, project.timezone),
+            )}${limits.approvedPaidTests ? "" : words.budgetUnpaid}. `
+          : `${words.budgetNotSet} `}
+        {words.budgetScope}{" "}
+        <AppLink href={shell.projectCenterHref("ai", "budget")}>{words.budgetLink}</AppLink>
+        {words.budgetKept}
       </Alert>
       <DataForm
         fields={fields}
         pending={mutation.pending || spend.loading}
-        error={mutation.error}
+        error={activationErrorText(locale, mutation.error)}
         t={t}
-        submitLabel="Save policy version"
+        submitLabel={words.save}
         onCancel={onClose}
         onSubmit={(v) =>
           mutation

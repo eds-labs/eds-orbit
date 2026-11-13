@@ -87,6 +87,11 @@ export const platformDeclaration: PlatformDeclaration = {
       exported: false,
     },
     {
+      kind: "email_inbound_backlog",
+      description: "Unread IMAP UIDs of a webmail mailbox's backlog (ADR 0026)",
+      exported: false,
+    },
+    {
       kind: "agent_failure_notices",
       description: "Day markers of sent agent failure notices (one per agent, code and day)",
       exported: false,
@@ -161,6 +166,8 @@ export const platformDeclaration: PlatformDeclaration = {
     "PublicClientKey",
     "File",
     "FileBlob",
+    // Image provenance and AI labels (ADR 0028).
+    "ImageProvenance",
     "Notification",
     "NotificationPreference",
     "ProjectModule",

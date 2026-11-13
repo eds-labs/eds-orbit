@@ -85,7 +85,7 @@ const status: AdsStatus = {
 
 const module = () => webRegistry.modules.find((m) => m.id === "ads")!;
 const Overview = () => {
-  const C = module().views[0]!.component;
+  const C = module().views[0]!.component!;
   return <C />;
 };
 const BLOCKED = /(^|[-_])(ad|ads|advert|banner|sponsor)([-_]|$)/i;
@@ -135,7 +135,7 @@ describe("ads module web (ADR 0025, A1)", () => {
   it("renders every view without blocker-prone ids or classes and names interactive elements", () => {
     answers["/ads/status"] = status;
     for (const view of module().views) {
-      const View = view.component;
+      const View = view.component!;
       for (const locale of ["en", "de"] as const) {
         const html = render(<View />, { locale });
         for (const m of html.matchAll(/\s(id|class)="([^"]*)"/g)) {

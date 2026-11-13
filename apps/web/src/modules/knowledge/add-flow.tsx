@@ -10,7 +10,6 @@ import {
 import { ChevronRight } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
-import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { languageName } from "@/platform/project-settings/catalog";
 import { AppLink } from "@/platform/ui/app-link";
 import { cn } from "@/lib/utils";
@@ -190,7 +189,15 @@ export function initialFlow(
       s.id === params?.get("site") &&
       ["gitbook", "website"].includes(String(s.data.type)),
   );
-  const prefill = source ? siteDefaults(source) : null;
+  // The page choice is kept apart: the rights are sent to the strict start
+  // action as they are, and an extra key would fail its validation.
+  let prefill: Rights | null = null;
+  let storedExcluded: string[] = [];
+  if (source) {
+    const { excluded, ...rights } = siteDefaults(source);
+    prefill = rights;
+    storedExcluded = excluded;
+  }
   const github = params?.get("github") === "connected";
   // A preview alone names no content: only its analysis can be started.
   const kind: Kind = source
@@ -233,7 +240,7 @@ export function initialFlow(
     previewId,
     sourceId: source?.id ?? null,
     rights: prefill ?? { ...defaultRights(kind), ...input?.rights },
-    excluded: new Set(prefill?.excluded),
+    excluded: new Set(storedExcluded),
     sourceLanguage: source ? String(source.data.language ?? "") : "",
     outcome: runId ? ({ kind: "analysis", runId } as Outcome) : null,
   };
@@ -430,7 +437,7 @@ export function SitePagePicker({
   );
 }
 
-/** Blockers that an owner resolves in Settings → AI. */
+/** Blockers that an owner resolves in the AI area of the project settings. */
 const AI_SETTINGS_BLOCKERS = new Set([
   "POLICY_REQUIRED",
   "POLICY_INTERVAL_INVALID",
@@ -482,7 +489,7 @@ export function AnalysisStart({
   const linkOf = (code: string) =>
     AI_SETTINGS_BLOCKERS.has(code)
       ? {
-          href: settingsSectionHref(shell.hrefOf("settings"), "ai"),
+          href: shell.settingsHref("ai"),
           text: t.aiSettingsLink,
         }
       : code === "MODEL_USE_FORBIDDEN"

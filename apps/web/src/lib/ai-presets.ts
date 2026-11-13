@@ -91,16 +91,40 @@ export const taskName = (task: (typeof aiTasks)[number], locale: Locale) =>
   locale === "de" ? task.de : task.en;
 
 /**
+ * The options of a select, plus the stored value when it is set and no
+ * longer offered (such as a model switched off since): an uncontrolled
+ * select would otherwise show and save its first option instead.
+ */
+export function withStoredOption(
+  options: Array<{ value: string; label: string }>,
+  stored: string | undefined,
+): Array<{ value: string; label: string }> {
+  return stored && !options.some((option) => option.value === stored)
+    ? [...options, { value: stored, label: stored }]
+    : options;
+}
+
+/**
  * Task deviations from form values `task-<id>`: a chosen model keeps the
  * route's effort and tokens if it had one, else the task's default tokens.
+ * A task the form has no field for (such as the Creative Studio's while it
+ * is off, or a task class this list does not know) keeps its current route:
+ * a form saves only what it shows (F-8).
  */
 export function taskRoutesFrom(
   values: Record<string, unknown>,
   current: Partial<Record<string, TaskRoute>> = {},
-) {
-  return Object.fromEntries(
-    aiTasks.flatMap((task) => {
-      const model = String(values[`task-${task.id}`] ?? "");
+): Record<string, TaskRoute> {
+  const kept = Object.entries(current).filter(
+    (entry): entry is [string, TaskRoute] =>
+      entry[1] !== undefined && !(`task-${entry[0]}` in values),
+  );
+  return Object.fromEntries([
+    ...kept,
+    ...aiTasks.flatMap((task) => {
+      const name = `task-${task.id}`;
+      if (!(name in values)) return [];
+      const model = String(values[name] ?? "");
       if (!model) return [];
       const previous = current[task.id];
       return [
@@ -110,9 +134,9 @@ export function taskRoutesFrom(
             ? previous
             : { model, maxOutputTokens: previous?.maxOutputTokens ?? task.tokens },
         ],
-      ];
+      ] as Array<[string, TaskRoute]>;
     }),
-  );
+  ]);
 }
 
 const errors: Record<string, { en: string; de: string }> = {

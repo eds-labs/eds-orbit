@@ -3,9 +3,9 @@ import { renderToString } from "react-dom/server";
 import {
   NotificationBell,
   preferencesBody,
-  safeLink,
   unreadLabel,
 } from "./notification-bell";
+import { safeLink } from "@/lib/safe-link";
 import { emailConnectBody } from "./email-connection";
 
 describe("notification bell (WP4.7)", () => {

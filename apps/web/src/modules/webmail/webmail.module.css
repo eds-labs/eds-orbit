@@ -1,0 +1,212 @@
+/* The webmail page, its dialog and settings (ADR 0026). */
+.page {
+  min-width: 0;
+}
+/* The head carries the mailbox menu, so it may wrap below the title. */
+.page :global(.page-head) {
+  flex-wrap: wrap;
+}
+.page :global(.page-actions) {
+  flex-shrink: 1;
+  min-width: 0;
+}
+.main {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* The mailbox menu and the open mailbox's state, in the page head. */
+.picker {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  min-width: 0;
+}
+.pickerField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.pickerField > span {
+  color: var(--muted-foreground);
+}
+.pickerField select {
+  width: min(420px, 60vw);
+}
+.status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.ok {
+  background: var(--success);
+}
+.warning {
+  background: #85651c;
+}
+.error {
+  background: var(--danger);
+}
+.off {
+  background: var(--muted-foreground);
+}
+
+.embed {
+  display: grid;
+  gap: 8px;
+}
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.banner > :first-child {
+  flex: 1 1 260px;
+}
+.frameWrap {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+/* Everything below the 64 px header, the page padding and the page head. */
+.frame {
+  display: block;
+  width: 100%;
+  height: max(480px, calc(100dvh - 224px));
+  border: 0;
+}
+.frameCover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #fff;
+}
+.frameHint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.frameHint p {
+  flex: 1 1 280px;
+  margin: 0;
+}
+.failure,
+.result {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+.result > :first-child {
+  width: 100%;
+}
+.result .confirm {
+  margin-left: 0;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: 13px;
+}
+.records {
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.records small {
+  color: var(--muted-foreground);
+}
+
+.connectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.connectionActions,
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.rights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+}
+.grants {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.grants p {
+  margin: 0;
+}
+.grantRows {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.grantMember {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+.grantMember span {
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 760px) {
+  .page :global(.page-actions) {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .picker {
+    flex: 1 1 100%;
+    justify-items: stretch;
+  }
+  .pickerField {
+    display: grid;
+    gap: 4px;
+  }
+  .pickerField select {
+    width: 100%;
+  }
+  .status {
+    justify-content: flex-start;
+  }
+  .frame {
+    height: clamp(420px, calc(100dvh - 300px - var(--mobile-nav-height)), 900px);
+  }
+}

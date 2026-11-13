@@ -158,7 +158,7 @@ describe.skipIf(!enabled)("social account tokens", () => {
         severity: "warning",
         count: 2,
         navKey: "social.accounts",
-        link: "/social/accounts",
+        link: `/manage/p/${p.viewer.projectId}/integrations/social/accounts`,
       }),
     ]);
     expect(await other.run((tx) => socialAttention(tx, other.viewer, new Date()))).toEqual([]);

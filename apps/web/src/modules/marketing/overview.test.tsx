@@ -41,6 +41,7 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
+import { shellLinks } from "@/platform/shell/shell-links";
 import {
   MarketingOverview,
   monthStart,
@@ -119,7 +120,14 @@ function render(
   attention: AttentionState = attentionWith({}),
 ) {
   return renderToStaticMarkup(
-    <ShellContext.Provider value={{ attention } as ShellContextValue}>
+    <ShellContext.Provider
+      value={
+        {
+          attention,
+          ...shellLinks({ hrefOf: () => "/", projectId: "p1", map: (h) => h }),
+        } as ShellContextValue
+      }
+    >
       <WorkspaceContext.Provider
         value={{
           project,
@@ -208,6 +216,15 @@ describe("MarketingOverview", () => {
     expect(render()).toContain("<h2>custom</h2>");
     answers["/dashboard"] = dashboard({ mode: "assisted", paused: true });
     expect(render()).toContain("<h2>Paused</h2>");
+  });
+
+  it("links the review of the setup to the publishing rules section", () => {
+    answers["/missions"] = { items: [] };
+    answers["/ai-cost"] = { rows: [] };
+    answers["/dashboard"] = dashboard({ mode: "assisted" });
+    expect(render()).toMatch(
+      /<a [^>]*href="\/manage\/p\/p1\/modules\/marketing\/policy"[^>]*>Review setup<\/a>/,
+    );
   });
 
   it("shows what the limit counts against it", () => {

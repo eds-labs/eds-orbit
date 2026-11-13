@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { openExceptions, pausedPosts } from "./approval-lists";
+import {
+  approvalLanes,
+  approvalSlots,
+  groupByBase,
+  openExceptions,
+  pausedPosts,
+} from "./approval-lists";
 
 const now = Date.parse("2026-10-06T10:40:00Z");
 const item = (id: string, data: Record<string, unknown>) =>
@@ -69,5 +75,135 @@ describe("open exceptions", () => {
         }),
       ]).map((e) => e.id),
     ).toEqual(["new", "old"]);
+  });
+});
+
+describe("approval lanes of the page", () => {
+  const row = (
+    id: string,
+    data: Record<string, unknown>,
+    createdAt = "2026-10-06T08:00:00Z",
+  ) => ({ id, version: 1, kind: "content", createdAt, data }) as never;
+  const lanes = (
+    content: unknown[],
+    publications: unknown[] = [],
+    postiz: unknown[] = [],
+  ) =>
+    Object.fromEntries(
+      approvalLanes(content as never, publications as never, postiz as never, {
+        now,
+      }).map((i) => [i.content.id, i.lane]),
+    );
+
+  it("sorts released, reviewed, open, expired and replaced rows apart", () => {
+    expect(
+      lanes(
+        [
+          row("released", { status: "reviewed" }),
+          row("reviewed", { status: "reviewed" }),
+          row("open", { status: "needs_review" }),
+          row("expired", {
+            status: "needs_review",
+            assignmentRunId: "r1",
+            scheduledAt: "2026-10-06T09:00:00Z",
+          }),
+          row("ahead", {
+            status: "needs_review",
+            assignmentRunId: "r1",
+            scheduledAt: "2026-10-07T09:00:00Z",
+          }),
+          row("replaced", { status: "needs_review", supersededBy: "x" }),
+          row("rejected", { status: "rejected" }),
+          row("published", { status: "reviewed" }),
+          row("inPostiz", { status: "reviewed" }),
+          row("approved", { status: "approved" }),
+        ],
+        [
+          row("p1", { contentId: "released", status: "intent_created" }),
+          row("p2", { contentId: "published", status: "published" }),
+          row("p3", { contentId: "reviewed", status: "canceled" }),
+        ],
+        [row("h1", { contentId: "inPostiz", status: "accepted" })],
+      ),
+    ).toEqual({
+      released: "released",
+      reviewed: "reviewed",
+      open: "open",
+      expired: "cleanup",
+      ahead: "open",
+      replaced: "history",
+      rejected: "history",
+      published: "history",
+      inPostiz: "released",
+    });
+  });
+
+  it("reads an assignment draft's slot from the drafts list first", () => {
+    const draft = row("d", {
+      status: "needs_review",
+      assignmentRunId: "r1",
+      scheduledAt: "2026-10-07T09:00:00Z",
+    });
+    const slots = new Map([["d", "2026-10-06T09:00:00Z"]]);
+    expect(
+      approvalLanes([draft], [], [], { now, slots }).map((i) => i.lane),
+    ).toEqual(["cleanup"]);
+  });
+
+  it("reads a draft's slot from its mission like the server, the drafts list first", () => {
+    // No scheduledAt and not in the drafts list: only the mission knows the slot.
+    const fromMission = row("m", {
+      status: "needs_review",
+      assignmentRunId: "r1",
+      missionId: "mission-1",
+    });
+    const listed = row("l", {
+      status: "needs_review",
+      assignmentRunId: "r1",
+      missionId: "mission-1",
+    });
+    const ordinary = row("o", {
+      status: "needs_review",
+      missionId: "mission-1",
+    });
+    const missions = [
+      row("mission-1", { plannedSlotAt: "2026-10-06T09:00:00Z" }),
+    ];
+    const slots = approvalSlots([fromMission, listed, ordinary], missions, [
+      { id: "l", slotAt: "2026-10-07T09:00:00Z" },
+    ]);
+    expect([...slots.entries()]).toEqual([
+      ["m", "2026-10-06T09:00:00Z"],
+      ["l", "2026-10-07T09:00:00Z"],
+    ]);
+    expect(
+      Object.fromEntries(
+        approvalLanes([fromMission, listed, ordinary], [], [], {
+          now,
+          slots,
+        }).map((i) => [i.content.id, i.lane]),
+      ),
+    ).toEqual({ m: "cleanup", l: "open", o: "open" });
+    // Without the mission the draft would have stayed an open action.
+    expect(
+      approvalLanes([fromMission], [], [], { now }).map((i) => i.lane),
+    ).toEqual(["open"]);
+  });
+
+  it("groups channel copies with their original, the original first", () => {
+    const items = [
+      row("ig", { status: "needs_review", sharedFrom: { contentId: "fb" } }),
+      row("solo", { status: "needs_review" }),
+      row("fb", { status: "needs_review" }),
+    ].map((content) => ({ content }));
+    expect(
+      groupByBase(items).map((g) => ({
+        baseId: g.baseId,
+        ids: g.items.map((i) => (i.content as { id: string }).id),
+      })),
+    ).toEqual([
+      { baseId: "fb", ids: ["fb", "ig"] },
+      { baseId: "solo", ids: ["solo"] },
+    ]);
   });
 });

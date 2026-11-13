@@ -83,7 +83,7 @@ Set each flag in the Coolify environment (shared by `api`, `worker` and `mcp`) a
 
 1. **A4 `ORBIT_MCP_OAUTH=true`.** Smoke:
    - `<APP_ORIGIN>/.well-known/oauth-authorization-server/api/auth` answers 200 JSON with `issuer` `<APP_ORIGIN>/api/auth`, `code_challenge_methods_supported` `["S256"]` and `authorization_response_iss_parameter_supported` `true`; `<APP_ORIGIN>/api/auth/jwks` answers 200.
-   - Settings → Connected apps is visible; `/connect` renders.
+   - Administration & settings → My account → Connections → Connected apps is visible; `/connect` renders.
    - The gateway is still disabled: the `--disabled` smoke from A3 still passes.
 2. **A5 `ORBIT_MCP_GATEWAY=true`.** The `mcp` log shows "listening", and the health check answers `{"status":"ok"}`. Smoke without a token:
    `MCP_SMOKE_URL=<APP_ORIGIN>/mcp MCP_SMOKE_WEB_URL=<APP_ORIGIN> MCP_SMOKE_SKIP_SEARCH=1 node scripts/mcp-smoke.ts`
@@ -99,7 +99,7 @@ Q-21/Q-23: check first that Mario's ChatGPT plan offers developer mode with cust
 2. Create a connector: MCP server URL `<APP_ORIGIN>/mcp`, authentication OAuth. ChatGPT discovers the PRM, the authorization server and registers by its client metadata document (`chatgpt.com` is the only allowed CIMD host; DCR stays off).
 3. Sign in to Orbit if asked; on the consent step select the workspace and projects and **untick `orbit:propose`** (read only; `ORBIT_MCP_PROPOSALS` is off anyway).
 4. In a chat with the connector: ask for the projects (`orbit_projects`), a knowledge question (`search`, then `fetch` with citations that open Orbit or the canonical source), and the marketing status (`marketing_project_status`).
-5. Revoke the grant in Settings → Connected apps; the next ChatGPT call must fail and ChatGPT must offer to reconnect. Reconnect afterwards if the connector stays in use.
+5. Revoke the grant in Administration & settings → My account → Connections → Connected apps; the next ChatGPT call must fail and ChatGPT must offer to reconnect. Reconnect afterwards if the connector stays in use.
 6. Record the result in `docs/IMPLEMENTATION_STATUS.md` (Track M) without tokens, ids of real users or conversation content.
 
 ## MCP Inspector (A7)
@@ -121,8 +121,8 @@ The Inspector is an external tool: its download (exact version, source, size) an
 
 Pick the narrowest step that stops the problem; each production change still needs Mario's OK unless the incident procedure in `.agentic/workflows/incident-fix.md` says otherwise.
 
-1. **One user's connection misbehaves**: revoke the grant (the user in Settings → Connected apps, or a workspace owner in the owner section). It takes effect on the next call; pending proposals of the grant are cancelled.
-2. **One client misbehaves** (for example a looping agent): revoke every grant of that client in the owner section. There is no single "disable client" action yet (see the security review). Removing its host from `ORBIT_MCP_CIMD_HOSTS` stops new registrations from that host.
+1. **One user's connection misbehaves**: revoke the grant (the user in Administration & settings → My account → Connections → Connected apps, or an organization owner in Administration & settings → the organization → Policies → Connected apps). It takes effect on the next call; pending proposals of the grant are cancelled.
+2. **One client misbehaves** (for example a looping agent): revoke every grant of that client in Administration & settings → the organization → Policies → Connected apps. There is no single "disable client" action yet (see the security review). Removing its host from `ORBIT_MCP_CIMD_HOSTS` stops new registrations from that host.
 3. **Proposals cause trouble**: per grant "Stop proposals" in Connected apps, or for everyone `ORBIT_MCP_PROPOSALS=false` (proposal tools vanish; already created requests stay pending for the owner to reject).
 4. **The gateway causes trouble**: `ORBIT_MCP_GATEWAY=false` and redeploy; the service drops to disabled mode, clients get 404. `ORBIT_MCP_OAUTH=false` also closes the OAuth server, `/connect` and Connected apps; access tokens expire within 10 minutes and are useless without the gateway.
 5. **Signing key suspected compromised**: first step 4 (no token is accepted while the gateway is off). Rotating the key means replacing the rows of the auth table `jwks` (Better Auth creates a new key when none exists); this deletes data and needs an explicit approval. Access tokens signed with the old key then fail (restart `mcp` to drop its 5-minute key cache). Refresh tokens are opaque and not signed, so revoke the affected grants as well if they may be exposed. This procedure is not rehearsed yet; rehearse it on a local database before relying on it.

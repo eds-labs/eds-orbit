@@ -31,6 +31,7 @@ import { renditionComponentsHold } from "../policy/rendition-rights.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
 import { exportAssetContent } from "../pipeline/content-export.ts";
+import { AI_LABEL_CODES } from "../brand/ai-labels.ts";
 import { afterDraftResolved } from "../agents/draft-delivery.ts";
 import {
   connectionVerified,
@@ -375,9 +376,12 @@ export async function sendDraftHandoff(
     if (humanEach && withoutImage && send.asset)
       throw new DomainError("STALE_APPROVAL", 409);
     try {
+      // The AI label gate (ADR 0028) runs on the exact bytes read here.
       const asset = withoutImage
         ? null
-        : await deps.readAsset(scope, send.asset);
+        : await deps.readAsset(scope, send.asset, undefined, {
+            publish: "marketing.postiz_draft",
+          });
       await assertHumanHandoffCurrent(scope, handoffId);
       if (humanEach && send.asset && !asset)
         throw new DomainError("ASSET_NOT_SUPPORTED", 409);
@@ -399,6 +403,8 @@ export async function sendDraftHandoff(
           "STALE_APPROVAL",
           "ASSIGNMENT_HUMAN_APPROVAL_REQUIRED",
           "MODULE_DISABLED",
+          // An unlabelled AI image blocks; it is never dropped (ADR 0028).
+          ...AI_LABEL_CODES,
         ].includes(error.code)
       )
         throw error;
@@ -508,7 +514,9 @@ async function sendSocialDraft(
     try {
       const asset = withoutImage
         ? null
-        : await deps.readAsset(scope, send.asset);
+        : await deps.readAsset(scope, send.asset, undefined, {
+            publish: "marketing.social_draft",
+          });
       await assertHumanHandoffCurrent(scope, handoffId);
       if (humanEach && send.asset && !asset)
         throw new DomainError("ASSET_NOT_SUPPORTED", 409);
@@ -524,6 +532,8 @@ async function sendSocialDraft(
           "STALE_APPROVAL",
           "ASSIGNMENT_HUMAN_APPROVAL_REQUIRED",
           "MODULE_DISABLED",
+          // An unlabelled AI image blocks; it is never dropped (ADR 0028).
+          ...AI_LABEL_CODES,
         ].includes(error.code)
       )
         throw error;

@@ -172,6 +172,88 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
       });
     });
 
+    it("reports the environment as names and booleans", async () => {
+      const dummies = {
+        OPENAI_API_KEY: `sk-dummy-${randomBytes(12).toString("hex")}`,
+        ANTHROPIC_API_KEY: `sk-ant-dummy-${randomBytes(12).toString("hex")}`,
+        GOOGLE_DRIVE_CLIENT_ID: `client-${randomBytes(12).toString("hex")}.apps.invalid`,
+        GOOGLE_DRIVE_CLIENT_SECRET: `gsecret-${randomBytes(12).toString("hex")}`,
+        ORBIT_CONNECTIONS_CUTOVER: "postiz,matomo",
+      };
+      const names = [...Object.keys(dummies), "ORBIT_MCP_PROPOSALS"];
+      const saved = Object.fromEntries(names.map((n) => [n, process.env[n]]));
+      Object.assign(process.env, dummies, { ORBIT_MCP_PROPOSALS: "true" });
+      try {
+        const r = await call("GET", "/api/admin/overview", p.admin);
+        expect(r.statusCode).toBe(200);
+        const environment = r.json().system.environment;
+        expect(Object.keys(environment).sort()).toEqual(
+          [
+            "aiFallbackKeys",
+            "connectionsCutover",
+            "credentialKeys",
+            "files",
+            "googleDriveApp",
+            "mcp",
+            "redis",
+          ].sort(),
+        );
+        expect(Object.keys(environment.mcp).sort()).toEqual(
+          [
+            "dcr",
+            "gateway",
+            "oauth",
+            "projectAdministration",
+            "projectConfiguration",
+            "proposals",
+            "tasks",
+          ].sort(),
+        );
+        expect(Object.keys(environment.redis).sort()).toEqual(["configured", "reachable"]);
+        expect(Object.keys(environment.files)).toEqual(["configured"]);
+        expect(Object.keys(environment.credentialKeys)).toEqual(["ring"]);
+        expect(environment.aiFallbackKeys).toEqual({ openai: true, anthropic: true });
+        expect(environment.googleDriveApp).toEqual({ configured: true });
+        expect(environment.mcp.proposals).toBe(true);
+        expect(environment.connectionsCutover).toEqual(["postiz", "matomo"]);
+        expect(typeof environment.redis.configured).toBe("boolean");
+        expect(typeof environment.redis.reachable).toBe("boolean");
+        expect(typeof environment.files.configured).toBe("boolean");
+        expect(typeof environment.credentialKeys.ring).toBe("boolean");
+        // REDIS_URL and CREDENTIAL_KEYS stay as the test environment has them
+        // (changing them would break the app's Redis client and key ring);
+        // their values are asserted absent as well.
+        const body = JSON.stringify(r.json());
+        const secrets = [
+          ...Object.values(dummies).filter((v) => v !== dummies.ORBIT_CONNECTIONS_CUTOVER),
+          process.env.REDIS_URL,
+          process.env.CREDENTIAL_KEYS,
+        ].filter((v): v is string => Boolean(v));
+        for (const value of secrets) expect(body).not.toContain(value);
+        for (const url of [process.env.REDIS_URL].filter(Boolean))
+          expect(body).not.toContain(new URL(url!).hostname);
+        expect(body).not.toContain(".apps.invalid"); // the dummy client id's host
+      } finally {
+        for (const n of names)
+          if (saved[n] === undefined) delete process.env[n];
+          else process.env[n] = saved[n];
+      }
+    });
+
+    it("keeps the members' operations answer free of the environment status", async () => {
+      const r = await call("GET", `/api/projects/${projectId}/operations`, p.owner);
+      expect(r.statusCode).toBe(200);
+      // The fields runtimeHealth() answered before the status work; no redis.
+      expect(Object.keys(r.json().runtime).sort()).toEqual(
+        ["lastHeartbeat", "observedAt", "queues", "worker"].sort(),
+      );
+    });
+
+    it("keeps the overview for administrators only", async () => {
+      for (const who of [p.owner, p.member, p.outsider])
+        expect((await call("GET", "/api/admin/overview", who)).statusCode).toBe(404);
+    });
+
     it("hides every administration route while the flag is off", async () => {
       process.env.ORBIT_ADMINISTRATION = "false";
       try {
@@ -200,6 +282,11 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
       expect(Object.keys(owner.user).sort()).toEqual(
         ["email", "id", "image", "locale", "name"].sort(),
       );
+    });
+
+    it("keeps the constant settingsCenter field for older open tabs", async () => {
+      const me = (await call("GET", "/api/me", p.owner)).json();
+      expect(me.settingsCenter).toBe("on");
     });
 
     it("lists and searches users with their memberships", async () => {
@@ -375,6 +462,74 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
         (await call("POST", "/api/invitations/view", undefined, { token }))
           .statusCode,
       ).toBe(404);
+    });
+
+    it("shows a project owner only their own project's part of an invitation", async () => {
+      // A second project of the organization in which the member has no role.
+      const other = await authDb.project.create({
+        data: { workspaceId, name: "Synthetic second project" },
+      });
+      const membership = {
+        projectId_userId: { projectId, userId: p.member.id },
+      };
+      await authDb.projectMember.update({
+        where: membership,
+        data: { role: "owner" },
+      });
+      const email = address();
+      const list = (who: Person) =>
+        call("GET", `/api/projects/${projectId}/invitations`, who);
+      const invitationOf = (r: Awaited<ReturnType<typeof list>>) =>
+        (
+          r.json().items as Array<{
+            id: string;
+            email: string;
+            projects: Array<{ id: string; role: string }>;
+          }>
+        ).find((i) => i.email === email)!;
+      try {
+        const created = await call(
+          "POST",
+          `/api/organizations/${workspaceId}/invitations`,
+          p.owner,
+          {
+            email,
+            projects: [
+              { projectId, role: "editor" },
+              { projectId: other.id, role: "viewer" },
+            ],
+          },
+        );
+        expect(created.statusCode).toBe(201);
+        // The project owner is not an owner of the organization: the other
+        // project's name and role are not theirs to see.
+        const own = await list(p.member);
+        expect(own.statusCode).toBe(200);
+        expect(invitationOf(own).projects).toMatchObject([
+          { id: projectId, role: "editor" },
+        ]);
+        expect(invitationOf(own).projects).toHaveLength(1);
+        expect(own.body).not.toContain(other.id);
+        expect(own.body).not.toContain("Synthetic second project");
+        // The organization's owner still sees the whole invitation.
+        const whole = await list(p.owner);
+        expect(
+          invitationOf(whole)
+            .projects.map((x) => x.id)
+            .sort(),
+        ).toEqual([projectId, other.id].sort());
+        await call(
+          "DELETE",
+          `/api/organizations/${workspaceId}/invitations/${invitationOf(whole).id}`,
+          p.owner,
+        );
+      } finally {
+        await authDb.projectMember.update({
+          where: membership,
+          data: { role: "editor" },
+        });
+        await authDb.project.delete({ where: { id: other.id } });
+      }
     });
 
     it("refuses an invitation whose inviter lost the right to give it", async () => {

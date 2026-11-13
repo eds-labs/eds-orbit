@@ -733,6 +733,19 @@ async function carriesPackageImage(
   const { assetId, creativeId } = data(draft);
   if (!imageId || typeof assetId !== "string") return false;
   if (assetId === imageId) return true;
+  // The image's labelled derivative (ADR 0028) is the image on a post.
+  const attached = !/^[0-9a-f-]{36}$/i.test(assetId)
+    ? null
+    : await tx.entity.findFirst({
+        where: {
+          id: assetId,
+          kind: "assets",
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+        },
+        select: { data: true },
+      });
+  if (data(attached).labeledFrom === imageId) return true;
   if (typeof creativeId !== "string") return false;
   // A creative that no longer exists carries nothing; other errors stay errors (M5).
   const row = await findCreative(tx, scope, creativeId).catch((error) => {

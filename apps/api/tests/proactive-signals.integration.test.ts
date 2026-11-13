@@ -230,7 +230,7 @@ describe.skipIf(!enabled)("Proactive signals (ADR 0023)", () => {
     await f.runSubscriber(projectId, "platform.signal_budget_threshold");
     const notices = (await f.notices(projectId, f.owner)).filter((n) => n.kind === "ai_budget_threshold");
     expect(notices.map((n) => n.severity).sort()).toEqual(["attention", "urgent"]);
-    expect(notices.every((n) => n.link === `/p/${projectId}/settings?section=ai`)).toBe(true);
+    expect(notices.every((n) => n.link === `/manage/p/${projectId}/ai/budget`)).toBe(true);
     expect(provider.calls).toBe(0);
   });
 

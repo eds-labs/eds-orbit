@@ -4,11 +4,14 @@ import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   createPublicKey,
+  revocationRefused,
   revokePublicKey,
+  type KeyUses,
 } from "../../platform/http/public-api.ts";
-import type {
-  PublicRoute,
-  PublicRouteContext,
+import {
+  registeredPublicKeyUses,
+  type PublicRoute,
+  type PublicRouteContext,
 } from "../../platform/modules/contributions.ts";
 import {
   audit,
@@ -49,8 +52,17 @@ const ONLINE_MS = 120_000;
 const MAX_ANONYMOUS_CONVERSATIONS = 5;
 const MAX_MESSAGES_PER_10_MIN = 20;
 
-/** The inbox's public key for the widget; a new one revokes the old one. */
-export async function enableWidgetKey(scope: Scope, inboxId: string) {
+/**
+ * The inbox's public key for the widget; a new one revokes the old one.
+ * The inbox points at the new key before the old one is revoked, so the
+ * revocation's release (F-5) finds nothing to let go and audits nothing.
+ */
+export async function enableWidgetKey(
+  scope: Scope,
+  inboxId: string,
+  /** The modules' key uses; the registry's unless a test passes its own. */
+  uses: KeyUses = registeredPublicKeyUses(),
+) {
   const inbox = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     await requireSupport(tx, scope);
     return loadInbox(tx, scope, inboxId);
@@ -58,10 +70,6 @@ export async function enableWidgetKey(scope: Scope, inboxId: string) {
   if (inbox.archivedAt) throw new DomainError("INBOX_ARCHIVED", 409);
   if (!inbox.channels.includes("widget") || !inbox.allowedOrigins.length)
     throw new DomainError("INBOX_HAS_NO_WIDGET", 409);
-  if (inbox.publicClientKeyId)
-    await revokePublicKey(scope, inbox.publicClientKeyId).catch(
-      () => undefined,
-    );
   const key = await createPublicKey(scope, {
     moduleId: "support",
     allowedOrigins: inbox.allowedOrigins,
@@ -75,6 +83,15 @@ export async function enableWidgetKey(scope: Scope, inboxId: string) {
       inboxId,
       keyId: key.id,
     });
+    // Last, as the revocation's own write cannot join this transaction. A
+    // refused revocation (the old key gone) does not stop the new key; any
+    // other error may have aborted the transaction and surfaces.
+    if (inbox.publicClientKeyId)
+      await revokePublicKey(scope, inbox.publicClientKeyId, tx, uses).catch(
+        (error) => {
+          if (!revocationRefused(error)) throw error;
+        },
+      );
   });
   return { publicKey: key.publicKey, keyId: key.id };
 }

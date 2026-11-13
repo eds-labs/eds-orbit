@@ -12,6 +12,7 @@ import { workAttention } from "./attention";
 import { BoardView } from "./board";
 import { InitiativesView } from "./initiatives";
 import { workText } from "./labels";
+import { workAiCeilings } from "./ai-ceiling";
 import { workSettings } from "./settings";
 import { TaskListView } from "./tasks";
 import { MilestonesView, MyTasksView, WorkHome, WorkOverview } from "./views";
@@ -41,6 +42,7 @@ export const workWeb: WebModule = {
   // After Marketing (10), before Support (20): Q-P1-4, 2026-10-25.
   groupOrder: 15,
   settings: workSettings,
+  aiCeilings: workAiCeilings,
   attention: workAttention,
   actionRequests: workActionRequests,
   views: [

@@ -35,6 +35,7 @@ import { WorkspaceContext } from "@/components/workspace-context";
 import { webRegistry } from "@/modules/registry";
 import { ShellContext, type ShellContextValue } from "@/platform/shell/shell-context";
 import { navigationForFeatures, projectHref, routeTable } from "@/platform/shell/routes";
+import { shellLinks } from "@/platform/shell/shell-links";
 import { GoogleDriveSettings } from "@/components/google-drive";
 import { DrivePage } from "./drive-page";
 import type { DriveStatus, DriveToolbarProps } from "./api";
@@ -70,8 +71,10 @@ const listing = {
 const Upload = (_: DriveToolbarProps) => <span>toolbar-upload</span>;
 
 function render(node: React.ReactNode, { locale = "en" as Locale, owner = true } = {}) {
+  const hrefOf = (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!);
   const shell = {
-    hrefOf: (key: string) => projectHref(project.id, table.routes.find((r) => r.key === key)!),
+    hrefOf,
+    ...shellLinks({ hrefOf, projectId: "p1", map: (h) => h }),
     modules: [],
     drive: { fileActions: [], toolbar: [Upload] },
   } as unknown as ShellContextValue;
@@ -112,7 +115,7 @@ describe("Drive page", () => {
     answers.status = status({ enabled: false, connected: false });
     const html = render(<DrivePage />);
     expect(html).toContain("Google Drive is not set up for this project");
-    expect(html).toContain('href="/p/p1/settings?section=integrations"');
+    expect(html).toContain('href="/manage/p/p1/integrations/google-drive"');
   });
 
   it("asks a member without ownership to contact an owner", () => {
@@ -120,7 +123,9 @@ describe("Drive page", () => {
     answers.status = status({ enabled: false, connected: false });
     const html = render(<DrivePage />, { owner: false });
     expect(html).toContain("Ask a project owner to connect Google Drive.");
-    expect(html).not.toContain("section=integrations");
+    // No link to the center's Drive section: a member may not manage it.
+    expect(html).not.toContain("google-drive");
+    expect(html).not.toContain("/manage/");
   });
 
   it("explains a required reconnect", () => {

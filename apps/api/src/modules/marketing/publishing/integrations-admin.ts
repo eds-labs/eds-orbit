@@ -93,7 +93,7 @@ async function driveView(tx: DbTx, scope: Scope) {
     rootName: data(storage).rootName ?? null,
     enabled: data(storage).enabled === true,
     setup:
-      "Connecting Google Drive needs the owner's Google consent in a browser: Orbit → Settings → Integrations → Google Drive. A folder named like the project becomes the root automatically.",
+      "Connecting Google Drive needs the owner's Google consent in a browser: Administration & settings → Integrations → Google Drive. A folder named like the project becomes the root automatically.",
   };
 }
 
@@ -442,7 +442,7 @@ const verify = defineTool({
           code: result.rootAccessible ? null : "DRIVE_ROOT_REQUIRED",
           cause: result.rootAccessible
             ? null
-            : "Choose and enable a root folder in Orbit → Settings → Integrations → Google Drive.",
+            : "Choose and enable a root folder in Administration & settings → Integrations → Google Drive.",
           details: { account: result.account },
         };
       } else {

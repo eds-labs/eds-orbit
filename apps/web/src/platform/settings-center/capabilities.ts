@@ -1,0 +1,105 @@
+"use client";
+import { useResource, type ApiError } from "@/lib/api";
+import { defaultScope, manageHref } from "./routes";
+import type {
+  Capability,
+  ManageScope,
+  ManageTarget,
+  ManagementCapabilities,
+} from "./types";
+
+/**
+ * What the member may do in the settings center. Requested only while
+ * `enabled`: pages other than /manage never need it, and a visitor without a
+ * session must not request it.
+ */
+export function useManagementCapabilities(enabled: boolean): {
+  data: ManagementCapabilities | null;
+  loading: boolean;
+  error: ApiError | null;
+  /** Whether `error` is the answer to the current request, not an earlier one. */
+  failed: boolean;
+  refresh(): void;
+} {
+  const path = enabled ? "/management/capabilities" : null;
+  const { data, loading, error, refresh, errorPath } =
+    useResource<ManagementCapabilities>(path);
+  return { data, loading, error, failed: error !== null && path !== null && errorPath === path, refresh };
+}
+
+/**
+ * The page part of the document title on /manage, from the kind of
+ * `centerState` (null: not a /manage place). Where the center shows no page
+ * (a scope the member cannot open) the address is not found, so the title
+ * says so too.
+ */
+export function manageTitleKey(
+  centerKind: CenterState["kind"] | null,
+): "manageTitle" | "notFound" | null {
+  if (centerKind === null) return null;
+  return centerKind === "notFound" ? "notFound" : "manageTitle";
+}
+
+export type CenterState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "redirect"; href: string }
+  | { kind: "notFound" }
+  | {
+      kind: "scope";
+      scope: ManageScope;
+      capabilities: readonly Capability[];
+      /** Organization or project name; "" for system and account. */
+      name: string;
+    };
+
+/**
+ * What the shell shows at a /manage address. Pure, so the shell only maps
+ * the result to a view. A scope the capabilities do not list is not found,
+ * whether it does not exist or the member's role does not include it.
+ */
+export function centerState(input: {
+  target: ManageTarget;
+  caps: ManagementCapabilities | null;
+  loading: boolean;
+  error: { message: string } | null;
+  lastProjectId: string | null;
+}): CenterState {
+  const { target, caps, error } = input;
+  if (error) return { kind: "error", message: error.message };
+  if (!caps) return { kind: "loading" };
+  const scope = target.scope;
+  if (!scope) {
+    const next = defaultScope(caps, input.lastProjectId);
+    return next
+      ? { kind: "redirect", href: manageHref(next) }
+      : { kind: "notFound" };
+  }
+  const found = (
+    capabilities: readonly Capability[],
+    name = "",
+  ): CenterState =>
+    capabilities.length
+      ? { kind: "scope", scope, capabilities, name }
+      : { kind: "notFound" };
+  switch (scope.kind) {
+    case "system":
+      return found(caps.system);
+    case "account":
+      return found(caps.account);
+    case "organization": {
+      const organization = caps.organizations.find(
+        (o) => o.id === scope.organizationId,
+      );
+      return organization
+        ? found(organization.capabilities, organization.name)
+        : { kind: "notFound" };
+    }
+    case "project": {
+      const project = caps.projects.find((p) => p.id === scope.projectId);
+      return project
+        ? found(project.capabilities, project.name)
+        : { kind: "notFound" };
+    }
+  }
+}

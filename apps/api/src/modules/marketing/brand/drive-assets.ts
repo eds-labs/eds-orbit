@@ -5,6 +5,11 @@ import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, DomainError, list, update } from "../../../shared.ts";
 import {
+  readUploadProvenance,
+  recordUploadProvenance,
+  uploadAssetFields,
+} from "./ai-labels.ts";
+import {
   driveAccessToken as accessToken,
   driveChildren as children,
   driveContains as isWithin,
@@ -62,6 +67,9 @@ export async function importDriveFile(
     !meta.mimeType.startsWith("image/")
   )
     throw new DomainError("GOOGLE_DRIVE_IMAGE_REQUIRED", 415);
+  // No bytes are read here, so no provenance is recorded (ADR 0028 §6): the
+  // publish gate checks the bytes whenever they are read for an outbound
+  // path, including their own XMP/C2PA declaration of AI.
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const prior = (await list(tx, scope, "assets")).find(
       (row) => data(row).driveFileId === fileId,
@@ -209,9 +217,16 @@ export async function saveGeneratedAsset(
       },
     ));
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const current = await tx.entity.findUniqueOrThrow({
-      where: { id: assetId },
+    // The project explicitly, not only through row-level security.
+    const current = await tx.entity.findFirst({
+      where: {
+        id: assetId,
+        kind: "assets",
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+      },
     });
+    if (!current) throw new DomainError("NOT_FOUND", 404);
     const storageRow = await one(tx, scope, "drive_storage");
     if (
       storageRow &&
@@ -321,6 +336,13 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       : Buffer.from(normalized.base64, "base64");
   if (bytes.length > 5_000_000)
     throw new DomainError("ASSET_UPLOAD_TOO_LARGE", 413);
+  // ADR 0028 §6: what the original bytes declare (normalizing strips their
+  // XMP and C2PA), with a label they carry checked on the bytes stored in
+  // Drive (PNG or WebP); null with the label flag off.
+  const upload = await readUploadProvenance(
+    Buffer.from(assetInput.base64, "base64"),
+    bytes,
+  );
   const slug =
     input.name
       .normalize("NFKD")
@@ -346,8 +368,8 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       body,
     },
   );
-  return scoped(scope.workspaceId, scope.projectId, (tx) =>
-    create(tx, scope, "assets", {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const asset = await create(tx, scope, "assets", {
       name: input.name,
       type: input.type,
       mime,
@@ -371,12 +393,28 @@ export async function uploadUserRaster(scope: Scope, raw: unknown) {
       driveSyncStatus: "SYNCED",
       uploadedBy: scope.userId,
       uploadedAt: new Date().toISOString(),
-    }),
-  );
+      ...uploadAssetFields(upload),
+    });
+    // The record follows the bytes stored in Drive (PNG or WebP).
+    await recordUploadProvenance(tx, scope, {
+      upload,
+      stored: bytes,
+      assetId: asset.id,
+    });
+    return asset;
+  });
 }
 export async function markSyncFailed(scope: Scope, assetId: string) {
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const row = await tx.entity.findUniqueOrThrow({ where: { id: assetId } });
+    const row = await tx.entity.findFirst({
+      where: {
+        id: assetId,
+        kind: "assets",
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+      },
+    });
+    if (!row) throw new DomainError("NOT_FOUND", 404);
     const attempts = Math.min(5, Number(data(row).driveRetryAttempts ?? 0) + 1);
     return update(tx, scope, row, {
       ...data(row),

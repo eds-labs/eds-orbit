@@ -1,9 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
 import { AppLink } from "@/platform/ui/app-link";
+import { PageHeadLevel } from "@/platform/ui/collection";
+import { manageHref } from "@/platform/settings-center/routes";
 import { action, useMutation, useResource } from "@/lib/api";
 import {
   Alert,
@@ -29,20 +31,89 @@ type Repo = {
   private: boolean;
 };
 
-/** The one-time GitHub App setup, apart from adding a repository as knowledge. */
-export function KnowledgeGithubPage() {
+/** Where the GitHub App is configured: the settings center's section. */
+function useGithubSettingsHref(): string {
+  const { project } = useWorkspace();
+  return manageHref(
+    { kind: "project", projectId: project.id },
+    "integrations",
+    "knowledge",
+    "github",
+  );
+}
+
+/**
+ * The module's tab only states whether the App is
+ * configured and leads to its section; the form lives there. A reader cannot
+ * read the state (the endpoint is for owners), so it gets the page's
+ * read-only text instead of a guess.
+ */
+export function GithubAppSummary() {
   const { project, locale, isOwner } = useWorkspace();
-  const shell = useShell();
+  const href = useGithubSettingsHref();
   const t = knowledgeCopy[locale];
   const status = useResource<{ configured: boolean }>(
     isOwner ? `/projects/${project.id}/knowledge/github` : null,
   );
-  if (!isOwner) return <Alert>{t.readOnly}</Alert>;
   return (
     <div className="knowledge-workspace stack-gap">
       <header className="knowledge-heading">
         <div>
           <h1>{t.configure}</h1>
+          <p>{t.githubManaged}</p>
+        </div>
+      </header>
+      {!isOwner && <Alert>{t.readOnly}</Alert>}
+      {isOwner && status.loading && <Loading label={t.configure} />}
+      {isOwner && status.error && (
+        <WorkspaceError code={status.error.message} t={t} />
+      )}
+      {isOwner && status.data && (
+        <p>
+          <Badge tone={status.data.configured ? "success" : "neutral"}>
+            {status.data.configured ? t.githubConfigured : t.githubMissing}
+          </Badge>
+        </p>
+      )}
+      <p>
+        <AppLink className="text-link" href={href}>
+          {t.githubOpen}
+        </AppLink>
+      </p>
+    </div>
+  );
+}
+
+/** The one-time GitHub App setup, apart from adding a repository as knowledge. */
+export function KnowledgeGithubPage() {
+  const { project, locale, isOwner } = useWorkspace();
+  const shell = useShell();
+  // One h1 per page: the settings center owns it and provides "h2".
+  const level = useContext(PageHeadLevel);
+  const Heading = level;
+  const t = knowledgeCopy[locale];
+  const status = useResource<{ configured: boolean }>(
+    isOwner ? `/projects/${project.id}/knowledge/github` : null,
+  );
+  // In the center the section has no head of its own, so a reader keeps one.
+  if (!isOwner)
+    return level === "h2" ? (
+      <div className="knowledge-workspace stack-gap">
+        <header className="knowledge-heading">
+          <div>
+            <Heading>{t.configure}</Heading>
+          </div>
+        </header>
+        <Alert>{t.readOnly}</Alert>
+      </div>
+    ) : (
+      <Alert>{t.readOnly}</Alert>
+    );
+  return (
+    <div className="knowledge-workspace stack-gap">
+      <header className="knowledge-heading">
+        <div>
+          <Heading>{t.configure}</Heading>
           <p>{t.githubSetupHint}</p>
         </div>
         <AppLink className="text-link" href={shell.hrefOf("knowledge-import")}>
@@ -141,7 +212,7 @@ export function GithubSource({
   beforeConnect: () => Promise<string | null>;
 }) {
   const { project } = useWorkspace();
-  const shell = useShell();
+  const settingsHref = useGithubSettingsHref();
   const status = useResource<Github>(
     `/projects/${project.id}/knowledge/github`,
   );
@@ -158,10 +229,7 @@ export function GithubSource({
       {status.data && !status.data.configured && (
         <Alert>
           <p>{t.githubNotSetUp}</p>
-          <AppLink
-            className="text-link"
-            href={shell.hrefOf("knowledge-github")}
-          >
+          <AppLink className="text-link" href={settingsHref}>
             {t.githubSetUpLink}
           </AppLink>
         </Alert>

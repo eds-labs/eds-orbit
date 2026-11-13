@@ -220,12 +220,59 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     expect(JSON.stringify(out)).not.toMatch(/connectionId|token/i);
   });
 
+  it("lists disconnected accounts apart, and never another project's account with the same platform id", async () => {
+    const externalId = randomUUID();
+    const row = (tx: DbTx, project: typeof p, extra: object) =>
+      tx.socialAccount.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          connectionId: randomUUID(),
+          platform: "facebook",
+          externalId,
+          handle: "@uliquid_test",
+          displayName: "Synthetic Desk",
+          capability: "write_verified",
+          createdBy: project.owner.userId,
+          ...extra,
+        },
+      });
+    const disabledAt = new Date("2026-11-01T08:00:00.000Z");
+    const archived = (await p.run((tx) => row(tx, p, { status: "disabled", disabledAt }))).id;
+    // The same Page connected in project B is B's account only.
+    const foreign = (await other.run((tx) => row(tx, other, {}))).id;
+    const out = await op("social_accounts", {});
+    const live = out.result.items.map((a: { accountId: string }) => a.accountId);
+    expect(live).toEqual(expect.arrayContaining([x, telegram]));
+    expect(live).not.toContain(archived);
+    expect(live).not.toContain(foreign);
+    expect(out.result.archivedAccounts).toEqual([
+      {
+        accountId: archived,
+        platform: "facebook",
+        handle: "@uliquid_test",
+        displayName: "Synthetic Desk",
+        status: "disabled",
+        disabledAt: disabledAt.toISOString(),
+      },
+    ]);
+    expect(JSON.stringify(out)).not.toContain(foreign);
+    expect(JSON.stringify(out.result.archivedAccounts)).not.toMatch(/connectionId|token|capability|textLimit/i);
+    // Project B sees its own live account and nothing of A's.
+    const otherGrant = await grantFor(other.owner, ALL);
+    const { tool, scope } = await authorizeMcpCall(otherGrant, "social_accounts", other.owner.projectId);
+    const otherOut = (await tool.execute(context(scope, otherGrant), {})).output as any;
+    expect(otherOut.result.items.map((a: { accountId: string }) => a.accountId)).toEqual([foreign]);
+    expect(otherOut.result.archivedAccounts).toEqual([]);
+  });
+
   it("reads the calendar of at most 31 days, filtered, with a truncation marker", async () => {
     const a = await timed("December launch", "2026-12-10T09:00:00Z", [x, telegram]);
     const b = await timed("Telegram only", "2026-12-12T09:00:00Z", [telegram]);
     const out = await op("social_calendar", { from: "2026-12-01T00:00:00Z", to: "2026-12-31T00:00:00Z" });
     expect(out.result.items.map((i: { postId: string }) => i.postId)).toEqual([a, b]);
-    expect(out.result.items[0]).toMatchObject({ excerpt: "December launch", status: "draft", accounts: [expect.anything(), expect.anything()] });
+    expect(out.result.items[0]).toMatchObject({ excerpt: "December launch", status: "draft", originRef: null, accounts: [expect.anything(), expect.anything()] });
     expect(out.result.truncated).toBe(false);
     const filtered = await op("social_calendar", { from: "2026-12-01T00:00:00Z", to: "2026-12-31T00:00:00Z", platforms: ["x"] });
     expect(filtered.result.items.map((i: { postId: string }) => i.postId)).toEqual([a]);
@@ -238,6 +285,8 @@ describe.skipIf(!enabled)("social MCP tools (SQL, no provider call)", () => {
     expect(post.result).toMatchObject({
       postId: id,
       status: "draft",
+      // Written here: no other module's record behind it.
+      originRef: null,
       version: expect.any(Number),
       variants: [expect.objectContaining({ accountId: x, platform: "x", body: "Read me back", issues: expect.any(Array) })],
       publications: [],

@@ -19,7 +19,7 @@ export async function deliverMessage(
   scope: Scope,
   ticket: TicketRow,
   message: MessageRow,
-  options: { automatic?: boolean } = {},
+  options: { automatic?: boolean; byPerson?: boolean } = {},
 ): Promise<string> {
   const markSent = async () => {
     await tx.supportMessage.update({

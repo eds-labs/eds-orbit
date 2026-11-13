@@ -108,12 +108,16 @@ async function providerRedirect(
   return result.url;
 }
 
+/** Whether the OAuth connect and grant routes exist (ORBIT_MCP_OAUTH). */
+export const mcpConnectEnabled = (config: Pick<Config, "ORBIT_MCP_OAUTH">) =>
+  config.ORBIT_MCP_OAUTH === "true";
+
 export function registerMcpConnectRoutes(
   app: FastifyInstance,
   auth: Auth,
   config: Pick<Config, "ORBIT_MCP_OAUTH" | "APP_ORIGIN">,
 ) {
-  if (config.ORBIT_MCP_OAUTH !== "true") return;
+  if (!mcpConnectEnabled(config)) return;
 
   app.get("/api/mcp-connect/request", async (req) => {
     const { user, session } = await sessionFor(auth, req);

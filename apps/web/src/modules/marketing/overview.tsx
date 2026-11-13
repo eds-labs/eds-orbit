@@ -37,6 +37,7 @@ import {
 import { useWorkspace } from "@/components/workspace-context";
 import { AppLink } from "@/platform/ui/app-link";
 import { useAttention } from "@/platform/shell/attention";
+import { useShell } from "@/platform/shell/shell-context";
 import { Metric } from "@/platform/ui/metric";
 import {
   PageHead,
@@ -221,6 +222,7 @@ function NextPosts({
 /** The marketing overview, the root of the Marketing module. */
 export function MarketingOverview() {
   const { project, t, locale, revision, canEdit } = useWorkspace();
+  const shell = useShell();
   const marketing = useMarketingAccess();
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
@@ -307,7 +309,7 @@ export function MarketingOverview() {
               </div>
               <Button asChild variant="outline">
                 {/* The mode and its mandate are the marketing policy. */}
-                <AppLink href="/settings?section=policy">
+                <AppLink href={shell.projectCenterHref("modules", "marketing", "policy")}>
                   {t("reviewSetup")}
                 </AppLink>
               </Button>
@@ -406,7 +408,7 @@ export function MarketingOverview() {
                     label={t("projectCreated")}
                     status={t("complete")}
                     ready
-                    href="/settings"
+                    href={shell.projectCenterHref("overview")}
                   />
                   <Readiness
                     icon={FileText}
@@ -428,7 +430,7 @@ export function MarketingOverview() {
                         : t("notConfigured")
                     }
                     ready={(d.counts.connectedConnectors ?? 0) > 0}
-                    href="/connectors"
+                    href={shell.projectCenterHref("integrations", "connections")}
                   />
                   <Readiness
                     icon={Wallet}
@@ -440,7 +442,7 @@ export function MarketingOverview() {
                     }
                     ready={d.budget.dailyLimitMicros !== null}
                     // The AI spending authority is the platform's (ADR 0015).
-                    href="/settings?section=ai"
+                    href={shell.projectCenterHref("ai")}
                   />
                 </div>
                 {d.readiness.actions && (

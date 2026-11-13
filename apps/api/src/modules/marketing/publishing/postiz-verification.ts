@@ -1,4 +1,5 @@
 import { exportAssetContent } from "../pipeline/content-export.ts";
+import { aiLabelBlocker, assertAssetPublishable } from "../brand/ai-labels.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -48,6 +49,27 @@ export const postizVerificationApproval = z
   .strict();
 const run = <T>(s: Scope, work: (tx: DbTx) => Promise<T>) =>
   scoped(s.workspaceId, s.projectId, work);
+const LABEL_CONTEXT = "marketing.postiz_verification";
+/** The asset and bytes an AI label refusal inside `approvedAsset` was about. */
+const LABEL_REFUSAL = Symbol("aiLabelRefusal");
+/**
+ * `run` for work that checks a test asset's AI label (ADR 0028): the
+ * refusal rolls the work back, so the gate runs once more in its own
+ * project transaction (`assertAssetPublishable`), which commits the
+ * `image.ai_label.blocked` audit record before the refusal is thrown.
+ */
+async function runLabelGated<T>(s: Scope, work: (tx: DbTx) => Promise<T>) {
+  try {
+    return await run(s, work);
+  } catch (error) {
+    const refusal = (error as { [LABEL_REFUSAL]?: { asset: Record<string, any>; bytes: Buffer } } | null)?.[
+      LABEL_REFUSAL
+    ];
+    if (refusal)
+      await assertAssetPublishable(s, refusal.asset, refusal.bytes, LABEL_CONTEXT);
+    throw error;
+  }
+}
 async function owner(s: Scope) {
   if (
     s.role !== "owner" ||
@@ -136,6 +158,16 @@ async function approvedAsset(
     bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
   )
     throw new DomainError("POSTIZ_TEST_ASSET_INVALID", 409);
+  // A test post is public too: an AI image needs its valid label (ADR 0028).
+  // The audit record of a refusal is written by `runLabelGated`, outside
+  // this transaction, which the refusal rolls back.
+  const refused = await aiLabelBlocker(tx, s, a, bytes, LABEL_CONTEXT, {
+    audit: false,
+  });
+  if (refused)
+    throw Object.assign(new DomainError(refused, 409), {
+      [LABEL_REFUSAL]: { asset: a, bytes },
+    });
   const metadata = {
     assetId,
     version: row.version,
@@ -156,7 +188,7 @@ export async function preparePostizVerification(
   await owner(s);
   const input = postizVerificationInput.parse(raw);
   const file = input.assetId ? await readAssetFile(s, input.assetId) : null;
-  return run(s, async (tx) => {
+  return runLabelGated(s, async (tx) => {
     const row = await entity(tx, s, "connectors", input.connectorId),
       c = data(row);
     if (
@@ -233,7 +265,7 @@ export async function executePostizVerification(
     return d.status === "prepared" ? (d.asset?.assetId ?? null) : null;
   });
   const file = assetId ? await readAssetFile(s, assetId) : null;
-  const prepared = await run(s, async (tx) => {
+  const prepared = await runLabelGated(s, async (tx) => {
     const v = await entity(
         tx,
         s,
@@ -303,7 +335,7 @@ export async function executePostizVerification(
     }
     await owner(s);
     writes();
-    await run(s, async (tx) => {
+    await runLabelGated(s, async (tx) => {
       const row = await entity(
           tx,
           s,

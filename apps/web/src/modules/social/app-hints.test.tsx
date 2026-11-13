@@ -64,14 +64,18 @@ describe("developer app notice", () => {
       <AppHint app="x" state="project_not_granted" settingsHref={settings} locale="en" onHide={() => {}} />,
     );
     expect(en).toContain("X is not granted to this project yet");
-    expect(en).toContain("Connections → Grants");
+    expect(en).toContain(
+      "Administration &amp; settings → your organization → Integrations → Connections",
+    );
     expect(en).toMatch(/<a[^>]*href="\/o\/w1\/settings"[^>]*>Open organization settings<\/a>/);
     expect(en).toMatch(/<button[^>]*aria-label="Hide the X notice"[^>]*>Hide<\/button>/);
     const de = renderToStaticMarkup(
       <AppHint app="meta" state="project_not_granted" settingsHref={settings} locale="de" onHide={() => {}} />,
     );
     expect(de).toContain("Facebook und Instagram sind für dieses Projekt noch nicht freigegeben");
-    expect(de).toContain("Organisationseinstellungen unter Verbindungen → Freigaben");
+    expect(de).toContain(
+      "Verwaltung &amp; Einstellungen → deine Organisation → Integrationen → Verbindungen",
+    );
     expect(de).toContain(">Organisationseinstellungen öffnen</a>");
     expect(de).toContain(">Ausblenden</button>");
   });
@@ -81,8 +85,12 @@ describe("developer app notice", () => {
       <AppHint app="x" state="not_granted" settingsHref={settings} locale="de" onHide={() => {}} />,
     );
     expect(de).toContain("X ist noch nicht eingerichtet");
-    expect(de).toContain("Administration → Integrationen");
-    expect(de).toContain("Organisationseinstellungen unter Verbindungen → Freigaben");
+    expect(de).toContain(
+      "Verwaltung &amp; Einstellungen → Gesamtes System → Integrationen → Zentrale Verbindungen",
+    );
+    expect(de).toContain(
+      "Verwaltung &amp; Einstellungen → deine Organisation → Integrationen → Verbindungen",
+    );
     expect(de).not.toContain("Organisationseinstellungen öffnen");
     expect(de).toContain(">Ausblenden</button>");
   });

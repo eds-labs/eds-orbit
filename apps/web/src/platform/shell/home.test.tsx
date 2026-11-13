@@ -16,6 +16,8 @@ import { webRegistry } from "@/modules/registry";
 import { takeAssistantDraft } from "./assistant-draft";
 import { attentionRenderers, type AttentionState } from "./attention";
 import { AttentionList, attentionTarget } from "./attention-list";
+import { centerLink, moduleTabIndex } from "@/platform/settings-center/redirects";
+import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 import {
   greeting,
   ProjectHome,
@@ -25,6 +27,7 @@ import {
 import { attentionWhen } from "./relative-time";
 import { homeSections, navOrder, projectHref, routeTable } from "./routes";
 import { ShellContext, type ShellContextValue } from "./shell-context";
+import { shellLinks } from "./shell-links";
 
 const table = routeTable(webRegistry);
 const project = {
@@ -70,6 +73,11 @@ function shell(
   enabled: Record<string, boolean> = {},
 ): ShellContextValue {
   const nav = navOrder(table.routes.filter((r) => r.nav));
+  const hrefOf = (key: string) =>
+    projectHref(
+      project.id,
+      table.routes.find((r) => r.key === key)!,
+    );
   return {
     table,
     platformNav: nav.filter((r) => !r.moduleId),
@@ -82,11 +90,8 @@ function shell(
     homeSections: [
       { moduleId: "marketing", component: () => <p>marketing section</p> },
     ],
-    hrefOf: (key) =>
-      projectHref(
-        project.id,
-        table.routes.find((r) => r.key === key)!,
-      ),
+    hrefOf,
+    ...shellLinks({ hrefOf, projectId: "p1", map: (h) => h }),
     chat: [],
     actionRequests: {},
     attention,
@@ -319,6 +324,37 @@ describe("attentionTarget", () => {
       "/p/p1/knowledge",
     );
   });
+  it("returns a center address of the API unchanged, without a project prefix or route lookup", () => {
+    for (const link of [
+      "/manage/p/p1/ai/budget",
+      "/manage/p/p1/modules/marketing/policy",
+      "/manage/p/p1/integrations/google-drive?googleDrive=ready",
+    ]) {
+      expect(attentionTarget(link, "p1", table, on)).toBe(link);
+      // Not even a disabled module hides it: it is no page of the route table.
+      expect(attentionTarget(link, "p1", table, () => false)).toBe(link);
+    }
+    const seen: string[] = [];
+    attentionTarget("/manage/p/p1/ai/budget", "p1", table, on, (href) => {
+      seen.push(href);
+      return href;
+    });
+    expect(seen).toEqual([]);
+    // The bell's character check holds here too: a malformed center link
+    // gives no link, so the row shows without one.
+    for (const bad of [
+      "/manage/p/p1/a\\b",
+      "/manage/p/p1/a b",
+      "/manage/p/p1/a\u0009b",
+      "/manage/p/p1/a\u0000b",
+      "/manage/p/p1/a\u007fb",
+    ])
+      expect(attentionTarget(bad, "p1", table, on)).toBeNull();
+    // A relative old link keeps today's handling.
+    expect(attentionTarget("/settings?section=ai", "p1", table, on)).toBe(
+      "/p/p1/settings?section=ai",
+    );
+  });
   it("gives no target for an unknown or disabled page", () => {
     expect(attentionTarget("/nope", "p1", table, on)).toBeNull();
     expect(
@@ -332,6 +368,26 @@ describe("attentionTarget", () => {
         (id) => id !== "support",
       ),
     ).toBeNull();
+  });
+  it("renders an attention link as a center address when the flag is on", () => {
+    const map = (href: string) =>
+      centerLink(href, {
+        table,
+        tabs: moduleTabIndex(webRegistry.modules),
+        platformKeys: PLATFORM_TAB_KEYS,
+        moduleShown: () => true,
+      });
+    expect(attentionTarget("/settings?section=ai", "p1", table, on, map)).toBe(
+      "/manage/p/p1/ai",
+    );
+    expect(attentionTarget("/support/tickets?ticket=t1", "p1", table, on, map)).toBe(
+      "/p/p1/support/tickets?ticket=t1",
+    );
+    expect(attentionTarget("/nope", "p1", table, on, map)).toBeNull();
+    // The identity mapping (the default) keeps today's address.
+    expect(attentionTarget("/settings?section=ai", "p1", table, on)).toBe(
+      "/p/p1/settings?section=ai",
+    );
   });
 });
 

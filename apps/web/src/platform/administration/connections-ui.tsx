@@ -671,8 +671,8 @@ function GrantsDialog({
       description={
         toOrganization
           ? de
-            ? "Freigabe an eine Organisation und auf Wunsch gleich an ihre Projekte. Weitere Projekte geben Owner in den Organisationseinstellungen frei."
-            : "Grant to an organization and, if you like, to its projects in the same step. Owners grant further projects in the organization settings."
+            ? "Freigabe an eine Organisation und auf Wunsch gleich an ihre Projekte. Weitere Projekte geben Owner unter Verwaltung & Einstellungen → der Organisation → Integrationen → Verbindungen frei."
+            : "Grant to an organization and, if you like, to its projects in the same step. Owners grant further projects under Administration & settings → the organization → Integrations → Connections."
           : de
             ? "Freigabe an ein Projekt dieser Organisation."
             : "Grant to a project of this organization."

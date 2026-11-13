@@ -5,10 +5,18 @@ vi.mock("@/components/workspace-context", async (importOriginal) => ({
   useWorkspace: () => ({ project: { id: "p1" } }),
 }));
 import {
+  ShellContext,
+  type ShellContextValue,
+} from "@/platform/shell/shell-context";
+import { shellLinks } from "@/platform/shell/shell-links";
+import {
   supportDecisionRenderer,
   supportTaxonomyRenderer,
 } from "./action-requests";
 const View = supportDecisionRenderer.component;
+const shell = {
+  ...shellLinks({ hrefOf: () => "/", projectId: "p1", map: (h) => h }),
+} as unknown as ShellContextValue;
 
 describe("Support decision card", () => {
   it("shows the exact reply, recipient and ticket link with escaped message text", () => {
@@ -87,7 +95,9 @@ describe("Support taxonomy approval", () => {
       },
     };
     const html = renderToStaticMarkup(
-      <View de pending={true} decide={() => {}} item={item} />,
+      <ShellContext.Provider value={shell}>
+        <View de pending={true} decide={() => {}} item={item} />
+      </ShellContext.Provider>,
     );
     expect(html).toContain("Tag ändern");
     expect(html).toContain("Bisher");
@@ -95,7 +105,7 @@ describe("Support taxonomy approval", () => {
     expect(html).toContain("Blau");
     expect(html).toContain("&lt;script&gt;");
     expect(html).not.toContain("<script>");
-    expect(html).toContain("/p/p1/settings?section=support");
+    expect(html).toContain("/manage/p/p1/modules/support/settings");
     expect(html).not.toContain("ticket=");
     expect(html).toContain('disabled=""');
   });
@@ -125,7 +135,9 @@ describe("Support taxonomy approval", () => {
       }),
     ).toBe(false);
     const html = renderToStaticMarkup(
-      <View item={item} de={false} pending={false} decide={() => {}} />,
+      <ShellContext.Provider value={shell}>
+        <View item={item} de={false} pending={false} decide={() => {}} />
+      </ShellContext.Provider>,
     );
     expect(html).toContain("Delete category");
     expect(html).toContain("only while the key is unused");

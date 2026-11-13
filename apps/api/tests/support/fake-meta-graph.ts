@@ -5,7 +5,8 @@ import { setMetaAdsFetchForTests } from "../../src/modules/ads/providers/meta/tr
 export type FakeRequest = { method: string; path: string; query: URLSearchParams; form?: URLSearchParams; authorization: string | null };
 /** `text` is a raw body (e.g. HTML) and wins over `json`. */
 export type FakeReply = { status?: number; json?: unknown; text?: string; headers?: Record<string, string> } | { throw: ConnectorError };
-export type FakeHandler = (request: FakeRequest) => FakeReply;
+/** A handler may be async: it can change Orbit's state between a read and the write that follows it. */
+export type FakeHandler = (request: FakeRequest) => FakeReply | Promise<FakeReply>;
 
 const PREFIX = "/v27.0/";
 
@@ -32,7 +33,7 @@ export function createFakeMetaGraph() {
       misses.push(`${method} ${url.origin}${url.pathname}`);
       throw new Error(`Fake Meta Graph: no route for ${method} ${path}`);
     }
-    const reply = typeof route === "function" ? route(request) : route;
+    const reply = typeof route === "function" ? await route(request) : route;
     if ("throw" in reply) throw reply.throw;
     const status = reply.status ?? 200;
     // 204/205/304 must not carry a body: `new Response` throws otherwise.

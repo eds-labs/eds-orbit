@@ -98,7 +98,7 @@ describe.skipIf(!enabled)("Proactive delivery (ADR 0023)", () => {
         userIds,
         title: "Synthetic threshold title",
         body,
-        link: `/p/${f.businessId}/settings?section=ai`,
+        link: `/manage/p/${f.businessId}/ai/budget`,
         dedupeKey: key,
         severity,
       }),
@@ -167,7 +167,7 @@ describe.skipIf(!enabled)("Proactive delivery (ADR 0023)", () => {
     const messages = sent(TOKEN_A);
     expect(messages).toHaveLength(1);
     expect(messages[0]!.body.chat_id).toBe("1001");
-    expect(messages[0]!.body.text).toContain(`https://orbit.example/p/${f.businessId}/settings?section=ai`);
+    expect(messages[0]!.body.text).toContain(`https://orbit.example/manage/p/${f.businessId}/ai/budget`);
     expect(messages[0]!.body.text).not.toContain("secret body text");
     // The other user's bot got nothing for this notice.
     expect(sent(TOKEN_B)).toHaveLength(0);
@@ -228,7 +228,7 @@ describe.skipIf(!enabled)("Proactive delivery (ADR 0023)", () => {
     await runDigest(f.worker(viewerSpace.projectId), digestJob!.id);
     expect(mails).toHaveLength(1);
     expect(mails[0]!.text).toContain("Synthetic threshold title");
-    expect(mails[0]!.text).toContain(`https://orbit.example/p/${f.businessId}/settings?section=ai`);
+    expect(mails[0]!.text).toContain(`https://orbit.example/manage/p/${f.businessId}/ai/budget`);
     expect(calls.filter((c) => c.body.chat_id === "3003" && c.method === "sendMessage" && !isReply(c))).toHaveLength(1);
     // A second digest of a later slot finds nothing new.
     const later = new Date(Date.now() + 120_000).toISOString();

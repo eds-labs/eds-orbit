@@ -28,6 +28,16 @@ import { recordSpan, startRun, tracedRun } from "../../telemetry.ts";
 import { normalizeGeneratedPng } from "../../assets.ts";
 import { connectionStatus } from "../../../platform/connections/google-drive.ts";
 import { markSyncFailed, saveGeneratedAsset } from "./drive-assets.ts";
+import {
+  digitalSourceTypeFor,
+  readImageProvenance,
+  type EmbeddedProvenance,
+} from "../../../../../../packages/creative/src/index.ts";
+import {
+  aiImageLabelsEnabled,
+  recordUnlabeledSource,
+} from "../../../platform/provenance/image-provenance.ts";
+import { aiProvenanceField, type AiOrigin } from "./ai-labels.ts";
 
 export const imageGenerationInput = z
   .object({
@@ -350,6 +360,18 @@ async function generateProjectImageTraced(
         })
       : await provider(request);
     providerReturned = true;
+    // ADR 0028: what the provider's bytes declare (OpenAI embeds a C2PA
+    // manifest) is read before normalizing strips it, so the central record
+    // keeps it. An image made from reference photos is a substantial AI edit.
+    const labels = aiImageLabelsEnabled();
+    const aiOrigin: AiOrigin = withReferences
+      ? "ai_substantially_modified"
+      : "ai_generated";
+    let providerProvenance: EmbeddedProvenance | undefined;
+    if (labels)
+      providerProvenance = await readImageProvenance(generated.bytes).catch(
+        () => undefined,
+      );
     const normalized = await normalizeGeneratedPng(generated.bytes);
     const asset = await scoped(
       scope.workspaceId,
@@ -405,7 +427,25 @@ async function generateProjectImageTraced(
               }
             : {}),
           ...(prepared.grantedFields ?? {}),
+          // Raw art stays unlabelled source material (ADR 0028 §3).
+          ...(labels
+            ? {
+                aiProvenance: aiProvenanceField(
+                  aiOrigin,
+                  "unlabeled_source",
+                  digitalSourceTypeFor(aiOrigin),
+                ),
+              }
+            : {}),
         });
+        if (labels)
+          await recordUnlabeledSource(tx, scope, {
+            bytes: normalized.bytes,
+            origin: aiOrigin,
+            subject: { module: "marketing", kind: "asset", id: asset.id },
+            createdBy: scope.userId,
+            ...(providerProvenance ? { embedded: providerProvenance } : {}),
+          });
         await audit(tx, scope, "asset.generate_openai", asset.id, {
           model: generated.model,
           reservationId: prepared.reservationId,

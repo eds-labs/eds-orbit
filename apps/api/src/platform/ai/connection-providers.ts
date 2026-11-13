@@ -44,6 +44,8 @@ export const openAiConnectionProvider: ConnectionProvider = {
   // Embeddings use the text key, as they always have.
   purposes: ["text", "image"],
   label: { en: "OpenAI", de: "OpenAI" },
+  category: "ai",
+  authType: "api_key",
   check: (_connection, key) =>
     listModels("https://api.openai.com/v1/models", {
       authorization: `Bearer ${key}`,
@@ -54,6 +56,8 @@ export const anthropicConnectionProvider: ConnectionProvider = {
   scopes: ["system", "workspace"],
   purposes: ["text"],
   label: { en: "Anthropic Claude", de: "Anthropic Claude" },
+  category: "ai",
+  authType: "api_key",
   check: (_connection, key) =>
     listModels("https://api.anthropic.com/v1/models", {
       "x-api-key": key,

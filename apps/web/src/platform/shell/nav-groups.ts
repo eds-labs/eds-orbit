@@ -1,8 +1,11 @@
 import { labels } from "@/lib/i18n";
+import { moduleSectionId } from "@/platform/settings-center/registry";
+import { manageHref } from "@/platform/settings-center/routes";
 import {
   activeNavKey,
   navGroupOf,
   navOrder,
+  projectHref,
   routeEnabled,
   type Route,
 } from "./routes";
@@ -32,6 +35,11 @@ type GroupModule = {
 const PROJECT_LABEL: Label = {
   en: labels.en.navProject,
   de: labels.de.navProject,
+};
+// The settings center's name, as the account menu shows it.
+const CENTER_LABEL: Label = {
+  en: labels.en.manageTitle,
+  de: labels.de.manageTitle,
 };
 const MOBILE_LIMIT = 4;
 
@@ -82,17 +90,67 @@ export function buildNavGroups(
 /**
  * Gives each module group with a settings section its settings link (spec
  * §3.4), shown after the group's entries; `sectionHref` is the URL of a
- * settings section (settingsSectionHref).
+ * module's settings section (settingsSectionHref, or moduleSettingsHref).
  */
 export function withSettingsLinks(
   groups: readonly NavGroup[],
   modules: ReadonlyArray<{ id: string; settingsSection?: string }>,
-  sectionHref: (key: string) => string,
+  sectionHref: (key: string, moduleId: string) => string,
 ): NavGroup[] {
   return groups.map((group) => {
     const key = modules.find((m) => m.id === group.id)?.settingsSection;
-    return key ? { ...group, settingsHref: sectionHref(key) } : group;
+    return key ? { ...group, settingsHref: sectionHref(key, group.id) } : group;
   });
+}
+
+/**
+ * A module group's settings link (P5-R6). It opens the module's own section
+ * of the center (moduleSectionId), not the mapping of the old tab: a module
+ * on a platform tab key (Webmail on "integrations") would land on the
+ * platform's section, which does not hold its panel.
+ */
+export function moduleSettingsHref({
+  projectId,
+  platformKeys,
+}: {
+  projectId: string;
+  platformKeys: readonly string[];
+}): (key: string, moduleId: string) => string {
+  return (key, moduleId) =>
+    manageHref(
+      { kind: "project", projectId },
+      "modules",
+      ...moduleSectionId(moduleId, key, platformKeys).split("/"),
+    );
+}
+
+/**
+ * Settings center phase 5 (P5-D1): the project's settings entry opens the
+ * center under its name, and the connectors entry goes, as the center holds
+ * the connections.
+ */
+export function withCenterEntry(
+  groups: readonly NavGroup[],
+): readonly NavGroup[] {
+  return groups
+    .map((group) => ({
+      ...group,
+      entries: group.entries
+        .filter((r) => r.key !== "connectors")
+        .map((r) =>
+          r.key === "settings" && r.nav
+            ? { ...r, nav: { ...r.nav, label: CENTER_LABEL } }
+            : r,
+        ),
+    }))
+    .filter((g) => g.entries.length > 0);
+}
+
+/** The address of a sidebar entry; settings opens the center. */
+export function navEntryHref(route: Route, projectId: string): string {
+  return route.key === "settings"
+    ? manageHref({ kind: "project", projectId })
+    : projectHref(projectId, route);
 }
 
 /**

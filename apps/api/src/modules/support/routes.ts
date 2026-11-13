@@ -122,7 +122,7 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
   );
   app.post(`${BASE}/tickets/:ticketId/replies`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_REPLY, (tx, scope, p) =>
-      replyToTicket(tx, scope, ticket(p), req.body),
+      replyToTicket(tx, scope, ticket(p), req.body, { byPerson: true }),
     ),
   );
   // Reporting the ticket as a product issue (ADR 0018); the issue center's

@@ -4,7 +4,9 @@ import type { Route, RouteTable } from "./routes";
 import type {
   AgentSetup,
   AttentionRenderer,
+  AiCeiling,
   ConnectorProvider,
+  IntegrationContribution,
   Label,
   SettingsSection,
 } from "./types";
@@ -52,6 +54,27 @@ export type ShellContextValue = {
   homeSections: ReadonlyArray<{ moduleId: string; component: ComponentType }>;
   /** The URL of a page in the open project. */
   hrefOf: (key: string) => string;
+  /**
+   * The settings center address of a project settings section by its old tab
+   * key (an old address the shell maps; an address it cannot map stays).
+   */
+  settingsHref: (key: string) => string;
+  /**
+   * The open project's settings center address of an area and below
+   * ("ai", "budget" → /manage/p/<id>/ai/budget). Module files use it to name
+   * their section: the platform cannot import a module, and a module cannot
+   * import the center's route builder through the shell.
+   */
+  projectCenterHref: (area: string, ...rest: string[]) => string;
+  /** The project's connections: its place in the center. */
+  connectionsHref: () => string;
+  /** An organization's settings: its place in the center. */
+  organizationSettingsHref: (organizationId: string) => string;
+  /**
+   * An old settings address as its center address (attention links); when
+   * absent, the identity.
+   */
+  centerLink?: (href: string) => string;
   /** Chat parts of the modules, in registry order (WP2.3). */
   chat: ReadonlyArray<ChatExtension & { access?: string }>;
   /** Inbox views of action request types, by type (WP2.3). */
@@ -65,6 +88,10 @@ export type ShellContextValue = {
    * its group set (the module's id unless the section names one).
    */
   settings: readonly SettingsSection[];
+  /** Integration sections of the shown modules, each with its module's id. */
+  integrations?: ReadonlyArray<IntegrationContribution & { moduleId: string }>;
+  /** AI ceilings of the shown modules, each with its module's id. */
+  aiCeilings?: ReadonlyArray<AiCeiling & { moduleId: string }>;
   /** Setup links of the modules for the settings overview (WP2.3b). */
   setupLinks: readonly ComponentType[];
   /** Connector providers and extra cards of the modules (WP2.3b). */

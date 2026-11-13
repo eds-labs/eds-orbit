@@ -141,6 +141,31 @@ class FrameworkCheckTests(unittest.TestCase):
 
         self.assertTrue(any("ungültige YAML-Zeile" in message for message in reporter.errors))
 
+    @unittest.skipIf(check_framework.yaml is None, "PyYAML is not installed")
+    def test_yaml_check_accepts_compose_merge_tags(self) -> None:
+        self.write(
+            "infra/overlay/compose.yml",
+            "services:\n"
+            "  bridge:\n"
+            "    networks: !override\n"
+            "      - internal\n"
+            "    ports: !reset []\n",
+        )
+        reporter = check_framework.Reporter()
+
+        quietly(check_framework.check_yaml_files, reporter, False)
+
+        self.assertEqual([], reporter.errors)
+
+    @unittest.skipIf(check_framework.yaml is None, "PyYAML is not installed")
+    def test_yaml_check_still_rejects_other_tags(self) -> None:
+        self.write("unsafe.yaml", "value: !!python/object/apply:os.system ['true']\n")
+        reporter = check_framework.Reporter()
+
+        quietly(check_framework.check_yaml_files, reporter, False)
+
+        self.assertTrue(any("Ungültiges YAML in unsafe.yaml" in message for message in reporter.errors))
+
 
 if __name__ == "__main__":
     unittest.main()

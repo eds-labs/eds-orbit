@@ -100,6 +100,33 @@ export async function scoped<T>(
     }
   return result;
 }
+/**
+ * A read-only project transaction without the project lock: row-level
+ * security applies exactly as in `scoped()`, but no writer of the project can
+ * delay it. Only for reads that run on every request of a caller with a short
+ * timeout (the webmail bridge, ADR 0026); everything else uses `scoped()`.
+ */
+export async function scopedRead<T>(
+  workspaceId: string,
+  projectId: string,
+  fn: (tx: DbTx) => Promise<T>,
+  client: PrismaClient = db,
+): Promise<T> {
+  if (
+    !/^[\da-f-]{36}$/i.test(workspaceId) ||
+    !/^[\da-f-]{36}$/i.test(projectId)
+  )
+    throw new Error("Invalid scope");
+  return client.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      await tx.$executeRaw`SELECT set_config('app.workspace_id',${workspaceId},true)`;
+      await tx.$executeRaw`SELECT set_config('app.project_id',${projectId},true)`;
+      return fn(tx);
+    },
+    { maxWait: 4000, timeout: 8000 },
+  );
+}
 export function jsonSafe<T>(value: T): unknown {
   return JSON.parse(
     JSON.stringify(value, (_key, v) =>

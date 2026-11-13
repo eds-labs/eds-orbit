@@ -1,0 +1,96 @@
+/**
+ * Orbit design tokens (docs/DESIGN_SYSTEM.md) mapped onto Elastic's variables.
+ * Licensed under CC BY-SA 3.0, see ../LICENSE.
+ *
+ * Orbit's design system defines no dark palette. The dark values below are derived from
+ * its navy mode surface.
+ */
+
+@orbit-canvas:          #f7fcff;
+@orbit-canvas-glow:     #eef8ff;
+@orbit-text:            #071522;
+@orbit-muted:           #60738a;
+@orbit-primary:         #0969ff;
+@orbit-mode:            #0e2739;
+@orbit-mode-raised:     #1b3447;
+@orbit-border:          #dceaf4;
+@orbit-success:         #17725a;
+@orbit-warning:         #85651c;
+@orbit-error:           #ae3647;
+
+@orbit-font:            Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+@orbit-radius-control:  8px;
+@orbit-radius-panel:    12px;
+@orbit-radius-modal:    18px;
+@orbit-radius-modal-sm: 14px;
+
+@orbit-dark-text:       #e6f1fa;
+@orbit-dark-muted:      #9bb2c6;
+@orbit-dark-border:     #2c4a60;
+@orbit-dark-accent:     #5aa2ff;
+@orbit-dark-popover:    #0a1e2d;
+
+// Base colours
+@color-main:                #0969ff;
+@color-main-dark:           @orbit-mode;
+@color-black:               @orbit-text;
+@color-font:                @orbit-text;
+@color-link:                @orbit-primary;
+@color-border:              @orbit-border;
+@color-error:               @orbit-error;
+@color-success:             @orbit-success;
+@color-warning:             #f0c04a;
+@color-black-shade-text:    @orbit-muted;
+@color-black-shade-border:  @orbit-border;
+@color-black-shade-bg:      @orbit-canvas-glow;
+
+// Layout
+@color-layout-sidebar-background:   @orbit-canvas;
+@color-layout-list-background:      #fff;
+@color-layout-content-background:   #fff;
+@color-layout-header-background:    @orbit-canvas;
+@color-layout-footer-background:    @orbit-canvas;
+
+// Task menu: Orbit's navy mode surface
+@color-taskmenu-background:             @orbit-mode;
+@color-taskmenu-button-action:          @orbit-dark-accent;
+@color-taskmenu-button-action-hover:    @orbit-dark-accent;
+
+// Messages keep the text contrast of Orbit's status surfaces
+@color-message-warning-text:    @orbit-text;
+@color-input-border:            #c3d6e6;
+@color-input-placeholder:       @orbit-muted;
+@color-btn-secondary-background: @orbit-muted;
+@color-list-selected-background: #e4f0ff;
+@color-list-droptarget-background: #fff4db;
+@color-list-unread-status:      @orbit-warning;
+
+@color-attachmentlist-border:       @orbit-border;
+@color-attachmentlist-background:   @orbit-canvas;
+@color-messagepart-border:          @orbit-border;
+@color-messagepart-background:      @orbit-canvas;
+@color-image-upload-background:     @orbit-canvas-glow;
+@color-scrollbar-thumb:             #c3d6e6;
+@color-scrollbar-track:             @orbit-canvas-glow;
+
+// Dark mode, derived from the mode surface
+@color-dark-main:                       @orbit-primary;
+@color-dark-background:                 @orbit-mode;
+@color-dark-font:                       @orbit-dark-text;
+@color-dark-border:                     @orbit-dark-border;
+@color-dark-hint:                       @orbit-dark-muted;
+@color-dark-list-selected:              @orbit-dark-accent;
+@color-dark-list-selected-background:   @orbit-mode-raised;
+@color-dark-list-border:                @orbit-mode-raised;
+@color-dark-input-border:               #4c6b82;
+@color-dark-input-border-focus:         @orbit-dark-accent;
+@color-dark-input-addon-background:     @orbit-mode-raised;
+@color-dark-popover-background:         @orbit-dark-popover;
+@color-dark-popover-border:             @orbit-dark-border;
+@color-dark-scrollbar-thumb:            #4c6b82;
+@color-dark-scrollbar-track:            @orbit-mode;
+
+// System fonts only; Elastic's Roboto files are then never requested.
+.font-family {
+    font-family: @orbit-font;
+}

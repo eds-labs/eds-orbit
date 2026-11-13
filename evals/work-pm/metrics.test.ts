@@ -5,7 +5,7 @@ import { CEILING_MICROS, plan } from "./live-plan.ts";
 
 const members = new Set(["u-editor-0002"]);
 // Within the rate card's validity, so the plan does not depend on today.
-const NOW = new Date("2026-10-25T12:00:00Z");
+const NOW = new Date("2026-11-12T12:00:00Z");
 
 describe("AI project manager eval (WP2.11)", () => {
   it("passes good plans and names every failed threshold", () => {

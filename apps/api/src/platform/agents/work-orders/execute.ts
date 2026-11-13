@@ -248,9 +248,29 @@ async function failureNotice(tx: DbTx, scope: Scope, row: WorkOrderRow, code: st
     kind: "agent_work_failed",
     userIds: [row.sponsorUserId!],
     title: "An agent run did not finish",
-    body: `Code: ${code}`,
+    body: failureNoticeBody(code),
     link: `/p/${scope.projectId}/agents/${row.agentId}/executions/${row.id}`,
   });
+}
+
+// What the sponsor reads for the codes that need an owner's change; the
+// code stays at the end for support. Content-free: codes and settings only.
+const FAILURE_TEXTS: Record<string, string> = {
+  AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA:
+    "The agent's tools read customer data, which may only go to OpenAI. Nothing was sent or reserved. Set the agent's route to a verified OpenAI model (Administration & settings → AI → Models); Orbit does not switch the provider by itself.",
+  AGENT_OUTCOME_UNKNOWN:
+    "A paid call may have reached the provider before the run was lost. Orbit does not send it again; check the result before you start the run again.",
+  AGENT_BUDGET_EXHAUSTED:
+    "The agent's budget is used up. Raise it or wait for the next period.",
+  POLICY_REQUIRED:
+    "The project has no AI spending authority (Administration & settings → AI → Budget).",
+  PROJECT_PAUSED: "The project is paused; resume it under Operations.",
+};
+
+/** The notice body for a failure code: a readable sentence plus the code. */
+export function failureNoticeBody(code: string) {
+  const text = FAILURE_TEXTS[code];
+  return text ? `${text} (${code})` : `Code: ${code}`;
 }
 
 function principalOf(row: WorkOrderRow): AgentPrincipal {

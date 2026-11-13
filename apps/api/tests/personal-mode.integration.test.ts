@@ -55,7 +55,7 @@ import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { moduleRegistry } from "../src/modules/registry.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
-import { create, data } from "../src/shared.ts";
+import { create, data, update } from "../src/shared.ts";
 import { runChatJob } from "../src/platform/assistant/chat-runner.ts";
 import {
   createConversation,
@@ -301,6 +301,54 @@ describe.skipIf(!enabled)("Personal conversation mode (ADR 0022)", () => {
           monthlyMicros: null,
           assistantPerUserMonthlyMicros: 5 * USD,
         });
+      }
+    });
+
+    it("refuses BUDGET_NOT_APPROVED with a cap of 0 or a per-answer limit below the call, and no project budget pays (WP2 A)", async () => {
+      const reservations = () =>
+        scoped(workspaceId, personal.projectId, (tx) =>
+          tx.budgetReservation.count({ where: { projectId: personal.projectId } }),
+        );
+      const before = await reservations();
+      // The focus project has its own spending authority (FamilyPlan-like);
+      // it never funds the personal space.
+      const focusOwner: Scope = { workspaceId, projectId: ids.T, userId: ownerId, role: "owner" };
+      const policy = await scoped(workspaceId, ids.T, (tx) =>
+        create(tx, focusOwner, "ai_spend_policies", {
+          profile: "normal",
+          startAt: new Date(Date.now() - 86_400_000).toISOString(),
+          endAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+          approvedPaidUse: true,
+          dailyBudgetMicros: 5 * USD,
+          monthlyBudgetMicros: 50 * USD,
+          perRunBudgetMicros: 2 * USD,
+          active: true,
+        }),
+      );
+      try {
+        for (const cap of [0, 1]) {
+          await saveOrganizationAiBudget(ownerId, workspaceId, {
+            monthlyMicros: null,
+            assistantPerUserMonthlyMicros: cap,
+          });
+          const { run } = await turn("Hello", { focusProjectId: ids.T });
+          expect(run).toMatchObject({ status: "blocked", errorCode: "BUDGET_NOT_APPROVED" });
+        }
+        expect(mocked.requests).toHaveLength(0);
+        expect(await reservations()).toBe(before);
+        // The budget row keeps the owner's value; nothing raised it.
+        expect(
+          (await authDb.organizationAiBudget.findFirstOrThrow({ where: { workspaceId } }))
+            .assistantPerUserMonthlyMicros,
+        ).toBe(1n);
+      } finally {
+        await saveOrganizationAiBudget(ownerId, workspaceId, {
+          monthlyMicros: null,
+          assistantPerUserMonthlyMicros: 5 * USD,
+        });
+        await scoped(workspaceId, ids.T, (tx) =>
+          update(tx, focusOwner, policy, { ...data(policy), active: false }),
+        );
       }
     });
   });

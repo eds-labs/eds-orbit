@@ -47,6 +47,7 @@ export async function runtimeHealth() {
     );
     const heartbeat = raw ? JSON.parse(raw) : null;
     return {
+      redis: "ok" as "ok" | "unreachable",
       worker:
         heartbeat && Date.now() - heartbeat.checkedAt < 30000
           ? "ready"
@@ -59,6 +60,7 @@ export async function runtimeHealth() {
     };
   } catch {
     return {
+      redis: "unreachable" as "ok" | "unreachable",
       worker: "unavailable",
       lastHeartbeat: null,
       queues: [],

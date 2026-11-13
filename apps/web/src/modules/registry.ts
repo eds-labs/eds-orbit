@@ -21,14 +21,8 @@ import { AgentsView } from "@/platform/agents/agents-view";
 import { DrivePage } from "@/platform/drive/drive-page";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
-import {
-  Connectors,
-  Operations,
-  ProjectSettings,
-} from "@/components/management";
+import { Operations } from "@/components/management";
 import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
-import { AccountView } from "@/platform/account/account-view";
-import { PersonalContextView } from "@/platform/account/personal-context";
 import { AssistantPage } from "@/platform/assistant/assistant-page";
 import { ActivityLog } from "@/platform/assistant/activity-log";
 import {
@@ -44,7 +38,9 @@ import { financeWeb } from "./finance/manifest";
 import { workWeb } from "./work/manifest";
 import { issuesWeb } from "./issues/manifest";
 import { socialWeb } from "./social/manifest";
+import { webmailWeb } from "./webmail/manifest";
 import { adsWeb } from "./ads/manifest";
+import { AdsDataDeletionView } from "./ads/data-deletion";
 import { DataDeletionView } from "./social/data-deletion";
 
 // Composition root of the web app (ADR 0009 AD-13): the only place that knows
@@ -221,9 +217,10 @@ export const webRegistry: WebRegistry = {
       legacyPaths: ["/decisions"],
     },
     {
+      // No page since settings center row 5.4: the redirect resolves the old
+      // address to the center. The entry stays for the route table.
       key: "connectors",
       path: "connectors",
-      component: Connectors,
       navGroup: "project",
       nav: { label: label("connectors"), icon: Link2, order: 100 },
       legacyPaths: ["/connectors"],
@@ -265,9 +262,10 @@ export const webRegistry: WebRegistry = {
       legacyPaths: ["/operations"],
     },
     {
+      // No page since settings center row 5.4 (see "connectors"); the entry is
+      // the sidebar's one link to the center.
       key: "settings",
       path: "settings",
-      component: ProjectSettings,
       navGroup: "project",
       nav: { label: label("settings"), icon: Settings, order: 120 },
       legacyPaths: ["/settings"],
@@ -300,10 +298,11 @@ export const webRegistry: WebRegistry = {
       session: "none",
     },
     // The user's own account and the one-time link pages (ADR 0013).
+    // The pages of "account" and "account/assistant" are sections of the
+    // settings center; the redirect resolves these addresses.
     {
       key: "account",
       path: "account",
-      component: AccountView,
       title: label("accountTitle"),
       session: "required",
     },
@@ -312,7 +311,6 @@ export const webRegistry: WebRegistry = {
     {
       key: "account-assistant",
       path: "account/assistant",
-      component: PersonalContextView,
       title: { en: "My context", de: "Mein Kontext" },
       session: "required",
     },
@@ -353,6 +351,14 @@ export const webRegistry: WebRegistry = {
       title: { en: "Data-deletion request", de: "Anfrage zur Datenlöschung" },
       session: "none",
     },
+    // The same for the ads app's Meta login (ADR 0025).
+    {
+      key: "ads-data-deletion",
+      path: "data-deletion/ads",
+      component: AdsDataDeletionView,
+      title: { en: "Data-deletion request", de: "Anfrage zur Datenlöschung" },
+      session: "none",
+    },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).
   modules: [
@@ -363,6 +369,7 @@ export const webRegistry: WebRegistry = {
     workWeb,
     issuesWeb,
     socialWeb,
+    webmailWeb,
     adsWeb,
   ],
 };

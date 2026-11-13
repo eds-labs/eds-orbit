@@ -78,6 +78,7 @@ describe("static module registry", () => {
       "work",
       "issues",
       "social",
+      "webmail",
       "ads",
     ]);
     // Modules without pending dependencies are ordered by id.
@@ -88,6 +89,7 @@ describe("static module registry", () => {
       "knowledge",
       "social",
       "support",
+      "webmail",
       "work",
       "marketing",
     ]);
@@ -104,6 +106,7 @@ describe("static module registry", () => {
       "support.settings.manage",
       "support.stats.read",
       "support.tickets.assign",
+      "support.tickets.import",
       "support.tickets.read",
       "support.tickets.reply",
     ]);

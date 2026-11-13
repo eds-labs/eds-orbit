@@ -91,7 +91,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["marketing", "Missions", "/marketing/missions"],
   ...(AGENTS ? [agentPage("Assignments", "/marketing/assignments")] : []),
   ["marketing", "Content Studio", "/marketing/content"],
-  ["marketing", "Calendar", "/marketing/calendar"],
+  ["marketing", "Editorial plan", "/marketing/calendar"],
   ["marketing", "Approvals", "/approvals"],
   ["marketing", "Assets", "/marketing/assets"],
   ["marketing", "Analytics", "/marketing/analytics"],
@@ -105,36 +105,42 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["knowledge", "Import", "/knowledge/import"],
   ["knowledge", "Library", "/knowledge/library"],
   ["project", "App approvals", "/decisions"],
-  ["project", "Connectors", "/connectors"],
   ["project", "Operations", "/operations"],
-  ["project", "Settings", "/settings"],
 ];
 
+// The project group ends with the one settings entry, which opens the
+// settings center (P5-D1); the center is no page of the shell, so the walk
+// below leaves it out.
+const CENTER_ENTRY = "Administration & settings";
 // The sidebar's links in order: PAGES, with each module group ending in its
-// settings link (spec §3.4; its name carries the group: "Marketing Settings").
-// Knowledge has no settings section.
-const SIDEBAR_LINKS = PAGES.flatMap(([group, name], i) => {
-  const last = PAGES[i + 1]?.[0] !== group;
-  return last && (group === "marketing" || group === "support")
-    ? [badged(name), `${group[0]!.toUpperCase()}${group.slice(1)} Settings`]
-    : [badged(name)];
-});
+// settings link (spec §3.4; its name carries the group: "Marketing Settings"),
+// then the settings entry. Knowledge has no settings section.
+const SIDEBAR_LINKS = [
+  ...PAGES.flatMap(([group, name], i) => {
+    const last = PAGES[i + 1]?.[0] !== group;
+    return last && (group === "marketing" || group === "support")
+      ? [badged(name), `${group[0]!.toUpperCase()}${group.slice(1)} Settings`]
+      : [badged(name)];
+  }),
+  CENTER_ENTRY,
+];
 
-// The 13 paths from before WP1.7 and the page each one opens now.
-const LEGACY: Array<[string, string]> = [
-  ["/", ""],
-  ["/missions", "/marketing/missions"],
-  ["/chat", "/assistant"],
-  ["/content", "/marketing/content"],
-  ["/calendar", "/marketing/calendar"],
-  ["/knowledge", "/knowledge"],
-  ["/assets", "/marketing/assets"],
-  ["/approvals", "/approvals"],
-  ["/analytics", "/marketing/analytics"],
-  ["/memory", "/marketing/memory"],
-  ["/connectors", "/connectors"],
-  ["/operations", "/operations"],
-  ["/settings", "/settings"],
+// The 13 paths from before WP1.7 and the page each one opens now: below the
+// project, or (the two settings paths) in its settings center.
+const LEGACY: Array<[old: string, now: string, where: "project" | "center"]> = [
+  ["/", "", "project"],
+  ["/missions", "/marketing/missions", "project"],
+  ["/chat", "/assistant", "project"],
+  ["/content", "/marketing/content", "project"],
+  ["/calendar", "/marketing/calendar", "project"],
+  ["/knowledge", "/knowledge", "project"],
+  ["/assets", "/marketing/assets", "project"],
+  ["/approvals", "/approvals", "project"],
+  ["/analytics", "/marketing/analytics", "project"],
+  ["/memory", "/marketing/memory", "project"],
+  ["/connectors", "/integrations/connections", "center"],
+  ["/operations", "/operations", "project"],
+  ["/settings", "/overview", "center"],
 ];
 
 test("pickers, project home and every page have their own URL", async ({
@@ -199,6 +205,10 @@ test("pickers, project home and every page have their own URL", async ({
       "link",
       { name: badged(name) },
     );
+  await expect(entry("project", CENTER_ENTRY)).toHaveAttribute(
+    "href",
+    `/manage/p/${user.projectId}`,
+  );
   for (const [group, name, path] of PAGES) {
     await entry(group, name).click();
     await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
@@ -225,8 +235,8 @@ test("pickers, project home and every page have their own URL", async ({
   // Not every page: the whole suite shares one client address and the API's
   // read limit (600 per minute).
   for (const [group, name, path] of [
-    ["project", "Settings", "/settings"],
-    ["marketing", "Calendar", "/marketing/calendar"],
+    ["project", "Operations", "/operations"],
+    ["marketing", "Editorial plan", "/marketing/calendar"],
   ]) {
     await page.goto(`${base}${path}`);
     await expect(entry(group, name)).toHaveAttribute("aria-current", "page");
@@ -244,111 +254,24 @@ test("pickers, project home and every page have their own URL", async ({
   );
 });
 
-test("module settings links open their section of the grouped settings", async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await page.setViewportSize({ width: 1440, height: 960 });
-  const user = await signIn(page);
-  const base = `/p/${user.projectId}`;
-  await openHome(page, base);
-  const nav = page.getByRole("navigation", { name: "Workspace" });
-  const sections = page.getByRole("navigation", { name: "Settings sections" });
-  const current = sections.locator('[aria-current="page"]');
-  // A full load would drop this marker; section changes happen in place.
-  await page.evaluate(() => ((window as any).orbitMarker = 1));
-
-  // Marketing's settings link opens its first section, policy & budget.
-  await nav
-    .getByRole("link", { name: "Marketing Settings", exact: true })
-    .click();
-  await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?section=policy$`),
-  );
-  await expect(current).toHaveText("Publishing rules");
-  await expect(
-    page.getByRole("heading", { name: "Versioned operating policy" }),
-  ).toBeVisible();
-  // The settings list: Project first, then the modules in sidebar order.
-  await expect(sections.getByRole("heading", { level: 2 })).toHaveText(
-    SUPPORT ? ["Project", "Marketing", "Support"] : ["Project", "Marketing"],
-  );
-  // The platform's sections (then Connected apps while the stack's OAuth
-  // server is on).
-  const projectLinks = sections
-    .getByRole("list", { name: "Project" })
-    .getByRole("link");
-  for (const [i, name] of [
-    "Project",
-    "Members & roles",
-    "Integrations",
-    "AI & budget",
-    "Retention",
-    "Modules",
-  ].entries())
-    await expect(projectLinks.nth(i)).toHaveText(name);
-  // Marketing: policy & budget, brand (then assignments with Orbit Agents).
-  const marketingLinks = sections
-    .getByRole("list", { name: "Marketing" })
-    .getByRole("link");
-  await expect(marketingLinks.nth(0)).toHaveText("Publishing rules");
-  await expect(marketingLinks.nth(1)).toHaveText("Brand");
-
-  // Picking a section replaces the URL in place: no new history entry.
-  await sections.getByRole("link", { name: "Brand", exact: true }).click();
-  await expect(page).toHaveURL(new RegExp(`${base}/settings\\?section=brand$`));
-  await expect(current).toHaveText("Brand");
-  if (SUPPORT) {
-    await nav
-      .getByRole("link", { name: "Support Settings", exact: true })
-      .click();
-    await expect(page).toHaveURL(
-      new RegExp(`${base}/settings\\?section=support$`),
-    );
-    await expect(current).toHaveText("Support");
-    // Back returns to the section the link was followed from.
-    await page.goBack();
-    await expect(page).toHaveURL(
-      new RegExp(`${base}/settings\\?section=brand$`),
-    );
-    await expect(current).toHaveText("Brand");
-  }
-  await sections.getByRole("link", { name: "Retention", exact: true }).click();
-  await expect(current).toHaveText("Retention");
-  await expect(
-    page.getByRole("heading", { name: "Memory retention" }),
-  ).toBeVisible();
-  // Back leaves the settings: the section changes replaced their entry.
-  await page.goBack();
-  await expect(page).toHaveURL(new RegExp(`${base}$`));
-  await page.goForward();
-  await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?section=retention$`),
-  );
-  await expect(current).toHaveText("Retention");
-  expect(await page.evaluate(() => (window as any).orbitMarker)).toBe(1);
-
-  // An unknown section opens the project section.
-  await page.goto(`${base}/settings?section=nope`);
-  await expect(current).toHaveText("Project");
-  await expect(
-    page.getByRole("heading", { name: "Autopilot readiness" }),
-  ).toBeVisible();
-});
-
 test("legacy paths redirect, unknown paths say so", async ({ page }) => {
   test.setTimeout(120_000);
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
+  // The two settings paths go on to the center (settings-center-on.spec.ts
+  // covers their sections).
+  const manage = `/manage/p/${user.projectId}`;
   await openHome(page, base);
-  for (const [old, now] of LEGACY) {
+  for (const [old, now, where] of LEGACY) {
     await page.goto(old);
-    await expect(page, old).toHaveURL(new RegExp(`${base}${now}$`));
+    await expect(page, old).toHaveURL(
+      new RegExp(`${where === "center" ? manage : base}${now}$`),
+    );
   }
   // Query and hash survive the redirect (the Google Drive callback uses one).
   await page.goto("/settings?googleDrive=ready");
   await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?googleDrive=ready$`),
+    new RegExp(`${manage}/integrations/google-drive\\?googleDrive=ready$`),
   );
 
   await page.goto(`${base}/nope`);
@@ -507,7 +430,7 @@ test("navigating to a page opens its collapsed group", async ({ page }) => {
   await page.goto(`${base}/marketing/calendar`);
   await expect(marketing).toHaveAttribute("aria-expanded", "true");
   await expect(
-    nav.getByRole("link", { name: "Calendar", exact: true }),
+    nav.getByRole("link", { name: "Editorial plan", exact: true }),
   ).toHaveAttribute("aria-current", "page");
 });
 
@@ -566,7 +489,10 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   ]);
   await expect(
     group.getByRole("link", { name: "Support Settings", exact: true }),
-  ).toHaveAttribute("href", `${base}/settings?section=support`);
+  ).toHaveAttribute(
+    "href",
+    `/manage/p/${user.projectId}/modules/support/settings`,
+  );
   for (const [name, path] of [
     ["Overview", "/support"],
     ["Tickets", "/support/tickets"],

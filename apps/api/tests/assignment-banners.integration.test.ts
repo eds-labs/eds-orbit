@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 import { crc32, deflateSync } from "node:zlib";
 import {
   afterAll,
@@ -76,9 +77,17 @@ vi.mock("../../../packages/connectors/src/index.ts", async (original) => ({
 }));
 import { closeDatabase } from "../../../packages/db/src/index.ts";
 import {
+  bannerLabelAvoid,
   bannerPalette,
+  readImageProvenance,
+  renderRasterBanner,
   renderRasterTemplate,
+  verifyAiLabel,
+  type Box,
+  type RelBox,
 } from "../../../packages/creative/src/index.ts";
+import type { Sharp } from "../../../packages/creative/src/raster.ts";
+import { imageProvenance } from "../src/platform/provenance/image-provenance.ts";
 import {
   create,
   data,
@@ -120,6 +129,10 @@ import {
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
+// apps/api has no sharp dependency; the pixel checks use the creative package's.
+const sharp = createRequire(
+  new URL("../../../packages/creative/package.json", import.meta.url),
+)("sharp") as Sharp;
 const BODY = "Beta access is open for product teams. Learn more.";
 // Synthetic token in Telegram's shape; nothing is sent to Telegram here.
 const TOKEN = "123456789:AAsyntheticTelegramTokenForTests_0123456";
@@ -452,7 +465,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     expect(provider.generateImage).toHaveBeenCalledTimes(1);
   });
 
-  it("sends back a banner that states what no fact backs once, naming the word, and rejects it if it stays", async () => {
+  it("sends back a banner that states what no fact backs once, naming the word, and hands it to the owner if it stays", async () => {
     await linkBot();
     await shared();
     bannerFor = (topic) =>
@@ -483,12 +496,20 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     const claimed = drafts.filter(
       (c) => c.banner.headline1 !== BANNER.headline1,
     );
-    // The original was replaced; the revision still carries the claim and is rejected.
-    expect(claimed.map((c) => c.agentReviewDecision.round).sort()).toEqual([
-      1, 2,
-    ]);
-    const second = claimed.find((c) => c.agentReviewDecision.round === 2)!;
-    expect(second.status).toBe("rejected");
+    // The original was replaced; the revision still carries the claim and
+    // waits for the owner with the problem, on every channel of its slot.
+    expect(
+      claimed
+        .filter((c) => !c.sharedFrom)
+        .map((c) => c.agentReviewDecision.round)
+        .sort(),
+    ).toEqual([1, 2]);
+    const second = claimed.find(
+      (c) => c.agentReviewDecision.round === 2 && !c.sharedFrom,
+    )!;
+    expect(second.status).toBe("needs_review");
+    for (const copy of claimed.filter((c) => c.sharedFrom))
+      expect(copy.status).toBe("needs_review");
     expect(second.agentReviewDecision).toMatchObject({
       verdict: "reject",
       deterministicProblems: ["BANNER_UNSUPPORTED_CLAIM"],
@@ -1303,5 +1324,127 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
         setAssignmentStatus(tx, project.owner, assignment.id, "active"),
       ),
     ).rejects.toThrow("BANNER_LINK_NOT_ALLOWED");
+  });
+  // ADR 0028: the banner's background is generated art, so with the flag on
+  // the stored banner carries the "KI erstellt" label, clear of the logo,
+  // wordmark and card, and is recorded as a labelled composite.
+  /** Composes the run's banners and returns the stored banner with an unlabelled render of the same input. */
+  const bannerWithPlainRender = async () => {
+    await linkBot();
+    await shared();
+    const inputs: any[] = [];
+    provider.beforeRender = async (input) => {
+      inputs.push(structuredClone(input));
+    };
+    await drafted();
+    provider.beforeRender = null;
+    const banners = (await h.rows("assets")).filter((a) => a.bannerKey);
+    expect(banners.length).toBeGreaterThan(0);
+    const stored = banners[0]!;
+    const sameText = (a: Record<string, unknown>, b: Record<string, unknown>) =>
+      ["headline1", "headline2", "subline", "button"].every(
+        (key) => (a?.[key] ?? "") === (b?.[key] ?? ""),
+      );
+    const input = inputs.find((candidate) =>
+      sameText(candidate.text, stored.bannerText),
+    );
+    expect(input).toBeDefined();
+    const plain = await renderRasterBanner(input);
+    if (plain.status !== "rendered") throw new Error("PLAIN_RENDER_FAILED");
+    return {
+      stored,
+      bytes: Buffer.from(String(stored.base64), "base64"),
+      plain: plain.bytes,
+    };
+  };
+  const rawPixels = (bytes: Buffer) =>
+    sharp(bytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  /** Pixels that differ between two equally sized images inside (or outside) a pixel box. */
+  const differing = async (
+    a: Buffer,
+    b: Buffer,
+    box: Box,
+    where: "inside" | "outside",
+  ) => {
+    const [ra, rb] = await Promise.all([rawPixels(a), rawPixels(b)]);
+    const { width, height } = ra.info;
+    expect(rb.info).toMatchObject({ width, height });
+    let count = 0;
+    for (let y = 0; y < height; y++)
+      for (let x = 0; x < width; x++) {
+        const inBox =
+          x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h;
+        if (inBox !== (where === "inside")) continue;
+        const i = (y * width + x) * 4;
+        for (let c = 0; c < 4; c++)
+          if (ra.data[i + c] !== rb.data[i + c]) {
+            count++;
+            break;
+          }
+      }
+    return count;
+  };
+  const pixelBox = (rel: RelBox, width: number, height: number): Box => {
+    const x = Math.floor(rel.x * width) - 2;
+    const y = Math.floor(rel.y * height) - 2;
+    return {
+      x,
+      y,
+      w: Math.ceil((rel.x + rel.w) * width) + 2 - x,
+      h: Math.ceil((rel.y + rel.h) * height) + 2 - y,
+    };
+  };
+
+  it("labels the banner over generated art clear of the logo and card, and records it (ADR 0028)", async () => {
+    vi.stubEnv("ORBIT_AI_IMAGE_LABELS", "true");
+    const { stored, bytes, plain } = await bannerWithPlainRender();
+    expect(stored.aiLabel).toMatchObject({ text: "KI erstellt" });
+    expect(stored.aiProvenance).toMatchObject({
+      origin: "ai_generated",
+      labelState: "labeled",
+      digitalSourceType: "compositeWithTrainedAlgorithmicMedia",
+    });
+    expect(createHash("sha256").update(bytes).digest("hex")).toBe(
+      stored.sha256,
+    );
+    // The label stands in the stored pixels at its recorded box.
+    expect((await verifyAiLabel(bytes, stored.aiLabel.box)).ok).toBe(true);
+    // The logo with its wordmark and the card are exactly the unlabelled
+    // render's pixels; nothing outside the label changed.
+    for (const box of bannerLabelAvoid())
+      expect(await differing(bytes, plain, box, "inside")).toBe(0);
+    const label = pixelBox(stored.aiLabel.box, 1600, 900);
+    expect(await differing(bytes, plain, label, "outside")).toBe(0);
+    expect(await differing(bytes, plain, label, "inside")).toBeGreaterThan(0);
+    // The bytes say what they are, and the central record agrees.
+    const embedded = await readImageProvenance(bytes);
+    expect(embedded.xmp.digitalSourceType).toBe(
+      "compositeWithTrainedAlgorithmicMedia",
+    );
+    const record = await h.run((tx) =>
+      imageProvenance(tx, project.owner, String(stored.sha256)),
+    );
+    expect(record).toMatchObject({
+      origin: "ai_generated",
+      labelState: "labeled",
+      digitalSourceType: "compositeWithTrainedAlgorithmicMedia",
+      subjectModule: "marketing",
+      subjectKind: "banner",
+      parentSha256: createHash("sha256").update(plain).digest("hex"),
+    });
+    expect(record!.labelBox).toEqual(stored.aiLabel.box);
+  });
+
+  it("stores the banner exactly as rendered, without label or record, with the label flag off", async () => {
+    vi.stubEnv("ORBIT_AI_IMAGE_LABELS", "false");
+    const { stored, bytes, plain } = await bannerWithPlainRender();
+    expect(stored.aiLabel).toBeUndefined();
+    expect(stored.aiProvenance).toBeUndefined();
+    expect(bytes.equals(plain)).toBe(true);
+    expect(
+      await h.run((tx) =>
+        imageProvenance(tx, project.owner, String(stored.sha256)),
+      ),
+    ).toBeNull();
   });
 });

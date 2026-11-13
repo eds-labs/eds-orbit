@@ -37,7 +37,8 @@ import {
   EVALUATION_SET_QUEUE,
   generateEvaluationSet,
 } from "../knowledge/evaluation-set.ts";
-import { pauseCallback, telegramWebhook } from "../connections/telegram.ts";
+import { pauseCallback, telegramEnabled, telegramWebhook } from "../connections/telegram.ts";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
 import { personalSpaceCleanup } from "../assistant/personal-space.ts";
@@ -204,6 +205,50 @@ export const platformContributions: ModuleContributions = {
       [GITHUB_APP_PROVIDER]: githubAppConnectionProvider,
     },
   },
+  // Integrations outside the provider registry: each is described here so the
+  // Integrations Center needs no list of its own.
+  integrations: [
+    {
+      id: "google_drive",
+      label: { en: "Google Drive", de: "Google Drive" },
+      category: "google",
+      authType: "oauth_account",
+      scopes: ["project"],
+      storage: ["project"],
+      checkable: true,
+    },
+    {
+      id: "telegram_owner_bot",
+      label: { en: "Telegram owner bot", de: "Telegram-Inhaber-Bot" },
+      category: "other",
+      authType: "bot_token",
+      scopes: ["project"],
+      storage: ["project"],
+      checkable: false,
+      available: telegramEnabled,
+      // Its status route, and so its project record, is owner-only.
+      visibleTo: "owner",
+    },
+    {
+      id: "mcp_server",
+      label: { en: "Orbit MCP server", de: "Orbit-MCP-Server" },
+      category: "mcp",
+      authType: "environment",
+      scopes: [],
+      storage: ["environment"],
+      checkable: false,
+      available: () => loadConfig().ORBIT_MCP_OAUTH === "true",
+    },
+    {
+      id: "system_mail",
+      label: { en: "System e-mail", de: "System-E-Mail" },
+      category: "email",
+      authType: "environment",
+      scopes: [],
+      storage: ["environment"],
+      checkable: false,
+    },
+  ],
   jobs: [
     // Agent work orders (ADR 0021): the worker runs them on behalf of their sponsor.
     agentWorkJob,

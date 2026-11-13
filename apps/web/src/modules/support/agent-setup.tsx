@@ -101,8 +101,8 @@ export function InboxStep({
       {!live.length && (
         <p className="agents-note">
           {de
-            ? "Noch kein Posteingang. Ein Owner legt einen unter Einstellungen, Support an."
-            : "No inbox yet. An owner creates one in Settings, Support."}
+            ? "Noch kein Posteingang. Ein Owner legt einen unter Verwaltung & Einstellungen → Module → Support an."
+            : "No inbox yet. An owner creates one in Administration & settings → Modules → Support."}
         </p>
       )}
       {live.map((inbox) => {

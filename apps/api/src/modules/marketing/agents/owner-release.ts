@@ -8,7 +8,12 @@ import {
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, update } from "../../../shared.ts";
-import { activePolicy, approve, packageFor } from "../policy/policy.ts";
+import {
+  activePolicy,
+  approve,
+  packageApprovalRequired,
+  packageFor,
+} from "../policy/policy.ts";
 import { publishIntent, reviewContent } from "../pipeline/workflow.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
@@ -255,8 +260,10 @@ export async function releaseAssignmentDraft(
         "CONTENT_REVIEW_REQUIRED",
       409,
     );
+  // Also autopilot on Social without the owner's switch: preflight then
+  // needs this approval (packageApprovalRequired).
   if (
-    data(policyRow).mode === "assisted" ||
+    (await packageApprovalRequired(tx, scope, data(policyRow).mode)) ||
     c.approvalMode === "human_each" ||
     approvalModeOf(assignment) === "human_each"
   ) {

@@ -82,6 +82,7 @@ import {
   PROJECT_READ,
   PROJECT_WRITE,
 } from "../tenancy/permissions.ts";
+import { inProject } from "../management/links.ts";
 
 const USER_EXPOSURE = { assistant: false, personal: true } as const;
 /** Cards one tool result carries at most (the message keeps 20). */
@@ -221,7 +222,7 @@ async function projectOverview(
       ...(item.count !== undefined ? { count: item.count } : {}),
       ...(item.dueAt ? { dueAt: item.dueAt } : {}),
       params: item.params,
-      link: `/p/${project.id}${item.link}`,
+      link: inProject(project.id, item.link),
     }));
 
   let approvals: Record<string, unknown>;
@@ -299,7 +300,7 @@ function linkInProject(projectId: string, part: Record<string, unknown>) {
         Object.entries(value).map(([key, field]) => [
           key,
           key === "link" && typeof field === "string" && field.startsWith("/")
-            ? `/p/${projectId}${field}`
+            ? inProject(projectId, field)
             : fix(field),
         ]),
       );

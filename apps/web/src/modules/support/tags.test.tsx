@@ -65,7 +65,10 @@ describe("support tags (Chatwoot-style labels)", () => {
         t={supportText("de")}
       />,
     );
-    expect(none).toContain(supportText("de").noTagsDefined);
+    // The text names "Verwaltung & Einstellungen"; markup escapes the ampersand.
+    expect(none).toContain(
+      supportText("de").noTagsDefined.replaceAll("&", "&amp;"),
+    );
   });
 
   it("filters the ticket list by tag and category", () => {

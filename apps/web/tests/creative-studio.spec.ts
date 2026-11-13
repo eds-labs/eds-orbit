@@ -76,7 +76,7 @@ test("owner builds a brand kit, produces a feature highlight from a screenshot, 
     },
   });
   expect(saved.status(), await saved.text()).toBe(200);
-  await page.goto(`/p/${account.projectId}/settings?section=brand`);
+  await page.goto(`/manage/p/${account.projectId}/modules/marketing/brand`);
   const kit = page.locator("section.brand-kit");
   await expect(
     kit.getByRole("heading", { name: "Creative brand kit" }),

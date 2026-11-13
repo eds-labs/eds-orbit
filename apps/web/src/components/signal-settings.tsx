@@ -88,7 +88,7 @@ export function SignalSettingsPanel({
   );
 }
 
-/** Settings → Modules: the project's signal switches. */
+/** Modules → Modules and signals in the project settings: the project's signal switches. */
 export function SignalSettingsSection() {
   const { project, locale } = useWorkspace();
   const [revision, setRevision] = useState(0);

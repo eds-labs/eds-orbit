@@ -121,7 +121,9 @@ describe("social posts view (ADR 0020, S4)", () => {
     expect(html).toContain("Launch");
     expect(html).toContain("Waiting for approval");
     expect(html).toContain("@orbit_x");
-    expect(html).toContain("Europe/Berlin");
+    // The time in the member's locale; the zone is named only when it is
+    // not the project's.
+    expect(html).toContain("Dec 1, 2026, 10:00 AM");
     expect(html).toContain("New post");
     expect(html).toContain('href="?post=p1"');
     expect(render(<PostsView />, { access: "viewer" })).not.toContain("New post");

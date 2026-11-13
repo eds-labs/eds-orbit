@@ -1,3 +1,4 @@
+import { missionAssetId } from "../brand/ai-labels.ts";
 import {
   marketingHistory,
   reserveTopic,
@@ -1032,7 +1033,16 @@ async function generateMissionDraft(
         ? { targetUrl: prepared.campaignContext.officialTargetUrl }
         : {}),
       ...(m.assetIds?.length
-        ? { assetId: m.assetIds[(m.completedRuns ?? 0) % m.assetIds.length] }
+        ? {
+            // Raw AI art goes on the post as its labelled derivative (ADR 0028).
+            assetId: await missionAssetId(
+              tx,
+              scope,
+              m.assetIds,
+              m.completedRuns ?? 0,
+              scope.userId,
+            ),
+          }
         : {}),
       // An assignment run's draft stays linked to its run and brief (review, image, history).
       ...(m.assignmentRunId

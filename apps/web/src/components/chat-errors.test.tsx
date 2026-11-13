@@ -61,12 +61,26 @@ describe("chat error text", () => {
   });
 
   it("reads POLICY_REQUIRED as the missing assistant budget in the personal space", () => {
-    expect(chatErrorText("POLICY_REQUIRED", false, true)).toBe(
-      "Your organization has not set an assistant budget, so the assistant cannot make paid calls.",
+    expect(chatErrorText("POLICY_REQUIRED", true, true)).toBe(
+      "Persönliches Assistentenbudget der Organisation nicht gesetzt. Projektbudgets gelten nicht für den persönlichen Assistenten; nur Organisations-Owner legen dieses Budget fest.",
+    );
+    expect(chatErrorText("POLICY_REQUIRED", false, true)).toContain(
+      "Project budgets do not fund the personal assistant",
     );
     expect(chatErrorText("POLICY_REQUIRED", false)).toContain(
       "No AI spending authority for this project",
     );
+  });
+
+  it("never names a project budget for a personal BUDGET_NOT_APPROVED (cap 0 or too small)", () => {
+    for (const de of [true, false]) {
+      const text = chatErrorText("BUDGET_NOT_APPROVED", de, true);
+      expect(text).not.toMatch(/Projekt|project/);
+      expect(text).toMatch(de ? /Organisations-Owner/ : /organization owners/);
+      expect(text).toMatch(/2 USD|USD 2/);
+    }
+    // The project chat keeps the project text.
+    expect(chatErrorText("BUDGET_NOT_APPROVED", true)).toContain("Projekt");
   });
 
   it("maps every AI_BUDGET_* code, keeping the budget layer's own texts", () => {

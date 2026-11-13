@@ -21,7 +21,12 @@ import {
   createActionRequest,
   type RequestedBy,
 } from "../../action-requests.ts";
-import { activePolicy, approve, packageFor } from "../policy/policy.ts";
+import {
+  activePolicy,
+  approve,
+  packageApprovalRequired,
+  packageFor,
+} from "../policy/policy.ts";
 import { publishIntent, reviewContent } from "../pipeline/workflow.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import {
@@ -380,7 +385,8 @@ export async function executeSchedule(
   );
   if (data(reviewed).status !== "reviewed")
     throw new DomainError("CONTENT_REVIEW_REQUIRED", 409);
-  if (data(policyRow).mode === "assisted") {
+  // Also autopilot on Social without the owner's switch (preflight).
+  if (await packageApprovalRequired(tx, scope, data(policyRow).mode)) {
     const post = await packageFor(tx, scope, reviewed.id);
     await approve(
       tx,

@@ -527,6 +527,47 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     expect(JSON.stringify(body)).not.toContain("Beta access");
   });
 
+  it("serves the waiting reason of a pending draft on the drafts route", async () => {
+    const assignment = await confirmed({ approvalMode: "delegated_review" });
+    const { content } = await run(async (tx) => {
+      const slotAt = new Date(Date.now() + 6 * 3600000).toISOString();
+      const runRow = await create(tx, project.owner, "assignment_runs", {
+        status: "done",
+      });
+      const mission = await create(tx, project.owner, "missions", {
+        title: "Mission",
+        status: "ready",
+        plannedSlotAt: slotAt,
+      });
+      const common = {
+        title: "Beta post",
+        type: "social",
+        channel: X,
+        status: "needs_review",
+        body: "Beta access is open for product teams.",
+        scheduledAt: slotAt,
+        assignmentId: assignment.id,
+        assignmentRunId: runRow.id,
+        missionId: mission.id,
+      };
+      return {
+        content: await create(tx, project.owner, "content", {
+          ...common,
+          agentReview: { taskId: randomUUID() },
+          agentAuthorityProblem: "CREATIVE_AUTHORITY_OFF",
+        }),
+      };
+    });
+    const r = await request("viewer", "GET", "assignment-drafts");
+    expect(r.statusCode).toBe(200);
+    const item = r.json().items.find((i: any) => i.id === content.id);
+    expect(item).toMatchObject({
+      state: "pending",
+      agentApproved: true,
+      waitingReason: "CREATIVE_AUTHORITY_OFF",
+    });
+  });
+
   it("lets only the owner release an assignment draft and lists drafts to every member", async () => {
     const assignment = await confirmed();
     let r = await request("viewer", "GET", "assignment-drafts");
@@ -585,6 +626,24 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
       );
       expect([decision, r.statusCode]).toEqual([decision, 404]);
     }
+    // The owner's edit of a waiting draft (2026-11-11): owner only, assignment drafts only.
+    for (const who of ["viewer", "editor"] as const) {
+      r = await request(who, "POST", `assignment-drafts/${plain.id}/edit`, {
+        version: plain.version,
+        body: "Changed.",
+      });
+      expect([who, "edit", r.statusCode]).toEqual([who, "edit", 403]);
+    }
+    r = await request("owner", "POST", `assignment-drafts/${plain.id}/edit`, {
+      version: plain.version,
+      body: "Changed.",
+    });
+    expect([r.statusCode, r.json().error.code]).toEqual([404, "NOT_FOUND"]);
+    r = await request("owner", "POST", `assignment-drafts/${plain.id}/edit`, {
+      version: plain.version,
+      body: "",
+    });
+    expect(r.statusCode).toBe(400);
     r = await request("owner", "POST", `assignment-drafts/${plain.id}/delete`, {
       version: plain.version,
     });
@@ -823,6 +882,12 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
           "POST",
           `assignment-drafts/${post.id}/release`,
           { version: 1 },
+        ],
+        [
+          "owner",
+          "POST",
+          `assignment-drafts/${post.id}/edit`,
+          { version: 1, body: "Changed." },
         ],
         [
           "owner",

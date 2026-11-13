@@ -24,6 +24,53 @@ import {
 } from "../brand/drive-readiness.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
 import { requireSpendMandate } from "../../../platform/ai/spend-mandate.ts";
+import { publishingBackend } from "../publishing/backend.ts";
+import { postizBacklog } from "../publishing/social-migration.ts";
+import {
+  channelPublishingReadiness,
+  socialPublishingAvailable,
+} from "../../social/contract.ts";
+
+/**
+ * Social's checks of the policy channels on a project on Social, as codes:
+ * `draft` what stops a Social draft (the module, an account behind each
+ * channel), `publish` what preflight raises for any post on them. An
+ * account whose posting was not verified counts in test mode as well, as
+ * the Postiz write verification always does.
+ */
+async function socialPublishing(tx: DbTx, scope: Scope, channels: string[]) {
+  const active = await socialPublishingAvailable(tx, scope);
+  const checked =
+    active && channels.length
+      ? await channelPublishingReadiness(tx, scope, channels)
+      : [];
+  const base = [
+    ...(!active ? ["SOCIAL_DISABLED"] : []),
+    ...(!channels.length ? ["POLICY_CHANNELS_REQUIRED"] : []),
+  ];
+  return {
+    draft: [
+      ...new Set([
+        ...base,
+        ...checked.flatMap((c) =>
+          c.blockers.filter((code) => code === "SOCIAL_CHANNEL_NOT_MAPPED"),
+        ),
+      ]),
+    ],
+    publish: [
+      ...new Set([
+        ...base,
+        ...checked.flatMap((c) => [
+          ...c.blockers,
+          ...c.warnings.filter(
+            (code) => code === "SOCIAL_ACCOUNT_NOT_WRITE_VERIFIED",
+          ),
+        ]),
+      ]),
+    ],
+  };
+}
+
 /**
  * The effective AI status; when a stored key cannot be opened (after a key
  * rotation, say), the project's own presence flags as before, so readiness
@@ -120,17 +167,36 @@ export async function readiness(tx: DbTx, scope: Scope) {
   const driveReconnect = driveReconnectRequired(driveConnection),
     drivePublishing =
       driveReconnect && (await publishingUsesDriveAssets(tx, scope));
+  // Readiness mirrors what preflight checks on the project's backend
+  // (policy.ts): `postiz` exactly as before. `social`: Social's checks of
+  // the policy channels replace the Postiz connector and channel checks.
+  // `postiz_draining`: preflight and dispatch still run on Postiz for what
+  // was approved before (packageFor binds the connector, publisher.ts
+  // routes there) and new work goes nowhere (refuseWhileDraining) until the
+  // owner switches to Social, so the Postiz checks stay and the drain is a
+  // blocker of its own, with the backlog Postiz still holds.
+  const backend = await publishingBackend(tx, scope),
+    backlog = await postizBacklog(tx, scope),
+    postizChecks = backend !== "social",
+    social =
+      backend === "social"
+        ? await socialPublishing(tx, scope, p.channels ?? [])
+        : null;
   const blockers = [
     ...(!knowledge ? ["CURRENT_PUBLIC_KNOWLEDGE_REQUIRED"] : []),
     ...(!policy ? ["OWNER_POLICY_REQUIRED"] : []),
     ...(!budget ? ["APPROVED_PAID_BUDGET_REQUIRED"] : []),
     ...(!model ? ["VERIFIED_OPENAI_MODELS_REQUIRED"] : []),
     ...(!evals ? ["LIVE_RAG_EVAL_REQUIRED"] : []),
-    ...(!publisher ? ["PUBLISHER_WRITE_VERIFICATION_REQUIRED"] : []),
+    ...(postizChecks && !publisher
+      ? ["PUBLISHER_WRITE_VERIFICATION_REQUIRED"]
+      : []),
+    ...(social?.publish ?? []),
     ...(process.env.ENABLE_EXTERNAL_WRITES !== "true"
       ? ["EXTERNAL_WRITES_DISABLED"]
       : []),
-    ...(publisher &&
+    ...(postizChecks &&
+    publisher &&
     (!p.channels?.length ||
       !p.channels.every(
         (id: string) =>
@@ -141,6 +207,7 @@ export async function readiness(tx: DbTx, scope: Scope) {
         process.env.PUBLISHER_INSTANCE_ID)
       ? ["CHANNEL_WRITE_VERIFICATION_REQUIRED"]
       : []),
+    ...(backend === "postiz_draining" ? ["PUBLISHING_BACKEND_DRAINING"] : []),
     ...(drivePublishing ? ["GOOGLE_DRIVE_RECONNECT_REQUIRED"] : []),
     ...(project.paused ? ["PROJECT_PAUSED"] : []),
   ];
@@ -199,6 +266,9 @@ export async function readiness(tx: DbTx, scope: Scope) {
         process.env.PUBLISHER_INSTANCE_ID,
     ),
     matomoReadVerified: Boolean(matomo),
+    publishingBackend: backend,
+    socialDraftBlockers: social?.draft ?? [],
+    socialPublishBlockers: social?.publish ?? [],
   });
   return {
     actions,
@@ -257,5 +327,8 @@ export async function readiness(tx: DbTx, scope: Scope) {
           : "not_configured",
       },
     },
+    // Where approved posts go, and how many records Postiz still holds
+    // unsettled (what a drain is finishing).
+    publishing: { backend, postizBacklog: backlog },
   };
 }

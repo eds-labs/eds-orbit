@@ -88,6 +88,11 @@ import {
   revokeAgentMandate,
 } from "./platform/governance/agent-mandates.ts";
 import { platformSpendLimits } from "./platform/ai/spend-mandate.ts";
+import {
+  listReservations,
+  reservationBreakdown,
+  reservationsQuery,
+} from "./platform/ai/reservation-diagnosis.ts";
 import { providerBudgetStatus } from "./platform/ai/provider-budget.ts";
 import {
   beginConnect,
@@ -119,6 +124,7 @@ import {
   sendWebResponse,
 } from "./platform/mcp-auth/http.ts";
 import { registerMcpConnectRoutes } from "./platform/mcp-auth/routes.ts";
+import { registerManagementRoutes } from "./platform/management/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
@@ -226,6 +232,7 @@ import {
 import { passwordResetAvailable } from "./platform/account/service.ts";
 import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
 import { emailEnabled } from "./platform/email/connection.ts";
+import { googleDriveReturnLink } from "./platform/management/links.ts";
 const object = z.record(z.string(), z.unknown());
 /**
  * A validation error's own code when a rule named one (custom issues carry
@@ -546,6 +553,7 @@ export async function buildServer(
   // user's own account (ADR 0013).
   registerAdministrationRoutes(app, auth, { runtimeHealth });
   registerAccountRoutes(app, auth);
+  registerManagementRoutes(app, auth);
   registerConnectionRoutes(app, auth);
   registerShareRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
@@ -690,6 +698,12 @@ export async function buildServer(
       account: accountEnabled(),
       connections: connectionsEnabled(),
       knowledgeShares: sharesEnabled(),
+      // A constant kept for one release (ruling R54-5): the previous web
+      // bundle in open tabs reads this field after its next /api/me and
+      // would otherwise treat the center as off and show "not found" for an
+      // open /manage page. Nothing else reads it; remove it in the next
+      // delivery.
+      settingsCenter: "on",
       workspaces: memberships.map((x) => ({
         ...x.workspace,
         role: x.role,
@@ -866,9 +880,10 @@ export async function buildServer(
       const counts: Record<string, number> = {};
       for (const kind of schemas.collections.filter(visible))
         counts[kind] = await tx.entity.count({ where: { projectId, kind } });
-      const reservations = await tx.budgetReservation.findMany({
-        where: { projectId },
-      });
+      // This UTC month only, in one grouped query (plan 2026-11-10 WP2 C):
+      // what the monthly limit counts, split into settled, live in flight,
+      // stale and unclear; never every reservation row of every month.
+      const month = await reservationBreakdown(tx, scope);
       const policy = visible("policies")
         ? (await list(tx, scope, "policies")).find((x) => data(x).active)
         : undefined;
@@ -892,14 +907,19 @@ export async function buildServer(
           : [],
         jobs: await list(tx, scope, "jobs"),
         budget: {
-          reservedMicros: reservations
-            .filter((x) =>
-              ["reserved", "in_flight", "unknown"].includes(x.state),
-            )
-            .reduce((n, x) => n + Number(x.amountMicros), 0),
-          spentMicros: reservations
-            .filter((x) => x.state === "settled")
-            .reduce((n, x) => n + Number(x.settledMicros), 0),
+          // Open this month: in flight + stale + unclear.
+          reservedMicros: month.reservedMicros,
+          spentMicros: month.settledMicros,
+          // The split is for owners and editors only, the level of
+          // /ai-cost (ruling R26 hides AI spend from viewers).
+          ...(can(scope, PROJECT_WRITE)
+            ? {
+                periodStart: month.periodStart,
+                inFlightMicros: month.inFlightMicros,
+                staleMicros: month.staleMicros,
+                unknownMicros: month.unknownMicros,
+              }
+            : {}),
           // The platform's spending authority wins (ADR 0015).
           dailyLimitMicros:
             platformLimits?.dailyBudgetMicros ??
@@ -917,9 +937,10 @@ export async function buildServer(
   app.get("/api/projects/:projectId/operations", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
-    const runtime = await runtimeHealth();
+    // Members get the worker fields only: the Redis state is for administrators.
+    const { worker, lastHeartbeat, queues, observedAt } = await runtimeHealth();
     return scoped(scope.workspaceId, projectId, async (tx) => ({
-      runtime,
+      runtime: { worker, lastHeartbeat, queues, observedAt },
       jobs: await list(tx, scope, "jobs"),
       pendingOutbox: await tx.outbox.count({
         where: { projectId, dispatchedAt: null },
@@ -945,6 +966,14 @@ export async function buildServer(
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return aiCostSummary(scope, aiCostQuery.parse(req.query));
+  });
+  // The cost diagnosis (plan 2026-11-10 WP2 C): every reservation of every
+  // month with its derived status and next step. Same level as /ai-cost;
+  // read only, no prompt, key or provider response id.
+  app.get("/api/projects/:projectId/ai-reservations", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
+    return listReservations(scope, reservationsQuery.parse(req.query ?? {}));
   });
   // The provider credit budgets of the project: period, spend and level
   // (plan D-A6, D-A8). Same level as /ai-cost; no key, no prompt content.
@@ -1188,8 +1217,10 @@ export async function buildServer(
     const projectId = z.uuid().parse(state.split(".")[0]);
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     const ready = await finishConnect(scope, state, code);
+    // Back into the project the flow was begun for: the id comes from the
+    // validated state, not from the last project the browser remembers.
     return reply.redirect(
-      `${config.APP_ORIGIN}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
+      `${config.APP_ORIGIN}${googleDriveReturnLink(scope.projectId, ready)}`,
     );
   });
   app.get(

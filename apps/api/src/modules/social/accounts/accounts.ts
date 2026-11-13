@@ -3,6 +3,12 @@ import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { connectionSecret } from "../../../platform/connections/central.ts";
 import { revokeProjectConnection } from "../../../platform/connections/project-secrets.ts";
+import {
+  integrationState,
+  type ProjectIntegrationsContribution,
+} from "../../../platform/connections/integrations.ts";
+import { can } from "../../../platform/tenancy/permissions.ts";
+import { SOCIAL_READ } from "../permissions.ts";
 import { audit, DomainError } from "../../../shared.ts";
 import { appCredentials } from "./apps.ts";
 import { socialFetch } from "./http.ts";
@@ -26,6 +32,8 @@ const accountView = (row: AccountRow) => {
     status: row.status,
     capability: row.capability,
     connectedAt: row.createdAt.toISOString(),
+    // Set when the account was disconnected; the row stays for its history.
+    disabledAt: row.disabledAt?.toISOString() ?? null,
     lastCheckedAt: settings.lastCheckedAt ?? null,
     lastCheckCode: settings.lastCheckCode ?? null,
     // What posts may do on the account (S4): X Premium allows long posts.
@@ -42,6 +50,26 @@ export async function listAccounts(tx: DbTx, scope: Scope) {
   });
   return { items: rows.map(accountView) };
 }
+
+/**
+ * The project's accounts for the Integrations Center: what the account list
+ * shows every member in the module (SOCIAL_READ), without disconnected ones.
+ */
+export const socialProjectIntegrations: ProjectIntegrationsContribution = async (tx, scope) => {
+  if (!can(scope, SOCIAL_READ)) return [];
+  const rows = await tx.socialAccount.findMany({
+    where: { projectId: scope.projectId, status: { not: "disabled" } },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  return rows.map((row) => ({
+    id: `social:${row.id}`,
+    provider: `social.account.${row.platform}`,
+    label: row.handle,
+    scope: "project" as const,
+    state: integrationState({ kind: "social_account", status: row.status, capability: row.capability }),
+    checkedAt: (row.settings as Settings).lastCheckedAt ?? null,
+  }));
+};
 
 const settingsInput = z
   .object({ version: z.int().min(1), settings: z.object({ xLongPosts: z.boolean().optional() }).strict() })
@@ -61,12 +89,12 @@ export async function updateAccountSettings(
   if (input.settings.xLongPosts !== undefined && row.platform !== "x")
     throw new DomainError("SOCIAL_SETTING_INVALID", 422);
   const changed = await tx.socialAccount.updateMany({
-    where: { id: row.id, version: input.version },
+    where: { id: row.id, projectId: scope.projectId, version: input.version },
     data: { settings: { ...(row.settings as Settings), ...input.settings }, version: { increment: 1 } },
   });
   if (changed.count !== 1) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);
   await audit(tx, scope, "social.account.settings_changed", row.id, { keys });
-  return accountView(await tx.socialAccount.findUniqueOrThrow({ where: { id: row.id } }));
+  return accountView(await tx.socialAccount.findFirstOrThrow({ where: { id: row.id, projectId: scope.projectId } }));
 }
 
 /** Best effort: X forgets the token. A failure changes nothing. */
@@ -129,7 +157,11 @@ export async function disableAccount(
   }
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const changed = await tx.socialAccount.updateMany({
-      where: { id: account.id, ...(input.version !== undefined ? { version: input.version } : {}) },
+      where: {
+        id: account.id,
+        projectId: scope.projectId,
+        ...(input.version !== undefined ? { version: input.version } : {}),
+      },
       data: { status: "disabled", disabledAt: new Date(), version: { increment: 1 } },
     });
     if (changed.count !== 1) throw new DomainError("SOCIAL_VERSION_CONFLICT", 409);

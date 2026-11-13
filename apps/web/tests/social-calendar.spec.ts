@@ -100,7 +100,7 @@ test("owner moves an approved post, an editor's move goes back to approval", asy
 
   // An editor joins through an invitation and moves it again.
   const editor = { name: "Synthetic editor", email: `orbit-editor-${randomUUID()}@example.invalid`, password: randomUUID() + randomUUID() };
-  await page.goto(`/p/${user.projectId}/settings?section=members`);
+  await page.goto(`/manage/p/${user.projectId}/members`);
   await page.getByRole("button", { name: "Invite member", exact: true }).click();
   const invite = page.getByRole("dialog", { name: "Invite member" });
   await invite.getByLabel(/^E-Mail/).fill(editor.email);
@@ -108,6 +108,8 @@ test("owner moves an approved post, an editor's move goes back to approval", asy
   await invite.getByRole("button", { name: "Invite", exact: true }).click();
   const link = await page.getByRole("dialog", { name: "Pass on the link" }).locator("code").innerText();
   await page.getByRole("button", { name: "Close dialog" }).click();
+  // The settings center's frame has no sign-out; its back link leads to the project.
+  await page.getByRole("link", { name: /Back to project/ }).click();
   await signOut(page);
   await page.goto(link);
   await page.getByLabel(/^Your name/).fill(editor.name);

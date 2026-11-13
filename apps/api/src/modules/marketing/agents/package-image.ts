@@ -27,6 +27,7 @@ import {
   type EntityRow,
 } from "../creative/brand-kit.ts";
 import { artAsset } from "../creative/components.ts";
+import { ensureLabeledAsset } from "../brand/ai-labels.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import {
   composePlan,
@@ -149,7 +150,9 @@ async function attachRawImage(
   draft: EntityRow,
 ) {
   const v = data(draft);
-  if (v.assetId === image.asset.id) return;
+  // A raw generated image goes on the post as its labelled derivative (ADR 0028).
+  const asset = await ensureLabeledAsset(tx, scope, image.asset, scope.userId);
+  if (v.assetId === asset.id) return;
   // Telegram sends text with media as a caption with a smaller limit.
   if (
     channelLimitExceeded(
@@ -162,19 +165,19 @@ async function attachRawImage(
   const { review: _review, creativeId: _creative, ...rest } = v;
   const attached = await update(tx, scope, draft, {
     ...rest,
-    assetId: image.asset.id,
+    assetId: asset.id,
     status: "draft",
   });
   await invalidateContent(tx, scope, draft.id);
   await reviewContent(tx, scope, attached.id, attached.version);
   await retirePrevious(tx, scope, v, {
     contentId: draft.id,
-    assetId: image.asset.id,
+    assetId: asset.id,
   });
   await audit(tx, scope, "content_package.image_attached", draft.id, {
     packageId: image.pkg.id,
-    assetId: image.asset.id,
-    assetVersion: image.asset.version,
+    assetId: asset.id,
+    assetVersion: asset.version,
   });
 }
 

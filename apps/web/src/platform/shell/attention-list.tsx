@@ -2,11 +2,18 @@
 import { useId, useState } from "react";
 import Link from "next/link";
 import type { AttentionItem } from "@/lib/api";
+import { safeLink } from "@/lib/safe-link";
 import { Badge, Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { renderAttention } from "./attention";
 import { attentionWhen } from "./relative-time";
-import { locate, projectHref, routeEnabled, type RouteTable } from "./routes";
+import {
+  locate,
+  projectHref,
+  routeEnabled,
+  sameHref,
+  type RouteTable,
+} from "./routes";
 import { useShell } from "./shell-context";
 
 // The home page's list of attention items (UI restructure §5.1): one row per
@@ -14,24 +21,33 @@ import { useShell } from "./shell-context";
 // one link to the page that resolves it.
 
 /**
- * Where an item's `link` (a path below /p/:id, with an optional query) leads
- * in the open project, or null when no page of the route table matches it or
- * the page is not available to the member (ruling R22: the row stays, but
- * without a dead link), such as /approvals while marketing is off.
+ * Where an item's `link` leads in the open project: a center address
+ * (starting with "/manage/") unchanged, else a path below /p/:id with an
+ * optional query that the route table resolves. Null when the link is
+ * malformed (the notification bell's character check), when no page of the
+ * route table matches it, or when the page is not available to the member
+ * (ruling R22: the row stays, but without a dead link), such as /approvals
+ * while marketing is off. `map` is the shell's mapping to the settings
+ * center (ShellContextValue.centerLink).
  */
 export function attentionTarget(
   link: string,
   projectId: string,
   table: RouteTable,
   enabled: (moduleId: string) => boolean,
+  map: (href: string) => string = sameHref,
 ): string | null {
+  // The API names a settings center address in full ("/manage/p/<id>/…"):
+  // it belongs to no page of the route table and needs no project prefix.
+  // A stored link is data: it passes the same check as in the bell.
+  if (link.startsWith("/manage/")) return safeLink(link);
   const match = /^(\/[^?#]*)([?#].*)?$/.exec(link);
   if (!match) return null;
   const [, path, suffix = ""] = match;
   const place = locate(`/p/${encodeURIComponent(projectId)}${path}`, table);
   if (place.kind !== "view" && place.kind !== "redirect") return null;
   return routeEnabled(place.route, enabled)
-    ? projectHref(projectId, place.route) + suffix
+    ? map(projectHref(projectId, place.route) + suffix)
     : null;
 }
 
@@ -45,8 +61,12 @@ function AttentionRow({ item, now }: { item: AttentionItem; now: Date }) {
     shell.modules,
   );
   const when = attentionWhen(item, now, locale);
-  const href = attentionTarget(item.link, project.id, shell.table, (id) =>
-    Boolean(shell.modules.find((m) => m.id === id)?.enabled),
+  const href = attentionTarget(
+    item.link,
+    project.id,
+    shell.table,
+    (id) => Boolean(shell.modules.find((m) => m.id === id)?.enabled),
+    shell.centerLink,
   );
   const owner =
     item.moduleId === "platform"

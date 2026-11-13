@@ -64,6 +64,17 @@ Hosts must be public DNS names that resolve to public addresses only. IP literal
 - **Owned-only consumers.** A module's `emailInbound` may set `ownedOnly: true`: it then receives only the mail of mailboxes it owns, never the broadcast of unowned ones. Finance sets it, so an unowned (Support) mailbox creates no finance jobs. Modules without the option keep the broadcast. Connecting a known address again keeps its owner. The claim is a module id string that is not checked against the registry, so a module that is switched off keeps it and its mail waits unprocessed: unbind first when switching a module off. Support's contact erasure skips only the mail of mailboxes another module owns; mail of every other mailbox (the default one of legacy inboxes, unowned ones, removed ones) is erased as before.
 - **Archive after acknowledgement.** Receiving stays read-only. The one exception is an explicit request from the mailbox's **owner** module (`requestInboundArchive`; anyone else gets 403 `EMAIL_ARCHIVE_NOT_OWNER`), made after it has processed a message. The platform job `email_archive` opens the INBOX read-write, creates the target folder when missing, moves the message by UID and records `archivedAt` and `archiveFolder` on the inbound row. Failures are recorded as `archiveError`: `IMAP_AUTH` (a refused login, permanent), `IMAP_ERROR` (retried), `NOT_CONNECTED`, `MISSING` (the message is gone) and `UID_VALIDITY_CHANGED` (the UID no longer identifies the message). The last two end the job without retrying. A recorded error is not requested again unless the module explicitly starts a new attempt (a fresh idempotency key). The finance mailbox view exposes the newest error as `lastArchiveError`, and the module raises an attention item for owners. The IMAP account needs permission to create folders and to move mail. Finance's rules for when it asks: `docs/FINANCE.md`.
 
+## Mailboxes opened for webmail (ADR 0026)
+
+The webmail module marks a mailbox it opens (`webmailClient` in the connection, kept on re-save like `ownerModule`). The rules below apply only with that marker and `ORBIT_WEBMAIL=true`; without either, receiving works as described above. Ownership between Support and Finance is untouched.
+
+- Before Roundcube moves, deletes or expunges INBOX messages, the bridge ingests exactly those not yet read by Orbit (`ensureIngested`), under a per-connection lock shared with the worker's pass. It leaves the cursor alone. The action is refused if that fails; the reason shows in the client and under the mailbox's sync status.
+- A backlog works from a stored snapshot of the unseen UIDs (at most 5000), so reading a message in webmail no longer drops it.
+- A UIDVALIDITY change also searches `SINCE` the last pass minus 48 hours, so read mail not yet ingested is found again.
+- A message without a Message-ID is deduplicated by a hash of its raw source.
+- A UID above the cursor with an INTERNALDATE older than 72 hours counts as backlog, so an old message moved back in gets no acknowledgement.
+- A mailbox no module would act on is not stored, so a mailbox used only for webmail does not use up the project's file quota.
+
 ## Member notifications
 
 - **Kinds.** A module registers its kinds (`userNotifications`) and calls `notifyMembers` in its transaction.

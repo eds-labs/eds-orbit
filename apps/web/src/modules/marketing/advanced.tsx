@@ -1,6 +1,6 @@
 "use client";
 import { useContext, useEffect, useState } from "react";
-import { Download, Image as ImageIcon, Sparkles, Upload } from "lucide-react";
+import { Download, Sparkles, Upload } from "lucide-react";
 import {
   action,
   api,
@@ -16,14 +16,29 @@ import {
   Alert,
   Badge,
   Button,
+  Empty,
   Modal,
   Status,
 } from "@/components/ui/primitives";
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
-import { useCollection } from "@/platform/ui/collection";
+import { ResourceError, useCollection } from "@/platform/ui/collection";
 import { ShellContext } from "@/platform/shell/shell-context";
-import { ProviderUseControl, providerUseBody } from "./creative/provider-use";
+import { providerUseBody } from "./creative/provider-use";
+import { AssetTile } from "./asset-tile";
+import {
+  ASSET_TEXT,
+  CATEGORY_LABELS,
+  SOURCE_LABELS,
+  STATUS_FILTERS,
+  assetSource,
+  inCategory,
+  inStatus,
+  say,
+  type AssetCategory,
+  type AssetSourceFilter,
+  type AssetStatusFilter,
+} from "./asset-library-text";
 import {
   brandTermsField,
   mergeVisualIdentity,
@@ -63,8 +78,8 @@ async function fileBase64(file: File) {
 const PROFILE_TEXT = {
   heading: { en: "Marketing profile", de: "Marketing-Profil" },
   intro: {
-    en: "Versioned positioning, strategy, brand voice, official target links and campaign guardrails of the Marketing module. Project-wide languages and profile links are under Settings → Project.",
-    de: "Versionierte Positionierung, Strategie, Markenstimme, offizielle Ziel-Links und Kampagnenregeln des Marketing-Moduls. Projektweite Sprachen und Profil-Links stehen unter Einstellungen → Projekt.",
+    en: "Versioned positioning, strategy, brand voice, official target links and campaign guardrails of the Marketing module. Project-wide languages and profile links are under Administration & settings → Profile → Project profile.",
+    de: "Versionierte Positionierung, Strategie, Markenstimme, offizielle Ziel-Links und Kampagnenregeln des Marketing-Moduls. Projektweite Sprachen und Profil-Links stehen unter Verwaltung & Einstellungen → Profil → Projektprofil.",
   },
   notConfigured: { en: "Not configured", de: "Nicht eingerichtet" },
   version: { en: "Profile v", de: "Profil v" },
@@ -193,8 +208,8 @@ const PROFILE_TEXT = {
     de: "Aufträge und Agenten-Entwürfe werden in dieser Sprache geschrieben (Englisch oder Deutsch). Manuelle Kampagnen können jede Content-Sprache des Projekts nutzen.",
   },
   languageNotInProject: {
-    en: "The profile's agent language ({code}) is not one of the project's content languages. Assignments keep writing in it; add it under Settings → Project or choose another one here.",
-    de: "Die Agentensprache des Profils ({code}) gehört nicht zu den Content-Sprachen des Projekts. Aufträge schreiben weiter darin; füge sie unter Einstellungen → Projekt hinzu oder wähle hier eine andere.",
+    en: "The profile's agent language ({code}) is not one of the project's content languages. Assignments keep writing in it; add it under Administration & settings → Profile → Project profile or choose another one here.",
+    de: "Die Agentensprache des Profils ({code}) gehört nicht zu den Content-Sprachen des Projekts. Aufträge schreiben weiter darin; füge sie unter Verwaltung & Einstellungen → Profil → Projektprofil hinzu oder wähle hier eine andere.",
   },
   internalLanguage: {
     en: "Internal work language",
@@ -222,8 +237,8 @@ const PROFILE_TEXT = {
     de: "Posts dürfen nur auf diese Adressen verlinken. Jede ist durch einen öffentlichen, verifizierten Fakt mit genau dieser Adresse belegt.",
   },
   noCandidates: {
-    en: "No project profile link has a public, verified fact with its exact address yet. Add links under Settings → Project and verify them as facts in Knowledge.",
-    de: "Noch kein Profil-Link des Projekts hat einen öffentlichen, verifizierten Fakt mit genau seiner Adresse. Füge Links unter Einstellungen → Projekt hinzu und verifiziere sie als Fakten im Wissen.",
+    en: "No project profile link has a public, verified fact with its exact address yet. Add links under Administration & settings → Profile → Project profile and verify them as facts in Knowledge.",
+    de: "Noch kein Profil-Link des Projekts hat einen öffentlichen, verifizierten Fakt mit genau seiner Adresse. Füge Links unter Verwaltung & Einstellungen → Profil → Projektprofil hinzu und verifiziere sie als Fakten im Wissen.",
   },
   unverifiedLinks: {
     en: "Not selectable until a public, verified fact states their exact address: {links}",
@@ -1005,6 +1020,7 @@ type OpenAiImageConfiguration = {
 
 export function BrandAssetLibrary() {
   const { project, isOwner, refresh, locale } = useWorkspace();
+  const de = locale === "de";
   // Creative Studio: provider use and the product upload types (R61, I2).
   const studio = useContext(ShellContext)?.features?.creativeStudio === true;
   const assets = useCollection("assets");
@@ -1017,22 +1033,27 @@ export function BrandAssetLibrary() {
   });
   const [mode, setMode] = useState<"upload" | "generate" | null>(null);
   const [assetQuery, setAssetQuery] = useState("");
-  const [assetFilter, setAssetFilter] = useState("all");
+  const [assetFilter, setAssetFilter] = useState<AssetCategory>("all");
+  const [statusFilter, setStatusFilter] = useState<AssetStatusFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState<AssetSourceFilter>("all");
+  // Outdated assets stay out of sight until asked for (WP4).
+  const [showOutdated, setShowOutdated] = useState(false);
   const [assetView, setAssetView] = useState<"grid" | "list">("grid");
-  const visibleAssets = libraryAssets(assets.data?.items).filter((asset) => {
+  const library = libraryAssets(assets.data?.items);
+  const outdatedCount = library.filter(
+    (asset) => asset.data.assetStatus === "outdated",
+  ).length;
+  const visibleAssets = library.filter((asset) => {
     const v = asset.data;
-    const matchesQuery = String(v.name ?? v.filename ?? "")
+    const matchesQuery = String(v.name ?? v.filename ?? v.brandName ?? "")
       .toLowerCase()
-      .includes(assetQuery.toLowerCase());
-    const matchesFilter =
-      assetFilter === "all" ||
-      (assetFilter === "logos" &&
-        ["logo", "original_logo"].includes(String(v.type))) ||
-      (assetFilter === "images" && String(v.mime ?? "").startsWith("image/")) ||
-      (assetFilter === "generated" && v.type === "generated_artwork") ||
-      (assetFilter === "documents" &&
-        !String(v.mime ?? "").startsWith("image/"));
-    return matchesQuery && matchesFilter;
+      .includes(assetQuery.trim().toLowerCase());
+    return (
+      matchesQuery &&
+      inCategory(v, assetFilter) &&
+      inStatus(v, statusFilter, showOutdated) &&
+      (sourceFilter === "all" || assetSource(v) === sourceFilter)
+    );
   });
   const imageConfig = openAi.data?.imageGeneration;
   // An image key calls would actually use (project, granted or environment),
@@ -1046,215 +1067,166 @@ export function BrandAssetLibrary() {
     asset.data.type === "original_logo"
       ? "/brand/logo-layer-stack-mark.svg"
       : `/api/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(asset.id)}/content`;
+  const setStatus = (asset: Entity, assetStatus: "approved" | "outdated") =>
+    mutation.run(() =>
+      action(project.id, "asset-status", {
+        assetId: asset.id,
+        version: asset.version,
+        assetStatus,
+        ...(assetStatus === "approved" ? { confirmUsageRights: true } : {}),
+      }),
+    );
   return (
     <section className="panel administration-panel">
       <div className="panel-head">
         <div>
-          <h2>Brand kit &amp; asset library</h2>
-          <p>
-            Project-scoped originals, rights, approved variants and generated
-            artwork.
-          </p>
+          <h2>{say(ASSET_TEXT.heading, de)}</h2>
+          <p>{say(ASSET_TEXT.intro, de)}</p>
         </div>
         {isOwner && (
           <div className="page-actions">
             <Button variant="outline" onClick={() => setMode("upload")}>
-              <Upload data-icon="inline-start" /> Upload asset
+              <Upload data-icon="inline-start" /> {say(ASSET_TEXT.upload, de)}
             </Button>
             <Button
               variant="outline"
               onClick={() => setMode("generate")}
               disabled={!imageReady}
               title={
-                imageReady
-                  ? undefined
-                  : "Configure an OpenAI image model and cost ceiling first"
+                imageReady ? undefined : say(ASSET_TEXT.generateNotReady, de)
               }
             >
-              <Sparkles data-icon="inline-start" /> Generate with OpenAI
+              <Sparkles data-icon="inline-start" />{" "}
+              {say(ASSET_TEXT.generate, de)}
             </Button>
           </div>
         )}
       </div>
       {!imageReady && isOwner && (
-        <Alert kind="warning">
-          OpenAI image generation remains disabled until an owner stores a key,
-          verifies a GPT Image 2.5 model and sets a current maximum cost per
-          image.
-        </Alert>
+        <Alert kind="warning">{say(ASSET_TEXT.imageDisabled, de)}</Alert>
       )}
-      <div className="page-actions">
+      <div className="asset-filters">
         <input
-          aria-label="Search assets"
-          placeholder="Search assets"
+          className="input"
+          type="search"
+          aria-label={say(ASSET_TEXT.search, de)}
+          placeholder={say(ASSET_TEXT.search, de)}
           value={assetQuery}
           onChange={(e) => setAssetQuery(e.target.value)}
         />
         <select
-          aria-label="Asset category"
+          className="input"
+          aria-label={say(ASSET_TEXT.category, de)}
           value={assetFilter}
-          onChange={(e) => setAssetFilter(e.target.value)}
+          onChange={(e) => setAssetFilter(e.target.value as AssetCategory)}
         >
-          {["all", "logos", "images", "generated", "documents"].map(
-            (category) => (
-              <option key={category} value={category}>
-                {category}
-              </option>
-            ),
-          )}
+          {(Object.keys(CATEGORY_LABELS) as AssetCategory[]).map((key) => (
+            <option key={key} value={key}>
+              {say(CATEGORY_LABELS[key], de)}
+            </option>
+          ))}
         </select>
+        <select
+          className="input"
+          aria-label={say(ASSET_TEXT.status, de)}
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as AssetStatusFilter)}
+        >
+          {(Object.keys(STATUS_FILTERS) as AssetStatusFilter[]).map((key) => (
+            <option key={key} value={key}>
+              {say(STATUS_FILTERS[key], de)}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input"
+          aria-label={say(ASSET_TEXT.source, de)}
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value as AssetSourceFilter)}
+        >
+          {(Object.keys(SOURCE_LABELS) as AssetSourceFilter[]).map((key) => (
+            <option key={key} value={key}>
+              {say(SOURCE_LABELS[key], de)}
+            </option>
+          ))}
+        </select>
+        {statusFilter === "all" && (
+          <label className="asset-filter-toggle">
+            <input
+              type="checkbox"
+              checked={showOutdated}
+              onChange={(e) => setShowOutdated(e.target.checked)}
+            />{" "}
+            {say(ASSET_TEXT.showOutdated, de)} ({outdatedCount})
+          </label>
+        )}
         <Button
           variant="outline"
           onClick={() => setAssetView(assetView === "grid" ? "list" : "grid")}
         >
-          {assetView === "grid" ? "List view" : "Grid view"}
+          {say(
+            assetView === "grid" ? ASSET_TEXT.listView : ASSET_TEXT.gridView,
+            de,
+          )}
         </Button>
       </div>
-      <div className={assetView === "grid" ? "asset-library" : "data-list"}>
+      <ResourceError error={assets.error} retry={assets.refresh} />
+      {assets.data && !visibleAssets.length && (
+        <Empty
+          title={say(
+            library.length ? ASSET_TEXT.noMatch : ASSET_TEXT.empty,
+            de,
+          )}
+          description={say(
+            library.length ? ASSET_TEXT.noMatchHint : ASSET_TEXT.emptyHint,
+            de,
+          )}
+        />
+      )}
+      <div
+        className={
+          assetView === "grid"
+            ? "asset-library asset-tile-grid"
+            : "data-list asset-tile-list"
+        }
+      >
         {visibleAssets.map((asset) => (
-          <article className="asset-card" key={asset.id}>
-            {asset.data.hasContent === true ||
-            (asset.data.driveFileId &&
-              String(asset.data.mime ?? "").startsWith("image/")) ||
-            asset.data.type === "original_logo" ? (
-              <img
-                src={contentUrl(asset)}
-                alt={value(
-                  asset,
-                  "name",
-                  value(asset, "brandName", "Brand asset"),
-                )}
-              />
-            ) : (
-              <span className="asset-placeholder">
-                <ImageIcon aria-hidden="true" />
-              </span>
-            )}
-            <div>
-              <strong>
-                {value(asset, "name", value(asset, "brandName", "Asset"))}
-              </strong>
-              <p>{value(asset, "source", "Source not recorded")}</p>
-              <p>
-                {value(asset, "mime", "Unknown type")} ·{" "}
-                {value(asset, "bytes", "Unknown size")} bytes
-              </p>
-              {typeof asset.data.driveFolderId === "string" && (
-                <p>Drive folder: {String(asset.data.driveFolderId)}</p>
-              )}
-              <div className="detail-summary">
-                <Status value={asset.data.assetStatus} />
-                {typeof asset.data.driveSyncStatus === "string" && (
-                  <Badge>{String(asset.data.driveSyncStatus)}</Badge>
-                )}
-                <Badge>{value(asset, "type")}</Badge>
-              </div>
-              {studio && asset.data.type !== "original_logo" && (
-                <ProviderUseControl
-                  asset={{
-                    id: asset.id,
-                    version: asset.version,
-                    approved:
-                      asset.data.usageApproved === true &&
-                      asset.data.assetStatus === "approved",
-                    providerUse: asset.data.providerUse === true,
-                  }}
-                  isOwner={isOwner}
-                  de={locale === "de"}
-                  pending={mutation.pending}
-                  onChange={(next) =>
-                    mutation.run(() =>
-                      action(
-                        project.id,
-                        "asset-status",
-                        providerUseBody(
-                          {
-                            id: asset.id,
-                            version: asset.version,
-                            approved: true,
-                            providerUse: asset.data.providerUse === true,
-                          },
-                          next,
-                        ),
-                      ),
-                    )
-                  }
-                />
-              )}
-            </div>
-            {(asset.data.hasContent === true ||
-              typeof asset.data.driveFileId === "string") && (
-              <a
-                href={contentUrl(asset)}
-                download={value(asset, "filename", "asset")}
-              >
-                Download
-              </a>
-            )}
-            {typeof asset.data.driveFileId === "string" && (
-              <a
-                href={`https://drive.google.com/file/d/${encodeURIComponent(String(asset.data.driveFileId))}/view`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open in Drive
-              </a>
-            )}
-            {asset.data.driveSyncStatus === "FAILED" && isOwner && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  mutation.run(() =>
-                    api(
-                      `/projects/${project.id}/assets/${asset.id}/drive-retry`,
-                      { method: "POST" },
-                    ),
-                  )
-                }
-              >
-                Retry Drive upload
-              </Button>
-            )}
-            {isOwner && asset.data.type !== "original_logo" && (
-              <div className="asset-actions">
-                {asset.data.assetStatus !== "approved" && (
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      mutation.run(() =>
-                        action(project.id, "asset-status", {
-                          assetId: asset.id,
-                          version: asset.version,
-                          assetStatus: "approved",
-                          confirmUsageRights: true,
-                        }),
-                      )
-                    }
-                  >
-                    Approve rights &amp; use
-                  </Button>
-                )}
-                {asset.data.assetStatus !== "outdated" && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() =>
-                      mutation.run(() =>
-                        action(project.id, "asset-status", {
-                          assetId: asset.id,
-                          version: asset.version,
-                          assetStatus: "outdated",
-                        }),
-                      )
-                    }
-                  >
-                    Mark outdated
-                  </Button>
-                )}
-              </div>
-            )}
-          </article>
+          <AssetTile
+            key={asset.id}
+            asset={asset}
+            contentUrl={contentUrl(asset)}
+            isOwner={isOwner}
+            locale={locale}
+            timezone={project.timezone}
+            studio={studio}
+            pending={mutation.pending}
+            onProviderUse={(next) =>
+              mutation.run(() =>
+                action(
+                  project.id,
+                  "asset-status",
+                  providerUseBody(
+                    {
+                      id: asset.id,
+                      version: asset.version,
+                      approved: true,
+                      providerUse: asset.data.providerUse === true,
+                    },
+                    next,
+                  ),
+                ),
+              )
+            }
+            onApprove={() => setStatus(asset, "approved")}
+            onOutdated={() => setStatus(asset, "outdated")}
+            onRetryDrive={() =>
+              mutation.run(() =>
+                api(`/projects/${project.id}/assets/${asset.id}/drive-retry`, {
+                  method: "POST",
+                }),
+              )
+            }
+          />
         ))}
       </div>
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}

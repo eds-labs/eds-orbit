@@ -5,7 +5,7 @@ import { post, put, remove, useMutation, useResource } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { Alert, Badge, Button, Empty, Loading, Modal } from "@/components/ui/primitives";
 import { ResourceError } from "@/platform/ui/collection";
-import { DataForm, str } from "@/platform/ui/form";
+import { DataForm, str, type FormField, type FormValues } from "@/platform/ui/form";
 import { errorText } from "./texts";
 
 // AI profiles and organization knowledge libraries (ADR 0014). A profile
@@ -27,6 +27,164 @@ type Profile = {
   } & Record<string, unknown>;
 };
 
+// The editor's own refusals, before anything is sent.
+type ProfileFormError =
+  | "PROFILE_JSON_INVALID"
+  | "PROFILE_ROUTES_INCOMPLETE"
+  | "PROFILE_TIERS_INCOMPLETE";
+const profileErrors: Record<ProfileFormError, { en: string; de: string }> = {
+  PROFILE_ROUTES_INCOMPLETE: {
+    en: "Fill in all four routes or leave all four empty.",
+    de: "Fülle alle vier Routen aus oder lass alle vier leer.",
+  },
+  PROFILE_TIERS_INCOMPLETE: {
+    en: "Fill in all three Claude tiers or leave all three empty.",
+    de: "Fülle alle drei Claude-Stufen aus oder lass alle drei leer.",
+  },
+  PROFILE_JSON_INVALID: {
+    en: "The rate card or the budgets are not valid JSON.",
+    de: "Preise oder Budgets sind kein gültiges JSON.",
+  },
+};
+
+/** The profile form's fields, prefilled from the stored profile. */
+export function profileFields(d: Profile["data"], locale: Locale): FormField[] {
+  const de = locale === "de";
+  const routes = d.modelRoutes;
+  return [
+    {
+      name: "defaultProvider",
+      label: de ? "Standardanbieter" : "Default provider",
+      type: "select",
+      value: d.defaultProvider ?? "",
+      options: [
+        { value: "", label: de ? "nicht festgelegt" : "not set" },
+        { value: "openai", label: "OpenAI" },
+        { value: "anthropic", label: "Anthropic Claude" },
+      ],
+    },
+    {
+      name: "verifiedModels",
+      label: de ? "Geprüfte Modelle (kommagetrennt)" : "Verified models (comma-separated)",
+      value: (d.verifiedModels ?? []).join(", "),
+    },
+    { name: "fast", label: "Route fast", value: routes?.fast ?? "" },
+    { name: "standard", label: "Route standard", value: routes?.standard ?? "" },
+    { name: "quality", label: "Route quality", value: routes?.quality ?? "" },
+    { name: "escalation", label: "Route escalation", value: routes?.escalation ?? "" },
+    // Claude's tiers, used while Claude is the default provider (phase 3.3).
+    {
+      name: "claudeFast",
+      heading: "Claude",
+      label: de ? "Claude-Stufe fast" : "Claude tier fast",
+      value: d.anthropicTierRoutes?.fast ?? "",
+    },
+    {
+      name: "claudeStandard",
+      label: de ? "Claude-Stufe standard" : "Claude tier standard",
+      value: d.anthropicTierRoutes?.standard ?? "",
+    },
+    {
+      name: "claudeQuality",
+      label: de ? "Claude-Stufe quality" : "Claude tier quality",
+      value: d.anthropicTierRoutes?.quality ?? "",
+    },
+    {
+      name: "rateCard",
+      label: de ? "Preise (JSON: Modell → USD-Micros je Mio. Tokens)" : "Rate card (JSON: model → USD micros per million tokens)",
+      type: "textarea",
+      value: d.rateCard ? JSON.stringify(d.rateCard, null, 2) : "",
+    },
+    {
+      name: "providerBudgets",
+      label: de
+        ? "Anbieter-Budgets (JSON: anthropic/openai → monthlyMicros, warnMicros, warn2Micros, stopMicros, anchorDay)"
+        : "Provider budgets (JSON: anthropic/openai → monthlyMicros, warnMicros, warn2Micros, stopMicros, anchorDay)",
+      type: "textarea",
+      value: d.providerBudgets ? JSON.stringify(d.providerBudgets, null, 2) : "",
+      hint: de
+        ? "Projekte ohne eigenes Budget übernehmen es."
+        : "Projects without their own budget inherit it.",
+    },
+  ];
+}
+
+/**
+ * The whole profile to send: the shown fields from the form, every other
+ * field (the standard models included) from the stored copy. A route or
+ * tier set is sent whole or left out when all of it was cleared; a partly
+ * filled set is refused instead of silently removing it (risk 7).
+ */
+export function profilePayload(
+  stored: Profile["data"],
+  values: FormValues,
+):
+  | { payload: Record<string, unknown> }
+  | { error: ProfileFormError } {
+  let rateCard: unknown;
+  let providerBudgets: unknown;
+  try {
+    rateCard = str(values, "rateCard") ? JSON.parse(str(values, "rateCard")) : undefined;
+    providerBudgets = str(values, "providerBudgets")
+      ? JSON.parse(str(values, "providerBudgets"))
+      : undefined;
+  } catch {
+    return { error: "PROFILE_JSON_INVALID" };
+  }
+  const route = ["fast", "standard", "quality", "escalation"].map((k) => str(values, k));
+  if (route.some(Boolean) && !route.every(Boolean))
+    return { error: "PROFILE_ROUTES_INCOMPLETE" };
+  const tiers = ["claudeFast", "claudeStandard", "claudeQuality"].map((k) =>
+    str(values, k),
+  );
+  if (tiers.some(Boolean) && !tiers.every(Boolean))
+    return { error: "PROFILE_TIERS_INCOMPLETE" };
+  // Fields this form does not show are kept as they are.
+  const {
+    defaultProvider: _p,
+    verifiedModels: _v,
+    modelRoutes: _m,
+    rateCard: _r,
+    anthropicTierRoutes: _t,
+    providerBudgets: _b,
+    ...kept
+  } = stored;
+  const models = str(values, "verifiedModels")
+    .split(",")
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return {
+    payload: {
+      ...kept,
+      ...(str(values, "defaultProvider")
+        ? { defaultProvider: str(values, "defaultProvider") }
+        : {}),
+      ...(models.length ? { verifiedModels: models } : {}),
+      ...(route.every(Boolean)
+        ? {
+            modelRoutes: {
+              fast: route[0],
+              standard: route[1],
+              quality: route[2],
+              escalation: route[3],
+            },
+          }
+        : {}),
+      ...(rateCard ? { rateCard } : {}),
+      ...(tiers.every(Boolean)
+        ? {
+            anthropicTierRoutes: {
+              fast: tiers[0],
+              standard: tiers[1],
+              quality: tiers[2],
+            },
+          }
+        : {}),
+      ...(providerBudgets ? { providerBudgets } : {}),
+    },
+  };
+}
+
 export function AiProfileEditor({
   path,
   locale,
@@ -40,12 +198,11 @@ export function AiProfileEditor({
   const de = locale === "de";
   const profile = useResource<Profile>(path);
   const save = useMutation(profile.refresh);
-  const [jsonError, setJsonError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<ProfileFormError | null>(null);
   if (profile.loading && !profile.data)
     return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!profile.data) return <ResourceError error={profile.error} retry={profile.refresh} />;
-  const d = profile.data.data;
-  const routes = d.modelRoutes;
+  const { data: d, version } = profile.data;
   return (
     <section className="panel">
       <div className="panel-head">
@@ -55,136 +212,32 @@ export function AiProfileEditor({
           </h2>
           <p>
             {de
-              ? `Modelle, Routen und Preise als Standard (Version ${profile.data.version}). Eigene KI-Einstellungen eines Projekts gehen vor. Schlüssel gehören zu den Verbindungen.`
-              : `Models, routes and prices as defaults (version ${profile.data.version}). A project's own AI settings take precedence. Keys belong to connections.`}
+              ? `Modelle, Routen und Preise als Standard (Version ${version}). Eigene KI-Einstellungen eines Projekts gehen vor. Schlüssel gehören zu den Verbindungen.`
+              : `Models, routes and prices as defaults (version ${version}). A project's own AI settings take precedence. Keys belong to connections.`}
           </p>
         </div>
       </div>
       <div className="panel-body">
         {save.success && <Alert kind="success">{de ? "Gespeichert." : "Saved."}</Alert>}
         <DataForm
-          fields={[
-            {
-              name: "defaultProvider",
-              label: de ? "Standardanbieter" : "Default provider",
-              type: "select",
-              value: d.defaultProvider ?? "",
-              options: [
-                { value: "", label: de ? "nicht festgelegt" : "not set" },
-                { value: "openai", label: "OpenAI" },
-                { value: "anthropic", label: "Anthropic Claude" },
-              ],
-            },
-            {
-              name: "verifiedModels",
-              label: de ? "Geprüfte Modelle (kommagetrennt)" : "Verified models (comma-separated)",
-              value: (d.verifiedModels ?? []).join(", "),
-            },
-            { name: "fast", label: "Route fast", value: routes?.fast ?? "" },
-            { name: "standard", label: "Route standard", value: routes?.standard ?? "" },
-            { name: "quality", label: "Route quality", value: routes?.quality ?? "" },
-            { name: "escalation", label: "Route escalation", value: routes?.escalation ?? "" },
-            // Claude's tiers, used while Claude is the default provider (phase 3.3).
-            {
-              name: "claudeFast",
-              heading: "Claude",
-              label: de ? "Claude-Stufe fast" : "Claude tier fast",
-              value: d.anthropicTierRoutes?.fast ?? "",
-            },
-            {
-              name: "claudeStandard",
-              label: de ? "Claude-Stufe standard" : "Claude tier standard",
-              value: d.anthropicTierRoutes?.standard ?? "",
-            },
-            {
-              name: "claudeQuality",
-              label: de ? "Claude-Stufe quality" : "Claude tier quality",
-              value: d.anthropicTierRoutes?.quality ?? "",
-            },
-            {
-              name: "rateCard",
-              label: de ? "Preise (JSON: Modell → USD-Micros je Mio. Tokens)" : "Rate card (JSON: model → USD micros per million tokens)",
-              type: "textarea",
-              value: d.rateCard ? JSON.stringify(d.rateCard, null, 2) : "",
-            },
-            {
-              name: "providerBudgets",
-              label: de
-                ? "Anbieter-Budgets (JSON: anthropic/openai → monthlyMicros, warnMicros, warn2Micros, stopMicros, anchorDay)"
-                : "Provider budgets (JSON: anthropic/openai → monthlyMicros, warnMicros, warn2Micros, stopMicros, anchorDay)",
-              type: "textarea",
-              value: d.providerBudgets ? JSON.stringify(d.providerBudgets, null, 2) : "",
-              hint: de
-                ? "Projekte ohne eigenes Budget übernehmen es."
-                : "Projects without their own budget inherit it.",
-            },
-          ]}
+          fields={profileFields(d, locale)}
           pending={save.pending}
-          error={jsonError ?? errorText(save.error, locale)}
+          error={
+            formError
+              ? profileErrors[formError][de ? "de" : "en"]
+              : errorText(save.error, locale)
+          }
           submitLabel={de ? "Speichern" : "Save"}
           onSubmit={(v) => {
-            setJsonError(null);
-            let rateCard: unknown;
-            let providerBudgets: unknown;
-            try {
-              rateCard = str(v, "rateCard") ? JSON.parse(str(v, "rateCard")) : undefined;
-              providerBudgets = str(v, "providerBudgets")
-                ? JSON.parse(str(v, "providerBudgets"))
-                : undefined;
-            } catch {
-              setJsonError(
-                de
-                  ? "Preise oder Budgets sind kein gültiges JSON."
-                  : "The rate card or the budgets are not valid JSON.",
-              );
+            const result = profilePayload(d, v);
+            if ("error" in result) {
+              setFormError(result.error);
               return;
             }
-            const tiers = ["claudeFast", "claudeStandard", "claudeQuality"].map((k) =>
-              str(v, k),
-            );
-            // Fields this form does not show are kept as they are.
-            const {
-              defaultProvider: _p,
-              verifiedModels: _v,
-              modelRoutes: _m,
-              rateCard: _r,
-              anthropicTierRoutes: _t,
-              providerBudgets: _b,
-              ...kept
-            } = d;
-            const models = str(v, "verifiedModels")
-              .split(",")
-              .map((m) => m.trim())
-              .filter(Boolean);
-            const route = ["fast", "standard", "quality", "escalation"].map((k) => str(v, k));
-            void save.run(() =>
-              put(path, {
-                ...kept,
-                ...(str(v, "defaultProvider") ? { defaultProvider: str(v, "defaultProvider") } : {}),
-                ...(models.length ? { verifiedModels: models } : {}),
-                ...(route.every(Boolean)
-                  ? {
-                      modelRoutes: {
-                        fast: route[0],
-                        standard: route[1],
-                        quality: route[2],
-                        escalation: route[3],
-                      },
-                    }
-                  : {}),
-                ...(rateCard ? { rateCard } : {}),
-                ...(tiers.every(Boolean)
-                  ? {
-                      anthropicTierRoutes: {
-                        fast: tiers[0],
-                        standard: tiers[1],
-                        quality: tiers[2],
-                      },
-                    }
-                  : {}),
-                ...(providerBudgets ? { providerBudgets } : {}),
-              }),
-            );
+            setFormError(null);
+            // The loaded version: a profile changed since (for example its
+            // standard models) is refused instead of overwritten.
+            void save.run(() => put(`${path}?expectedVersion=${version}`, result.payload));
           }}
         />
       </div>

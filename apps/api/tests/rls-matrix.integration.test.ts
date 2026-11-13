@@ -36,6 +36,8 @@ const PROJECT_TABLES = [
   "EntityVersion",
   "File",
   "FileBlob",
+  // Image provenance (ADR 0028).
+  "ImageProvenance",
   "KnowledgeChunk",
   "KnowledgeDocument",
   "KnowledgeIndex",
@@ -110,6 +112,11 @@ const PROJECT_TABLES = [
   "SocialPostVariant",
   "SocialProviderState",
   "SocialPublication",
+  // Webmail module (ADR 0026).
+  "WebmailConversion",
+  "WebmailMailbox",
+  "WebmailMailboxGrant",
+  "WebmailSession",
   // Ads module (ADR 0025).
   "AdAccount",
   "AdOAuthState",
@@ -195,6 +202,9 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     DomainEvent: [true, true, false, true],
     // Task history is append-only; deleting a task still cascades.
     WorkEvent: [true, true, false, false],
+    // ADR 0028: an image provenance record is immutable; project deletion
+    // still cascades.
+    ImageProvenance: [true, true, false, false],
     // ADR 0017: applied plans and coding work orders are kept.
     WorkPlanProposal: [true, true, true, false],
     WorkCodingRun: [true, true, true, false],
@@ -411,6 +421,21 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           actorKind: "system",
           origin: "platform",
           correlationId: eventId,
+        },
+      });
+      // Image provenance (ADR 0028).
+      await tx.imageProvenance.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          sha256: "a".repeat(64),
+          origin: "original_upload",
+          labelState: "not_required",
+          subjectModule: "platform",
+          subjectKind: "rls",
+          subjectId: "rls",
+          createdBy: s.userId,
         },
       });
       await tx.budgetReservation.create({
@@ -643,12 +668,62 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       await seedWork(tx, s, fileId);
       await seedIssues(tx, s, fileId);
       await seedSocial(tx, s, fileId);
+      await seedWebmail(tx, s, mailbox.id);
       await seedAds(tx, s);
       return inbox.id;
     });
   }
 
   // One row in every project management table (ADR 0016).
+  async function seedWebmail(tx: DbTx, s: Scope, connectionId: string) {
+    const owner = { workspaceId: s.workspaceId, projectId: s.projectId };
+    const mailbox = await tx.webmailMailbox.create({
+      data: {
+        ...owner,
+        id: randomUUID(),
+        emailConnectionId: connectionId,
+        createdBy: s.userId,
+      },
+    });
+    await tx.webmailMailboxGrant.create({
+      data: {
+        ...owner,
+        mailboxId: mailbox.id,
+        userId: s.userId,
+        canRead: true,
+        grantedBy: s.userId,
+      },
+    });
+    const later = new Date(Date.now() + 60_000);
+    await tx.webmailSession.create({
+      data: {
+        ...owner,
+        id: randomUUID(),
+        mailboxId: mailbox.id,
+        userId: s.userId,
+        authSessionId: "rls-seed",
+        handoffExpiresAt: later,
+        expiresAt: later,
+      },
+    });
+    await tx.webmailConversion.create({
+      data: {
+        ...owner,
+        id: randomUUID(),
+        mailboxId: mailbox.id,
+        dedupeKey: "d".repeat(64),
+        mode: "create",
+        target: "support.ticket",
+        attemptId: randomUUID(),
+        leaseUntil: later,
+        folder: "INBOX",
+        uid: 1,
+        uidValidity: "1",
+        actorId: s.userId,
+      },
+    });
+  }
+
   async function seedWork(tx: DbTx, s: Scope, fileId: string) {
     const row = () => ({
       id: randomUUID(),
@@ -1343,6 +1418,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         "ChatConversation",
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
+      ],
+      [
+        "ImageProvenance",
+        `INSERT INTO "ImageProvenance" (id, "workspaceId", "projectId", sha256, origin, "labelState", "subjectModule", "subjectKind", "subjectId", "createdBy") VALUES ($1::uuid, $2::uuid, $3::uuid, repeat('b', 64), 'original_upload', 'not_required', 'platform', 'rls', 'rls', 'rls')`,
+        [randomUUID(), b.workspaceId, b.projectId],
       ],
       [
         "AdProviderThrottle",

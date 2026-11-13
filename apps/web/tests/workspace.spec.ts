@@ -118,7 +118,6 @@ async function newProject(page: Page, name: string) {
 // Pages by their old name; the shell serves them under /p/:projectId (WP1.7).
 const VIEW = {
   knowledge: "knowledge",
-  settings: "settings",
   missions: "marketing/missions",
   content: "marketing/content",
   calendar: "marketing/calendar",
@@ -126,10 +125,13 @@ const VIEW = {
   operations: "operations",
   chat: "assistant",
   approvals: "approvals",
-  connectors: "connectors",
 } as const;
 const open = (page: Page, projectId: string, view: keyof typeof VIEW) =>
   page.goto(`/p/${projectId}/${VIEW[view]}`);
+// A project's settings live in the settings center; its first section is
+// the project overview.
+const openSettings = (page: Page, projectId: string) =>
+  page.goto(`/manage/p/${projectId}/overview`);
 // The knowledge pages are entries of the sidebar's Knowledge group (UI
 // restructure); on a phone the sidebar opens from the menu button first.
 async function knowledgePage(page: Page, name: string) {
@@ -155,6 +157,11 @@ async function settingsSection(page: Page, name: string) {
       .getByLabel("Section", { exact: true })
       .selectOption({ label: name });
   await expect(list.locator('[aria-current="page"]')).toHaveText(name);
+}
+// The settings center has its own frame without the workspace sidebar; its
+// back link returns to the project, where the scenario goes on.
+async function backToProject(page: Page) {
+  await page.getByRole("link", { name: /Back to project/ }).click();
 }
 // Health, Impact and Inspector have no sidebar entry: the overview links them,
 // and a knowledge sub-page leads back to the overview first.
@@ -369,10 +376,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         links: projectLinks,
       },
     );
-    await open(page, projectId, "settings");
+    await openSettings(page, projectId);
     await settingsSection(page, "Brand");
     await expect(page).toHaveURL(
-      new RegExp(`/p/${projectId}/settings\\?section=brand$`),
+      new RegExp(`/manage/p/${projectId}/modules/marketing/brand$`),
     );
     await page.getByRole("button", { name: "Review usage rights" }).click();
     dialog = page.getByRole("dialog", { name: "Approve brand usage" });
@@ -386,6 +393,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByText("Rights approved", { exact: true }),
     ).toBeVisible();
+    await backToProject(page);
     const logoAssets = await (
       await page.request.get(`/api/projects/${projectId}/assets`)
     ).json();
@@ -417,11 +425,12 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     const assetCard = page.locator(".asset-card").filter({
       hasText: "Browser visual asset",
     });
-    await expect(assetCard).toContainText("reference");
+    // The tile shows the status as a localized label ("Reference").
+    await expect(assetCard).toContainText("reference", { ignoreCase: true });
     await assetCard
       .getByRole("button", { name: "Approve rights & use" })
       .click();
-    await expect(assetCard).toContainText("approved");
+    await expect(assetCard).toContainText("approved", { ignoreCase: true });
     const visualAssets = await (
       await page.request.get(`/api/projects/${projectId}/assets`)
     ).json();
@@ -432,7 +441,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
 
     await page
       .getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Settings", exact: true })
+      .getByRole("link", {
+        name: "Administration & settings",
+        exact: true,
+      })
       .click();
     await settingsSection(page, "Brand");
     await page
@@ -514,6 +526,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     await page.reload();
+    await backToProject(page);
     await page
       .getByRole("navigation", { name: "Workspace" })
       .getByRole("link", { name: "Assets" })
@@ -627,7 +640,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog.getByRole("button", { name: "Close dialog" }).click();
     dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Review", exact: true }).click();
-    await expect(dialog.locator(".detail-summary")).toContainText("reviewed");
+    // The status badge prints its localized word ("Reviewed").
+    await expect(dialog.locator(".detail-summary")).toContainText("reviewed", {
+      ignoreCase: true,
+    });
     await dialog.getByRole("button", { name: "Create social variant" }).click();
     await dialog
       .getByLabel("Variant title")
@@ -773,17 +789,18 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.emulateMedia({ reducedMotion: "reduce" });
     // 390px settings: the section list is a labelled select above the
-    // content; a choice replaces the URL's ?section= in place.
-    await open(page, projectId, "settings");
+    // content, whose values are center section ids; a choice opens the
+    // section's address.
+    await openSettings(page, projectId);
     await expect(
       page.getByRole("navigation", { name: "Settings sections" }),
     ).toBeHidden();
     const section = page.getByLabel("Section", { exact: true });
     await expect(section).toBeVisible();
-    await expect(section).toHaveValue("project");
-    await section.selectOption("policy");
+    await expect(section).toHaveValue("overview/summary");
+    await section.selectOption({ label: "Publishing rules" });
     await expect(page).toHaveURL(
-      new RegExp(`/p/${projectId}/settings\\?section=policy$`),
+      new RegExp(`/manage/p/${projectId}/modules/marketing/policy$`),
     );
     await expect(
       page.getByRole("heading", { name: "Versioned operating policy" }),
@@ -793,18 +810,6 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBeTruthy();
-    // A module's settings link to the section that is already open closes the
-    // drawer (only the search could change, not the path).
-    await page
-      .getByRole("button", { name: "Open navigation", exact: true })
-      .click();
-    await page
-      .getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Marketing Settings", exact: true })
-      .click();
-    await expect(
-      page.getByRole("dialog", { name: "Workspace navigation" }),
-    ).toBeHidden();
     // Tabs move the focus with Arrow, Home and End (the analytics tabs; the
     // settings use a section list and no tab bar navigates between pages).
     await open(page, projectId, "analytics");
@@ -867,8 +872,8 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     };
     // Someone outside the organization joins through an invitation link and
     // sets their own password (ADR 0013; needs ORBIT_ADMINISTRATION=true).
-    await open(page, projectId, "settings");
-    await settingsSection(page, "Members & roles");
+    await openSettings(page, projectId);
+    await settingsSection(page, "Members");
     await page
       .getByRole("button", { name: "Invite member", exact: true })
       .click();
@@ -882,6 +887,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .locator("code")
       .innerText();
     await page.getByRole("button", { name: "Close dialog" }).click();
+    await backToProject(page);
     await page.getByRole("button", { name: "Sign out", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Sign in", exact: true }),
@@ -917,7 +923,8 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     expect(denied.status()).toBe(403);
-    // Members is an owner section: not offered, and its URL opens Project.
+    // Members is an owner section: not offered, and its old address opens
+    // the project's first section of the center.
     await page.goto(`/p/${projectId}/settings?section=members`);
     const sections = page.getByRole("navigation", {
       name: "Settings sections",
@@ -926,7 +933,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       "Project",
     );
     await expect(
-      sections.getByRole("link", { name: "Members & roles", exact: true }),
+      sections.getByRole("link", {
+        name: "Members",
+        exact: true,
+      }),
     ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Invite member", exact: true }),
@@ -1089,24 +1099,31 @@ test("editable local brief, private community groups, calendar blocks and owner 
     fullPage: true,
   });
   await open(page, projectId, "calendar");
-  await page.getByRole("button", { name: "Add calendar block" }).click();
+  // The editorial plan's blocked periods (WP5 labels, marketing labels.ts).
+  await page.getByRole("button", { name: "Add blocked period" }).click();
   dialog = page.getByRole("dialog");
-  await dialog.getByLabel("Block title").fill("Synthetic editorial blackout");
   await dialog
-    .getByLabel("Block starts")
+    .getByRole("textbox", { name: "Title" })
+    .fill("Synthetic editorial blackout");
+  await dialog
+    .getByLabel(/^Starts/)
     .fill(localDate(new Date(Date.now() + 3600_000)));
   await dialog
-    .getByLabel("Block ends")
+    .getByLabel(/^Ends/)
     .fill(localDate(new Date(Date.now() + 7200_000)));
   await dialog
     .getByLabel("Reason")
     .fill("Synthetic operator acceptance interval");
-  await dialog.getByRole("button", { name: "Block this interval" }).click();
+  await dialog.getByRole("button", { name: "Block this period" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.locator(".calendar-block-row")).toContainText(
     "Synthetic editorial blackout",
   );
-  await page.getByRole("button", { name: "Release block" }).click();
+  await page
+    .getByRole("button", {
+      name: "Release blocked period Synthetic editorial blackout",
+    })
+    .click();
   await expect(page.locator(".calendar-block-row")).toHaveCount(0);
   const fact = await checkedPost(
     page.request,
@@ -1285,14 +1302,25 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
       },
     },
   );
-  await open(page, projectId, "settings");
+  await openSettings(page, projectId);
   await expect(
     page
       .getByRole("navigation", { name: "Settings sections" })
       .locator('[aria-current="page"]'),
   ).toHaveText("Project");
-  // Models and routes live under Settings -> AI & budget (plan phase 3.3).
-  await page.goto(`/p/${projectId}/settings?section=ai`);
+  // Models and routes live in the center's AI area, in two sections: models
+  // (prices and routes) and providers (the OpenAI dialog).
+  const aiSection = async (name: string) => {
+    await settingsSection(page, name);
+    // The models panel sits in a disclosure there.
+    if (name === "Models")
+      await page
+        .locator("summary")
+        .filter({ hasText: "Models, prices and task routes" })
+        .click();
+  };
+  await page.goto(`/manage/p/${projectId}/ai`);
+  await aiSection("Models");
   // The rate card has its own dialog (Models & prices).
   await page.getByRole("button", { name: "Models & prices" }).click();
   const prices = page.getByRole("dialog", { name: "Models & prices" });
@@ -1300,6 +1328,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
     prices.getByLabel("Rate card (JSON, USD micros per million tokens)"),
   ).toHaveValue(JSON.stringify(rateCard, null, 2));
   await prices.getByRole("button", { name: "Cancel" }).click();
+  await aiSection("Providers and keys");
   // The OpenAI dialog holds keys, tiers and images only.
   await page
     .locator(".data-row")
@@ -1314,6 +1343,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
   ).toBeVisible();
   await expect(openAi.getByLabel("Chat operator model")).toHaveCount(0);
   await openAi.getByRole("button", { name: "Cancel" }).click();
+  await aiSection("Models");
   // Task routes for both providers have their own dialog.
   await page.getByRole("button", { name: "Task routes" }).click();
   const dialog = page.getByRole("dialog", { name: "Task routes" });
@@ -1439,44 +1469,6 @@ test("an old support notification link opens the ticket", async ({ page }) => {
       .getByRole("link", { name: badged("Tickets") }),
   ).toHaveAttribute("aria-current", "page");
   if (first) await expect(page.getByText(first.subject).first()).toBeVisible();
-});
-
-test("settings open by ?section and the legacy path forwards", async ({
-  page,
-}) => {
-  // One login for both: navigation.spec.ts covers the sidebar links, section
-  // changes, history and the unknown-section fallback.
-  test.setTimeout(120_000);
-  await page.setViewportSize({ width: 1440, height: 960 });
-  await login(page);
-  const { projectId } = account();
-  const base = `/p/${projectId}`;
-  const current = page
-    .getByRole("navigation", { name: "Settings sections" })
-    .locator('[aria-current="page"]');
-
-  // A module's section opens straight from its URL, in its own group.
-  await page.goto(`${base}/settings?section=policy`);
-  await expect(current).toHaveText("Publishing rules");
-  await expect(
-    page.getByRole("heading", { name: "Versioned operating policy" }),
-  ).toBeVisible();
-  await page.goto(`${base}/settings?section=brand`);
-  await expect(current).toHaveText("Brand");
-
-  // The pre-restructure path forwards into the project (bare: Project, with
-  // the URL as typed); a section survives the redirect.
-  await page.goto("/settings");
-  await expect(page).toHaveURL(new RegExp(`${base}/settings$`));
-  await expect(current).toHaveText("Project");
-  await expect(
-    page.getByRole("heading", { name: "Autopilot readiness" }),
-  ).toBeVisible();
-  await page.goto("/settings?section=policy");
-  await expect(page).toHaveURL(
-    new RegExp(`${base}/settings\\?section=policy$`),
-  );
-  await expect(current).toHaveText("Publishing rules");
 });
 
 test("the home shows the module cards and each leads to its overview", async ({

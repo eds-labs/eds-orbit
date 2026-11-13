@@ -118,8 +118,8 @@ async function upload(page: Page, variant: string) {
 }
 
 async function enableAndSetUp(page: Page) {
-  // Settings -> Modules: the owner turns finance on.
-  await page.goto(`/p/${projectId}/settings?section=modules`);
+  // Administration & settings -> Modules: the owner turns finance on.
+  await page.goto(`/manage/p/${projectId}/modules`);
   await page.getByRole("button", { name: "Turn on: Finance" }).click();
   await expect(
     page.getByRole("button", { name: "Turn off: Finance" }),

@@ -78,6 +78,7 @@ export async function organizationBudget(
     credits: organizationAiBudgetInput.shape.credits.parse(row.credits),
     version: row.version,
     updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
   };
 }
 

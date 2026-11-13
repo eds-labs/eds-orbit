@@ -236,7 +236,7 @@ describe.skipIf(!enabled)("project attention", () => {
           dueAt: endAt,
           params: { endAt },
           navKey: "operations",
-          link: "/settings?section=ai",
+          link: `/manage/p/${scope.projectId}/ai/budget`,
         },
       ]);
       expect(await expiring("viewer")).toEqual([]);

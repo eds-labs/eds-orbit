@@ -129,9 +129,10 @@ describe.skipIf(!enabled)("social accounts", () => {
     const item = response.json().items.find((i: { id: string }) => i.id === accountId);
     expect(item).toMatchObject({ platform: "telegram", handle: "Channel -1001", status: "active", capability: "read_verified", version: 1 });
     expect(Object.keys(item).sort()).toEqual(
-      ["capability", "connectedAt", "displayName", "handle", "id", "lastCheckCode", "lastCheckedAt", "platform", "settings", "status", "version"].sort(),
+      ["capability", "connectedAt", "disabledAt", "displayName", "handle", "id", "lastCheckCode", "lastCheckedAt", "platform", "settings", "status", "version"].sort(),
     );
     expect(item.settings).toEqual({ xLongPosts: false });
+    expect(item.disabledAt).toBeNull();
     expect(response.body).not.toContain(BOT);
     expect(response.body).not.toMatch(/token|secret|connectionId/i);
   });
@@ -238,6 +239,58 @@ describe.skipIf(!enabled)("social accounts", () => {
   it("refuses another project's account", async () => {
     const response = await call("owner", "POST", `/accounts/${randomUUID()}/check`);
     expect(response.statusCode).toBe(404);
+  });
+
+  it("keeps a disconnected account in the list, flagged with when it was disconnected", async () => {
+    const { accountId } = await telegram("-1010");
+    expect((await call("owner", "POST", `/accounts/${accountId}/disconnect`, { version: 1 })).statusCode).toBe(200);
+    const item = (await call("viewer", "GET", "/accounts")).json().items.find((i: { id: string }) => i.id === accountId);
+    expect(item).toMatchObject({ status: "disabled", version: 2 });
+    expect(Date.parse(item.disabledAt)).not.toBeNaN();
+    // A disconnected account is no target: a check is refused, a second
+    // disconnect changes nothing and calls no provider.
+    methods.length = 0;
+    const check = await call("owner", "POST", `/accounts/${accountId}/check`);
+    expect([check.statusCode, check.json().error?.code]).toEqual([409, "SOCIAL_ACCOUNT_DISABLED"]);
+    const again = await call("owner", "POST", `/accounts/${accountId}/disconnect`, { version: 2 });
+    expect([again.statusCode, again.json()]).toEqual([200, { id: accountId, status: "disabled" }]);
+    expect(methods).toEqual([]);
+    expect(await account(accountId)).toMatchObject({ status: "disabled", version: 2 });
+  });
+
+  it("never reads or changes a real account of another project, even of the same organization", async () => {
+    const otherProjectId = (await authDb.project.create({ data: { workspaceId, name: "Synthetic social accounts B" } })).id;
+    const foreign = await scoped(workspaceId, otherProjectId, async (tx) => {
+      await tx.projectModule.create({
+        data: { workspaceId, projectId: otherProjectId, moduleId: "social", enabled: true, moduleVersion: "0.1.0", changedBy: ids.owner },
+      });
+      return tx.socialAccount.create({
+        data: {
+          id: randomUUID(),
+          workspaceId,
+          projectId: otherProjectId,
+          connectionId: randomUUID(),
+          platform: "x",
+          externalId: randomUUID(),
+          handle: "@foreign_x",
+          displayName: "Foreign X",
+          capability: "write_verified",
+          createdBy: ids.owner,
+        },
+      });
+    });
+    methods.length = 0;
+    const responses = [
+      await call("owner", "PATCH", `/accounts/${foreign.id}`, { version: 1, settings: { xLongPosts: true } }),
+      await call("owner", "POST", `/accounts/${foreign.id}/check`),
+      await call("owner", "POST", `/accounts/${foreign.id}/disconnect`, { version: 1 }),
+    ];
+    expect(responses.map((r) => r.statusCode)).toEqual([404, 404, 404]);
+    expect(methods).toEqual([]);
+    const listed = (await call("owner", "GET", "/accounts")).json().items.map((i: { id: string }) => i.id);
+    expect(listed).not.toContain(foreign.id);
+    const after = await scoped(workspaceId, otherProjectId, (tx) => tx.socialAccount.findUniqueOrThrow({ where: { id: foreign.id } }));
+    expect(after).toMatchObject({ status: "active", version: 1, disabledAt: null, settings: {} });
   });
 
   it("checks at most 20 accounts per periodic run, the least recently checked first", async () => {

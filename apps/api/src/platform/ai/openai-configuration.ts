@@ -36,10 +36,13 @@ import {
   resolveRoute,
   taskClasses,
   taskRoutesSchema,
+  type ModelRegistry,
   type ModelRoute,
   type OpenAiRuntimeConfig,
   type ProjectRouting,
+  type ProviderBudgets,
   type ProviderId,
+  type Rate,
   type TaskClass,
 } from "../../../../../packages/ai/src/index.ts";
 import {
@@ -54,6 +57,7 @@ import {
   update,
   DomainError,
 } from "../shared.ts";
+import { providersForData, type DataClass } from "./data-class.ts";
 
 /**
  * The project's AI configuration: one entity of kind `openai_configuration`
@@ -374,8 +378,66 @@ export function aiCapabilities(status: {
   };
 }
 
+/**
+ * The project's own saved AI fields, exactly as stored: no environment value,
+ * preset or organization standard is mixed in, so a form can send back only
+ * what the project saved. Built field by field, so no key ever reaches it.
+ */
+export type StoredAiFields = {
+  version: number;
+  verifiedModels: string[];
+  rateCard: Record<string, Rate>;
+  modelRoutes: { fast: string; standard: string; quality: string; escalation: string };
+  taskRoutes: Partial<Record<TaskClass, ModelRoute>>;
+  imageGeneration: { model: string; maxCostMicrosPerImage: number; pricingVerifiedAt?: string };
+  defaultProvider: ProviderId;
+  anthropicTierRoutes: { fast: string; standard: string; quality: string } | null;
+  models: ModelRegistry;
+  providerBudgets: ProviderBudgets;
+  fallback: { onProviderBudgetStop: "none" | "openai" };
+  routing: ProjectRouting | null;
+};
+
+/** The project's own saved AI fields, never a key; null while it saved none. */
+export function storedAiFields(
+  row: { data: unknown; version: number } | null,
+): StoredAiFields | null {
+  if (!row) return null;
+  const value = stored(row);
+  return {
+    version: row.version,
+    verifiedModels: value.verifiedModels,
+    rateCard: value.rateCard,
+    modelRoutes: value.modelRoutes,
+    taskRoutes: value.taskRoutes,
+    imageGeneration: value.imageGeneration,
+    defaultProvider: value.defaultProvider,
+    anthropicTierRoutes: value.anthropicTierRoutes ?? null,
+    models: value.models,
+    providerBudgets: value.providerBudgets,
+    fallback: value.fallback,
+    routing: value.routing ?? null,
+  };
+}
+
+/** Whether the project saved its own key, per key; no key is read. */
+export function ownAiKeys(row: { data: unknown } | null): {
+  openai: boolean;
+  image: boolean;
+  anthropic: boolean;
+} {
+  const value = row ? stored(row) : null;
+  return {
+    openai: Boolean(value?.encryptedApiKey),
+    image: Boolean(value?.encryptedImageApiKey),
+    anthropic: Boolean(value?.encryptedAnthropicApiKey),
+  };
+}
+
 export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
-  const view = publicOpenAiConfiguration(await configurationRow(tx, scope));
+  const row = await configurationRow(tx, scope);
+  const view = publicOpenAiConfiguration(row);
+  const storedFields = storedAiFields(row);
   // The central price catalog the project draws on (phase A), when on.
   const catalog = aiCatalogEnabled()
     ? (await projectCatalog(tx, scope)).map((m) => ({
@@ -399,7 +461,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
   try {
     status = await effectiveAiStatus(tx, scope);
   } catch {
-    return { ...view, catalog, defaults };
+    return { ...view, catalog, defaults, stored: storedFields };
   }
   // A project on a preset or the standard shows what its calls use.
   const routed = defaults && view.routing;
@@ -407,6 +469,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
     ...view,
     catalog,
     defaults,
+    stored: storedFields,
     ...(routed
       ? {
           effectiveRoutes: status.effectiveRoutes,
@@ -415,6 +478,7 @@ export async function projectAiConfigurationView(tx: DbTx, scope: Scope) {
       : {}),
     capabilities: aiCapabilities(status),
     routesWithoutKey: routesWithoutKey(status),
+    routesNotAllowedForData: routesNotAllowedForData(status.effectiveRoutes),
     textKeyConfigured: status.textKeyConfigured,
     imageKeyConfigured: status.imageKeyConfigured,
     providers: {
@@ -521,7 +585,8 @@ export function publicOpenAiConfiguration(
   };
 }
 
-async function configurationRow(tx: DbTx, scope: Scope) {
+/** The project's own AI configuration row; null while it saved none. */
+export async function configurationRow(tx: DbTx, scope: Scope) {
   return tx.entity.findFirst({
     where: {
       workspaceId: scope.workspaceId,
@@ -732,7 +797,7 @@ async function grantedAnyKey(tx: DbTx, scope: Scope) {
 }
 
 /** Task classes whose route decides whether chat and text drafting can run. */
-const TEXT_TASKS = ["chat_operator", "draft_social"] as const;
+export const TEXT_TASKS = ["chat_operator", "draft_social"] as const;
 
 /**
  * Whether chat and text drafting can call a verified model now: an OpenAI
@@ -791,6 +856,52 @@ export function routesWithoutKey(status: {
     })
     .map(([task]) => task)
     .sort();
+}
+
+/**
+ * The task classes whose input is personal customer or financial data, by
+ * data class (ADR 0021 D-11). `enforced`: the pipeline refuses a call on a
+ * provider the class does not allow before anything is reserved
+ * (AGENT_PROVIDER_NOT_ALLOWED_FOR_DATA, Support triage and draft); finance
+ * extraction has no such check yet (follow-up in the 2026-11-10 plan).
+ */
+export const TASK_DATA_CLASSES: Readonly<
+  Partial<Record<TaskClass, { dataClass: Exclude<DataClass, "internal">; enforced: boolean }>>
+> = {
+  support_triage: { dataClass: "customer_personal", enforced: true },
+  support_draft: { dataClass: "customer_personal", enforced: true },
+  finance_extraction: { dataClass: "financial", enforced: false },
+};
+
+/**
+ * Task classes whose effective route names a provider their data class
+ * does not allow (`providersForData`). Read only: saving such a route stays
+ * possible and nothing switches the provider; the settings show the warning
+ * and name the setting to change (MODEL_ROUTING: an explicit route never
+ * falls back).
+ */
+export function routesNotAllowedForData(
+  effectiveRoutes: Record<string, unknown> | undefined,
+) {
+  return Object.entries(TASK_DATA_CLASSES)
+    .flatMap(([task, rule]) => {
+      const route = effectiveRoutes?.[task] as
+        | { error?: string; provider?: ProviderId }
+        | undefined;
+      if (!rule || !route || route.error || !route.provider) return [];
+      const allowed = providersForData(rule.dataClass);
+      if (!allowed || allowed.includes(route.provider)) return [];
+      return [
+        {
+          task,
+          dataClass: rule.dataClass,
+          provider: route.provider,
+          allowed: [...allowed],
+          enforced: rule.enforced,
+        },
+      ];
+    })
+    .sort((a, b) => a.task.localeCompare(b.task));
 }
 
 /**

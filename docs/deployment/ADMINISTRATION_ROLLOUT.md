@@ -16,7 +16,7 @@ ADR 0013, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
 3. **Smoke with flags off.** Sign-in works; `/api/me` answers without `systemAdmin: true`; `/api/admin/overview` answers 404.
 4. **First administrator (approval).** In the api container: `node_modules/.bin/tsx scripts/system-admin.ts grant --email <Mario's address>`, then `… list`. The system audit records `system_admin.granted` by `system:cli`.
 5. **System mail (optional, approval).** Set `ORBIT_SYSTEM_SMTP_HOST`, `_PORT`, `_TLS`, `_USER`, `_PASSWORD`, `_FROM` (and `_FROM_NAME`) in Coolify for the api service. Sending also needs `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`. Without it, administrators copy invitation and reset links by hand and "forgot password" is hidden.
-6. **Flags (approval).** `ORBIT_ADMINISTRATION=true` and `ORBIT_ACCOUNT=true`, redeploy. Check: `/admin` opens for the administrator only; the account menu shows Account, Organization settings (owners) and Administration (administrators); an invitation to a test address can be accepted; `/account` lists sessions.
+6. **Flags (approval).** `ORBIT_ADMINISTRATION=true` and `ORBIT_ACCOUNT=true`, redeploy. Check: the user menu shows the one entry "Administration & settings"; "Whole system" is offered to administrators only (the old address `/admin` forwards to `/manage/system/overview` for an administrator and shows "Not available" for anyone else); an invitation to a test address can be accepted; Administration & settings → My account → Profile → Your account (`/manage/me/profile`) lists sessions.
 
 ## Rollback
 
@@ -54,7 +54,7 @@ ADR 0013, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
   4. Organization settings → Connections → Postiz → Channels: check the assignment, and use "Fetch channels" for new accounts.
   5. Check that the next assignment run creates its Postiz drafts.
   - Rollback: `connections-migrate.ts rollback --connection <id> --yes`, which restores the projects' own keys and channel lists.
-- **MCP:** Administration → MCP is available to administrators with `ORBIT_ADMINISTRATION=true`. Disabling a client revokes its grants at once.
+- **MCP:** Administration & settings → Whole system → MCP → MCP clients is available to administrators with `ORBIT_ADMINISTRATION=true`. Disabling a client revokes its grants at once.
 - **n8n:**
   1. Create the connection with the JSON secret.
   2. Add a binding.

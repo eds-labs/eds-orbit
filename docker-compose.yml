@@ -41,7 +41,9 @@ x-api-environment: &api-environment
   ORBIT_AGENTS: ${ORBIT_AGENTS:-false}
   ORBIT_IMAGE_REFERENCES: ${ORBIT_IMAGE_REFERENCES:-false}
   ORBIT_AGENT_REVIEW_AUTHORITY: ${ORBIT_AGENT_REVIEW_AUTHORITY:-false}
+  ORBIT_AGENT_REVIEW_CREATIVES: ${ORBIT_AGENT_REVIEW_CREATIVES:-false}
   ORBIT_CREATIVE_STUDIO: ${ORBIT_CREATIVE_STUDIO:-false}
+  ORBIT_AI_IMAGE_LABELS: ${ORBIT_AI_IMAGE_LABELS:-false}
   ORBIT_AGENT_MANDATES: ${ORBIT_AGENT_MANDATES:-false}
   ORBIT_AGENT_PLATFORM: ${ORBIT_AGENT_PLATFORM:-false}
   ORBIT_AGENT_AUTOMATION: ${ORBIT_AGENT_AUTOMATION:-false}
@@ -69,6 +71,10 @@ x-api-environment: &api-environment
   ORBIT_SUPPORT: ${ORBIT_SUPPORT:-false}
   # Finance module: off until its rollout is approved.
   ORBIT_FINANCE: ${ORBIT_FINANCE:-false}
+  # Webmail module (ADR 0026); see also ORBIT_WEBMAIL_REPLICAS on the services.
+  ORBIT_WEBMAIL: ${ORBIT_WEBMAIL:-false}
+  WEBMAIL_ORIGIN: ${WEBMAIL_ORIGIN:-}
+  WEBMAIL_BRIDGE_SECRET: ${WEBMAIL_BRIDGE_SECRET:-${SERVICE_HEX_64_WEBMAILBRIDGE}}
   # Project management module (ADR 0016): off until its rollout is approved.
   ORBIT_WORK: ${ORBIT_WORK:-false}
   # AI project manager (ADR 0017): off until its rollout is approved.
@@ -273,6 +279,43 @@ services:
       start_period: 20s
       retries: 3
 
+  # Webmail (ADR 0026): only the bridge runs in this application; it does not
+  # start while ORBIT_WEBMAIL_REPLICAS is 0, the default. Roundcube and its
+  # database are a separate Coolify application (docker-compose.webmail.yml),
+  # because Coolify attaches every service of an application to one shared
+  # network and Roundcube renders untrusted HTML. They meet the bridge only on
+  # `webmail-link`.
+  webmail-bridge:
+    <<: *runtime
+    command: ["node_modules/.bin/tsx", "apps/api/src/webmail-bridge-main.ts"]
+    environment:
+      <<: *api-environment
+      # Fixed: expose and the healthcheck name this port.
+      WEBMAIL_BRIDGE_PORT: "4313"
+    deploy:
+      replicas: ${ORBIT_WEBMAIL_REPLICAS:-0}
+    expose:
+      - "4313"
+    networks:
+      - webmail-link
+      - database
+      - egress
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4313/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    labels:
+      coolify.exclude_from_hc: "true"
+
   postgres:
     image: pgvector/pgvector:0.8.6-pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
     restart: unless-stopped
@@ -325,9 +368,17 @@ services:
       BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
       BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
       BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
+      # The optional webmail database (docker-compose.webmail.yml), reached over
+      # `webmail-backup`: not contacted while ORBIT_WEBMAIL_REPLICAS is 0.
+      WEBMAIL_EXPECTED_REPLICAS: ${ORBIT_WEBMAIL_REPLICAS:-0}
+      WEBMAIL_PGHOST: webmail-db
+      WEBMAIL_PGUSER: roundcube
+      WEBMAIL_PGPASSWORD: ${WEBMAIL_DB_PASSWORD:-${SERVICE_PASSWORD_64_WEBMAILDB}}
+      WEBMAIL_PGDATABASE: roundcubemail
     networks:
       - database
       - egress
+      - webmail-backup
     depends_on:
       postgres:
         condition: service_healthy
@@ -370,6 +421,18 @@ networks:
   database:
     internal: true
   egress: {}
+  # Shared with the webmail application (docker-compose.webmail.yml), which joins
+  # both as external networks. The fixed names let two Coolify applications meet,
+  # and this application creates them, so it must be deployed first. Do not change
+  # either definition while the webmail application runs (docs/deployment/WEBMAIL.md).
+  # The bridge and Roundcube only:
+  webmail-link:
+    name: orbit-webmail-link
+    internal: true
+  # The backup service and the webmail database only, so backup is not next to Roundcube:
+  webmail-backup:
+    name: orbit-webmail-backup
+    internal: true
 
 volumes:
   orbit_pg: {}

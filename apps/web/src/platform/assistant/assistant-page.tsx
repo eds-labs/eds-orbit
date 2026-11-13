@@ -1,4 +1,5 @@
 "use client";
+import { manageHref } from "@/platform/settings-center/routes";
 import Link from "next/link";
 import { BookUser } from "lucide-react";
 import { Loading } from "@/components/ui/primitives";
@@ -9,6 +10,7 @@ import { PAGE_INPUT_ID, useAssistantPanel } from "./assistant-context";
 import { assistantText, DisabledNotice, FocusSwitch } from "./assistant-panel";
 import { ConversationHistory, ConversationView } from "./conversation-view";
 import { useAssistantVoice, voiceViewProps } from "./voice";
+import { assistantBudgetProps } from "./budget-notice";
 
 /**
  * The personal assistant as a full page (/assistant, WP3.8). It shares the
@@ -24,6 +26,8 @@ export function AssistantPage() {
   if (!assistant) return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!assistant.available) return <NotFound t={shellText} project={false} />;
   const { conversation } = assistant;
+  // No paid assistant turns without the organization's per-member cap.
+  const budget = assistantBudgetProps(assistant);
   return (
     <div className="assistant-page">
       <PageHead
@@ -34,7 +38,7 @@ export function AssistantPage() {
             : "Your personal assistant across projects. The history is private."
         }
       >
-        <Link className="button button-outline" href="/account/assistant">
+        <Link className="button button-outline" href={manageHref({ kind: "account" }, "assistant")}>
           <BookUser aria-hidden="true" />
           {t.myContext}
         </Link>
@@ -64,6 +68,7 @@ export function AssistantPage() {
               label={t.title}
               emptyTitle={t.emptyTitle}
               emptyDescription={t.emptyDescription}
+              {...budget}
             />
           </div>
         </>

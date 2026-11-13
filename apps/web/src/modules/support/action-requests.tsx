@@ -3,6 +3,7 @@ import { usd } from "@/lib/api";
 import type { ActionRequestRenderer } from "@/platform/assistant/extensions";
 import { Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
 import { AppLink } from "@/platform/ui/app-link";
 import { supportText, type SupportText } from "./labels";
 
@@ -113,7 +114,7 @@ export const supportTaxonomyRenderer: ActionRequestRenderer = {
   accepts: (item) =>
     Boolean(item.summary?.operation?.approvalContext?.taxonomy),
   component: ({ item, de, pending, decide }) => {
-    const { project } = useWorkspace();
+    const shell = useShell();
     const change = item.summary.operation.approvalContext.taxonomy;
     const kind =
       change.kind === "category" ? (de ? "Kategorie" : "Category") : "Tag";
@@ -152,9 +153,7 @@ export const supportTaxonomyRenderer: ActionRequestRenderer = {
             ? `${kind} ${action}`
             : `${action[0].toUpperCase()}${action.slice(1)} ${kind.toLowerCase()}`}
         </h3>
-        <AppLink
-          href={`/p/${encodeURIComponent(project.id)}/settings?section=support`}
-        >
+        <AppLink href={shell.projectCenterHref("modules", "support", "settings")}>
           {de ? "Support-Einstellungen öffnen" : "Open Support settings"}
         </AppLink>
         <p>

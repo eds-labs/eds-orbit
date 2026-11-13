@@ -5,6 +5,7 @@ import type { Locale } from "@/lib/i18n";
 import {
   cleanupConfirmText,
   cleanupDoneText,
+  cleanupItemText,
   cleanupRestoredText,
   confirmCleanup,
   initialCleanupState,
@@ -17,6 +18,13 @@ import {
 } from "./draft-cleanup";
 import { Alert, Button, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import {
+  ChannelLabel,
+  channelInfo,
+  useChannelDirectory,
+  type ChannelEntry,
+} from "./channel-names";
+import { marketingText } from "./labels";
 
 type Role = "owner" | "editor" | "viewer";
 
@@ -31,10 +39,13 @@ export function DraftCleanupView({
   onConfirm,
   onClose,
   onUndo,
+  channels = new Map(),
 }: {
   role: Role;
   locale: Locale;
   state: CleanupState;
+  /** Channel names for the drafts the preview lists. */
+  channels?: ReadonlyMap<string, ChannelEntry>;
   pending: boolean;
   error: string | null;
   onPreview: () => void;
@@ -46,9 +57,13 @@ export function DraftCleanupView({
   const de = locale === "de";
   const { preview } = state;
   const anything = Boolean(preview?.content.total || preview?.missions.total);
+  const items = preview?.items ?? [];
   return (
     <>
-      <div className="form-actions">
+      <p className="panel-note">
+        {marketingText(locale).approvals.cleanupHint}
+      </p>
+      <div className="form-actions approval-actions">
         <Button variant="outline" disabled={pending} onClick={onPreview}>
           {de ? "Alte Entwürfe archivieren" : "Archive old drafts"}
         </Button>
@@ -97,6 +112,39 @@ export function DraftCleanupView({
                 : "There are no old drafts to archive."}
             </p>
           )}
+          {items.length > 0 && (
+            <details className="approval-history">
+              <summary>
+                {de
+                  ? `Jeder Entwurf im Einzelnen (${items.length})`
+                  : `Each draft (${items.length})`}
+              </summary>
+              <ul className="cleanup-items">
+                {items.map((item) => (
+                  <li key={item.contentId}>
+                    <strong>
+                      {item.title || (de ? "Ohne Titel" : "Untitled")}
+                    </strong>
+                    {item.channel && (
+                      <ChannelLabel
+                        info={channelInfo(item.channel, channels, locale)}
+                      />
+                    )}
+                    <span className="field-hint">
+                      {cleanupItemText(item, locale)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {preview?.truncated && (
+                <p className="panel-note">
+                  {de
+                    ? "Weitere Entwürfe sind nicht einzeln aufgeführt; die Zahlen oben zählen alle."
+                    : "More drafts are not listed one by one; the counts above include all of them."}
+                </p>
+              )}
+            </details>
+          )}
           {error && <Alert kind="error">{error}</Alert>}
           <div className="form-actions">
             <Button variant="outline" onClick={onClose}>
@@ -131,6 +179,7 @@ const sessionStore = () => {
 export function DraftCleanup() {
   const { locale, project, isOwner, canEdit, refresh } = useWorkspace();
   const mutation = useMutation(refresh);
+  const channels = useChannelDirectory();
   const [state, setState] = useState<CleanupState>(initialCleanupState);
   // Saving starts only once this project's list was read, so the empty
   // first render never overwrites what a reload should bring back.
@@ -162,6 +211,7 @@ export function DraftCleanup() {
         setState((s) => ({ ...s, preview: null, changed: false }));
       }}
       onUndo={(cleanupId) => step(() => undoCleanup(state, call, cleanupId))}
+      channels={channels}
     />
   );
 }

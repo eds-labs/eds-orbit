@@ -12,13 +12,8 @@ function replaceOnce(input, before, after) {
     );
   return input.replace(before, after);
 }
-const hosts = [
-  "orbit.eds-labs.io",
-  "n8n.eds-labs.io",
-  "analytics.eds-labs.io",
-  "analytics.uliquid.vip",
-  "postiz.eds-labs.io",
-];
+// Matomo must use public DNS: the reporting connector rejects private targets.
+const hosts = ["orbit.eds-labs.io", "n8n.eds-labs.io", "postiz.eds-labs.io"];
 let generated = replaceOnce(
   source,
   "  pids_limit: 256\n",

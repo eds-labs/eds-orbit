@@ -1,23 +1,21 @@
 "use client";
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Plus, ShieldCheck, Wallet } from "lucide-react";
-import type { Entity } from "@/lib/api";
+import { Plus, ShieldCheck } from "lucide-react";
 import { Button, Empty } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
-import {
-  EntityRows,
-  ResourceError,
-  useCollection,
-} from "@/platform/ui/collection";
-import { RecordDetail } from "@/platform/ui/record-detail";
+import { ResourceError, useCollection } from "@/platform/ui/collection";
 import type { SettingsSection } from "@/platform/shell/types";
 import { PolicyEditor } from "./policy-editor";
+import { PolicyVersions } from "./policy-versions";
+import { marketingText } from "./labels";
 import { BrandApproval, MarketingProfileConfiguration } from "./advanced";
 import { BrandKitSection } from "./creative/brand-kit-section";
+import { SocialAutopilotSection } from "./social-autopilot";
 
 // Marketing's sections of the project settings (WP2.3b): the versioned
-// operating policy and the brand. The assignments are a Marketing page
+// operating policy (with the owner's "Autopilot through Social" switch on
+// the Social backend) and the brand. The assignments are a Marketing page
 // since 2026-10-19 (they are operations, not configuration).
 
 const POLICY_TAB = {
@@ -28,9 +26,9 @@ const POLICY_TAB = {
 
 function usePolicySection() {
   const { locale, isOwner } = useWorkspace();
+  const words = marketingText(locale).policy;
   const policies = useCollection("policies");
-  const [policy, setPolicy] = useState(false),
-    [selected, setSelected] = useState<Entity | null>(null);
+  const [policy, setPolicy] = useState(false);
   return {
     notice: <ResourceError error={policies.error} retry={policies.refresh} />,
     content: (
@@ -38,42 +36,29 @@ function usePolicySection() {
         <section className="panel">
           <div className="panel-head">
             <div>
-              <h2>
-                {locale === "de"
-                  ? "Versionierte Betriebsrichtlinie"
-                  : "Versioned operating policy"}
-              </h2>
-              <p>
-                {locale === "de"
-                  ? "Ein Mandat ist konkret, zeitlich begrenzt und überprüfbar."
-                  : "A mandate is specific, time-bounded and verifiable."}
-              </p>
+              <h2>{words.heading}</h2>
+              <p>{words.intro}</p>
             </div>
             {isOwner && (
               <Button onClick={() => setPolicy(true)}>
                 <Plus data-icon="inline-start" />
-                New policy version
+                {words.newVersion}
               </Button>
             )}
           </div>
           {policies.data?.items.length ? (
-            <EntityRows
-              items={policies.data.items}
-              fields={["mode", "status", "createdAt"]}
-              onSelect={setSelected}
-            />
+            <PolicyVersions items={policies.data.items} />
           ) : (
             <Empty
               icon={ShieldCheck}
-              title="Observe is the safe starting point"
-              description="No publishing mandate or paid model budget has been configured."
+              title={words.emptyTitle}
+              description={words.emptyText}
             />
           )}
         </section>
+        {/* Only for a project that publishes through Social. */}
+        <SocialAutopilotSection />
         {policy && <PolicyEditor onClose={() => setPolicy(false)} />}
-        {selected && (
-          <RecordDetail entity={selected} onClose={() => setSelected(null)} />
-        )}
       </>
     ),
   };
@@ -83,9 +68,21 @@ function usePolicySection() {
 // budget first, which is always shown and so the sidebar's settings link,
 // then brand.
 export const marketingSettings: readonly SettingsSection[] = [
-  { tab: POLICY_TAB, order: 0, useSection: usePolicySection },
+  {
+    tab: POLICY_TAB,
+    order: 0,
+    description: {
+      en: "Who may publish what, in which language and when.",
+      de: "Wer was, in welcher Sprache und wann veröffentlichen darf.",
+    },
+    useSection: usePolicySection,
+  },
   {
     tab: { key: "brand", label: { en: "Brand", de: "Marke" }, order: 30 },
+    description: {
+      en: "Brand profile, approvals and the brand kit for images.",
+      de: "Markenprofil, Freigaben und das Marken-Kit für Bilder.",
+    },
     order: 0,
     useSection: () => ({
       content: (
@@ -100,15 +97,18 @@ export const marketingSettings: readonly SettingsSection[] = [
   },
 ];
 
-/** The project overview's link to the policy editor (WP2.3b). */
+/**
+ * The settings overview's link to the policy editor (WP2.3b). The policy
+ * holds the publishing rules; the AI budget is under Settings → AI & budget.
+ */
 export function PolicySetupLink() {
-  const { isOwner } = useWorkspace();
+  const { isOwner, locale } = useWorkspace();
   const [open, setOpen] = useState(false);
   return (
     <>
       <button onClick={() => setOpen(true)} disabled={!isOwner}>
-        <Wallet />
-        Set budget and routine boundaries
+        <ShieldCheck />
+        {marketingText(locale).policy.setupLink}
       </button>
       {/* Outside .setup-links, whose button and icon styles would apply. */}
       {open &&

@@ -9,6 +9,8 @@ import {
   Skeleton,
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { useShell } from "@/platform/shell/shell-context";
+import { AppLink } from "@/platform/ui/app-link";
 import type { SettingsSection } from "@/platform/shell/types";
 import { ResourceError } from "@/platform/ui/collection";
 import {
@@ -319,6 +321,19 @@ export function LoadState({
   return <>{children}</>;
 }
 
+/** Where the mailboxes listed below are added and checked. */
+export function MailboxesManagedNote({ t }: { t: FinanceText }) {
+  const shell = useShell();
+  return (
+    <p className="panel-note">
+      {t.mailboxes.mailboxesManaged}{" "}
+      <AppLink href={shell.connectionsHref()}>
+        {t.mailboxes.openMailboxes}
+      </AppLink>
+    </p>
+  );
+}
+
 function Mailboxes({ t }: { t: FinanceText }) {
   const { project } = useWorkspace();
   const { owner } = useFinanceAccess();
@@ -337,6 +352,7 @@ function Mailboxes({ t }: { t: FinanceText }) {
   const api = financeApi(project.id);
   return (
     <Panel title={t.mailboxes.title} hint={t.mailboxes.hint}>
+      <MailboxesManagedNote t={t} />
       {!owner ? (
         <p className="panel-note">{t.mailboxes.ownerOnlyList}</p>
       ) : (
@@ -1029,6 +1045,7 @@ function section(
   key: string,
   order: number,
   tabLabel: (t: FinanceText) => string,
+  tabDescription: (t: FinanceText) => string,
   Body: (props: { t: FinanceText }) => ReactNode,
 ): SettingsSection {
   return {
@@ -1040,6 +1057,10 @@ function section(
       },
       order,
     },
+    description: {
+      en: tabDescription(financeText("en")),
+      de: tabDescription(financeText("de")),
+    },
     order: 10,
     useSection() {
       const { locale } = useWorkspace();
@@ -1050,9 +1071,39 @@ function section(
 
 /** Finance's settings sections, in the order of the module's group. */
 export const financeSettings: readonly SettingsSection[] = [
-  section("finance-mailboxes", 40, (t) => t.mailboxes.tab, Mailboxes),
-  section("finance-accounts", 41, (t) => t.accounts.tab, Accounts),
-  section("finance-cost-centers", 42, (t) => t.costCenters.tab, CostCenters),
-  section("finance-currencies", 43, (t) => t.currencies.tab, Currencies),
-  section("finance-ai", 44, (t) => t.ai.tab, AiExtraction),
+  section(
+    "finance-mailboxes",
+    40,
+    (t) => t.mailboxes.tab,
+    (t) => t.mailboxes.tabDescription,
+    Mailboxes,
+  ),
+  section(
+    "finance-accounts",
+    41,
+    (t) => t.accounts.tab,
+    (t) => t.accounts.tabDescription,
+    Accounts,
+  ),
+  section(
+    "finance-cost-centers",
+    42,
+    (t) => t.costCenters.tab,
+    (t) => t.costCenters.tabDescription,
+    CostCenters,
+  ),
+  section(
+    "finance-currencies",
+    43,
+    (t) => t.currencies.tab,
+    (t) => t.currencies.tabDescription,
+    Currencies,
+  ),
+  section(
+    "finance-ai",
+    44,
+    (t) => t.ai.tab,
+    (t) => t.ai.tabDescription,
+    AiExtraction,
+  ),
 ];

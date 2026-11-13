@@ -38,6 +38,12 @@ import type {
   ConnectionProvider,
   ConnectionsContribution,
 } from "../connections/connections.ts";
+import {
+  INTEGRATION_AUTH_TYPES,
+  INTEGRATION_CATEGORIES,
+  type IntegrationDescriptor,
+  type ProjectIntegrationsContribution,
+} from "../connections/integrations.ts";
 import type {
   NotificationContribution,
   NotificationRender,
@@ -53,6 +59,7 @@ import type {
 } from "../configuration/types.ts";
 import type { LinkTypeDef } from "../links/types.ts";
 import type { HandoffTarget } from "../handoffs/types.ts";
+import type { EmailImportTarget } from "../email/import-contract.ts";
 import type {
   EventSubscription,
   EventsContribution,
@@ -107,6 +114,10 @@ export type ModuleContributions = {
   notifications?: NotificationContribution;
   /** Connection providers: form fields, normalization, check (WP2.5c). */
   connections?: ConnectionsContribution;
+  /** Integrations outside the provider registry, for the Integrations Center. */
+  integrations?: readonly IntegrationDescriptor[];
+  /** The module's project-level integration records, for the Integrations Center. */
+  projectIntegrations?: ProjectIntegrationsContribution;
   /** Sections of the project configuration the module owns, by id. */
   configurationSections?: ConfigurationContribution;
   /**
@@ -131,6 +142,13 @@ export type ModuleContributions = {
    */
   publicRoutes?: readonly PublicRoute[];
   /**
+   * How the module refers to the project's public keys (F-5): the keys list
+   * names the user of a key, and a revocation lets the module drop its
+   * reference in the same project transaction. Information only: a
+   * revocation is never refused.
+   */
+  publicKeyUse?: PublicKeyUse;
+  /**
    * Inbound e-mail of the project's mailbox (WP4.7): the platform stores
    * each message as `inbound_emails` and enqueues this queue class with the
    * row's id. Bounces are the platform's and never handed over.
@@ -138,13 +156,19 @@ export type ModuleContributions = {
    * (a removal is refused then) and lets go of the uses that do not block,
    * right before the mailbox is removed. With `ownedOnly` the module gets
    * only the mail of mailboxes it owns (platform/email/ownership.ts), never
-   * the broadcast of unowned ones.
+   * the broadcast of unowned ones. Without `queueClass` the module takes no
+   * mail and only follows a mailbox's removal (ADR 0026).
    */
   emailInbound?: {
-    queueClass: string;
+    queueClass?: string;
     mailboxUse?: MailboxUse;
     ownedOnly?: boolean;
   };
+  /**
+   * Takeovers of a single mailbox message the module offers (ADR 0026), by
+   * local name; the full key is "<module>.<name>".
+   */
+  emailImport?: Readonly<Record<string, EmailImportTarget>>;
   /**
    * Member notification kinds the module sends with `notifyMembers`
    * (WP4.7), by kind name, unique across modules.
@@ -227,6 +251,32 @@ export type MailboxUse = {
   inUse: (tx: DbTx, scope: Scope, connectionId: string) => Promise<number>;
   /** Drops the remaining (non-blocking) uses, in the removal's transaction. */
   release: (tx: DbTx, scope: Scope, connectionId: string) => Promise<void>;
+  /**
+   * Whether the module would act on mail arriving at this mailbox. Consulted
+   * only for mailboxes opened for webmail (ADR 0026), which are not stored
+   * when no module would; absent counts as true.
+   */
+  receivesMail?: (
+    tx: DbTx,
+    scope: Scope,
+    connectionId: string,
+  ) => Promise<boolean>;
+};
+
+/** How a module refers to a project's public keys (F-5). */
+export type PublicKeyUse = {
+  /** Who uses this key in the project, as a name to show; null when nobody does. Never a secret. */
+  usedBy(
+    tx: DbTx,
+    scope: Scope,
+    keyId: string,
+  ): Promise<{ label: string } | null>;
+  /**
+   * Drops the module's reference to the key, inside the caller's project
+   * transaction. Idempotent. A release that throws aborts the revocation,
+   * whatever it throws.
+   */
+  release(tx: DbTx, scope: Scope, keyId: string): Promise<void>;
 };
 
 /** What a public route's handler receives (WP4.2b). */
@@ -323,6 +373,8 @@ export type DirectWebhookProvider = {
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
 const CALLBACK_PREFIX = /^[a-z]{1,16}$/;
+// An integration descriptor id, which is also its catalog id.
+const INTEGRATION_ID = /^[a-z][a-z0-9_.]{1,63}$/;
 // A notification kind, as the job key `notify:<kind>:<ref>` carries it.
 const NOTIFY_KIND = /^[a-z_]{1,40}$/;
 
@@ -347,11 +399,13 @@ type Registered = {
     string,
     ConnectionProvider & { owner: string }
   >;
+  integrationDescriptors: readonly (IntegrationDescriptor & { owner: string })[];
+  projectIntegrations: readonly [string, ProjectIntegrationsContribution][];
   actionPermissions: ReadonlyMap<string, PermissionDef>;
   webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
   emailInbound: readonly {
     owner: string;
-    queueClass: string;
+    queueClass?: string;
     mailboxUse?: MailboxUse;
     ownedOnly?: boolean;
   }[];
@@ -360,8 +414,10 @@ type Registered = {
     UserNotificationKind & { owner: string; kind: string }
   >;
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
+  publicKeyUses: readonly (PublicKeyUse & { owner: string })[];
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
   handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
+  emailImport: ReadonlyMap<string, EmailImportTarget & { owner: string }>;
   automationResults: ReadonlyMap<string, AutomationResultHandler & { owner: string }>;
   eventTypes: ReadonlyMap<string, string>;
   subscriptions: readonly (EventSubscription & { owner: string })[];
@@ -414,6 +470,8 @@ export function registerContributions(
     string,
     { owner: string; render: NotificationRender }
   >();
+  const integrationDescriptors: (IntegrationDescriptor & { owner: string })[] = [];
+  const projectIntegrations: [string, ProjectIntegrationsContribution][] = [];
   const connectionProviders = new Map<
     string,
     ConnectionProvider & { owner: string }
@@ -455,8 +513,25 @@ export function registerContributions(
     )) {
       if (connectionProviders.has(id))
         problems.push(`connection provider ${id} registered twice`);
+      if (provider.category && !INTEGRATION_CATEGORIES.includes(provider.category))
+        problems.push(`connection provider ${id} has unknown category ${provider.category}`);
+      if (provider.authType && !INTEGRATION_AUTH_TYPES.includes(provider.authType))
+        problems.push(`connection provider ${id} has unknown auth type ${provider.authType}`);
       connectionProviders.set(id, { ...provider, owner });
     }
+    for (const d of c.integrations ?? []) {
+      if (!INTEGRATION_ID.test(d.id))
+        problems.push(`invalid integration id ${d.id}`);
+      if (integrationDescriptors.some((x) => x.id === d.id))
+        problems.push(`integration ${d.id} registered twice`);
+      if (!INTEGRATION_CATEGORIES.includes(d.category))
+        problems.push(`integration ${d.id} has unknown category ${d.category}`);
+      if (!INTEGRATION_AUTH_TYPES.includes(d.authType))
+        problems.push(`integration ${d.id} has unknown auth type ${d.authType}`);
+      integrationDescriptors.push({ ...d, owner });
+    }
+    if (c.projectIntegrations && owner !== "platform")
+      projectIntegrations.push([owner, c.projectIntegrations]);
     for (const [name, handler] of Object.entries(c.actions ?? {})) {
       if (actions.has(name)) problems.push(`action ${name} registered twice`);
       actions.set(name, handler);
@@ -544,12 +619,16 @@ export function registerContributions(
   const emailInbound: Registered["emailInbound"][number][] = [];
   for (const [owner, c] of ordered)
     if (c.emailInbound) {
-      if (!jobs.has(c.emailInbound.queueClass))
+      if (c.emailInbound.queueClass && !jobs.has(c.emailInbound.queueClass))
         problems.push(
           `${owner} takes inbound e-mail with unknown queue class ${c.emailInbound.queueClass}`,
         );
       emailInbound.push({ owner, ...c.emailInbound });
     }
+  // Public key uses (F-5), in registry order.
+  const publicKeyUses: Registered["publicKeyUses"][number][] = [];
+  for (const [owner, c] of ordered)
+    if (c.publicKeyUse) publicKeyUses.push({ ...c.publicKeyUse, owner });
   // Member notification kinds: valid, unique names.
   const userNotifications = new Map<
     string,
@@ -578,6 +657,14 @@ export function registerContributions(
       if (!/^[a-z][a-z0-9_]{1,40}$/.test(name))
         problems.push(`invalid handoff target ${owner}.${name}`);
       handoffs.set(`${owner}.${name}`, { ...def, owner });
+    }
+  // Takeovers of a mailbox message (ADR 0026).
+  const emailImport = new Map<string, EmailImportTarget & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [name, def] of Object.entries(c.emailImport ?? {})) {
+      if (!/^[a-z][a-z0-9_]{1,40}$/.test(name))
+        problems.push(`invalid e-mail import target ${owner}.${name}`);
+      emailImport.set(`${owner}.${name}`, { ...def, owner });
     }
   // Automation callback results (ADR 0017): one handler per event.
   const automationResults = new Map<string, AutomationResultHandler & { owner: string }>();
@@ -682,6 +769,10 @@ export function registerContributions(
         }
       signals.push({ ...def, owner });
     }
+  // A descriptor shares the catalog id space with the providers.
+  for (const d of integrationDescriptors)
+    if (connectionProviders.has(d.id))
+      problems.push(`integration ${d.id} is also a connection provider`);
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -696,13 +787,17 @@ export function registerContributions(
     telegramCallbacks,
     notifications,
     connectionProviders,
+    integrationDescriptors,
+    projectIntegrations,
     actionPermissions,
     webhooks,
     emailInbound,
     userNotifications,
     publicRoutes,
+    publicKeyUses,
     linkTypes,
     handoffs,
+    emailImport,
     automationResults,
     eventTypes,
     subscriptions,
@@ -981,6 +1076,11 @@ export function registeredPublicRoutes(): ReadonlyMap<
   return current().publicRoutes;
 }
 
+/** The modules' uses of public keys with their owner, in registry order (F-5). */
+export function registeredPublicKeyUses() {
+  return current().publicKeyUses;
+}
+
 /** A member notification kind with its owner, or undefined (WP4.7). */
 export function registeredUserNotification(kind: string) {
   return current().userNotifications.get(kind);
@@ -998,6 +1098,23 @@ export function registeredPrivateFiles(moduleId: string) {
 
 export function registeredEmailInbound() {
   return current().emailInbound;
+}
+
+/**
+ * A permission a module declares, by key, for a check by a module that may
+ * not import the declaring one (ADR 0026); undefined for an unknown key.
+ */
+export function registeredPermission(key: string): PermissionDef | undefined {
+  for (const module of current().registry.modules) {
+    const found = module.permissions.find((p) => p.key === key);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/** The e-mail import targets (ADR 0026), by "<module>.<name>". */
+export function registeredEmailImports() {
+  return current().emailImport;
 }
 
 /** A webhook provider with its owner, or undefined for an unknown name. */
@@ -1154,4 +1271,12 @@ export function registeredConnectionProvider(id: string) {
 /** Every connection provider id: platform first, then registry order. */
 export function registeredConnectionProviderIds(): string[] {
   return [...current().connectionProviders.keys()];
+}
+/** Every integration descriptor with its owner: platform first, then registry order. */
+export function registeredIntegrationDescriptors(): Array<IntegrationDescriptor & { owner: string }> {
+  return [...current().integrationDescriptors];
+}
+/** The modules' project integration listings, in registry order. */
+export function registeredProjectIntegrations(): Array<[string, ProjectIntegrationsContribution]> {
+  return [...current().projectIntegrations];
 }

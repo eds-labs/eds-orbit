@@ -7,7 +7,10 @@ import {
 import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
 import { calendarConflicts } from "../publishing/calendar.ts";
 import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
-import { publishingBackend } from "../publishing/backend.ts";
+import {
+  autopilotReleaseAllowedOnBackend,
+  publishingBackend,
+} from "../publishing/backend.ts";
 import {
   accountForChannel,
   publishingBlockers,
@@ -28,6 +31,9 @@ import {
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { renditionComponentsHold } from "./rendition-rights.ts";
+import { aiImageLabelsEnabled } from "../../../platform/provenance/image-provenance.ts";
+import { aiLabelBlocker, labeledSourceHolds } from "../brand/ai-labels.ts";
+import { assetBytes } from "../../assets.ts";
 import { creativeStudioEnabled } from "../creative/flag.ts";
 import { channelPostsNear } from "../agents/channel-posts.ts";
 import { agentReviewAccepted, confirmedHash } from "../agents/agent-review.ts";
@@ -65,6 +71,23 @@ import {
 } from "../../../shared.ts";
 export async function activePolicy(tx: DbTx, scope: Scope) {
   return activePolicyRecord(tx, scope);
+}
+/**
+ * Whether a post under the policy mode needs the owner's approval of its
+ * exact package: in assisted mode, and in autopilot on Social without the
+ * owner's switch (Postiz and a Postiz drain keep their behaviour). So
+ * turning the switch off holds pending autopilot posts at their claim, and
+ * an owner's release records the approval it then needs.
+ */
+export async function packageApprovalRequired(
+  tx: DbTx,
+  scope: Scope,
+  mode: unknown,
+) {
+  return (
+    mode === "assisted" ||
+    (mode === "autopilot" && !(await autopilotReleaseAllowedOnBackend(tx, scope)))
+  );
 }
 export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
   const content = await entity(tx, scope, "content", contentId);
@@ -679,7 +702,10 @@ export async function preflight(
         : hour >= p.quietStart || hour < p.quietEnd)
     )
       blockers.push("QUIET_HOURS");
-    if (p.mode === "assisted" && !options.ignoreApproval) {
+    if (
+      !options.ignoreApproval &&
+      (await packageApprovalRequired(tx, scope, p.mode))
+    ) {
       const approval = (await list(tx, scope, "approvals")).find(
         (x) =>
           data(x).packageHash === pkg.packageHash &&
@@ -702,9 +728,30 @@ export async function preflight(
       // A creative rendition counts only while its components stay approved
       // and unchanged (R36); banners (bound to a run) keep their own rule.
       (typeof data(asset).boundTo?.creativeId === "string" &&
-        !(await renditionComponentsHold(tx, scope, data(asset))))
+        !(await renditionComponentsHold(tx, scope, data(asset)))) ||
+      // A labelled derivative (ADR 0028) counts only while its source stays
+      // approved with the bytes it was labelled from.
+      (data(asset).labeledFrom !== undefined &&
+        !(await labeledSourceHolds(tx, scope, data(asset))))
     )
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
+    else if (aiImageLabelsEnabled() && typeof data(asset).base64 === "string") {
+      // The AI label gate on the exact stored bytes (ADR 0028 §4). Preflight
+      // only informs (it also runs for UI previews), so it writes no audit
+      // record; the outbound export/publish gates audit their blocks.
+      let bytes: Buffer | null = null;
+      try {
+        bytes = assetBytes(data(asset)).bytes;
+      } catch {
+        blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
+      }
+      const refused = bytes
+        ? await aiLabelBlocker(tx, scope, data(asset), bytes, "marketing.preflight", {
+            audit: false,
+          })
+        : null;
+      if (refused) blockers.push(refused);
+    }
   } else if (
     c.type === "social" &&
     // Only with the Creative Studio on (R64); off, the check is as before.

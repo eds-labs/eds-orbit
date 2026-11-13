@@ -6,7 +6,7 @@ Orbit never runs code. A coding work order of the AI project manager is dispatch
 
 ## Setup in Orbit
 
-1. An organization owner creates the n8n connection and binds the workflow with contract `automation.v1` (Settings → Administration → Connections), then grants the connection to the project with purpose `automation`.
+1. An organization owner creates the n8n connection and binds the workflow with contract `automation.v1` (Administration & settings → the organization → Integrations → Connections), then grants the connection to the project with purpose `automation`.
 2. The project owner adds the repository under Projektmanagement → KI-Projektleiter: key, `owner/name`, base branch, dispatch `automation` with the binding, a monthly coding budget (`codingMonthlyCeilingMicros`; 0 blocks every paid dispatch), the number of concurrent runs and the timeout in hours.
 
 ## Request (Orbit → workflow)

@@ -10,6 +10,7 @@ import { cancelDelivery } from "../dispatch/control.ts";
 import { stopDelivery } from "../dispatch/dispatch.ts";
 import { publicationView, type PublicationView } from "../dispatch/publication-view.ts";
 import { validationContext } from "../dispatch/gates.ts";
+import { assetsMissingAiLabel } from "../media/provenance.ts";
 import { validateVariant, type ValidationIssue } from "./validation.ts";
 
 // Social posts (ADR 0020, S4): a base text and image set, and one variant
@@ -36,6 +37,8 @@ export type PostView = {
   approval: { state: ApprovalState; requestId: string | null; approvedAt: string | null; approvedBy: string | null };
   packageHash: string | null;
   origin: string;
+  /** The other module's record the post came from (read-only), or null. */
+  originRef: OriginRefView;
   readOnly: boolean;
   version: number;
   createdAt: string;
@@ -64,12 +67,26 @@ export type PostListItem = {
   schedule: PostView["schedule"];
   approvalState: ApprovalState;
   origin: string;
+  originRef: OriginRefView;
   readOnly: boolean;
   accounts: Array<{ accountId: string; platform: SocialPlatform; handle: string }>;
   publications: PublicationSummary;
   version: number;
   updatedAt: string;
 };
+/**
+ * Where a post came from, as its own columns name it: Marketing's
+ * publication it announced or handed over (`marketing`/`publication`), a
+ * Marketing draft hand-off (`marketing`/`draft_handoff`) or a mirrored
+ * Postiz record (`postiz`/<kind>). Read-only; null for posts written here.
+ */
+export type OriginRefView = { module: string; type: string; id: string } | null;
+export const originRefOf = (
+  post: Pick<SocialPostRow, "originModule" | "originType" | "originId">,
+): OriginRefView =>
+  post.originModule && post.originType && post.originId
+    ? { module: post.originModule, type: post.originType, id: post.originId }
+    : null;
 export type PublicationSummary = { total: number; published: number; failed: number; unknown: number; test: boolean };
 
 /** Per post: how many of its publications were published, failed or are unclear, and whether all are test sends. */
@@ -297,6 +314,7 @@ export async function getPost(tx: DbTx, scope: Scope, id: string): Promise<PostV
     },
     packageHash: post.packageHash,
     origin: post.origin,
+    originRef: originRefOf(post),
     readOnly: closedToChanges(post),
     version: post.version,
     createdAt: post.createdAt.toISOString(),
@@ -385,6 +403,7 @@ export async function listPosts(
       schedule: scheduleView(post),
       approvalState: state(post),
       origin: post.origin,
+      originRef: originRefOf(post),
       readOnly: closedToChanges(post),
       accounts: variants
         .filter((v) => v.postId === post.id)
@@ -416,7 +435,8 @@ export async function currentIssues(tx: DbTx, scope: Scope, post: { id: string }
     where: { projectId: scope.projectId, fileId: { in: media.map((m) => m.fileId) } },
   });
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
-  const assetOf = new Map(assets.map((a) => [a.fileId, a]));
+  const unlabeled = await assetsMissingAiLabel(tx, scope, assets);
+  const assetOf = new Map(assets.map((a) => [a.fileId, { ...a, aiLabelMissing: unlabeled.has(a.id) }]));
   const result: Array<{ accountId: string; issues: ValidationIssue[] }> = [];
   for (const v of variants) {
     const account = accountOf.get(v.accountId)!;
@@ -461,6 +481,7 @@ async function resolveContent(tx: DbTx, scope: Scope, input: z.infer<typeof post
   const wanted = [...new Set([...input.baseMedia, ...input.variants.flatMap((v) => v.media ?? [])])];
   const assets = await tx.socialMediaAsset.findMany({ where: { projectId: scope.projectId, id: { in: wanted } } });
   if (assets.length !== wanted.length) throw notFound();
+  const unlabeled = await assetsMissingAiLabel(tx, scope, assets);
   const assetOf = new Map(assets.map((a) => [a.id, a]));
   const accountOf = new Map(accounts.map((a) => [a.id, a]));
   return input.variants.map((v) => {
@@ -478,7 +499,7 @@ async function resolveContent(tx: DbTx, scope: Scope, input: z.infer<typeof post
         settings: account.settings as { xLongPosts?: boolean },
       },
       body,
-      media: images,
+      media: images.map((a) => ({ ...a, aiLabelMissing: unlabeled.has(a.id) })),
       options,
     }, validationContext(account.platform as SocialPlatform));
     return { input: v, platform: account.platform as SocialPlatform, body, images, options, issues };

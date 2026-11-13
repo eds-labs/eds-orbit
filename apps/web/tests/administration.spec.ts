@@ -35,14 +35,18 @@ test.describe("system administration", () => {
     await login(page, admin.email, admin.password);
     const me = await page.request.get("/api/me").then((r) => r.json());
     test.skip(!me.systemAdmin, "ORBIT_ADMINISTRATION is off or not an admin");
-
-    // Reached through the account menu, not only by URL.
+    // The administration is the system scope of the settings center,
+    // reached through the account menu's one entry, not only by URL.
     await page.getByLabel(/^Account menu/).click();
-    await page.getByRole("menuitem", { name: "Administration" }).click();
+    await page
+      .getByRole("menuitem", { name: "Administration & settings", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/manage\//);
+    await page.getByLabel("Applies to").selectOption({ label: "Whole system" });
+    await expect(page).toHaveURL(/\/manage\/system$/);
     await expect(
-      page.getByRole("heading", { name: "Administration", level: 1 }),
+      page.getByRole("heading", { name: "Whole system", level: 1 }),
     ).toBeVisible();
-    await expect(page.getByText("Project content is not visible here.")).toBeVisible();
 
     await page.getByRole("link", { name: "Organizations" }).first().click();
     await page.locator("table a.row-button").first().click();
@@ -51,6 +55,11 @@ test.describe("system administration", () => {
     const dialog = page.getByRole("dialog", { name: "Invite someone" });
     await dialog.getByLabel(/^E-Mail/).fill(email);
     await dialog.getByRole("button", { name: "Invite" }).click();
+    // The center asks a system administrator before granting a role (D-8).
+    await page
+      .getByRole("dialog", { name: "Assign this role as system administrator?" })
+      .getByRole("button", { name: "Assign role", exact: true })
+      .click();
     // Without system mail the link is shown once.
     const link = await page
       .getByRole("dialog", { name: "Pass on the link" })
@@ -74,11 +83,20 @@ test.describe("system administration", () => {
       .getByRole("button", { name: "Create account and accept" })
       .click();
     await expect(invitee.getByLabel(/^Account menu/)).toBeVisible();
-    // A member sees neither the administration nor the organization settings.
+    // A member sees no administration: the menu's one entry is every
+    // member's, and what keeps the administration from them is that the
+    // center offers no system scope (the capabilities check below).
     await invitee.getByLabel(/^Account menu/).click();
-    await expect(invitee.getByRole("menuitem", { name: "Administration" })).toHaveCount(0);
+    // Guards against the old "Administration" entry coming back.
+    await expect(
+      invitee.getByRole("menuitem", { name: "Administration", exact: true }),
+    ).toHaveCount(0);
+    const theirs = await invitee.request
+      .get("/api/management/capabilities")
+      .then((r) => r.json());
+    expect(theirs.system, "invitee's system capabilities").toEqual([]);
 
-    await page.goto("/admin/users");
+    await page.goto("/manage/system/users");
     await page.getByLabel("Search name or e-mail").fill(email);
     await page.getByRole("link", { name: "Synthetic invitee" }).click();
     page.once("dialog", (d) => void d.accept());

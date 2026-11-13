@@ -183,7 +183,7 @@ describe("the assistant across navigation (WP3.8)", () => {
     expect(html).toContain('aria-label="Verlauf"');
     expect(html).toContain('aria-label="Assistent schließen"');
     expect(html).toContain('href="/assistant"');
-    expect(html).toContain('href="/account/assistant"');
+    expect(html).toContain('href="/manage/me/assistant"');
     expect(html).toContain('<option value="p2">Beta</option>');
     expect(html).toContain('id="assistant-panel-input"');
     expect(html).toContain("Nachricht an den Assistenten");

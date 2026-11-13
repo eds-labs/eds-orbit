@@ -11,8 +11,14 @@ import {
   bindableMailboxes,
   LoadState,
   MailboxList,
+  MailboxesManagedNote,
   type EmailMailbox,
 } from "./settings";
+import {
+  ShellContext,
+  type ShellContextValue,
+} from "@/platform/shell/shell-context";
+import { shellLinks } from "@/platform/shell/shell-links";
 
 const mailbox = (
   id: string,
@@ -281,5 +287,70 @@ describe("archiving in settings", () => {
     const asking = view(true);
     expect(asking).toContain("Archive 6100 Travel?");
     expect(asking).toContain("Cancel");
+  });
+});
+
+describe("finance mailbox note", () => {
+  // The production link builder.
+  const note = (locale: "en" | "de" = "en") => {
+    const hrefOf = (key: string) => `/p/demo/${key}`;
+    const shell = {
+      hrefOf,
+      ...shellLinks({ hrefOf, projectId: "p1", map: (href) => `/center${href}` }),
+    } as unknown as ShellContextValue;
+    return renderToStaticMarkup(
+      <ShellContext.Provider value={shell}>
+        <MailboxesManagedNote t={financeText(locale)} />
+      </ShellContext.Provider>,
+    );
+  };
+  it("says where mailboxes are managed and links to the center's connections", () => {
+    const html = note();
+    // React escapes the apostrophe in markup.
+    expect(html).toContain(
+      "Mailboxes are added and checked in the project&#x27;s connections.",
+    );
+    expect(html).toContain('href="/center/p/demo/connectors"');
+    expect(html).toContain("Open mailboxes");
+  });
+  it("words the note in German too", () => {
+    const html = note("de");
+    expect(html).toContain(
+      "Postfächer werden unter Verbindungen angelegt und geprüft.",
+    );
+    expect(html).toContain('href="/center/p/demo/connectors"');
+    expect(html).toContain("Postfächer öffnen");
+  });
+  it("names the place once: the hint no longer repeats the note", () => {
+    const en = financeText("en").mailboxes;
+    const de = financeText("de").mailboxes;
+    expect(en.hint).toBe(
+      "Bind an existing e-mail connection to finance. Mail that arrives in a bound mailbox goes only to finance, not to Support or any other module.",
+    );
+    expect(de.hint).toBe(
+      "Binde eine bestehende E-Mail-Verbindung an Finanzen. E-Mails, die in einem gebundenen Postfach ankommen, gehen nur an Finanzen, nicht an Support oder ein anderes Modul.",
+    );
+  });
+  it("names the project's connections when no mailbox exists yet", () => {
+    expect(financeText("en").mailboxes.none).toBe(
+      "No e-mail connection yet. Connect a mailbox in the project's connections first.",
+    );
+    expect(financeText("de").mailboxes.none).toBe(
+      "Noch keine E-Mail-Verbindung. Verbinde zuerst ein Postfach unter Verbindungen.",
+    );
+  });
+  it("leaves the mailbox list as it was", () => {
+    const html = renderToStaticMarkup(
+      <MailboxList
+        t={financeText("en")}
+        rows={bindableMailboxes([mailbox("a")], [])}
+        canManage={true}
+        pending={false}
+        onBind={() => {}}
+        onUnbind={() => {}}
+      />,
+    );
+    expect(html).toContain("a@example.com");
+    expect(html).not.toContain("Open mailboxes");
   });
 });

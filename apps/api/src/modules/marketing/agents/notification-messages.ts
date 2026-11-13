@@ -33,6 +33,7 @@ import {
 import { SLOT_EXPIRED } from "./veto.ts";
 import { budgetMonthStart } from "../../budget.ts";
 import { localDate } from "./scheduling.ts";
+import { inProject } from "../../../platform/management/links.ts";
 
 /**
  * Marketing's notifications for the owner's Telegram bot (Orbit Agents,
@@ -257,6 +258,21 @@ async function needsOwner(
   ]
     .filter(Boolean)
     .map(String);
+  // Orbit objected (2026-11-11): a recommendation, the owner decides.
+  if (c.agentReviewDecision?.verdict === "reject") {
+    const reasons = ((c.agentReviewDecision?.reasons ?? []) as unknown[])
+      .map(String)
+      .filter(Boolean);
+    return plain(
+      [
+        "Entwurf wartet auf dich",
+        `Kanal: ${await channelName(tx, scope, c.channel)}`,
+        `Orbit hat Bedenken: ${clip([...reasons, ...why].join("; ") || "nicht angegeben", 300)}`,
+        "Du entscheidest in Orbit: freigeben, bearbeiten oder ablehnen. Bis dahin geht nichts raus.",
+      ].join("\n"),
+      [openButton()],
+    );
+  }
   return plain(
     [
       "Entwurf wartet auf dich",
@@ -498,7 +514,7 @@ async function runProblem(
   return plain(clip(lines.join("\n"), TEXT_MAX), [
     {
       text: "In Orbit prüfen",
-      url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/p/${scope.projectId}${target}`,
+      url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}${inProject(scope.projectId, target)}`,
     },
   ]);
 }
@@ -518,7 +534,11 @@ async function blocked(
     .map((code) =>
       code === SLOT_EXPIRED
         ? "Der Termin war schon vorbei (mehr als 30 Minuten)"
-        : code,
+        : code === "AI_LABEL_MISSING"
+          ? "Das KI-Bild trägt keine Kennzeichnung „KI erstellt“"
+          : code === "AI_LABEL_INVALID"
+            ? "Die Kennzeichnung „KI erstellt“ des Bildes ist nicht lesbar"
+            : code,
     );
   return plain(
     [
@@ -728,6 +748,24 @@ async function dailyReport(
         sum + (Array.isArray(channels) && channels.length ? channels.length : 1)
       );
     }, 0);
+  // Drafts Orbit objected to and handed to the owner (2026-11-11), once per channel.
+  const objectedCount = (
+    await tx.auditEvent.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        action: "content.agent_objected",
+        createdAt: { gte: start, lt: end },
+      },
+      select: { metadata: true },
+    })
+  ).reduce((sum, event) => {
+    const channels = (event.metadata as Record<string, unknown> | null)
+      ?.channels;
+    return (
+      sum + (Array.isArray(channels) && channels.length ? channels.length : 1)
+    );
+  }, 0);
   // Deliverables that stopped today (I4), from the audits written with their notices.
   const events = await tx.auditEvent.findMany({
     where: {
@@ -798,6 +836,7 @@ async function dailyReport(
     `Veröffentlicht: ${published}`,
     `Gestoppt: ${stopped}`,
     `Abgelehnt: ${rejectedCount}`,
+    `Mit Bedenken an dich: ${objectedCount}`,
     `Fehlgeschlagene Schritte: ${failedSteps}`,
     `Entfallene Beiträge: ${droppedDeliverables}`,
     `Blockierte Beiträge: ${blockedPosts}`,

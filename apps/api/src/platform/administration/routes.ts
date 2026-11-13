@@ -43,6 +43,7 @@ import {
   viewInvitation,
 } from "./invitations.ts";
 import { createOrganization, renameOrganization } from "./organizations.ts";
+import { environmentStatus } from "./environment-status.ts";
 import {
   listAllMcpGrants,
   listMcpClients,
@@ -71,7 +72,11 @@ export function isAdministrationRoute(url: string) {
 
 type Deps = {
   /** Worker and queue state for the dashboard (modules/runtime.ts). */
-  runtimeHealth: () => Promise<{ worker: string; lastHeartbeat: string | null }>;
+  runtimeHealth: () => Promise<{
+    redis: "ok" | "unreachable";
+    worker: string;
+    lastHeartbeat: string | null;
+  }>;
 };
 
 const param = (req: FastifyRequest, name: string) =>
@@ -126,6 +131,7 @@ export function registerAdministrationRoutes(
         lastHeartbeat: runtime.lastHeartbeat,
         systemMail: systemMailConfigured() ? "configured" : "missing",
         version: process.env.ORBIT_VERSION ?? process.env.npm_package_version ?? null,
+        environment: environmentStatus({ redisReachable: runtime.redis === "ok" }),
       },
     };
   });
@@ -319,12 +325,19 @@ export function registerAdministrationRoutes(
     },
   );
   app.get("/api/projects/:projectId/invitations", async (req) => {
-    const { scope } = await project(req);
+    const { scope, actor } = await project(req);
     const items = await openInvitations(scope.workspaceId);
+    const own = (p: { id: string }) => p.id === scope.projectId;
     return {
-      items: items.filter((i) =>
-        i.projects.some((p) => p.id === scope.projectId),
-      ),
+      items: items
+        .filter((i) => i.projects.some(own))
+        // An invitation can cover several projects. Only the organization's
+        // owner sees the others; a project owner sees their own project's part.
+        .map((i) =>
+          actor.kind === "org_owner"
+            ? i
+            : { ...i, projects: i.projects.filter(own) },
+        ),
     };
   });
   app.post(

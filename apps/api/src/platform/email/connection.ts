@@ -44,9 +44,22 @@ import {
 export const EMAIL_PROVIDER = "email";
 /** Receiving state per mailbox, keyed by `connectionId` (inbound.ts). */
 export const INBOUND_STATE_KIND = "email_inbound_state";
+/** The unread UIDs of a shared mailbox's backlog (backlog-snapshot.ts). */
+export const INBOUND_BACKLOG_KIND = "email_inbound_backlog";
 
 export function emailEnabled() {
   return loadConfig().ORBIT_EMAIL === "true";
+}
+
+/**
+ * Whether this connection is under the shared-client rules right now: the
+ * webmail flag and the marker on the mailbox (ADR 0026, decision 9).
+ */
+export function sharedClientActive(connectionData: Record<string, unknown>) {
+  return (
+    loadConfig().ORBIT_WEBMAIL === "true" &&
+    connectionData.webmailClient === true
+  );
 }
 
 /** Real delivery only in live mode with external writes; else a receipt. */
@@ -172,12 +185,14 @@ export async function connectEmail(tx: DbTx, scope: Scope, raw: unknown) {
   const known = (await emailMailboxes(tx, scope)).find(
     (row) => addressOf(row) === account.fromAddress.toLowerCase(),
   );
-  // A re-save keeps the mailbox's owner module (ownership.ts).
+  // A re-save keeps the mailbox's owner module (ownership.ts) and the
+  // webmail marker (shared-client.ts).
   const owner = known ? mailboxOwner(data(known)) : null;
   const row = known
     ? await update(tx, scope, known, {
         ...fields,
         ...(owner ? { ownerModule: owner } : {}),
+        ...(data(known).webmailClient === true ? { webmailClient: true } : {}),
       })
     : await create(tx, scope, CONNECTION_KIND, fields);
   await audit(tx, scope, known ? "email.updated" : "email.connected", row.id, {
@@ -211,9 +226,10 @@ export async function disconnectEmail(tx: DbTx, scope: Scope, raw: unknown) {
     (row) => addressOf(row) === addressOf(mailbox),
   );
   const ids = rows.map((row) => row.id);
-  const states = (await list(tx, scope, INBOUND_STATE_KIND)).filter((row) =>
-    ids.includes(String(data(row).connectionId)),
-  );
+  const states = [
+    ...(await list(tx, scope, INBOUND_STATE_KIND)),
+    ...(await list(tx, scope, INBOUND_BACKLOG_KIND)),
+  ].filter((row) => ids.includes(String(data(row).connectionId)));
   await tx.entity.deleteMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -232,6 +248,9 @@ export async function disconnectEmail(tx: DbTx, scope: Scope, raw: unknown) {
  * `write_verified` would need a real test message, which needs approval.
  */
 export const emailConnectionProvider: ConnectionProvider = {
+  label: { en: "E-mail mailbox", de: "E-Mail-Postfach" },
+  category: "email",
+  authType: "password",
   async check(connection, password) {
     // No login to the mailbox while e-mail is off, even for an old row.
     if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);

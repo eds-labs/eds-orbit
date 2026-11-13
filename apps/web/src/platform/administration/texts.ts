@@ -73,6 +73,10 @@ const errors: Record<string, { en: string; de: string }> = {
     en: "These keys do not have the expected format. Check each field, for example that the app ID has digits only.",
     de: "Die Schlüssel haben nicht das erwartete Format. Prüfe die einzelnen Felder, zum Beispiel dass die App-ID nur aus Ziffern besteht.",
   },
+  AI_PROFILE_VERSION_CONFLICT: {
+    en: "This profile changed since you opened it (for example its standard models). Reload the page and apply your change again.",
+    de: "Dieses Profil hat sich geändert, seit du es geöffnet hast (zum Beispiel seine Standard-Modelle). Lade die Seite neu und übernimm deine Änderung noch einmal.",
+  },
   PASSWORD_TOO_SHORT: {
     en: "Use at least 12 characters.",
     de: "Verwende mindestens 12 Zeichen.",

@@ -32,6 +32,8 @@ jobs:
         # Invitations need the administration feature, as in production.
         env:
           ORBIT_ADMINISTRATION: 'true'
+          # Account pages (ADR 0013), so their browser specs run.
+          ORBIT_ACCOUNT: 'true'
         run: |
           pnpm exec tsx scripts/seed-e2e.ts
           pnpm dev > .runtime/ci-services.log 2>&1 &

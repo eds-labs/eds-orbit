@@ -14,6 +14,7 @@
     "root:api": [
       "apps/api/src/main.ts",
       "apps/api/src/mcp-main.ts",
+      "apps/api/src/webmail-bridge-main.ts",
       "apps/api/src/server.ts",
       "apps/api/src/openapi.ts",
       "apps/api/src/modules/registry.ts"
@@ -59,6 +60,9 @@
     "module:social": [
       "apps/api/src/modules/social/"
     ],
+    "module:webmail": [
+      "apps/api/src/modules/webmail/"
+    ],
     "module:ads": [
       "apps/api/src/modules/ads/"
     ],
@@ -90,6 +94,9 @@
     ],
     "web-module:social": [
       "apps/web/src/modules/social/"
+    ],
+    "web-module:webmail": [
+      "apps/web/src/modules/webmail/"
     ],
     "web-module:ads": [
       "apps/web/src/modules/ads/"

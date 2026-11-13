@@ -329,13 +329,15 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
       }),
     ]);
     expect(await previewEvents()).toBe(1);
-    // The run's slot now counts as the publication; the rejected one is free again.
+    // The run's slot now counts as the publication; the draft Orbit objected
+    // to waits for the owner and keeps its slot (2026-11-11).
+    expect((await contents())[0]!.status).toBe("needs_review");
     const [run] = await h.rows("assignment_runs");
+    expect(run!.slots[0]!.releasedAt).toBeUndefined();
     expect(run!.slots).toEqual([
       expect.objectContaining({
         channel: X,
         at: slots[0]!.at,
-        releasedAt: expect.any(String),
       }),
       expect.objectContaining({
         channel: X,

@@ -85,6 +85,16 @@ of Marketing. The API remains authoritative after every navigation or role chang
 - The platform's `knowledge_search` and the AI spending authority (Settings → AI & budget) stay.
 - Without Marketing, the dashboard shows the platform's AI readiness (spending authority and text model) instead of Marketing's go-live readiness.
 
+## AI image labelling (platform feature flag, 2026-11-13; flag on in production since 2026-11-13)
+
+AI image labelling ([AI_IMAGE_LABELING.md](AI_IMAGE_LABELING.md), [ADR 0028](adr/0028-ai-image-labeling.md)) is a platform service used by Marketing and Social. It adds no module, manifest entry, permission or project row; the platform owns the table `ImageProvenance`.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_AI_IMAGE_LABELS=true` (default `false`). While off nothing is labelled, recorded or checked, and stored bytes are the same as before. Needs migration `202611130001_image_provenance`. |
+| Project | No per-project switch: with the flag on, every project's new AI images are labelled and every project's outbound AI images are checked (a legal requirement, not a preference). |
+| Member | No new role. Labelling runs inside the existing creation paths; the publish gate applies to everyone, owners included. |
+
 ## Creative Studio (Marketing feature flag, 2026-10-27, local; flag off)
 
 The Creative Studio ([MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md)) is a feature of the Marketing module, not a module of its own. It adds no manifest entry and no project row.
@@ -168,6 +178,10 @@ The social module (`docs/SOCIAL.md`, ADR 0020) follows the same pattern: `defaul
 | Member | `social.read` and `social.analytics.read` (all roles), `social.compose` and `social.publish` (owner, editor), `social.approve`, `social.settings` and `social.accounts.manage` (owner; the last sensitive); module roles may narrow them. |
 
 Switching it off deletes nothing.
+
+## Webmail (opt-in, 2026-11-09, branch only; flag off)
+
+[ADR 0026](adr/0026-webmail-module.md). `ORBIT_WEBMAIL` switches it on for the installation, a project owner enables the module, and `WebmailMailboxGrant` alone decides who reaches a mailbox: no grant means no access, for owners included. `webmail.use` opens the module, `webmail.settings` (owner) opens mailboxes for it. A Finance-owned mailbox also needs `finance.settings`. Taking a message over needs the Support module and `support.tickets.import`, checked with the member's role in Support, not in Webmail. Switching webmail off deletes nothing and revokes nothing until a session's next request, which is then refused.
 
 ## Ads module (opt-in, 2026-11-08, branch only; flag off)
 

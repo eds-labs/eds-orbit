@@ -10,15 +10,21 @@ import {
   when,
 } from "@/lib/api";
 import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import {
+  DataForm,
+  str,
+  type FormField,
+  type FormValues,
+} from "@/platform/ui/form";
+import type { Locale } from "@/lib/i18n";
 import { Metric } from "@/platform/ui/metric";
 import { useWorkspace } from "./workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
 import {
-  AiSetupPanel,
-  ModelChoicePanel,
-  type ModelChoiceView,
-} from "./ai-model-choice";
+  dataClassRouteWarning,
+  type DataClassRoute,
+} from "@/lib/exception-text";
+import { type ModelChoiceView } from "./ai-model-choice";
 
 // Settings → AI (plan D-A9): the project's AI providers, the models they
 // serve, the Anthropic credit budget and the usage and costs. The OpenAI
@@ -79,7 +85,7 @@ type Rate = {
   webSearchMicrosPerCall?: number;
   verifiedAt: string;
 };
-type AiBudgetView = {
+export type AiBudgetView = {
   // OpenAI's budget is reported since phase 3.4; older servers omit it.
   providers: Record<"anthropic", ProviderBudgetState> &
     Partial<Record<"openai", ProviderBudgetState>>;
@@ -138,7 +144,7 @@ const sourceName: Record<"en" | "de", Record<KeySourceName, string>> = {
  * Text, search and images as the project can use them now: Claude alone
  * covers text; semantic search and image generation need an OpenAI key.
  */
-function CapabilityRows({
+export function CapabilityRows({
   capabilities,
   de,
 }: {
@@ -224,36 +230,145 @@ const providerOf = (
 ): ProviderId =>
   models[model]?.provider ?? (/^claude-/i.test(model) ? "anthropic" : "openai");
 
-/** The provider fields of a view as `ai-provider-configure` expects them (a full replace). */
-function providerPayload(view: ProviderFields) {
+export type AiConfigurationData = OpenAiConfigurationView & ProviderFields;
+
+/** The provider section as `ai-configure` expects it (a full replace). */
+export type ProviderSection = {
+  defaultProvider: ProviderId;
+  anthropicTierRoutes?: NonNullable<ProviderFields["anthropicTierRoutes"]>;
+  models: ProviderFields["models"];
+  providerBudgets: ProviderFields["providerBudgets"];
+  fallback: ProviderFields["fallback"];
+};
+
+/**
+ * The provider section as stored (or as shown before a first save): a full
+ * replace. The effective view holds inherited and preset values; saving
+ * those would freeze them into the project (F-8 risk 2).
+ */
+export function providerPayload(view: AiConfigurationData): ProviderSection {
+  const source = view.stored ?? view;
   return {
-    defaultProvider: view.defaultProvider,
-    ...(view.anthropicTierRoutes
-      ? { anthropicTierRoutes: view.anthropicTierRoutes }
+    defaultProvider: source.defaultProvider,
+    ...(source.anthropicTierRoutes
+      ? { anthropicTierRoutes: source.anthropicTierRoutes }
       : {}),
-    models: view.models,
-    providerBudgets: view.providerBudgets,
-    fallback: view.fallback,
+    models: source.models,
+    providerBudgets: source.providerBudgets,
+    fallback: source.fallback,
   };
 }
 
-/** Keys, default provider, suggested models and tiers, fallback. */
-function AnthropicConfiguration({
-  view,
-  onClose,
-}: {
-  view: OpenAiConfigurationView & ProviderFields;
-  onClose: () => void;
-}) {
-  const { project, refresh, locale } = useWorkspace();
+/**
+ * The first-save confirmation, only while the project saved no AI settings
+ * of its own: a first save cannot be partial (F-8 risk 1). `section` words
+ * it for what the form writes: "models" for the forms that show models,
+ * prices or tiers and copy them; "settings" for the forms that write keys,
+ * budgets or the model choice, after which the project has no models and
+ * prices of its own (review I3).
+ */
+export function firstSaveFields(
+  view: Pick<OpenAiConfigurationView, "stored">,
+  locale: Locale,
+  section: "models" | "settings" = "models",
+): FormField[] {
+  if (view.stored !== null) return [];
   const de = locale === "de";
-  const mutation = useMutation(() => {
-    refresh();
-    onClose();
-  });
+  const hint = {
+    models: de
+      ? "Dieses Projekt hat noch keine eigenen KI-Einstellungen. Beim Speichern werden die hier gezeigten Modelle, Preise und Stufen in das Projekt übernommen. Danach gilt der Schlüssel aus der Umgebung nicht mehr, und die Modelleinstellungen von Organisation und System gelten für die hier gespeicherten Felder nicht mehr."
+      : "This project has no AI settings of its own yet. Saving copies the models, prices and tiers shown here into the project. From then on the environment's key no longer serves it, and the organization's and system's model settings no longer apply to the fields saved here.",
+    settings: de
+      ? "Dieses Projekt hat noch keine eigenen KI-Einstellungen. Beim Speichern werden sie angelegt, zunächst ohne eigene Modelle und Preise. Danach gilt der Schlüssel aus der Umgebung für das Projekt nicht mehr, und Werte, die es bisher von Organisation, System oder Umgebung übernommen hat, können entfallen. Prüfe danach Modelle, Schlüssel und Budgets."
+      : "This project has no AI settings of its own yet. Saving creates them, at first without models and prices of its own. From then on the environment's key no longer serves the project, and values it took over so far from the organization, the system or the environment can stop applying. Check models, keys and budgets afterwards.",
+  }[section];
+  return [
+    {
+      name: "firstSave",
+      type: "checkbox",
+      required: true,
+      value: false,
+      label: de
+        ? "Als eigene KI-Einstellungen dieses Projekts speichern"
+        : "Save as this project's own AI settings",
+      hint,
+    },
+  ];
+}
+
+/** Whether a submitted form may save: true when no confirmation was needed or it was ticked. */
+export function firstSaveConfirmed(
+  view: Pick<OpenAiConfigurationView, "stored">,
+  values: FormValues,
+): boolean {
+  return view.stored !== null || values.firstSave === true;
+}
+
+/** The fields of the Claude dialog: key, models, tiers, routing, fallback. */
+export function anthropicFields(
+  view: AiConfigurationData,
+  locale: Locale,
+  options: { followsStandard?: boolean } = {},
+): FormField[] {
+  const de = locale === "de";
   const suggestion = view.suggestions.anthropic;
-  const tiers = view.anthropicTierRoutes ?? suggestion.tiers;
-  const fields: FormField[] = [
+  // Empty unless stored: a prefilled suggestion would be saved unread (risk 4).
+  const tiers = view.stored?.anthropicTierRoutes ?? null;
+  const tier = (
+    key: "fast" | "standard" | "quality",
+    label: string,
+    heading?: string,
+  ): FormField => ({
+    name: `tier-${key}`,
+    ...(heading ? { heading } : {}),
+    label,
+    value: tiers?.[key] ?? "",
+    required: false,
+    placeholder: suggestion.tiers[key],
+  });
+  const modelFields: FormField[] = [
+    {
+      name: "applyCatalog",
+      heading: de ? "Modelle" : "Models",
+      label: de
+        ? `Vorgeschlagene Claude-Modelle, Preise (geprüft ${suggestion.verifiedAt.slice(0, 10)}) und Stufen übernehmen`
+        : `Add the suggested Claude models, prices (verified ${suggestion.verifiedAt.slice(0, 10)}) and tiers`,
+      type: "checkbox",
+      value: false,
+      hint: de
+        ? `Trägt ${Object.keys(suggestion.models).join(", ")} in die verifizierten Modelle und die Preisliste ein. Quellen: ${suggestion.sources.join(" · ")}. Bestehende Preise bleiben.`
+        : `Adds ${Object.keys(suggestion.models).join(", ")} to the verified models and the rate card. Sources: ${suggestion.sources.join(" · ")}. Existing prices stay.`,
+    },
+    tier(
+      "fast",
+      de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)",
+      de
+        ? "Claude-Stufen (Fallback ohne Aufgaben-Route)"
+        : "Claude tiers (fallback without a task route)",
+    ),
+    tier("standard", "Standard"),
+    tier(
+      "quality",
+      de ? "Qualität (komplexe Analysen)" : "Quality (complex analyses)",
+    ),
+    {
+      name: "defaultProvider",
+      heading: de ? "Routing" : "Routing",
+      label: de
+        ? "Standardprovider für Aufgaben ohne explizite Route"
+        : "Default provider for task classes without an explicit route",
+      type: "select",
+      value: view.stored?.defaultProvider ?? view.defaultProvider,
+      options: [
+        { value: "openai", label: "OpenAI" },
+        { value: "anthropic", label: "Anthropic (Claude)" },
+      ],
+      hint: de
+        ? "Explizite Aufgaben-Routen (OpenAI-Dialog) gewinnen immer. Bestehende Routen werden nicht überschrieben."
+        : "Explicit task routes (OpenAI dialog) always win. Existing routes are not overwritten.",
+    },
+  ];
+  return [
     {
       name: "anthropicApiKey",
       label:
@@ -281,64 +396,14 @@ function AnthropicConfiguration({
           },
         ]
       : []),
-    {
-      name: "applyCatalog",
-      heading: de ? "Modelle" : "Models",
-      label: de
-        ? `Vorgeschlagene Claude-Modelle, Preise (geprüft ${suggestion.verifiedAt.slice(0, 10)}) und Stufen übernehmen`
-        : `Add the suggested Claude models, prices (verified ${suggestion.verifiedAt.slice(0, 10)}) and tiers`,
-      type: "checkbox",
-      value: !view.verifiedModels.some(
-        (model) => providerOf(model, view.models) === "anthropic",
-      ),
-      hint: de
-        ? `Trägt ${Object.keys(suggestion.models).join(", ")} in die verifizierten Modelle und die Preisliste ein. Quellen: ${suggestion.sources.join(" · ")}. Bestehende Preise bleiben.`
-        : `Adds ${Object.keys(suggestion.models).join(", ")} to the verified models and the rate card. Sources: ${suggestion.sources.join(" · ")}. Existing prices stay.`,
-    },
-    {
-      name: "tier-fast",
-      heading: de
-        ? "Claude-Stufen (Fallback ohne Aufgaben-Route)"
-        : "Claude tiers (fallback without a task route)",
-      label: de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)",
-      value: tiers.fast,
-      required: true,
-    },
-    {
-      name: "tier-standard",
-      label: "Standard",
-      value: tiers.standard,
-      required: true,
-    },
-    {
-      name: "tier-quality",
-      label: de ? "Qualität (komplexe Analysen)" : "Quality (complex analyses)",
-      value: tiers.quality,
-      required: true,
-    },
-    {
-      name: "defaultProvider",
-      heading: de ? "Routing" : "Routing",
-      label: de
-        ? "Standardprovider für Aufgaben ohne explizite Route"
-        : "Default provider for task classes without an explicit route",
-      type: "select",
-      value: view.defaultProvider,
-      options: [
-        { value: "openai", label: "OpenAI" },
-        { value: "anthropic", label: "Anthropic (Claude)" },
-      ],
-      hint: de
-        ? "Explizite Aufgaben-Routen (OpenAI-Dialog) gewinnen immer. Bestehende Routen werden nicht überschrieben."
-        : "Explicit task routes (OpenAI dialog) always win. Existing routes are not overwritten.",
-    },
+    ...(options.followsStandard ? [] : modelFields),
     {
       name: "fallback",
       label: de
         ? "Wenn das Claude-Budget gestoppt ist (auf OpenAI ausweichen)"
         : "When the Claude budget is stopped (fall back to OpenAI)",
       type: "select",
-      value: view.fallback.onProviderBudgetStop,
+      value: (view.stored ?? view).fallback.onProviderBudgetStop,
       options: [
         {
           value: "none",
@@ -357,6 +422,97 @@ function AnthropicConfiguration({
         ? "Das Ausweichen verursacht OpenAI-Kosten und gilt als deine ausdrückliche Freigabe. Ein bereits gesendeter Aufruf wird nie wiederholt."
         : "The fallback incurs OpenAI costs and counts as your explicit approval. A transmitted call is never retried.",
     },
+  ];
+}
+
+/**
+ * The provider section the Claude dialog saves: the stored section plus
+ * what the form shows. Tiers are all three or none; none keeps the stored
+ * tiers, a half-filled set is refused before any request. With no tiers at
+ * all, ticking "Add the suggested … and tiers" sends the suggested tiers
+ * (review I1): the tick is the member's choice, nothing is preselected.
+ */
+export function anthropicPayload(
+  view: AiConfigurationData,
+  values: FormValues,
+  options: { followsStandard?: boolean } = {},
+):
+  | {
+      providers: ProviderSection & {
+        applyAnthropicCatalog: boolean;
+        anthropicApiKey?: string;
+        clearAnthropicApiKey?: true;
+      };
+    }
+  | { error: "CLAUDE_TIERS_INCOMPLETE" } {
+  // Before a first save `base` holds the view's Claude tiers, and empty tier
+  // fields resend them: a first save creates the whole configuration from
+  // what the view holds (confirmed by the first-save box), and leaving them
+  // out could strip tiers the project uses today.
+  const base = providerPayload(view);
+  const showsModels = !options.followsStandard;
+  const tiers = {
+    fast: str(values, "tier-fast"),
+    standard: str(values, "tier-standard"),
+    quality: str(values, "tier-quality"),
+  };
+  const filled = Object.values(tiers).filter(Boolean).length;
+  if (showsModels && filled > 0 && filled < 3)
+    return { error: "CLAUDE_TIERS_INCOMPLETE" };
+  const suggestedTiers =
+    values.applyCatalog === true && !base.anthropicTierRoutes
+      ? view.suggestions?.anthropic?.tiers
+      : undefined;
+  const apiKey = str(values, "anthropicApiKey");
+  const defaultProvider = str(values, "defaultProvider");
+  const fallback = str(values, "fallback");
+  return {
+    providers: {
+      ...base,
+      applyAnthropicCatalog: values.applyCatalog === true,
+      ...(apiKey ? { anthropicApiKey: apiKey } : {}),
+      ...(values.clearAnthropicApiKey === true
+        ? { clearAnthropicApiKey: true as const }
+        : {}),
+      ...(showsModels && defaultProvider
+        ? { defaultProvider: defaultProvider as ProviderId }
+        : {}),
+      ...(showsModels && filled === 3
+        ? { anthropicTierRoutes: tiers }
+        : showsModels && filled === 0 && suggestedTiers
+          ? { anthropicTierRoutes: suggestedTiers }
+          : {}),
+      ...(fallback
+        ? {
+            fallback: {
+              onProviderBudgetStop: fallback as ProviderSection["fallback"]["onProviderBudgetStop"],
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/** Keys, default provider, suggested models and tiers, fallback. */
+export function AnthropicConfiguration({
+  view,
+  onClose,
+  followsStandard = false,
+}: {
+  view: AiConfigurationData;
+  onClose: () => void;
+  /** The project follows the organization's standard: no model fields. */
+  followsStandard?: boolean;
+}) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const fields = [
+    ...anthropicFields(view, locale, { followsStandard }),
+    ...firstSaveFields(view, locale, "settings"),
   ];
   return (
     <Modal
@@ -386,51 +542,41 @@ function AnthropicConfiguration({
           de ? "Claude-Einstellungen speichern" : "Save Claude settings"
         }
         onCancel={onClose}
-        onSubmit={(values) =>
-          mutation.run(async () => {
-            const apiKey = str(values, "anthropicApiKey");
-            return saveProviders(project.id, {
-              ...providerPayload(view),
-              applyAnthropicCatalog: values.applyCatalog === true,
-              ...(apiKey ? { anthropicApiKey: apiKey } : {}),
-              ...(values.clearAnthropicApiKey === true
-                ? { clearAnthropicApiKey: true }
-                : {}),
-              defaultProvider: str(values, "defaultProvider"),
-              anthropicTierRoutes: {
-                fast: str(values, "tier-fast"),
-                standard: str(values, "tier-standard"),
-                quality: str(values, "tier-quality"),
-              },
-              models: view.models,
-              fallback: { onProviderBudgetStop: str(values, "fallback") },
-            });
-          })
-        }
+        onSubmit={(values) => {
+          if (!firstSaveConfirmed(view, values)) return;
+          return mutation.run(async () => {
+            const payload = anthropicPayload(view, values, { followsStandard });
+            // Thrown before any request, shown as the form's error.
+            if ("error" in payload)
+              throw new Error(
+                de
+                  ? "Fülle alle drei Claude-Stufen aus oder lass alle drei leer."
+                  : "Fill in all three Claude tiers or leave all three empty.",
+              );
+            return saveProviders(project.id, payload.providers);
+          });
+        }}
       />
     </Modal>
   );
 }
 
-/** The Anthropic credit budget: amounts, thresholds, billing period anchor and the verified credit note. */
-function ProviderBudgetForm({
-  provider,
-  view,
-  onSaved,
-}: {
-  provider: ProviderId;
-  view: OpenAiConfigurationView & ProviderFields;
-  onSaved: () => void;
-}) {
-  const { project, locale } = useWorkspace();
+/** The fields of one provider's credit budget form. */
+export function providerBudgetFields(
+  provider: ProviderId,
+  view: AiConfigurationData,
+  locale: Locale,
+): FormField[] {
   const de = locale === "de";
-  const mutation = useMutation(onSaved);
-  const current = view.providerBudgets[provider];
+  // Only the project's own budget prefills the form: a default would be
+  // saved unread (F-8 risk 4), so without one the amounts start empty.
+  const current = view.stored?.providerBudgets[provider];
   const name = providerName[provider];
   const usdField = (
     name: string,
     label: string,
-    micros: number,
+    micros: number | undefined,
+    placeholder: string,
     hint?: string,
   ): FormField => ({
     name,
@@ -439,32 +585,37 @@ function ProviderBudgetForm({
     min: 0,
     max: 100000,
     step: "0.01",
-    value: micros / 1_000_000,
+    value: micros === undefined ? "" : micros / 1_000_000,
     required: true,
+    placeholder,
     ...(hint ? { hint } : {}),
   });
-  const fields: FormField[] = [
+  return [
     usdField(
       "monthly",
       de
         ? "Guthaben pro Abrechnungszeitraum (USD)"
         : "Credit per billing period (USD)",
-      current?.monthlyMicros ?? 100_000_000,
+      current?.monthlyMicros,
+      "100",
     ),
     usdField(
       "warn",
       de ? "Erste Warnschwelle (USD)" : "First warning threshold (USD)",
-      current?.warnMicros ?? 75_000_000,
+      current?.warnMicros,
+      "75",
     ),
     usdField(
       "warn2",
       de ? "Zweite Warnschwelle (USD)" : "Second warning threshold (USD)",
-      current?.warn2Micros ?? 90_000_000,
+      current?.warn2Micros,
+      "90",
     ),
     usdField(
       "stop",
       de ? "Interner Ausgabenstopp (USD)" : "Internal spending stop (USD)",
-      current?.stopMicros ?? 95_000_000,
+      current?.stopMicros,
+      "95",
       de
         ? `Ab diesem berechneten Verbrauch lehnt Orbit weitere ${name}-Aufrufe ab; parallele Aufrufe werden nacheinander geprüft.`
         : `From this calculated spend Orbit refuses further ${name} calls; parallel calls are checked one after the other.`,
@@ -478,8 +629,9 @@ function ProviderBudgetForm({
       min: 1,
       max: 28,
       step: "1",
-      value: current?.anchorDay ?? 1,
+      value: current?.anchorDay ?? "",
       required: true,
+      placeholder: "1",
       hint: de
         ? `Der Tag, an dem ${name} das Guthaben erneuert, nicht automatisch der 1.`
         : `The day ${name} renews the credit, not necessarily the 1st.`,
@@ -506,6 +658,26 @@ function ProviderBudgetForm({
       max: 200,
     },
   ];
+}
+
+/** The Anthropic credit budget: amounts, thresholds, billing period anchor and the verified credit note. */
+function ProviderBudgetForm({
+  provider,
+  view,
+  onSaved,
+}: {
+  provider: ProviderId;
+  view: AiConfigurationData;
+  onSaved: () => void;
+}) {
+  const { project, locale } = useWorkspace();
+  const de = locale === "de";
+  const mutation = useMutation(onSaved);
+  const name = providerName[provider];
+  const fields = [
+    ...providerBudgetFields(provider, view, locale),
+    ...firstSaveFields(view, locale, "settings"),
+  ];
   return (
     <DataForm
       key={`${provider}:${view.updatedAt ?? "budget"}`}
@@ -513,15 +685,17 @@ function ProviderBudgetForm({
       pending={mutation.pending}
       error={mutation.error}
       submitLabel={de ? `${name}-Budget speichern` : `Save ${name} budget`}
-      onSubmit={(values) =>
-        mutation.run(() => {
+      onSubmit={(values) => {
+        if (!firstSaveConfirmed(view, values)) return;
+        return mutation.run(() => {
           const micros = (key: string) =>
             Math.round(Number(values[key]) * 1_000_000);
           const creditAmount = str(values, "creditAmount");
+          const base = providerPayload(view);
           return saveProviders(project.id, {
-            ...providerPayload(view),
+            ...base,
             providerBudgets: {
-              ...view.providerBudgets,
+              ...base.providerBudgets,
               [provider]: {
                 monthlyMicros: micros("monthly"),
                 warnMicros: micros("warn"),
@@ -542,8 +716,8 @@ function ProviderBudgetForm({
               },
             },
           });
-        })
-      }
+        });
+      }}
     />
   );
 }
@@ -552,7 +726,7 @@ function ProviderBudgetForm({
  * One provider's credit budget: spend, period, the manually verified credit
  * and the form (phase 3.4: OpenAI as well as Claude).
  */
-function ProviderBudgetPanel({
+export function ProviderBudgetPanel({
   provider,
   entry,
   view,
@@ -560,7 +734,7 @@ function ProviderBudgetPanel({
 }: {
   provider: ProviderId;
   entry: ProviderBudgetState | undefined;
-  view: (OpenAiConfigurationView & ProviderFields) | null | undefined;
+  view: AiConfigurationData | null | undefined;
   onSaved: () => void;
 }) {
   const { locale } = useWorkspace();
@@ -633,7 +807,7 @@ function ProviderBudgetPanel({
   );
 }
 
-function CostList({
+export function CostList({
   title,
   rows,
   labelOf,
@@ -680,100 +854,110 @@ function CostList({
   );
 }
 
-export function AiSettings() {
-  const { project, revision, isOwner, locale } = useWorkspace();
-  const de = locale === "de";
-  const configuration = useResource<OpenAiConfigurationView & ProviderFields>(
+type Resource<T> = ReturnType<typeof useResource<T>>;
+
+/** The two resources the AI sections load, and a refresh of both. */
+export function useAiSettingsResources(): {
+  configuration: Resource<AiConfigurationData>;
+  budget: Resource<AiBudgetView>;
+  refreshAll(): void;
+} {
+  const { project, revision } = useWorkspace();
+  const configuration = useResource<AiConfigurationData>(
     collectionPath(project.id, `openai-configuration?revision=${revision}`),
   );
   const budget = useResource<AiBudgetView>(
     collectionPath(project.id, `ai-budget?revision=${revision}`),
   );
-  const now = useMemo(() => Date.now(), [project.id, revision]);
-  const costPath = (groupBy: string, from: string) =>
-    collectionPath(
-      project.id,
-      `ai-cost?from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(now).toISOString())}&groupBy=${groupBy}`,
-    );
-  const period = budget.data?.providers.anthropic.spend?.periodStart;
-  const monthStart = new Date(
-    Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1),
-  ).toISOString();
-  const rangeStart = period ?? monthStart;
-  const today = useResource<{ rows: CostRow[] }>(
-    costPath("provider", dayStart(now)),
-  );
-  const byProvider = useResource<{ rows: CostRow[] }>(
-    costPath("provider", rangeStart),
-  );
-  const byModel = useResource<{ rows: CostRow[] }>(
-    costPath("model", rangeStart),
-  );
-  const byTask = useResource<{ rows: CostRow[] }>(
-    costPath("taskClass", rangeStart),
-  );
-  const [openAi, setOpenAi] = useState(false);
-  const [anthropic, setAnthropic] = useState(false);
-  const [routes, setRoutes] = useState(false);
-  const [prices, setPrices] = useState(false);
-  const view = configuration.data;
-  const models = useMemo(() => {
-    if (!view) return [];
-    const ids = new Set([
-      ...view.verifiedModels,
-      ...Object.keys(view.rateCard),
-      ...Object.keys(view.models),
-    ]);
-    return [...ids].sort().map((id) => {
-      const provider = providerOf(id, view.models);
-      const rate = view.rateCard[id];
-      const usedBy = Object.entries(view.effectiveRoutes ?? {})
-        .filter(
-          ([, route]) => route && !("error" in route) && route.model === id,
-        )
-        .map(([taskClass]) => taskClass.replaceAll("_", " "));
-      return {
-        id,
-        provider,
-        rate,
-        usedBy,
-        enabled: view.verifiedModels.includes(id),
-        entry: view.models[id],
-      };
-    });
-  }, [view]);
   const refreshAll = () => {
     configuration.refresh();
     budget.refresh();
   };
-  // The guided setup's key step: an own key through the usual sections.
-  const saveKey = (provider: ProviderId, key: string) =>
-    provider === "openai"
-      ? saveModels(project.id, { ...modelsPayload(view!), apiKey: key })
-      : saveProviders(project.id, {
-          ...providerPayload(view!),
-          anthropicApiKey: key,
-          // Without the central catalog the project needs Claude's prices itself.
-          applyAnthropicCatalog: !view?.catalog,
-        });
-  if (!isOwner)
-    return (
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{de ? "KI" : "AI"}</h2>
-        </div>
-        <p className="panel-note">
-          {de
-            ? "Nur Projekt-Owner verwalten die KI-Einstellungen."
-            : "Only project owners manage the AI settings."}
-        </p>
-      </section>
-    );
+  return { configuration, budget, refreshAll };
+}
+
+/** The wizard's key step: an own key through the usual sections. */
+export function saveAiKey(
+  projectId: string,
+  view: AiConfigurationData,
+  provider: ProviderId,
+  key: string,
+): Promise<void> {
+  return provider === "openai"
+    ? saveModels(projectId, { ...modelsPayload(view), apiKey: key })
+    : saveProviders(projectId, {
+        ...providerPayload(view),
+        anthropicApiKey: key,
+        // Without the central catalog the project needs Claude's prices itself.
+        applyAnthropicCatalog: !view.catalog,
+      });
+}
+
+/**
+ * The setup wizard's props for a view: the key save and the first-save
+ * confirmation of its key step and its models step. Both steps create an
+ * unsaved project's AI settings, so a first save needs the confirmation
+ * (F-8 risk 5, review I2); every mount of AiSetupPanel takes all of them.
+ */
+export function setupKeyProps(
+  projectId: string,
+  view: AiConfigurationData,
+  locale: Locale,
+): {
+  saveKey: (provider: ProviderId, key: string) => Promise<void>;
+  keyFields: FormField[];
+  keyConfirmed: (values: FormValues) => boolean;
+  modelsFields: FormField[];
+  modelsConfirmed: (values: FormValues) => boolean;
+} {
+  return {
+    saveKey: (provider, key) => saveAiKey(projectId, view, provider, key),
+    keyFields: firstSaveFields(view, locale, "settings"),
+    keyConfirmed: (values) => firstSaveConfirmed(view, values),
+    modelsFields: firstSaveFields(view, locale, "settings"),
+    modelsConfirmed: (values) => firstSaveConfirmed(view, values),
+  };
+}
+
+/**
+ * The model choice panel's first-save props for a view (review I2). The
+ * source "custom" stores nothing for a project without own settings, so
+ * the box shows and is required only for the sources that create them.
+ */
+export function modelChoiceProps(
+  view: AiConfigurationData,
+  locale: Locale,
+): {
+  routingFields: FormField[];
+  routingConfirmed: (values: FormValues) => boolean;
+} {
+  return {
+    routingFields: firstSaveFields(view, locale, "settings").map((field) => ({
+      ...field,
+      showWhen: { name: "source", values: ["organization", "preset"] },
+    })),
+    routingConfirmed: (values) =>
+      str(values, "source") === "custom" || firstSaveConfirmed(view, values),
+  };
+}
+
+/** "AI providers": capabilities, warnings, one row per provider, and the OpenAI and Claude dialogs. */
+export function AiProvidersPanel({
+  configuration,
+  refreshAll,
+  followsStandard = false,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  refreshAll(): void;
+  followsStandard?: boolean;
+}) {
+  const { locale } = useWorkspace();
+  const de = locale === "de";
+  const [openAi, setOpenAi] = useState(false);
+  const [anthropic, setAnthropic] = useState(false);
+  const view = configuration.data;
   return (
     <>
-      {view && (
-        <AiSetupPanel view={view} saveKey={saveKey} onChanged={refreshAll} />
-      )}
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -797,6 +981,11 @@ export function AiSettings() {
                 {de
                   ? `Für diese Aufgaben fehlt der Key des gerouteten Anbieters, sie schlagen beim Aufruf fehl: ${view.routesWithoutKey.join(", ")}.`
                   : `These tasks are routed to a provider without a key and fail when called: ${view.routesWithoutKey.join(", ")}.`}
+              </Alert>
+            ) : null}
+            {view.routesNotAllowedForData?.length ? (
+              <Alert kind="warning">
+                {dataClassRouteWarning(locale, view.routesNotAllowedForData)}
               </Alert>
             ) : null}
             {(["openai", "anthropic"] as const).map((id) => (
@@ -847,9 +1036,69 @@ export function AiSettings() {
           <p className="panel-note">{configuration.error?.message ?? "—"}</p>
         )}
       </section>
+      {openAi && (
+        <OpenAiConfiguration
+          followsStandard={followsStandard}
+          onClose={() => {
+            setOpenAi(false);
+            configuration.refresh();
+          }}
+        />
+      )}
+      {anthropic && view && (
+        <AnthropicConfiguration
+          view={view}
+          followsStandard={followsStandard}
+          onClose={() => {
+            setAnthropic(false);
+            refreshAll();
+          }}
+        />
+      )}
+    </>
+  );
+}
 
-      {view && <ModelChoicePanel view={view} onChanged={refreshAll} />}
-
+/** "AI models": the verified models with prices; the task-route and models-and-prices dialogs while `editable`. */
+export function AiModelsPanel({
+  configuration,
+  editable = true,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  editable?: boolean;
+}) {
+  const { locale } = useWorkspace();
+  const de = locale === "de";
+  const [routes, setRoutes] = useState(false);
+  const [prices, setPrices] = useState(false);
+  const view = configuration.data;
+  const models = useMemo(() => {
+    if (!view) return [];
+    const ids = new Set([
+      ...view.verifiedModels,
+      ...Object.keys(view.rateCard),
+      ...Object.keys(view.models),
+    ]);
+    return [...ids].sort().map((id) => {
+      const provider = providerOf(id, view.models);
+      const rate = view.rateCard[id];
+      const usedBy = Object.entries(view.effectiveRoutes ?? {})
+        .filter(
+          ([, route]) => route && !("error" in route) && route.model === id,
+        )
+        .map(([taskClass]) => taskClass.replaceAll("_", " "));
+      return {
+        id,
+        provider,
+        rate,
+        usedBy,
+        enabled: view.verifiedModels.includes(id),
+        entry: view.models[id],
+      };
+    });
+  }, [view]);
+  return (
+    <>
       <section className="panel">
         <div className="panel-head">
           <div>
@@ -860,15 +1109,24 @@ export function AiSettings() {
                 : "Verified models with prices and the tasks that use them."}
             </p>
           </div>
-          <div className="page-actions">
-            <Button variant="outline" onClick={() => setRoutes(true)}>
-              {de ? "Aufgaben-Routen" : "Task routes"}
-            </Button>
-            <Button variant="outline" onClick={() => setPrices(true)}>
-              {de ? "Modelle & Preise" : "Models & prices"}
-            </Button>
-          </div>
+          {editable && (
+            <div className="page-actions">
+              <Button variant="outline" onClick={() => setRoutes(true)}>
+                {de ? "Aufgaben-Routen" : "Task routes"}
+              </Button>
+              <Button variant="outline" onClick={() => setPrices(true)}>
+                {de ? "Modelle & Preise" : "Models & prices"}
+              </Button>
+            </div>
+          )}
         </div>
+        {!editable && (
+          <p className="panel-note">
+            {de
+              ? "Das Projekt folgt dem Standard der Organisation; Modelle und Aufgaben-Routen werden deshalb nicht hier gewählt. Um andere zu wählen, stelle die Modellwahl auf eine Stufe oder eigene Einstellungen um."
+              : "The project follows the organization's standard, so models and task routes are not chosen here. To choose others, change the model choice to a level or own settings."}
+          </p>
+        )}
         {models.length ? (
           <div className="capability-readiness">
             {models.map((model) => (
@@ -911,102 +1169,6 @@ export function AiSettings() {
           </p>
         )}
       </section>
-
-      {(["anthropic", "openai"] as const).map((provider) => (
-        <ProviderBudgetPanel
-          key={provider}
-          provider={provider}
-          entry={budget.data?.providers[provider]}
-          view={view}
-          onSaved={() => {
-            configuration.refresh();
-            budget.refresh();
-          }}
-        />
-      ))}
-
-      <section className="panel">
-        <div className="panel-head">
-          <div>
-            <h2>{de ? "KI-Verbrauch & Kosten" : "AI usage & costs"}</h2>
-            <p>
-              {de
-                ? "Orbits eigene Berechnung aus Reservierungen und abgerechneter Nutzung (USD). Keine Live-Daten des Providers."
-                : "Orbit's own calculation from reservations and settled usage (USD). Not the provider's live data."}
-            </p>
-          </div>
-        </div>
-        <div className="metrics-strip">
-          <Metric
-            icon={Coins}
-            label={de ? "Heute" : "Today"}
-            amount={today.data ? usd(totalMicros(today.data.rows)) : "—"}
-          />
-          <Metric
-            icon={Gauge}
-            label={de ? "Dieser Abrechnungszeitraum" : "This billing period"}
-            amount={
-              byProvider.data ? usd(totalMicros(byProvider.data.rows)) : "—"
-            }
-            detail={
-              period
-                ? `${de ? "seit" : "since"} ${when(period, locale)}`
-                : de
-                  ? "seit Monatsbeginn (UTC)"
-                  : "since the start of the month (UTC)"
-            }
-          />
-          <Metric
-            icon={Brain}
-            label="Claude"
-            amount={
-              byProvider.data
-                ? usd(
-                    totalMicros(
-                      byProvider.data.rows.filter(
-                        (row) => row.key === "anthropic",
-                      ),
-                    ),
-                  )
-                : "—"
-            }
-            detail={
-              byProvider.data
-                ? `OpenAI ${usd(totalMicros(byProvider.data.rows.filter((row) => row.key === "openai")))}`
-                : undefined
-            }
-          />
-        </div>
-        <div className="settings-grid">
-          <CostList
-            title={de ? "Nach Provider" : "By provider"}
-            rows={byProvider.data?.rows}
-            labelOf={(key) => providerName[key as ProviderId] ?? key}
-          />
-          <CostList
-            title={de ? "Nach Modell" : "By model"}
-            rows={byModel.data?.rows}
-          />
-          <CostList
-            title={de ? "Nach Agent / Modul" : "By agent / module"}
-            rows={byTask.data?.rows}
-            labelOf={(key) => key.replaceAll("_", " ")}
-          />
-        </div>
-        <p className="panel-note">
-          {de
-            ? "Kosten nach Projekt: diese Ansicht gilt für das gewählte Projekt; jedes Projekt reserviert und rechnet getrennt ab."
-            : "Cost per project: this view is the selected project's; every project reserves and settles separately."}
-        </p>
-      </section>
-      {openAi && (
-        <OpenAiConfiguration
-          onClose={() => {
-            setOpenAi(false);
-            configuration.refresh();
-          }}
-        />
-      )}
       {routes && (
         <TaskRoutesConfiguration
           onClose={() => {
@@ -1023,17 +1185,143 @@ export function AiSettings() {
           }}
         />
       )}
-      {anthropic && view && (
-        <AnthropicConfiguration
+    </>
+  );
+}
+
+/** The Claude and OpenAI budget panels, in that order. */
+export function AiProviderBudgetPanels({
+  configuration,
+  budget,
+}: {
+  configuration: Resource<AiConfigurationData>;
+  budget: Resource<AiBudgetView>;
+}) {
+  const view = configuration.data;
+  return (
+    <>
+      {(["anthropic", "openai"] as const).map((provider) => (
+        <ProviderBudgetPanel
+          key={provider}
+          provider={provider}
+          entry={budget.data?.providers[provider]}
           view={view}
-          onClose={() => {
-            setAnthropic(false);
+          onSaved={() => {
             configuration.refresh();
             budget.refresh();
           }}
         />
-      )}
+      ))}
     </>
+  );
+}
+
+/** "AI usage & costs": loads its four cost lists itself. */
+export function AiProjectUsagePanel({
+  budget,
+}: {
+  budget: Resource<AiBudgetView>;
+}) {
+  const { project, revision, locale } = useWorkspace();
+  const de = locale === "de";
+  const now = useMemo(() => Date.now(), [project.id, revision]);
+  const costPath = (groupBy: string, from: string) =>
+    collectionPath(
+      project.id,
+      `ai-cost?from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(now).toISOString())}&groupBy=${groupBy}`,
+    );
+  const period = budget.data?.providers.anthropic.spend?.periodStart;
+  const monthStart = new Date(
+    Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1),
+  ).toISOString();
+  const rangeStart = period ?? monthStart;
+  const today = useResource<{ rows: CostRow[] }>(
+    costPath("provider", dayStart(now)),
+  );
+  const byProvider = useResource<{ rows: CostRow[] }>(
+    costPath("provider", rangeStart),
+  );
+  const byModel = useResource<{ rows: CostRow[] }>(
+    costPath("model", rangeStart),
+  );
+  const byTask = useResource<{ rows: CostRow[] }>(
+    costPath("taskClass", rangeStart),
+  );
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div>
+          <h2>{de ? "KI-Verbrauch & Kosten" : "AI usage & costs"}</h2>
+          <p>
+            {de
+              ? "Orbits eigene Berechnung aus Reservierungen und abgerechneter Nutzung (USD). Keine Live-Daten des Providers."
+              : "Orbit's own calculation from reservations and settled usage (USD). Not the provider's live data."}
+          </p>
+        </div>
+      </div>
+      <div className="metrics-strip">
+        <Metric
+          icon={Coins}
+          label={de ? "Heute" : "Today"}
+          amount={today.data ? usd(totalMicros(today.data.rows)) : "—"}
+        />
+        <Metric
+          icon={Gauge}
+          label={de ? "Dieser Abrechnungszeitraum" : "This billing period"}
+          amount={
+            byProvider.data ? usd(totalMicros(byProvider.data.rows)) : "—"
+          }
+          detail={
+            period
+              ? `${de ? "seit" : "since"} ${when(period, locale)}`
+              : de
+                ? "seit Monatsbeginn (UTC)"
+                : "since the start of the month (UTC)"
+          }
+        />
+        <Metric
+          icon={Brain}
+          label="Claude"
+          amount={
+            byProvider.data
+              ? usd(
+                  totalMicros(
+                    byProvider.data.rows.filter(
+                      (row) => row.key === "anthropic",
+                    ),
+                  ),
+                )
+              : "—"
+          }
+          detail={
+            byProvider.data
+              ? `OpenAI ${usd(totalMicros(byProvider.data.rows.filter((row) => row.key === "openai")))}`
+              : undefined
+          }
+        />
+      </div>
+      <div className="settings-grid">
+        <CostList
+          title={de ? "Nach Provider" : "By provider"}
+          rows={byProvider.data?.rows}
+          labelOf={(key) => providerName[key as ProviderId] ?? key}
+        />
+        <CostList
+          title={de ? "Nach Modell" : "By model"}
+          rows={byModel.data?.rows}
+        />
+        <CostList
+          title={de ? "Nach Agent / Modul" : "By agent / module"}
+          rows={byTask.data?.rows}
+          labelOf={(key) => key.replaceAll("_", " ")}
+        />
+      </div>
+      <p className="panel-note">
+        {de
+          ? "Kosten nach Projekt: diese Ansicht gilt für das gewählte Projekt; jedes Projekt reserviert und rechnet getrennt ab."
+          : "Cost per project: this view is the selected project's; every project reserves and settles separately."}
+      </p>
+    </section>
   );
 }
 
@@ -1044,6 +1332,8 @@ export type OpenAiConfigurationView = {
   defaults?: ModelChoiceView["defaults"];
   // Task classes routed to a provider without a usable key (effective view).
   routesWithoutKey?: string[];
+  // Task routes their data class does not allow (ADR 0021 D-11, read only).
+  routesNotAllowedForData?: DataClassRoute[];
   // The central price catalog (phase A), null while ORBIT_AI_CATALOG is off.
   catalog?: Array<{
     id: string;
@@ -1106,6 +1396,24 @@ export type OpenAiConfigurationView = {
   >;
   routeVersion?: number | null;
   updatedAt?: string;
+  // The project's own saved fields (no environment value), null while it
+  // saved none: the dialogs build their saves from it.
+  stored: StoredAiView | null;
+};
+/** The web copy of the API's `StoredAiFields`, field for field. */
+export type StoredAiView = {
+  version: number;
+  verifiedModels: string[];
+  rateCard: Record<string, Rate>;
+  modelRoutes: OpenAiConfigurationView["modelRoutes"];
+  taskRoutes: Partial<Record<TaskClass, StoredTaskRoute>>;
+  imageGeneration: OpenAiConfigurationView["imageGeneration"];
+  defaultProvider: ProviderId;
+  anthropicTierRoutes: ProviderFields["anthropicTierRoutes"];
+  models: ProviderFields["models"];
+  providerBudgets: ProviderFields["providerBudgets"];
+  fallback: ProviderFields["fallback"];
+  routing: NonNullable<ModelChoiceView["routing"]> | null;
 };
 const taskClasses = [
   { id: "chat_operator", label: "Chat operator", defaultTokens: 3000 },
@@ -1157,12 +1465,31 @@ function describeEffectiveRoute(
       : "";
   return `Effective route: ${route.model}${route.provider ? ` (${route.provider})` : ""} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.${price}`;
 }
+/** The model section as `ai-configure` expects it (a full replace). */
+export type ModelsSection = {
+  verifiedModels: string[];
+  rateCard: OpenAiConfigurationView["rateCard"];
+  modelRoutes: OpenAiConfigurationView["modelRoutes"];
+  taskRoutes: Partial<Record<TaskClass, StoredTaskRoute>>;
+  imageGeneration: OpenAiConfigurationView["imageGeneration"];
+};
+
 /**
  * The model section of the configuration as stored, so a dialog that shows
  * only part of it saves the rest unchanged (the save path takes the whole
  * section).
  */
-function modelsPayload(view: OpenAiConfigurationView) {
+export function modelsPayload(view: OpenAiConfigurationView): ModelsSection {
+  // Once the project saved its own settings, resend exactly those: the
+  // effective view mixes in environment and organization values (F-8).
+  if (view.stored)
+    return {
+      verifiedModels: view.stored.verifiedModels,
+      rateCard: view.stored.rateCard,
+      modelRoutes: view.stored.modelRoutes,
+      taskRoutes: view.stored.taskRoutes,
+      imageGeneration: view.stored.imageGeneration,
+    };
   const image = view.imageGeneration;
   return {
     verifiedModels: view.verifiedModels,
@@ -1196,39 +1523,63 @@ function useModelsView() {
   );
 }
 
-/**
- * OpenAI as simple as Claude: the keys, the three tier models and image
- * generation. Task routes and the rate card have their own dialogs.
- */
-export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
-  const { project, refresh, locale } = useWorkspace();
-  const de = locale === "de";
-  const configuration = useModelsView();
-  const mutation = useMutation(() => {
-    refresh();
-    onClose();
-  });
-  const current = configuration.data;
-  const claudeDefault =
-    (current as { defaultProvider?: ProviderId } | undefined)?.defaultProvider ===
-    "anthropic";
-  // The catalog's image price for the stored image model, when the catalog is on.
-  const catalogImage = current?.catalog?.find(
+/** The catalog's image price for the stored image model, when the catalog is on. */
+const catalogImageOf = (current: OpenAiConfigurationView) =>
+  current.catalog?.find(
     (m) =>
       m.id === (current.imageGeneration?.model || "gpt-image-2.5-flare") &&
       m.active &&
       m.perImageMicros,
   ) as { perImageMicros: number; verifiedAt: string } | undefined;
+
+/**
+ * The image models to choose from; a stored model outside the list joins
+ * it, so opening the dialog does not silently switch it (F-8 risk 4).
+ */
+export function imageModelOptions(
+  stored: string | undefined,
+  locale: Locale,
+): Array<{ value: string; label: string }> {
+  const de = locale === "de";
+  const options = [
+    { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · " + (de ? "schnell" : "fast") },
+    { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst · " + (de ? "präzise Bearbeitung" : "precise editing") },
+    { value: "gpt-image-2.5-flare-2026-09-08", label: "Flare · 2026-09-08" },
+    { value: "gpt-image-2.5-sunburst-2026-09-08", label: "Sunburst · 2026-09-08" },
+  ];
+  return stored && !options.some((option) => option.value === stored)
+    ? [...options, { value: stored, label: stored }]
+    : options;
+}
+
+/** The fields of the OpenAI dialog: keys, tiers, image generation. */
+export function openAiFields(
+  current: OpenAiConfigurationView,
+  locale: Locale,
+  options: { followsStandard?: boolean } = {},
+): FormField[] {
+  const de = locale === "de";
+  const imageModel =
+    current.stored?.imageGeneration.model ?? current.imageGeneration?.model;
+  const claudeDefault =
+    (current as { defaultProvider?: ProviderId }).defaultProvider ===
+    "anthropic";
+  const catalogImage = catalogImageOf(current);
   const tier = (key: "fast" | "standard" | "quality", label: string, heading?: string): FormField => ({
     name: `model-${key}`,
     ...(heading ? { heading } : {}),
     label,
     type: "select",
     required: true,
-    value: current?.modelRoutes?.[key] ?? "",
-    options: current ? textModelOptions(current, current.modelRoutes?.[key]) : [],
+    // The stored tier first: the form must not depend on how the API fills
+    // the effective view (F-8).
+    value: current.stored?.modelRoutes[key] ?? current.modelRoutes?.[key] ?? "",
+    options: textModelOptions(
+      current,
+      current.stored?.modelRoutes[key] ?? current.modelRoutes?.[key],
+    ),
   });
-  const fields: FormField[] = [
+  return [
     {
       name: "apiKey",
       label: current?.textKeyConfigured
@@ -1259,31 +1610,32 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         ? "Ohne eigenen Bild-Key nutzt die Bilderzeugung den OpenAI-Key oben."
         : "Without one, image generation uses the OpenAI key above.",
     },
-    {
-      ...tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
-      // Unused while Claude is the default provider; then they need no check.
-      ...(claudeDefault
-        ? {
-            hint: de
-              ? "Claude ist Standardanbieter: diese Stufen werden nicht genutzt und müssen nicht geprüft sein."
-              : "Claude is the default provider: these tiers are not used and need no verification.",
-          }
-        : {}),
-    },
-    tier("standard", "Standard"),
-    tier("quality", de ? "Qualität (komplexe Analysen)" : "Quality (complex analysis)"),
+    // While the project follows the standard its tiers are not its own:
+    // they stay out of the form and the stored ones are resent.
+    ...(options.followsStandard
+      ? []
+      : [
+          {
+            ...tier("fast", de ? "Schnell (einfache Aufgaben)" : "Fast (simple tasks)", de ? "OpenAI-Stufen (Fallback ohne Aufgaben-Route)" : "OpenAI tiers (fallback without a task route)"),
+            // Unused while Claude is the default provider; then they need no check.
+            ...(claudeDefault
+              ? {
+                  hint: de
+                    ? "Claude ist Standardanbieter: diese Stufen werden nicht genutzt und müssen nicht geprüft sein."
+                    : "Claude is the default provider: these tiers are not used and need no verification.",
+                }
+              : {}),
+          },
+          tier("standard", "Standard"),
+          tier("quality", de ? "Qualität (komplexe Analysen)" : "Quality (complex analysis)"),
+        ]),
     {
       name: "imageModel",
       heading: de ? "Bilderzeugung" : "Image generation",
       label: de ? "Bildmodell" : "Image model",
       type: "select",
-      value: current?.imageGeneration?.model || "gpt-image-2.5-flare",
-      options: [
-        { value: "gpt-image-2.5-flare", label: "GPT Image 2.5 Flare · " + (de ? "schnell" : "fast") },
-        { value: "gpt-image-2.5-sunburst", label: "GPT Image 2.5 Sunburst · " + (de ? "präzise Bearbeitung" : "precise editing") },
-        { value: "gpt-image-2.5-flare-2026-09-08", label: "Flare · 2026-09-08" },
-        { value: "gpt-image-2.5-sunburst-2026-09-08", label: "Sunburst · 2026-09-08" },
-      ],
+      value: imageModel || "gpt-image-2.5-flare",
+      options: imageModelOptions(imageModel, locale),
     },
     // With the central catalog the image price comes from there: images are
     // simply on or off. Without it, the per-image maximum and its date.
@@ -1322,13 +1674,43 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
               ? "Preis heute geprüft"
               : "Price checked today",
           type: "checkbox" as const,
-          value: !current?.imageGeneration?.pricingVerifiedAt,
+          // Unticked: a price is confirmed by the person, never by default.
+          value: false,
           hint: de
             ? "Nötig, sobald der Höchstbetrag über 0 liegt. Bilder brauchen außerdem das Bildmodell unter „Modelle & Preise“."
             : "Needed once the maximum is above 0. Images also need the image model under “Models & prices”.",
         },
         ]),
   ];
+}
+
+/**
+ * OpenAI as simple as Claude: the keys, the three tier models and image
+ * generation. Task routes and the rate card have their own dialogs.
+ */
+export function OpenAiConfiguration({
+  onClose,
+  followsStandard = false,
+}: {
+  onClose: () => void;
+  /** The project follows the organization's standard: no tier fields. */
+  followsStandard?: boolean;
+}) {
+  const { project, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const configuration = useModelsView();
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const current = configuration.data;
+  const catalogImage = current ? catalogImageOf(current) : undefined;
+  const fields = current
+    ? [
+        ...openAiFields(current, locale, { followsStandard }),
+        ...firstSaveFields(current, locale),
+      ]
+    : [];
   return (
     <Modal title={de ? "OpenAI konfigurieren" : "Configure OpenAI"} onClose={onClose}>
       <p className="panel-note">
@@ -1360,8 +1742,9 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
           error={mutation.error}
           submitLabel={de ? "OpenAI-Einstellungen speichern" : "Save OpenAI settings"}
           onCancel={onClose}
-          onSubmit={(values) =>
-            mutation.run(() => {
+          onSubmit={(values) => {
+            if (!firstSaveConfirmed(current, values)) return;
+            return mutation.run(() => {
               const apiKey = str(values, "apiKey");
               const imageApiKey = str(values, "imageApiKey");
               const base = modelsPayload(current);
@@ -1369,12 +1752,16 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                 ...base,
                 ...(apiKey ? { apiKey } : {}),
                 ...(imageApiKey ? { imageApiKey } : {}),
-                modelRoutes: {
-                  ...base.modelRoutes,
-                  fast: str(values, "model-fast"),
-                  standard: str(values, "model-standard"),
-                  quality: str(values, "model-quality"),
-                },
+                // Tiers only when the form showed them; else the stored ones.
+                modelRoutes:
+                  "model-fast" in values
+                    ? {
+                        ...base.modelRoutes,
+                        fast: str(values, "model-fast"),
+                        standard: str(values, "model-standard"),
+                        quality: str(values, "model-quality"),
+                      }
+                    : base.modelRoutes,
                 imageGeneration: (() => {
                   const model = str(values, "imageModel");
                   const fromCatalog = current.catalog?.find(
@@ -1402,12 +1789,98 @@ export function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                   };
                 })(),
               });
-            })
-          }
+            });
+          }}
         />
       )}
     </Modal>
   );
+}
+
+/**
+ * The task routes the route dialog saves: the shown tasks from the form,
+ * every other task's route as stored (a hidden task is not cleared, F-8
+ * risk 3).
+ */
+export function taskRoutesPayload(
+  values: FormValues,
+  shown: ReadonlyArray<{ id: TaskClass; defaultTokens: number }>,
+  stored: Partial<Record<TaskClass, StoredTaskRoute>>,
+): Partial<Record<TaskClass, StoredTaskRoute>> {
+  const shownIds = new Set<TaskClass>(shown.map((task) => task.id));
+  const hidden = Object.entries(stored).filter(
+    ([id]) => !shownIds.has(id as TaskClass),
+  );
+  return Object.fromEntries([
+    ...hidden,
+    ...shown.flatMap(({ id, defaultTokens }) => {
+      const model = str(values, `route-${id}-model`);
+      if (!model) return [];
+      const effort = str(values, `route-${id}-effort`);
+      const maxOutputTokens =
+        Number(values[`route-${id}-max-tokens`]) || defaultTokens;
+      return [
+        [
+          id,
+          {
+            model,
+            ...(effort
+              ? { reasoningEffort: effort as StoredTaskRoute["reasoningEffort"] }
+              : {}),
+            maxOutputTokens,
+          },
+        ],
+      ];
+    }),
+  ]);
+}
+
+/** The task-route fields: the stored route of each shown task, else the view's. */
+export function taskRouteFields(
+  current: OpenAiConfigurationView,
+  tasks: ReadonlyArray<{ id: TaskClass; label: string; defaultTokens: number }>,
+  locale: Locale,
+): FormField[] {
+  const de = locale === "de";
+  return tasks.flatMap(({ id, label, defaultTokens }): FormField[] => {
+    // Stored first, as for the tiers; hints show the effective route.
+    const stored = current.stored
+      ? current.stored.taskRoutes[id]
+      : current.taskRoutes?.[id];
+    return [
+      {
+        name: `route-${id}-model`,
+        heading: `${label} route`,
+        label: `${label} model`,
+        type: "select",
+        value: stored?.model ?? "",
+        options: [
+          { value: "", label: de ? "Stufe des Standardanbieters" : "Default provider's tier" },
+          ...textModelOptions(current, stored?.model),
+        ],
+        hint: describeEffectiveRoute(current.effectiveRoutes?.[id]),
+      },
+      {
+        name: `route-${id}-effort`,
+        label: `${label} reasoning effort`,
+        type: "select",
+        value: stored?.reasoningEffort ?? "",
+        options: [
+          { value: "", label: "Default (not sent)" },
+          ...reasoningEffortValues.map((value) => ({ value, label: value })),
+        ],
+      },
+      {
+        name: `route-${id}-max-tokens`,
+        label: `${label} maximum output tokens`,
+        type: "number",
+        min: 256,
+        max: 16000,
+        step: "1",
+        value: stored?.maxOutputTokens ?? defaultTokens,
+      },
+    ];
+  });
 }
 
 /**
@@ -1427,42 +1900,9 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
   });
   const current = configuration.data;
   const fields: FormField[] = current
-    ? tasks.flatMap(({ id, label, defaultTokens }): FormField[] => {
-        const stored = current.taskRoutes?.[id];
-        return [
-          {
-            name: `route-${id}-model`,
-            heading: `${label} route`,
-            label: `${label} model`,
-            type: "select",
-            value: stored?.model ?? "",
-            options: [
-              { value: "", label: de ? "Stufe des Standardanbieters" : "Default provider's tier" },
-              ...textModelOptions(current, stored?.model),
-            ],
-            hint: describeEffectiveRoute(current.effectiveRoutes?.[id]),
-          },
-          {
-            name: `route-${id}-effort`,
-            label: `${label} reasoning effort`,
-            type: "select",
-            value: stored?.reasoningEffort ?? "",
-            options: [
-              { value: "", label: "Default (not sent)" },
-              ...reasoningEffortValues.map((value) => ({ value, label: value })),
-            ],
-          },
-          {
-            name: `route-${id}-max-tokens`,
-            label: `${label} maximum output tokens`,
-            type: "number",
-            min: 256,
-            max: 16000,
-            step: "1",
-            value: stored?.maxOutputTokens ?? defaultTokens,
-          },
-        ];
-      })
+    ? taskRouteFields(current, tasks, locale).concat(
+        firstSaveFields(current, locale),
+      )
     : [];
   return (
     <Modal title={de ? "Aufgaben-Routen" : "Task routes"} onClose={onClose}>
@@ -1484,32 +1924,19 @@ export function TaskRoutesConfiguration({ onClose }: { onClose: () => void }) {
           error={mutation.error}
           submitLabel={de ? "Routen speichern" : "Save routes"}
           onCancel={onClose}
-          onSubmit={(values) =>
-            mutation.run(() =>
+          onSubmit={(values) => {
+            if (!firstSaveConfirmed(current, values)) return;
+            return mutation.run(() =>
               saveModels(project.id, {
                 ...modelsPayload(current),
-                taskRoutes: Object.fromEntries(
-                  tasks.flatMap(({ id, defaultTokens }) => {
-                    const model = str(values, `route-${id}-model`);
-                    if (!model) return [];
-                    const effort = str(values, `route-${id}-effort`);
-                    const maxOutputTokens =
-                      Number(values[`route-${id}-max-tokens`]) || defaultTokens;
-                    return [
-                      [
-                        id,
-                        {
-                          model,
-                          ...(effort ? { reasoningEffort: effort } : {}),
-                          maxOutputTokens,
-                        },
-                      ],
-                    ];
-                  }),
+                taskRoutes: taskRoutesPayload(
+                  values,
+                  tasks,
+                  current.stored?.taskRoutes ?? current.taskRoutes ?? {},
                 ),
               }),
-            )
-          }
+            );
+          }}
         />
       )}
     </Modal>
@@ -1562,6 +1989,7 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
         ? "Pro Modell inputMicrosPerMillion, outputMicrosPerMillion und verifiedAt (ISO-Datum); optional cachedInputMicrosPerMillion und cacheWriteMicrosPerMillion. Claude-Preise übernimmt auch „Claude konfigurieren“."
         : "Per model inputMicrosPerMillion, outputMicrosPerMillion and verifiedAt (ISO date); optional cachedInputMicrosPerMillion and cacheWriteMicrosPerMillion. “Configure Claude” can add Claude's prices.",
     },
+    ...(current ? firstSaveFields(current, locale) : []),
   ];
   return (
     <Modal title={de ? "Modelle & Preise" : "Models & prices"} onClose={onClose}>
@@ -1610,8 +2038,9 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
           error={mutation.error}
           submitLabel={de ? "Modelle & Preise speichern" : "Save models & prices"}
           onCancel={onClose}
-          onSubmit={(values) =>
-            mutation.run(() => {
+          onSubmit={(values) => {
+            if (!firstSaveConfirmed(current, values)) return;
+            return mutation.run(() => {
               let rateCard: unknown;
               try {
                 rateCard = JSON.parse(str(values, "rateCard"));
@@ -1626,8 +2055,8 @@ export function ModelsAndPricesConfiguration({ onClose }: { onClose: () => void 
                   .filter(Boolean),
                 rateCard: rateCard as Record<string, unknown>,
               });
-            })
-          }
+            });
+          }}
         />
       )}
     </Modal>

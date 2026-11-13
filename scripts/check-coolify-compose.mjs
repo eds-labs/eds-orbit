@@ -38,6 +38,7 @@ for (const key of [
   "ORBIT_AGENTS",
   "ORBIT_IMAGE_REFERENCES",
   "ORBIT_AGENT_REVIEW_AUTHORITY",
+  "ORBIT_AGENT_REVIEW_CREATIVES",
   "ORBIT_CREATIVE_STUDIO",
   "ORBIT_AGENT_MANDATES",
   "ORBIT_AGENT_PLATFORM",
@@ -60,6 +61,7 @@ for (const key of [
   "ORBIT_PUBLIC_INGRESS",
   "ORBIT_SUPPORT",
   "ORBIT_FINANCE",
+  "ORBIT_WEBMAIL",
   "ORBIT_WORK",
   "ORBIT_WORK_PM",
   "ORBIT_ISSUES",
@@ -176,6 +178,7 @@ for (const name of apiLike)
     "ORBIT_AGENTS",
     "ORBIT_IMAGE_REFERENCES",
     "ORBIT_AGENT_REVIEW_AUTHORITY",
+    "ORBIT_AGENT_REVIEW_CREATIVES",
     "ORBIT_CREATIVE_STUDIO",
     "ORBIT_AGENT_MANDATES",
     "ORBIT_AGENT_PLATFORM",
@@ -188,6 +191,7 @@ for (const name of apiLike)
     "ORBIT_PUBLIC_INGRESS",
     "ORBIT_SUPPORT",
     "ORBIT_FINANCE",
+    "ORBIT_WEBMAIL",
     "ORBIT_WORK",
     "ORBIT_WORK_PM",
     "ORBIT_ISSUES",
@@ -219,6 +223,7 @@ const flagged = JSON.parse(
         ORBIT_AGENTS: "true",
         ORBIT_IMAGE_REFERENCES: "true",
         ORBIT_AGENT_REVIEW_AUTHORITY: "true",
+        ORBIT_AGENT_REVIEW_CREATIVES: "true",
         ORBIT_CREATIVE_STUDIO: "true",
         ORBIT_AGENT_MANDATES: "true",
         ORBIT_AGENT_PLATFORM: "true",
@@ -241,6 +246,7 @@ const flagged = JSON.parse(
         ORBIT_PUBLIC_INGRESS: "true",
         ORBIT_SUPPORT: "true",
         ORBIT_FINANCE: "true",
+        ORBIT_WEBMAIL: "true",
         ORBIT_WORK: "true",
         ORBIT_WORK_PM: "true",
         ORBIT_ISSUES: "true",
@@ -264,6 +270,7 @@ for (const name of apiLike)
     "ORBIT_AGENTS",
     "ORBIT_IMAGE_REFERENCES",
     "ORBIT_AGENT_REVIEW_AUTHORITY",
+    "ORBIT_AGENT_REVIEW_CREATIVES",
     "ORBIT_CREATIVE_STUDIO",
     "ORBIT_AGENT_MANDATES",
     "ORBIT_AGENT_PLATFORM",
@@ -276,6 +283,7 @@ for (const name of apiLike)
     "ORBIT_PUBLIC_INGRESS",
     "ORBIT_SUPPORT",
     "ORBIT_FINANCE",
+    "ORBIT_WEBMAIL",
     "ORBIT_WORK",
     "ORBIT_ISSUES",
     "ORBIT_SOCIAL",
@@ -413,7 +421,8 @@ for (const name of Object.keys(services))
       undefined,
       `${name} must not carry the mcp routing variable`,
     );
-// Only web gets a Coolify URL besides mcp (Traefik routes by domain/path).
+// Only web and mcp get a Coolify URL here (Traefik routes by domain/path);
+// webmail has its own application, checked below.
 for (const name of Object.keys(services))
   for (const key of Object.keys(services[name].environment ?? {}))
     if (key.startsWith("SERVICE_URL_"))
@@ -422,6 +431,163 @@ for (const name of Object.keys(services))
           (name === "mcp" && key === "SERVICE_URL_MCP_4312"),
         `${name} must not declare ${key}`,
       );
+// Roundcube renders untrusted HTML (ADR 0026). Coolify attaches every service
+// of an application to one shared network (production check, 2026-11-10), so
+// Roundcube and its database are not services of this application at all. Only
+// the bridge and backup meet them, each on its own fixed-name network that this
+// application creates.
+for (const name of ["webmail", "webmail-db"])
+  assert.equal(
+    services[name],
+    undefined,
+    `${name} belongs to docker-compose.webmail.yml`,
+  );
+const orbitNetworks = JSON.parse(rendered).networks;
+for (const [key, name, member] of [
+  ["webmail-link", "orbit-webmail-link", "webmail-bridge"],
+  ["webmail-backup", "orbit-webmail-backup", "backup"],
+]) {
+  assert.equal(orbitNetworks[key].name, name, `${key} keeps its fixed name`);
+  assert.equal(orbitNetworks[key].internal, true, `${key} is internal`);
+  assert.ok(!orbitNetworks[key].external, `${key} is created by Orbit`);
+  for (const [service, definition] of Object.entries(services))
+    assert.equal(
+      key in (definition.networks ?? {}),
+      service === member,
+      `only ${member} joins ${key}`,
+    );
+}
+
+// The webmail application (docker-compose.webmail.yml). Synthetic inputs only.
+const webmailEnvironment = {
+  PATH: process.env.PATH,
+  HOME: process.env.HOME,
+  APP_ORIGIN: "https://orbit.example.invalid",
+  WEBMAIL_BRIDGE_SECRET: "b".repeat(64),
+  WEBMAIL_DB_PASSWORD: "d".repeat(64),
+  SERVICE_HEX_64_ROUNDCUBEDES: "r".repeat(64),
+};
+const renderWebmail = (environment) =>
+  spawnSync(
+    "docker",
+    ["compose", "-f", "docker-compose.webmail.yml", "config", "--format", "json"],
+    { cwd: root, env: environment, encoding: "utf8" },
+  );
+const webmailRendered = renderWebmail(webmailEnvironment);
+assert.equal(webmailRendered.status, 0, webmailRendered.stderr);
+const webmailConfig = JSON.parse(webmailRendered.stdout);
+const webmailServices = webmailConfig.services;
+assert.deepEqual(Object.keys(webmailServices).sort(), ["webmail", "webmail-db"]);
+assert.deepEqual(Object.keys(webmailServices.webmail.networks).sort(), [
+  "webmail",
+  "webmail-egress",
+  "webmail-link",
+]);
+assert.deepEqual(Object.keys(webmailServices["webmail-db"].networks).sort(), [
+  "webmail",
+  "webmail-backup",
+]);
+// Resolved names, not Compose keys: the only networks shared with Orbit are the
+// two fixed-name ones; webmail and webmail-egress belong to this project alone.
+assert.deepEqual(Object.keys(webmailConfig.networks).sort(), [
+  "webmail",
+  "webmail-backup",
+  "webmail-egress",
+  "webmail-link",
+]);
+assert.equal(webmailConfig.networks.webmail.internal, true);
+for (const key of ["webmail", "webmail-egress"]) {
+  assert.ok(!webmailConfig.networks[key].external, `${key} is project-local`);
+  assert.equal(
+    webmailConfig.networks[key].name,
+    `${webmailConfig.name}_${key}`,
+    `${key} keeps the project-scoped name`,
+  );
+}
+for (const [key, name] of [
+  ["webmail-link", "orbit-webmail-link"],
+  ["webmail-backup", "orbit-webmail-backup"],
+]) {
+  assert.equal(webmailConfig.networks[key].name, name);
+  assert.equal(webmailConfig.networks[key].external, true, `${key} is Orbit's`);
+}
+for (const [name, service] of Object.entries(webmailServices)) {
+  assert.equal(
+    String(service.deploy.replicas),
+    "0",
+    `${name} starts switched off`,
+  );
+  assert.equal(service.ports, undefined, `${name} publishes no host port`);
+  assert.equal(service.network_mode, undefined, `${name} keeps its networks`);
+}
+assert.equal(webmailServices.webmail.read_only, true);
+assert.deepEqual(webmailServices.webmail.cap_drop, ["ALL"]);
+assert.deepEqual(webmailServices.webmail.security_opt, [
+  "no-new-privileges:true",
+]);
+const roundcube = webmailServices.webmail.environment;
+assert.equal(roundcube.ORBIT_WEBMAIL_BRIDGE_URL, "http://webmail-bridge:4313");
+assert.equal(
+  roundcube.ORBIT_WEBMAIL_BRIDGE_SECRET,
+  webmailEnvironment.WEBMAIL_BRIDGE_SECRET,
+);
+assert.equal(roundcube.ORBIT_WEBMAIL_PARENT_ORIGIN, webmailEnvironment.APP_ORIGIN);
+assert.equal(
+  roundcube.ROUNDCUBEMAIL_DB_PASSWORD,
+  webmailServices["webmail-db"].environment.POSTGRES_PASSWORD,
+);
+// No Coolify URL variable: it would make Coolify generate a public sslip.io host
+// before the real domain is stored.
+for (const service of Object.values(webmailServices))
+  for (const key of Object.keys(service.environment ?? {}))
+    assert.ok(
+      !key.startsWith("SERVICE_URL_") && !key.startsWith("SERVICE_FQDN_"),
+      `the webmail application must not declare ${key}`,
+    );
+assert.equal(
+  roundcube.ROUNDCUBEMAIL_DES_KEY,
+  webmailEnvironment.SERVICE_HEX_64_ROUNDCUBEDES,
+);
+// Values both applications must share are required, never generated per application.
+for (const key of ["APP_ORIGIN", "WEBMAIL_BRIDGE_SECRET", "WEBMAIL_DB_PASSWORD"]) {
+  const environment = { ...webmailEnvironment };
+  delete environment[key];
+  assert.notEqual(
+    renderWebmail(environment).status,
+    0,
+    `the webmail application must require ${key}`,
+  );
+}
+// Orbit's side of the same two values follows what Coolify sets.
+const shared = JSON.parse(
+  execFileSync(
+    "docker",
+    ["compose", "-f", "docker-compose.yml", "config", "--format", "json"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...composeEnvironment,
+        WEBMAIL_BRIDGE_SECRET: webmailEnvironment.WEBMAIL_BRIDGE_SECRET,
+        WEBMAIL_DB_PASSWORD: webmailEnvironment.WEBMAIL_DB_PASSWORD,
+      },
+    },
+  ),
+).services;
+assert.equal(
+  shared["webmail-bridge"].environment.WEBMAIL_BRIDGE_SECRET,
+  webmailEnvironment.WEBMAIL_BRIDGE_SECRET,
+);
+assert.equal(
+  shared.backup.environment.WEBMAIL_PGPASSWORD,
+  webmailEnvironment.WEBMAIL_DB_PASSWORD,
+);
+const webmailSource = readFileSync(`${root}/docker-compose.webmail.yml`, "utf8");
+assert.doesNotMatch(
+  webmailSource,
+  /:\?[^}]/,
+  "Coolify treats the text after :? as an initial variable value",
+);
 // The web app reaches the gateway internally for the protected resource
 // metadata paths (D-M5-4); the deployment environment can move it.
 assert.equal(services.web.environment.ORBIT_MCP_ORIGIN, "http://mcp:4312");

@@ -7,6 +7,7 @@ import { assistantRequester } from "../assistant/notices.ts";
 import type { UserNotificationKind } from "../notifications/members.ts";
 import { BUDGET_THRESHOLD_EVENT } from "./budget-threshold.ts";
 import type { SignalDefinition, SignalFinding } from "./types.ts";
+import { aiBudgetLink } from "../management/links.ts";
 
 // The platform's initial signals (plan §2.2): failed agent work (scenario
 // E, replacing the Phase 1 guard), finished assistant delegations, budget
@@ -167,7 +168,7 @@ export const budgetThresholdSignal: SignalDefinition = {
             ? "personal"
             : "project",
         params: { threshold, provider: layer.slice(4) },
-        link: personal ? "/assistant" : `/p/${scope.projectId}/settings?section=ai`,
+        link: personal ? "/assistant" : aiBudgetLink(scope.projectId),
       },
     ];
   },

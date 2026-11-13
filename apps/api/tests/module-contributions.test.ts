@@ -17,7 +17,9 @@ import {
   registeredJobs,
   registeredNotification,
   registeredPeriodicTask,
+  registeredEventPublisher,
   registeredPeriodicTasks,
+  registeredUserNotification,
   registeredRetention,
   registeredRoutes,
   registeredRoutesByOwner,
@@ -42,6 +44,7 @@ import { registerAgentSpecialists } from "../src/modules/agents/specialists/inde
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { socialContributions } from "../src/modules/social/contributions.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
+import { webmailRetention } from "../src/modules/webmail/maintenance.ts";
 import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
@@ -150,6 +153,7 @@ describe("module contributions", () => {
       "drive_connection",
       "drive_oauth_state",
       // E-mail (WP4.7): messages, inbound mail and the IMAP position.
+      "email_inbound_backlog",
       "email_inbound_state",
       "email_messages",
       "evidence",
@@ -202,6 +206,7 @@ describe("module contributions", () => {
     // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
       platformContributions.retention,
+      webmailRetention,
       marketingRetention,
     ]);
   });
@@ -253,6 +258,18 @@ describe("module contributions", () => {
       );
     } finally {
       delete process.env.ORBIT_SUPPORT;
+    }
+    // The ads module's wiring counts only while ORBIT_ADS is on (ADR 0025, A3).
+    process.env.ORBIT_ADS = "true";
+    try {
+      const names = registeredPeriodicTasks().map((t) => t.name);
+      expect(names).toContain("ads-account-health");
+      expect(names).toContain("ads-oauth-state-cleanup");
+      expect(registeredUserNotification("ads_account_reconnect")?.owner).toBe("ads");
+      expect(registeredUserNotification("ads_token_expiring")?.owner).toBe("ads");
+      expect(registeredEventPublisher("ads.account.reconnect_required")).toBeTruthy();
+    } finally {
+      delete process.env.ORBIT_ADS;
     }
     // The health key and summary of /api/health/postiz stay the same.
     expect(registeredPeriodicTask("postiz-queue")?.health?.summarize).toBe(
@@ -468,6 +485,10 @@ describe("module contributions", () => {
       "anthropic",
       "n8n",
       "github_app",
+      // The ads module's Meta app and ad access (ADR 0025); modules
+      // register in registry order, ads before issues.
+      "ads.app.meta",
+      "ads.account.meta",
       // The issue center's inbound report sources (ADR 0018).
       "issues_webhook",
       // The social module's developer apps and managed accounts (ADR 0020).
@@ -487,9 +508,11 @@ describe("module contributions", () => {
     );
     expect(registeredConnectionProvider("github_app")?.owner).toBe("platform");
     expect(registeredConnectionProvider("issues_webhook")?.owner).toBe("issues");
-    for (const id of registeredConnectionProviderIds().slice(7, 13))
+    for (const id of registeredConnectionProviderIds().slice(6, 8))
+      expect(registeredConnectionProvider(id)?.owner).toBe("ads");
+    for (const id of registeredConnectionProviderIds().slice(9, 15))
       expect(registeredConnectionProvider(id)?.owner).toBe("social");
-    for (const id of registeredConnectionProviderIds().slice(13))
+    for (const id of registeredConnectionProviderIds().slice(15))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

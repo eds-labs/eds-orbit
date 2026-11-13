@@ -1,13 +1,20 @@
 import { draftReplaced } from "./draft-state.ts";
+import { baseContentId } from "../approval-state.ts";
 import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { data, list } from "../../../shared.ts";
+import { data, DomainError, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { socialChannelHandles } from "../../social/contract.ts";
-import { confirmedHash, withinConfirmation } from "./agent-review.ts";
+import {
+  agentReviewAuthority,
+  confirmedHash,
+  withinConfirmation,
+} from "./agent-review.ts";
+import { loadConfig } from "../../../../../../packages/config/src/index.ts";
+import { resolveBrandKit } from "../creative/brand-kit.ts";
 import {
   nextAssignmentRunAt,
   runRetryRefusal,
@@ -56,6 +63,28 @@ export const vetoInput = z
   .strict();
 
 const EXCERPT = 280;
+const CONCERNS = 6;
+const CONCERN_TEXT = 500;
+
+/**
+ * The review model's reasons on a draft Orbit objected to (verdict
+ * `reject`, or a channel copy of such a text): plain sentences only, the
+ * codes it appends (such as AGENT_SECOND_REVIEW_NOT_APPROVED) are left out.
+ */
+function concernsOf(d: Record<string, any>): string[] {
+  const decision = d.agentReviewDecision;
+  if (!decision || d.agentReview) return [];
+  const objected =
+    decision.verdict === "reject" ||
+    decision.modelVerdict === "reject" ||
+    decision.modelVerdict === "revise";
+  if (!objected) return [];
+  return ((decision.reasons ?? []) as unknown[])
+    .map((reason) => String(reason).trim())
+    .filter((reason) => reason && !/^[A-Z0-9_]+$/.test(reason))
+    .slice(0, CONCERNS)
+    .map((reason) => reason.slice(0, CONCERN_TEXT));
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Channel names of the project by channel ID (Postiz channels and `social:` accounts), as the owner knows them. */
@@ -100,6 +129,36 @@ export async function rowsById(
 }
 
 /**
+ * Whether the agent may release the creative posts of an assignment, and
+ * whether the vision review is on (read only, for the settings view). Null
+ * unless the assignment has a creative and its agent approves the drafts. The
+ * brand kit is resolved at most once per call through `kit`; a project
+ * without a usable kit has no vision review.
+ */
+export async function creativeAuthorityOf(
+  tx: DbTx,
+  scope: Scope,
+  d: Record<string, any>,
+  kit: { visionReview?: boolean } = {},
+) {
+  if (!d.creative || approvalModeOf(d) !== "delegated_review") return null;
+  if (kit.visionReview === undefined)
+    kit.visionReview = await resolveBrandKit(tx, scope).then(
+      (plan) => plan.config.visualReview === true,
+      (error) => {
+        if (error instanceof DomainError) return false;
+        throw error;
+      },
+    );
+  return {
+    flag:
+      loadConfig().ORBIT_AGENT_REVIEW_CREATIVES === "true" &&
+      agentReviewAuthority(),
+    visionReview: kit.visionReview,
+  };
+}
+
+/**
  * The project's assignments for the assignments page: schedule, the time the
  * next run starts, what this UTC month has cost (counted like the budget
  * check, `assignmentMonthSpend`) against the monthly budget, and the open
@@ -132,6 +191,7 @@ export async function listAssignments(
     project.timezone,
   );
   const items = [];
+  const kit: { visionReview?: boolean } = {};
   for (const row of rows) {
     const d = data(row);
     // The latest run (not retired) when the owner can still retry it (G6).
@@ -162,6 +222,7 @@ export async function listAssignments(
       vetoMinutes: d.vetoMinutes,
       delivery: deliveryOf(d),
       approvalMode: approvalModeOf(d),
+      creativeAuthority: await creativeAuthorityOf(tx, scope, d, kit),
       // A paused project runs nothing, so no run is due.
       nextRunAt: project.paused
         ? null
@@ -486,11 +547,16 @@ export async function draftsAwaitingOwner(
     items.push({
       id: row.id,
       version: row.version,
+      // The original of a channel copy (R76), else the draft itself: the
+      // approvals page and the badge show a Facebook/Instagram pair once.
+      baseId: baseContentId(row),
       state: expired ? ("expired" as const) : ("pending" as const),
       channel: d.channel,
       channelName: names.get(String(d.channel)) ?? null,
       slotAt,
       excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
+      // The full text, for the owner's edit (2026-11-11).
+      body: String(d.body ?? ""),
       // The draft's image or creative rendition, shown as a thumbnail
       // (Creative Studio on; off, the list is as before, CS-D6).
       ...(creativeStudioEnabled()
@@ -505,6 +571,21 @@ export async function draftsAwaitingOwner(
       ),
       // The review agent approved the text; only its authority was missing.
       agentApproved: Boolean(d.agentReview),
+      // Why the review agent's approval of a creative post does not stand
+      // in for the owner's: a code, only on a pending draft that still carries the agent's approval.
+      waitingReason:
+        !expired &&
+        d.agentReview &&
+        approvalModeOf(data(assignment)) === "delegated_review" &&
+        approvalModeOf(d) === "delegated_review" &&
+        typeof d.agentAuthorityProblem === "string"
+          ? d.agentAuthorityProblem
+          : null,
+      // Why Orbit objected (2026-11-11): the review model's reasons, shown
+      // so the owner can decide; none when it approved or only left it.
+      concerns: concernsOf(d),
+      // The owner changed the text since; the concerns were about the text before.
+      ownerEdited: Boolean(d.ownerEdit),
       problems: [
         ...new Set([
           ...((d.agentReviewDecision?.deterministicProblems ?? []) as string[]),

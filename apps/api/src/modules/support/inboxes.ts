@@ -5,6 +5,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   publicOrigin,
+  revocationRefused,
   revokePublicKey,
   setPublicKeyOrigins,
 } from "../../platform/http/public-api.ts";
@@ -20,10 +21,14 @@ import {
   emailMailboxes,
   verifiedEmailConnection,
 } from "../../platform/email/connection.ts";
+import { INBOUND_KIND } from "../../platform/email/send.ts";
 import { assertMailboxUnowned } from "../../platform/email/ownership.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
 import { customerContextConnections } from "../../platform/customer-context/connection.ts";
-import type { MailboxUse } from "../../platform/modules/contributions.ts";
+import type {
+  MailboxUse,
+  PublicKeyUse,
+} from "../../platform/modules/contributions.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
 // Support inboxes (06 §2.1): one entry point each, an e-mail address and/or
@@ -253,7 +258,64 @@ export const supportMailboxUse: MailboxUse = {
       data: { emailConnectionId: null },
     });
   },
+  // Whom channels/email.ts would route to (bound, else the default mailbox's
+  // unbound inboxes), and the mailbox of an open takeover, which its customer
+  // may answer at that address.
+  async receivesMail(tx, scope, connectionId) {
+    const live = (
+      await tx.supportInbox.findMany({
+        where: { projectId: scope.projectId, archivedAt: null },
+        select: { channels: true, emailConnectionId: true },
+      })
+    ).filter((i) => i.channels.includes("email"));
+    if (live.some((i) => i.emailConnectionId === connectionId)) return true;
+    if (live.some((i) => !i.emailConnectionId)) {
+      const fallback = await defaultEmailConnection(tx, scope);
+      if (fallback?.id === connectionId) return true;
+    }
+    return openTakeoverFrom(tx, scope, connectionId);
+  },
 };
+
+/**
+ * Whether a not yet closed taken-over ticket holds mail of this mailbox. A
+ * false answer means mail is not stored, so nothing here may be cut off by a
+ * limit: the query stops at the first hit instead, by a Message-ID or by the
+ * mailbox row a stand-in id names (common.ts).
+ */
+async function openTakeoverFrom(
+  tx: DbTx,
+  scope: Scope,
+  connectionId: string,
+) {
+  const [row] = await tx.$queryRaw<Array<{ found: boolean }>>`
+    WITH recorded AS (
+      SELECT m."externalId" AS id
+        FROM "SupportMessage" m
+        JOIN "SupportTicket" t
+          ON t."projectId" = m."projectId" AND t.id = m."ticketId"
+       WHERE m."projectId" = ${scope.projectId}::uuid
+         AND m.kind = 'customer' AND m.channel = 'email'
+         AND m."externalId" IS NOT NULL
+         AND t."importSource" IS NOT NULL
+         AND t."mergedIntoTicketId" IS NULL
+         AND t.status <> 'closed'
+    ), mail AS (
+      SELECT e.id, e.data->>'messageId' AS "messageId"
+        FROM "Entity" e
+       WHERE e."projectId" = ${scope.projectId}::uuid
+         AND e.kind = ${INBOUND_KIND}
+         AND (e.data->>'connectionId' = ${connectionId}
+           OR e.data->>'importedFromConnectionId' = ${connectionId})
+    )
+    SELECT EXISTS (
+             SELECT 1 FROM mail JOIN recorded r ON r.id = mail."messageId")
+        OR EXISTS (
+             SELECT 1 FROM mail JOIN recorded r
+               ON r.id = '<inbound.' || mail.id::text || '@orbit.invalid>')
+        AS found`;
+  return row?.found === true;
+}
 
 const newSecret = () => randomBytes(32).toString("base64url");
 
@@ -397,6 +459,38 @@ export async function archiveInbox(tx: DbTx, scope: Scope, id: string) {
 }
 
 /**
+ * Inboxes refer to their widget key (F-5): the keys list names the inbox,
+ * and a key revoked on the public keys page is let go, so the inbox shows
+ * no key instead of a dead one. Support's own key changes forget the key
+ * before revoking it, so only a revocation from elsewhere is audited here.
+ */
+export const supportPublicKeyUse: PublicKeyUse = {
+  async usedBy(tx, scope, keyId) {
+    const inbox = await tx.supportInbox.findFirst({
+      where: { projectId: scope.projectId, publicClientKeyId: keyId },
+      select: { name: true },
+      orderBy: { createdAt: "asc" },
+    });
+    return inbox ? { label: inbox.name } : null;
+  },
+  async release(tx, scope, keyId) {
+    const inboxes = await tx.supportInbox.findMany({
+      where: { projectId: scope.projectId, publicClientKeyId: keyId },
+      select: { id: true },
+    });
+    if (!inboxes.length) return;
+    await tx.supportInbox.updateMany({
+      where: { projectId: scope.projectId, publicClientKeyId: keyId },
+      data: { publicClientKeyId: null },
+    });
+    for (const { id } of inboxes)
+      await audit(tx, scope, "support.inbox.widget_key_released", id, {
+        inboxId: id,
+      });
+  },
+};
+
+/**
  * Keeps the inbox's widget key in step (review fix 10): new origins go to
  * the key; without the widget channel the key is revoked and forgotten,
  * so a re-added widget never revives it.
@@ -409,13 +503,18 @@ async function syncWidgetKey(
 ) {
   if (!current.publicClientKeyId) return;
   if (!next.channels.includes("widget") || !next.allowedOrigins.length) {
-    await revokePublicKey(scope, current.publicClientKeyId, tx).catch(
-      () => undefined,
-    );
+    // Forgotten first, so the revocation's release finds nothing to audit.
     await tx.supportInbox.update({
       where: { id: current.id },
       data: { publicClientKeyId: null },
     });
+    // A refused revocation (not the owner, ingress off, key gone) still
+    // forgets the key; any other error aborted the transaction and surfaces.
+    await revokePublicKey(scope, current.publicClientKeyId, tx).catch(
+      (error) => {
+        if (!revocationRefused(error)) throw error;
+      },
+    );
     return;
   }
   if (

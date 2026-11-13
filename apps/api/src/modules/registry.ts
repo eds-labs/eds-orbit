@@ -15,7 +15,9 @@ import { workContributions } from "./work/contributions.ts";
 import { issuesModule } from "./issues/manifest.ts";
 import { issuesContributions } from "./issues/contributions.ts";
 import { socialModule } from "./social/manifest.ts";
+import { webmailModule } from "./webmail/manifest.ts";
 import { socialContributions } from "./social/contributions.ts";
+import { webmailContributions } from "./webmail/contributions.ts";
 import { adsModule } from "./ads/manifest.ts";
 import { adsContributions } from "./ads/contributions.ts";
 import { marketingContributions } from "./marketing/contributions.ts";
@@ -38,6 +40,7 @@ export const modules: readonly ServerModule[] = [
   workModule,
   issuesModule,
   socialModule,
+  webmailModule,
   adsModule,
 ];
 
@@ -82,6 +85,7 @@ export function registerModules(): ValidatedRegistry {
     work: workContributions,
     issues: issuesContributions,
     social: socialContributions,
+    webmail: webmailContributions,
     ads: adsContributions,
     ...Object.fromEntries(
       testModules.map((m) => [m.module.id, m.contributions]),

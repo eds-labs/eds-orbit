@@ -1,0 +1,12 @@
+{
+	"name": "Orbit",
+	"author": "EDS Labs, adapted from Elastic by Aleksander Machniak and The Roundcube Dev Team",
+	"license": "Creative Commons Attribution-ShareAlike",
+	"license-url": "http://creativecommons.org/licenses/by-sa/3.0/",
+	"extends": "elastic",
+	"meta": {
+		"viewport": "width=device-width, initial-scale=1.0, shrink-to-fit=no, maximum-scale=1.0",
+		"theme-color": "#f7fcff",
+		"msapplication-navbutton-color": "#f7fcff"
+	}
+}

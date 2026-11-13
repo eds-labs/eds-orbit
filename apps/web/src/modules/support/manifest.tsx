@@ -10,6 +10,7 @@ import { SupportHome } from "./home";
 import { SupportInbox } from "./inbox";
 import { SupportOverview } from "./overview";
 import { SupportStats } from "./stats";
+import { supportAiCeilings } from "./ai-ceiling";
 import { supportSettings } from "./settings";
 
 const label = (key: keyof typeof labels.en): Label => ({
@@ -34,6 +35,7 @@ export const supportWeb: WebModule = {
   homeOrder: 5,
   groupOrder: 20,
   settings: supportSettings,
+  aiCeilings: supportAiCeilings,
   attention: supportAttention,
   actionRequests: supportActionRequests,
   agentSetups: supportAgentSetups,

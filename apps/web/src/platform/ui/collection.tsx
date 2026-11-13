@@ -1,6 +1,7 @@
 "use client";
 // Shared view helpers of the web platform (WP1.7). Module views import these
 // instead of each other, so no module UI depends on another module's files.
+import { createContext, useContext } from "react";
 import { ArrowRight } from "lucide-react";
 import {
   collectionPath,
@@ -11,18 +12,25 @@ import {
 } from "@/lib/api";
 import { Alert, Button, Status } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
+import { fieldLabel } from "@/lib/field-text";
 export function useCollection(name: string) {
   const { project, revision } = useWorkspace();
   return useResource<{ items: Entity[] }>(
     collectionPath(project.id, `${name}?revision=${revision}`),
   );
 }
+/**
+ * The default heading level of PageHead. A page that embeds whole views below
+ * its own h1 (the settings center) provides "h2", so each page keeps one h1.
+ */
+export const PageHeadLevel = createContext<"h1" | "h2">("h1");
+
 export function PageHead({
   title,
   description,
   children,
   eyebrow,
-  as: Heading = "h1",
+  as,
 }: {
   title: string;
   description: string;
@@ -32,6 +40,8 @@ export function PageHead({
   /** "h2" when the page is a section of another page, such as the home. */
   as?: "h1" | "h2";
 }) {
+  const level = useContext(PageHeadLevel);
+  const Heading = as ?? level;
   return (
     <div className="page-head">
       <div>
@@ -71,14 +81,16 @@ export function EntityRows({
   const { locale, project, t } = useWorkspace();
   return (
     <div className="table-wrap">
-      <table>
+      <table className="table-plain-head">
         <thead>
           <tr>
             {fields.map((f) => (
-              <th key={f}>{f.replace(/([A-Z])/g, " $1")}</th>
+              <th key={f} scope="col">
+                {fieldLabel(locale, f)}
+              </th>
             ))}
             {onSelect && (
-              <th>
+              <th scope="col">
                 <span className="sr-only">{t("review")}</span>
               </th>
             )}
