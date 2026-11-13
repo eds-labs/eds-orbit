@@ -1,6 +1,6 @@
 # Requirements traceability
 
-## AI image labelling "KI erstellt" (ADR 0028; 2026-11-13, branch `claude/ai-image-labeling`; not delivered, flag off)
+## AI image labelling "KI erstellt" (ADR 0028; 2026-11-13, branch `claude/ai-image-labeling`; delivered to `main` 6063c147; flag `on` in production since 2026-11-13, not live-accepted)
 
 API tests under `apps/api/tests/`, engine tests next to the code in `packages/creative/src/`. Results are the controller's full run on the final head (see `IMPLEMENTATION_STATUS.md`).
 

@@ -85,7 +85,7 @@ of Marketing. The API remains authoritative after every navigation or role chang
 - The platform's `knowledge_search` and the AI spending authority (Settings → AI & budget) stay.
 - Without Marketing, the dashboard shows the platform's AI readiness (spending authority and text model) instead of Marketing's go-live readiness.
 
-## AI image labelling (platform feature flag, 2026-11-13, local; flag off)
+## AI image labelling (platform feature flag, 2026-11-13; flag on in production since 2026-11-13)
 
 AI image labelling ([AI_IMAGE_LABELING.md](AI_IMAGE_LABELING.md), [ADR 0028](adr/0028-ai-image-labeling.md)) is a platform service used by Marketing and Social. It adds no module, manifest entry, permission or project row; the platform owns the table `ImageProvenance`.
 
