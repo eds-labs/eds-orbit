@@ -48,8 +48,8 @@ import {
 // and the system's and organization's AI profiles are global and managed
 // in the administration; a project selects among their verified, priced
 // models and sets its routes and budgets. Keys are never read here: a
-// missing key is set up in Orbit (Administration → Connections, or the
-// project's Settings → AI).
+// missing key is set up in Orbit (Administration & settings → Integrations →
+// Central connections, or the project's AI → Providers and keys).
 
 const modelName = z.string().trim().min(1).max(120);
 
@@ -186,7 +186,7 @@ export async function readAiModels(tx: DbTx, scope: Scope) {
     checks: modelChecks(effective),
     candidates,
     notes: {
-      keys: "API keys are never returned. A missing key is added in Orbit: Administration → Connections (granted to the project) or Settings → AI.",
+      keys: "API keys are never returned. A missing key is added in Orbit: Administration & settings → Integrations → Central connections (granted to the project) or, in the project, Administration & settings → AI → Providers and keys.",
       selection:
         "ai_models_update accepts verified models only (in use, verified globally, or in the reviewed Anthropic catalog); prices come from the configured or global rate cards or that catalog, never from the request.",
     },

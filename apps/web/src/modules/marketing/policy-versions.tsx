@@ -270,8 +270,11 @@ const list = (v: unknown, names?: Record<string, string>) =>
 const count = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) ? v : null;
 
-/** One version, read-only; the AI budget lives in Settings → AI & budget. */
-function PolicyVersionDetail({
+/**
+ * One version, read-only; the AI budget lives in the AI area of the project
+ * settings. Exported so a test can render it without opening the modal.
+ */
+export function PolicyVersionDetail({
   row,
   words,
   locale,

@@ -65,13 +65,13 @@ export const READINESS_BLOCKERS: Record<string, BlockerEntry> = {
   },
   VERIFIED_OPENAI_MODELS_REQUIRED: {
     cause: "No usable text key or no verified models for the project.",
-    fix: "Select verified, priced models; a missing key is granted in the administration or added in Settings → AI.",
+    fix: "Select verified, priced models; a missing key is granted in the administration or added in Administration & settings → AI → Providers and keys.",
     resolution: "mcp",
     tools: ["ai_models_get", "ai_models_update"],
   },
   IMAGE_KEY_REQUIRED: {
     cause: "No key for image generation.",
-    fix: "Grant an OpenAI image connection to the project or add a key in Settings → AI.",
+    fix: "Grant an OpenAI image connection to the project or add a key in Administration & settings → AI → Providers and keys.",
     resolution: "administration",
   },
   IMAGE_PRICING_REQUIRED: {

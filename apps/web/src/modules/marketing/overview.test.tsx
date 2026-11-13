@@ -218,6 +218,15 @@ describe("MarketingOverview", () => {
     expect(render()).toContain("<h2>Paused</h2>");
   });
 
+  it("links the review of the setup to the publishing rules section", () => {
+    answers["/missions"] = { items: [] };
+    answers["/ai-cost"] = { rows: [] };
+    answers["/dashboard"] = dashboard({ mode: "assisted" });
+    expect(render()).toMatch(
+      /<a [^>]*href="\/manage\/p\/p1\/modules\/marketing\/policy"[^>]*>Review setup<\/a>/,
+    );
+  });
+
   it("shows what the limit counts against it", () => {
     answers["/dashboard"] = dashboard({ monthlyLimitMicros: 10_000_000 });
     answers["/missions"] = { items: [] };

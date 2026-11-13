@@ -107,7 +107,7 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     SOCIAL_MEDIA_PUBLIC_REQUIRED:
       "Instagram needs public media links, which are switched off.",
     AUTOPILOT_ON_SOCIAL_NOT_APPROVED:
-      "Live autopilot through Social needs the owner's switch “Autopilot through Social” (Settings → Publishing rules); while Postiz drains it stays off.",
+      "Live autopilot through Social needs the owner's switch “Autopilot through Social” (Administration & settings → Modules → Marketing → Publishing rules); while Postiz drains it stays off.",
     EXECUTION_MODE_TEST: "Orbit runs in test mode; live posts are off.",
     EXTERNAL_WRITES_DISABLED: "External writes are switched off.",
     MATOMO_READ_VERIFICATION_REQUIRED: "Connect and verify Matomo.",
@@ -161,7 +161,7 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     SOCIAL_MEDIA_PUBLIC_REQUIRED:
       "Instagram braucht öffentliche Medien-Links, die ausgeschaltet sind.",
     AUTOPILOT_ON_SOCIAL_NOT_APPROVED:
-      "Live-Autopilot über Social braucht den Schalter „Autopilot über Social“ des Owners (Einstellungen → Veröffentlichungsregeln); solange Postiz ausläuft, bleibt er aus.",
+      "Live-Autopilot über Social braucht den Schalter „Autopilot über Social“ des Owners (Verwaltung & Einstellungen → Module → Marketing → Veröffentlichungsregeln); solange Postiz ausläuft, bleibt er aus.",
     EXECUTION_MODE_TEST: "Orbit läuft im Testmodus; Liveposts sind aus.",
     EXTERNAL_WRITES_DISABLED: "Externe Schreibzugriffe sind ausgeschaltet.",
     MATOMO_READ_VERIFICATION_REQUIRED: "Matomo verbinden und prüfen.",

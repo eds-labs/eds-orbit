@@ -25,7 +25,11 @@ vi.mock("@/lib/api", async (original) => ({
   }),
 }));
 
-import { policyVersionRows, PolicyVersions } from "./policy-versions";
+import {
+  PolicyVersionDetail,
+  policyVersionRows,
+  PolicyVersions,
+} from "./policy-versions";
 import { marketingSettings, PolicySetupLink } from "./settings-sections";
 import {
   ShellContext,
@@ -33,6 +37,7 @@ import {
 } from "@/platform/shell/shell-context";
 import { shellLinks } from "@/platform/shell/shell-links";
 import { PolicyEditor } from "./policy-editor";
+import { marketingText } from "./labels";
 
 const NOW = Date.parse("2026-11-10T12:00:00.000Z");
 
@@ -238,6 +243,22 @@ describe("policy settings in German", () => {
     expect(render(<PolicySetupLink />, "en")).toContain("Set publishing rules");
   });
 
+  it("links a version's budget note to the AI area", () => {
+    const [row] = policyVersionRows(six(), NOW);
+    const html = render(
+      <PolicyVersionDetail
+        row={row!}
+        words={marketingText("de")}
+        locale="de"
+        timezone="Europe/Berlin"
+        mode="Assisted-Modus"
+        onClose={() => {}}
+      />,
+    );
+    expect(html).toContain('href="/manage/p/p1/ai"');
+    expect(html).toContain("Verwaltung &amp; Einstellungen → KI → Budget");
+  });
+
   it("localizes the policy editor", () => {
     const html = render(<PolicyEditor onClose={() => {}} />);
     for (const text of [
@@ -246,7 +267,8 @@ describe("policy settings in German", () => {
       "Beobachtungsmodus",
       "Mindestabstand (Minuten)",
       "Richtlinienversion speichern",
-      "Einstellungen → KI &amp; Budget",
+      "Verwaltung &amp; Einstellungen → KI → Budget",
+      'href="/manage/p/p1/ai"',
     ])
       expect(html).toContain(text);
     expect(html).not.toContain("Operating mode");

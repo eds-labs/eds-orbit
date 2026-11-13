@@ -18,8 +18,8 @@ import type {
   ScopeKind,
 } from "./types";
 
-// Phase 5 (ORBIT_SETTINGS_CENTER=on): every old settings address leads to its
-// section of the settings center. This file is the pure table from an old
+// Phase 5: every old settings address leads to its section of the settings
+// center. This file is the pure table from an old
 // address to a center address; the shell decides when to apply it.
 
 export type OldAddress = { pathname: string; search: string; hash: string };

@@ -34,11 +34,11 @@ type Entry = {
   place?: ExceptionPlace;
 };
 
-/** Settings → AI & budget, where routes, keys and the spending authority live. */
+/** The AI area of the project settings: routes, keys and the spending authority. */
 export const AI_SETTINGS_PLACE: ExceptionPlace = { area: "ai" };
 const OPERATIONS_HREF = "/operations";
 const CONNECTIONS_PLACE: ExceptionPlace = { area: "integrations" };
-/** Settings → Publishing rules, at the owner's "Autopilot through Social" switch. */
+/** Modules → Marketing → Publishing rules, at the owner's "Autopilot through Social" switch. */
 export const SOCIAL_AUTOPILOT_PLACE: ExceptionPlace = {
   area: "modules",
   rest: ["marketing", "policy"],
@@ -52,14 +52,14 @@ const entries: Record<string, Entry> = {
       cause:
         "Customer and financial data may only go to OpenAI (data policy). The task's route names another provider, so Orbit stopped the call before anything was sent or reserved.",
       action:
-        "Set the route to a verified OpenAI model (Settings → AI & budget → Task routes). Orbit never switches the provider by itself.",
+        "Set the route to a verified OpenAI model. Orbit never switches the provider by itself.",
     },
     de: {
       title: "KI-Anbieter für Kundendaten nicht erlaubt",
       cause:
         "Kundendaten und Finanzdaten dürfen nur an OpenAI gehen (Datenschutzregel). Die Route der Aufgabe nennt einen anderen Anbieter, deshalb hat Orbit den Aufruf gestoppt, bevor etwas gesendet oder reserviert wurde.",
       action:
-        "Route auf ein verifiziertes OpenAI-Modell stellen (Einstellungen → KI & Budget → Aufgaben-Routen). Orbit wechselt den Anbieter nie von selbst.",
+        "Route auf ein verifiziertes OpenAI-Modell stellen. Orbit wechselt den Anbieter nie von selbst.",
     },
     place: AI_SETTINGS_PLACE,
   },
@@ -69,14 +69,14 @@ const entries: Record<string, Entry> = {
       cause:
         "The task is routed to a provider whose key is missing or not allowed for this project.",
       action:
-        "Add the provider's key or route the task to a provider with a key (Settings → AI & budget).",
+        "Add the provider's key or route the task to a provider with a key.",
     },
     de: {
       title: "KI-Aufruf ohne nutzbaren Key",
       cause:
         "Die Aufgabe ist auf einen Anbieter geroutet, dessen Key fehlt oder für dieses Projekt nicht freigegeben ist.",
       action:
-        "Key des Anbieters hinterlegen oder die Aufgabe auf einen Anbieter mit Key routen (Einstellungen → KI & Budget).",
+        "Key des Anbieters hinterlegen oder die Aufgabe auf einen Anbieter mit Key routen.",
     },
     place: AI_SETTINGS_PLACE,
   },
@@ -133,14 +133,14 @@ const entries: Record<string, Entry> = {
       cause:
         "Autopilot wrote and reviewed a post, but this project publishes through Social and the owner's switch “Autopilot through Social” is off, so Orbit did not schedule it.",
       action:
-        "Release the post yourself in the approvals, or turn on “Autopilot through Social” under Settings → Publishing rules.",
+        "Release the post yourself in the approvals, or turn on “Autopilot through Social”.",
     },
     de: {
       title: "Autopilot-Post wartet auf deine Freigabe",
       cause:
         "Der Autopilot hat einen Post geschrieben und geprüft, aber dieses Projekt veröffentlicht über Social und der Schalter „Autopilot über Social“ des Owners ist aus. Deshalb hat Orbit ihn nicht eingeplant.",
       action:
-        "Post selbst in den Freigaben freigeben oder „Autopilot über Social“ unter Einstellungen → Veröffentlichungsregeln einschalten.",
+        "Post selbst in den Freigaben freigeben oder „Autopilot über Social“ einschalten.",
     },
     place: SOCIAL_AUTOPILOT_PLACE,
   },
@@ -455,8 +455,8 @@ export function exceptionText(locale: Locale, code: string | null | undefined): 
       cause: budget,
       action:
         lang === "de"
-          ? "Ausgabefreigabe und Budgets prüfen (Einstellungen → KI & Budget)."
-          : "Check the spending authority and budgets (Settings → AI & budget).",
+          ? "Ausgabefreigabe und Budgets prüfen."
+          : "Check the spending authority and budgets.",
       place: AI_SETTINGS_PLACE,
     };
   return { title: key || "—", cause: "", action: "" };

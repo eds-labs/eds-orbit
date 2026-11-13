@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import {
   aiBudgetLink,
@@ -65,5 +66,70 @@ describe("links to the settings center", () => {
     expect(inProject("p1", "/manage/p/p1/overview")).toBe("/manage/p/p1/overview");
     expect(inProject("p1", "/finance/review")).toBe("/p/p1/finance/review");
     expect(inProject("p1", "")).toBe("/p/p1");
+  });
+});
+
+// Texts that send the reader to a settings place name it as the center shows
+// it ("Administration & settings → AI → Budget"), not by an old page
+// ("Settings → AI & budget"). Only string literals count, so a module page
+// that is called "Settings" is no old place.
+describe("texts name settings places as the center shows them", () => {
+  const files = [
+    "platform/proactive/briefing.ts",
+    "platform/proactive/digest.ts",
+    "platform/ai/mcp-tools.ts",
+    "modules/marketing/publishing/integrations-admin.ts",
+    "platform/agents/work-orders/execute.ts",
+    "modules/marketing/readiness/blocker-catalog.ts",
+  ];
+  const oldPlace = /(Settings|Einstellungen|Account|Konto|Administration) → /g;
+
+  function literalsOf(source: string, name: string): string[] {
+    const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true);
+    const found: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isStringLiteral(node) ||
+        ts.isNoSubstitutionTemplateLiteral(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node)
+      ) {
+        found.push(node.text);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    return found;
+  }
+
+  function oldPlaces(text: string): string[] {
+    const bad: string[] = [];
+    for (const match of text.matchAll(oldPlace)) {
+      // The lower-case "settings" of the English name never matches; the
+      // German name ends in the word that matches, later steps follow it.
+      const before = text.slice(0, match.index);
+      const named =
+        before.includes("Administration & settings") ||
+        before.includes("Verwaltung & Einstellungen") ||
+        (before + match[1]).endsWith("Verwaltung & Einstellungen");
+      if (!named) bad.push(text);
+    }
+    return bad;
+  }
+
+  for (const path of files) {
+    it(`${path} has no old place`, () => {
+      const source = readFileSync(new URL(`../src/${path}`, import.meta.url), "utf8");
+      expect(literalsOf(source, path).flatMap(oldPlaces)).toEqual([]);
+    });
+  }
+
+  it("lets the center's own names and module pages through", () => {
+    expect(oldPlaces("Administration & settings → AI → Budget")).toEqual([]);
+    expect(oldPlaces("Verwaltung & Einstellungen → Mein Konto → Assistent")).toEqual([]);
+    expect(oldPlaces("Support → Settings")).toEqual([]);
+    expect(oldPlaces("Account → Orbit Assistant")).toHaveLength(1);
+    expect(oldPlaces("Orbit → Settings → Integrations → Google Drive")).toHaveLength(1);
   });
 });

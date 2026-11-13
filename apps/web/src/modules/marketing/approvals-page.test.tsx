@@ -411,7 +411,7 @@ describe("open exceptions in words (WP2 D)", () => {
     expect(html).toContain("KI-Anbieter für Kundendaten nicht erlaubt");
     expect(html).toContain("nur an OpenAI");
     expect(html).toContain("Einstellung öffnen");
-    expect(html).toContain("/manage/p/p1/ai");
+    expect(html).toContain('href="/manage/p/p1/ai"');
     // The code stays readable, but only under the technical details.
     const details = html.indexOf("Technische Details");
     expect(details).toBeGreaterThan(-1);
@@ -441,7 +441,7 @@ describe("open exceptions in words (WP2 D)", () => {
     const html = render(<ApprovalInbox />);
     expect(html).toContain("Orbit kann die Postiz-Warteschlange nicht lesen");
     expect(html).toContain("Prüfen, ob Postiz erreichbar");
-    expect(html).toContain("/manage/p/p1/integrations");
+    expect(html).toContain('href="/manage/p/p1/integrations"');
     expect(html).not.toContain("Orbit cannot read the Postiz queue");
     expect(html).not.toContain("The scheduled Postiz queue check failed");
     expect(html).toContain("<code>POSTIZ_QUEUE_CHECK_FAILED</code>");

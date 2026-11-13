@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { labels } from "@/lib/i18n";
 import type { Identity } from "@/lib/api";
-import { UserMenu, userMenuEntries } from "./user-menu";
+import { UserMenu } from "./user-menu";
 import { shortAgent } from "@/platform/account/account-view";
 import { errorText } from "@/platform/administration/texts";
 
@@ -14,14 +14,6 @@ const base: Identity = {
 const t = (k: keyof typeof labels.en) => labels.en[k];
 
 describe("account menu (ADR 0013, settings center)", () => {
-  it("offers only the center", () => {
-    const entries = userMenuEntries();
-    expect(entries.manage).toBe("/manage");
-    expect(entries.account).toBeFalsy();
-    expect(entries.organization).toBeFalsy();
-    expect(entries.admin).toBeFalsy();
-  });
-
   it("renders the center entry for every identity and no old page entry", () => {
     const owner: Identity = {
       ...base,
@@ -38,6 +30,7 @@ describe("account menu (ADR 0013, settings center)", () => {
       expect(html).not.toContain('href="/account"');
       expect(html).not.toContain('href="/o/w1/settings"');
       expect(html).not.toContain('href="/admin"');
+      expect(html.match(/role="menuitem"/g)).toHaveLength(2);
       expect(html).toContain("ada@example.invalid");
     }
   });

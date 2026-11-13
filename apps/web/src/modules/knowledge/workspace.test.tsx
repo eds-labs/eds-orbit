@@ -1306,7 +1306,7 @@ describe("add flow", () => {
     "BUDGET_NOT_APPROVED",
     "BUDGET_EXCEEDED",
     "PROVIDER_BUDGET_STOP",
-  ])("links %s to Settings → AI with its own sentence", (code) => {
+  ])("links %s to the AI area of the settings with its own sentence", (code) => {
     for (const locale of ["de", "en"] as const) {
       const html = start(blocked(code), locale);
       expect(html).toContain('href="/p/p/knowledge/settings?section=ai"');

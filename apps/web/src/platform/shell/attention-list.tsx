@@ -2,6 +2,7 @@
 import { useId, useState } from "react";
 import Link from "next/link";
 import type { AttentionItem } from "@/lib/api";
+import { safeLink } from "@/lib/safe-link";
 import { Badge, Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { renderAttention } from "./attention";
@@ -22,10 +23,12 @@ import { useShell } from "./shell-context";
 /**
  * Where an item's `link` leads in the open project: a center address
  * (starting with "/manage/") unchanged, else a path below /p/:id with an
- * optional query that the route table resolves; null when no page of the route table matches it or
- * the page is not available to the member (ruling R22: the row stays, but
- * without a dead link), such as /approvals while marketing is off. `map`
- * is the shell's mapping to the settings center (ShellContextValue.centerLink).
+ * optional query that the route table resolves. Null when the link is
+ * malformed (the notification bell's character check), when no page of the
+ * route table matches it, or when the page is not available to the member
+ * (ruling R22: the row stays, but without a dead link), such as /approvals
+ * while marketing is off. `map` is the shell's mapping to the settings
+ * center (ShellContextValue.centerLink).
  */
 export function attentionTarget(
   link: string,
@@ -36,7 +39,8 @@ export function attentionTarget(
 ): string | null {
   // The API names a settings center address in full ("/manage/p/<id>/…"):
   // it belongs to no page of the route table and needs no project prefix.
-  if (link.startsWith("/manage/")) return link;
+  // A stored link is data: it passes the same check as in the bell.
+  if (link.startsWith("/manage/")) return safeLink(link);
   const match = /^(\/[^?#]*)([?#].*)?$/.exec(link);
   if (!match) return null;
   const [, path, suffix = ""] = match;

@@ -437,7 +437,7 @@ export function SitePagePicker({
   );
 }
 
-/** Blockers that an owner resolves in Settings → AI. */
+/** Blockers that an owner resolves in the AI area of the project settings. */
 const AI_SETTINGS_BLOCKERS = new Set([
   "POLICY_REQUIRED",
   "POLICY_INTERVAL_INVALID",

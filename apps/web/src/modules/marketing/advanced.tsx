@@ -78,8 +78,8 @@ async function fileBase64(file: File) {
 const PROFILE_TEXT = {
   heading: { en: "Marketing profile", de: "Marketing-Profil" },
   intro: {
-    en: "Versioned positioning, strategy, brand voice, official target links and campaign guardrails of the Marketing module. Project-wide languages and profile links are under Settings → Project.",
-    de: "Versionierte Positionierung, Strategie, Markenstimme, offizielle Ziel-Links und Kampagnenregeln des Marketing-Moduls. Projektweite Sprachen und Profil-Links stehen unter Einstellungen → Projekt.",
+    en: "Versioned positioning, strategy, brand voice, official target links and campaign guardrails of the Marketing module. Project-wide languages and profile links are under Administration & settings → Profile → Project profile.",
+    de: "Versionierte Positionierung, Strategie, Markenstimme, offizielle Ziel-Links und Kampagnenregeln des Marketing-Moduls. Projektweite Sprachen und Profil-Links stehen unter Verwaltung & Einstellungen → Profil → Projektprofil.",
   },
   notConfigured: { en: "Not configured", de: "Nicht eingerichtet" },
   version: { en: "Profile v", de: "Profil v" },
@@ -208,8 +208,8 @@ const PROFILE_TEXT = {
     de: "Aufträge und Agenten-Entwürfe werden in dieser Sprache geschrieben (Englisch oder Deutsch). Manuelle Kampagnen können jede Content-Sprache des Projekts nutzen.",
   },
   languageNotInProject: {
-    en: "The profile's agent language ({code}) is not one of the project's content languages. Assignments keep writing in it; add it under Settings → Project or choose another one here.",
-    de: "Die Agentensprache des Profils ({code}) gehört nicht zu den Content-Sprachen des Projekts. Aufträge schreiben weiter darin; füge sie unter Einstellungen → Projekt hinzu oder wähle hier eine andere.",
+    en: "The profile's agent language ({code}) is not one of the project's content languages. Assignments keep writing in it; add it under Administration & settings → Profile → Project profile or choose another one here.",
+    de: "Die Agentensprache des Profils ({code}) gehört nicht zu den Content-Sprachen des Projekts. Aufträge schreiben weiter darin; füge sie unter Verwaltung & Einstellungen → Profil → Projektprofil hinzu oder wähle hier eine andere.",
   },
   internalLanguage: {
     en: "Internal work language",
@@ -237,8 +237,8 @@ const PROFILE_TEXT = {
     de: "Posts dürfen nur auf diese Adressen verlinken. Jede ist durch einen öffentlichen, verifizierten Fakt mit genau dieser Adresse belegt.",
   },
   noCandidates: {
-    en: "No project profile link has a public, verified fact with its exact address yet. Add links under Settings → Project and verify them as facts in Knowledge.",
-    de: "Noch kein Profil-Link des Projekts hat einen öffentlichen, verifizierten Fakt mit genau seiner Adresse. Füge Links unter Einstellungen → Projekt hinzu und verifiziere sie als Fakten im Wissen.",
+    en: "No project profile link has a public, verified fact with its exact address yet. Add links under Administration & settings → Profile → Project profile and verify them as facts in Knowledge.",
+    de: "Noch kein Profil-Link des Projekts hat einen öffentlichen, verifizierten Fakt mit genau seiner Adresse. Füge Links unter Verwaltung & Einstellungen → Profil → Projektprofil hinzu und verifiziere sie als Fakten im Wissen.",
   },
   unverifiedLinks: {
     en: "Not selectable until a public, verified fact states their exact address: {links}",

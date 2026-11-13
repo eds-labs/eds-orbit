@@ -156,7 +156,7 @@ export function TelegramPanel({
   );
 }
 
-/** Settings → Connections → Telegram, for owners only; hidden while Orbit Agents is off. */
+/** Integrations → Connections → Telegram in the project settings, for owners only; hidden while Orbit Agents is off. */
 export function TelegramConnection() {
   const { locale, project, isOwner } = useWorkspace();
   const de = locale === "de";

@@ -38,7 +38,7 @@ const en = {
     quietHours: "Quiet hours",
     budgetNote:
       "The AI budget is not part of this policy. It applies to every module and is set under",
-    budgetLink: "Settings → AI & budget",
+    budgetLink: "Administration & settings → AI → Budget",
   },
   // The owner's per-project switch (plan 2026-11-10) under the policy.
   socialAutopilot: {
@@ -109,7 +109,7 @@ const en = {
     budgetUnpaid: " (paid use not allowed)",
     budgetNotSet: "not set, so no paid AI runs.",
     budgetScope: "It applies to every module and is set under",
-    budgetLink: "Settings → AI & budget",
+    budgetLink: "Administration & settings → AI → Budget",
     budgetKept: "; this policy keeps it unchanged.",
   },
   // The editorial plan (the page at marketing/calendar): it plans content
@@ -239,7 +239,7 @@ const de: MarketingText = {
     quietHours: "Ruhezeiten",
     budgetNote:
       "Das KI-Budget ist nicht Teil dieser Richtlinie. Es gilt für alle Module und wird festgelegt unter",
-    budgetLink: "Einstellungen → KI & Budget",
+    budgetLink: "Verwaltung & Einstellungen → KI → Budget",
   },
   socialAutopilot: {
     heading: "Autopilot über Social",
@@ -310,7 +310,7 @@ const de: MarketingText = {
     budgetUnpaid: " (bezahlte Nutzung nicht erlaubt)",
     budgetNotSet: "nicht festgelegt, daher laufen keine bezahlten KI-Aufrufe.",
     budgetScope: "Es gilt für alle Module und wird festgelegt unter",
-    budgetLink: "Einstellungen → KI & Budget",
+    budgetLink: "Verwaltung & Einstellungen → KI → Budget",
     budgetKept: "; diese Richtlinie lässt es unverändert.",
   },
   calendar: {

@@ -4,8 +4,8 @@
 
 const texts: Record<string, { en: string; de: string }> = {
   POLICY_REQUIRED: {
-    en: "No AI spending authority for this project (Settings → AI & budget).",
-    de: "Keine KI-Ausgabefreigabe für dieses Projekt (Einstellungen → KI & Budget).",
+    en: "No AI spending authority for this project (Administration & settings → AI → Budget).",
+    de: "Keine KI-Ausgabefreigabe für dieses Projekt (Verwaltung & Einstellungen → KI → Budget).",
   },
   PAID_MANDATE_EXPIRED: {
     en: "The project's AI spending authority has expired.",

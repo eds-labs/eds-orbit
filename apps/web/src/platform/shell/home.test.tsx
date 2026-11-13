@@ -340,6 +340,16 @@ describe("attentionTarget", () => {
       return href;
     });
     expect(seen).toEqual([]);
+    // The bell's character check holds here too: a malformed center link
+    // gives no link, so the row shows without one.
+    for (const bad of [
+      "/manage/p/p1/a\\b",
+      "/manage/p/p1/a b",
+      "/manage/p/p1/a\u0009b",
+      "/manage/p/p1/a\u0000b",
+      "/manage/p/p1/a\u007fb",
+    ])
+      expect(attentionTarget(bad, "p1", table, on)).toBeNull();
     // A relative old link keeps today's handling.
     expect(attentionTarget("/settings?section=ai", "p1", table, on)).toBe(
       "/p/p1/settings?section=ai",

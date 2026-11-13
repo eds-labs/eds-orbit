@@ -100,4 +100,14 @@ describe("project readiness capability list", () => {
     expect(html).not.toContain("BLOG TARGET NOT CONFIGURED");
     expect(html).not.toMatch(/>[A-Z]{3,}( [A-Z]+)+</);
   });
+
+  it("links the panel's connections and AI notes to their center sections", () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceContext.Provider value={workspace("de")}>
+        <ProjectReadinessPanel dashboard={dashboard} loading={false} />
+      </WorkspaceContext.Provider>,
+    );
+    expect(html).toContain('href="/manage/p/p1/integrations/connections"');
+    expect(html).toContain('href="/manage/p/p1/ai"');
+  });
 });

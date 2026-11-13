@@ -123,7 +123,9 @@ describe("Drive page", () => {
     answers.status = status({ enabled: false, connected: false });
     const html = render(<DrivePage />, { owner: false });
     expect(html).toContain("Ask a project owner to connect Google Drive.");
-    expect(html).not.toContain("section=integrations");
+    // No link to the center's Drive section: a member may not manage it.
+    expect(html).not.toContain("google-drive");
+    expect(html).not.toContain("/manage/");
   });
 
   it("explains a required reconnect", () => {

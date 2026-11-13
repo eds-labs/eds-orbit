@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { api, collectionPath, useMutation, useResource, when } from "@/lib/api";
+import { safeLink } from "@/lib/safe-link";
 import { Alert, Badge, Button, Loading, Modal, Tabs } from "./ui/primitives";
 import {
   useNotificationSummary,
@@ -35,17 +36,6 @@ const POLL_MS = 60_000;
 /** "9+" above nine, nothing at zero. */
 export function unreadLabel(count: number) {
   return count <= 0 ? "" : count > 9 ? "9+" : String(count);
-}
-
-/**
- * Only Orbit paths are followed: a notice never sends a member elsewhere.
- * No backslash, space or control character, since browsers read "/\\x" and
- * "/<tab>/x" as "//x" (the API's ORBIT_PATH rule).
- */
-export function safeLink(link: string | null) {
-  return link && /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/.test(link)
-    ? link
-    : null;
 }
 
 type BellProps = {

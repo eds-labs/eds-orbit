@@ -115,7 +115,7 @@ export const labels = {
     brandTagline: "A self-hosted, modular work platform.",
     defaultContentLanguage: "Default content language",
     defaultContentLanguageHint:
-      "The project's first content language. More can be added later under Settings → Project.",
+      "The project's first content language. More can be added later under Administration & settings → Profile → Project profile.",
     timezone: "Timezone",
     emptyContent: "Your next idea starts here",
     contentHint: "Create a mission or write a source-backed draft.",
@@ -188,7 +188,7 @@ export const labels = {
     connectClientWebsite: "Website it names",
     connectSelectTitle: "Choose what the app may reach",
     connectSelectHint:
-      "The app works only inside the workspace and projects you choose, and only with what you may do yourself. You can revoke it at any time under Settings, Connected apps.",
+      "The app works only inside the workspace and projects you choose, and only with what you may do yourself. You can revoke it at any time under Administration & settings → My account → Connections → Connected apps.",
     connectWorkspace: "Workspace",
     connectProjects: "Projects",
     connectAllProjects: "All current projects",
@@ -417,7 +417,7 @@ export const labels = {
     brandTagline: "Eine selbst gehostete, modulare Arbeitsplattform.",
     defaultContentLanguage: "Standard-Content-Sprache",
     defaultContentLanguageHint:
-      "Die erste Content-Sprache des Projekts. Weitere lassen sich später unter Einstellungen → Projekt ergänzen.",
+      "Die erste Content-Sprache des Projekts. Weitere lassen sich später unter Verwaltung & Einstellungen → Profil → Projektprofil ergänzen.",
     timezone: "Zeitzone",
     emptyContent: "Hier beginnt deine nächste Idee",
     contentHint: "Erstelle eine Mission oder einen Entwurf mit Belegen.",
@@ -491,7 +491,7 @@ export const labels = {
     connectClientWebsite: "Genannte Website",
     connectSelectTitle: "Wähle, was die App erreichen darf",
     connectSelectHint:
-      "Die App arbeitet nur in der gewählten Organisation und den gewählten Projekten, und nur mit dem, was du selbst darfst. Du kannst den Zugriff jederzeit unter Einstellungen, Verbundene Apps widerrufen.",
+      "Die App arbeitet nur in der gewählten Organisation und den gewählten Projekten, und nur mit dem, was du selbst darfst. Du kannst den Zugriff jederzeit unter Verwaltung & Einstellungen → Mein Konto → Verbindungen → Verbundene Apps widerrufen.",
     connectWorkspace: "Workspace",
     connectProjects: "Projekte",
     connectAllProjects: "Alle aktuellen Projekte",
