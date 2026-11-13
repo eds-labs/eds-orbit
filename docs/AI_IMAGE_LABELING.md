@@ -1,7 +1,8 @@
 # AI image labelling ("KI erstellt")
 
 Decision record: [ADR 0028](adr/0028-ai-image-labeling.md). Flag:
-`ORBIT_AI_IMAGE_LABELS` (default `false`).
+`ORBIT_AI_IMAGE_LABELS` (default `false`; `true` in production since
+2026-11-13 14:36 UTC).
 
 Orbit marks every new AI-generated or substantially AI-modified marketing
 image with the visible label **"KI erstellt"** and records its origin

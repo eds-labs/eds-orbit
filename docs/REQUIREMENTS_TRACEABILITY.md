@@ -1,6 +1,6 @@
 # Requirements traceability
 
-## AI image labelling "KI erstellt" (ADR 0028; 2026-11-13, branch `claude/ai-image-labeling`; not delivered, flag off)
+## AI image labelling "KI erstellt" (ADR 0028; 2026-11-13, branch `claude/ai-image-labeling`; delivered to `main` 6063c147; flag `on` in production since 2026-11-13, not live-accepted)
 
 API tests under `apps/api/tests/`, engine tests next to the code in `packages/creative/src/`. Results are the controller's full run on the final head (see `IMPLEMENTATION_STATUS.md`).
 
@@ -19,7 +19,7 @@ API tests under `apps/api/tests/`, engine tests next to the code in `packages/cr
 | AIL-11 | PNG, JPEG, WebP × square, vertical, horizontal | `ai-label.test.ts` matrix | 9 combinations plus downscale/JPEG/WebP survival | PASS_TEST |
 | AIL-12 | End-to-end: agent generates → origin recognised → label → media library → Social uses labelled version → export keeps it | whole chain | `ai-label-e2e.integration.test.ts` | PASS_TEST |
 
-## System & Administration V2, row 5.4: one settings surface, old pages and rollout flag removed (ADR 0027; 2026-11-13, branch `claude/settings-center-row-5-4`; local only, not on `main`, not deployed)
+## System & Administration V2, row 5.4: one settings surface, old pages and rollout flag removed (ADR 0027; 2026-11-13, branch `claude/settings-center-row-5-4`; delivered to `main` on 2026-11-13, not live-accepted)
 
 Plan [plans/SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) section 10 ("Row 5.4 as built"), implementation plan [superpowers/plans/2026-11-12-settings-center-row-5-4.md](superpowers/plans/2026-11-12-settings-center-row-5-4.md). API tests are under `apps/api/tests/`, web unit tests next to their code under `apps/web/src/`, browser tests under `apps/web/tests/`. Results are the implementers' and reviewers' runs on the branch; the controller's verification of the whole suites and the browser runs is pending, so no row is final acceptance.
 

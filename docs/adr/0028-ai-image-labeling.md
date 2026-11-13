@@ -1,6 +1,6 @@
 # ADR 0028: Central AI image labelling and provenance
 
-- Status: proposed (2026-11-13)
+- Status: accepted (2026-11-13); live in production with the flag on since 2026-11-13 14:36 UTC
 - Owner: Mario
 - Flag: `ORBIT_AI_IMAGE_LABELS` (default `false`)
 

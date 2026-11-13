@@ -1,6 +1,6 @@
 # System & Administration V2: one settings center for four scopes
 
-Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main`; phase 4 is on `main` since 2026-11-12 (section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is on `main` since 2026-11-12 (branch `claude/settings-center-phase-5`, section 10). The production flag is `on` since 2026-11-12 18:47 UTC (after `preview` at 18:39 UTC, both on Mario's instruction); the walk over old links in production is open, so `on` is not yet live-accepted. Row 5.4 (center addresses from the API, removal of the old pages and of the flag) is implemented on branch `claude/settings-center-row-5-4` (2026-11-13), reviewed, not pushed, not on `main` and not deployed (section 10, "Row 5.4 as built"); Mario accepted `on` and the plan's decisions on 2026-11-13. Phase 6 is not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
+Status: **decisions D-1 to D-9 taken by Mario on 2026-11-11, all as recommended ([ADR 0027](../adr/0027-settings-center.md)). Phases 2 and 3 are on `main`; phase 4 is on `main` since 2026-11-12 (section 9). Phase 5, rows 5.1 to 5.3 with the F-5 fix and the public access section, is on `main` since 2026-11-12 (branch `claude/settings-center-phase-5`, section 10). The production flag is `on` since 2026-11-12 18:47 UTC (after `preview` at 18:39 UTC, both on Mario's instruction); the walk over old links in production is open, so `on` is not yet live-accepted. Row 5.4 (center addresses from the API, removal of the old pages and of the flag) is implemented on branch `claude/settings-center-row-5-4` and delivered to `main` on 2026-11-13 (section 10, "Row 5.4 as built"); Mario accepted `on` and the plan's decisions on 2026-11-13. Phase 6 is not implemented.** Written 2026-11-10. Base: `main` @ `6c0ac035`, worktree branch `claude/system-management-v2`. Task: EDS-Labs → EOP → #5.
 
 This plan covers phase 1 of the task (analysis and target architecture) and the work plan for phases 2 to 6. The decisions are in [section 11](#11-decisions-mario-2026-11-11). Each phase gets its own implementation plan before code changes.
 
@@ -499,7 +499,7 @@ Known limits: the key revocation is not one atomic step, because the key row liv
 
 Nothing in this phase deletes stored settings or data. The review's deferred minors and known limits are recorded in `docs/IMPLEMENTATION_STATUS.md` only.
 
-### Row 5.4 as built (2026-11-13, branch `claude/settings-center-row-5-4`; implemented and reviewed, not pushed, not on `main`, not deployed)
+### Row 5.4 as built (2026-11-13, branch `claude/settings-center-row-5-4`; delivered to `main` on 2026-11-13)
 
 Implementation plan: [2026-11-12-settings-center-row-5-4.md](../superpowers/plans/2026-11-12-settings-center-row-5-4.md). Mario confirmed the plan, its decisions and his acceptance of the flag value `on` on 2026-11-13. The state of the work and the review results are in `docs/IMPLEMENTATION_STATUS.md` (entry "row 5.4"), the requirement rows in `docs/REQUIREMENTS_TRACEABILITY.md` (block "row 5.4"). No schema, migration, dependency, role, permission or write-path change; no stored data changes.
 
