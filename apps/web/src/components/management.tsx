@@ -1,42 +1,15 @@
 "use client";
 import { ShellContext } from "@/platform/shell/shell-context";
-import { RetentionControl } from "./retention-control";
-import { SignalSettingsSection } from "./signal-settings";
-import { ModuleSettings } from "./module-settings";
-import {
-  ProjectAdministration,
-  ProjectMembers,
-} from "./project-administration";
-import { useSearchParams } from "next/navigation";
-import {
-  ContentLanguagesPanel,
-  ProfileLinksPanel,
-  languagesOf,
-} from "@/platform/project-settings/project-configuration";
+import { languagesOf } from "@/platform/project-settings/project-configuration";
 import { languageName } from "@/platform/project-settings/catalog";
 import { projectSettingsText } from "@/platform/project-settings/texts";
-import {
-  collectSettingsTabs,
-  groupSettings,
-  platformSettingsTabs,
-  sectionFromSearch,
-  settingsSectionHref,
-  SettingsNav,
-} from "@/platform/shell/settings-nav";
+import { settingsSectionHref } from "@/platform/shell/settings-nav";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
 import { AiCostDiagnosis } from "./ai-cost-diagnosis";
 import { operationsBudget, operationsText } from "./operations-text";
 import { blockerReason } from "@/lib/readiness-text";
-import { AiSettings } from "./ai-settings";
-import { SpendPolicySettings } from "./spend-policy";
-import { AgentMandateSettings } from "./agent-mandates";
-import { GoogleDriveSettings } from "./google-drive";
-import {
-  ConnectedApps,
-  type McpGrant,
-} from "@/platform/connect/connected-apps";
-import { Fragment, useContext, useEffect, useState } from "react";
+import { useContext, useState } from "react";
 import { WorkspacePause } from "./operator-tools";
 import { TelegramConnection } from "./telegram-connection";
 import { EmailConnection } from "./email-connection";
@@ -69,7 +42,7 @@ import {
   Modal,
   Status,
 } from "./ui/primitives";
-import { DataForm, str, type FormField } from "@/platform/ui/form";
+import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { GrantedConnections } from "./granted-connections";
 import {
@@ -79,15 +52,8 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { capabilityLabel, liveBlockerText } from "@/lib/capability-text";
-/** `embedded`: inside the settings center, whose frame shows the section head. */
-export function Connectors({
-  embedded = false,
-  groupMailboxes = false,
-}: {
-  embedded?: boolean;
-  /** The center lists mailboxes grouped by mail server; the old page stays flat. */
-  groupMailboxes?: boolean;
-} = {}) {
+/** The connections section of the settings center, whose frame shows the section head. */
+export function Connectors() {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const resource = useCollection("connectors");
   const [configure, setConfigure] = useState<string | null>(null);
@@ -99,16 +65,6 @@ export function Connectors({
   const configuring = providers.find((p) => p.id === configure);
   return (
     <>
-      {!embedded && (
-        <PageHead
-          title={t("connectors")}
-          description={
-            locale === "de"
-              ? "Verbindungen mit überprüfbaren Fähigkeiten."
-              : "Connections with capabilities you can verify."
-          }
-        />
-      )}
       <Alert>
         {locale === "de"
           ? "Codex- und ChatGPT-Verbindungen stellen dieser Installation keine Zugangsdaten bereit."
@@ -191,7 +147,7 @@ export function Connectors({
           })}
           <GrantedConnections connectors={resource.data?.items ?? []} />
           <TelegramConnection />
-          <EmailConnection groupByServer={groupMailboxes} />
+          <EmailConnection groupByServer />
           <CustomerContextConnection />
           {extras.map((Extra, index) => (
             <Extra key={index} />
@@ -659,150 +615,6 @@ export function ProjectReadinessPanel({
         )}
       </div>
     </section>
-  );
-}
-export function ProjectSettings() {
-  const { t, locale, project, revision, isOwner, refresh } = useWorkspace();
-  const dashboard = useResource<Dashboard>(
-    collectionPath(project.id, `dashboard?revision=${revision}`),
-  );
-  // The caller's connected MCP apps. The routes exist only while the OAuth
-  // server is on (404 otherwise), and then the section is not offered.
-  const grants = useResource<{ grants: McpGrant[] }>("/mcp-grants");
-  const appsAvailable = Boolean(
-    grants.data || (grants.error && grants.error.status !== 404),
-  );
-  // A reload empties the resource for a moment; the section must not vanish then.
-  const [appsSeen, setAppsSeen] = useState(false);
-  useEffect(() => {
-    if (appsAvailable) setAppsSeen(true);
-  }, [appsAvailable]);
-  const connectedApps = appsAvailable || appsSeen;
-  const d = dashboard.data;
-  const de = locale === "de";
-  const shell = useContext(ShellContext);
-  // Module sections (WP2.3b). Their hooks run on every render in registry
-  // order, which never changes while the app runs.
-  const modules = (shell?.settings ?? []).map((section) => ({
-    section,
-    shown: section.useSection(),
-  }));
-  // Grouped by module (UI restructure §5.4); the open section is the URL's
-  // ?section=, so links and back/forward change it without a remount, and an
-  // unknown or hidden one (e.g. assignments before they answer) is "project".
-  const groups = groupSettings(
-    collectSettingsTabs(
-      platformSettingsTabs({ isOwner, connectedApps }),
-      modules.map(({ section, shown }) => ({ tab: section.tab, shown })),
-    ),
-    shell?.modules ?? [],
-  );
-  const tab = sectionFromSearch(
-    useSearchParams()?.toString() ?? "",
-    groups.flatMap((g) => g.tabs.map((s) => s.key)),
-  );
-  const sectionHref = (key: string) =>
-    shell ? shell.settingsHref(key) : settingsSectionHref("", key);
-  function select(key: string) {
-    const url = new URL(window.location.href);
-    if (key === "project") url.searchParams.delete("section");
-    else url.searchParams.set("section", key);
-    // The Google Drive callback's marker has done its job once a section is picked.
-    url.searchParams.delete("googleDrive");
-    window.history.replaceState(null, "", url);
-  }
-  return (
-    <>
-      <PageHead
-        title={t("settings")}
-        description={
-          de
-            ? "Dein Workspace. Deine Regeln."
-            : "Your workspace. Your boundaries."
-        }
-      />
-      <div className="settings-layout">
-        <SettingsNav
-          groups={groups}
-          value={tab}
-          hrefOf={sectionHref}
-          onSelect={select}
-          locale={locale}
-        />
-        <div className="settings-content">
-          <ResourceError error={dashboard.error} retry={dashboard.refresh} />
-          {modules.map(({ section, shown }, index) =>
-            shown?.notice ? (
-              <Fragment key={index}>{shown.notice}</Fragment>
-            ) : null,
-          )}
-          {modules
-            .filter(({ section, shown }) => shown && section.tab.key === tab)
-            .sort((a, b) => a.section.order - b.section.order)
-            .map(({ shown }, index) => (
-              <Fragment key={index}>{shown!.content}</Fragment>
-            ))}
-          {tab === "project" && (
-            <div className="settings-grid">
-              <ProjectSummaryPanel dashboard={d} />
-              <ProjectReadinessPanel
-                dashboard={d}
-                loading={dashboard.loading}
-              />
-            </div>
-          )}
-          {tab === "project" && (
-            <ContentLanguagesPanel
-              project={project}
-              isOwner={isOwner}
-              locale={locale}
-            />
-          )}
-          {tab === "project" && (
-            <ProfileLinksPanel
-              project={project}
-              isOwner={isOwner}
-              locale={locale}
-            />
-          )}
-          {tab === "project" && <ProjectAdministration />}
-          {tab === "members" && <ProjectMembers />}
-          {tab === "retention" && <RetentionControl />}
-          {tab === "modules" && <ModuleSettings />}
-          {/* Proactive signal switches (ADR 0023); hidden while off. */}
-          {tab === "modules" && <SignalSettingsSection />}
-          {tab === "apps" && <ConnectedApps mine={grants} />}
-          {tab === "ai" && (
-            <>
-              <SpendPolicySettings />
-              <AgentMandateSettings />
-              <AiSettings />
-            </>
-          )}
-          {tab === "integrations" && <GoogleDriveSettings />}
-          {tab === "integrations" && isOwner && (
-            <section className="panel">
-              <div className="panel-head">
-                <div>
-                  <h2>{de ? "KI-Anbieter" : "AI providers"}</h2>
-                  <p>
-                    {de
-                      ? "Keys, Modelle, Routen und Budgets von OpenAI und Claude sind unter KI & Budget."
-                      : "Keys, models, routes and budgets of OpenAI and Claude are under AI & budget."}
-                  </p>
-                </div>
-                <Button asChild variant="outline">
-                  <AppLink href={sectionHref("ai")}>
-                    <Brain data-icon="inline-start" />
-                    {de ? "Öffnen" : "Open"}
-                  </AppLink>
-                </Button>
-              </div>
-            </section>
-          )}
-        </div>
-      </div>
-    </>
   );
 }
 const BookOpenIcon = FileText;

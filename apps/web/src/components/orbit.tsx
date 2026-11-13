@@ -125,16 +125,13 @@ import {
   moduleTabIndex,
   redirectFor,
   shownFromStates,
+  systemAdminOnlyFor,
   type OldAddress,
   type Redirect,
 } from "@/platform/settings-center/redirects";
 import { PLATFORM_TAB_KEYS } from "@/platform/settings-center/sections/project";
 
 const LAST_PROJECT = "orbit.project";
-// The old settings pages the route table still recognises: the redirect
-// decides them (settings center row 5.4); the shell never renders them.
-const OLD_STANDALONE: ReadonlySet<string> = new Set(["account", "account-assistant"]);
-const OLD_PROJECT_ROUTES: ReadonlySet<string> = new Set(["settings", "connectors"]);
 type ModuleStates = {
   features?: Record<string, boolean>;
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
@@ -235,9 +232,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const member = identity.data;
   const systemAdminOnly = useMemo(
     () =>
-      (organizationId: string) =>
-        member?.systemAdmin === true &&
-        !member.workspaces.some((w) => w.id === organizationId && w.canManage),
+      member
+        ? systemAdminOnlyFor(member)
+        : (_organizationId: string) => false,
     [member],
   );
   const mapContext = {
@@ -727,7 +724,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             <div className="topbar-actions">{languageControl}</div>
           </header>
           <main id="main" className="picker-main">
-            <standalone.component />
+            {standalone.component && <standalone.component />}
           </main>
         </div>
       </StandaloneContext.Provider>
@@ -885,7 +882,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   if (
     place.kind === "admin" ||
     place.kind === "organizationSettings" ||
-    (standalone && OLD_STANDALONE.has(standalone.key))
+    (standalone && !standalone.component)
   )
     return frame(<NotFound t={t} project={false} />);
   if (standalone)
@@ -899,7 +896,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           refreshIdentity: identity.refresh,
         }}
       >
-        <standalone.component />
+        {standalone.component && <standalone.component />}
       </StandaloneContext.Provider>,
       standalone.key === "assistant",
     );
@@ -1277,8 +1274,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                   .join(",")}`}
               >
                 {!canEdit && route && <Alert>{t("viewer")}</Alert>}
-                {!route || OLD_PROJECT_ROUTES.has(route.key) ? (
-                  // An old settings page is decided by the redirect alone.
+                {!route?.component ? (
+                  // An old settings address has no page: the redirect decides it.
                   <NotFound t={t} homeHref={homeHref} />
                 ) : waitsForModuleStates(
                     moduleStates.data,

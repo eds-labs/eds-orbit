@@ -6,7 +6,7 @@
 import { type ReactNode, useState } from "react";
 import { api, collectionPath, useMutation, useResource } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
-import { Alert, Badge, Button, Loading, Modal } from "./ui/primitives";
+import { Alert, Badge, Button, Loading } from "./ui/primitives";
 import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
@@ -55,9 +55,6 @@ const en = {
   create: "Create key",
   newKey: "New key",
   ingressOff: "Public ingress is switched off for this installation.",
-  title: "Public keys",
-  description:
-    "A key lets a website on its origins call one module's public API. Revoking it stops that at once.",
 };
 export type PublicKeyTextKey = keyof typeof en;
 const de: Record<PublicKeyTextKey, string> = {
@@ -80,9 +77,6 @@ const de: Record<PublicKeyTextKey, string> = {
   create: "Schlüssel anlegen",
   newKey: "Neuer Schlüssel",
   ingressOff: "Der öffentliche Zugang ist für diese Installation abgeschaltet.",
-  title: "Öffentliche Schlüssel",
-  description:
-    "Mit einem Schlüssel kann eine Website von ihren Ursprüngen aus die öffentliche Schnittstelle eines Moduls aufrufen. Ein Widerruf beendet das sofort.",
 };
 
 export function publicKeyText(
@@ -256,18 +250,5 @@ export function PublicKeysPanel() {
         )}
       </PublicKeysView>
     </>
-  );
-}
-
-export function PublicKeys({ onClose }: { onClose(): void }) {
-  const { locale } = useWorkspace();
-  return (
-    <Modal
-      title={publicKeyText(locale, "title")}
-      description={publicKeyText(locale, "description")}
-      onClose={onClose}
-    >
-      <PublicKeysPanel />
-    </Modal>
   );
 }

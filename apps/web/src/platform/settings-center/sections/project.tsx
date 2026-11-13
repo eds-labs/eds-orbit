@@ -98,7 +98,7 @@ function ProfileSection() {
     <>
       <ContentLanguagesPanel project={project} isOwner={isOwner} locale={locale} />
       <ProfileLinksPanel project={project} isOwner={isOwner} locale={locale} />
-      <ProjectAdministration publicKeys={false} />
+      <ProjectAdministration />
     </>
   );
 }
@@ -114,11 +114,10 @@ function SwitchesSection() {
 }
 
 function ConnectionsSection() {
-  return <Connectors embedded groupMailboxes />;
+  return <Connectors />;
 }
 
-// The AI area mounts the panels of the old AI tab (/p/:id/settings?section=ai)
-// one per section, with the same props and conditions as AiSettingsView.
+// The AI area mounts the panels of the project's AI settings one per section.
 // Each section loads the configuration it needs itself.
 
 /**

@@ -8,11 +8,8 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
-import {
-  collectSettingsTabs,
-  groupSettings,
-  platformSettingsTabs,
-} from "@/platform/shell/settings-nav";
+import { platformSettingsTabs } from "@/platform/shell/settings-nav";
+import { groupedModules } from "@/platform/shell/nav-groups";
 import { WorkspaceContext } from "@/components/workspace-context";
 import type { AiConfigurationData } from "@/components/ai-settings";
 import type { SettingsSection } from "@/platform/shell/types";
@@ -498,7 +495,7 @@ describe("the real registry's module sections", () => {
 });
 
 describe("projectModuleSections", () => {
-  it("orders the module groups like the sidebar and the old settings page", () => {
+  it("orders the module groups like the sidebar", () => {
     // The real modules, all enabled, with their real groupOrder values.
     const modules = webRegistry.modules.map((m) => ({ ...m, enabled: true }));
     const contributed = webRegistry.modules.flatMap((m) =>
@@ -517,20 +514,11 @@ describe("projectModuleSections", () => {
     )
       .map((g) => g.id)
       .filter((id) => modules.some((m) => m.id === id));
-    const old = groupSettings(
-      collectSettingsTabs(
-        platformSettingsTabs({ isOwner: true, connectedApps: true }),
-        contributed.map(({ section, shown }) => ({ tab: section.tab, shown })),
-      ),
-      modules,
-    )
-      .map((g) => g.id)
-      .filter((id) => modules.some((m) => m.id === id));
+    const expected = groupedModules(modules)
+      .map((m) => m.id)
+      .filter((id) => center.includes(id));
     expect(center.length).toBeGreaterThan(1);
-    // A module whose only section joins a platform tab on the old page (webmail
-    // on "integrations") has no group there; every other one is in the same
-    // order.
-    expect(center.filter((id) => old.includes(id))).toEqual(old);
+    expect(center).toEqual(expected);
   });
 });
 

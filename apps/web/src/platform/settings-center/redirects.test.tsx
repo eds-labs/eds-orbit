@@ -22,6 +22,7 @@ import {
   locationToDecide,
   redirectModuleShown,
   shownFromStates,
+  systemAdminOnlyFor,
   type CenterAddress,
   type MapContext,
   type OldAddress,
@@ -622,5 +623,26 @@ describe("whether the capabilities are requested while the location waits", () =
     // Coming from a center page: not dropped and fetched again.
     expect(capabilitiesWanted({ signedIn: true, needed: false, locationWaits: true, before: true })).toBe(true);
     expect(capabilitiesWanted({ signedIn: true, needed: false, locationWaits: true, before: false })).toBe(false);
+  });
+});
+
+describe("systemAdminOnlyFor", () => {
+  const workspaces = [
+    { id: "w1", name: "One", canManage: true },
+    { id: "w2", name: "Two", canManage: false },
+  ];
+
+  it("is true for an administrator who is not an owner of the organization", () => {
+    expect(systemAdminOnlyFor({ systemAdmin: true, workspaces })("w2")).toBe(true);
+    expect(systemAdminOnlyFor({ systemAdmin: true, workspaces })("w3")).toBe(true);
+  });
+
+  it("is false for an administrator who owns the organization", () => {
+    expect(systemAdminOnlyFor({ systemAdmin: true, workspaces })("w1")).toBe(false);
+  });
+
+  it("is false for a plain member", () => {
+    expect(systemAdminOnlyFor({ systemAdmin: false, workspaces })("w2")).toBe(false);
+    expect(systemAdminOnlyFor({ workspaces })("w2")).toBe(false);
   });
 });

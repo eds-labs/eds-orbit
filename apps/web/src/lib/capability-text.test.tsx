@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { translate, type Locale } from "./i18n";
 import {
@@ -10,42 +10,28 @@ import {
 // their key and printed live blockers as upper-case codes
 // ("BLOG TARGET NOT CONFIGURED").
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(""),
-  usePathname: () => "/p/p1/settings",
-}));
-vi.mock("@/lib/api", async (original) => ({
-  ...(await original<typeof import("@/lib/api")>()),
-  useResource: (path: string | null) => ({
-    data: path?.includes("/dashboard")
-      ? {
-          project: { mode: "observe", paused: false },
-          readiness: {
-            state: "draft_ready",
-            blockers: [],
-            capabilities: {
-              knowledge: { state: "test_ready" },
-              blog: {
-                state: "draft_ready",
-                liveBlocker: "BLOG_TARGET_NOT_CONFIGURED",
-              },
-              ads: {
-                state: "draft_ready",
-                liveBlocker: "ADS_ACCOUNT_SUSPENDED",
-              },
-            },
-          },
-        }
-      : null,
-    loading: false,
-    error: null,
-    refresh: () => {},
-  }),
-}));
+const dashboard = {
+  project: { mode: "observe", paused: false },
+  readiness: {
+    state: "draft_ready",
+    blockers: [],
+    capabilities: {
+      knowledge: { state: "test_ready" },
+      blog: {
+        state: "draft_ready",
+        liveBlocker: "BLOG_TARGET_NOT_CONFIGURED",
+      },
+      ads: {
+        state: "draft_ready",
+        liveBlocker: "ADS_ACCOUNT_SUSPENDED",
+      },
+    },
+  },
+} as unknown as Dashboard;
 
 import { capabilityLabel, liveBlockerText } from "./capability-text";
-import { ProjectSettings } from "@/components/management";
+import { ProjectReadinessPanel } from "@/components/management";
+import type { Dashboard } from "@/lib/api";
 
 function workspace(locale: Locale): WorkspaceContextValue {
   const project = {
@@ -97,11 +83,11 @@ describe("capability words", () => {
   });
 });
 
-describe("project settings capability list", () => {
+describe("project readiness capability list", () => {
   it("shows German names, states and blocker sentences", () => {
     const html = renderToStaticMarkup(
       <WorkspaceContext.Provider value={workspace("de")}>
-        <ProjectSettings />
+        <ProjectReadinessPanel dashboard={dashboard} loading={false} />
       </WorkspaceContext.Provider>,
     );
     expect(html).toContain("<strong>Wissen</strong>");

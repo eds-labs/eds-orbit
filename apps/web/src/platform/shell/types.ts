@@ -57,7 +57,12 @@ export type ViewDef = {
    * the pathname itself. Not for a root view (path "").
    */
   subpaths?: true;
-  component: ComponentType;
+  /**
+   * Missing for a redirect-only entry: an old address the route table still
+   * recognises and the redirect sends to the settings center; the shell
+   * renders no page for it.
+   */
+  component?: ComponentType;
   nav?: NavEntry;
   /** Server-advertised feature may replace or hide navigation without losing the route. */
   alternateNav?: { feature: string; nav: NavEntry | null };
@@ -91,7 +96,8 @@ export type StandaloneView = {
   key: string;
   /** Path below the site root, without a leading slash: "connect/login". */
   path: string;
-  component: ComponentType;
+  /** Missing for a redirect-only entry (see ViewDef.component). */
+  component?: ComponentType;
   title: Label;
   /**
    * "required" shows the sign-in first when there is no session; "none" opens

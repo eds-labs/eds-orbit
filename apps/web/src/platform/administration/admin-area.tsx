@@ -2,14 +2,9 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
-  Activity,
   Building2,
   FolderKanban,
   KeyRound,
-  Mail,
-  Plug,
-  ShieldCheck,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { post, put, useMutation, useResource } from "@/lib/api";
@@ -29,15 +24,10 @@ import { Metric } from "@/platform/ui/metric";
 import {
   InvitationList,
   OneTimeLink,
-  OrganizationManager,
   type Invitation,
 } from "./organization-manager";
 import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
 import { ConnectionsPanel } from "./connections-ui";
-import { McpAdmin } from "./admin-mcp";
-import { AiProfileEditor } from "./ai-knowledge-ui";
-import { ModelPricesPanel } from "./ai-catalog-ui";
-import { AiDefaultsPanel } from "./ai-defaults-ui";
 import { WebmailStatusPanel } from "./admin-webmail";
 
 // The system administration (/admin, ADR 0013): installation-wide metadata
@@ -57,124 +47,8 @@ type UserRow = {
   projects: number;
 };
 
-const NAV = [
-  { section: "", icon: Activity, en: "Overview", de: "Übersicht" },
-  { section: "integrations", icon: Plug, en: "Integrations", de: "Integrationen", connections: true },
-  { section: "ai", icon: Sparkles, en: "AI & knowledge", de: "KI & Wissen", connections: true },
-  { section: "mcp", icon: Plug, en: "MCP", de: "MCP" },
-  { section: "users", icon: Users, en: "Users", de: "Benutzer" },
-  { section: "invitations", icon: Mail, en: "Invitations", de: "Einladungen" },
-  {
-    section: "organizations",
-    icon: Building2,
-    en: "Organizations",
-    de: "Organisationen",
-  },
-  { section: "projects", icon: FolderKanban, en: "Projects", de: "Projekte" },
-  { section: "audit", icon: ShieldCheck, en: "Audit log", de: "Protokoll" },
-] as const;
-
 export const adminHref = (section = "", id?: string) =>
   ["/admin", section, id].filter(Boolean).join("/");
-
-export function AdminArea({
-  section,
-  id,
-  locale,
-  currentUserId,
-  connections = false,
-}: {
-  section: string;
-  id?: string;
-  locale: Locale;
-  currentUserId: string;
-  /** Central connections and AI profiles exist (ORBIT_CONNECTIONS). */
-  connections?: boolean;
-}) {
-  const de = locale === "de";
-  const nav = NAV.filter((n) => connections || !("connections" in n));
-  return (
-    <div className="admin-layout">
-      <nav className="settings-nav" aria-label={de ? "Administration" : "Administration"}>
-        <div>
-          <p className="settings-nav-heading">
-            {de ? "Administration" : "Administration"}
-          </p>
-          <ul>
-            {nav.map((n) => (
-              <li key={n.section}>
-                <Link
-                  className="settings-nav-link"
-                  href={adminHref(n.section)}
-                  aria-current={section === n.section ? "page" : undefined}
-                >
-                  {n[locale]}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </nav>
-      <div className="admin-mobile-nav">
-        <label htmlFor="admin-section">{de ? "Bereich" : "Section"}</label>
-        <select
-          id="admin-section"
-          className="input"
-          value={section}
-          onChange={(e) => window.location.assign(adminHref(e.target.value))}
-        >
-          {nav.map((n) => (
-            <option key={n.section} value={n.section}>
-              {n[locale]}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="settings-content">
-        {section === "" && <Overview locale={locale} />}
-        {section === "integrations" && connections && <Integrations locale={locale} />}
-        {section === "mcp" && <McpAdmin locale={locale} />}
-        {section === "ai" && connections && (
-          <>
-            <PageHead
-              title={de ? "KI & Wissen" : "AI & knowledge"}
-              description={
-                de
-                  ? "Systemweite KI-Standards. Anbieter-Schlüssel und ihre Budgets verwaltest du unter Integrationen; gemeinsames Wissen in den Organisationen."
-                  : "System-wide AI defaults. Provider keys and their budgets live under Integrations; shared knowledge in the organizations."
-              }
-            />
-            <AiDefaultsPanel
-              path="/admin/ai/defaults"
-              modelsPath="/admin/ai/models"
-              locale={locale}
-            />
-            <ModelPricesPanel path="/admin/ai/models" locale={locale} />
-            <AiProfileEditor path="/admin/ai/profile" locale={locale} scopeLabel="System" />
-          </>
-        )}
-        {section === "users" &&
-          (id ? (
-            <UserDetail id={id} locale={locale} currentUserId={currentUserId} />
-          ) : (
-            <UserList locale={locale} />
-          ))}
-        {section === "invitations" && <Invitations locale={locale} />}
-        {section === "organizations" &&
-          (id ? (
-            <>
-              <BackLink href={adminHref("organizations")} locale={locale} />
-              <OrganizationManager organizationId={id} locale={locale} />
-            </>
-          ) : (
-            <Organizations locale={locale} />
-          ))}
-        {section === "projects" && <Projects locale={locale} />}
-        {section === "audit" && <Audit locale={locale} />}
-      </div>
-    </div>
-  );
-}
 
 export function Integrations({ locale }: { locale: Locale }) {
   const de = locale === "de";

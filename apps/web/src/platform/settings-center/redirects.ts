@@ -1,3 +1,4 @@
+import type { Identity } from "@/lib/api";
 import { locate, moduleShown, type RouteTable } from "@/platform/shell/routes";
 import { MOVED, platformSettingsTabs } from "@/platform/shell/settings-nav";
 import { moduleSectionId, visibleSections } from "./registry";
@@ -53,6 +54,19 @@ export function moduleTabIndex(
     }
   }
   return index;
+}
+
+/**
+ * Whether the member is a system administrator and not an owner of the
+ * organization (P54-D4). `canManage` is false for owners while the
+ * administration feature is off, as the old page's gate was.
+ */
+export function systemAdminOnlyFor(
+  identity: Pick<Identity, "systemAdmin" | "workspaces">,
+): (organizationId: string) => boolean {
+  return (organizationId) =>
+    identity.systemAdmin === true &&
+    !identity.workspaces.some((w) => w.id === organizationId && w.canManage);
 }
 
 export type MapContext = {

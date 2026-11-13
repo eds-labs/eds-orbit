@@ -11,19 +11,16 @@ import { locate, projectHref, routeTable, type Route } from "./routes";
 import { SidebarNav } from "./sidebar-nav";
 import type { SettingsSection } from "./types";
 import {
-  collectSettingsTabs,
-  groupSettings,
   moduleSettingsSection,
   platformSettingsTabs,
   SettingsNav,
-  sectionFromSearch,
   settingsSectionHref,
+  type SettingsGroup,
   type SettingsTab,
 } from "./settings-nav";
 
 // The project settings grouped by module (UI restructure §3.4, §5.4).
 
-const modules = webRegistry.modules.map((m) => ({ ...m, enabled: true }));
 const owner = platformSettingsTabs({ isOwner: true, connectedApps: true });
 // The module sections as the shell collects them: each in its module's group.
 const contributed = webRegistry.modules.flatMap((m) =>
@@ -32,120 +29,6 @@ const contributed = webRegistry.modules.flatMap((m) =>
     shown: {},
   })),
 );
-const shape = (groups: ReturnType<typeof groupSettings>) =>
-  groups.map((g) => [g.id, g.tabs.map((t) => t.key)]);
-
-describe("groupSettings", () => {
-  it("groups project first, then modules", () => {
-    const groups = groupSettings(
-      collectSettingsTabs(owner, contributed),
-      modules,
-    );
-    expect(shape(groups)).toEqual([
-      [
-        "project",
-        [
-          "project",
-          "members",
-          "integrations",
-          "ai",
-          "retention",
-          "modules",
-          "apps",
-        ],
-      ],
-      // Spec §5.4: policy & budget, then brand (the assignments are a
-      // Marketing page since 2026-10-19).
-      ["marketing", ["policy", "brand"]],
-      ["work", ["work"]],
-      ["support", ["support"]],
-      ["issues", ["issues"]],
-      [
-        "finance",
-        [
-          "finance-mailboxes",
-          "finance-accounts",
-          "finance-cost-centers",
-          "finance-currencies",
-          "finance-ai",
-        ],
-      ],
-    ]);
-    expect(groups.map((g) => g.label.de)).toEqual([
-      "Projekt",
-      "Marketing",
-      "Projektmanagement",
-      "Support",
-      "Issues",
-      "Finanzen",
-    ]);
-  });
-
-  it("orders module groups by groupOrder, not by tab order", () => {
-    const tabs: SettingsTab[] = [
-      {
-        key: "support",
-        label: { en: "S", de: "S" },
-        order: 1,
-        group: "support",
-      },
-      {
-        key: "brand",
-        label: { en: "B", de: "B" },
-        order: 99,
-        group: "marketing",
-      },
-      {
-        key: "project",
-        label: { en: "P", de: "P" },
-        order: 50,
-        group: "project",
-      },
-    ];
-    expect(shape(groupSettings(tabs, modules))).toEqual([
-      ["project", ["project"]],
-      ["marketing", ["brand"]],
-      ["support", ["support"]],
-    ]);
-  });
-
-  it("a hidden module's section is not offered", () => {
-    // The shell collects sections of shown modules only; a section of a
-    // module that is off (or access "none") still never gets a group.
-    const hidden = modules.map((m) =>
-      m.id === "support" ? { ...m, enabled: false } : m,
-    );
-    const groups = groupSettings(
-      collectSettingsTabs(owner, contributed),
-      hidden,
-    );
-    expect(groups.map((g) => g.id)).toEqual([
-      "project",
-      "marketing",
-      "work",
-      "issues",
-      "finance",
-    ]);
-    expect(groups.flatMap((g) => g.tabs.map((t) => t.key))).not.toContain(
-      "support",
-    );
-  });
-
-  it("a section whose hook returns null is left out; a label override wins", () => {
-    const tabs = collectSettingsTabs(owner, [
-      { tab: contributed[0]!.tab, shown: null },
-      {
-        tab: contributed[1]!.tab,
-        shown: { label: { en: "Rules", de: "Regeln" } },
-      },
-    ]);
-    expect(tabs.map((t) => t.key)).not.toContain(contributed[0]!.tab.key);
-    expect(tabs.find((t) => t.key === contributed[1]!.tab.key)?.label.de).toBe(
-      "Regeln",
-    );
-  });
-});
-
 describe("platform sections", () => {
   it("retention is its own project section", () => {
     const retention = owner.find((t) => t.key === "retention");
@@ -157,12 +40,9 @@ describe("platform sections", () => {
     // The platform has no policy section of its own any more: the policy
     // belongs to the Marketing group.
     expect(owner.map((t) => t.key)).not.toContain("policy");
-    const groups = groupSettings(
-      collectSettingsTabs(owner, contributed),
-      modules,
-    );
-    expect(groups.find((g) => g.id === "marketing")!.tabs[0]).toMatchObject({
-      key: "policy",
+    const policy = contributed.find((c) => c.tab.key === "policy")!.tab;
+    expect(policy).toMatchObject({
+      group: "marketing",
       label: { en: "Publishing rules", de: "Veröffentlichungsregeln" },
     });
   });
@@ -184,35 +64,7 @@ describe("platform sections", () => {
   });
 });
 
-describe("sectionFromSearch", () => {
-  const available = ["project", "members", "integrations", "policy"];
-  it("opens the section named in the URL", () => {
-    expect(sectionFromSearch("?section=policy", available)).toBe("policy");
-    expect(sectionFromSearch("section=members&x=1", available)).toBe("members");
-  });
-
-  it("an unknown section falls back to project", () => {
-    expect(sectionFromSearch("?section=nope", available)).toBe("project");
-    expect(sectionFromSearch("", available)).toBe("project");
-    // Hidden (e.g. assignments without Orbit Agents) counts as unknown.
-    expect(sectionFromSearch("?section=agents", available)).toBe("project");
-  });
-
-  it("an old policy link opens AI & budget when Marketing's policy is not offered", () => {
-    expect(sectionFromSearch("?section=policy", ["project", "ai"])).toBe("ai");
-    expect(sectionFromSearch("?section=policy", ["project"])).toBe("project");
-    expect(sectionFromSearch("?section=policy", [...available, "ai"])).toBe("policy");
-  });
-
-  it("the Google Drive callback opens the integrations", () => {
-    expect(sectionFromSearch("?googleDrive=ready", available)).toBe(
-      "integrations",
-    );
-    expect(sectionFromSearch("?googleDrive=choose-root", available)).toBe(
-      "integrations",
-    );
-  });
-
+describe("the Google Drive callback", () => {
   it("the callback's address is the settings page of its project", () => {
     // The API sends the browser to /p/<project>/settings?googleDrive=...;
     // the path must resolve to that project's settings, not be rewritten.
@@ -239,11 +91,34 @@ describe("settingsSectionHref", () => {
   });
 });
 
+const tab = (key: string, en: string, de: string, group: string): SettingsTab => ({
+  key,
+  label: { en, de },
+  order: 0,
+  group,
+});
+const groups: SettingsGroup[] = [
+  {
+    id: "project",
+    label: { en: "Project", de: "Projekt" },
+    tabs: owner,
+  },
+  {
+    id: "marketing",
+    label: { en: "Marketing", de: "Marketing" },
+    tabs: [
+      tab("policy", "Publishing rules", "Veröffentlichungsregeln", "marketing"),
+      tab("brand", "Brand", "Marke", "marketing"),
+    ],
+  },
+  {
+    id: "support",
+    label: { en: "Support", de: "Support" },
+    tabs: [tab("support", "Support", "Support", "support")],
+  },
+];
+
 describe("SettingsNav", () => {
-  const groups = groupSettings(
-    collectSettingsTabs(owner, contributed),
-    modules,
-  );
   const html = renderToStaticMarkup(
     <SettingsNav
       groups={groups}
@@ -272,10 +147,6 @@ describe("SettingsNav", () => {
 });
 
 describe("SettingsNav placeholder", () => {
-  const groups = groupSettings(
-    collectSettingsTabs(owner, contributed),
-    modules,
-  );
   const nav = (value: string, placeholder?: string) =>
     renderToStaticMarkup(
       <SettingsNav

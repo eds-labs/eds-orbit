@@ -2348,12 +2348,6 @@ select.input {
   font-size: 25px;
 }
 /* The grouped settings sections (UI restructure §5.4, settings-nav.tsx). */
-.settings-layout {
-  display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
-}
 .settings-content {
   min-width: 0;
 }
@@ -2408,16 +2402,7 @@ select.input {
   font-weight: 600;
   color: #2c3e52;
 }
-@media (max-width: 1180px) {
-  .settings-layout .settings-grid {
-    grid-template-columns: 1fr;
-  }
-}
 @media (max-width: 760px) {
-  .settings-layout {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
   .settings-nav {
     display: none;
   }
@@ -7807,9 +7792,6 @@ a.support-row {
     font-size: 16px;
   }
 }
-.admin-mobile-nav {
-  display: none;
-}
 .admin-stack,
 .account-page {
   display: flex;
@@ -8000,12 +7982,6 @@ label:is(.support-check, .settings-check) {
   .admin-layout .settings-nav {
     display: none;
   }
-  .admin-mobile-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .admin-mobile-nav .input,
   .admin-filters .input {
     font-size: 16px;
   }

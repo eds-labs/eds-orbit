@@ -24,11 +24,7 @@ import {
   dataClassRouteWarning,
   type DataClassRoute,
 } from "@/lib/exception-text";
-import {
-  AiSetupPanel,
-  ModelChoicePanel,
-  type ModelChoiceView,
-} from "./ai-model-choice";
+import { type ModelChoiceView } from "./ai-model-choice";
 
 // Settings → AI (plan D-A9): the project's AI providers, the models they
 // serve, the Anthropic credit budget and the usage and costs. The OpenAI
@@ -860,7 +856,7 @@ export function CostList({
 
 type Resource<T> = ReturnType<typeof useResource<T>>;
 
-/** The two resources AiSettings loads today, and a refresh of both. */
+/** The two resources the AI sections load, and a refresh of both. */
 export function useAiSettingsResources(): {
   configuration: Resource<AiConfigurationData>;
   budget: Resource<AiBudgetView>;
@@ -878,32 +874,6 @@ export function useAiSettingsResources(): {
     budget.refresh();
   };
   return { configuration, budget, refreshAll };
-}
-
-export function AiSettings() {
-  const { isOwner, locale } = useWorkspace();
-  const de = locale === "de";
-  const { configuration, budget, refreshAll } = useAiSettingsResources();
-  if (!isOwner)
-    return (
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{de ? "KI" : "AI"}</h2>
-        </div>
-        <p className="panel-note">
-          {de
-            ? "Nur Projekt-Owner verwalten die KI-Einstellungen."
-            : "Only project owners manage the AI settings."}
-        </p>
-      </section>
-    );
-  return (
-    <AiSettingsView
-      configuration={configuration}
-      budget={budget}
-      refreshAll={refreshAll}
-    />
-  );
 }
 
 /** The wizard's key step: an own key through the usual sections. */
@@ -969,42 +939,6 @@ export function modelChoiceProps(
     routingConfirmed: (values) =>
       str(values, "source") === "custom" || firstSaveConfirmed(view, values),
   };
-}
-
-/** The owner's page: every panel in order, from the two loaded resources. */
-export function AiSettingsView({
-  configuration,
-  budget,
-  refreshAll,
-}: {
-  configuration: Resource<AiConfigurationData>;
-  budget: Resource<AiBudgetView>;
-  refreshAll(): void;
-}) {
-  const { project, locale } = useWorkspace();
-  const view = configuration.data;
-  return (
-    <>
-      {view && (
-        <AiSetupPanel
-          view={view}
-          {...setupKeyProps(project.id, view, locale)}
-          onChanged={refreshAll}
-        />
-      )}
-      <AiProvidersPanel configuration={configuration} refreshAll={refreshAll} />
-      {view && (
-        <ModelChoicePanel
-          view={view}
-          {...modelChoiceProps(view, locale)}
-          onChanged={refreshAll}
-        />
-      )}
-      <AiModelsPanel configuration={configuration} />
-      <AiProviderBudgetPanels configuration={configuration} budget={budget} />
-      <AiProjectUsagePanel budget={budget} />
-    </>
-  );
 }
 
 /** "AI providers": capabilities, warnings, one row per provider, and the OpenAI and Claude dialogs. */

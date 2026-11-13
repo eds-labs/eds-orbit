@@ -122,7 +122,7 @@ describe("public keys list in German", () => {
   it("has a German text for every key", () => {
     for (const k of [
       "usedBy", "revokeAsk", "revokeUsed", "ownerOnly", "active", "revoked", "revoke", "none",
-      "noModules", "module", "origins", "originsHint", "create", "newKey", "ingressOff", "title", "description",
+      "noModules", "module", "origins", "originsHint", "create", "newKey", "ingressOff",
     ] as const) {
       expect(publicKeyText("de", k, "L", "D")).not.toBe(publicKeyText("en", k, "L", "D"));
     }
@@ -157,14 +157,11 @@ describe("public access section", () => {
     expect(html).not.toContain(publicKeyText("en", "ownerOnly"));
   });
 
-  it("keeps the public keys button out of the center's profile section and on the old page", () => {
-    const old = inWorkspace(true, <ProjectAdministration />);
-    expect(old).toContain("Public keys");
-    const center = inWorkspace(true, <ProjectAdministration publicKeys={false} />);
+  it("keeps the public keys button out of the center's profile section", () => {
+    const center = inWorkspace(true, <ProjectAdministration />);
     expect(center).not.toContain("Public keys");
     expect(center).toContain("Edit project");
     expect(center).not.toContain("public client keys");
-    expect(old).toContain("public client keys");
     const profile = projectSections.find((x) => x.id === "profile")!;
     expect(JSON.stringify(profile.description)).not.toMatch(/public|öffentlich/i);
   });

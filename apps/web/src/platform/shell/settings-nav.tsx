@@ -1,7 +1,6 @@
 "use client";
 import type { MouseEvent } from "react";
 import { labels, type Locale } from "@/lib/i18n";
-import { groupedModules } from "./nav-groups";
 import type { Label, SettingsSection } from "./types";
 
 // The project settings grouped by module (UI restructure §5.4): the platform's
@@ -18,10 +17,6 @@ export type SettingsTab = {
 export type SettingsGroup = { id: string; label: Label; tabs: SettingsTab[] };
 
 const PROJECT = "project";
-const PROJECT_LABEL: Label = {
-  en: labels.en.navProject,
-  de: labels.de.navProject,
-};
 
 /**
  * The platform's own sections. Members and retention are owner tools (their
@@ -57,83 +52,9 @@ export function platformSettingsTabs(options: {
   ];
 }
 
-/**
- * The platform's sections plus every shown module section. A module section
- * that names a platform key joins it (and may relabel it); a hidden one
- * (its hook returned null) is left out.
- */
-export function collectSettingsTabs(
-  platform: readonly SettingsTab[],
-  contributed: ReadonlyArray<{
-    tab: SettingsSection["tab"];
-    shown: { label?: Label } | null;
-  }>,
-): SettingsTab[] {
-  const tabs = platform.map((t) => ({ ...t }));
-  for (const { tab, shown } of contributed) {
-    if (!shown) continue;
-    const known = tabs.find((t) => t.key === tab.key);
-    if (!known)
-      tabs.push({
-        key: tab.key,
-        label: shown.label ?? tab.label,
-        order: tab.order,
-        group: tab.group ?? PROJECT,
-      });
-    else if (shown.label) known.label = shown.label;
-  }
-  return tabs;
-}
-
-/**
- * The settings list: "project" first, then the enabled modules by groupOrder
- * (like the sidebar), each with its sections by order. A section of a module
- * that is not enabled, or of an unknown group, is not offered; a group
- * without sections is left out.
- */
-export function groupSettings(
-  tabs: readonly SettingsTab[],
-  modules: ReadonlyArray<{
-    id: string;
-    displayName: Label;
-    enabled: boolean;
-    groupOrder?: number;
-  }>,
-): SettingsGroup[] {
-  return [
-    { id: PROJECT, label: PROJECT_LABEL },
-    ...groupedModules(modules).map((m) => ({ id: m.id, label: m.displayName })),
-  ]
-    .map((group) => ({
-      ...group,
-      tabs: tabs
-        .filter((t) => t.group === group.id)
-        .sort((a, b) => a.order - b.order),
-    }))
-    .filter((group) => group.tabs.length > 0);
-}
-
 // Sections that moved: an old link opens the new place when the old one is
 // not offered. The AI budget left the Marketing policy (ADR 0015).
 export const MOVED: Readonly<Record<string, string>> = { policy: "ai" };
-
-/**
- * The open section: `?section=` when it is offered, else "project". The
- * Google Drive callback (`?googleDrive=`, sent by the API) opens the
- * integrations, where its card is.
- */
-export function sectionFromSearch(
-  search: string,
-  available: readonly string[],
-): string {
-  const params = new URLSearchParams(search);
-  const wanted =
-    params.get("section") ??
-    (params.has("googleDrive") ? "integrations" : null);
-  if (wanted && available.includes(wanted)) return wanted;
-  const moved = wanted ? MOVED[wanted] : undefined;
-  return moved && available.includes(moved) ? moved : PROJECT;
-}
 
 /**
  * The URL of a settings section below the page's URL: Project is the page

@@ -2,7 +2,7 @@
 // Project administration and members (WP2.3b, platform UI); two settings
 // sections since the UI restructure (§5.4).
 import { useState } from "react";
-import { KeyRound, Settings, Trash2, UserPlus } from "lucide-react";
+import { Settings, Trash2, UserPlus } from "lucide-react";
 import {
   action,
   collectionPath,
@@ -16,7 +16,6 @@ import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { ModuleRoles } from "./module-roles";
-import { PublicKeys } from "./public-keys";
 import {
   InvitationList,
   OneTimeLink,
@@ -26,18 +25,12 @@ import {
 import { errorText, projectRoleLabel } from "@/platform/administration/texts";
 /**
  * The owner's project actions (settings section "project"): edit the
- * project and, unless the center lists them separately, manage its public client keys.
+ * project. The public client keys have their own section ("Public access").
  */
-export function ProjectAdministration({
-  publicKeys = true,
-}: {
-  /** The settings center lists the keys in its own section and passes false. */
-  publicKeys?: boolean;
-} = {}) {
+export function ProjectAdministration() {
   const { project, isOwner, t, locale, refresh } = useWorkspace();
   const de = locale === "de";
   const [editing, setEditing] = useState(false);
-  const [keysOpen, setKeysOpen] = useState(false);
   const mutation = useMutation(() => {
     refresh();
     setEditing(false);
@@ -48,34 +41,15 @@ export function ProjectAdministration({
       <div className="panel-head">
         <div>
           <h2>{de ? "Projektverwaltung" : "Project administration"}</h2>
-          <p>
-            {publicKeys
-              ? de
-                ? "Name und Zeitzone ändern sowie öffentliche Client-Schlüssel verwalten."
-                : "Change the name and timezone and manage public client keys."
-              : de
-                ? "Name und Zeitzone ändern."
-                : "Change the name and timezone."}
-          </p>
+          <p>{de ? "Name und Zeitzone ändern." : "Change the name and timezone."}</p>
         </div>
         <div className="page-actions">
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             <Settings data-icon="inline-start" />
             {de ? "Projekt bearbeiten" : "Edit project"}
           </Button>
-          {publicKeys && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setKeysOpen(true)}
-            >
-              <KeyRound data-icon="inline-start" />
-              {de ? "Öffentliche Schlüssel" : "Public keys"}
-            </Button>
-          )}
         </div>
       </div>
-      {publicKeys && keysOpen && <PublicKeys onClose={() => setKeysOpen(false)} />}
       {editing && (
         <Modal
           title={de ? "Projekt bearbeiten" : "Edit project"}
