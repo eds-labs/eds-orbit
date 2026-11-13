@@ -1,10 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { oldPlaces, treeProblems } from "./place-words";
+import { oldPlaces, treeProblems } from "../../../../../scripts/place-words-scan";
 
 // Every text of the web app that sends the reader to a settings place names
 // it as the center shows it. The scan covers the whole source tree (scanner:
-// place-words.ts); the two Meta provider files describe Meta's own console
+// scripts/place-words-scan.ts, shared with the API test); the two Meta provider files describe Meta's own console
 // and are skipped there.
 describe("texts name settings places as the center shows them", () => {
   it("finds no old place in the web source", () => {
@@ -21,6 +21,9 @@ describe("texts name settings places as the center shows them", () => {
     expect(oldPlaces("Open Support → Settings")).toEqual([]);
     expect(oldPlaces("Marketing settings")).toEqual([]);
     expect(oldPlaces("Open organization settings")).toEqual([]);
+    expect(oldPlaces("Organisationseinstellungen öffnen")).toEqual([]);
+    expect(oldPlaces("Check it in Administration & settings → Integrations.")).toEqual([]);
+    expect(oldPlaces("Prüfe sie unter Verwaltung & Einstellungen → KI.")).toEqual([]);
     expect(
       oldPlaces("Set it in the project, Administration & settings → AI"),
     ).toEqual([]);
@@ -42,6 +45,13 @@ describe("texts name settings places as the center shows them", () => {
       "Prüfe die Kosten in den Einstellungen.",
       "Switched off in the project settings.",
       "Add one in the settings.",
+      // Only the two exact link labels pass, not a sentence around them.
+      "Open organization settings to change it.",
+      "The GitHub App connection is invalid. Check it in the administration.",
+      "Die Verbindung ist ungültig. Prüfe sie in der Administration.",
+      // The center's name before an earlier sentence does not cover a later
+      // bare place.
+      "See Administration & settings. Then check the project settings.",
     ])
       expect(oldPlaces(text), text).not.toEqual([]);
   });

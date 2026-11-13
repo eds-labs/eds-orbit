@@ -55,8 +55,8 @@ export type ShellContextValue = {
   /** The URL of a page in the open project. */
   hrefOf: (key: string) => string;
   /**
-   * The URL of a project settings section by its tab key: the old settings
-   * page, or with the settings center on its place in the center.
+   * The settings center address of a project settings section by its old tab
+   * key (an old address the shell maps; an address it cannot map stays).
    */
   settingsHref: (key: string) => string;
   /**
@@ -66,13 +66,13 @@ export type ShellContextValue = {
    * import the center's route builder through the shell.
    */
   projectCenterHref: (area: string, ...rest: string[]) => string;
-  /** The project's connections: the old connectors page, or the center's. */
+  /** The project's connections: its place in the center. */
   connectionsHref: () => string;
-  /** An organization's settings: the old page, or the center's. */
+  /** An organization's settings: its place in the center. */
   organizationSettingsHref: (organizationId: string) => string;
   /**
-   * With the settings center on, an old settings address as its center
-   * address (attention links); otherwise, and when absent, the identity.
+   * An old settings address as its center address (attention links); when
+   * absent, the identity.
    */
   centerLink?: (href: string) => string;
   /** Chat parts of the modules, in registry order (WP2.3). */

@@ -611,7 +611,7 @@ export function ProjectReadinessPanel({
         {isOwner && (
           <AppLink href={center("ai")}>
             <Brain />
-            {de ? "KI & Budget einrichten" : "Set up AI & budget"}
+            {de ? "KI einrichten" : "Set up AI"}
           </AppLink>
         )}
       </div>

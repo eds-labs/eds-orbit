@@ -2,11 +2,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import ts from "typescript";
 
-// The scanner behind place-words.test.tsx (kept out of the test file so the
-// API test can mirror it without importing a test). A text that sends the
-// reader to a settings place names it as the center shows it
+// The scanner behind the place-word tests of both apps
+// (apps/web/src/platform/settings-center/place-words.test.tsx and
+// apps/api/tests/center-links.test.ts). It lives here, outside both apps, so
+// there is one implementation and no app code imports it. A text that sends
+// the reader to a settings place names it as the center shows it
 // ("Administration & settings → AI → Budget"), not by an old page.
-// An identical copy lives in apps/api/tests/place-words-scan.ts.
 
 const CENTER_NAMES = ["Administration & settings", "Verwaltung & Einstellungen"];
 
@@ -16,15 +17,26 @@ const ARROW = /(Settings|Einstellungen|Account|Konto|Administration)\s*(→|->)\
 const COMMA = /(Settings|Einstellungen), [A-ZÄÖÜ]/g;
 /** The retired Connectors page. */
 const CONNECTORS = /\b(?:under|unter|in) (?:the )?(?:Connectors|Konnektoren)\b/gi;
-/** A bare "in the settings" with no center name anywhere in the sentence. */
+/** A bare "in the settings" that is not part of a path from the center's name. */
 const BARE =
   /\b(?:in|under|unter|im|in den|in the) (?:the |den )?(?:project |organization |Projekt|Organisations)?-?(?:settings|Einstellungen)\b|\b(?:project|organization) settings\b|\b(?:Projekt|Organisations)einstellungen\b/gi;
 
-/** Literals that are labels of links or names of real module pages. */
-const ALLOWED: RegExp[] = [
-  /^(Open )?(organization|project) settings$/i,
-  /^(Organisations|Projekt)einstellungen öffnen$/,
-];
+/**
+ * The old "in the administration" as a place; the center's own name
+ * ("Administration & settings", an arrow after it) does not match.
+ */
+const ADMINISTRATION =
+  /\bin (?:the |der )?Administration\b(?!\s*(?:&|→|->))/gi;
+
+/**
+ * The two labels of the Social accounts view's link to the organization's
+ * page in the center (modules/social/labels.ts, key openSettings). They name
+ * a link, not a place in a sentence; only these exact labels pass.
+ */
+const LINK_LABELS = new Set([
+  "Open organization settings",
+  "Organisationseinstellungen öffnen",
+]);
 
 /** Every string literal, template chunk and JSX text of a source file. */
 export function literalsOf(source: string, name: string): string[] {
@@ -50,7 +62,7 @@ export function literalsOf(source: string, name: string): string[] {
 /**
  * Whether the match at `index` is part of a path that starts with the
  * center's name: the name ends before it (or the match is the German name's
- * own last word) with no sentence break between.
+ * own last word) with no sentence break between. `word` is the matched text.
  */
 function startsWithCenter(text: string, index: number, word: string): boolean {
   if ((text.slice(0, index) + word).endsWith("Verwaltung & Einstellungen"))
@@ -65,7 +77,7 @@ function startsWithCenter(text: string, index: number, word: string): boolean {
 
 /** The reasons a literal names an old place; empty when it is clean. */
 export function oldPlaces(text: string): string[] {
-  if (ALLOWED.some((re) => re.test(text.trim()))) return [];
+  if (LINK_LABELS.has(text.trim())) return [];
   const bad: string[] = [];
   for (const m of text.matchAll(ARROW))
     if (!startsWithCenter(text, m.index, m[1])) bad.push(text);
@@ -73,9 +85,10 @@ export function oldPlaces(text: string): string[] {
     if (!startsWithCenter(text, m.index, m[1])) bad.push(text);
   if (CONNECTORS.test(text)) bad.push(text);
   CONNECTORS.lastIndex = 0;
-  if (!CENTER_NAMES.some((n) => text.includes(n)) && BARE.test(text))
-    bad.push(text);
-  BARE.lastIndex = 0;
+  for (const m of text.matchAll(BARE))
+    if (!startsWithCenter(text, m.index, m[0])) bad.push(text);
+  for (const m of text.matchAll(ADMINISTRATION))
+    if (!startsWithCenter(text, m.index, m[0])) bad.push(text);
   return [...new Set(bad)];
 }
 

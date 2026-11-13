@@ -9,7 +9,7 @@ import { patch, post, useResource, type Entity } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import { Alert, Button, Loading } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
-import { useShell } from "@/platform/shell/shell-context";
+import { useShell, type ShellContextValue } from "@/platform/shell/shell-context";
 import { moduleLabel } from "@/platform/shell/approval-presentation";
 import { AppLink } from "@/platform/ui/app-link";
 import type { AgentSetup } from "@/platform/shell/types";
@@ -35,6 +35,35 @@ import type {
   ScheduleTrigger,
   Trigger,
 } from "./types";
+
+/** The center's "Agent permissions" section of the open project. */
+export function agentPermissionsHref(
+  shell: Pick<ShellContextValue, "projectCenterHref">,
+): string {
+  return shell.projectCenterHref("ai", "agents");
+}
+
+export function AgentPermissionsNote({
+  href,
+  de,
+}: {
+  href: string;
+  de: boolean;
+}) {
+  return (
+    <p className="agents-note">
+      {de
+        ? "Einzelne Vorschläge dieses Agenten ohne Einzelfreigabe erlaubst du unter "
+        : "To let single proposals of this agent run without a decision each time, use "}
+      <AppLink href={href}>
+        {de
+          ? "Verwaltung & Einstellungen → KI → Agentenrechte"
+          : "Administration & settings → AI → Agent permissions"}
+      </AppLink>
+      .
+    </p>
+  );
+}
 
 export const BUILDER_SECTIONS = [
   ["basics", { en: "Basics", de: "Grundlagen" }],
@@ -225,7 +254,7 @@ function BuilderForm({
   const eventChoices = catalog.events.filter(
     (e) => e.module === "platform" || config.modules.includes(e.module),
   );
-  const settingsHref = shell.settingsHref("ai");
+  const permissionsHref = agentPermissionsHref(shell);
 
   if (setup && guided)
     return (
@@ -626,17 +655,7 @@ function BuilderForm({
                 );
               })}
             </fieldset>
-            <p className="agents-note">
-              {de
-                ? "Einzelne Vorschläge dieses Agenten ohne Einzelfreigabe erlaubst du unter "
-                : "To let single proposals of this agent run without a decision each time, use "}
-              <AppLink href={settingsHref}>
-                {de
-                  ? "Verwaltung & Einstellungen → KI → Agentenrechte"
-                  : "Administration & settings → AI → Agent permissions"}
-              </AppLink>
-              .
-            </p>
+            <AgentPermissionsNote href={permissionsHref} de={de} />
             <fieldset className="agents-choices">
               <legend>{de ? "Benachrichtigen" : "Notify"}</legend>
               {(["sponsor", "agent_managers"] as const).map((who) => (

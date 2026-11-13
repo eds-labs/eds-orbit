@@ -19,6 +19,7 @@ import {
   moduleTabIndex,
   oldAddressTarget,
   capabilitiesWanted,
+  retryAction,
   locationToDecide,
   redirectModuleShown,
   shownFromStates,
@@ -644,5 +645,14 @@ describe("systemAdminOnlyFor", () => {
   it("is false for a plain member", () => {
     expect(systemAdminOnlyFor({ systemAdmin: false, workspaces })("w2")).toBe(false);
     expect(systemAdminOnlyFor({ workspaces })("w2")).toBe(false);
+  });
+});
+
+describe("retryAction", () => {
+  it("sends an expired session to the identity, everything else to the capabilities", () => {
+    expect(retryAction({ status: 401 })).toBe("identity");
+    expect(retryAction({ status: 500 })).toBe("capabilities");
+    expect(retryAction({})).toBe("capabilities");
+    expect(retryAction(null)).toBe("capabilities");
   });
 });

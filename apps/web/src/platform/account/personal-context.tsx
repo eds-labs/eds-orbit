@@ -102,7 +102,7 @@ export function PersonalContextView() {
   const t = contextText(de);
   return (
     <div className="account-page">
-      <Link className="back-link" href={manageHref({ kind: "account" }, "profile")}>
+      <Link className="back-link" href={manageHref({ kind: "account" })}>
         ← {de ? "Dein Konto" : "Your account"}
       </Link>
       <PageHead title={t.title} description={t.intro}>

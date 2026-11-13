@@ -698,6 +698,12 @@ export async function buildServer(
       account: accountEnabled(),
       connections: connectionsEnabled(),
       knowledgeShares: sharesEnabled(),
+      // A constant kept for one release (ruling R54-5): the previous web
+      // bundle in open tabs reads this field after its next /api/me and
+      // would otherwise treat the center as off and show "not found" for an
+      // open /manage page. Nothing else reads it; remove it in the next
+      // delivery.
+      settingsCenter: "on",
       workspaces: memberships.map((x) => ({
         ...x.workspace,
         role: x.role,

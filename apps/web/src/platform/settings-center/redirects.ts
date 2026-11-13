@@ -426,6 +426,18 @@ export function capabilitiesWanted(state: {
 }
 
 /**
+ * What "Try again" does after the capabilities request failed: an expired
+ * session (401) cannot be fixed by asking again, so the identity is loaded
+ * again and the shell then shows the sign-in; any other failure (a server
+ * error, no network) only asks for the capabilities again.
+ */
+export function retryAction(
+  error: { status?: number } | null,
+): "identity" | "capabilities" {
+  return error?.status === 401 ? "identity" : "capabilities";
+}
+
+/**
  * The search and hash the redirect may decide on. During the render that
  * first sees a client navigation's pathname, the browser still shows the
  * previous page: Next.js writes the new URL to the history only on commit.

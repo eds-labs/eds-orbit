@@ -30,10 +30,11 @@ import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
 import { ConnectionsPanel } from "./connections-ui";
 import { WebmailStatusPanel } from "./admin-webmail";
 
-// The system administration (/admin, ADR 0013): installation-wide metadata
-// about users, organizations, projects and invitations, and the actions on
-// them. It never shows project content. The server answers 404 to anyone
-// who is not an active system administrator; hiding it here is convenience.
+// The system administration's sections (ADR 0013), which the settings center
+// mounts under "Whole system": installation-wide metadata about users,
+// organizations, projects and invitations, and the actions on them. It never
+// shows project content. The server answers 404 to anyone who is not an
+// active system administrator; hiding it here is convenience.
 
 type Page<T> = { items: T[]; nextCursor: string | null };
 type UserRow = {

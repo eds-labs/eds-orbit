@@ -14,6 +14,7 @@ import {
   MANDATE_MAX_AGENTS,
   mandateChannels,
 } from "@/components/agent-mandates";
+import { manageHref } from "@/platform/settings-center/routes";
 import { webRegistry } from "@/modules/registry";
 import { buildNavGroups } from "@/platform/shell/nav-groups";
 import {
@@ -25,7 +26,11 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
-import { ReviewActivate } from "./builder";
+import {
+  AgentPermissionsNote,
+  ReviewActivate,
+  agentPermissionsHref,
+} from "./builder";
 import { ExecutionView } from "./executions";
 import {
   activationBody,
@@ -426,6 +431,19 @@ describe("navigation", () => {
 });
 
 describe("builder helpers", () => {
+  it("links the agent permissions note to the center's section", () => {
+    const href = agentPermissionsHref({
+      projectCenterHref: (area, ...rest) =>
+        manageHref({ kind: "project", projectId: "p1" }, area, ...rest),
+    });
+    expect(href).toBe("/manage/p/p1/ai/agents");
+    const html = renderToStaticMarkup(
+      <AgentPermissionsNote href={href} de={false} />,
+    );
+    expect(html).toContain('href="/manage/p/p1/ai/agents"');
+    expect(html).toContain("Administration &amp; settings → AI → Agent permissions");
+  });
+
   it("drops a module's tools and event triggers when it is switched off", () => {
     const tools = [
       tool("ticket_read"),

@@ -38,8 +38,8 @@ export const socialWeb: WebModule = {
   // Images from the Google Drive page into the media library (design 2026-11-05).
   drive: { fileActions: [AddToSocialAction] },
   // The accounts page in the settings center's Integrations area (ADR 0027);
-  // its own page /p/:id/social/accounts mounts the same view until the center
-  // is on, then only states the accounts and links here.
+  // its own page /p/:id/social/accounts only states the accounts and links
+  // here.
   integrations: [
     {
       id: "accounts",

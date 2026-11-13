@@ -12,7 +12,7 @@ import { financeCurrenciesLink, financeMailboxesLink } from "../src/modules/fina
 import { marketingPolicyLink } from "../src/modules/marketing/attention.ts";
 import { operationFromEvidence } from "../src/modules/marketing/agents/run-operation.ts";
 import { socialAccountsLink } from "../src/modules/social/links.ts";
-import { oldPlaces, treeProblems } from "./place-words-scan.ts";
+import { oldPlaces, treeProblems } from "../../../scripts/place-words-scan.ts";
 
 // Every link the API sends to a place in the settings center, for project p1.
 // The web test api-links.test.tsx reads the fixture and resolves each link
@@ -72,7 +72,7 @@ describe("links to the settings center", () => {
 
 // Every text of the API that sends the reader to a settings place names it as
 // the center shows it ("Administration & settings → AI → Budget"), not by an
-// old page. The scan covers the whole source tree (scanner: place-words-scan.ts);
+// old page. The scan covers the whole source tree (scanner: scripts/place-words-scan.ts);
 // the two Meta provider files describe Meta's own console and are skipped there.
 describe("texts name settings places as the center shows them", () => {
   it("finds no old place in the API source", () => {
@@ -84,6 +84,7 @@ describe("texts name settings places as the center shows them", () => {
     expect(oldPlaces("Administration & settings → AI → Budget")).toEqual([]);
     expect(oldPlaces("Verwaltung & Einstellungen → Mein Konto → Assistent")).toEqual([]);
     expect(oldPlaces("Support → Settings")).toEqual([]);
+    expect(oldPlaces("Granted in Administration & settings → Whole system.")).toEqual([]);
   });
 
   it("flags the forms of the old places", () => {
@@ -95,6 +96,8 @@ describe("texts name settings places as the center shows them", () => {
       "Administration → Connections (granted to the project)",
       "Settings, Support",
       "Check it in the organization settings.",
+      "A missing key is granted in the administration.",
+      "See Administration & settings. Then check the project settings.",
       "Integrations are managed under Connectors.",
     ])
       expect(oldPlaces(text), text).not.toEqual([]);

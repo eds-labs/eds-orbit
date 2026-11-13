@@ -7,7 +7,7 @@ import type { Locale } from "@/lib/i18n";
 const en = {
   projectHeading: "Project",
   projectHint:
-    "Settings that apply to the whole project and every module. Module settings are in their own groups below; organization and installation settings are in the administration.",
+    "Settings that apply to the whole project and every module. Module settings are in their own groups below; organization and installation settings are in Administration & settings.",
   name: "Name",
   timezone: "Timezone",
   yourRole: "Your role",
@@ -69,7 +69,7 @@ export type ProjectSettingsTextKey = keyof typeof en;
 const de: Record<ProjectSettingsTextKey, string> = {
   projectHeading: "Projekt",
   projectHint:
-    "Einstellungen für das ganze Projekt und alle Module. Moduleinstellungen stehen in eigenen Gruppen darunter; Organisations- und Installationseinstellungen in der Administration.",
+    "Einstellungen für das ganze Projekt und alle Module. Moduleinstellungen stehen in eigenen Gruppen darunter; Organisations- und Installationseinstellungen in Verwaltung & Einstellungen.",
   name: "Name",
   timezone: "Zeitzone",
   yourRole: "Deine Rolle",

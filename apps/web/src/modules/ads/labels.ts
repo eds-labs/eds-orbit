@@ -26,7 +26,7 @@ const en = {
     reconnect: "Reconnect",
     selectAccounts: "Select accounts",
     hints: {
-      not_granted: "An administrator must create and grant the Meta app for ads in the administration.",
+      not_granted: "An administrator must create and grant the Meta app for ads in Administration & settings → Whole system → Integrations → Central connections.",
       project_not_granted: "The organization owner must grant the Meta app to this project.",
       invalid: "The administration must re-enter the Meta app: its stored data is no longer valid.",
     } as Record<string, string>,
@@ -140,7 +140,7 @@ const de: AdsText = {
     reconnect: "Neu verbinden",
     selectAccounts: "Konten auswählen",
     hints: {
-      not_granted: "Eine Administratorin muss die Meta-App für Werbung in der Administration anlegen und freigeben.",
+      not_granted: "Eine Administratorin muss die Meta-App für Werbung unter Verwaltung & Einstellungen → Gesamtes System → Integrationen → Zentrale Verbindungen anlegen und freigeben.",
       project_not_granted: "Der Owner der Organisation muss die Meta-App für dieses Projekt freigeben.",
       invalid: "Die Administration muss die Meta-App neu eintragen: Die gespeicherten Daten sind nicht mehr gültig.",
     },

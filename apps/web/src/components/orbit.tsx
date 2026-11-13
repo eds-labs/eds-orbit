@@ -123,6 +123,7 @@ import {
   mapOldAddress,
   mayBeOldAddress,
   moduleTabIndex,
+  retryAction,
   redirectFor,
   shownFromStates,
   systemAdminOnlyFor,
@@ -287,6 +288,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       before: capsBefore,
     }),
   );
+  // An expired session also loads the identity again, so the shell shows the
+  // sign-in instead of failing on every retry.
+  const retryCapabilities = () => {
+    if (retryAction(caps.error) === "identity") identity.refresh();
+    caps.refresh();
+  };
   const center =
     place.kind === "manage"
       ? centerState({
@@ -482,8 +489,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   useEffect(() => {
     const me = identity.data;
     if (!me) return;
-    // Only with the settings center on: an old settings address (a legacy
-    // one after its project is chosen) goes to the center in one step.
+    // An old settings address (a legacy one after its project is chosen)
+    // goes to the center in one step.
     if (redirect.kind === "wait") return;
     if (redirect.kind === "go") {
       router.replace(redirect.href);
@@ -874,7 +881,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     </div>,
     (kind) =>
       framed(
-        <OldAddressScreen kind={kind} locale={locale} onRetry={caps.refresh} />,
+        <OldAddressScreen kind={kind} locale={locale} onRetry={retryCapabilities} />,
       ),
   );
   if (redirecting) return redirecting;
@@ -948,7 +955,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       return frame(
         <>
           <Alert kind="error">{center.message}</Alert>
-          <Button onClick={caps.refresh}>{t("retry")}</Button>
+          <Button onClick={retryCapabilities}>{t("retry")}</Button>
         </>,
       );
     if (!caps.data) return frame(<NotFound t={t} project={false} />);

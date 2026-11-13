@@ -284,9 +284,9 @@ describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
       );
     });
 
-    it("carries no settings center rollout stage in /api/me", async () => {
+    it("keeps the constant settingsCenter field for older open tabs", async () => {
       const me = (await call("GET", "/api/me", p.owner)).json();
-      expect(me).not.toHaveProperty("settingsCenter");
+      expect(me.settingsCenter).toBe("on");
     });
 
     it("lists and searches users with their memberships", async () => {

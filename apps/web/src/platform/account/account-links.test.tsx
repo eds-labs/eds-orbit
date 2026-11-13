@@ -60,9 +60,9 @@ describe("account links address the center", () => {
     expect(html).not.toMatch(/href="\/account/);
   });
 
-  it("links My context back to the account scope's profile section", () => {
+  it("links My context back to the account scope, not to one section", () => {
     const html = render(<PersonalContextView />);
-    expect(html).toContain('href="/manage/me/profile"');
+    expect(html).toContain('class="back-link" href="/manage/me"');
     expect(html).not.toMatch(/href="\/account/);
   });
 });

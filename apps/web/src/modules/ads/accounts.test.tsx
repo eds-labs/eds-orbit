@@ -106,7 +106,7 @@ describe("ads accounts view (ADR 0025, A3)", () => {
     answers["/ads/accounts"] = { accounts: [] };
     answers["/ads/connections"] = { app: "not_granted", connections: [] };
     const de = render(<AdsAccounts />, { locale: "de" });
-    expect(de).toContain("Eine Administratorin muss die Meta-App für Werbung in der Administration anlegen und freigeben.");
+    expect(de).toContain("Eine Administratorin muss die Meta-App für Werbung unter Verwaltung &amp; Einstellungen → Gesamtes System → Integrationen → Zentrale Verbindungen anlegen und freigeben.");
     expect(buttons(de)).not.toContain("Mit Meta verbinden");
     answers["/ads/connections"] = { app: "project_not_granted", connections: [] };
     expect(render(<AdsAccounts />)).toContain("organization owner");

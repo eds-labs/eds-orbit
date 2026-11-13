@@ -65,7 +65,7 @@ export const READINESS_BLOCKERS: Record<string, BlockerEntry> = {
   },
   VERIFIED_OPENAI_MODELS_REQUIRED: {
     cause: "No usable text key or no verified models for the project.",
-    fix: "Select verified, priced models; a missing key is granted in the administration or added in Administration & settings → AI → Providers and keys.",
+    fix: "Select verified, priced models; a missing key is granted in Administration & settings → Whole system → Integrations → Central connections or added in Administration & settings → AI → Providers and keys.",
     resolution: "mcp",
     tools: ["ai_models_get", "ai_models_update"],
   },

@@ -29,15 +29,14 @@ export function shellLinks({
   projectId: string;
   map: (href: string) => string;
 }): ShellLinks {
-  const link = map;
   return {
-    settingsHref: (key) => link(settingsSectionHref(hrefOf("settings"), key)),
-    connectionsHref: () => link(hrefOf("connectors")),
+    settingsHref: (key) => map(settingsSectionHref(hrefOf("settings"), key)),
+    connectionsHref: () => map(hrefOf("connectors")),
     organizationSettingsHref: (organizationId) =>
-      link(`/o/${encodeURIComponent(organizationId)}/settings`),
+      map(`/o/${encodeURIComponent(organizationId)}/settings`),
     // A center address is final: it is never mapped.
     projectCenterHref: (area, ...rest) =>
       manageHref({ kind: "project", projectId }, area, ...rest),
-    centerLink: link,
+    centerLink: map,
   };
 }
