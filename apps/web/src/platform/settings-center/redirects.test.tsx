@@ -549,13 +549,22 @@ describe("the location the redirect may decide on (I-1)", () => {
 
 describe("whether the capabilities are requested while the location waits", () => {
   it("follows the address once it is known", () => {
-    expect(capabilitiesWanted({ needed: true, locationWaits: false, before: false })).toBe(true);
-    expect(capabilitiesWanted({ needed: false, locationWaits: false, before: true })).toBe(false);
+    expect(capabilitiesWanted({ signedIn: true, needed: true, locationWaits: false, before: false })).toBe(true);
+    expect(capabilitiesWanted({ signedIn: true, needed: false, locationWaits: false, before: true })).toBe(false);
+  });
+
+  it("is never wanted without a session, whatever the address needs", () => {
+    for (const needed of [true, false])
+      for (const locationWaits of [true, false])
+        for (const before of [true, false])
+          expect(capabilitiesWanted({ signedIn: false, needed, locationWaits, before })).toBe(false);
+    // Signed in on a center page: wanted.
+    expect(capabilitiesWanted({ signedIn: true, needed: true, locationWaits: false, before: false })).toBe(true);
   });
 
   it("keeps the request of the previous address while it waits, and never starts one", () => {
     // Coming from a center page: not dropped and fetched again.
-    expect(capabilitiesWanted({ needed: false, locationWaits: true, before: true })).toBe(true);
-    expect(capabilitiesWanted({ needed: false, locationWaits: true, before: false })).toBe(false);
+    expect(capabilitiesWanted({ signedIn: true, needed: false, locationWaits: true, before: true })).toBe(true);
+    expect(capabilitiesWanted({ signedIn: true, needed: false, locationWaits: true, before: false })).toBe(false);
   });
 });

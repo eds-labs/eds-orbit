@@ -249,7 +249,7 @@ export function mayBeOldAddress(pathname: string): boolean {
 }
 
 /**
- * A link as the shell renders it with the flag on: an old settings address
+ * A link as the shell renders it: an old settings address
  * becomes its center address. Any other link stays as it is, and so does one
  * whose mapping waits for module states: the redirect then decides. A link
  * never asks for capabilities; at worst it leads through the redirect.
@@ -382,18 +382,21 @@ export function shownFromStates(
 }
 
 /**
- * Whether the shell requests the member's capabilities. Once the address is
- * known, when it is needed (a center page, or an address that maps). While
+ * Whether the shell requests the member's capabilities. Never without a
+ * session (a signed-out visitor would store a 401 that outlives the sign-in).
+ * Once the address is known, when it is needed (a center page, or an address that maps). While
  * the location waits for its commit, only a request the previous address
  * already had stays on (coming from a center page, it is not dropped and
  * fetched again); none is started for a render whose address is not known.
  * The wait ends with the commit record, not with the capabilities.
  */
 export function capabilitiesWanted(state: {
+  signedIn: boolean;
   needed: boolean;
   locationWaits: boolean;
   before: boolean;
 }): boolean {
+  if (!state.signedIn) return false;
   return state.locationWaits ? state.before : state.needed;
 }
 

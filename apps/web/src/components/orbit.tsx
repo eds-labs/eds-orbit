@@ -175,7 +175,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   });
   const signout = useMutation(identity.refresh);
   // The settings center (/manage) is always there.
-  const manage = place.kind === "manage" ? place.target : null;
+  // Only with a session: a signed-out visitor must not request anything.
+  const manage = place.kind === "manage" && identity.data ? place.target : null;
   // An old settings address opens its place in the settings center. It is
   // read in render only once /me has loaded, so never on the server; a
   // legacy address counts as the project address it leads to.
@@ -186,14 +187,17 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   // The location after the commit of the router's pathname: the render that
   // first sees a client navigation still finds the previous page's search
   // and hash in window.location (locationToDecide).
+  // Keyed on the session as well, so it is recorded once /me has loaded.
   const [committed, setCommitted] = useState<OldAddress | null>(null);
+  const committedKey = identity.data ? pathname : null;
   useEffect(() => {
+    if (committedKey === null) return;
     setCommitted({
-      pathname,
+      pathname: committedKey,
       search: window.location.search,
       hash: window.location.hash,
     });
-  }, [pathname]);
+  }, [committedKey]);
   const location =
     identity.data && typeof window !== "undefined"
       ? locationToDecide(
@@ -253,12 +257,17 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   // Whether the last address the shell knew needed the capabilities.
   const capsNeeded = manage !== null || firstMapping !== null;
   const [capsBefore, setCapsBefore] = useState(false);
-  const capsBeforeKey = !locationWaits ? capsNeeded : null;
+  const capsBeforeKey = identity.data && !locationWaits ? capsNeeded : null;
   useEffect(() => {
     if (capsBeforeKey !== null) setCapsBefore(capsBeforeKey);
   }, [capsBeforeKey]);
   const caps = useManagementCapabilities(
-    capabilitiesWanted({ needed: capsNeeded, locationWaits, before: capsBefore }),
+    capabilitiesWanted({
+      signedIn: Boolean(identity.data),
+      needed: capsNeeded,
+      locationWaits,
+      before: capsBefore,
+    }),
   );
   const center =
     place.kind === "manage"
@@ -327,8 +336,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         { caps: caps.failed ? undefined : caps.data },
       );
   const redirectKey = redirect.kind === "go" ? redirect.href : redirect.kind;
-  // Links: an old settings address renders as its center
-  // address. A moved key is decided only by the settled module states of the
+  // Links: an old settings address renders as its center address. A moved
+  // key is decided only by the settled module states of the
   // project the shell loads them for; any other project, or states not yet
   // settled, keep the old address, and the redirect decides on arrival.
   const centerMap = useMemo((): ((href: string) => string) => {
@@ -757,10 +766,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       {t("signOut")}
     </button>
   );
-  const userMenu = (organizationId?: string, role?: string) => (
+  const userMenu = (role?: string) => (
     <UserMenu
       identity={me}
-      organizationId={organizationId}
       role={role}
       t={t}
       signingOut={signout.pending}
@@ -1243,7 +1251,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             <div className="topbar-actions">
               <NotificationBell project={project} locale={locale} />
               {languageControl}
-              {userMenu(project.workspaceId, role)}
+              {userMenu(role)}
             </div>
           </header>
           <div className="mobile-project">

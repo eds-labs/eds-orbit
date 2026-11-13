@@ -10,8 +10,8 @@ import type {
 
 /**
  * What the member may do in the settings center. Requested only while
- * `enabled`: the API answers 404 while the flag is off, and pages other than
- * /manage never need it.
+ * `enabled`: pages other than /manage never need it, and a visitor without a
+ * session must not request it.
  */
 export function useManagementCapabilities(enabled: boolean): {
   data: ManagementCapabilities | null;

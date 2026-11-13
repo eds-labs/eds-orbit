@@ -9,7 +9,7 @@ import { AccountsSummaryView } from "./accounts";
 import { socialPath, type SocialAccounts } from "./api";
 
 /**
- * Where the OAuth callback's return goes once the settings center manages the
+ * Where the OAuth callback's return goes, as the settings center manages the
  * accounts: the callback only accepts a return below the module, so the result
  * arrives on the module page and is passed on, unchanged, to the section with
  * the editor. Null: show the page as it is.

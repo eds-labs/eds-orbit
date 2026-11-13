@@ -23,15 +23,12 @@ export function userMenuEntries() {
 
 export function UserMenu({
   identity,
-  organizationId,
   role,
   t,
   onSignOut,
   signingOut,
 }: {
   identity: Identity;
-  /** The open project's organization, if any. */
-  organizationId?: string;
   role?: string;
   t: Text;
   onSignOut: () => void;
