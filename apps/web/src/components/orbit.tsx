@@ -94,6 +94,10 @@ import {
   overflowBadge,
   useAttentionLoad,
 } from "@/platform/shell/attention";
+import {
+  clearSessionCache,
+  useSessionResource,
+} from "@/platform/shell/session";
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
@@ -164,10 +168,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     [revision, setRevision] = useState(0),
     [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set()),
     [collapsedLoaded, setCollapsedLoaded] = useState(false);
-  const setup = useResource<{ configured: boolean; passwordReset?: boolean }>(
-    "/setup",
+  // Cached across the remount on every navigation (session.ts).
+  const setup = useSessionResource<{
+    configured: boolean;
+    passwordReset?: boolean;
+  }>("/setup");
+  const identity = useSessionResource<Identity>(
+    setup.data?.configured ? "/me" : null,
   );
-  const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
   const t: Text = (key) => translate(locale, key);
   const mutation = useMutation(() => {
     setNewProject(false);
@@ -253,6 +261,15 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const project = projectId
     ? identity.data?.projects.find((p) => p.id === projectId)
     : undefined;
+  // A project the cached identity does not list may have been added since
+  // (in another tab, by an invitation): ask the server before "not found".
+  const unlisted = Boolean(
+    projectId && identity.data && !project && identity.cached,
+  );
+  const refreshIdentity = identity.refresh;
+  useEffect(() => {
+    if (unlisted) refreshIdentity();
+  }, [unlisted, refreshIdentity]);
   // Mapped before the module states are known: whether it maps, and every
   // result but "wait", do not depend on them (pinned in redirects.test.tsx).
   // An old address of a project the member does not have keeps the shell's
@@ -788,6 +805,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         signout.run(async () => {
           await post("/auth/sign-out", {});
           clearAttentionCache();
+          clearSessionCache();
         })
       }
     >
@@ -805,6 +823,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         signout.run(async () => {
           await post("/auth/sign-out", {});
           clearAttentionCache();
+          clearSessionCache();
         })
       }
     />
@@ -932,7 +951,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     place.kind === "start" ||
     place.kind === "legacy" ||
     place.kind === "redirect" ||
-    (projectId && !project && projectId === createdProject)
+    (projectId && !project && projectId === createdProject) ||
+    unlisted
   )
     return (
       <div className="boot">
