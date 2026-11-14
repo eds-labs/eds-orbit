@@ -1,5 +1,22 @@
 # Requirements traceability
 
+## Content Hub and SEO publishing (ADR 0029, proposed; plan [plans/CONTENT_HUB.md](plans/CONTENT_HUB.md); 2026-11-14, docs only)
+
+Planned requirements and the work packages that will cover them. Nothing is implemented; the evidence column is filled when a package is built.
+
+| ID | Requirement | Planned packages | Local evidence | Result |
+| --- | --- | --- | --- | --- |
+| CH-R1 | Articles are created, edited, versioned, archived and published in Orbit with drafts separate from published content | CH1.6, CH1.8, CH1.10 | – | PLANNED |
+| CH-R2 | Structured rich text, categories, tags, authors, media with alt texts, languages and SEO metadata | CH1.5, CH1.7, CH1.8, CH1.9, CH1.14 | – | PLANNED |
+| CH-R3 | Publishing and updates go through the existing approval system (owner or content editor, never a mandate), including scheduled publication | CH1.10 | – | PLANNED |
+| CH-R4 | Versioned public delivery API and management API with OpenAPI, API keys with granular scopes, rate limits, pagination, caching and idempotency | CH1.1, CH1.2, CH1.12, CH1.13 | – | PLANNED |
+| CH-R5 | Signed webhooks with retries for website revalidation or rebuilds | CH1.3, CH1.11 | – | PLANNED |
+| CH-R6 | Project and organization isolation for all content, keys and webhooks | CH1.1, CH1.3, CH1.6, CH1.18 | – | PLANNED |
+| CH-R7 | Agents use the module through a contract and MCP without coupling it to Marketing | CH1.15, CH1.16 | – | PLANNED |
+| CH-R8 | Websites render Orbit articles under their own domain without new commits and keep serving existing articles when Orbit is unreachable | CH2.0 to CH2.6 | – | PLANNED |
+| CH-R9 | Extension points for later CMS connectors without rebuilding the module | CH1.10, CH1.11 | – | PLANNED |
+| CH-R10 | AI SEO workflow with research, editorial calendar, fact-bound generation, review, approval, scheduled publication and measurement | CH4.1 to CH4.11 | – | PLANNED |
+
 ## AI image labelling "KI erstellt" (ADR 0028; 2026-11-13, branch `claude/ai-image-labeling`; delivered to `main` 6063c147; flag `on` in production since 2026-11-13, not live-accepted)
 
 API tests under `apps/api/tests/`, engine tests next to the code in `packages/creative/src/`. Results are the controller's full run on the final head (see `IMPLEMENTATION_STATUS.md`).

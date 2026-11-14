@@ -1,5 +1,15 @@
 # Implementation status
 
+## Content Hub and SEO publishing: architecture review and plan (2026-11-14, branch `claude/orbit-content-hub-architecture-0894a4`, docs only)
+
+Plan [CONTENT_HUB.md](plans/CONTENT_HUB.md), [ADR 0029](adr/0029-content-module.md) (proposed). Work package CH0.1 of the plan. Mario answered E-1 to E-4 on 2026-11-14: the website rendering variant (ISR or rebuild) and the hosting of EDS Labs and uLiquid are decided later; the editor is TipTap with Orbit's own block JSON; publishing is approved by the owner or a content editor.
+
+- **Risk / environment:** documentation only (local). No code, schema, migration, dependency, flag or production change.
+- **What the plan contains:** a new opt-in module `cms` (headless articles, revisions, taxonomies, authors, media, sites, publications, redirects), three platform capabilities (API keys, an `/api/v1` frame, outbound webhooks), a pure package `packages/content-doc`, website integration for FamilyPlan (pilot), EDS Labs and uLiquid, and the Phase 4 SEO workflow in Marketing; work packages CH0.1 to CH4.11 with dependencies, MVP marks and sizes.
+- **Found during the review:** the earlier GitHub pull-request blog delivery (branch `claude/uliquid-blog-publishing-c9a252`) is not merged and is superseded by this plan; all three websites are Next.js static exports; the FamilyPlan production container holds two hotfixes that are not on its `main`.
+- **Verification:** path and reference checks of the new documents, `git diff --check`. Runtime checks are skipped because nothing executable changed.
+- **Next:** CH0.2 (TipTap spike and version pins), then the phase 1 packages in the order of the plan, each with its own approval for migrations (schema hash) and delivery to `main`.
+
 ## System & Administration V2, row 5.4: one settings surface, old pages and rollout flag removed (2026-11-13, branch `claude/settings-center-row-5-4`; delivered to `main` on 2026-11-13, not live-accepted)
 
 Plan [SYSTEM_MANAGEMENT_V2.md](plans/SYSTEM_MANAGEMENT_V2.md) §5.3, §5.7, §10 row 5.4, §13 and §14, implementation plan [2026-11-12-settings-center-row-5-4.md](superpowers/plans/2026-11-12-settings-center-row-5-4.md), [ADR 0027](adr/0027-settings-center.md). Mario confirmed the plan, its decisions P54-D1 to P54-D7 and his acceptance of the flag value `on` on 2026-11-13. The branch is implemented, reviewed task by task and as a whole branch ("ready to deliver", no Critical or Important finding left), and delivered to `main` on 2026-11-13 with Mario's approval, after a merge with `main` (two documentation commits; one conflict in this document, both sides kept) and a repeat of the type checks, the source and compose checks, the secret scan, the framework check and the web unit suite on the merged tree. Until this delivery production ran the phase 5 code with `ORBIT_SETTINGS_CENTER=on` (since 2026-11-12 18:47 UTC). The check of old links with a session in production is Mario's, so the delivery is not live-accepted.
