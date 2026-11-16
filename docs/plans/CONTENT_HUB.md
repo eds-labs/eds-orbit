@@ -366,7 +366,7 @@ Expected calendar time with Claude Code and subagents: phase 1 about 2–3 weeks
 ## 13. Open decisions
 
 - D-A Website variant A/B per site (CH2.0) and hosting of EDS Labs and uLiquid (E-1, E-2 deferred).
-- D-B Exact TipTap versions and extension list: proposal from CH0.2 in [CONTENT_HUB_CH0_2_TIPTAP_SPIKE.md](CONTENT_HUB_CH0_2_TIPTAP_SPIKE.md) (five packages at 3.32.2), awaiting approval.
+- D-B Exact TipTap versions and extension list: proposal from CH0.2 in [CONTENT_HUB_CH0_2_TIPTAP_SPIKE.md](CONTENT_HUB_CH0_2_TIPTAP_SPIKE.md) (five packages at 3.32.2); Mario approved it on 2026-11-16 together with the start of phase 1.
 - D-C Public API domain: the app origin through the Next proxy (recommended) or an `api.` subdomain.
 - D-D Search Console: publish the OAuth app; optional paid keyword volume API (not MVP; recommended: no).
 - D-E Monthly budget and article cap for the SEO automation (proposal: 4 articles per month and project).

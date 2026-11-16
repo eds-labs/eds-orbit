@@ -1,6 +1,6 @@
 # CH0.2: TipTap and orbit-doc-v1 spike
 
-Work package CH0.2 of [CONTENT_HUB.md](CONTENT_HUB.md), 2026-11-14. Throw-away prototype in the session scratch directory; nothing in the repository depends on it. No package manifest or lockfile of Orbit changed. The version proposal below is decision D-B and needs Mario's approval before CH1.14b adds the packages.
+Work package CH0.2 of [CONTENT_HUB.md](CONTENT_HUB.md), 2026-11-14. Throw-away prototype in the session scratch directory; nothing in the repository depends on it. No package manifest or lockfile of Orbit changed. The version proposal below is decision D-B; Mario approved it on 2026-11-16, and CH1.14b adds the packages.
 
 ## Result in short
 
