@@ -130,6 +130,9 @@
     ],
     "package:money": [
       "packages/money/"
+    ],
+    "package:content-doc": [
+      "packages/content-doc/"
     ]
   },
   "dependencies": {
