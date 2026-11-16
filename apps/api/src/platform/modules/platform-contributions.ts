@@ -41,6 +41,7 @@ import { pauseCallback, telegramEnabled, telegramWebhook } from "../connections/
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
+import { idempotencyCleanup } from "../http/v1.ts";
 import { personalSpaceCleanup } from "../assistant/personal-space.ts";
 import { fileCleanup } from "../files/files.ts";
 import { emailConnectionProvider } from "../email/connection.ts";
@@ -162,6 +163,8 @@ export const platformContributions: ModuleContributions = {
   // Links to deleted objects weekly and events after 30 days (ADR 0016).
   periodic: [
     ingressCleanup,
+    // Stored /api/v1 answers expire after 24 hours (ADR 0029, CH1.2).
+    idempotencyCleanup,
     fileCleanup,
     emailInbound,
     linkPrune,

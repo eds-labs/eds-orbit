@@ -237,6 +237,7 @@ describe("module contributions", () => {
     // and event retention follow the platform's tasks (ADR 0016).
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
       "public-ingress-cleanup",
+      "api-idempotency-cleanup",
       "file-cleanup",
       "email-inbound",
       "object-link-prune",

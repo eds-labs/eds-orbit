@@ -432,6 +432,8 @@ export async function buildServer(
       !apiV1Enabled()
     )
       throw new DomainError("NOT_FOUND", 404);
+    // v1 answers name their request, so integrators can report one (CH1.2).
+    if (req.url.startsWith("/api/v1/")) reply.header("X-Request-Id", req.id);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
