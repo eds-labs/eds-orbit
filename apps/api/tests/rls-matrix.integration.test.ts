@@ -117,6 +117,8 @@ const PROJECT_TABLES = [
   "WebmailMailbox",
   "WebmailMailboxGrant",
   "WebmailSession",
+  // Stored answers of v1 writes (ADR 0029, CH1.2).
+  "ApiIdempotencyKey",
   // Ads module (ADR 0025).
   "AdAccount",
   "AdOAuthState",
@@ -135,6 +137,8 @@ const CHAT_TABLES = [
 ];
 // RLS for the business role, full control only for orbit_auth.
 const TENANCY_TABLES = [
+  // Project API keys (ADR 0029, CH1.1): resolved by orbit_auth alone.
+  "ApiKey",
   "Project",
   "ProjectMember",
   "ProjectMemberModuleRole",
@@ -178,6 +182,7 @@ const GRANTED_READ_TABLES = [
 const COUNTER_TABLES = ["OrganizationSpendCounter", "SpendCounter"];
 // Tenancy tables the business role must not touch at all.
 const NO_APP_ACCESS = [
+  "ApiKey",
   "ProjectMember",
   "ProjectMemberModuleRole",
   "PublicClientKey",
@@ -205,6 +210,8 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     // ADR 0028: an image provenance record is immutable; project deletion
     // still cascades.
     ImageProvenance: [true, true, false, false],
+    // CH1.2: a stored v1 answer is written once and removed by retention.
+    ApiIdempotencyKey: [true, true, false, true],
     // ADR 0017: applied plans and coding work orders are kept.
     WorkPlanProposal: [true, true, true, false],
     WorkCodingRun: [true, true, true, false],
@@ -421,6 +428,32 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           actorKind: "system",
           origin: "platform",
           correlationId: eventId,
+        },
+      });
+      // A project API key (orbit_auth, CH1.1) and one stored v1 answer (CH1.2).
+      const apiKey = await authDb.apiKey.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          name: "Synthetic RLS key",
+          prefix: `ok_${randomUUID().replace(/[^a-z]/g, "").padEnd(12, "a").slice(0, 12)}`,
+          secretHash: "c".repeat(64),
+          scopes: ["cms:delivery.read"],
+          createdBy: s.userId,
+        },
+      });
+      await tx.apiIdempotencyKey.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          apiKeyId: apiKey.id,
+          key: `rls-${randomUUID()}`,
+          requestHash: "d".repeat(64),
+          responseStatus: 201,
+          responseBody: {},
+          expiresAt: new Date(Date.now() + 86_400_000),
         },
       });
       // Image provenance (ADR 0028).

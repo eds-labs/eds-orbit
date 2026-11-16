@@ -195,6 +195,18 @@ The ads module (`docs/ADS.md`, ADR 0025) follows the same pattern: `defaultEnabl
 
 Switching it off deletes nothing.
 
+## Content module (opt-in, 2026-11-16, branch only; flag off)
+
+The content module (id `cms`, [ADR 0029](adr/0029-content-module.md), plan `docs/plans/CONTENT_HUB.md`) follows the same pattern: `defaultEnabled: false`, the installation switch `ORBIT_CMS` and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_CMS=true` (default `false`). While off, routes answer 404 `CMS_DISABLED`. CH1.4 has only `GET status` and `PUT settings`; no tables, tools, jobs or attention items yet. |
+| Project | An owner enables it in Settings → Modules (`enabled = true` row). |
+| Member | `cms.read` (every member), `cms.compose`, `cms.publish.request` and `cms.publish.decide` (owner, editor), `cms.sites.manage` (owner; sensitive) and `cms.settings` (owner); module roles may narrow them. The project setting `publishApprovers` (default `owner_or_editor`, decision E-4) narrows deciding a publication to the owner; agents, API keys and MCP clients only propose. |
+
+Switching it off deletes nothing.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0013, and as part of an invitation):

@@ -83,6 +83,24 @@ describe("API proxy", () => {
     expect(headers.get("x-other")).toBeNull();
   });
 
+  // ADR 0029, CH1.1: the versioned API takes a project API key, never a session.
+  it("forwards the API key under /api/v1/ and drops the session cookie", async () => {
+    const forwarded: Headers[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: URL, init: RequestInit) => {
+        forwarded.push(new Headers(init.headers));
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const request = new NextRequest("https://orbit.example/api/v1/key", {
+      headers: { authorization: "Bearer ok_x", cookie: "session=1" },
+    });
+    await GET(request, { params: Promise.resolve({ path: ["v1", "key"] }) });
+    expect(forwarded[0]!.get("authorization")).toBe("Bearer ok_x");
+    expect(forwarded[0]!.get("cookie")).toBeNull();
+  });
+
   it("forwards the right-most X-Forwarded-For hop as the client address", async () => {
     const headers = await call({
       "x-forwarded-for": "203.0.113.9, 198.51.100.7",

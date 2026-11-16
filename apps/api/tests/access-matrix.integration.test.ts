@@ -43,6 +43,10 @@ Object.assign(process.env, {
   WEBMAIL_BRIDGE_SECRET: "synthetic-bridge-secret-with-enough-length",
   // Ads module (ADR 0025): routes exist; the project never enables it.
   ORBIT_ADS: "true",
+  // Content module (ADR 0029): routes exist; the project never enables it.
+  ORBIT_CMS: "true",
+  // Versioned API and project API keys (ADR 0029, CH1.1).
+  ORBIT_API_V1: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",

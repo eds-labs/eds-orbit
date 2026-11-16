@@ -152,6 +152,8 @@ try {
     "ProjectMemberModuleRole",
     // Public client keys (WP4.2b): resolved without a project scope.
     "PublicClientKey",
+    // Project API keys (ADR 0029, CH1.1): resolved without a project scope.
+    "ApiKey",
     // Invitations (ADR 0013): control plane, never the business role.
     "Invitation",
     "InvitationProjectGrant",
@@ -297,6 +299,8 @@ try {
   // ADR 0028: an image provenance record describes one byte version and is
   // never changed or removed; project deletion still cascades.
   await migrator.query('GRANT SELECT,INSERT ON "ImageProvenance" TO orbit_app');
+  // CH1.2: stored v1 answers are written once and removed by retention.
+  await migrator.query('GRANT SELECT,INSERT,DELETE ON "ApiIdempotencyKey" TO orbit_app');
   // ADR 0017: applied plans, handoffs and coding work orders stay as the
   // record of what the PM proposed and dispatched; project deletion still
   // cascades.

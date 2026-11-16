@@ -66,6 +66,9 @@
     "module:ads": [
       "apps/api/src/modules/ads/"
     ],
+    "module:cms": [
+      "apps/api/src/modules/cms/"
+    ],
     "worker": [
       "apps/worker/src/"
     ],
@@ -100,6 +103,9 @@
     ],
     "web-module:ads": [
       "apps/web/src/modules/ads/"
+    ],
+    "web-module:cms": [
+      "apps/web/src/modules/cms/"
     ],
     "package:ai": [
       "packages/ai/"

@@ -199,6 +199,7 @@ describe("module settings links in the sidebar", () => {
       ["social", undefined],
       ["webmail", "integrations"],
       ["ads", undefined],
+      ["cms", undefined],
     ]);
   });
 

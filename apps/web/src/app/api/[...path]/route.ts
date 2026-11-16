@@ -69,15 +69,16 @@ async function proxy(
       { error: { code: "INVALID_PATH", message: "Invalid API path." } },
       { status: 400 },
     );
-  // Authorization only under /api/auth/oauth2/ and /api/public/: nowhere
-  // else does the API read it.
+  // Authorization only under /api/auth/oauth2/, /api/public/ and /api/v1/:
+  // nowhere else does the API read it. The versioned API (ADR 0029) takes a
+  // project API key and, like the public API, never an Orbit session cookie.
   const oauth = path[0] === "auth" && path[1] === "oauth2";
   return forwardToApi(
     request,
     `/api/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
     path[0] === "hooks"
       ? hookHeaders(request)
-      : path[0] === "public"
+      : path[0] === "public" || path[0] === "v1"
         ? publicHeaders
         : oauth
           ? oauthHeaders

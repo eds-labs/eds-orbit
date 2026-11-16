@@ -164,6 +164,9 @@ export const platformDeclaration: PlatformDeclaration = {
     "ProjectMember",
     "ProjectMemberModuleRole",
     "PublicClientKey",
+    // Project API keys and stored v1 answers (ADR 0029, CH1.1/CH1.2).
+    "ApiKey",
+    "ApiIdempotencyKey",
     "File",
     "FileBlob",
     // Image provenance and AI labels (ADR 0028).

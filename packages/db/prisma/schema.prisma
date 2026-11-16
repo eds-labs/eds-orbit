@@ -321,6 +321,49 @@ model PublicClientKey {
   @@index([workspaceId, projectId])
 }
 
+/// A project API key (ADR 0029, CH1.1) for the versioned /api/v1 routes. Only
+/// the SHA-256 of the secret is stored; scopes, filter and expiry never change
+/// after creation (trigger), a key is revoked instead. Resolved by orbit_auth
+/// without a project scope, like PublicClientKey.
+model ApiKey {
+  id             String    @id @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  name           String
+  prefix         String    @unique
+  secretHash     String
+  scopes         String[]
+  resourceFilter Json      @default("{}")
+  createdBy      String
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime? @db.Timestamptz(3)
+  lastUsedAt     DateTime? @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+  revokedBy      String?
+
+  @@unique([workspaceId, projectId, id], map: "ApiKey_workspace_project_id_key")
+  @@index([workspaceId, projectId])
+}
+
+/// The stored answer to a v1 write sent with an Idempotency-Key header (CH1.2),
+/// kept for 24 hours. A repeat with the same body gets the same answer.
+model ApiIdempotencyKey {
+  id             String   @id @db.Uuid
+  workspaceId    String   @db.Uuid
+  projectId      String   @db.Uuid
+  apiKeyId       String   @db.Uuid
+  key            String
+  requestHash    String
+  responseStatus Int
+  responseBody   Json
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime @db.Timestamptz(3)
+
+  @@unique([apiKeyId, key])
+  @@index([expiresAt])
+  @@index([workspaceId, projectId])
+}
+
 /// A platform file (WP4.6): metadata of one encrypted object in object storage.
 model File {
   id          String    @id @db.Uuid

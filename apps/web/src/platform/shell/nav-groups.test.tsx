@@ -19,6 +19,7 @@ describe("buildNavGroups", () => {
     expect(groups.map((g) => g.id)).toEqual([
       "top",
       "marketing",
+      "cms",
       "social",
       "ads",
       "work",

@@ -3,6 +3,14 @@ import {
   commitTopic,
 } from "./modules/marketing/agents/novelty.ts";
 import { registerTaskRoutes } from "./platform/tasks/routes.ts";
+import {
+  apiV1Enabled,
+  createApiKey,
+  grantableApiScopes,
+  listApiKeys,
+  resolveApiKey,
+  revokeApiKey,
+} from "./platform/api-keys/keys.ts";
 import { mcp2Enabled } from "./platform/tasks/operation-tools.ts";
 import {
   authorize,
@@ -416,6 +424,14 @@ export async function buildServer(
       throw new DomainError("NOT_FOUND", 404);
     if (isShareRoute(req.routeOptions.url ?? "") && !sharesEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    // The versioned machine API and key management (ADR 0029, CH1.1) do not
+    // exist while ORBIT_API_V1 is off; the route pattern again.
+    if (
+      ((req.routeOptions.url ?? "").startsWith("/api/v1/") ||
+        (req.routeOptions.url ?? "").startsWith("/api/projects/:projectId/api-keys")) &&
+      !apiV1Enabled()
+    )
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
@@ -441,6 +457,10 @@ export async function buildServer(
         req.method === "POST" &&
         /^\/api\/automation\/callbacks\/[a-f0-9-]{36}\/[a-f0-9-]{36}$/.test(req.url)
       ) &&
+      // The versioned API authenticates a project API key in the request
+      // and never reads a session cookie, so a cross-site request carries
+      // no ambient authority (ADR 0029, CH1.1).
+      !(req.url.startsWith("/api/v1/") && /^Bearer ok_/.test(String(req.headers.authorization ?? ""))) &&
       // The public API checks the Origin itself, against its key (WP4.2b).
       !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
       // Social upload sessions: the signed one-time URL is the credential,
@@ -1152,6 +1172,35 @@ export async function buildServer(
       return revokePublicKey(scope, z.uuid().parse(keyId));
     },
   );
+  // Project API keys (ADR 0029, CH1.1): owners only, while ORBIT_API_V1 is on.
+  app.get("/api/projects/:projectId/api-keys", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return {
+      items: await listApiKeys(await scopeFor(auth, req, projectId, PROJECT_OWN)),
+      // The scopes a new key can carry.
+      scopes: grantableApiScopes(),
+    };
+  });
+  app.post("/api/projects/:projectId/api-keys", async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return reply.code(201).send(await createApiKey(scope, req.body));
+  });
+  app.post("/api/projects/:projectId/api-keys/:keyId/revoke", async (req) => {
+    const { projectId, keyId } = req.params as { projectId: string; keyId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return revokeApiKey(scope, z.uuid().parse(keyId));
+  });
+  // The calling key itself: lets an integration check its key and scopes.
+  app.get("/api/v1/key", async (req) => {
+    const principal = await resolveApiKey(req.headers.authorization);
+    return {
+      prefix: principal.prefix,
+      projectId: principal.projectId,
+      scopes: principal.scopes,
+      resourceFilter: principal.resourceFilter,
+    };
+  });
   // A member's module roles (WP4.5): owners only, while ORBIT_MODULE_ROLES is on.
   app.get(
     "/api/projects/:projectId/members/:userId/module-roles",

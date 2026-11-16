@@ -68,6 +68,15 @@ import type {
 import { EVENT_TYPE } from "../../../../../packages/module-contracts/src/index.ts";
 import type { SignalDefinition } from "../signals/types.ts";
 
+/** One API key scope a module offers (ADR 0029, CH1.1). */
+export type ApiScopeDef = {
+  /** `<module id>:<capability>`, e.g. `cms:delivery.read`. */
+  key: string;
+  description: { en: string; de: string };
+  /** Writes need an explicit owner choice when creating a key. */
+  access: "read" | "write";
+};
+
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
  * never imports a module; the composition roots (API, worker, test setup)
@@ -148,6 +157,12 @@ export type ModuleContributions = {
    * revocation is never refused.
    */
   publicKeyUse?: PublicKeyUse;
+  /**
+   * Scopes a project API key may carry for the module's versioned /api/v1
+   * routes (ADR 0029, CH1.1), named `<module>:<capability>`. Only scopes a
+   * module registers can be granted, and only while the module is available.
+   */
+  apiScopes?: readonly ApiScopeDef[];
   /**
    * Inbound e-mail of the project's mailbox (WP4.7): the platform stores
    * each message as `inbound_emails` and enqueues this queue class with the
@@ -415,6 +430,7 @@ type Registered = {
   >;
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   publicKeyUses: readonly (PublicKeyUse & { owner: string })[];
+  apiScopes: ReadonlyMap<string, ApiScopeDef & { owner: string }>;
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
   handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
   emailImport: ReadonlyMap<string, EmailImportTarget & { owner: string }>;
@@ -629,6 +645,15 @@ export function registerContributions(
   const publicKeyUses: Registered["publicKeyUses"][number][] = [];
   for (const [owner, c] of ordered)
     if (c.publicKeyUse) publicKeyUses.push({ ...c.publicKeyUse, owner });
+  // API key scopes (CH1.1): "<owner>:<capability>", unique by construction.
+  const apiScopes = new Map<string, ApiScopeDef & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const def of c.apiScopes ?? []) {
+      if (!new RegExp(`^${owner}:[a-z][a-z0-9_.]{1,40}$`).test(def.key))
+        problems.push(`invalid api scope ${def.key} of ${owner}`);
+      if (apiScopes.has(def.key)) problems.push(`api scope ${def.key} registered twice`);
+      apiScopes.set(def.key, { ...def, owner });
+    }
   // Member notification kinds: valid, unique names.
   const userNotifications = new Map<
     string,
@@ -795,6 +820,7 @@ export function registerContributions(
     userNotifications,
     publicRoutes,
     publicKeyUses,
+    apiScopes,
     linkTypes,
     handoffs,
     emailImport,
@@ -1079,6 +1105,11 @@ export function registeredPublicRoutes(): ReadonlyMap<
 /** The modules' uses of public keys with their owner, in registry order (F-5). */
 export function registeredPublicKeyUses() {
   return current().publicKeyUses;
+}
+
+/** Every API key scope with its owner (CH1.1). */
+export function registeredApiScopes() {
+  return current().apiScopes;
 }
 
 /** A member notification kind with its owner, or undefined (WP4.7). */

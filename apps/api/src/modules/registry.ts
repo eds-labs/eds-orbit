@@ -20,6 +20,8 @@ import { socialContributions } from "./social/contributions.ts";
 import { webmailContributions } from "./webmail/contributions.ts";
 import { adsModule } from "./ads/manifest.ts";
 import { adsContributions } from "./ads/contributions.ts";
+import { cmsModule } from "./cms/manifest.ts";
+import { cmsContributions } from "./cms/contributions.ts";
 import { marketingContributions } from "./marketing/contributions.ts";
 import { knowledgeContributions } from "./knowledge/contributions.ts";
 import {
@@ -42,6 +44,7 @@ export const modules: readonly ServerModule[] = [
   socialModule,
   webmailModule,
   adsModule,
+  cmsModule,
 ];
 
 type ExtraModule = {
@@ -87,6 +90,7 @@ export function registerModules(): ValidatedRegistry {
     social: socialContributions,
     webmail: webmailContributions,
     ads: adsContributions,
+    cms: cmsContributions,
     ...Object.fromEntries(
       testModules.map((m) => [m.module.id, m.contributions]),
     ),

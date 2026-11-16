@@ -91,6 +91,10 @@ x-api-environment: &api-environment
   ORBIT_SOCIAL_PLATFORMS: ${ORBIT_SOCIAL_PLATFORMS:-}
   # Ads module (ADR 0025): off until its rollout is approved.
   ORBIT_ADS: ${ORBIT_ADS:-false}
+  # Content module (ADR 0029): off until its rollout is approved.
+  ORBIT_CMS: ${ORBIT_CMS:-false}
+  # Versioned /api/v1 and project API keys (ADR 0029): off until its rollout is approved.
+  ORBIT_API_V1: ${ORBIT_API_V1:-false}
   # Marketing module for the whole installation (ADR 0015): on by default.
   ORBIT_MARKETING: ${ORBIT_MARKETING:-true}
   # The owner's Telegram bot (ADR 0015); empty follows ORBIT_AGENTS as before.

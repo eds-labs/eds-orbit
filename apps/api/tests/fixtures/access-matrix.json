@@ -967,6 +967,14 @@
     "sysadmin": "not_found",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/api-keys": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/approvals": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1102,6 +1110,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/cms/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/community_groups": {
     "anonymous": "unauthenticated",
@@ -2462,6 +2478,14 @@
     "editor": "allowed:400",
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
+  },
+  "GET /api/v1/key": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
   },
   "GET /api/workspaces/{workspaceId}/mcp-grants": {
     "anonymous": "unauthenticated",
@@ -4006,6 +4030,22 @@
     "editor": "allowed:400",
     "sysadmin": "not_found",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/api-keys": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/api-keys/{keyId}/revoke": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/approvals": {
     "anonymous": "unauthenticated",
@@ -5582,6 +5622,14 @@
     "editor": "not_found",
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/cms/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "PUT /api/projects/{projectId}/finance/settings": {
     "anonymous": "unauthenticated",

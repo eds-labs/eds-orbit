@@ -253,6 +253,10 @@ const baseConfigSchema = z.object({
     ),
   // Ads module (ADR 0025): off until its rollout is approved. Even when "true", it works only in projects whose owner enabled the module.
   ORBIT_ADS: z.enum(["false", "true"]).default("false"),
+  // Content module (ADR 0029): off until its rollout is approved. Even when "true", it works only in projects whose owner enabled the module.
+  ORBIT_CMS: z.enum(["false", "true"]).default("false"),
+  // Versioned machine API /api/v1 and project API keys (ADR 0029, CH1.1): off until its rollout is approved.
+  ORBIT_API_V1: z.enum(["false", "true"]).default("false"),
   // Universal customer context (ADR 0011): live, read-only account facts
   // from external products for Support. Off until a provider passed its
   // integration test; each inbox must still be bound by its owner.
