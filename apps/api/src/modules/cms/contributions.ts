@@ -9,6 +9,15 @@ export const cmsContributions: ModuleContributions = {
   routes: cmsRoutes,
   // Scopes of project API keys for the versioned routes (CH1.1); the routes
   // themselves arrive with CH1.12 (delivery, preview) and CH1.13 (management).
+  // Events websites subscribe to for revalidation or rebuilds (CH1.3); the
+  // publishing core emits them (CH1.10, CH1.11).
+  webhookEvents: [
+    { type: "cms.entry.published", description: { en: "An entry was published", de: "Ein Eintrag wurde veröffentlicht" } },
+    { type: "cms.entry.updated", description: { en: "A published entry was updated", de: "Ein veröffentlichter Eintrag wurde aktualisiert" } },
+    { type: "cms.entry.unpublished", description: { en: "An entry was withdrawn", de: "Ein Eintrag wurde zurückgezogen" } },
+    { type: "cms.entry.scheduled", description: { en: "A publication was scheduled", de: "Eine Veröffentlichung wurde geplant" } },
+    { type: "cms.redirect.created", description: { en: "A redirect was created", de: "Eine Weiterleitung wurde angelegt" } },
+  ],
   apiScopes: [
     { key: "cms:delivery.read", access: "read", description: { en: "Read published content of the key's sites", de: "Veröffentlichte Inhalte der Websites des Schlüssels lesen" } },
     { key: "cms:preview.read", access: "read", description: { en: "Read draft previews with a preview token", de: "Entwurfsvorschauen mit Vorschau-Token lesen" } },

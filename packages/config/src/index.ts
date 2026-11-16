@@ -257,6 +257,8 @@ const baseConfigSchema = z.object({
   ORBIT_CMS: z.enum(["false", "true"]).default("false"),
   // Versioned machine API /api/v1 and project API keys (ADR 0029, CH1.1): off until its rollout is approved.
   ORBIT_API_V1: z.enum(["false", "true"]).default("false"),
+  // Outbound webhooks to project endpoints (ADR 0029, CH1.3): off until its rollout is approved.
+  ORBIT_WEBHOOKS: z.enum(["false", "true"]).default("false"),
   // Universal customer context (ADR 0011): live, read-only account facts
   // from external products for Support. Off until a provider passed its
   // integration test; each inbox must still be bound by its owner.

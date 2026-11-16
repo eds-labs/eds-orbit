@@ -119,6 +119,9 @@ const PROJECT_TABLES = [
   "WebmailSession",
   // Stored answers of v1 writes (ADR 0029, CH1.2).
   "ApiIdempotencyKey",
+  // Outbound webhooks (ADR 0029, CH1.3).
+  "WebhookDelivery",
+  "WebhookEndpoint",
   // Ads module (ADR 0025).
   "AdAccount",
   "AdOAuthState",
@@ -212,6 +215,8 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     ImageProvenance: [true, true, false, false],
     // CH1.2: a stored v1 answer is written once and removed by retention.
     ApiIdempotencyKey: [true, true, false, true],
+    // CH1.3: endpoints are disabled, never deleted (project deletion cascades).
+    WebhookEndpoint: [true, true, true, false],
     // ADR 0017: applied plans and coding work orders are kept.
     WorkPlanProposal: [true, true, true, false],
     WorkCodingRun: [true, true, true, false],
@@ -454,6 +459,31 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           responseStatus: 201,
           responseBody: {},
           expiresAt: new Date(Date.now() + 86_400_000),
+        },
+      });
+      // An outbound webhook endpoint and one delivery (CH1.3).
+      const endpoint = await tx.webhookEndpoint.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          ownerModule: "cms",
+          name: "Synthetic RLS endpoint",
+          url: "https://hooks.example.invalid/orbit",
+          eventTypes: ["cms.entry.published"],
+          secretCipher: "x.y.z",
+          createdBy: s.userId,
+        },
+      });
+      await tx.webhookDelivery.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          endpointId: endpoint.id,
+          eventId: `evt_${randomUUID().replaceAll("-", "")}`,
+          eventType: "cms.entry.published",
+          payload: {},
         },
       });
       // Image provenance (ADR 0028).

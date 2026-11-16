@@ -364,6 +364,58 @@ model ApiIdempotencyKey {
   @@index([workspaceId, projectId])
 }
 
+/// An outbound webhook endpoint of a module in a project (ADR 0029, CH1.3).
+/// The signing secret is stored encrypted; after a rotation the previous one
+/// also signs until `previousSecretUntil`. Disabled endpoints keep their record.
+model WebhookEndpoint {
+  id                   String    @id @db.Uuid
+  workspaceId          String    @db.Uuid
+  projectId            String    @db.Uuid
+  ownerModule          String
+  name                 String
+  url                  String
+  eventTypes           String[]
+  status               String    @default("active")
+  secretCipher         String
+  previousSecretCipher String?
+  previousSecretUntil  DateTime? @db.Timestamptz(3)
+  consecutiveFailures  Int       @default(0)
+  disabledReason       String?
+  disabledAt           DateTime? @db.Timestamptz(3)
+  createdBy            String
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  version              Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "WebhookEndpoint_workspace_project_id_key")
+  @@index([workspaceId, projectId, ownerModule])
+}
+
+/// One event for one endpoint (CH1.3): the delivery record with its attempts.
+/// Receivers deduplicate by `eventId`, so a retry after an unclear answer is safe.
+model WebhookDelivery {
+  id            String    @id @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String    @db.Uuid
+  endpointId    String    @db.Uuid
+  eventId       String
+  eventType     String
+  payload       Json
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime? @db.Timestamptz(3)
+  lastStatus    Int?
+  lastErrorCode String?
+  durationMs    Int?
+  deliveredAt   DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([endpointId, eventId])
+  @@index([endpointId, createdAt])
+  @@index([workspaceId, projectId, createdAt])
+}
+
 /// A platform file (WP4.6): metadata of one encrypted object in object storage.
 model File {
   id          String    @id @db.Uuid

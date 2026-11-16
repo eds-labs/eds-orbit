@@ -47,6 +47,8 @@ Object.assign(process.env, {
   ORBIT_CMS: "true",
   // Versioned API and project API keys (ADR 0029, CH1.1).
   ORBIT_API_V1: "true",
+  // Outbound webhooks (ADR 0029, CH1.3).
+  ORBIT_WEBHOOKS: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",

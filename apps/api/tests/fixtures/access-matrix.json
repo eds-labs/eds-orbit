@@ -2143,6 +2143,22 @@
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
+  "GET /api/projects/{projectId}/webhooks": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/webhooks/{endpointId}/deliveries": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/projects/{projectId}/webmail/mailboxes": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -2694,6 +2710,14 @@
     "editor": "not_found:MODULE_DISABLED",
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/webhooks/{endpointId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "PATCH /api/projects/{projectId}/webmail/settings/mailboxes/{mailboxId}": {
     "anonymous": "unauthenticated",
@@ -5166,6 +5190,38 @@
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
     "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/webhooks": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/webhooks/deliveries/{deliveryId}/replay": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/webhooks/{endpointId}/ping": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/webhooks/{endpointId}/rotate-secret": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/webmail/mailboxes/{mailboxId}/convert": {
     "anonymous": "unauthenticated",

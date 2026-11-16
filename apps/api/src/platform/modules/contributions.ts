@@ -77,6 +77,13 @@ export type ApiScopeDef = {
   access: "read" | "write";
 };
 
+/** One outbound webhook event type a module sends (CH1.3). */
+export type WebhookEventDef = {
+  /** `<module id>.<event>`, e.g. `cms.entry.published`. */
+  type: string;
+  description: { en: string; de: string };
+};
+
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
  * never imports a module; the composition roots (API, worker, test setup)
@@ -163,6 +170,11 @@ export type ModuleContributions = {
    * module registers can be granted, and only while the module is available.
    */
   apiScopes?: readonly ApiScopeDef[];
+  /**
+   * Event types the module sends to outbound webhook endpoints (ADR 0029,
+   * CH1.3), named `<module>.<event>`; endpoints subscribe to these only.
+   */
+  webhookEvents?: readonly WebhookEventDef[];
   /**
    * Inbound e-mail of the project's mailbox (WP4.7): the platform stores
    * each message as `inbound_emails` and enqueues this queue class with the
@@ -431,6 +443,7 @@ type Registered = {
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   publicKeyUses: readonly (PublicKeyUse & { owner: string })[];
   apiScopes: ReadonlyMap<string, ApiScopeDef & { owner: string }>;
+  webhookEvents: ReadonlyMap<string, WebhookEventDef & { owner: string }>;
   linkTypes: ReadonlyMap<string, LinkTypeDef & { owner: string }>;
   handoffs: ReadonlyMap<string, HandoffTarget & { owner: string }>;
   emailImport: ReadonlyMap<string, EmailImportTarget & { owner: string }>;
@@ -654,6 +667,15 @@ export function registerContributions(
       if (apiScopes.has(def.key)) problems.push(`api scope ${def.key} registered twice`);
       apiScopes.set(def.key, { ...def, owner });
     }
+  // Outbound webhook events (CH1.3): "<owner>.<event>", unique.
+  const webhookEvents = new Map<string, WebhookEventDef & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const def of c.webhookEvents ?? []) {
+      if (!new RegExp(`^${owner}(\\.[a-z][a-z0-9_]{1,40}){1,3}$`).test(def.type))
+        problems.push(`invalid webhook event ${def.type} of ${owner}`);
+      if (webhookEvents.has(def.type)) problems.push(`webhook event ${def.type} registered twice`);
+      webhookEvents.set(def.type, { ...def, owner });
+    }
   // Member notification kinds: valid, unique names.
   const userNotifications = new Map<
     string,
@@ -821,6 +843,7 @@ export function registerContributions(
     publicRoutes,
     publicKeyUses,
     apiScopes,
+    webhookEvents,
     linkTypes,
     handoffs,
     emailImport,
@@ -1110,6 +1133,11 @@ export function registeredPublicKeyUses() {
 /** Every API key scope with its owner (CH1.1). */
 export function registeredApiScopes() {
   return current().apiScopes;
+}
+
+/** Every outbound webhook event type with its owner (CH1.3). */
+export function registeredWebhookEvents() {
+  return current().webhookEvents;
 }
 
 /** A member notification kind with its owner, or undefined (WP4.7). */

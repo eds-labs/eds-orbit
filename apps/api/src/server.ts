@@ -11,6 +11,17 @@ import {
   resolveApiKey,
   revokeApiKey,
 } from "./platform/api-keys/keys.ts";
+import {
+  createWebhookEndpoint,
+  listWebhookDeliveries,
+  listWebhookEndpoints,
+  pingWebhookEndpoint,
+  replayWebhookDelivery,
+  rotateWebhookSecret,
+  updateWebhookEndpoint,
+  webhookEventCatalog,
+  webhooksEnabled,
+} from "./platform/outbound-webhooks/webhooks.ts";
 import { mcp2Enabled } from "./platform/tasks/operation-tools.ts";
 import {
   authorize,
@@ -431,6 +442,9 @@ export async function buildServer(
         (req.routeOptions.url ?? "").startsWith("/api/projects/:projectId/api-keys")) &&
       !apiV1Enabled()
     )
+      throw new DomainError("NOT_FOUND", 404);
+    // Outbound webhooks (CH1.3) do not exist while ORBIT_WEBHOOKS is off.
+    if ((req.routeOptions.url ?? "").startsWith("/api/projects/:projectId/webhooks") && !webhooksEnabled())
       throw new DomainError("NOT_FOUND", 404);
     // v1 answers name their request, so integrators can report one (CH1.2).
     if (req.url.startsWith("/api/v1/")) reply.header("X-Request-Id", req.id);
@@ -1193,6 +1207,43 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return revokeApiKey(scope, z.uuid().parse(keyId));
   });
+  // Outbound webhook endpoints (ADR 0029, CH1.3): owners only, while ORBIT_WEBHOOKS is on.
+  const inOwnerProject = async <T>(
+    req: import("fastify").FastifyRequest,
+    work: (tx: import("../../../packages/db/src/index.ts").DbTx, scope: import("../../../packages/schemas/src/index.ts").Scope) => Promise<T>,
+  ) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return scoped(scope.workspaceId, scope.projectId, (tx) => work(tx, scope));
+  };
+  const idParam = (req: import("fastify").FastifyRequest, name: string) =>
+    z.uuid().parse((req.params as Record<string, string>)[name]);
+  app.get("/api/projects/:projectId/webhooks", (req) =>
+    inOwnerProject(req, async (tx, scope) => ({
+      items: await listWebhookEndpoints(tx, scope),
+      events: webhookEventCatalog(),
+    })),
+  );
+  app.post("/api/projects/:projectId/webhooks", async (req, reply) =>
+    reply.code(201).send(await inOwnerProject(req, (tx, scope) => createWebhookEndpoint(tx, scope, req.body))),
+  );
+  app.patch("/api/projects/:projectId/webhooks/:endpointId", (req) =>
+    inOwnerProject(req, (tx, scope) => updateWebhookEndpoint(tx, scope, idParam(req, "endpointId"), req.body)),
+  );
+  app.post("/api/projects/:projectId/webhooks/:endpointId/rotate-secret", (req) =>
+    inOwnerProject(req, (tx, scope) => rotateWebhookSecret(tx, scope, idParam(req, "endpointId"))),
+  );
+  app.post("/api/projects/:projectId/webhooks/:endpointId/ping", async (req, reply) =>
+    reply.code(202).send(await inOwnerProject(req, (tx, scope) => pingWebhookEndpoint(tx, scope, idParam(req, "endpointId")))),
+  );
+  app.get("/api/projects/:projectId/webhooks/:endpointId/deliveries", (req) =>
+    inOwnerProject(req, async (tx, scope) => ({
+      items: await listWebhookDeliveries(tx, scope, idParam(req, "endpointId"), req.query),
+    })),
+  );
+  app.post("/api/projects/:projectId/webhooks/deliveries/:deliveryId/replay", async (req, reply) =>
+    reply.code(202).send(await inOwnerProject(req, (tx, scope) => replayWebhookDelivery(tx, scope, idParam(req, "deliveryId")))),
+  );
   // The calling key itself: lets an integration check its key and scopes.
   app.get("/api/v1/key", async (req) => {
     const principal = await resolveApiKey(req.headers.authorization);

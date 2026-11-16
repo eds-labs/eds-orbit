@@ -121,6 +121,8 @@ describe("module contributions", () => {
         "support_email_inbound",
         "support_triage",
         "telegram_notification",
+        // Outbound webhooks (ADR 0029, CH1.3).
+        "webhook_delivery",
         "work_pm",
       ].sort(),
     );
@@ -238,6 +240,7 @@ describe("module contributions", () => {
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
       "public-ingress-cleanup",
       "api-idempotency-cleanup",
+      "webhook-delivery-cleanup",
       "file-cleanup",
       "email-inbound",
       "object-link-prune",

@@ -42,6 +42,7 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
 import { idempotencyCleanup } from "../http/v1.ts";
+import { webhookDeliveryCleanup, webhookDeliveryJob } from "../outbound-webhooks/webhooks.ts";
 import { personalSpaceCleanup } from "../assistant/personal-space.ts";
 import { fileCleanup } from "../files/files.ts";
 import { emailConnectionProvider } from "../email/connection.ts";
@@ -165,6 +166,8 @@ export const platformContributions: ModuleContributions = {
     ingressCleanup,
     // Stored /api/v1 answers expire after 24 hours (ADR 0029, CH1.2).
     idempotencyCleanup,
+    // Outbound webhook deliveries are kept 30 days (CH1.3).
+    webhookDeliveryCleanup,
     fileCleanup,
     emailInbound,
     linkPrune,
@@ -255,6 +258,8 @@ export const platformContributions: ModuleContributions = {
   jobs: [
     // Agent work orders (ADR 0021): the worker runs them on behalf of their sponsor.
     agentWorkJob,
+    // Signed outbound webhook deliveries (ADR 0029, CH1.3).
+    webhookDeliveryJob,
     {
       queueClass: "chat",
       // Runs with the requesting user's current role, never the worker's.

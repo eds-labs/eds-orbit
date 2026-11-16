@@ -167,6 +167,9 @@ export const platformDeclaration: PlatformDeclaration = {
     // Project API keys and stored v1 answers (ADR 0029, CH1.1/CH1.2).
     "ApiKey",
     "ApiIdempotencyKey",
+    // Outbound webhooks (ADR 0029, CH1.3).
+    "WebhookEndpoint",
+    "WebhookDelivery",
     "File",
     "FileBlob",
     // Image provenance and AI labels (ADR 0028).

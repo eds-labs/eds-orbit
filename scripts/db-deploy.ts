@@ -299,6 +299,9 @@ try {
   // ADR 0028: an image provenance record describes one byte version and is
   // never changed or removed; project deletion still cascades.
   await migrator.query('GRANT SELECT,INSERT ON "ImageProvenance" TO orbit_app');
+  // CH1.3: webhook endpoints are disabled, not deleted; deliveries go by retention.
+  await migrator.query('GRANT SELECT,INSERT,UPDATE ON "WebhookEndpoint" TO orbit_app');
+  await migrator.query('GRANT SELECT,INSERT,UPDATE,DELETE ON "WebhookDelivery" TO orbit_app');
   // CH1.2: stored v1 answers are written once and removed by retention.
   await migrator.query('GRANT SELECT,INSERT,DELETE ON "ApiIdempotencyKey" TO orbit_app');
   // ADR 0017: applied plans, handoffs and coding work orders stay as the
