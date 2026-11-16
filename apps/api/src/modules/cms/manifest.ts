@@ -12,7 +12,7 @@ export const CMS_MODULE_ID = "cms";
  * (articles first) with SEO fields, scheduling, approval-bound publication
  * and a versioned delivery API for websites. Off for every project until an
  * owner enables it, and unreachable while ORBIT_CMS is off. Its tables
- * arrive with the core migration (CH1.6).
+ * come with the core migration 202611160003_cms_core (CH1.6).
  */
 export const cmsModule: ServerModule = {
   id: CMS_MODULE_ID,
@@ -21,6 +21,18 @@ export const cmsModule: ServerModule = {
   dependsOn: [],
   defaultEnabled: false,
   entityKinds: [],
-  tables: [],
+  tables: [
+    "CmsAsset",
+    "CmsAuthor",
+    "CmsDraft",
+    "CmsEntry",
+    "CmsEntrySite",
+    "CmsPublication",
+    "CmsPublicationAttempt",
+    "CmsRedirect",
+    "CmsRevision",
+    "CmsSite",
+    "CmsTaxonomyTerm",
+  ],
   permissions: cmsPermissions,
 };

@@ -299,6 +299,16 @@ try {
   // ADR 0028: an image provenance record describes one byte version and is
   // never changed or removed; project deletion still cascades.
   await migrator.query('GRANT SELECT,INSERT ON "ImageProvenance" TO orbit_app');
+  // Content module (ADR 0029, CH1.6). Entries may be deleted only while never
+  // published (trigger); site assignments come and go. Authors, assets, terms,
+  // sites, drafts, publications and redirects are archived or closed, never
+  // deleted; revisions and publication attempts are insert-only. Project
+  // deletion still cascades.
+  await migrator.query('GRANT SELECT,INSERT,UPDATE,DELETE ON "CmsEntry","CmsEntrySite" TO orbit_app');
+  await migrator.query(
+    'GRANT SELECT,INSERT,UPDATE ON "CmsAuthor","CmsAsset","CmsTaxonomyTerm","CmsSite","CmsDraft","CmsPublication","CmsRedirect" TO orbit_app',
+  );
+  await migrator.query('GRANT SELECT,INSERT ON "CmsRevision","CmsPublicationAttempt" TO orbit_app');
   // CH1.3: webhook endpoints are disabled, not deleted; deliveries go by retention.
   await migrator.query('GRANT SELECT,INSERT,UPDATE ON "WebhookEndpoint" TO orbit_app');
   await migrator.query('GRANT SELECT,INSERT,UPDATE,DELETE ON "WebhookDelivery" TO orbit_app');

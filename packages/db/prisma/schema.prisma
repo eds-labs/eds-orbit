@@ -2851,3 +2851,261 @@ model ImageProvenance {
   @@unique([projectId, sha256])
   @@index([projectId, parentSha256])
 }
+
+// Content module (ADR 0029, CH1.6). Business tables in the project scope;
+// no Prisma relations, like the social module. Revisions and publication
+// attempts are insert-only (trigger); a published entry is archived, never
+// deleted (trigger).
+
+/// An author shown on content (JSON-LD Person).
+model CmsAuthor {
+  id            String    @id @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String    @db.Uuid
+  userId        String?
+  name          String
+  slug          String
+  /// Short biography per locale: { "de": "…", "en": "…" }.
+  bio           Json      @default("{}")
+  avatarAssetId String?   @db.Uuid
+  sameAs        String[]  @default([])
+  createdBy     String
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt    DateTime? @db.Timestamptz(3)
+  version       Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "CmsAuthor_tenant_key")
+  @@unique([projectId, slug], map: "CmsAuthor_slug_key")
+}
+
+/// An image of the media library over a platform file; alt text and caption per locale.
+model CmsAsset {
+  id           String    @id @db.Uuid
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  fileId       String    @db.Uuid
+  mime         String
+  width        Int
+  height       Int
+  bytes        Int
+  sha256       String
+  alt          Json      @default("{}")
+  caption      Json      @default("{}")
+  credit       String?
+  license      String?
+  provenanceId String?   @db.Uuid
+  focalPoint   Json?
+  /// Derived files (WebP sizes, OG crop): [{ "name", "fileId", "width", "height", "mime" }].
+  variants     Json      @default("[]")
+  createdBy    String
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt   DateTime? @db.Timestamptz(3)
+  version      Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "CmsAsset_tenant_key")
+  @@index([projectId, sha256])
+}
+
+/// A category or tag in one locale; translations share `translationGroupId`.
+model CmsTaxonomyTerm {
+  id                 String    @id @db.Uuid
+  workspaceId        String    @db.Uuid
+  projectId          String    @db.Uuid
+  kind               String
+  locale             String
+  translationGroupId String    @db.Uuid
+  slug               String
+  name               String
+  description        String?
+  parentId           String?   @db.Uuid
+  createdBy          String
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt         DateTime? @db.Timestamptz(3)
+  version            Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "CmsTaxonomyTerm_tenant_key")
+  @@unique([projectId, kind, locale, slug], map: "CmsTaxonomyTerm_slug_key")
+  @@unique([projectId, translationGroupId, locale], map: "CmsTaxonomyTerm_translation_key")
+}
+
+/// A website that shows the project's content: routes, locales, adapter, notifiers, rules.
+model CmsSite {
+  id            String    @id @db.Uuid
+  workspaceId   String    @db.Uuid
+  projectId     String    @db.Uuid
+  name          String
+  baseUrl       String
+  locales       String[]
+  defaultLocale String
+  routes        Json      @default("{}")
+  trailingSlash Boolean   @default(true)
+  adapter       String    @default("orbit_pull")
+  adapterConfig Json      @default("{}")
+  notifiers     Json      @default("[]")
+  contentRules  Json      @default("{}")
+  verification  String    @default("configured")
+  createdBy     String
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt    DateTime? @db.Timestamptz(3)
+  version       Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "CmsSite_tenant_key")
+}
+
+/// One piece of content in one locale; translations share `translationGroupId`.
+/// The status follows the live and scheduled revision pointers (CHECK).
+model CmsEntry {
+  id                  String    @id @db.Uuid
+  workspaceId         String    @db.Uuid
+  projectId           String    @db.Uuid
+  type                String
+  locale              String
+  translationGroupId  String    @db.Uuid
+  slug                String
+  status              String    @default("draft")
+  publishedRevisionId String?   @db.Uuid
+  scheduledRevisionId String?   @db.Uuid
+  scheduledAt         DateTime? @db.Timestamptz(3)
+  firstPublishedAt    DateTime? @db.Timestamptz(3)
+  lastPublishedAt     DateTime? @db.Timestamptz(3)
+  archivedAt          DateTime? @db.Timestamptz(3)
+  origin              String    @default("manual")
+  originRef           Json?
+  createdBy           String
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  version             Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "CmsEntry_tenant_key")
+  @@unique([projectId, type, locale, slug], map: "CmsEntry_slug_key")
+  @@unique([projectId, translationGroupId, locale], map: "CmsEntry_translation_key")
+  @@index([projectId, type, status])
+  @@index([projectId, updatedAt])
+}
+
+/// The entry's one working copy (autosave with optimistic version).
+model CmsDraft {
+  entryId     String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  title       String   @default("")
+  excerpt     String   @default("")
+  /// orbit-doc-v1 (packages/content-doc).
+  body        Json
+  fields      Json     @default("{}")
+  seo         Json     @default("{}")
+  heroAssetId String?  @db.Uuid
+  authorIds   String[] @default([]) @db.Uuid
+  termIds     String[] @default([]) @db.Uuid
+  version     Int      @default(1)
+  updatedBy   String
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+}
+
+/// An immutable snapshot of a draft, bound by its content hash to approvals and publications.
+model CmsRevision {
+  id                String   @id @db.Uuid
+  workspaceId       String   @db.Uuid
+  projectId         String   @db.Uuid
+  entryId           String   @db.Uuid
+  number            Int
+  slug              String
+  title             String
+  excerpt           String
+  body              Json
+  fields            Json
+  seo               Json
+  heroAssetId       String?  @db.Uuid
+  authorIds         String[] @db.Uuid
+  termIds           String[] @db.Uuid
+  contentHash       String
+  bodyHash          String
+  wordCount         Int
+  changeNote        String?
+  basedOnRevisionId String?  @db.Uuid
+  createdBy         String
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([workspaceId, projectId, id], map: "CmsRevision_tenant_key")
+  @@unique([entryId, number], map: "CmsRevision_number_key")
+  @@unique([workspaceId, projectId, entryId, id], map: "CmsRevision_entry_tenant_key")
+}
+
+/// Which sites show an entry.
+model CmsEntrySite {
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  entryId     String   @db.Uuid
+  siteId      String   @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([entryId, siteId])
+  @@index([siteId])
+}
+
+/// Publishing, updating or withdrawing one revision on one site; never deleted.
+model CmsPublication {
+  id                String    @id @db.Uuid
+  workspaceId       String    @db.Uuid
+  projectId         String    @db.Uuid
+  entryId           String    @db.Uuid
+  revisionId        String?   @db.Uuid
+  siteId            String    @db.Uuid
+  action            String
+  status            String    @default("queued")
+  idempotencyKey    String    @unique
+  fence             String?   @db.Uuid
+  attempts          Int       @default(0)
+  approvalRequestId String?   @db.Uuid
+  scheduledAt       DateTime  @db.Timestamptz(3)
+  claimedAt         DateTime? @db.Timestamptz(3)
+  visibleAt         DateTime? @db.Timestamptz(3)
+  notifiedAt        DateTime? @db.Timestamptz(3)
+  liveVerifiedAt    DateTime? @db.Timestamptz(3)
+  errorCode         String?
+  createdBy         String
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  version           Int       @default(1)
+
+  @@unique([workspaceId, projectId, id], map: "CmsPublication_tenant_key")
+  @@index([entryId, createdAt])
+  @@index([projectId, status, scheduledAt])
+}
+
+/// One step of a publication (claim, preflight, pointer switch, notify, live check); insert-only.
+model CmsPublicationAttempt {
+  id            String   @id @db.Uuid
+  workspaceId   String   @db.Uuid
+  projectId     String   @db.Uuid
+  publicationId String   @db.Uuid
+  step          String
+  outcome       String
+  httpStatus    Int?
+  errorCode     String?
+  durationMs    Int?
+  detail        Json     @default("{}")
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([publicationId, createdAt])
+}
+
+/// A 301 to an entry or path, or a 410, for an old path of a site.
+model CmsRedirect {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  siteId      String    @db.Uuid
+  fromPath    String
+  toEntryId   String?   @db.Uuid
+  toPath      String?
+  code        Int
+  reason      String
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  removedAt   DateTime? @db.Timestamptz(3)
+}

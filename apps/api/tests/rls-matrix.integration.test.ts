@@ -119,6 +119,18 @@ const PROJECT_TABLES = [
   "WebmailSession",
   // Stored answers of v1 writes (ADR 0029, CH1.2).
   "ApiIdempotencyKey",
+  // Content module (ADR 0029, CH1.6).
+  "CmsAsset",
+  "CmsAuthor",
+  "CmsDraft",
+  "CmsEntry",
+  "CmsEntrySite",
+  "CmsPublication",
+  "CmsPublicationAttempt",
+  "CmsRedirect",
+  "CmsRevision",
+  "CmsSite",
+  "CmsTaxonomyTerm",
   // Outbound webhooks (ADR 0029, CH1.3).
   "WebhookDelivery",
   "WebhookEndpoint",
@@ -215,6 +227,17 @@ const RESTRICTED_GRANTS: Record<string, [boolean, boolean, boolean, boolean]> =
     ImageProvenance: [true, true, false, false],
     // CH1.2: a stored v1 answer is written once and removed by retention.
     ApiIdempotencyKey: [true, true, false, true],
+    // CH1.6: content records are archived or closed; revisions and attempts
+    // are insert-only (project deletion cascades).
+    CmsAsset: [true, true, true, false],
+    CmsAuthor: [true, true, true, false],
+    CmsDraft: [true, true, true, false],
+    CmsPublication: [true, true, true, false],
+    CmsPublicationAttempt: [true, true, false, false],
+    CmsRedirect: [true, true, true, false],
+    CmsRevision: [true, true, false, false],
+    CmsSite: [true, true, true, false],
+    CmsTaxonomyTerm: [true, true, true, false],
     // CH1.3: endpoints are disabled, never deleted (project deletion cascades).
     WebhookEndpoint: [true, true, true, false],
     // ADR 0017: applied plans and coding work orders are kept.
@@ -366,6 +389,47 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           encryption: "aes-256-gcm/v1",
           createdBy: s.userId,
         },
+      });
+      // Content module (ADR 0029, CH1.6): one row in every table.
+      const t = { workspaceId: s.workspaceId, projectId: s.projectId };
+      const assetId = randomUUID();
+      await tx.cmsAsset.create({
+        data: { id: assetId, ...t, fileId, mime: "image/png", width: 1, height: 1, bytes: 1, sha256: "a".repeat(64), createdBy: s.userId },
+      });
+      await tx.cmsAuthor.create({
+        data: { id: randomUUID(), ...t, name: "RLS author", slug: "rls-author", avatarAssetId: assetId, createdBy: s.userId },
+      });
+      await tx.cmsTaxonomyTerm.create({
+        data: { id: randomUUID(), ...t, kind: "tag", locale: "de", translationGroupId: randomUUID(), slug: "rls", name: "RLS", createdBy: s.userId },
+      });
+      const siteId = randomUUID();
+      await tx.cmsSite.create({
+        data: { id: siteId, ...t, name: "RLS site", baseUrl: "https://rls.example.invalid", locales: ["de"], defaultLocale: "de", createdBy: s.userId },
+      });
+      const entryId = randomUUID();
+      await tx.cmsEntry.create({
+        data: { id: entryId, ...t, type: "article", locale: "de", translationGroupId: randomUUID(), slug: "rls", createdBy: s.userId },
+      });
+      const doc = { schema: "orbit-doc", version: 1, blocks: [] };
+      await tx.cmsDraft.create({ data: { entryId, ...t, body: doc, updatedBy: s.userId } });
+      const revisionId = randomUUID();
+      await tx.cmsRevision.create({
+        data: {
+          id: revisionId, ...t, entryId, number: 1, slug: "rls", title: "RLS", excerpt: "", body: doc, fields: {}, seo: {},
+          authorIds: [], termIds: [], contentHash: "b".repeat(64), bodyHash: "c".repeat(64), wordCount: 0, createdBy: s.userId,
+        },
+      });
+      await tx.cmsEntrySite.create({ data: { ...t, entryId, siteId } });
+      const publicationId = randomUUID();
+      await tx.cmsPublication.create({
+        data: {
+          id: publicationId, ...t, entryId, revisionId, siteId, action: "publish",
+          idempotencyKey: randomUUID().replaceAll("-", "").padEnd(64, "0"), scheduledAt: new Date(), createdBy: s.userId,
+        },
+      });
+      await tx.cmsPublicationAttempt.create({ data: { id: randomUUID(), ...t, publicationId, step: "claim", outcome: "ok" } });
+      await tx.cmsRedirect.create({
+        data: { id: randomUUID(), ...t, siteId, fromPath: "/old/", toEntryId: entryId, code: 301, reason: "manual", createdBy: s.userId },
       });
       const source = await create(tx, s, "sources", {
         name: "Synthetic RLS source",
@@ -1612,6 +1676,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         t.startsWith("Work") ||
         t.startsWith("Issue") ||
         t.startsWith("Social") ||
+        t.startsWith("Cms") ||
         /^Ad[A-Z]/.test(t) ||
         t === "AgentWorkOrder",
     ))
