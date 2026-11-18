@@ -40,6 +40,7 @@ import {
   type Preview,
   type Summary,
 } from "./workspace-parts";
+import { confirmReleaseImpact } from "./release-impact";
 import { GithubSource } from "./github-page";
 
 type Kind = KnowledgeDraft["kind"];
@@ -874,6 +875,7 @@ function Flow({
   };
   const takeOverContent = async () => {
     const { autoUpdate: _weekly, ...use } = rights;
+    if (!(await confirmReleaseImpact(project.id, locale))) return;
     const source = await mutation.run(() =>
       action<Entity>(project.id, "knowledge-content-accept", {
         name: draft.name,
@@ -891,6 +893,7 @@ function Flow({
   };
   const readSite = async () => {
     if (!site) return;
+    if (!(await confirmReleaseImpact(project.id, locale))) return;
     const started = await mutation.run(() =>
       action<{ sourceId: string; run: Entity; started: boolean }>(
         project.id,

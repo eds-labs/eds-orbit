@@ -305,6 +305,12 @@ export const knowledgeCopy = {
     bulkBoth: "Marketing und Support",
     bulkPublic: "{n} öffentlich",
     bulkResult: "{done} von {total} bestätigt",
+    releaseImpactNamed:
+      "Das sperrt {n} freigegebene Posts ({list}), bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+    releaseImpactCount:
+      "Das sperrt {n} freigegebene Marketing-Posts, bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+    releaseImpactToday: "heute",
+    releaseImpactTomorrow: "morgen",
   },
   en: {
     title: "Project knowledge",
@@ -599,6 +605,12 @@ export const knowledgeCopy = {
     bulkBoth: "Marketing and Support",
     bulkPublic: "{n} public",
     bulkResult: "{done} of {total} confirmed",
+    releaseImpactNamed:
+      "This blocks {n} released posts ({list}) until a new index is evaluated and activated. Continue anyway?",
+    releaseImpactCount:
+      "This blocks {n} released marketing posts until a new index is evaluated and activated. Continue anyway?",
+    releaseImpactToday: "today",
+    releaseImpactTomorrow: "tomorrow",
   },
 } as const;
 export type KnowledgeCopy = { [K in keyof typeof knowledgeCopy.en]: string };
