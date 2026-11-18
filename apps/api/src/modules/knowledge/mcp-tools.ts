@@ -17,7 +17,11 @@ import {
 } from "../../platform/knowledge/engine.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
 import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
-import { releaseImpact } from "../../platform/knowledge/release-impact.ts";
+import {
+  isolated,
+  releaseImpact,
+} from "../../platform/knowledge/release-impact.ts";
+import type { RequestedBy } from "../../platform/governance/action-requests.ts";
 import {
   languageCode,
   source as sourceSchema,
@@ -50,11 +54,36 @@ const factInput = z
 const shared = { module: "knowledge" };
 /**
  * The released posts this change will block, read before it runs (afterwards
- * the gate is already invalid); only when there are any.
+ * the gate is already invalid); only when there are any. Advisory: a failure
+ * is logged and leaves the field out, never the change. A delegated work
+ * order (a configured agent or an MCP task) gets the count only: its result
+ * surfaces in task summaries that other members may read.
  */
-async function releaseWarning(tx: DbTx, scope: Scope) {
-  const impact = await releaseImpact(tx, scope);
-  return impact.count > 0 ? { releaseImpact: impact } : {};
+async function releaseWarning(
+  tx: DbTx,
+  scope: Scope,
+  by: RequestedBy | undefined,
+) {
+  let impact;
+  try {
+    impact = await isolated(tx, "release_warning", () => releaseImpact(tx, scope));
+  } catch (error) {
+    console.warn(
+      `release-impact: warning skipped (${error instanceof Error ? error.name : "error"})`,
+    );
+    return {};
+  }
+  if (impact.count === 0) return {};
+  return delegatedWork(by)
+    ? { releaseImpact: { count: impact.count } }
+    : { releaseImpact: impact };
+}
+/** Whether a proposal came from a delegated work order rather than a person's own request. */
+function delegatedWork(by: RequestedBy | undefined): boolean {
+  if (by?.kind === "agent")
+    return Boolean(by.agentId || by.workOrderId || by.requesterUserId);
+  if (by?.kind === "mcp") return Boolean(by.taskId);
+  return false;
 }
 async function sources(tx: any, scope: any, args: any) {
   const found = await tx.entity.findMany({
@@ -197,9 +226,9 @@ const writes = [
         mimeType: z.enum(["text/plain", "text/markdown"]),
       })
       .strict(),
-    async run(tx, scope, args) {
+    async run(tx, scope, args, by) {
       const s = await entity(tx, scope, "sources", args.sourceId);
-      const warning = await releaseWarning(tx, scope);
+      const warning = await releaseWarning(tx, scope, by);
       const result = await ingest(tx, scope, {
         ...args,
         expectedGeneration: data(s).generation,
@@ -235,9 +264,9 @@ const writes = [
         language: languageCode,
       })
       .strict(),
-    async run(tx, scope, args) {
+    async run(tx, scope, args, by) {
       const s = await entity(tx, scope, "sources", args.sourceId);
-      const warning = await releaseWarning(tx, scope);
+      const warning = await releaseWarning(tx, scope, by);
       const request = await create(tx, scope, "sync_requests", {
         ...args,
         expectedGeneration: data(s).generation,

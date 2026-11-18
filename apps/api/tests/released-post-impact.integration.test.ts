@@ -41,6 +41,29 @@ vi.mock("../src/platform/knowledge/engine.ts", async (importOriginal) => {
   };
 });
 
+// A Marketing contributor that fails: a JavaScript error, or a failed SQL
+// statement that aborts the Postgres transaction.
+const fault = vi.hoisted(() => ({ mode: null as null | "js" | "db" }));
+vi.mock(
+  "../src/modules/marketing/publishing/released-post-watch.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/publishing/released-post-watch.ts")
+      >();
+    return {
+      ...actual,
+      releaseGateDependents: async (
+        ...args: Parameters<typeof actual.releaseGateDependents>
+      ) => {
+        if (fault.mode === "js") throw new TypeError("synthetic contributor bug");
+        if (fault.mode === "db") await args[0].$queryRawUnsafe("SELECT 1/0");
+        return actual.releaseGateDependents(...args);
+      },
+    };
+  },
+);
+
 import { authDb, closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { buildServer } from "../src/server.ts";
 import { makeAuth } from "../src/auth.ts";
@@ -49,6 +72,8 @@ import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { knowledgeMcpTools } from "../src/modules/knowledge/mcp-tools.ts";
 import { moduleScope } from "../src/platform/tenancy/module-roles.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
+import type { Scope } from "../../../packages/schemas/src/index.ts";
+import type { AgentPrincipal } from "../src/platform/agents/principal.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -142,6 +167,7 @@ describe.skipIf(!enabled)("Released posts a knowledge change would block", () =>
       });
     }
     gate.valid = true;
+    fault.mode = null;
   });
   afterEach(async () => {
     vi.unstubAllEnvs();
@@ -251,20 +277,53 @@ describe.skipIf(!enabled)("Released posts a knowledge change would block", () =>
     });
   });
 
+  it("leaves out a module whose contributor fails instead of failing the dialog", async () => {
+    await post(project);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const mode of ["js", "db"] as const) {
+        fault.mode = mode;
+        const response = await impact("owner");
+        expect(response.statusCode, response.body).toBe(200);
+        expect(response.json()).toEqual({
+          enabled: true,
+          gateValid: true,
+          count: 0,
+          dependents: [],
+        });
+      }
+      // Content-free: the module and the error class, never a message or title.
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([
+        "release-impact: module marketing failed (TypeError)",
+        expect.stringMatching(/^release-impact: module marketing failed \(\w+\)$/),
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   describe("knowledge write tools over MCP", () => {
     beforeEach(() => {
       vi.stubEnv("ORBIT_MCP_TASKS", "true");
       vi.stubEnv("ORBIT_MCP_PROPOSALS", "true");
     });
-    /** Proposes the operation as the owner's assistant, approves it and returns its result. */
-    const approved = async (name: string, args: Record<string, unknown>) => {
+    /**
+     * Proposes the operation (as the owner's assistant unless another
+     * proposer is given), lets the owner approve it and returns its result.
+     */
+    const approved = async (
+      name: string,
+      args: Record<string, unknown>,
+      proposer: { scope?: Scope; principal?: AgentPrincipal } = {},
+    ) => {
       const tool = knowledgeMcpTools.find((t) => t.name === name)!;
       const proposal = await tool.execute(
         {
-          scope: moduleScope(project.owner, "knowledge"),
+          scope: moduleScope(proposer.scope ?? project.owner, "knowledge"),
           runId: "synthetic",
           conversationId: "synthetic",
           callIndex: 1,
+          ...(proposer.principal ? { principal: proposer.principal } : {}),
         },
         { ...args, idempotencyKey: randomUUID() },
       );
@@ -307,6 +366,79 @@ describe.skipIf(!enabled)("Released posts a knowledge change would block", () =>
     it("knowledge_add_document has no releaseImpact when no released post depends on the gate", async () => {
       const result = await approved("knowledge_add_document", document("quiet-doc"));
       expect(result).not.toHaveProperty("releaseImpact");
+    });
+
+    it("a failing contributor never blocks knowledge_add_document", async () => {
+      await post(project);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        for (const mode of ["js", "db"] as const) {
+          fault.mode = mode;
+          gate.valid = true;
+          const result = await approved("knowledge_add_document", document(`fault-${mode}`));
+          // The approved change ran (approved() checks it was consumed) without the field.
+          expect(result).not.toHaveProperty("releaseImpact");
+          expect(
+            await run(project, (tx) =>
+              tx.knowledgeDocument.count({
+                where: { projectId: project.owner.projectId, externalId: `fault-${mode}` },
+              }),
+            ),
+          ).toBe(1);
+        }
+        expect(warn).toHaveBeenCalledTimes(2);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("gives a proposer whose Marketing role is none the count without details", async () => {
+      await post(project);
+      vi.stubEnv("ORBIT_MODULE_ROLES", "true");
+      await authDb.projectMemberModuleRole.create({
+        data: {
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          userId: project.editor.userId,
+          moduleId: "marketing",
+          role: "none",
+        },
+      });
+      const result = await approved("knowledge_add_document", document("editor-doc"), {
+        scope: { ...project.editor, moduleRoles: { marketing: "none" } },
+      });
+      expect(result.releaseImpact).toEqual({
+        enabled: true,
+        gateValid: true,
+        count: 1,
+        dependents: [],
+      });
+    });
+
+    it("stores the count only for a delegated agent's proposal", async () => {
+      await post(project);
+      const principal: AgentPrincipal = {
+        kind: "agent",
+        userId: project.owner.userId,
+        requesterUserId: project.editor.userId,
+        agentId: randomUUID(),
+        agentVersion: 1,
+        workOrderId: randomUUID(),
+        depth: 0,
+        allow: {
+          tools: new Set(["knowledge_add_document"]),
+          modules: new Set(["knowledge"]),
+          mode: "draft",
+          knowledge: null,
+        },
+        ceilingMicros: 0,
+      };
+      const result = await approved("knowledge_add_document", document("agent-doc"), {
+        principal,
+      });
+      // Task summaries walk the stored result: no post ids or titles there.
+      expect(result.releaseImpact).toEqual({ count: 1 });
+      expect(JSON.stringify(result)).not.toContain("Spring launch");
     });
 
     it("knowledge_import_url returns releaseImpact with its queued job", async () => {

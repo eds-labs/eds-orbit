@@ -35,20 +35,51 @@ export async function releaseImpact(
   if (loadConfig().ORBIT_RELEASED_POST_WATCH !== "true")
     return { enabled: false, gateValid: true, count: 0, dependents: [] };
   // No active index counts as an invalid gate, as the readiness read does.
-  const live = await validateActiveIndexEvaluation(tx, scope).catch(() => ({
-    valid: false,
-  }));
+  const live = await isolated(tx, "release_impact_gate", () =>
+    validateActiveIndexEvaluation(tx, scope),
+  ).catch(() => ({ valid: false }));
   if (!live.valid)
     return { enabled: true, gateValid: false, count: 0, dependents: [] };
   const enabled = await enabledModules(tx, scope);
   let count = 0;
   const dependents: ReleaseGateDependent[] = [];
-  for (const { moduleId, list } of registeredReleaseGateDependents()) {
+  for (const [index, { moduleId, list }] of registeredReleaseGateDependents().entries()) {
     if (!ownerEnabled(moduleId, enabled)) continue;
-    const found = await list(tx, scope);
+    let found: ReleaseGateDependent[];
+    try {
+      found = await isolated(tx, `release_impact_${index}`, () => list(tx, scope));
+    } catch (error) {
+      // A warning must not fail the dialog or the change it guards: the
+      // module is left out. Content-free: only the module and error class.
+      console.warn(
+        `release-impact: module ${moduleId} failed (${error instanceof Error ? error.name : "error"})`,
+      );
+      continue;
+    }
     count += found.length;
     if (effectiveRole(scope, moduleId) !== "none") dependents.push(...found);
   }
   dependents.sort((a, b) => Date.parse(a.slotAt) - Date.parse(b.slotAt));
   return { enabled: true, gateValid: true, count, dependents };
+}
+
+/**
+ * Runs `work` in its own savepoint: a failed statement (which aborts the
+ * Postgres transaction) is rolled back to it, so the caller's transaction
+ * stays usable; the error is rethrown. Names are fixed here, never input.
+ */
+export async function isolated<T>(
+  tx: DbTx,
+  savepoint: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  await tx.$executeRawUnsafe(`SAVEPOINT ${savepoint}`);
+  try {
+    const result = await work();
+    await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${savepoint}`);
+    return result;
+  } catch (error) {
+    await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+    throw error;
+  }
 }
