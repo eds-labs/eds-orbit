@@ -108,6 +108,7 @@ import {
   syncSocialHolds,
 } from "../src/modules/marketing/publishing/publisher.ts";
 import {
+  atRiskReason,
   postRisk,
   runReleasedPostWatch,
   watchCandidates,
@@ -1065,6 +1066,48 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
         const changed = found.find((f) => f.id === pubs[0]!.id)!;
         expect(changed.risk).toContain("CONTENT_CHANGED");
         expect(found.find((f) => f.id === pubs[1]!.id)!.risk).toEqual([]);
+      });
+
+      it("an approval that expires before the slot is a risk, and the slot-time claim refuses it the same way", async () => {
+        const { pubs, slot } = await released();
+        provider.liveIndex = true;
+        const { owner } = daily.project;
+        // Not released by a veto window: the package approval is what counts.
+        for (const p of pubs) expect(p.vetoDeadline ?? null).toBeNull();
+        // The owner's approvals end an hour before the slot.
+        await daily.h.run(async (tx) => {
+          const approvals = await list(tx, owner, "approvals");
+          expect(approvals.length).toBeGreaterThan(0);
+          for (const row of approvals)
+            await update(tx, owner, row, {
+              ...data(row),
+              expiresAt: new Date(slot.valueOf() - 3600000).toISOString(),
+            });
+        });
+        const found = await daily.h.run(async (tx) => {
+          const cs = await watchCandidates(tx, owner, new Date(slot.valueOf() - 2 * 3600000));
+          return Promise.all(
+            cs.map(async (c) => ({ id: c.id, risk: await postRisk(tx, owner, c) })),
+          );
+        });
+        expect(found).toHaveLength(2);
+        for (const f of found) expect(f.risk).toContain("APPROVAL_REQUIRED");
+        // The owner reads words, not the code.
+        expect(atRiskReason("APPROVAL_REQUIRED", "de")).toContain("Freigabe");
+        expect(atRiskReason("APPROVAL_REQUIRED", "en")).toContain("approval");
+        // At the slot the claim refuses with the code the watch predicted.
+        atMinutes(slot, 1);
+        const pubId = pubs[0]!.id;
+        const claim = await daily.h.run((tx) =>
+          claimMarketingPublication(tx, daily.h.worker(), pubId),
+        );
+        expect(claim.send).toBe(false);
+        const blocked = (await daily.publications()).find((p) => p.id === pubId)!;
+        expect(blocked.status).toBe("blocked_dependency");
+        expect(blocked.blockers).toContain("APPROVAL_REQUIRED");
+        expect([...blocked.blockers].sort()).toEqual(
+          found.find((f) => f.id === pubId)!.risk,
+        );
       });
 
       it("ignores test publications, past slots and slots beyond 48 hours", async () => {

@@ -84,10 +84,16 @@ export async function postRisk(
     ])
       if (typeof code === "string") codes.add(code);
   } else {
+    // Mirrors the slot-time claim (workflow.ts claimPublication), the first
+    // and binding preflight at the slot: it runs without `ignoreApproval`, so
+    // a package approval must still be `approved` and unexpired at the slot
+    // (APPROVAL_REQUIRED unless a veto window releases the post). The later
+    // hand-off preflight (publisher.ts) ignores approvals only because the
+    // claim has consumed them. `approvalPublicationId` matters only for a
+    // publication that is `sending`, never a candidate here.
     const checked = await preflight(tx, scope, d.contentId, {
       test: false,
       at: c.slotAt,
-      ignoreApproval: true,
       approvalPublicationId: c.id,
       ...(d.vetoDeadline && d.assignmentRunId
         ? {
@@ -138,6 +144,14 @@ const REASONS: Record<string, { de: string; en: string }> = {
   fact_changed: {
     de: "Eine verwendete Aussage hat sich geändert",
     en: "A fact used in the post changed",
+  },
+  APPROVAL_REQUIRED: {
+    de: "Die Freigabe ist zum Termin nicht mehr gültig",
+    en: "The approval is no longer valid at the slot",
+  },
+  ASSIGNMENT_HUMAN_APPROVAL_REQUIRED: {
+    de: "Die Freigabe des Inhabers ist zum Termin nicht mehr gültig",
+    en: "The owner's approval is no longer valid at the slot",
   },
   SLOT_EXPIRED: {
     de: "Der Termin ist abgelaufen",
@@ -311,6 +325,11 @@ export async function runReleasedPostWatch(
               lastNoticeRef: refs.cleared,
             };
       if (p.row) await update(tx, scope, p.row, next);
+      // No uniqueness guard per publication: single-flight comes from the
+      // project lease. The watch runs as a per-project periodic task inside
+      // the worker's project pass, which starts only after `claimProject`
+      // (apps/worker/src/due-marker.ts) won its compare-and-set on the
+      // project's due marker, so two passes never create a row concurrently.
       else await create(tx, scope, "publication_watch", next);
       if (p.kind === "changed")
         await audit(tx, scope, "publication.at_risk", p.c.id, {
