@@ -10,6 +10,10 @@ import {
 } from "./publishing/postiz-queue-watch.ts";
 import { driveAssetRetry } from "./brand/drive-retry.ts";
 import { syncSocialHolds } from "./publishing/publisher.ts";
+import {
+  nextReleasedPostWatchAt,
+  runReleasedPostWatch,
+} from "./publishing/released-post-watch.ts";
 
 /**
  * Marketing's per-project worker tasks (WP2.1), in the order the worker ran
@@ -41,5 +45,11 @@ export const marketingPeriodicTasks: readonly PeriodicTask[] = [
     // Social's calendar follows Marketing; no wake-up of its own (a write wakes the project).
     name: "social-hold-sync",
     run: syncSocialHolds,
+  },
+  {
+    // Early warning for released posts that would be refused at their slot; read-only.
+    name: "released-post-watch",
+    nextDueAt: nextReleasedPostWatchAt,
+    run: runReleasedPostWatch,
   },
 ];

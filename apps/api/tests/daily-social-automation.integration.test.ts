@@ -91,6 +91,7 @@ vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
 import { closeDatabase, scoped } from "../../../packages/db/src/index.ts";
 import { fixtureArt } from "../../../packages/creative/fixtures/demo-brands.ts";
 import { create, data, list, update } from "../src/shared.ts";
+import { userScoped } from "../src/platform/tenancy/scope.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { strategySpecialist } from "../src/modules/marketing/agents/specialists/strategy.ts";
@@ -108,6 +109,7 @@ import {
 } from "../src/modules/marketing/publishing/publisher.ts";
 import {
   postRisk,
+  runReleasedPostWatch,
   watchCandidates,
 } from "../src/modules/marketing/publishing/released-post-watch.ts";
 import { invalidateContent } from "../src/modules/marketing/pipeline/content-invalidation.ts";
@@ -1087,6 +1089,107 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
             await update(tx, daily.project.owner, row, { ...data(row), test: true });
         });
         expect(await ids(new Date(slot.valueOf() - hour))).toEqual([]);
+      });
+    });
+
+    describe("released-post watch: notices", () => {
+      beforeEach(() => {
+        vi.stubEnv("ORBIT_RELEASED_POST_WATCH", "true");
+        vi.stubEnv("ORBIT_NOTIFICATIONS", "true");
+      });
+      const notices = (kind: string) =>
+        userScoped(daily.project.owner, (tx) =>
+          tx.notification.findMany({ where: { kind } }),
+        );
+      const watchRows = () => daily.h.rows("publication_watch");
+      const warnings = () =>
+        daily.h.run((tx) =>
+          tx.auditEvent.findMany({ where: { action: "publication.at_risk" } }),
+        );
+
+      it("warns the owners once when both posts become at risk, with one notice for both", async () => {
+        await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        await runReleasedPostWatch(daily.h.worker());
+        const found = await notices("marketing_post_at_risk");
+        expect(found).toHaveLength(1);
+        expect(found[0]!.body.split("\n")).toHaveLength(2);
+        expect(found[0]!.body).toContain("knowledge index");
+        expect(await warnings()).toHaveLength(2);
+        expect(await watchRows()).toHaveLength(2);
+      });
+
+      it("sends an all-clear once the index is valid again, and only once", async () => {
+        await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        provider.liveIndex = true;
+        await runReleasedPostWatch(daily.h.worker());
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+        const cleared = await notices("marketing_post_at_risk_cleared");
+        expect(cleared).toHaveLength(1);
+        expect(cleared[0]!.body.split("\n")).toHaveLength(2);
+        // A later risk warns again.
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await notices("marketing_post_at_risk")).toHaveLength(2);
+      });
+
+      it("a new code on an already warned post warns again", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        await daily.h.run((tx) =>
+          invalidateContent(tx, daily.project.owner, pubs[0]!.contentId),
+        );
+        await runReleasedPostWatch(daily.h.worker());
+        const found = await notices("marketing_post_at_risk");
+        expect(found).toHaveLength(2);
+        // The second notice names the changed post alone.
+        expect(found.map((n) => n.body.split("\n").length).sort()).toEqual([1, 2]);
+        expect(await warnings()).toHaveLength(3);
+        const row = (await watchRows()).find((w) => w.publicationId === pubs[0]!.id)!;
+        expect(row.notifiedCodes).toContain("CONTENT_CHANGED");
+      });
+
+      it("one post whose check throws does not stop the other", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = false;
+        await daily.h.run(async (tx) => {
+          await tx.entity.deleteMany({ where: { id: pubs[0]!.contentId } });
+        });
+        await runReleasedPostWatch(daily.h.worker());
+        const rows = await watchRows();
+        expect(rows.map((w) => w.publicationId)).toEqual([pubs[1]!.id]);
+        expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+      });
+
+      it("does nothing with the flag off", async () => {
+        vi.stubEnv("ORBIT_RELEASED_POST_WATCH", "false");
+        await released();
+        provider.liveIndex = false;
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await notices("marketing_post_at_risk")).toHaveLength(0);
+        expect(await watchRows()).toHaveLength(0);
+      });
+
+      it("never changes the publications it checks", async () => {
+        await released();
+        provider.liveIndex = false;
+        const versions = async () =>
+          (await daily.h.run((tx) =>
+            tx.entity.findMany({
+              where: { kind: "publications" },
+              select: { id: true, version: true },
+              orderBy: { id: "asc" },
+            }),
+          ));
+        const before = await versions();
+        await runReleasedPostWatch(daily.h.worker());
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await versions()).toEqual(before);
       });
     });
   });

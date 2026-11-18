@@ -13,6 +13,16 @@ export const marketingSignalNotifications: Readonly<Record<string, UserNotificat
     emailDefault: false,
     proactive: true,
   },
+  // A released post that would be refused at its slot (and its all-clear): the
+  // watch writes these directly, naming the post and the reasons for the owners.
+  marketing_post_at_risk: {
+    label: { en: "A released post is at risk", de: "Ein freigegebener Beitrag ist gefährdet" },
+    emailDefault: false,
+  },
+  marketing_post_at_risk_cleared: {
+    label: { en: "A released post is clear again", de: "Ein freigegebener Beitrag ist wieder in Ordnung" },
+    emailDefault: false,
+  },
 };
 
 export const marketingSignals: readonly SignalDefinition[] = [

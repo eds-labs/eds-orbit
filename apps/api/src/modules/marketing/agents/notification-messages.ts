@@ -34,6 +34,7 @@ import { SLOT_EXPIRED } from "./veto.ts";
 import { budgetMonthStart } from "../../budget.ts";
 import { localDate } from "./scheduling.ts";
 import { inProject } from "../../../platform/management/links.ts";
+import { atRiskReason, postTitle } from "../publishing/released-post-watch.ts";
 
 /**
  * Marketing's notifications for the owner's Telegram bot (Orbit Agents,
@@ -552,6 +553,56 @@ async function blocked(
   );
 }
 
+/**
+ * Released posts the watch reported in one notice (`ref` names it): the
+ * watch rows that carry it and are still in the reported state. Stale when
+ * none is (the cause is gone, or the post is cleared again, before sending).
+ */
+async function postWatch(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+  kind: "at_risk" | "at_risk_cleared",
+): Promise<Built> {
+  const rows = (await list(tx, scope, "publication_watch"))
+    .map((row) => data(row))
+    .filter(
+      (d) =>
+        d.lastNoticeRef === ref &&
+        (kind === "at_risk"
+          ? (d.notifiedCodes ?? []).length > 0 && !d.clearedAt
+          : (d.notifiedCodes ?? []).length === 0 && d.clearedAt),
+    );
+  const lines: string[] = [];
+  for (const d of rows) {
+    const pub = data(await maybe(() => entity(tx, scope, "publications", d.publicationId)));
+    const content = data(await maybe(() => entity(tx, scope, "content", pub.contentId)));
+    const head = `${postTitle(content)} · ${await channelName(tx, scope, pub.channel)} · ${when(d.slotAt, timezone)}`;
+    lines.push(
+      kind === "at_risk"
+        ? `• ${head}\n  ${clip(((d.notifiedCodes ?? []) as string[]).map((code) => atRiskReason(code, "de")).join("; "), 300)}`
+        : `• ${head}`,
+    );
+  }
+  if (!lines.length) return { skip: "STALE" };
+  return plain(
+    clip(
+      [
+        kind === "at_risk"
+          ? "Freigegebene Beiträge gefährdet"
+          : "Entwarnung: diese Beiträge sind wieder in Ordnung",
+        ...lines,
+        kind === "at_risk"
+          ? "Sie würden so zum Termin nicht rausgehen. Bitte in Orbit prüfen."
+          : "Es ist nichts mehr zu tun.",
+      ].join("\n"),
+      TEXT_MAX,
+    ),
+    [openButton()],
+  );
+}
+
 /** Posts withdrawn because the owner moved the times; `ref` is `<assignmentId>:<version>`. */
 async function retimed(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
   const [assignmentId, version] = ref.split(":");
@@ -970,6 +1021,9 @@ async function render(
       return runProblem(tx, scope, ref, timezone);
     case "blocked":
       return blocked(tx, scope, ref, timezone);
+    case "at_risk":
+    case "at_risk_cleared":
+      return postWatch(tx, scope, ref, timezone, kind);
     case "budget_paused":
       return budgetPaused(tx, scope, ref);
     case "retimed":

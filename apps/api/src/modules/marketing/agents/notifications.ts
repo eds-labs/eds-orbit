@@ -48,6 +48,9 @@ export const NOTIFY_KINDS = [
   "delivery_changed",
   // A draft-delivery assignment planned no run today: Postiz drafts are switched off (M3).
   "drafts_disabled",
+  // A released post that would be refused at its slot, and the all-clear (released-post watch).
+  "at_risk",
+  "at_risk_cleared",
   "daily_report",
   "marketing_report",
 ] as const;

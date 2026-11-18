@@ -1,9 +1,15 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
-import { data, list } from "../../../shared.ts";
+import { scoped } from "../../../../../../packages/db/src/index.ts";
+import { audit, create, data, hash, list, update } from "../../../shared.ts";
 import { preflight } from "../policy/policy.ts";
-import { OWNER_CAUSED } from "../agents/notifications.ts";
+import { notify, OWNER_CAUSED } from "../agents/notifications.ts";
+import { channelNames } from "../agents/assignment-overview.ts";
+import { READINESS_BLOCKERS } from "../readiness/blocker-catalog.ts";
+import { notifyMembers } from "../../../platform/notifications/members.ts";
+import { resolveRecipients } from "../../../platform/signals/deliver.ts";
+import { inProject } from "../../../platform/management/links.ts";
 
 /** Installation flag of the released-post watch (default off). */
 export const releasedPostWatchEnabled = () =>
@@ -96,4 +102,229 @@ export async function postRisk(
     if (checked.packageHash !== d.packageHash) codes.add("PACKAGE_CHANGED");
   }
   return [...codes].filter((code) => !OWNER_CAUSED.includes(code)).sort();
+}
+
+/** The watch's memory of one released post (kind `publication_watch`); never publishing authority. */
+export type WatchState = {
+  publicationId: string;
+  slotAt: string;
+  /** Codes found by the latest pass. */
+  codes: string[];
+  /** Codes the owners were last warned about; empty when nothing is open. */
+  notifiedCodes: string[];
+  firstSeenAt: string | null;
+  clearedAt: string | null;
+  /** The notice (ref) that last reported a change of this post. */
+  lastNoticeRef?: string | null;
+};
+
+const REASONS: Record<string, { de: string; en: string }> = {
+  LIVE_RAG_EVAL_REQUIRED: {
+    de: "Der Wissensindex ist nicht geprüft oder nicht mehr gültig",
+    en: "The knowledge index is not evaluated or no longer valid",
+  },
+  CONTENT_CHANGED: {
+    de: "Der Inhalt wurde nach der Freigabe geändert",
+    en: "The content changed after release",
+  },
+  PACKAGE_CHANGED: {
+    de: "Das Inhaltspaket hat sich geändert",
+    en: "The content package changed",
+  },
+  fact_changed: {
+    de: "Eine verwendete Aussage hat sich geändert",
+    en: "A fact used in the post changed",
+  },
+  SLOT_EXPIRED: {
+    de: "Der Termin ist abgelaufen",
+    en: "The slot has passed",
+  },
+  AI_LABEL_MISSING: {
+    de: "Das KI-Bild trägt keine Kennzeichnung „KI erstellt“",
+    en: "The AI image carries no “AI generated” label",
+  },
+};
+
+/** What a blocker code means for the owner, in plain words. */
+export function atRiskReason(code: string, language: "de" | "en"): string {
+  const known = REASONS[code];
+  if (known) return known[language];
+  const entry = READINESS_BLOCKERS[code];
+  return entry ? `${entry.cause} ${entry.fix}` : code;
+}
+
+const PASS_MS = 15 * 60000;
+const NOTICE_BODY_MAX = 2000;
+const key = (codes: string[]) => [...codes].sort().join(",");
+const clip = (text: string, max: number) =>
+  text.length > max ? text.slice(0, max - 1) + "…" : text;
+
+/** A short name for a post: its title or topic, else the first line of its text. */
+export function postTitle(content: Record<string, any>): string {
+  const named = content.title ?? content.topic;
+  if (typeof named === "string" && named.trim()) return clip(named.trim(), 60);
+  const first = String(content.body ?? "").split("\n")[0]!.trim();
+  return first ? clip(first, 60) : "Post";
+}
+
+const localSlot = (at: Date, timezone: string, language: "de" | "en") =>
+  new Intl.DateTimeFormat(language === "de" ? "de-DE" : "en-GB", {
+    timeZone: timezone,
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
+
+type Pending = {
+  c: WatchCandidate;
+  row: { id: string; version: number } | null;
+  prev: WatchState | null;
+  codes: string[];
+  kind: "changed" | "cleared";
+};
+
+/**
+ * One pass over the project's released posts: finds those that would be
+ * refused at their slot, warns the owners once per change (member notice and
+ * Telegram), and says so when the cause is gone. Changes nothing about the
+ * posts themselves. With the flag off it does nothing.
+ */
+export async function runReleasedPostWatch(
+  scope: Scope,
+): Promise<{ status?: string; wakeAt?: Date } | void> {
+  if (!releasedPostWatchEnabled()) return;
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const now = new Date();
+    const candidates = await watchCandidates(tx, scope, now);
+    if (!candidates.length) return;
+    const states = new Map<string, { id: string; version: number; d: WatchState }>();
+    for (const row of await list(tx, scope, "publication_watch")) {
+      const d = data(row) as WatchState;
+      states.set(d.publicationId, { id: row.id, version: row.version, d });
+    }
+    const pending: Pending[] = [];
+    for (const c of candidates) {
+      try {
+        const codes = await postRisk(tx, scope, c);
+        const known = states.get(c.id);
+        const notified = known?.d.notifiedCodes ?? [];
+        if (codes.length && key(codes) !== key(notified))
+          pending.push({ c, row: known ?? null, prev: known?.d ?? null, codes, kind: "changed" });
+        else if (!codes.length && notified.length && !known?.d.clearedAt)
+          pending.push({ c, row: known ?? null, prev: known?.d ?? null, codes, kind: "cleared" });
+        else if (known && key(known.d.codes) !== key(codes))
+          // Quiet bookkeeping (a code that went away, nothing to tell).
+          await update(tx, scope, known, { ...known.d, codes, slotAt: c.slotAt.toISOString() });
+      } catch {
+        // One broken post must not stop the others; its state stays as it was.
+      }
+    }
+    if (!pending.length) return;
+
+    const refOf = (kind: Pending["kind"]) => {
+      const group = pending
+        .filter((p) => p.kind === kind)
+        .sort((a, b) => a.c.id.localeCompare(b.c.id));
+      return group.length
+        ? `${hash(group.map((p) => p.c.id)).slice(0, 12)}:${hash(group.map((p) => key(p.codes))).slice(0, 12)}`
+        : null;
+    };
+    const refs = { changed: refOf("changed"), cleared: refOf("cleared") };
+    const stamp = now.toISOString();
+    for (const p of pending) {
+      const next: WatchState =
+        p.kind === "changed"
+          ? {
+              publicationId: p.c.id,
+              slotAt: p.c.slotAt.toISOString(),
+              codes: p.codes,
+              notifiedCodes: p.codes,
+              firstSeenAt: p.prev?.notifiedCodes.length ? (p.prev.firstSeenAt ?? stamp) : stamp,
+              clearedAt: null,
+              lastNoticeRef: refs.changed,
+            }
+          : {
+              publicationId: p.c.id,
+              slotAt: p.c.slotAt.toISOString(),
+              codes: [],
+              notifiedCodes: [],
+              firstSeenAt: p.prev?.firstSeenAt ?? null,
+              clearedAt: stamp,
+              lastNoticeRef: refs.cleared,
+            };
+      if (p.row) await update(tx, scope, p.row, next);
+      else await create(tx, scope, "publication_watch", next);
+      if (p.kind === "changed")
+        await audit(tx, scope, "publication.at_risk", p.c.id, {
+          codes: p.codes,
+          assignmentId: p.c.data.assignmentId ?? null,
+          assignmentRunId: p.c.data.assignmentRunId ?? null,
+        });
+    }
+
+    const owners = await resolveRecipients(scope, { roles: ["owner"] }, "marketing");
+    const project = await tx.project.findFirstOrThrow({
+      where: { id: scope.projectId },
+      select: { language: true, timezone: true },
+    });
+    const language = project.language === "de" ? "de" : "en";
+    const channels = await channelNames(tx, scope);
+    const titles = {
+      changed: {
+        kind: "marketing_post_at_risk",
+        de: "Ein freigegebener Beitrag ist gefährdet",
+        en: "A released post is at risk",
+      },
+      cleared: {
+        kind: "marketing_post_at_risk_cleared",
+        de: "Ein freigegebener Beitrag ist wieder in Ordnung",
+        en: "A released post is clear again",
+      },
+    } as const;
+    for (const kind of ["changed", "cleared"] as const) {
+      const group = pending.filter((p) => p.kind === kind);
+      if (!group.length) continue;
+      if (owners.length) {
+        const room = Math.floor((NOTICE_BODY_MAX - group.length) / group.length);
+        const lines: string[] = [];
+        for (const p of group) {
+          const content = data(
+            await tx.entity.findFirst({
+              where: { id: p.c.data.contentId, projectId: scope.projectId, kind: "content" },
+            }),
+          );
+          const head = `${postTitle(content)} · ${localSlot(p.c.slotAt, project.timezone, language)} · ${channels.get(String(p.c.data.channel)) ?? p.c.data.channel}`;
+          const reasons = p.codes.map((code) => atRiskReason(code, language)).join("; ");
+          lines.push(clip(reasons ? `${head}: ${reasons}` : head, room));
+        }
+        await notifyMembers(tx, scope, {
+          kind: titles[kind].kind,
+          userIds: owners.slice(0, 200),
+          title: titles[kind][language],
+          body: lines.join("\n"),
+          link: inProject(scope.projectId, "/marketing/approvals"),
+        });
+      }
+      await notify(tx, scope, kind === "changed" ? "at_risk" : "at_risk_cleared", refs[kind]!);
+    }
+  });
+}
+
+/**
+ * When the watch next has something to look at: a quarter of an hour from
+ * now, or at the next candidate's slot if that is sooner; null when no
+ * released post waits inside the horizon.
+ */
+export async function nextReleasedPostWatchAt(
+  tx: DbTx,
+  scope: Scope,
+): Promise<Date | null> {
+  if (!releasedPostWatchEnabled()) return null;
+  const now = new Date();
+  const [first] = await watchCandidates(tx, scope, now, { cap: 1 });
+  if (!first) return null;
+  return new Date(Math.min(now.valueOf() + PASS_MS, first.slotAt.valueOf()));
 }
