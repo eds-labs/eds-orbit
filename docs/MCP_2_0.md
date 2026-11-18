@@ -69,7 +69,8 @@ endpoint. Repeating an approval returns the recorded result.
   budget; an owner or editor approves), and `orbit:work.coding` offers
   `work_pm_propose_coding_run` (the owner approves the exact redacted brief,
   which dispatches it). The PM reads (`work_pm_status`, `work_pm_findings`,
-  `work_pm_get_report`, `work_pm_get_plan`) and `work_pm_propose_changes`
+  `work_pm_get_report`, `work_pm_get_plan`, `work_pm_coding_repositories`)
+  and `work_pm_propose_changes`
   need `orbit:work`. Delegated work orders may read the PM's state but are
   refused every PM tool that spends or dispatches. See
   [AI project manager](WORK.md#ai-project-manager-phase-2-adr-0017).

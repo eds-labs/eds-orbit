@@ -21,7 +21,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
-const READS = ["work_pm_findings", "work_pm_get_plan", "work_pm_get_report", "work_pm_status"];
+const READS = ["work_pm_coding_repositories", "work_pm_findings", "work_pm_get_plan", "work_pm_get_report", "work_pm_status"];
 const REQUESTS = ["work_pm_request_plan", "work_pm_request_report"];
 
 describe("AI project manager assistant tools (WP2.6)", () => {

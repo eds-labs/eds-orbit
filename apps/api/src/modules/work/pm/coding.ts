@@ -25,7 +25,7 @@ import { assertPmBudget, PM_BUDGET_CATEGORY } from "./budget.ts";
 import { moveForward } from "./handoffs.ts";
 import { PM_QUEUE, pmActor } from "./planner.ts";
 import { readPmSettings } from "./settings.ts";
-import type { PmRepository } from "./settings-schema.ts";
+import { findRepository, REPOSITORY_REF_MAX, type PmRepository } from "./settings-schema.ts";
 
 // Coding work orders (ADR 0017 P-4, plan §2.7). Orbit never runs code: it
 // prepares a redacted brief, asks the owner to approve every dispatch,
@@ -149,7 +149,7 @@ export async function loadCodingRun(tx: DbTx, scope: Scope, id: string) {
 
 async function repositoryOf(tx: DbTx, scope: Scope, key: string) {
   const { settings } = await readPmSettings(tx, scope);
-  const repo = settings.repositories.find((r) => r.key === key);
+  const repo = findRepository(settings.repositories, key);
   if (!repo) throw new DomainError("WORK_CODING_REPOSITORY_UNKNOWN", 422);
   return { repo, settings };
 }
@@ -173,7 +173,8 @@ const event = (
 
 export const createCodingRunInput = z
   .object({
-    repositoryKey: z.string().min(1).max(41),
+    /** The repository's key or its `owner/name`; the run stores the key. */
+    repositoryKey: z.string().min(1).max(REPOSITORY_REF_MAX),
     brief: codingBriefInput.optional(),
     /** Let the PM draft the brief from the task (paid from its daily budget). */
     aiDraft: z.boolean().optional(),
