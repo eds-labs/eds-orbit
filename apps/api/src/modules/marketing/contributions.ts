@@ -34,6 +34,7 @@ import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
 import { invalidateMarketingForKnowledge } from "./pipeline/knowledge-impact.ts";
 import { slackWebhook } from "./publishing/slack.ts";
+import { releaseGateDependents } from "./publishing/released-post-watch.ts";
 import { marketingAttention, marketingAttentionStatus } from "./attention.ts";
 
 /**
@@ -91,6 +92,8 @@ export const marketingContributions: ModuleContributions = {
   // Content, approvals, publications, insights and jobs on revoked or
   // changed knowledge (WP3.1).
   knowledgeImpact: invalidateMarketingForKnowledge,
+  // Released posts a corpus change would block, for the knowledge warning.
+  releaseGateDependents,
   // Drafts, content, exceptions, paused posts and failed runs that need the
   // member (UI restructure §4.1).
   attention: marketingAttention,

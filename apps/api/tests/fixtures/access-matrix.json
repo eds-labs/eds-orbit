@@ -1695,6 +1695,14 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "GET /api/projects/{projectId}/knowledge/release-impact": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/knowledge_imports": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

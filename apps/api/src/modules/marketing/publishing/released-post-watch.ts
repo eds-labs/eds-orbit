@@ -5,9 +5,12 @@ import { scoped } from "../../../../../../packages/db/src/index.ts";
 import { audit, create, data, hash, list, update } from "../../../shared.ts";
 import { preflight } from "../policy/policy.ts";
 import { notify, OWNER_CAUSED } from "../agents/notifications.ts";
-import { channelNames } from "../agents/assignment-overview.ts";
+import { channelNames, rowsById } from "../agents/assignment-overview.ts";
 import { READINESS_BLOCKERS } from "../readiness/blocker-catalog.ts";
-import { registeredUserNotification } from "../../../platform/modules/contributions.ts";
+import {
+  registeredUserNotification,
+  type ReleaseGateDependent,
+} from "../../../platform/modules/contributions.ts";
 import { notifyMembers } from "../../../platform/notifications/members.ts";
 import { resolveRecipients } from "../../../platform/signals/deliver.ts";
 import { inProject } from "../../../platform/management/links.ts";
@@ -164,6 +167,43 @@ const clip = (text: string, max: number) =>
 export function postTitle(content: Record<string, any>): string {
   const named = content.title ?? content.topic;
   return typeof named === "string" && named.trim() ? clip(named.trim(), 60) : "Post";
+}
+
+/**
+ * Every released post a corpus change would block (released-post watch, C):
+ * the watch's selection without its horizon and cap, intended posts only (a
+ * blocked one is refused anyway). Names, slots and channel names; never the
+ * text. Read-only.
+ */
+export async function releaseGateDependents(
+  tx: DbTx,
+  scope: Scope,
+): Promise<ReleaseGateDependent[]> {
+  const candidates = (
+    await watchCandidates(tx, scope, new Date(), { horizonMs: null, cap: null })
+  ).filter((c) => c.data.status === "intent_created");
+  if (!candidates.length) return [];
+  const project = await tx.project.findFirstOrThrow({
+    where: { id: scope.projectId },
+    select: { timezone: true },
+  });
+  const channels = await channelNames(tx, scope);
+  const contents = await rowsById(
+    tx,
+    scope,
+    "content",
+    candidates.map((c) => c.data.contentId),
+  );
+  return candidates.map((c) => {
+    const channel = c.data.channel == null ? null : String(c.data.channel);
+    return {
+      id: c.id,
+      title: postTitle(data(contents.get(String(c.data.contentId)))),
+      slotAt: c.slotAt.toISOString(),
+      timeZone: project.timezone,
+      channels: channel ? [channels.get(channel) ?? channel] : [],
+    };
+  });
 }
 
 const localSlot = (at: Date, timezone: string, language: "de" | "en") =>

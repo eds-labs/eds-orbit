@@ -17,10 +17,13 @@ import {
 } from "../../platform/knowledge/engine.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
 import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
+import { releaseImpact } from "../../platform/knowledge/release-impact.ts";
 import {
   languageCode,
   source as sourceSchema,
+  type Scope,
 } from "../../../../../packages/schemas/src/index.ts";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
 
 const page = z
   .object({
@@ -45,6 +48,14 @@ const factInput = z
   })
   .strict();
 const shared = { module: "knowledge" };
+/**
+ * The released posts this change will block, read before it runs (afterwards
+ * the gate is already invalid); only when there are any.
+ */
+async function releaseWarning(tx: DbTx, scope: Scope) {
+  const impact = await releaseImpact(tx, scope);
+  return impact.count > 0 ? { releaseImpact: impact } : {};
+}
 async function sources(tx: any, scope: any, args: any) {
   const found = await tx.entity.findMany({
     where: {
@@ -188,6 +199,7 @@ const writes = [
       .strict(),
     async run(tx, scope, args) {
       const s = await entity(tx, scope, "sources", args.sourceId);
+      const warning = await releaseWarning(tx, scope);
       const result = await ingest(tx, scope, {
         ...args,
         expectedGeneration: data(s).generation,
@@ -205,6 +217,7 @@ const writes = [
               blockers: status.blockers,
             }
           : null,
+        ...warning,
       };
     },
   }),
@@ -224,6 +237,7 @@ const writes = [
       .strict(),
     async run(tx, scope, args) {
       const s = await entity(tx, scope, "sources", args.sourceId);
+      const warning = await releaseWarning(tx, scope);
       const request = await create(tx, scope, "sync_requests", {
         ...args,
         expectedGeneration: data(s).generation,
@@ -235,7 +249,7 @@ const writes = [
         request.id,
         `sync:${request.id}`,
       );
-      return { jobId: job.id, status: "queued" };
+      return { jobId: job.id, status: "queued", ...warning };
     },
   }),
   approvedOperation({
