@@ -194,6 +194,27 @@ describe.skipIf(!enabled)("member notifications", () => {
         inApp: true,
         email: false,
       },
+      // Marketing's released-post watch kinds (registered with the module).
+      {
+        kind: "marketing_post_at_risk",
+        moduleId: "marketing",
+        label: {
+          en: "A released post will not be published",
+          de: "Ein freigegebener Post wird nicht veröffentlicht",
+        },
+        inApp: true,
+        email: true,
+      },
+      {
+        kind: "marketing_post_at_risk_cleared",
+        moduleId: "marketing",
+        label: {
+          en: "An at-risk post can be published again",
+          de: "Ein gefährdeter Post kann wieder veröffentlicht werden",
+        },
+        inApp: true,
+        email: false,
+      },
     ]);
     expect(
       (

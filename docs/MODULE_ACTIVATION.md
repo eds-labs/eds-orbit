@@ -95,6 +95,16 @@ AI image labelling ([AI_IMAGE_LABELING.md](AI_IMAGE_LABELING.md), [ADR 0028](adr
 | Project | No per-project switch: with the flag on, every project's new AI images are labelled and every project's outbound AI images are checked (a legal requirement, not a preference). |
 | Member | No new role. Labelling runs inside the existing creation paths; the publish gate applies to everyone, owners included. |
 
+## Released-post watch (platform feature flag, 2026-11-18, local; flag off)
+
+The released-post watch is a Marketing feature plus a Knowledge warning; it adds no module, manifest entry, permission or project row ([design](superpowers/specs/2026-11-18-released-post-watch-design.md)).
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_RELEASED_POST_WATCH=true` (default `false`) covers the watcher and the "before" warning. While off there is no task, `GET /api/projects/:projectId/knowledge/release-impact` answers `enabled: false`, and no dialog or `releaseImpact` appears. No migration, no schema hash; a restart switches it on. |
+| Project | Runs for projects where Marketing is active. The route's `count` is returned to every caller allowed to change the corpus (`PROJECT_WRITE`); `dependents` (titles, slots, channels) only with Marketing active in the project and the Marketing module role check passed. |
+| Member | Notices go to the project's owners only (Marketing access required). Kinds `marketing_post_at_risk` and `marketing_post_at_risk_cleared` can be muted per member. |
+
 ## Creative Studio (Marketing feature flag, 2026-10-27, local; flag off)
 
 The Creative Studio ([MARKETING_CREATIVE_STUDIO.md](MARKETING_CREATIVE_STUDIO.md)) is a feature of the Marketing module, not a module of its own. It adds no manifest entry and no project row.

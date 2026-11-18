@@ -144,6 +144,8 @@ the gateway's 64 KiB cap; lists expose opaque pagination cursors.
 | `knowledge_verify_fact` | Exact owner-verified values through native fact/conflict rules |
 | `knowledge_withdraw_fact` | Version-bound withdrawal and downstream invalidation |
 
+With `ORBIT_RELEASED_POST_WATCH` on, `knowledge_add_document` and `knowledge_import_url` results carry `releaseImpact` (`count`, plus titles, slots and channels for callers with Marketing access) when the change would block released posts until a new index evaluation is active. It is computed before the write, advisory only, and never blocks it; delegated-agent and MCP-task executions store only `{ count }`.
+
 The original `orbit_profile`, `orbit_projects`, `search`, `fetch`,
 `marketing_project_status`, `support_insights`, `orbit_action_status` and
 `marketing_assignment_propose` retain their names and response contracts.
