@@ -112,6 +112,9 @@ import {
   runReleasedPostWatch,
   watchCandidates,
 } from "../src/modules/marketing/publishing/released-post-watch.ts";
+import * as policyModule from "../src/modules/marketing/policy/policy.ts";
+import * as notificationsModule from "../src/modules/marketing/agents/notifications.ts";
+import { marketingNotifications } from "../src/modules/marketing/agents/notification-messages.ts";
 import { invalidateContent } from "../src/modules/marketing/pipeline/content-invalidation.ts";
 import { marketingJobs } from "../src/modules/marketing/jobs.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
@@ -1164,6 +1167,82 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
         const rows = await watchRows();
         expect(rows.map((w) => w.publicationId)).toEqual([pubs[1]!.id]);
         expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+      });
+
+      it("a database error while checking one post does not stop the other post's warning", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = false;
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+        const real = policyModule.preflight;
+        const spy = vi
+          .spyOn(policyModule, "preflight")
+          .mockImplementationOnce(async (tx: any) => {
+            // A real database error: it aborts the transaction it runs in.
+            await tx.$queryRaw`SELECT 1/0`;
+            throw new Error("unreachable");
+          });
+        try {
+          await runReleasedPostWatch(daily.h.worker());
+        } finally {
+          spy.mockRestore();
+        }
+        expect(real).toBe(policyModule.preflight);
+        const rows = await watchRows();
+        expect(rows).toHaveLength(1);
+        expect(pubs.map((p) => p.id)).toContain(rows[0]!.publicationId);
+        expect(await notices("marketing_post_at_risk")).toHaveLength(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        const logged = String(warn.mock.calls[0]![0]);
+        expect(logged).toContain("released-post-watch");
+        expect(logged).toContain(pubs.map((p) => p.id).find((id) => id !== rows[0]!.publicationId)!);
+        warn.mockRestore();
+        // The next pass picks the skipped post up.
+        await runReleasedPostWatch(daily.h.worker());
+        expect(await watchRows()).toHaveLength(2);
+      });
+
+      it("the notice ref is stored on the watch rows and the renderers go stale after the all-clear", async () => {
+        await released();
+        const notify = vi.spyOn(notificationsModule, "notify");
+        try {
+          provider.liveIndex = false;
+          await runReleasedPostWatch(daily.h.worker());
+          const riskRef = notify.mock.calls.find((c) => c[2] === "at_risk")![3] as string;
+          expect((await watchRows()).map((w) => w.lastNoticeRef)).toEqual([riskRef, riskRef]);
+          const render = (kind: string, ref: string) =>
+            daily.h.run((tx) =>
+              marketingNotifications.render(tx, daily.project.owner, kind, ref),
+            );
+          const message: any = await render("at_risk", riskRef);
+          expect(message.skip).toBeUndefined();
+          expect(message.text).toContain("gefährdet");
+          provider.liveIndex = true;
+          await runReleasedPostWatch(daily.h.worker());
+          const clearRef = notify.mock.calls.find((c) => c[2] === "at_risk_cleared")![3] as string;
+          expect(clearRef).not.toBe(riskRef);
+          expect(await render("at_risk", riskRef)).toEqual({ skip: "STALE" });
+          const cleared: any = await render("at_risk_cleared", clearRef);
+          expect(cleared.skip).toBeUndefined();
+          expect(await render("at_risk", "unknown:ref")).toEqual({ skip: "STALE" });
+        } finally {
+          notify.mockRestore();
+        }
+      });
+
+      it("a second identical risk episode gets its own notice ref", async () => {
+        await released();
+        const notify = vi.spyOn(notificationsModule, "notify");
+        try {
+          for (const live of [false, true, false]) {
+            provider.liveIndex = live;
+            await runReleasedPostWatch(daily.h.worker());
+          }
+          const refs = notify.mock.calls.filter((c) => c[2] === "at_risk").map((c) => c[3]);
+          expect(refs).toHaveLength(2);
+          expect(new Set(refs).size).toBe(2);
+        } finally {
+          notify.mockRestore();
+        }
       });
 
       it("does nothing with the flag off", async () => {

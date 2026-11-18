@@ -7,6 +7,7 @@ import { preflight } from "../policy/policy.ts";
 import { notify, OWNER_CAUSED } from "../agents/notifications.ts";
 import { channelNames } from "../agents/assignment-overview.ts";
 import { READINESS_BLOCKERS } from "../readiness/blocker-catalog.ts";
+import { registeredUserNotification } from "../../../platform/modules/contributions.ts";
 import { notifyMembers } from "../../../platform/notifications/members.ts";
 import { resolveRecipients } from "../../../platform/signals/deliver.ts";
 import { inProject } from "../../../platform/management/links.ts";
@@ -159,12 +160,10 @@ const key = (codes: string[]) => [...codes].sort().join(",");
 const clip = (text: string, max: number) =>
   text.length > max ? text.slice(0, max - 1) + "…" : text;
 
-/** A short name for a post: its title or topic, else the first line of its text. */
+/** A short name for a post: its title or topic; never any of its text. */
 export function postTitle(content: Record<string, any>): string {
   const named = content.title ?? content.topic;
-  if (typeof named === "string" && named.trim()) return clip(named.trim(), 60);
-  const first = String(content.body ?? "").split("\n")[0]!.trim();
-  return first ? clip(first, 60) : "Post";
+  return typeof named === "string" && named.trim() ? clip(named.trim(), 60) : "Post";
 }
 
 const localSlot = (at: Date, timezone: string, language: "de" | "en") =>
@@ -196,44 +195,60 @@ export async function runReleasedPostWatch(
   scope: Scope,
 ): Promise<{ status?: string; wakeAt?: Date } | void> {
   if (!releasedPostWatchEnabled()) return;
-  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const now = new Date();
+  const now = new Date();
+  const found = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const candidates = await watchCandidates(tx, scope, now);
-    if (!candidates.length) return;
     const states = new Map<string, { id: string; version: number; d: WatchState }>();
     for (const row of await list(tx, scope, "publication_watch")) {
       const d = data(row) as WatchState;
       states.set(d.publicationId, { id: row.id, version: row.version, d });
     }
-    const pending: Pending[] = [];
-    for (const c of candidates) {
-      try {
-        const codes = await postRisk(tx, scope, c);
-        const known = states.get(c.id);
-        const notified = known?.d.notifiedCodes ?? [];
-        if (codes.length && key(codes) !== key(notified))
-          pending.push({ c, row: known ?? null, prev: known?.d ?? null, codes, kind: "changed" });
-        else if (!codes.length && notified.length && !known?.d.clearedAt)
-          pending.push({ c, row: known ?? null, prev: known?.d ?? null, codes, kind: "cleared" });
-        else if (known && key(known.d.codes) !== key(codes))
-          // Quiet bookkeeping (a code that went away, nothing to tell).
-          await update(tx, scope, known, { ...known.d, codes, slotAt: c.slotAt.toISOString() });
-      } catch {
-        // One broken post must not stop the others; its state stays as it was.
-      }
+    return { candidates, states };
+  });
+  if (!found.candidates.length) return;
+  const { states } = found;
+  const pending: Pending[] = [];
+  const bookkeeping: Array<{ row: { id: string; version: number }; next: WatchState }> = [];
+  for (const c of found.candidates) {
+    let codes: string[];
+    try {
+      // Each post is evaluated in its own transaction: a database error in one
+      // cannot abort the others.
+      codes = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        postRisk(tx, scope, c),
+      );
+    } catch (error) {
+      console.warn(
+        `released-post-watch: check of publication ${c.id} failed (${error instanceof Error ? error.name : "error"})`,
+      );
+      continue;
     }
+    const known = states.get(c.id);
+    const notified = known?.d.notifiedCodes ?? [];
+    if (codes.length && key(codes) !== key(notified))
+      pending.push({ c, row: known ?? null, prev: known?.d ?? null, codes, kind: "changed" });
+    else if (!codes.length && notified.length && !known?.d.clearedAt)
+      pending.push({ c, row: known ?? null, prev: known?.d ?? null, codes, kind: "cleared" });
+    else if (known && key(known.d.codes) !== key(codes))
+      // Quiet bookkeeping (a code that went away, nothing to tell).
+      bookkeeping.push({ row: known, next: { ...known.d, codes, slotAt: c.slotAt.toISOString() } });
+  }
+  if (!pending.length && !bookkeeping.length) return;
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    for (const b of bookkeeping) await update(tx, scope, b.row, b.next);
     if (!pending.length) return;
 
+    const stamp = now.toISOString();
     const refOf = (kind: Pending["kind"]) => {
       const group = pending
         .filter((p) => p.kind === kind)
         .sort((a, b) => a.c.id.localeCompare(b.c.id));
       return group.length
-        ? `${hash(group.map((p) => p.c.id)).slice(0, 12)}:${hash(group.map((p) => key(p.codes))).slice(0, 12)}`
+        ? // The pass time makes the ref specific to this episode: job keys are permanent.
+          `${hash(group.map((p) => p.c.id)).slice(0, 12)}:${hash([stamp, ...group.map((p) => key(p.codes))]).slice(0, 12)}`
         : null;
     };
     const refs = { changed: refOf("changed"), cleared: refOf("cleared") };
-    const stamp = now.toISOString();
     for (const p of pending) {
       const next: WatchState =
         p.kind === "changed"
@@ -272,17 +287,9 @@ export async function runReleasedPostWatch(
     });
     const language = project.language === "de" ? "de" : "en";
     const channels = await channelNames(tx, scope);
-    const titles = {
-      changed: {
-        kind: "marketing_post_at_risk",
-        de: "Ein freigegebener Beitrag ist gefährdet",
-        en: "A released post is at risk",
-      },
-      cleared: {
-        kind: "marketing_post_at_risk_cleared",
-        de: "Ein freigegebener Beitrag ist wieder in Ordnung",
-        en: "A released post is clear again",
-      },
+    const kinds = {
+      changed: "marketing_post_at_risk",
+      cleared: "marketing_post_at_risk_cleared",
     } as const;
     for (const kind of ["changed", "cleared"] as const) {
       const group = pending.filter((p) => p.kind === kind);
@@ -301,9 +308,9 @@ export async function runReleasedPostWatch(
           lines.push(clip(reasons ? `${head}: ${reasons}` : head, room));
         }
         await notifyMembers(tx, scope, {
-          kind: titles[kind].kind,
+          kind: kinds[kind],
           userIds: owners.slice(0, 200),
-          title: titles[kind][language],
+          title: registeredUserNotification(kinds[kind])!.label[language],
           body: lines.join("\n"),
           link: inProject(scope.projectId, "/marketing/approvals"),
         });
