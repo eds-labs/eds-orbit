@@ -108,6 +108,8 @@ const baseConfigSchema = z.object({
   // and export path blocks an AI image without a valid label. While "false"
   // nothing is labelled, recorded or gated.
   ORBIT_AI_IMAGE_LABELS: z.enum(["false", "true"]).default("false"),
+  // Early warning for released posts that would be refused at their slot.
+  ORBIT_RELEASED_POST_WATCH: z.enum(["false", "true"]).default("false"),
   // Agent mandates (ADR 0019): an owner may let the assistant or MCP clients
   // run one internal action type within limits without a per-request
   // approval. While "false" every stored mandate is inert and every request

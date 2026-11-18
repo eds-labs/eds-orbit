@@ -106,6 +106,11 @@ import {
   reconcilePublication,
   syncSocialHolds,
 } from "../src/modules/marketing/publishing/publisher.ts";
+import {
+  postRisk,
+  watchCandidates,
+} from "../src/modules/marketing/publishing/released-post-watch.ts";
+import { invalidateContent } from "../src/modules/marketing/pipeline/content-invalidation.ts";
 import { marketingJobs } from "../src/modules/marketing/jobs.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { claimPublication as claimMarketingPublication } from "../src/modules/marketing/pipeline/workflow.ts";
@@ -1013,6 +1018,76 @@ describe.skipIf(!enabled)("Daily social automation baseline", () => {
       expect(await states()).toEqual(["handoff_pending", "handoff_pending"]);
       await syncSocialHolds(daily.h.worker());
       expect(await states()).toEqual(["scheduled", "scheduled"]);
+    });
+
+    describe("released-post watch: risk", () => {
+      const risks = (now = new Date(), opts?: Parameters<typeof watchCandidates>[3]) =>
+        daily.h.run(async (tx) => {
+          const cs = await watchCandidates(tx, daily.project.owner, now, opts);
+          return Promise.all(cs.map((c) => postRisk(tx, daily.project.owner, c)));
+        });
+
+      it("a released post with a valid live index has no risk", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = true;
+        expect(await risks()).toEqual([[], []]);
+        expect(pubs).toHaveLength(2);
+      });
+
+      it("an invalid live index puts both released posts at risk with LIVE_RAG_EVAL_REQUIRED", async () => {
+        await released();
+        provider.liveIndex = false;
+        const all = await risks();
+        expect(all).toHaveLength(2);
+        for (const r of all) expect(r).toContain("LIVE_RAG_EVAL_REQUIRED");
+      });
+
+      it("a content invalidation before the slot is a risk carrying CONTENT_CHANGED", async () => {
+        const { pubs } = await released();
+        provider.liveIndex = true;
+        await daily.h.run((tx) =>
+          invalidateContent(tx, daily.project.owner, pubs[0]!.contentId),
+        );
+        const found = await daily.h.run(async (tx) => {
+          const cs = await watchCandidates(tx, daily.project.owner, new Date());
+          return Promise.all(
+            cs.map(async (c) => ({
+              id: c.id,
+              risk: await postRisk(tx, daily.project.owner, c),
+            })),
+          );
+        });
+        const changed = found.find((f) => f.id === pubs[0]!.id)!;
+        expect(changed.risk).toContain("CONTENT_CHANGED");
+        expect(found.find((f) => f.id === pubs[1]!.id)!.risk).toEqual([]);
+      });
+
+      it("ignores test publications, past slots and slots beyond 48 hours", async () => {
+        const { pubs, slot } = await released();
+        const ids = async (now: Date, opts?: Parameters<typeof watchCandidates>[3]) =>
+          daily.h.run(async (tx) =>
+            (await watchCandidates(tx, daily.project.owner, now, opts)).map((c) => c.id),
+          );
+        const hour = 3600000;
+        // Both released posts are candidates well before the slot.
+        expect((await ids(new Date(slot.valueOf() - hour))).sort()).toEqual(
+          pubs.map((p) => p.id).sort(),
+        );
+        // Past slot: none.
+        expect(await ids(new Date(slot.valueOf() + MINUTE))).toEqual([]);
+        // More than 48 hours ahead: none, unless the horizon is lifted.
+        const far = new Date(slot.valueOf() - 49 * hour);
+        expect(await ids(far)).toEqual([]);
+        expect(await ids(far, { horizonMs: null })).toHaveLength(2);
+        // The cap applies and can be lifted.
+        expect(await ids(new Date(slot.valueOf() - hour), { cap: 1 })).toHaveLength(1);
+        // A test publication is never a candidate.
+        await daily.h.run(async (tx) => {
+          for (const row of await list(tx, daily.project.owner, "publications"))
+            await update(tx, daily.project.owner, row, { ...data(row), test: true });
+        });
+        expect(await ids(new Date(slot.valueOf() - hour))).toEqual([]);
+      });
     });
   });
 

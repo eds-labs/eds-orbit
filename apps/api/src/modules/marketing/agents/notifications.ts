@@ -110,7 +110,7 @@ export async function nextDailyReportAt(
 }
 
 // Blockers that need no notice: the owner stopped the post or paused the project himself.
-const OWNER_CAUSED = ["VETOED", "PROJECT_PAUSED"];
+export const OWNER_CAUSED = ["VETOED", "PROJECT_PAUSED"];
 
 /**
  * Reports a post that was blocked at claim or handoff although the owner was
