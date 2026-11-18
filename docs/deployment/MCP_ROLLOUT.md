@@ -16,7 +16,7 @@ Design and decisions: `plans/orbit-modularization/09-mcp-gateway.md` (§3.1 plac
 
 ## Approvals needed
 
-Each row is a separate OK from Mario, given in order (exceptions: A7 may come before A6, and A9 at any time). A later step never starts before the earlier one is verified. Sub-steps named in a row are part of that row's OK; a sub-step marked "own OK" needs a separate one. No row is approved yet.
+Each row is a separate OK from Mario, given in order (exceptions: A7 may come before A6, and A9 at any time). A later step never starts before the earlier one is verified. Sub-steps named in a row are part of that row's OK; a sub-step marked "own OK" needs a separate one. Status 2026-10-19: A1–A6 are done in production (record in `docs/IMPLEMENTATION_STATUS.md`, Track M WP-M5, "Production rollout"); the A6 revoke check and A7–A9 are open.
 
 | # | Step | What changes in production | Precondition | Verification | Rollback |
 |---|---|---|---|---|---|
