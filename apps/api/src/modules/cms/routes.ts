@@ -4,10 +4,11 @@ import { CMS_BASE, inCms } from "./http-scope.ts";
 import { cmsModule } from "./manifest.ts";
 import { CMS_READ, CMS_SETTINGS } from "./permissions.ts";
 import { readCmsSettings, saveCmsSettings } from "./settings.ts";
+import { cmsEntryRoutes } from "./entries/routes.ts";
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
 
-/** Content module routes; later steps add entries, media, sites and publications. */
+/** Content module routes; later steps add media, sites and publications. */
 export const cmsRoutes: RoutesContribution = (context) => {
   const { app, auth } = context;
   app.get(`${CMS_BASE}/status`, (req) =>
@@ -27,4 +28,5 @@ export const cmsRoutes: RoutesContribution = (context) => {
       return saveCmsSettings(tx, scope, settings, version);
     }),
   );
+  cmsEntryRoutes(context);
 };
