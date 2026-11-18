@@ -151,19 +151,61 @@ describe.skipIf(!enabled)("content module schema", () => {
     ).rejects.toThrow();
   });
 
-  it("removes everything with its project, published entries included", async () => {
+  it("removes everything with its project, published entries and every reference included", async () => {
     const projectId = (await authDb.project.create({ data: { workspaceId: ids.workspaceId, name: "Doomed" } })).id;
     const { entryId, revisionId } = await entryWithRevision(projectId);
-    await inProject(
-      (tx) =>
-        tx.cmsEntry.update({
-          where: { id: entryId },
-          data: { status: "published", publishedRevisionId: revisionId, firstPublishedAt: new Date(), lastPublishedAt: new Date() },
-        }),
-      projectId,
-    );
+    await inProject(async (tx) => {
+      // An asset over a file, used as hero image of the draft and of two
+      // revisions (one based on the other), as avatar, plus nested terms,
+      // a site and a redirect to the entry: none may block the cascade.
+      const fileId = randomUUID();
+      const assetId = randomUUID();
+      await tx.file.create({
+        data: { id: fileId, ...t(projectId), moduleId: "cms", key: `projects/${projectId}/cms/${fileId}`, mime: "image/png", size: 1, sha256: "e".repeat(64), encryption: "aes-256-gcm/v1", createdBy: ids.owner },
+      });
+      await tx.cmsAsset.create({
+        data: { id: assetId, ...t(projectId), fileId, mime: "image/png", width: 1, height: 1, bytes: 1, sha256: "e".repeat(64), createdBy: ids.owner },
+      });
+      await tx.cmsDraft.update({ where: { entryId }, data: { heroAssetId: assetId } });
+      await tx.cmsRevision.create({
+        data: {
+          id: randomUUID(), ...t(projectId), entryId, number: 2, slug: "x", title: "T", excerpt: "", body: doc, fields: {}, seo: {}, heroAssetId: assetId,
+          authorIds: [], termIds: [], contentHash: "f".repeat(64), bodyHash: "b".repeat(64), wordCount: 0, createdBy: ids.owner, basedOnRevisionId: revisionId,
+        },
+      });
+      await tx.cmsAuthor.create({ data: { id: randomUUID(), ...t(projectId), name: "A", slug: "a", avatarAssetId: assetId, createdBy: ids.owner } });
+      const parent = randomUUID();
+      await tx.cmsTaxonomyTerm.create({ data: { id: parent, ...t(projectId), kind: "category", locale: "de", translationGroupId: randomUUID(), slug: "p", name: "P", createdBy: ids.owner } });
+      await tx.cmsTaxonomyTerm.create({
+        data: { id: randomUUID(), ...t(projectId), kind: "category", locale: "de", translationGroupId: randomUUID(), slug: "c", name: "C", parentId: parent, createdBy: ids.owner },
+      });
+      const siteId = randomUUID();
+      await tx.cmsSite.create({ data: { id: siteId, ...t(projectId), name: "S", baseUrl: "https://d.example.invalid", locales: ["de"], defaultLocale: "de", createdBy: ids.owner } });
+      await tx.cmsRedirect.create({ data: { id: randomUUID(), ...t(projectId), siteId, fromPath: "/alt/", toEntryId: entryId, code: 301, reason: "slug_changed", createdBy: ids.owner } });
+      await tx.cmsEntry.update({
+        where: { id: entryId },
+        data: { status: "published", publishedRevisionId: revisionId, firstPublishedAt: new Date(), lastPublishedAt: new Date() },
+      });
+    }, projectId);
     await authDb.project.delete({ where: { id: projectId } });
     expect(await inProject((tx) => tx.cmsEntry.count(), projectId)).toBe(0);
     expect(await inProject((tx) => tx.cmsRevision.count(), projectId)).toBe(0);
+    expect(await inProject((tx) => tx.cmsAsset.count(), projectId)).toBe(0);
+  });
+
+  it("refuses to drop an asset or a file that is still referenced", async () => {
+    const { entryId } = await entryWithRevision();
+    const fileId = randomUUID();
+    const assetId = randomUUID();
+    await inProject(async (tx) => {
+      await tx.file.create({
+        data: { id: fileId, ...t(), moduleId: "cms", key: `projects/${ids.projectId}/cms/${fileId}`, mime: "image/png", size: 1, sha256: "e".repeat(64), encryption: "aes-256-gcm/v1", createdBy: ids.owner },
+      });
+      await tx.cmsAsset.create({ data: { id: assetId, ...t(), fileId, mime: "image/png", width: 1, height: 1, bytes: 1, sha256: "e".repeat(64), createdBy: ids.owner } });
+      await tx.cmsDraft.update({ where: { entryId }, data: { heroAssetId: assetId } });
+    });
+    // The business role has no DELETE on assets at all; the file's row it may delete, but not while an asset uses it.
+    await expect(inProject((tx) => tx.cmsAsset.delete({ where: { id: assetId } }))).rejects.toThrow(/permission denied/);
+    await expect(inProject((tx) => tx.file.delete({ where: { id: fileId } }))).rejects.toThrow();
   });
 });

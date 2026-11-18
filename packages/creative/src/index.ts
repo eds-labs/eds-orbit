@@ -733,3 +733,11 @@ export async function encodePreviewJpeg(bytes: Buffer, maxSide = 720) {
     .toBuffer();
 }
 export { prepareSocialImage, type PreparedSocialImage } from "./social-image.ts";
+export {
+  prepareWebImage,
+  variantWidths,
+  WEB_IMAGE_WIDTHS,
+  OG_SIZE,
+  type PreparedWebImage,
+  type WebImageVariant,
+} from "./web-image.ts";

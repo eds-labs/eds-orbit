@@ -5,6 +5,10 @@
 -- FORCE RLS. Published history is kept: revisions and attempts are
 -- insert-only, an entry that was ever published cannot be deleted (archive
 -- it), publications are never deleted. Project deletion still cascades.
+-- References that must not block that cascade (assets, parent terms, the
+-- revision a revision is based on, the asset's file) are checked at commit
+-- (DEFERRABLE INITIALLY DEFERRED): the cascade removes both rows in some
+-- order, and SET NULL would change an immutable revision.
 
 CREATE TABLE "CmsAuthor" (
   "id" UUID NOT NULL,
@@ -62,11 +66,11 @@ CREATE TABLE "CmsAsset" (
   CONSTRAINT "CmsAsset_project_fkey" FOREIGN KEY ("workspaceId", "projectId") REFERENCES "Project"("workspaceId", "id") ON DELETE CASCADE ON UPDATE CASCADE,
   -- A referenced file cannot disappear under content (checked at the end of
   -- the statement, so deleting the whole project still cascades).
-  CONSTRAINT "CmsAsset_file_fkey" FOREIGN KEY ("projectId", "fileId") REFERENCES "File"("projectId", "id")
+  CONSTRAINT "CmsAsset_file_fkey" FOREIGN KEY ("projectId", "fileId") REFERENCES "File"("projectId", "id") DEFERRABLE INITIALLY DEFERRED
 );
 CREATE INDEX "CmsAsset_projectId_sha256_idx" ON "CmsAsset"("projectId", "sha256");
 
-ALTER TABLE "CmsAuthor" ADD CONSTRAINT "CmsAuthor_avatar_fkey" FOREIGN KEY ("workspaceId", "projectId", "avatarAssetId") REFERENCES "CmsAsset"("workspaceId", "projectId", "id");
+ALTER TABLE "CmsAuthor" ADD CONSTRAINT "CmsAuthor_avatar_fkey" FOREIGN KEY ("workspaceId", "projectId", "avatarAssetId") REFERENCES "CmsAsset"("workspaceId", "projectId", "id") DEFERRABLE INITIALLY DEFERRED;
 
 CREATE TABLE "CmsTaxonomyTerm" (
   "id" UUID NOT NULL,
@@ -94,7 +98,7 @@ CREATE TABLE "CmsTaxonomyTerm" (
   CONSTRAINT "CmsTaxonomyTerm_name_check" CHECK (char_length("name") BETWEEN 1 AND 120 AND char_length(coalesce("description", '')) <= 1000),
   CONSTRAINT "CmsTaxonomyTerm_parent_check" CHECK ("parentId" IS NULL OR ("kind" = 'category' AND "parentId" <> "id")),
   CONSTRAINT "CmsTaxonomyTerm_project_fkey" FOREIGN KEY ("workspaceId", "projectId") REFERENCES "Project"("workspaceId", "id") ON DELETE CASCADE ON UPDATE CASCADE,
-  CONSTRAINT "CmsTaxonomyTerm_parent_fkey" FOREIGN KEY ("workspaceId", "projectId", "parentId") REFERENCES "CmsTaxonomyTerm"("workspaceId", "projectId", "id")
+  CONSTRAINT "CmsTaxonomyTerm_parent_fkey" FOREIGN KEY ("workspaceId", "projectId", "parentId") REFERENCES "CmsTaxonomyTerm"("workspaceId", "projectId", "id") DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE "CmsSite" (
@@ -192,7 +196,7 @@ CREATE TABLE "CmsDraft" (
   CONSTRAINT "CmsDraft_json_check" CHECK (jsonb_typeof("fields") = 'object' AND jsonb_typeof("seo") = 'object' AND octet_length("fields"::text) <= 262144),
   CONSTRAINT "CmsDraft_refs_check" CHECK (cardinality("authorIds") <= 10 AND cardinality("termIds") <= 50),
   CONSTRAINT "CmsDraft_entry_fkey" FOREIGN KEY ("workspaceId", "projectId", "entryId") REFERENCES "CmsEntry"("workspaceId", "projectId", "id") ON DELETE CASCADE,
-  CONSTRAINT "CmsDraft_hero_fkey" FOREIGN KEY ("workspaceId", "projectId", "heroAssetId") REFERENCES "CmsAsset"("workspaceId", "projectId", "id")
+  CONSTRAINT "CmsDraft_hero_fkey" FOREIGN KEY ("workspaceId", "projectId", "heroAssetId") REFERENCES "CmsAsset"("workspaceId", "projectId", "id") DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE TABLE "CmsRevision" (
@@ -226,8 +230,8 @@ CREATE TABLE "CmsRevision" (
   CONSTRAINT "CmsRevision_body_check" CHECK (jsonb_typeof("body") = 'object' AND coalesce("body"->>'schema', '') = 'orbit-doc'),
   CONSTRAINT "CmsRevision_note_check" CHECK (char_length(coalesce("changeNote", '')) <= 500),
   CONSTRAINT "CmsRevision_entry_fkey" FOREIGN KEY ("workspaceId", "projectId", "entryId") REFERENCES "CmsEntry"("workspaceId", "projectId", "id") ON DELETE CASCADE,
-  CONSTRAINT "CmsRevision_hero_fkey" FOREIGN KEY ("workspaceId", "projectId", "heroAssetId") REFERENCES "CmsAsset"("workspaceId", "projectId", "id"),
-  CONSTRAINT "CmsRevision_basedOn_fkey" FOREIGN KEY ("workspaceId", "projectId", "basedOnRevisionId") REFERENCES "CmsRevision"("workspaceId", "projectId", "id") ON DELETE SET NULL ("basedOnRevisionId")
+  CONSTRAINT "CmsRevision_hero_fkey" FOREIGN KEY ("workspaceId", "projectId", "heroAssetId") REFERENCES "CmsAsset"("workspaceId", "projectId", "id") DEFERRABLE INITIALLY DEFERRED,
+  CONSTRAINT "CmsRevision_basedOn_fkey" FOREIGN KEY ("workspaceId", "projectId", "basedOnRevisionId") REFERENCES "CmsRevision"("workspaceId", "projectId", "id") DEFERRABLE INITIALLY DEFERRED
 );
 
 -- An entry's live and scheduled revisions must be its own.
@@ -325,7 +329,7 @@ CREATE TABLE "CmsRedirect" (
   ),
   CONSTRAINT "CmsRedirect_reason_check" CHECK ("reason" IN ('slug_changed', 'archived', 'manual')),
   CONSTRAINT "CmsRedirect_site_fkey" FOREIGN KEY ("workspaceId", "projectId", "siteId") REFERENCES "CmsSite"("workspaceId", "projectId", "id") ON DELETE CASCADE,
-  CONSTRAINT "CmsRedirect_toEntry_fkey" FOREIGN KEY ("workspaceId", "projectId", "toEntryId") REFERENCES "CmsEntry"("workspaceId", "projectId", "id") ON DELETE SET NULL ("toEntryId")
+  CONSTRAINT "CmsRedirect_toEntry_fkey" FOREIGN KEY ("workspaceId", "projectId", "toEntryId") REFERENCES "CmsEntry"("workspaceId", "projectId", "id") ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX "CmsRedirect_active_from_key" ON "CmsRedirect"("siteId", "fromPath") WHERE "removedAt" IS NULL;
 

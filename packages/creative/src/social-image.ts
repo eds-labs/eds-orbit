@@ -34,7 +34,7 @@ let configured = false;
  * an Orbit label or a C2PA manifest naming an AI source. Null otherwise (a
  * camera's `digitalCapture` is no reason to write metadata).
  */
-function aiProvenanceXmp(bytes: Buffer, metadata: import("sharp").Metadata): string | null {
+export function aiProvenanceXmp(bytes: Buffer, metadata: import("sharp").Metadata): string | null {
   const xmp = metadata.xmp ? parseProvenanceXmp(metadata.xmp.toString("utf8")) : {};
   const c2pa = findC2pa(bytes);
   const ai =

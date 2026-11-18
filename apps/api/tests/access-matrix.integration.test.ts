@@ -134,6 +134,9 @@ const PUBLIC_ROUTES = [
   // Social upload sessions (MCP social_media_upload): the signed one-time
   // token authenticates; a made-up token answers 404 before the body is read.
   "PUT /api/public/social/media-uploads/{token}",
+  // Content images of live entries (ADR 0029, CH1.9): the signed token
+  // authenticates; images not used by a live revision answer 404.
+  "GET /api/public/cms/media/{token}/{file}",
   "GET /api/public/support/{publicKey}/conversations",
   "GET /api/public/support/{publicKey}/messages",
   "GET /api/public/support/{publicKey}/stream",
