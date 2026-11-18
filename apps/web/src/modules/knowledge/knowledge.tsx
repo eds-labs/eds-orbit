@@ -5,7 +5,7 @@ import {
   SourceIndexPanel,
   useIndexStatus,
 } from "./index-status";
-import { confirmReleaseImpact } from "./release-impact";
+import { runAfterReleaseCheck } from "./release-impact";
 import { KnowledgeWorkspaceGate } from "./workspace";
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
@@ -408,13 +408,15 @@ function Sources() {
                     variant="outline"
                     disabled={mutation.pending}
                     onClick={async () => {
-                      if (!(await confirmReleaseImpact(project.id, locale)))
-                        return;
-                      await mutation.run(() =>
-                        action(project.id, "source-pause", {
-                          sourceId: current.id,
-                          paused: current.data.status !== "paused",
-                        }),
+                      await runAfterReleaseCheck(
+                        mutation.run,
+                        project.id,
+                        locale,
+                        () =>
+                          action(project.id, "source-pause", {
+                            sourceId: current.id,
+                            paused: current.data.status !== "paused",
+                          }),
                       );
                     }}
                   >
@@ -502,9 +504,12 @@ function Sources() {
             onCancel={() => setRevoke(false)}
             onSubmit={async () => {
               // After the form's own confirmation: warn about released posts.
-              if (!(await confirmReleaseImpact(project.id, locale))) return;
-              const result = await mutation.run(() =>
-                action(project.id, "revoke-source", { sourceId: current.id }),
+              const result = await runAfterReleaseCheck(
+                mutation.run,
+                project.id,
+                locale,
+                () =>
+                  action(project.id, "revoke-source", { sourceId: current.id }),
               );
               if (result) setRevoke(false);
             }}
@@ -723,9 +728,11 @@ function ImportSource({
         onCancel={onClose}
         submitLabel={t("import")}
         onSubmit={async (v) => {
-          if (!(await confirmReleaseImpact(project.id, locale))) return;
-          await mutation
-            .run(async () => {
+          await runAfterReleaseCheck(
+            mutation.run,
+            project.id,
+            locale,
+            async () => {
               if (url)
                 return action(project.id, "import", {
                   sourceId: source.id,
@@ -766,8 +773,8 @@ function ImportSource({
                     }
                   : { text: str(v, "text") }),
               });
-            })
-            .then(() => {});
+            },
+          );
         }}
       />
     </Modal>
@@ -970,12 +977,13 @@ function ImportCenter() {
         <Button
           disabled={!isOwner || !preview?.ready || mutation.pending}
           onClick={async () => {
-            if (!(await confirmReleaseImpact(project.id, locale))) return;
-            await mutation
-              .run(() =>
-                action(project.id, "knowledge-import-commit", parsed()),
-              )
-              .then(() => setPreview(null));
+            // As before: the preview goes once a commit was sent, not on a cancel.
+            let sent = false;
+            await runAfterReleaseCheck(mutation.run, project.id, locale, () => {
+              sent = true;
+              return action(project.id, "knowledge-import-commit", parsed());
+            });
+            if (sent) setPreview(null);
           }}
         >
           {x.commitImport}

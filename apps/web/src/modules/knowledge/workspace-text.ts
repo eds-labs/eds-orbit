@@ -305,9 +305,13 @@ export const knowledgeCopy = {
     bulkBoth: "Marketing und Support",
     bulkPublic: "{n} öffentlich",
     bulkResult: "{done} von {total} bestätigt",
-    releaseImpactNamed:
+    releaseImpactNamedOne:
+      "Das sperrt {n} freigegebenen Post ({list}), bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+    releaseImpactNamedMany:
       "Das sperrt {n} freigegebene Posts ({list}), bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
-    releaseImpactCount:
+    releaseImpactCountOne:
+      "Das sperrt {n} freigegebenen Marketing-Post, bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
+    releaseImpactCountMany:
       "Das sperrt {n} freigegebene Marketing-Posts, bis ein neuer Index bewertet und aktiviert ist. Trotzdem fortfahren?",
     releaseImpactToday: "heute",
     releaseImpactTomorrow: "morgen",
@@ -605,9 +609,13 @@ export const knowledgeCopy = {
     bulkBoth: "Marketing and Support",
     bulkPublic: "{n} public",
     bulkResult: "{done} of {total} confirmed",
-    releaseImpactNamed:
+    releaseImpactNamedOne:
+      "This blocks {n} released post ({list}) until a new index is evaluated and activated. Continue anyway?",
+    releaseImpactNamedMany:
       "This blocks {n} released posts ({list}) until a new index is evaluated and activated. Continue anyway?",
-    releaseImpactCount:
+    releaseImpactCountOne:
+      "This blocks {n} released marketing post until a new index is evaluated and activated. Continue anyway?",
+    releaseImpactCountMany:
       "This blocks {n} released marketing posts until a new index is evaluated and activated. Continue anyway?",
     releaseImpactToday: "today",
     releaseImpactTomorrow: "tomorrow",
@@ -616,6 +624,25 @@ export const knowledgeCopy = {
 export type KnowledgeCopy = { [K in keyof typeof knowledgeCopy.en]: string };
 export const workspaceStatus = (status: string, t: KnowledgeCopy) =>
   status in t ? t[status as keyof KnowledgeCopy] : status;
+
+/**
+ * The release-impact question with its count and the right noun form ("1
+ * freigegebenen Post" / "2 freigegebene Posts", "1 released post" / "2
+ * released posts"); `named` when the posts are listed.
+ */
+export const releaseImpactSentence = (
+  n: number,
+  named: boolean,
+  t: KnowledgeCopy,
+) =>
+  (named
+    ? n === 1
+      ? t.releaseImpactNamedOne
+      : t.releaseImpactNamedMany
+    : n === 1
+      ? t.releaseImpactCountOne
+      : t.releaseImpactCountMany
+  ).replace("{n}", String(n));
 
 /** "1 Seite" / "1 page", never "1 Seiten": the one place page counts get their noun. */
 export const pageCount = (n: number, locale: string) =>

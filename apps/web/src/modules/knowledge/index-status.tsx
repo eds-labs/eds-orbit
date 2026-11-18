@@ -12,7 +12,7 @@ import {
 import type { Locale } from "@/lib/i18n";
 import { Alert, Badge, Button, Modal } from "@/components/ui/primitives";
 import { DataForm, num, str } from "@/platform/ui/form";
-import { confirmReleaseImpact } from "./release-impact";
+import { runAfterReleaseCheck } from "./release-impact";
 
 // Search index state per knowledge source (plans/knowledge-indexing-repair.md):
 // whether its documents can be found now, why not, and the owner's repairs
@@ -185,8 +185,7 @@ export function SourceIndexPanel({
             variant="outline"
             disabled={mutation.pending}
             onClick={async () => {
-              if (!(await confirmReleaseImpact(projectId, locale))) return;
-              await mutation.run(() =>
+              await runAfterReleaseCheck(mutation.run, projectId, locale, () =>
                 action(projectId, "source-reindex", { sourceId: source.id }),
               );
             }}
@@ -264,13 +263,16 @@ export function SourceIndexPanel({
             submitLabel={de ? "Speichern" : "Save"}
             onCancel={() => setSettings(false)}
             onSubmit={async (v) => {
-              if (!(await confirmReleaseImpact(projectId, locale))) return;
-              const result = await mutation.run(() =>
-                action(projectId, "source-settings", {
-                  sourceId: source.id,
-                  authority: str(v, "authority"),
-                  maxAgeHours: num(v, "maxAgeHours"),
-                }),
+              const result = await runAfterReleaseCheck(
+                mutation.run,
+                projectId,
+                locale,
+                () =>
+                  action(projectId, "source-settings", {
+                    sourceId: source.id,
+                    authority: str(v, "authority"),
+                    maxAgeHours: num(v, "maxAgeHours"),
+                  }),
               );
               if (result) setSettings(false);
             }}

@@ -1,5 +1,5 @@
-import { api } from "@/lib/api";
-import { knowledgeCopy } from "./workspace-text";
+import { api, MutationCanceled } from "@/lib/api";
+import { knowledgeCopy, releaseImpactSentence } from "./workspace-text";
 
 type Locale = "de" | "en";
 
@@ -70,18 +70,15 @@ export function releaseImpactText(
 ): string {
   const l = norm(locale);
   const t = knowledgeCopy[l];
-  const n = String(impact.count);
-  if (!impact.dependents.length) return t.releaseImpactCount.replace("{n}", n);
+  if (!impact.dependents.length)
+    return releaseImpactSentence(impact.count, false, t);
   const items = impact.dependents.slice(0, MAX_LISTED).map((d) => {
     const label = d.channels.length ? d.channels.join(", ") : d.title;
     return `${formatReleaseSlot(d.slotAt, d.timeZone, l, now)} · ${label}`;
   });
   const more = impact.count - items.length;
   const list = items.join(", ") + (more > 0 ? ` +${more}` : "");
-  const text = t.releaseImpactNamed.replace("{n}", n).replace("{list}", list);
-  return impact.count === 1 && l === "en"
-    ? text.replace("1 released posts", "1 released post")
-    : text;
+  return releaseImpactSentence(impact.count, true, t).replace("{list}", list);
 }
 
 /**
@@ -103,4 +100,24 @@ export async function confirmReleaseImpact(
   }
   if (!impact.enabled || !impact.gateValid || impact.count === 0) return true;
   return ask(releaseImpactText(impact, locale));
+}
+
+/**
+ * Runs a corpus-changing action inside the caller's mutation lock, after the
+ * release-impact question: a second click while the check is pending or the
+ * question is open starts nothing. A cancel sends no request and shows no
+ * error. `run` is `useMutation().run`.
+ */
+export function runAfterReleaseCheck<T>(
+  run: <R>(task: () => Promise<R>) => Promise<R | undefined>,
+  projectId: string,
+  locale: string,
+  task: () => Promise<T>,
+  ask?: (text: string) => boolean,
+): Promise<T | undefined> {
+  return run(async () => {
+    if (!(await confirmReleaseImpact(projectId, locale, ask)))
+      throw new MutationCanceled();
+    return task();
+  });
 }

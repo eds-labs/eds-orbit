@@ -18,6 +18,7 @@ const api = {
   },
 };
 vi.mock("@/lib/api", () => ({
+  MutationCanceled: class MutationCanceled extends Error {},
   api: (path: string) => {
     calls.push(path);
     return respond(path);
@@ -107,6 +108,46 @@ describe("releaseImpactText", () => {
     expect(text).toContain("+2");
     expect(text.match(/FamilyPlan Facebook/g)).toHaveLength(3);
   });
+  it.each([
+    [
+      "de",
+      1,
+      "Das sperrt 1 freigegebenen Post (",
+      "Das sperrt 1 freigegebenen Marketing-Post,",
+    ],
+    [
+      "de",
+      2,
+      "Das sperrt 2 freigegebene Posts (",
+      "Das sperrt 2 freigegebene Marketing-Posts,",
+    ],
+    [
+      "en",
+      1,
+      "This blocks 1 released post (",
+      "This blocks 1 released marketing post until",
+    ],
+    [
+      "en",
+      2,
+      "This blocks 2 released posts (",
+      "This blocks 2 released marketing posts until",
+    ],
+  ])(
+    "uses the right noun form in %s for %i post(s)",
+    (locale, count, named, counted) => {
+      const dependents = Array.from({ length: count }, (_, i) => ({
+        ...dependent,
+        id: `p${i}`,
+      }));
+      expect(
+        releaseImpactText(impact({ count, dependents }) as never, locale),
+      ).toContain(named);
+      expect(
+        releaseImpactText(impact({ count, dependents: [] }) as never, locale),
+      ).toContain(counted);
+    },
+  );
   it("falls back to the title and maps other locales to English", () => {
     const text = releaseImpactText(
       impact({ dependents: [{ ...dependent, channels: [] }] }) as never,
