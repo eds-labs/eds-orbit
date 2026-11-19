@@ -102,6 +102,7 @@ The released-post watch is a Marketing feature plus a Knowledge warning; it adds
 | Layer | Rule |
 |---|---|
 | Installation | `ORBIT_RELEASED_POST_WATCH=true` (default `false`) covers the watcher and the "before" warning. While off there is no task, `GET /api/projects/:projectId/knowledge/release-impact` answers `enabled: false`, and no dialog or `releaseImpact` appears. Changing a source's audiences (`source-audiences`) never shows the dialog: audiences are not part of the index manifest. No migration, no schema hash; a restart switches it on. |
+| Installation | `ORBIT_DRIVE_WATCH=true` (default `false`) enables the Drive connection watch: a token refresh per connected project at most every six hours, one owner notice per outage and recovery, and verified local copies of approved Drive-only images. While off nothing is checked or copied. No migration, no schema hash; a restart switches it on. |
 | Project | Runs for projects where Marketing is active. The route's `count` is returned to every caller allowed to change the corpus (`PROJECT_WRITE`); `dependents` (titles, slots, channels) only with Marketing active in the project and the Marketing module role check passed. |
 | Member | Notices go to the project's owners only (Marketing access required). Kinds `marketing_post_at_risk` and `marketing_post_at_risk_cleared` can be muted per member. |
 

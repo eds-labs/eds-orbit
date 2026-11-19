@@ -23,6 +23,15 @@ export const marketingSignalNotifications: Readonly<Record<string, UserNotificat
     label: { en: "An at-risk post can be published again", de: "Ein gefährdeter Post kann wieder veröffentlicht werden" },
     emailDefault: false,
   },
+  // Google rejected the project's Drive access (and its all-clear): the Drive watch writes these.
+  marketing_drive_reconnect_required: {
+    label: { en: "Google Drive needs to be reconnected", de: "Google Drive muss neu verbunden werden" },
+    emailDefault: true,
+  },
+  marketing_drive_reconnected: {
+    label: { en: "Google Drive is connected again", de: "Google Drive ist wieder verbunden" },
+    emailDefault: false,
+  },
 };
 
 export const marketingSignals: readonly SignalDefinition[] = [

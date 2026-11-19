@@ -51,6 +51,9 @@ export const NOTIFY_KINDS = [
   // A released post that would be refused at its slot, and the all-clear (released-post watch).
   "at_risk",
   "at_risk_cleared",
+  // Google rejected the project's Drive access, and the all-clear (Drive watch).
+  "drive_reconnect",
+  "drive_reconnected",
   "daily_report",
   "marketing_report",
 ] as const;

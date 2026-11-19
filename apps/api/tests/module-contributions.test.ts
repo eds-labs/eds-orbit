@@ -248,6 +248,7 @@ describe("module contributions", () => {
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
+      "drive-watch",
       "social-hold-sync",
       "released-post-watch",
     ]);

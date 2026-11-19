@@ -96,9 +96,23 @@ export async function importDriveFile(
       providerUse: false,
       tags: [],
     };
-    return prior
-      ? update(tx, scope, prior, { ...data(prior), ...value })
-      : create(tx, scope, "assets", value);
+    if (!prior) return create(tx, scope, "assets", value);
+    const before = data(prior);
+    // A local copy the Drive watch kept belongs to the version it read: a
+    // changed Drive file drops it, so Drive is read (and checked) again.
+    const stale =
+      before.localCopySource === "drive" &&
+      (before.md5Checksum !== value.md5Checksum ||
+        before.driveModifiedTime !== value.driveModifiedTime);
+    const kept = stale
+      ? Object.fromEntries(
+          Object.entries(before).filter(
+            ([field]) =>
+              !["base64", "sha256", "localCopySource", "localCopyAt", "localCopyFailedAt"].includes(field),
+          ),
+        )
+      : before;
+    return update(tx, scope, prior, { ...kept, ...value });
   });
 }
 export async function brandAssets(scope: Scope) {

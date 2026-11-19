@@ -603,6 +603,33 @@ async function postWatch(
   );
 }
 
+/**
+ * A Drive outage or its all-clear (Drive watch); `ref` names the notice.
+ * Stale when the watch has reported a later change, or the state no longer
+ * matches (reconnected or broken again before sending).
+ */
+async function driveWatch(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  kind: "drive_reconnect" | "drive_reconnected",
+): Promise<Built> {
+  const row = (await list(tx, scope, "drive_watch"))[0];
+  const d = data(row);
+  if (!row || d.lastNoticeRef !== ref || d.broken !== (kind === "drive_reconnect"))
+    return { skip: "STALE" };
+  return plain(
+    kind === "drive_reconnect"
+      ? [
+          "Google Drive getrennt",
+          `Google hat den Zugriff abgelehnt${d.errorCode ? ` (${d.errorCode})` : ""}.`,
+          "Aufträge können Bilder, die nur in Drive liegen, nicht laden. Bitte in Orbit unter Integrationen → Google Drive neu verbinden.",
+        ].join("\n")
+      : "Google Drive ist wieder verbunden. Es ist nichts mehr zu tun.",
+    [openButton()],
+  );
+}
+
 /** Posts withdrawn because the owner moved the times; `ref` is `<assignmentId>:<version>`. */
 async function retimed(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
   const [assignmentId, version] = ref.split(":");
@@ -1024,6 +1051,9 @@ async function render(
     case "at_risk":
     case "at_risk_cleared":
       return postWatch(tx, scope, ref, timezone, kind);
+    case "drive_reconnect":
+    case "drive_reconnected":
+      return driveWatch(tx, scope, ref, kind);
     case "budget_paused":
       return budgetPaused(tx, scope, ref);
     case "retimed":
