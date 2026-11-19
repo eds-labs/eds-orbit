@@ -10402,3 +10402,18 @@ button.drive-file-name {
   color: var(--muted-foreground);
   min-width: 44px;
 }
+/* Content module: settings sections, CH1.14f. */
+.cms-secret {
+  display: block;
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.cms-site-editor {
+  display: grid;
+  gap: 12px;
+}

@@ -300,6 +300,8 @@ describe("adaptModuleSections", () => {
         "finance/currencies",
         "finance/ai",
         "webmail/settings",
+        "cms/sites",
+        "cms/publishing",
       ].sort(),
     );
     for (const s of sections) {

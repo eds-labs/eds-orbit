@@ -11,6 +11,8 @@ import { cmsText } from "./labels";
 import { CmsOverview } from "./overview";
 import { cmsAttention } from "./attention";
 import { cmsActionRequests } from "./action-requests";
+import { cmsSettings } from "./settings-sections";
+import { cmsIntegrations } from "./integrations";
 import { EntriesView } from "./entries";
 import { MediaView } from "./media";
 import { TaxonomiesView } from "./taxonomies";
@@ -24,8 +26,8 @@ const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
 
 /**
  * The content module in the web shell (ADR 0029): overview, entries with the
- * editor, media, categories and tags, authors, history and the calendar
- * (CH1.14a–e). Opt-in:
+ * editor, media, categories and tags, authors, history, the calendar and
+ * its settings and integrations sections (CH1.14a–f). Opt-in:
  * shown only where the server lists the module as enabled (ORBIT_CMS and the
  * project row).
  */
@@ -41,6 +43,8 @@ export const cmsWeb: WebModule = {
   groupOrder: 11,
   attention: cmsAttention,
   actionRequests: cmsActionRequests,
+  settings: cmsSettings,
+  integrations: cmsIntegrations,
   views: [
     {
       key: "cms",

@@ -470,6 +470,122 @@ const en = {
     } as Record<string, string>,
     zone: (zone: string) => `Times in ${zone}`,
   },
+  settings: {
+    sitesTab: "Websites",
+    sitesDescription:
+      "The websites that show this project's content: address, languages, routes, notifications and editorial rules.",
+    publishingTab: "Publishing",
+    publishingDescription:
+      "Who approves publications, the time zone of schedules and how late a schedule may still run.",
+    ownerOnly: "Only the owner changes these settings.",
+    newSite: "New website",
+    noSites: "No website yet.",
+    name: "Name",
+    baseUrl: "Address (https://…, without a path)",
+    locales: "Languages (comma-separated, e.g. de, en)",
+    defaultLocale: "Default language",
+    routes: "Article address per language",
+    routeHint: "A path with {slug}, e.g. /blog/{slug}/ or /en/blog/{slug}/.",
+    trailingSlash: "Addresses end with a slash",
+    liveCheck:
+      "Check the page after each publication (the site renders the revision meta tag)",
+    previewPath: "Preview path (optional, e.g. /api/preview)",
+    notifiers: "Notify these webhook endpoints",
+    noEndpoints: "No webhook endpoint yet (Integrations → Webhooks).",
+    rules: "Editorial rules",
+    forbidden: "Forbidden phrases (one per line)",
+    plainText: "Plain text only (no links or formatting)",
+    titleMax: "Maximum title length (optional)",
+    excerptRequired: "An excerpt is required",
+    heroRequired: "A hero image is required",
+    create: "Create website",
+    save: "Save",
+    edit: "Edit",
+    cancel: "Cancel",
+    verify: "Check the address",
+    verified: "Orbit reached the website.",
+    testNotifiers: "Send a test notification",
+    tested: "Test notification queued.",
+    archive: "Archive",
+    restore: "Restore",
+    archived: "Archived",
+    verification: {
+      configured: "Configured",
+      read_verified: "Reached",
+      live_verified: "Live check passed",
+    } as Record<string, string>,
+    approvers: "Who approves publications",
+    approverOwner: "The owner",
+    approverEditor: "The owner or a content editor",
+    fourEyes: "The person who asks may not approve their own request",
+    timeZone: "Time zone of schedules (empty: the project's)",
+    lateWindow: "A schedule more than this many hours late waits for a person",
+    saved: "Saved.",
+    errors: {
+      CMS_SITE_URL_INVALID:
+        "Enter an https address without a path, e.g. https://example.com.",
+      CMS_SITE_ROUTE_LOCALE_UNKNOWN:
+        "A route names a language the website does not have.",
+      CMS_SITE_LOCALE_IN_USE:
+        "A language with live articles cannot be removed.",
+      CMS_SITE_HAS_SCHEDULE: "Publications are scheduled for this website.",
+      CMS_NOTIFIER_ENDPOINT_UNKNOWN:
+        "A chosen webhook endpoint does not exist.",
+      CMS_NOTIFIER_DUPLICATE: "An endpoint is chosen twice.",
+      CMS_SITE_UNREACHABLE: "Orbit could not reach the website.",
+      CMS_VERSION_CONFLICT: "Changed in the meantime. Reload the page.",
+      VALIDATION_FAILED: "Some values are not valid.",
+    } as Record<string, string>,
+    errorOther: "The request failed",
+  },
+  integrations: {
+    keysLabel: "API keys",
+    keysDescription:
+      "Keys for websites and integrations to read published content, previews or manage drafts. A key is shown once.",
+    webhooksLabel: "Webhooks",
+    webhooksDescription:
+      "Signed notifications to websites when content changes.",
+    off: (flag: string) => `This needs ${flag} on the server.`,
+    newKey: "New API key",
+    keyName: "Name",
+    scopes: "Scopes",
+    siteFilter: "Only these websites (delivery and preview; empty: all)",
+    expires: "Valid for (days, empty: never)",
+    confirmWrite:
+      "I confirm that this key may write drafts or propose publications.",
+    create: "Create key",
+    tokenOnce:
+      "Copy the key now. Orbit shows it only once and stores only a hash.",
+    revoke: "Revoke",
+    revokeConfirm:
+      "Revoke this key? Requests with it fail at once; open proposals it made can no longer run.",
+    noKeys: "No API key yet.",
+    statuses: {
+      active: "Active",
+      revoked: "Revoked",
+      expired: "Expired",
+    } as Record<string, string>,
+    lastUsed: "Last used",
+    never: "never",
+    newEndpoint: "New endpoint",
+    endpointName: "Name",
+    endpointUrl: "Address (https)",
+    events: "Events",
+    createEndpoint: "Create endpoint",
+    secretOnce: "Copy the signing secret now. Orbit shows it only once.",
+    rotate: "Rotate secret",
+    ping: "Send test event",
+    pinged: "Test event queued.",
+    disable: "Disable",
+    enable: "Enable",
+    noEndpoints: "No endpoint yet.",
+    deliveries: "Recent deliveries",
+    replay: "Send again",
+    endpointStatus: { active: "Active", disabled: "Disabled" } as Record<
+      string,
+      string
+    >,
+  },
   attention: {
     open: "Open content",
     stopped: (n: number) =>
@@ -962,6 +1078,120 @@ const de: typeof en = {
     },
     zone: (zone: string) => `Zeiten in ${zone}`,
   },
+  settings: {
+    sitesTab: "Websites",
+    sitesDescription:
+      "Die Websites, die die Inhalte dieses Projekts zeigen: Adresse, Sprachen, Pfade, Benachrichtigungen und Redaktionsregeln.",
+    publishingTab: "Veröffentlichung",
+    publishingDescription:
+      "Wer Veröffentlichungen freigibt, die Zeitzone von Planungen und wie verspätet eine Planung noch laufen darf.",
+    ownerOnly: "Nur der Owner ändert diese Einstellungen.",
+    newSite: "Neue Website",
+    noSites: "Noch keine Website.",
+    name: "Name",
+    baseUrl: "Adresse (https://…, ohne Pfad)",
+    locales: "Sprachen (durch Kommas getrennt, z. B. de, en)",
+    defaultLocale: "Standardsprache",
+    routes: "Artikeladresse je Sprache",
+    routeHint:
+      "Ein Pfad mit {slug}, z. B. /blog/{slug}/ oder /en/blog/{slug}/.",
+    trailingSlash: "Adressen enden mit einem Schrägstrich",
+    liveCheck:
+      "Seite nach jeder Veröffentlichung prüfen (die Website gibt das Revisions-Meta-Tag aus)",
+    previewPath: "Vorschaupfad (optional, z. B. /api/preview)",
+    notifiers: "Diese Webhook-Endpunkte benachrichtigen",
+    noEndpoints: "Noch kein Webhook-Endpunkt (Integrationen → Webhooks).",
+    rules: "Redaktionsregeln",
+    forbidden: "Verbotene Formulierungen (eine pro Zeile)",
+    plainText: "Nur reiner Text (keine Links oder Formatierung)",
+    titleMax: "Maximale Titellänge (optional)",
+    excerptRequired: "Eine Kurzbeschreibung ist Pflicht",
+    heroRequired: "Ein Titelbild ist Pflicht",
+    create: "Website anlegen",
+    save: "Speichern",
+    edit: "Bearbeiten",
+    cancel: "Abbrechen",
+    verify: "Adresse prüfen",
+    verified: "Orbit hat die Website erreicht.",
+    testNotifiers: "Testbenachrichtigung senden",
+    tested: "Testbenachrichtigung eingereiht.",
+    archive: "Archivieren",
+    restore: "Wiederherstellen",
+    archived: "Archiviert",
+    verification: {
+      configured: "Eingerichtet",
+      read_verified: "Erreicht",
+      live_verified: "Live-Prüfung bestanden",
+    },
+    approvers: "Wer Veröffentlichungen freigibt",
+    approverOwner: "Der Owner",
+    approverEditor: "Der Owner oder ein Content-Editor",
+    fourEyes: "Wer anfragt, darf die eigene Anfrage nicht freigeben",
+    timeZone: "Zeitzone von Planungen (leer: die des Projekts)",
+    lateWindow:
+      "Eine Planung, die mehr als so viele Stunden verspätet ist, wartet auf eine Person",
+    saved: "Gespeichert.",
+    errors: {
+      CMS_SITE_URL_INVALID:
+        "Gib eine https-Adresse ohne Pfad ein, z. B. https://example.com.",
+      CMS_SITE_ROUTE_LOCALE_UNKNOWN:
+        "Ein Pfad nennt eine Sprache, die die Website nicht hat.",
+      CMS_SITE_LOCALE_IN_USE:
+        "Eine Sprache mit veröffentlichten Artikeln lässt sich nicht entfernen.",
+      CMS_SITE_HAS_SCHEDULE:
+        "Für diese Website sind Veröffentlichungen geplant.",
+      CMS_NOTIFIER_ENDPOINT_UNKNOWN:
+        "Ein gewählter Webhook-Endpunkt existiert nicht.",
+      CMS_NOTIFIER_DUPLICATE: "Ein Endpunkt ist doppelt gewählt.",
+      CMS_SITE_UNREACHABLE: "Orbit konnte die Website nicht erreichen.",
+      CMS_VERSION_CONFLICT: "Inzwischen geändert. Lade die Seite neu.",
+      VALIDATION_FAILED: "Einige Werte sind ungültig.",
+    },
+    errorOther: "Die Anfrage ist fehlgeschlagen",
+  },
+  integrations: {
+    keysLabel: "API-Schlüssel",
+    keysDescription:
+      "Schlüssel, mit denen Websites und Integrationen veröffentlichte Inhalte und Vorschauen lesen oder Entwürfe verwalten. Ein Schlüssel wird nur einmal angezeigt.",
+    webhooksLabel: "Webhooks",
+    webhooksDescription:
+      "Signierte Benachrichtigungen an Websites, wenn sich Inhalte ändern.",
+    off: (flag: string) =>
+      `Dafür muss ${flag} auf dem Server eingeschaltet sein.`,
+    newKey: "Neuer API-Schlüssel",
+    keyName: "Name",
+    scopes: "Berechtigungen",
+    siteFilter: "Nur diese Websites (Auslieferung und Vorschau; leer: alle)",
+    expires: "Gültig für (Tage, leer: unbegrenzt)",
+    confirmWrite:
+      "Ich bestätige, dass dieser Schlüssel Entwürfe schreiben oder Veröffentlichungen vorschlagen darf.",
+    create: "Schlüssel anlegen",
+    tokenOnce:
+      "Kopiere den Schlüssel jetzt. Orbit zeigt ihn nur einmal und speichert nur einen Hash.",
+    revoke: "Widerrufen",
+    revokeConfirm:
+      "Diesen Schlüssel widerrufen? Anfragen damit schlagen sofort fehl; offene Vorschläge über ihn können nicht mehr ausgeführt werden.",
+    noKeys: "Noch kein API-Schlüssel.",
+    statuses: { active: "Aktiv", revoked: "Widerrufen", expired: "Abgelaufen" },
+    lastUsed: "Zuletzt verwendet",
+    never: "nie",
+    newEndpoint: "Neuer Endpunkt",
+    endpointName: "Name",
+    endpointUrl: "Adresse (https)",
+    events: "Ereignisse",
+    createEndpoint: "Endpunkt anlegen",
+    secretOnce:
+      "Kopiere das Signatur-Geheimnis jetzt. Orbit zeigt es nur einmal.",
+    rotate: "Geheimnis erneuern",
+    ping: "Testereignis senden",
+    pinged: "Testereignis eingereiht.",
+    disable: "Deaktivieren",
+    enable: "Aktivieren",
+    noEndpoints: "Noch kein Endpunkt.",
+    deliveries: "Letzte Zustellungen",
+    replay: "Erneut senden",
+    endpointStatus: { active: "Aktiv", disabled: "Deaktiviert" },
+  },
   attention: {
     open: "Inhalte öffnen",
     stopped: (n: number) =>
@@ -978,6 +1208,8 @@ const de: typeof en = {
 export type EditorText = (typeof en)["editor"];
 export type LibraryText = (typeof en)["library"];
 export type HistoryText = (typeof en)["history"];
+export type SettingsText = (typeof en)["settings"];
+export type IntegrationsText = (typeof en)["integrations"];
 
 /** A server error code as text; ApiError messages are codes with spaces. */
 export function libraryError(t: LibraryText, raw: string | null | undefined) {
