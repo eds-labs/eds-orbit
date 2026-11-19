@@ -144,7 +144,8 @@
   "dependencies": {
     "module:marketing": [
       "module:knowledge",
-      "module:social"
+      "module:social",
+      "module:cms"
     ]
   },
   "serverPackages": [
