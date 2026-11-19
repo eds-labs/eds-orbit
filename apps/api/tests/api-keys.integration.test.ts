@@ -126,6 +126,27 @@ describe.skipIf(!enabled)("project API keys", () => {
     expect(JSON.stringify(audits[0]!.metadata)).not.toContain(key.token.slice(16));
   });
 
+  it("refuses a key whose stored filter this version cannot read, instead of widening it", async () => {
+    // Keys are immutable after creation; a row as a newer version might have written it.
+    const { prefix, token, secretHash } = newToken();
+    await authDb.apiKey.create({
+      data: {
+        id: randomUUID(),
+        workspaceId,
+        projectId,
+        name: "odd filter",
+        prefix,
+        secretHash,
+        scopes: ["cms:delivery.read"],
+        resourceFilter: { siteIds: "not-a-list", future: true },
+        createdBy: ids.owner,
+      },
+    });
+    const refused = await v1({ authorization: `Bearer ${token}` });
+    expect(refused.statusCode).toBe(401);
+    expect(refused.json().error.code).toBe("API_KEY_INVALID");
+  });
+
   it("answers the same 401 for every bad credential, and ignores session cookies", async () => {
     const key = (await create({ name: "probe", scopes: ["cms:delivery.read"] })).json();
     const wrongSecret = `${key.prefix}_${randomBytes(32).toString("base64url")}`;

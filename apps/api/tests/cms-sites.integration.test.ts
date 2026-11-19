@@ -318,5 +318,7 @@ describe.skipIf(!enabled)("content sites", () => {
     expect(metaContent(`<meta property="og:x" content="a"><META NAME="orbit-revision" CONTENT="7">`, "orbit-revision")).toBe("7");
     expect(metaContent(`<meta content=abc name=orbit-revision>`, "orbit-revision")).toBe("abc");
     expect(metaContent(`<meta name="other" content="1">`, "orbit-revision")).toBeNull();
+    expect(metaContent(`<meta data-name="orbit-revision" data-content="x" name="orbit-revision" content="9">`, "orbit-revision")).toBe("9");
+    expect(metaContent(`<meta data-name="orbit-revision" content="x">`, "orbit-revision")).toBeNull();
   });
 });

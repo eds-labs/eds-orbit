@@ -70,6 +70,26 @@ async function attempt(
   });
 }
 
+/**
+ * The sites that show the entry now: a visible publication of its live
+ * revision exists there (the delivery rule, CH1.12). Withdrawal acts on
+ * these, whatever the entry's current assignment says.
+ */
+export async function showingSites(tx: DbTx, scope: Scope, entry: Pick<EntryRow, "id" | "publishedRevisionId">) {
+  if (!entry.publishedRevisionId) return [];
+  const rows = await tx.cmsPublication.findMany({
+    where: {
+      projectId: scope.projectId,
+      entryId: entry.id,
+      revisionId: entry.publishedRevisionId,
+      status: { in: ["visible", "notified", "live_verified"] },
+    },
+    select: { siteId: true },
+    distinct: ["siteId"],
+  });
+  return rows.map((r) => r.siteId).sort();
+}
+
 /** Removes the entry's schedule; returns the entry as it is now. */
 async function clearSchedule(tx: DbTx, entry: EntryRow) {
   const cleared = { ...entry, scheduledRevisionId: null, scheduledAt: null };
@@ -141,6 +161,12 @@ export async function queueBatch(tx: DbTx, scope: Scope, locked: EntryRow, batch
         createdBy: batch.requesterId,
       },
     });
+  }
+  if (due && batch.kind === "unpublish" && !batch.siteIds.length) {
+    // Live in Orbit but shown on no site (e.g. every site archived): the
+    // withdrawal still ends it; there is no page to redirect or notify.
+    await archiveUnshown(tx, scope, entry);
+    return ids;
   }
   if (due) {
     const issues = await goLive(tx, scope, entry, ids, { replacementEntryId: batch.replacementEntryId ?? null });
@@ -233,12 +259,14 @@ export async function goLive(
   });
   if (claimed.count !== pubs.length) return [];
 
-  // The batch reaches the sites it was approved for, or none.
-  const linked = (
-    await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, entryId: entry.id }, select: { siteId: true } })
-  )
-    .map((l) => l.siteId)
-    .sort();
+  // The batch reaches the sites it was approved for, or none: a publication
+  // the entry's assigned sites, a withdrawal the sites that show it.
+  const linked =
+    action === "unpublish"
+      ? await showingSites(tx, scope, entry)
+      : (await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, entryId: entry.id }, select: { siteId: true } }))
+          .map((l) => l.siteId)
+          .sort();
   if (linked.join() !== siteIds.join()) {
     const issues = [{ code: "CMS_SITES_CHANGED" }];
     await needsAttention(tx, scope, entry, pubs, "CMS_SITES_CHANGED", issues);
@@ -248,7 +276,11 @@ export async function goLive(
   const previous = entry.publishedRevisionId
     ? await tx.cmsRevision.findFirst({ where: { id: entry.publishedRevisionId, projectId: scope.projectId }, select: { slug: true, number: true } })
     : null;
-  const previousPaths = new Map(previous ? (await entryPaths(tx, scope, entry, previous.slug)).map((p) => [p.siteId, p.path]) : []);
+  const previousPaths = new Map(
+    previous
+      ? (await entryPaths(tx, scope, entry, previous.slug, action === "unpublish" ? siteIds : undefined)).map((p) => [p.siteId, p.path])
+      : [],
+  );
   const now = new Date();
   const ref = { id: entry.id, type: entry.type, locale: entry.locale };
   const redirects: Array<{ siteId: string; fromPath: string; toPath: string | null; code: 301 | 410 }> = [];
@@ -269,13 +301,15 @@ export async function goLive(
       ? (await tx.cmsRevision.findFirst({ where: { id: replacement.publishedRevisionId }, select: { slug: true } }))?.slug
       : undefined;
     const replacementPaths = new Map(
-      replacement && replacementSlug ? (await entryPaths(tx, scope, replacement, replacementSlug)).map((p) => [p.siteId, p.path]) : [],
+      replacement && replacementSlug
+        ? (await entryPaths(tx, scope, replacement, replacementSlug, await showingSites(tx, scope, replacement))).map((p) => [p.siteId, p.path])
+        : [],
     );
     await tx.cmsEntry.update({
       where: { id: entry.id },
       data: { publishedRevisionId: null, scheduledRevisionId: null, scheduledAt: null, status: "archived", archivedAt: now, version: { increment: 1 } },
     });
-    await redirectWithdrawn(tx, scope, ref, previous.slug, replacementSlug ? replacement!.id : null);
+    await redirectWithdrawn(tx, scope, ref, previous.slug, replacementSlug ? replacement!.id : null, siteIds);
     for (const [siteId, fromPath] of previousPaths) {
       const toPath = replacementSlug ? (replacementPaths.get(siteId) ?? null) : null;
       redirects.push({ siteId, fromPath, toPath, code: replacementSlug ? 301 : 410 });
@@ -428,6 +462,20 @@ async function withdrawFromDroppedSites(tx: DbTx, scope: Scope, entry: EntryRow,
     out.push({ siteId: site.id, path });
   }
   return out;
+}
+
+/** Withdraws an entry no site shows: the pointers end, the entry is archived. */
+async function archiveUnshown(tx: DbTx, scope: Scope, entry: EntryRow) {
+  const previous = entry.publishedRevisionId
+    ? await tx.cmsRevision.findFirst({ where: { id: entry.publishedRevisionId, projectId: scope.projectId }, select: { number: true } })
+    : null;
+  await tx.cmsEntry.update({
+    where: { id: entry.id },
+    data: { publishedRevisionId: null, scheduledRevisionId: null, scheduledAt: null, status: "archived", archivedAt: new Date(), version: { increment: 1 } },
+  });
+  const data = { revision: null, previousRevision: previous?.number ?? null, sites: 0 };
+  await event(tx, scope, "cms.entry.unpublished", entry.id, data);
+  await audit(tx, scope, "cms.entry.unpublished", entry.id, data);
 }
 
 /** A scheduled batch past the late window waits for a person (nothing goes live). */

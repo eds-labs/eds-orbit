@@ -29,7 +29,7 @@ All reads show only what is live on the site: an entry whose live revision went 
 | `GET redirects` | `limit` ≤ 1000, `cursor` | `{ fromPath, toPath, code }` with 301 or 410 |
 | `GET sitemap` | `locale`, `limit` ≤ 1000, `cursor` | indexable pages with `lastmod` and hreflang `alternates` |
 | `GET feed` | `type`, `locale`, `limit` ≤ 50, `format` = `json` or `rss` | feed data, or RSS 2.0 (`application/rss+xml`) |
-| `GET manifest` | – | site settings, live entry count, a `revision` hash over live revisions and redirects |
+| `GET manifest` | – | site settings, live entry count, a `revision` hash over live revisions, redirects and the latest change of terms, authors and media |
 
 `EntrySummary`: `id`, `type`, `locale`, `translationGroupId`, `slug`, `path`, `url`, `title`, `excerpt`, `readingTimeMinutes`, `publishedAt`, `updatedAt`, `revision { id, number }`, `hero` (image), `authors`, `terms`.
 

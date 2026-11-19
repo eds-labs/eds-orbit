@@ -133,7 +133,8 @@ async function prepare(tx: DbTx, scope: Scope, publicationId: string): Promise<P
 /** The `content` of `<meta name="…">` in an HTML page, or null. */
 export function metaContent(html: string, name: string): string | null {
   for (const tag of html.match(/<meta\b[^>]*>/gi) ?? []) {
-    const attr = (key: string) => tag.match(new RegExp(`\\b${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i"));
+    // The attribute name must follow whitespace: `data-name=` is not `name=`.
+    const attr = (key: string) => tag.match(new RegExp(`\\s${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, "i"));
     const found = attr("name");
     if ((found?.[1] ?? found?.[2] ?? found?.[3])?.toLowerCase() !== name) continue;
     const content = attr("content");

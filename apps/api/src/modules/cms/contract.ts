@@ -137,8 +137,16 @@ export async function submitOriginDraft(tx: DbTx, scope: Scope, raw: OriginDraft
  * the origin module: the content module's approval decides (decision E-4).
  * `requestedBy` names who asked (an agent run, a member).
  */
-export async function requestOriginPublication(tx: DbTx, scope: Scope, entryId: string, raw: unknown, requestedBy: RequestedBy) {
+export async function requestOriginPublication(
+  tx: DbTx,
+  scope: Scope,
+  entryId: string,
+  raw: unknown,
+  requestedBy: Exclude<RequestedBy, { kind: "user" }>,
+) {
   await requireAvailable(tx, scope);
+  // Another module never publishes as a member: its requests always wait for a decision.
+  if ((requestedBy as RequestedBy).kind === "user") throw new DomainError("CMS_ORIGIN_REQUESTER_INVALID", 403);
   const result = await requestPublication(tx, scope, entryId, raw, requestedBy);
   return { mode: result.mode, requestId: result.requestId, status: result.entry.status };
 }

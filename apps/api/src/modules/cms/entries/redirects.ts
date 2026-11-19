@@ -32,12 +32,14 @@ async function requireSite(tx: DbTx, scope: Scope, siteId: string) {
   return site;
 }
 
-/** The entry's path on each active site it is assigned to. */
-export async function entryPaths(tx: DbTx, scope: Scope, entry: EntryRef, slug: string) {
-  const links = await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, entryId: entry.id }, select: { siteId: true } });
-  if (!links.length) return [];
+/** The entry's path on each active site it is assigned to (or on the given sites). */
+export async function entryPaths(tx: DbTx, scope: Scope, entry: EntryRef, slug: string, onSites?: readonly string[]) {
+  const siteIds =
+    onSites ??
+    (await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, entryId: entry.id }, select: { siteId: true } })).map((l) => l.siteId);
+  if (!siteIds.length) return [];
   const sites = await tx.cmsSite.findMany({
-    where: { projectId: scope.projectId, id: { in: links.map((l) => l.siteId) }, archivedAt: null },
+    where: { projectId: scope.projectId, id: { in: [...siteIds] }, archivedAt: null },
   });
   return sites.map((site) => ({
     siteId: site.id,
@@ -88,10 +90,17 @@ export async function redirectSlugChange(tx: DbTx, scope: Scope, entry: EntryRef
   return created;
 }
 
-/** A withdrawn entry: 410 on its paths, or 301 to the replacement entry. */
-export async function redirectWithdrawn(tx: DbTx, scope: Scope, entry: EntryRef, slug: string, replacementId: string | null) {
+/** A withdrawn entry: 410 on its paths on the sites that showed it, or 301 to the replacement entry. */
+export async function redirectWithdrawn(
+  tx: DbTx,
+  scope: Scope,
+  entry: EntryRef,
+  slug: string,
+  replacementId: string | null,
+  onSites?: readonly string[],
+) {
   let created = 0;
-  for (const { siteId, path: from } of await entryPaths(tx, scope, entry, slug)) {
+  for (const { siteId, path: from } of await entryPaths(tx, scope, entry, slug, onSites)) {
     await retire(tx, scope, siteId, from);
     await tx.cmsRedirect.create({
       data: {

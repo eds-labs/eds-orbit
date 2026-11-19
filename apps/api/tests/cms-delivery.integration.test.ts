@@ -280,6 +280,31 @@ describe.skipIf(!enabled)("content delivery API", () => {
     expect((await v1(deliveryKey, `/sites/${siteId}/entries`)).json().items.map((i: { id: string }) => i.id)).toContain(entryId);
   });
 
+  it("withdrawal acts on the sites that show the entry, whatever its assignment says", async () => {
+    // Unassigned after publishing: the withdrawal still ends it on its site.
+    const lonely = await publish("Abgemeldet", [siteId]);
+    const lonelySlug = (await entryOf(lonely)).entry.slug as string;
+    let entry = (await entryOf(lonely)).entry;
+    expect((await call("editor", "PUT", `/entries/${lonely}/sites`, { siteIds: [], version: entry.version })).statusCode).toBe(200);
+    expect((await v1(deliveryKey, `/sites/${siteId}/entries`)).json().items.map((i: { id: string }) => i.id)).toContain(lonely);
+    entry = (await entryOf(lonely)).entry;
+    const gone = await call("editor", "POST", `/entries/${lonely}/unpublish-requests`, { version: entry.version });
+    expect(gone.statusCode, gone.body).toBe(200);
+    expect(gone.json().entry.status).toBe("archived");
+    expect((await v1(deliveryKey, `/sites/${siteId}/entries`)).json().items.map((i: { id: string }) => i.id)).not.toContain(lonely);
+    expect((await v1(deliveryKey, `/sites/${siteId}/redirects`)).json().items).toContainEqual({ fromPath: `/blog/${lonelySlug}/`, toPath: null, code: 410 });
+
+    // Moved to another site without a new publication: the 410 lands where it was shown.
+    const moved = await publish("Umgezogen", [siteId]);
+    const movedSlug = (await entryOf(moved)).entry.slug as string;
+    entry = (await entryOf(moved)).entry;
+    await call("editor", "PUT", `/entries/${moved}/sites`, { siteIds: [otherSiteId], version: entry.version });
+    entry = (await entryOf(moved)).entry;
+    expect((await call("editor", "POST", `/entries/${moved}/unpublish-requests`, { version: entry.version })).statusCode).toBe(200);
+    expect((await v1(deliveryKey, `/sites/${siteId}/redirects`)).json().items).toContainEqual({ fromPath: `/blog/${movedSlug}/`, toPath: null, code: 410 });
+    expect((await v1(narrowKey, `/sites/${otherSiteId}/redirects`)).json().items.map((r: { fromPath: string }) => r.fromPath)).not.toContain(`/blog/${movedSlug}/`);
+  });
+
   it("sitemap leaves out noindex pages; the feed comes as data or RSS", async () => {
     const shown = await publish("Sichtbar im Feed", [siteId]);
     const hidden = await publish("Nicht im Index", [siteId], { seo: { robots: { index: false, follow: true } } });

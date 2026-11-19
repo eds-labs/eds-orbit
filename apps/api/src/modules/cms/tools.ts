@@ -211,6 +211,9 @@ export const cmsDraftCreateTool = defineTool({
     const { idempotencyKey, ...rest } = args;
     const argsHash = hash(rest);
     const result = await userScoped(ctx.scope, async (tx) => {
+      // Concurrent retries with one key wait for each other, so only one creates.
+      const lockKey = `orbit:cms_draft_create:${ctx.scope.projectId}:${ctx.scope.userId}:${clientOf(ctx)}:${idempotencyKey}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
       // A retry finds the entry it made: same member, client and key.
       const earlier = await tx.cmsEntry.findFirst({
         where: {

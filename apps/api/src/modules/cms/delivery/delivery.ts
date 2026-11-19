@@ -305,6 +305,16 @@ export async function liveManifest(tx: DbTx, scope: Pick<Scope, "projectId">, si
   hash.update("|");
   for (const r of redirects) hash.update(`${r.id};`);
   hash.update(`|${site.version}`);
+  // Terms, authors and media render into entries without a new revision
+  // (a renamed category, an alt text): their latest change counts too. The
+  // project-wide maximum may refetch a little more often, never too rarely.
+  const where = { projectId: scope.projectId };
+  const [terms, authors, assets] = await Promise.all([
+    tx.cmsTaxonomyTerm.aggregate({ where, _max: { updatedAt: true } }),
+    tx.cmsAuthor.aggregate({ where, _max: { updatedAt: true } }),
+    tx.cmsAsset.aggregate({ where, _max: { updatedAt: true } }),
+  ]);
+  for (const at of [terms._max.updatedAt, authors._max.updatedAt, assets._max.updatedAt]) hash.update(`|${at?.toISOString() ?? "-"}`);
   return {
     site: {
       id: site.id,

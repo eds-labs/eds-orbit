@@ -18,7 +18,7 @@ import { requireCms } from "../gate.ts";
 import { CMS_PUBLISH_DECIDE } from "../permissions.ts";
 import { readCmsSettings, type CmsSettings } from "../settings.ts";
 import { requirePreflight } from "./preflight.ts";
-import { cancelSchedule, queueBatch } from "./publications.ts";
+import { cancelSchedule, queueBatch, showingSites } from "./publications.ts";
 import { PUBLISH_ACTION, UNPUBLISH_ACTION, pendingRequestFor } from "./requests.ts";
 import { resolveSchedule, scheduleFields, scheduleZone, type Schedule } from "./schedule-time.ts";
 
@@ -118,7 +118,8 @@ async function checkPublish(tx: DbTx, scope: Scope, payload: PublishPayload) {
 async function checkUnpublish(tx: DbTx, scope: Scope, payload: UnpublishPayload) {
   const entry = await findEntry(tx, scope, payload.entryId);
   if (entry.publishedRevisionId !== payload.previousRevisionId) throw stale("published_since");
-  if (!(await sameSites(tx, scope, entry.id, payload.siteIds))) throw stale("sites");
+  // A withdrawal names the sites that show the entry, not its assignment.
+  if ((await showingSites(tx, scope, entry)).join() !== [...payload.siteIds].sort().join()) throw stale("sites");
   if (payload.replacementEntryId) await requireReplacement(tx, scope, entry, payload.replacementEntryId);
   return entry;
 }
@@ -354,7 +355,7 @@ export async function requestUnpublish(tx: DbTx, scope: Scope, entryId: string, 
     title: live.title,
     slug: live.slug,
     previousRevisionId: entry.publishedRevisionId,
-    siteIds: (await sitesOf(tx, scope, entry.id)).sort(),
+    siteIds: await showingSites(tx, scope, entry),
     replacementEntryId,
     ...rules,
   };

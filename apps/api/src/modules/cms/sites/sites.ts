@@ -7,6 +7,7 @@ import { localeInput, notFound, refused, requireVersion, UUID_RE, versionInput }
 import { entryPath, siteRoutes, type SiteRoutes } from "../types/routes.ts";
 import { adapterCatalog, adapterFor, notifierAvailable, notifierCatalog, notifierInput, storedNotifiers, type Notifier } from "./adapters.ts";
 import { contentRules, storedRules } from "./rules.ts";
+import { liveRows } from "../delivery/live.ts";
 
 // Websites of a project (ADR 0029 §3.2, CH1.11). A site names where content
 // appears: its origin, locales, a route per type and locale, how it receives
@@ -182,12 +183,16 @@ export async function createSite(tx: DbTx, scope: Scope, raw: unknown) {
   return { site: siteView(row) };
 }
 
-/** Live entries of the site with their slug, for path changes. */
+/**
+ * Entries the site shows with their live slug, for path changes: those whose
+ * live revision went live on this site (the delivery rule), not merely the
+ * ones assigned to it.
+ */
 async function liveEntries(tx: DbTx, scope: Scope, siteId: string) {
-  const links = await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, siteId }, select: { entryId: true } });
-  if (!links.length) return [];
+  const rows = await liveRows(tx, scope, siteId, {}, { limit: 10_000 });
+  if (!rows.length) return [];
   const entries = await tx.cmsEntry.findMany({
-    where: { projectId: scope.projectId, id: { in: links.map((l) => l.entryId) }, publishedRevisionId: { not: null } },
+    where: { projectId: scope.projectId, id: { in: rows.map((r) => r.id) }, publishedRevisionId: { not: null } },
     select: { id: true, type: true, locale: true, publishedRevisionId: true },
   });
   const revisions = await tx.cmsRevision.findMany({

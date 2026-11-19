@@ -199,14 +199,17 @@ export async function resolveApiKey(authorization: string | undefined, now = new
   if (!row || !same || row.revokedAt || (row.expiresAt && row.expiresAt <= now)) throw unauthenticated();
   if (!row.lastUsedAt || now.getTime() - row.lastUsedAt.getTime() > LAST_USED_GRANULARITY_MS)
     await authDb.apiKey.update({ where: { id: row.id }, data: { lastUsedAt: now } });
+  // A stored filter this version cannot read restricts nothing it could
+  // name, so the key is refused rather than widened to every resource.
   const filter = resourceFilter.safeParse(row.resourceFilter);
+  if (!filter.success) throw unauthenticated();
   return {
     keyId: row.id,
     prefix: row.prefix,
     workspaceId: row.workspaceId,
     projectId: row.projectId,
     scopes: row.scopes,
-    resourceFilter: filter.success ? filter.data : {},
+    resourceFilter: filter.data,
     scope: {
       workspaceId: row.workspaceId,
       projectId: row.projectId,
