@@ -251,13 +251,21 @@ async function addDelivery(tx: DbTx, scope: Scope, endpoint: EndpointRow, eventI
 /**
  * Emits an event of a registered type to the project's active endpoints of
  * its module, in the caller's transaction (no delivery without the change,
- * no change without its deliveries). Returns the event id, or null when
- * webhooks are off or nobody subscribed.
+ * no change without its deliveries). `endpointIds` narrows it to some of
+ * them (a module routing events per target). Returns the event id, or null
+ * when webhooks are off or nobody subscribed.
  */
-export async function emitWebhookEvent(tx: DbTx, scope: Scope, type: string, payload: Record<string, unknown>) {
+export async function emitWebhookEvent(
+  tx: DbTx,
+  scope: Scope,
+  type: string,
+  payload: Record<string, unknown>,
+  options: { endpointIds?: readonly string[] } = {},
+) {
   const def = registeredWebhookEvents().get(type);
   if (!def) throw new Error(`unregistered webhook event ${type}`);
   if (!webhooksEnabled()) return null;
+  if (options.endpointIds && !options.endpointIds.length) return null;
   const endpoints = await tx.webhookEndpoint.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -265,6 +273,7 @@ export async function emitWebhookEvent(tx: DbTx, scope: Scope, type: string, pay
       ownerModule: def.owner,
       status: "active",
       eventTypes: { has: type },
+      ...(options.endpointIds ? { id: { in: [...options.endpointIds] } } : {}),
     },
   });
   if (!endpoints.length) return null;

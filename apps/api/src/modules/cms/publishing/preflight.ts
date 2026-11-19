@@ -5,6 +5,7 @@ import { DomainError } from "../../../shared.ts";
 import { requireRefs } from "../entries/common.ts";
 import { slugFree } from "../entries/slugs.ts";
 import { renditionMissingLabel } from "../media/provenance.ts";
+import { checkRules, storedRules, type RuleViolation } from "../sites/rules.ts";
 import { contentType } from "../types/registry.ts";
 
 // What must hold before a revision goes live (ADR 0029 §4.6, CH1.10). The
@@ -19,12 +20,16 @@ export interface PreflightIssue {
   assetIds?: string[];
   missing?: Record<string, string[]>;
   slug?: string;
+  /** CMS_CONTENT_RULE: the site whose editorial rules the content breaks. */
+  siteId?: string;
+  violations?: RuleViolation[];
 }
 
 /** The parts of a revision (or of a draft about to become one) the checks read. */
 export interface PublishableContent {
   slug: string;
   title: string;
+  excerpt?: string | null;
   body: unknown;
   seo: unknown;
   heroAssetId: string | null;
@@ -60,11 +65,16 @@ export async function preflight(
   else {
     const sites = await tx.cmsSite.findMany({
       where: { projectId: scope.projectId, id: { in: [...siteIds] }, archivedAt: null },
-      select: { id: true, locales: true },
+      select: { id: true, locales: true, contentRules: true },
     });
     const serving = new Set(sites.filter((s) => s.locales.includes(entry.locale)).map((s) => s.id));
     const unusable = siteIds.filter((id) => !serving.has(id));
     if (unusable.length) issues.push({ code: "CMS_SITE_UNAVAILABLE", siteIds: unusable });
+    // Each site's editorial rules (CH1.11), e.g. a plain-text profile.
+    for (const site of sites) {
+      const violations = checkRules(storedRules(site.contentRules), content);
+      if (violations.length) issues.push({ code: "CMS_CONTENT_RULE", siteId: site.id, violations });
+    }
   }
 
   if (!(await slugFree(tx, scope, { type: entry.type, locale: entry.locale, entryId: entry.id }, content.slug)))

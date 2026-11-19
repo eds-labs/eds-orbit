@@ -3,6 +3,7 @@ import { cmsSwitchedOn } from "./gate.ts";
 import { cmsActionTypes } from "./publishing/approval.ts";
 import { cmsPublicationSweep, cmsPublishJob, resumePublications } from "./publishing/worker.ts";
 import { cmsRoutes } from "./routes.ts";
+import { cmsLiveCheckJob } from "./sites/live-check.ts";
 
 /** What the content module plugs into the platform; later steps add to it. */
 export const cmsContributions: ModuleContributions = {
@@ -13,7 +14,8 @@ export const cmsContributions: ModuleContributions = {
   // the owner or a content editor (decision E-4), never by a mandate (CH1.10).
   actionTypes: cmsActionTypes,
   // Scheduled publications go live on the worker; lost jobs are queued again.
-  jobs: [cmsPublishJob],
+  // Live checks confirm a site shows the live revision (CH1.11).
+  jobs: [cmsPublishJob, cmsLiveCheckJob],
   periodic: [cmsPublicationSweep],
   hooks: {
     onProjectResume: async (tx, scope, { generation }) => {

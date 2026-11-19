@@ -5,10 +5,11 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { Actor } from "../../../../../../packages/module-contracts/src/index.ts";
 import { publishEvent } from "../../../platform/events/events.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
-import { emitWebhookEvent } from "../../../platform/outbound-webhooks/webhooks.ts";
 import { audit } from "../../../shared.ts";
 import { notFound, refused, sha256, UUID_RE } from "../entries/common.ts";
 import { clearRedirectsAt, entryPaths, redirectSlugChange, redirectWithdrawn } from "../entries/redirects.ts";
+import { scheduleLiveChecks } from "../sites/live-check.ts";
+import { notifySites } from "../sites/notify.ts";
 import { preflight, type PreflightIssue } from "./preflight.ts";
 
 // Publications (ADR 0029 §2.3, §3.2, CH1.10). Publishing switches the
@@ -159,14 +160,21 @@ export async function queueBatch(tx: DbTx, scope: Scope, locked: EntryRow, batch
   const revision = await tx.cmsRevision.findFirstOrThrow({ where: { id: batch.revisionId!, projectId: scope.projectId } });
   await event(tx, scope, "cms.entry.scheduled", entry.id, { revision: revision.number, sites: batch.siteIds.length, at: batch.scheduledAt!.toISOString() });
   const paths = new Map((await entryPaths(tx, scope, entry, revision.slug)).map((p) => [p.siteId, p.path]));
-  for (const siteId of batch.siteIds)
-    await emitWebhookEvent(tx, scope, "cms.entry.scheduled", {
+  await notifySites(
+    tx,
+    scope,
+    "cms.entry.scheduled",
+    batch.siteIds.map((siteId) => ({
       siteId,
-      entry: { id: entry.id, type: entry.type, locale: entry.locale, slug: revision.slug, path: paths.get(siteId) ?? null, revision: revision.number },
-      scheduledAt: batch.scheduledAt!.toISOString(),
-      previousPath: null,
-      tags: tagsOf(entry, siteId),
-    });
+      payload: {
+        siteId,
+        entry: { id: entry.id, type: entry.type, locale: entry.locale, slug: revision.slug, path: paths.get(siteId) ?? null, revision: revision.number },
+        scheduledAt: batch.scheduledAt!.toISOString(),
+        previousPath: null,
+        tags: tagsOf(entry, siteId),
+      },
+    })),
+  );
   return ids;
 }
 
@@ -314,18 +322,44 @@ export async function goLive(
   await event(tx, scope, type, entry.id, { revision: liveNumber, previousRevision: previous?.number ?? null, sites: siteIds.length });
   await audit(tx, scope, type, entry.id, { revision: liveNumber, previousRevision: previous?.number ?? null, sites: siteIds.length });
   const paths = new Map(liveSlug ? (await entryPaths(tx, scope, entry, liveSlug)).map((p) => [p.siteId, p.path]) : []);
-  for (const siteId of siteIds) {
-    const path = paths.get(siteId) ?? null;
-    const before = previousPaths.get(siteId) ?? null;
-    await emitWebhookEvent(tx, scope, type, {
-      siteId,
-      entry: { id: entry.id, type: entry.type, locale: entry.locale, slug: liveSlug, path, revision: liveNumber },
-      previousPath: before && before !== path ? before : null,
-      tags: tagsOf(entry, siteId),
+  // Sites hear about it through their notifiers (CH1.11).
+  const notified = await notifySites(
+    tx,
+    scope,
+    type,
+    siteIds.map((siteId) => {
+      const path = paths.get(siteId) ?? null;
+      const before = previousPaths.get(siteId) ?? null;
+      return {
+        siteId,
+        payload: {
+          siteId,
+          entry: { id: entry.id, type: entry.type, locale: entry.locale, slug: liveSlug, path, revision: liveNumber },
+          previousPath: before && before !== path ? before : null,
+          tags: tagsOf(entry, siteId),
+        },
+      };
+    }),
+  );
+  await notifySites(
+    tx,
+    scope,
+    "cms.redirect.created",
+    redirects.map((r) => ({
+      siteId: r.siteId,
+      payload: { siteId: r.siteId, fromPath: r.fromPath, toPath: r.toPath, code: r.code, tags: [`orbit:redirects:${r.siteId}`] },
+    })),
+  );
+  // "notified": the site's notifications are queued; delivery has its own log.
+  const toldPubs = pubs.filter((p) => notified.has(p.siteId));
+  if (toldPubs.length)
+    await tx.cmsPublication.updateMany({
+      where: { id: { in: toldPubs.map((p) => p.id) }, status: "visible" },
+      data: { status: "notified", notifiedAt: new Date(), version: { increment: 1 } },
     });
-  }
-  for (const r of redirects)
-    await emitWebhookEvent(tx, scope, "cms.redirect.created", { siteId: r.siteId, fromPath: r.fromPath, toPath: r.toPath, code: r.code, tags: [`orbit:redirects:${r.siteId}`] });
+  for (const pub of pubs)
+    await attempt(tx, scope, pub.id, "notify", notified.has(pub.siteId) ? "ok" : "skipped", notified.has(pub.siteId) ? {} : { errorCode: "CMS_NO_NOTIFIER" });
+  await scheduleLiveChecks(tx, scope, pubs.map((p) => p.id));
   return [];
 }
 

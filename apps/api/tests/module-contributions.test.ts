@@ -93,7 +93,8 @@ describe("module contributions", () => {
         "notification_delivery",
         "notification_digest",
         "chat",
-        // Scheduled content publications (ADR 0029, CH1.10).
+        // Live checks and scheduled content publications (ADR 0029, CH1.10, CH1.11).
+        "cms_live_check",
         "cms_publish",
         "creative_preview",
         "domain_event",

@@ -198,7 +198,7 @@ describe.skipIf(!enabled)("content publishing", () => {
     const list = (await call("viewer", "GET", `/entries/${entryId}/publications`)).json();
     expect(list.items).toMatchObject([{ action: "publish", status: "visible", siteId, approvalRequestId: null, attempts: 1 }]);
     const one = (await call("viewer", "GET", `/publications/${list.items[0].id}`)).json();
-    expect(one.steps).toMatchObject([{ step: "switch", outcome: "ok" }]);
+    expect(one.steps).toMatchObject([{ step: "switch", outcome: "ok" }, { step: "notify", outcome: "skipped", errorCode: "CMS_NO_NOTIFIER" }]);
 
     // The same revision again is refused; facts for other modules and the audit are content-free.
     const again = await call("editor", "POST", `/entries/${entryId}/publication-requests`, {});
