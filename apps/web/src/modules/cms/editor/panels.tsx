@@ -16,6 +16,7 @@ import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
 import type { OrbitDoc } from "../../../../../../packages/content-doc/src/index.ts";
 import {
+  assetSrc,
   cmsPath,
   type CmsAsset,
   type CmsAuthor,
@@ -28,7 +29,6 @@ import {
   type PublishResult,
 } from "../api";
 import { cmsText, type EditorText } from "../labels";
-import { assetSrc } from "./media-picker";
 import { lengthState, RECOMMENDED, SEO_MAX, seoChecks, type Seo } from "./seo";
 
 // The editor's side panel (CH1.14b): publishing, SEO, images and social,

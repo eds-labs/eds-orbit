@@ -5,18 +5,12 @@ import { useResource } from "@/lib/api";
 import { Badge, Button, Empty, Input, Modal } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
-import { cmsPath, previewFile, type AssetList, type CmsAsset } from "../api";
+import { assetSrc, cmsPath, type AssetList, type CmsAsset } from "../api";
 import { cmsText } from "../labels";
+import { UploadButton } from "../media";
 
 // Chooses an image of the content library for the editor (CH1.14b): body
-// images, the hero and the social image. Uploading lives on the media page.
-
-export function assetSrc(projectId: string, asset: CmsAsset) {
-  const file = previewFile(asset);
-  return file
-    ? `/api${cmsPath(projectId, `/assets/${asset.id}/files/${file}`)}`
-    : null;
-}
+// images, the hero and the social image. A new upload is chosen at once.
 
 export function MediaPicker({
   entryLocale,
@@ -27,7 +21,7 @@ export function MediaPicker({
   onPick: (asset: CmsAsset) => void;
   onClose: () => void;
 }) {
-  const { project, locale } = useWorkspace();
+  const { project, locale, canEdit } = useWorkspace();
   const t = cmsText(locale).editor;
   const [q, setQ] = useState("");
   const [applied, setApplied] = useState("");
@@ -39,6 +33,9 @@ export function MediaPicker({
   );
   return (
     <Modal title={t.mediaTitle} onClose={onClose} wide>
+      {canEdit && (
+        <UploadButton onUploaded={(result) => onPick(result.asset)} />
+      )}
       <form
         className="filter-bar"
         role="search"

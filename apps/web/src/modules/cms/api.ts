@@ -163,8 +163,12 @@ export type CmsAsset = {
   mime: string;
   width: number;
   height: number;
+  bytes?: number;
   alt: Record<string, string>;
   caption: Record<string, string>;
+  credit?: string | null;
+  license?: string | null;
+  createdAt?: string;
   renditions: Array<{
     name: string;
     mime: string;
@@ -183,17 +187,39 @@ export type CmsTerm = {
   id: string;
   kind: "category" | "tag";
   locale: string;
+  translationGroupId?: string;
   slug: string;
   name: string;
+  description?: string | null;
+  parentId?: string | null;
   archived: boolean;
+  version?: number;
 };
 
 export type CmsAuthor = {
   id: string;
   name: string;
   slug: string;
+  bio?: Record<string, string>;
+  avatarAssetId?: string | null;
+  sameAs?: string[];
   archived: boolean;
+  version?: number;
 };
+
+/** POST /cms/assets (raw bytes) and /cms/assets/import */
+export type AssetUpload = { asset: CmsAsset; duplicate: boolean };
+
+/** The languages a project writes in: its sites', else its content languages. */
+export function projectLocales(
+  sites: Array<Pick<CmsSite, "locales" | "archived">>,
+  fallback: string[],
+) {
+  const fromSites = [
+    ...new Set(sites.filter((s) => !s.archived).flatMap((s) => s.locales)),
+  ];
+  return (fromSites.length ? fromSites : fallback).sort();
+}
 
 const EXTENSIONS: Record<string, string> = {
   "image/webp": "webp",
@@ -208,4 +234,15 @@ export function previewFile(asset: Pick<CmsAsset, "renditions">) {
     .map((name) => asset.renditions.find((r) => r.name === name))
     .find(Boolean);
   return found ? `${found.name}.${EXTENSIONS[found.mime] ?? "webp"}` : null;
+}
+
+/** The editor's preview URL of an asset (private member route, not cached). */
+export function assetSrc(
+  projectId: string,
+  asset: Pick<CmsAsset, "id" | "renditions">,
+) {
+  const file = previewFile(asset);
+  return file
+    ? `/api${cmsPath(projectId, `/assets/${asset.id}/files/${file}`)}`
+    : null;
 }

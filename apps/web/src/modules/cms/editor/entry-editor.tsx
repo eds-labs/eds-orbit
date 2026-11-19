@@ -26,6 +26,7 @@ import {
   type TiptapNode,
 } from "../../../../../../packages/content-doc/src/index.ts";
 import {
+  assetSrc,
   cmsPath,
   type CmsAsset,
   type CmsStatus,
@@ -33,7 +34,7 @@ import {
   type SiteList,
 } from "../api";
 import { cmsText, type EditorText } from "../labels";
-import { assetSrc, MediaPicker } from "./media-picker";
+import { MediaPicker } from "./media-picker";
 import type { PasteNotice } from "./paste";
 import {
   errorText,

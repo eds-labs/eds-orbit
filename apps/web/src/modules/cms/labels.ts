@@ -6,7 +6,13 @@ const en = {
   module: "Content",
   intro:
     "Website content of this project: articles, their versions, SEO and publication.",
-  nav: { overview: "Overview", entries: "Entries" },
+  nav: {
+    overview: "Overview",
+    entries: "Entries",
+    media: "Media",
+    terms: "Categories & tags",
+    authors: "Authors",
+  },
   approversTitle: "Publication approvals",
   approvers: {
     owner: "Publishing and updates are approved by the owner.",
@@ -245,7 +251,7 @@ const en = {
     noMoreLocales: "Every language of the websites already has a version.",
     mediaTitle: "Media library",
     mediaSearch: "Search file names",
-    mediaEmpty: "No images yet. Upload images in the media library (follows).",
+    mediaEmpty: "No images yet. Upload one here or under Content → Media.",
     mediaAltMissing: "No alt text in this language",
     mediaAi: "AI generated",
     mediaChoose: "Choose",
@@ -279,6 +285,106 @@ const en = {
     } as Record<string, string>,
     errorOther: "The request failed",
   },
+  library: {
+    media: {
+      title: "Media",
+      intro:
+        "Images for articles: alt text and caption per language, AI labels and sizes.",
+      upload: "Upload image",
+      uploading: "Uploading…",
+      uploadHint:
+        "PNG, JPEG or WebP. Orbit stores a web version and creates smaller sizes and a social image.",
+      duplicate: "This image is in the library already.",
+      uploaded: "Uploaded.",
+      showArchived: "Archived only",
+      empty: "No images yet.",
+      altMissing: (locales: string) => `Alt text missing: ${locales}`,
+      altComplete: "Alt text complete",
+      edit: "Edit",
+      details: "Image details",
+      alt: (locale: string) => `Alt text (${locale})`,
+      altHint:
+        "Describes the image for people who cannot see it. Needed before publishing in this language.",
+      caption: (locale: string) => `Caption (${locale})`,
+      credit: "Credit",
+      license: "License",
+      size: "Size",
+      sizes: "Sizes",
+      ai: "AI generated",
+      aiHint: 'Shown on websites with the label "AI generated".',
+      save: "Save",
+      saved: "Saved.",
+      archive: "Archive",
+      unarchive: "Restore",
+      archivedBadge: "Archived",
+      archivedHint:
+        "Archived images stay where they are used but cannot be chosen again.",
+    },
+    terms: {
+      title: "Categories & tags",
+      intro:
+        "Categories group articles on the website; tags describe them more finely. Each language has its own terms.",
+      categories: "Categories",
+      tags: "Tags",
+      new: "New term",
+      name: "Name",
+      slug: "Address (slug, optional)",
+      description: "Description (optional)",
+      parent: "Parent category",
+      noParent: "None",
+      language: "Language",
+      translationOf: "Translates",
+      noTranslation: "None (new term)",
+      create: "Create",
+      save: "Save",
+      edit: "Edit",
+      archive: "Archive",
+      unarchive: "Restore",
+      archivedBadge: "Archived",
+      empty: "No terms in this language yet.",
+      created: "Created.",
+      saved: "Saved.",
+    },
+    authors: {
+      title: "Authors",
+      intro: "People named on articles and in their structured data.",
+      new: "New author",
+      name: "Name",
+      slug: "Address (slug, optional)",
+      bio: (locale: string) => `Short bio (${locale})`,
+      sameAs: "Profile links (https, one per line, at most 10)",
+      create: "Create",
+      save: "Save",
+      edit: "Edit",
+      archive: "Archive",
+      unarchive: "Restore",
+      archivedBadge: "Archived",
+      empty: "No authors yet.",
+      created: "Created.",
+      saved: "Saved.",
+    },
+    errors: {
+      FILE_TOO_LARGE: "The file is too large.",
+      FILES_NOT_CONFIGURED: "File storage is not set up in this installation.",
+      FILE_EMPTY: "The file is empty.",
+      FILE_TYPE_NOT_ALLOWED: "Only PNG, JPEG and WebP images can be uploaded.",
+      CMS_MEDIA_TYPE: "Only PNG, JPEG and WebP images can be uploaded.",
+      CMS_MEDIA_INVALID: "The image cannot be read.",
+      CMS_MEDIA_BUSY: "Another upload is running. Try again shortly.",
+      CMS_ASSET_ARCHIVED: "The image is archived.",
+      CMS_SLUG_TAKEN: "This address is taken.",
+      CMS_SLUG_INVALID:
+        "The address may only hold lower-case letters, digits and hyphens.",
+      CMS_TERM_PARENT_INVALID:
+        "The parent must be an active category of the same language.",
+      CMS_TERM_ARCHIVED: "The term is archived.",
+      CMS_AUTHOR_ARCHIVED: "The author is archived.",
+      CMS_TRANSLATION_EXISTS:
+        "This term has a version in that language already.",
+      CMS_VERSION_CONFLICT: "Changed in the meantime. Reload the page.",
+    } as Record<string, string>,
+    errorOther: "The request failed",
+  },
   attention: {
     open: "Open content",
     stopped: (n: number) =>
@@ -296,7 +402,13 @@ const de: typeof en = {
   module: "Inhalte",
   intro:
     "Website-Inhalte dieses Projekts: Artikel, ihre Versionen, SEO und Veröffentlichung.",
-  nav: { overview: "Übersicht", entries: "Einträge" },
+  nav: {
+    overview: "Übersicht",
+    entries: "Einträge",
+    media: "Medien",
+    terms: "Kategorien & Tags",
+    authors: "Autoren",
+  },
   approversTitle: "Freigabe von Veröffentlichungen",
   approvers: {
     owner: "Veröffentlichungen und Aktualisierungen gibt der Owner frei.",
@@ -575,6 +687,109 @@ const de: typeof en = {
     },
     errorOther: "Die Anfrage ist fehlgeschlagen",
   },
+  library: {
+    media: {
+      title: "Medien",
+      intro:
+        "Bilder für Artikel: Alt-Text und Bildunterschrift je Sprache, KI-Kennzeichnung und Größen.",
+      upload: "Bild hochladen",
+      uploading: "Lädt hoch …",
+      uploadHint:
+        "PNG, JPEG oder WebP. Orbit speichert eine Webfassung und erzeugt kleinere Größen und ein Social-Bild.",
+      duplicate: "Dieses Bild ist schon in der Bibliothek.",
+      uploaded: "Hochgeladen.",
+      showArchived: "Nur archivierte",
+      empty: "Noch keine Bilder.",
+      altMissing: (locales: string) => `Alt-Text fehlt: ${locales}`,
+      altComplete: "Alt-Text vollständig",
+      edit: "Bearbeiten",
+      details: "Bilddetails",
+      alt: (locale: string) => `Alt-Text (${locale})`,
+      altHint:
+        "Beschreibt das Bild für Menschen, die es nicht sehen. Nötig, bevor in dieser Sprache veröffentlicht wird.",
+      caption: (locale: string) => `Bildunterschrift (${locale})`,
+      credit: "Bildnachweis",
+      license: "Lizenz",
+      size: "Größe",
+      sizes: "Größen",
+      ai: "KI erstellt",
+      aiHint: "Erscheint auf Websites mit der Kennzeichnung „KI erstellt“.",
+      save: "Speichern",
+      saved: "Gespeichert.",
+      archive: "Archivieren",
+      unarchive: "Wiederherstellen",
+      archivedBadge: "Archiviert",
+      archivedHint:
+        "Archivierte Bilder bleiben, wo sie verwendet werden, können aber nicht neu gewählt werden.",
+    },
+    terms: {
+      title: "Kategorien & Tags",
+      intro:
+        "Kategorien gliedern Artikel auf der Website; Tags beschreiben sie feiner. Jede Sprache hat eigene Begriffe.",
+      categories: "Kategorien",
+      tags: "Tags",
+      new: "Neuer Begriff",
+      name: "Name",
+      slug: "Adresse (Slug, optional)",
+      description: "Beschreibung (optional)",
+      parent: "Übergeordnete Kategorie",
+      noParent: "Keine",
+      language: "Sprache",
+      translationOf: "Übersetzt",
+      noTranslation: "Keinen (neuer Begriff)",
+      create: "Anlegen",
+      save: "Speichern",
+      edit: "Bearbeiten",
+      archive: "Archivieren",
+      unarchive: "Wiederherstellen",
+      archivedBadge: "Archiviert",
+      empty: "In dieser Sprache noch keine Begriffe.",
+      created: "Angelegt.",
+      saved: "Gespeichert.",
+    },
+    authors: {
+      title: "Autoren",
+      intro:
+        "Personen, die auf Artikeln und in deren strukturierten Daten genannt werden.",
+      new: "Neuer Autor",
+      name: "Name",
+      slug: "Adresse (Slug, optional)",
+      bio: (locale: string) => `Kurzbiografie (${locale})`,
+      sameAs: "Profil-Links (https, einer pro Zeile, höchstens 10)",
+      create: "Anlegen",
+      save: "Speichern",
+      edit: "Bearbeiten",
+      archive: "Archivieren",
+      unarchive: "Wiederherstellen",
+      archivedBadge: "Archiviert",
+      empty: "Noch keine Autoren.",
+      created: "Angelegt.",
+      saved: "Gespeichert.",
+    },
+    errors: {
+      FILE_TOO_LARGE: "Die Datei ist zu groß.",
+      FILES_NOT_CONFIGURED:
+        "In dieser Installation ist kein Dateispeicher eingerichtet.",
+      FILE_EMPTY: "Die Datei ist leer.",
+      FILE_TYPE_NOT_ALLOWED:
+        "Hochladen lassen sich nur PNG-, JPEG- und WebP-Bilder.",
+      CMS_MEDIA_TYPE: "Hochladen lassen sich nur PNG-, JPEG- und WebP-Bilder.",
+      CMS_MEDIA_INVALID: "Das Bild lässt sich nicht lesen.",
+      CMS_MEDIA_BUSY:
+        "Ein anderer Upload läuft. Versuche es gleich noch einmal.",
+      CMS_ASSET_ARCHIVED: "Das Bild ist archiviert.",
+      CMS_SLUG_TAKEN: "Diese Adresse ist vergeben.",
+      CMS_SLUG_INVALID:
+        "Die Adresse darf nur Kleinbuchstaben, Ziffern und Bindestriche enthalten.",
+      CMS_TERM_PARENT_INVALID:
+        "Die übergeordnete Kategorie muss aktiv sein und dieselbe Sprache haben.",
+      CMS_TERM_ARCHIVED: "Der Begriff ist archiviert.",
+      CMS_AUTHOR_ARCHIVED: "Der Autor ist archiviert.",
+      CMS_TRANSLATION_EXISTS: "Diesen Begriff gibt es in dieser Sprache schon.",
+      CMS_VERSION_CONFLICT: "Inzwischen geändert. Lade die Seite neu.",
+    },
+    errorOther: "Die Anfrage ist fehlgeschlagen",
+  },
   attention: {
     open: "Inhalte öffnen",
     stopped: (n: number) =>
@@ -589,5 +804,13 @@ const de: typeof en = {
 };
 
 export type EditorText = (typeof en)["editor"];
+export type LibraryText = (typeof en)["library"];
+
+/** A server error code as text; ApiError messages are codes with spaces. */
+export function libraryError(t: LibraryText, raw: string | null | undefined) {
+  if (!raw) return null;
+  const code = raw.replaceAll(" ", "_");
+  return t.errors[code] ?? `${t.errorOther} (${code})`;
+}
 
 export const cmsText = (locale: "en" | "de") => (locale === "de" ? de : en);

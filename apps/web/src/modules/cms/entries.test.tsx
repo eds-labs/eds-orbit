@@ -109,7 +109,13 @@ const site = {
 describe("content entries (CH1.14a)", () => {
   it("registers the entries view under the content module", () => {
     const cms = cmsWeb;
-    expect(cms.views.map((v) => v.key)).toEqual(["cms", "cms.entries"]);
+    expect(cms.views.map((v) => v.key)).toEqual([
+      "cms",
+      "cms.entries",
+      "cms.media",
+      "cms.taxonomies",
+      "cms.authors",
+    ]);
     expect(Object.keys(cms.attention ?? {})).toEqual([
       "cms_publication_stopped",
       "cms_live_check_failed",

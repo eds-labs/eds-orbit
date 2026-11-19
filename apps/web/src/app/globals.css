@@ -10273,3 +10273,42 @@ button.drive-file-name {
     padding: 16px;
   }
 }
+/* Content module: media, categories and authors, CH1.14c. */
+.cms-asset-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.cms-asset-detail > img {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.cms-upload {
+  display: inline-grid;
+  gap: 8px;
+}
+.cms-upload .is-busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.cms-author-list {
+  display: grid;
+  gap: 8px;
+}
+.cms-author {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+@media (max-width: 760px) {
+  .cms-asset-detail {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
