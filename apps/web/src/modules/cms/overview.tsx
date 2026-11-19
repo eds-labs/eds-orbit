@@ -16,7 +16,11 @@ export function CmsOverview() {
   const status = useResource<CmsStatus>(cmsPath(project.id, "/status"));
   return (
     <div className="support-page">
-      <PageHead title={t.module} description={t.intro} eyebrow={word("moduleEyebrow")} />
+      <PageHead
+        title={t.module}
+        description={t.intro}
+        eyebrow={word("moduleEyebrow")}
+      />
       <ResourceError error={status.error} retry={status.refresh} />
       {status.data && (
         <>
@@ -25,7 +29,11 @@ export function CmsOverview() {
             <p>{t.approvers[status.data.settings.publishApprovers]}</p>
             {status.data.settings.fourEyes && <p>{t.fourEyes}</p>}
           </section>
-          <Empty icon={FileText} title={t.emptyTitle} description={t.emptyBody} />
+          <Empty
+            icon={FileText}
+            title={t.emptyTitle}
+            description={t.emptyBody}
+          />
         </>
       )}
     </div>

@@ -1,8 +1,9 @@
-import { LayoutDashboard } from "lucide-react";
+import { FileText, LayoutDashboard } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { cmsText } from "./labels";
 import { CmsOverview } from "./overview";
 import { cmsAttention } from "./attention";
+import { EntriesView } from "./entries";
 
 const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
   en: cmsText("en").nav[key],
@@ -10,8 +11,8 @@ const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
 });
 
 /**
- * The content module in the web shell (ADR 0029): an overview for now; the
- * entry list, editor, media, history and calendar follow (CH1.14). Opt-in:
+ * The content module in the web shell (ADR 0029): overview and entries
+ * (CH1.14a); editor, media, history and calendar follow (CH1.14). Opt-in:
  * shown only where the server lists the module as enabled (ORBIT_CMS and the
  * project row).
  */
@@ -27,6 +28,17 @@ export const cmsWeb: WebModule = {
   groupOrder: 11,
   attention: cmsAttention,
   views: [
-    { key: "cms", path: "", component: CmsOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
+    {
+      key: "cms",
+      path: "",
+      component: CmsOverview,
+      nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 },
+    },
+    {
+      key: "cms.entries",
+      path: "entries",
+      component: EntriesView,
+      nav: { label: nav("entries"), icon: FileText, order: 10 },
+    },
   ],
 };
