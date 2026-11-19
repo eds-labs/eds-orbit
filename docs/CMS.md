@@ -2,7 +2,7 @@
 
 Orbit's content hub for website articles ([ADR 0029](adr/0029-content-module.md), plan [CONTENT_HUB.md](plans/CONTENT_HUB.md)). Orbit stores entries, their immutable revisions, media, categories, tags and authors. Websites read the live content through the [delivery API](CMS_API.md), so publishing an article needs no commit or deploy on the website. Agents and integrations write drafts and propose publications; a person in Orbit decides.
 
-Status (2026-11-19): phase 1 backend (CH1.1–CH1.13, CH1.15–CH1.17), the overview, the entry list and the editor (CH1.14a–b) are implemented and tested on the branch `claude/orbit-content-hub-architecture-0894a4`. It is not pushed, and every flag is off. Media, categories and authors, history, calendar and settings pages (CH1.14c–f) and the phase 1 acceptance (CH1.18) are still open.
+Status (2026-11-19): phase 1 backend (CH1.1–CH1.13, CH1.15–CH1.17), and the web pages (CH1.14a–f: overview, entries and editor, calendar, media, categories and tags, authors, history, Decisions views, settings sections) are implemented and tested on the branch `claude/orbit-content-hub-architecture-0894a4`. It is not pushed, and every flag is off. The phase 1 acceptance (CH1.18) is still open.
 
 ## Switching it on
 
@@ -20,6 +20,17 @@ The schema comes in three migrations (`202611160001_api_keys`, `202611160002_web
 ## Editor
 
 The editor (`?entry=<id>` under Content → Entries) writes orbit-doc through TipTap 3.32.2: headings 2–4, paragraphs, lists, quotes, callouts, code, images from the media library and dividers; links follow the content-doc rule. Drafts save automatically with their version; when someone else saved in between, the editor asks to reload instead of overwriting. Pasted HTML keeps its text; foreign images and disallowed links are removed and reported. The side panel holds publishing (sites, preflight, now or scheduled, cancel, withdraw, preview), SEO (slug, length meters, snippet and hints that never block), images and social, categories and authors, and translations. The server validates every save; the editor configuration is no security boundary.
+
+## Web pages
+
+| Page | Address | Who |
+| --- | --- | --- |
+| Overview, Entries (editor at `?entry=<id>`), Calendar, Media, Categories & tags, Authors | `/p/:projectId/cms/…` | members read; editors write |
+| Websites, Publishing | `/manage/p/:projectId/modules/cms/sites`, `…/publishing` | members read; the owner changes |
+| API keys, Webhooks | `/manage/p/:projectId/integrations/cms/api-keys`, `…/webhooks` | owner (needs `ORBIT_API_V1` / `ORBIT_WEBHOOKS`) |
+| Publication requests | Decisions | deciders per the publishing setting |
+
+API keys and webhooks are platform capabilities; Content contributes their sections because it is the only module with scopes and events today.
 
 ## Permissions
 
