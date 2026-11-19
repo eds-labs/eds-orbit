@@ -17,18 +17,15 @@ import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import {
   cmsPath,
-  type EntryDetail,
   type EntryList,
   type EntryStatus,
-  type Preflight,
   type SiteList,
 } from "./api";
 import { cmsText } from "./labels";
+import { EntryEditor } from "./editor/entry-editor";
 
-// The content entries (ADR 0029 §5, CH1.14a): a filtered list, a form for a
-// new article and, per entry (`?entry=<id>`), its state: live and latest
-// version, an open decision, translations and what would stop publishing.
-// The editor itself follows with CH1.14b.
+// The content entries (ADR 0029 §5, CH1.14a): a filtered list and a form for
+// a new article; `?entry=<id>` opens the editor (CH1.14b).
 
 const STATUS_TONE: Record<
   EntryStatus,
@@ -118,7 +115,7 @@ function NewArticle({
           <legend>{t.sitesLabel}</legend>
           {serving.length ? (
             serving.map((s) => (
-              <label key={s.id} className="check-row">
+              <label key={s.id} className="cms-check">
                 <input
                   type="checkbox"
                   checked={chosen.includes(s.id)}
@@ -277,113 +274,8 @@ function EntryListView() {
   );
 }
 
-function EntryPage({ entryId }: { entryId: string }) {
-  const { project, locale } = useWorkspace();
-  const t = cmsText(locale);
-  const detail = useResource<EntryDetail>(
-    cmsPath(project.id, `/entries/${entryId}`),
-  );
-  const checks = useResource<Preflight>(
-    cmsPath(project.id, `/entries/${entryId}/preflight`),
-  );
-  const sites = useResource<SiteList>(cmsPath(project.id, "/sites"));
-  const d = detail.data;
-  const siteName = (id: string) =>
-    sites.data?.items.find((s) => s.id === id)?.name ?? id;
-  return (
-    <div className="support-page">
-      <PageHead
-        title={d?.draft.title || t.entries.untitled}
-        description={t.entries.intro}
-      >
-        <a className="button button-outline" href="?">
-          {t.entries.back}
-        </a>
-      </PageHead>
-      <ResourceError error={detail.error} retry={detail.refresh} />
-      {d && (
-        <>
-          <p>
-            <Badge tone={STATUS_TONE[d.entry.status]}>
-              {t.status[d.entry.status]}
-            </Badge>{" "}
-            {d.pendingRequest && (
-              <Badge tone="warning">{t.entries.waiting}</Badge>
-            )}{" "}
-            <span className="field-hint">{d.entry.locale}</span>
-          </p>
-          <dl className="detail-grid">
-            <dt>{t.entries.live}</dt>
-            <dd>
-              {d.publishedRevision
-                ? `#${d.publishedRevision.number} · ${when(d.entry.lastPublishedAt, locale, project.timezone)}`
-                : t.entries.noLive}
-            </dd>
-            <dt>{t.entries.latest}</dt>
-            <dd>
-              {d.latestRevision
-                ? `#${d.latestRevision.number} · ${when(d.latestRevision.createdAt, locale, project.timezone)}`
-                : "—"}
-            </dd>
-            {d.entry.scheduledAt && (
-              <>
-                <dt>{t.entries.scheduledFor}</dt>
-                <dd>{when(d.entry.scheduledAt, locale, project.timezone)}</dd>
-              </>
-            )}
-            <dt>{t.entries.sitesLabel}</dt>
-            <dd>
-              {d.siteIds.length ? d.siteIds.map(siteName).join(", ") : "—"}
-            </dd>
-            <dt>{t.entries.translations}</dt>
-            <dd>
-              {d.translations.length
-                ? d.translations.map((tr, i) => (
-                    <span key={tr.id}>
-                      {i > 0 && ", "}
-                      <a href={`?entry=${tr.id}`}>{tr.locale}</a> (
-                      {t.status[tr.status]})
-                    </span>
-                  ))
-                : "—"}
-            </dd>
-          </dl>
-          {d.unsavedChanges && (
-            <p className="field-hint">{t.entries.unsaved}</p>
-          )}
-          {d.draft.excerpt && <p>{d.draft.excerpt}</p>}
-          <section aria-labelledby="cms-preflight">
-            <h2 id="cms-preflight">{t.entries.preflightTitle}</h2>
-            <ResourceError error={checks.error} retry={checks.refresh} />
-            {checks.data &&
-              (checks.data.ok ? (
-                <p>{t.entries.preflightOk}</p>
-              ) : (
-                <ul>
-                  {checks.data.issues.map((issue, i) => (
-                    <li key={`${issue.code}-${i}`}>
-                      {t.entries.issue[issue.code] ??
-                        `${t.entries.issueOther} (${issue.code})`}
-                      {issue.siteId && (
-                        <span className="field-hint">
-                          {" "}
-                          · {siteName(issue.siteId)}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ))}
-          </section>
-          <p className="field-hint">{t.entries.editorSoon}</p>
-        </>
-      )}
-    </div>
-  );
-}
-
 export function EntriesView() {
   const params = useSearchParams();
   const entryId = params?.get("entry") ?? null;
-  return entryId ? <EntryPage entryId={entryId} /> : <EntryListView />;
+  return entryId ? <EntryEditor entryId={entryId} /> : <EntryListView />;
 }

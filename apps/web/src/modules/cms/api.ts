@@ -67,6 +67,12 @@ export type EntryDetail = {
   draft: {
     title: string;
     excerpt: string;
+    /** orbit-doc-v1 (packages/content-doc). */
+    body?: unknown;
+    fields?: Record<string, unknown>;
+    seo?: Record<string, unknown>;
+    authorIds?: string[];
+    termIds?: string[];
     version: number;
     updatedAt: string;
     heroAssetId: string | null;
@@ -79,7 +85,12 @@ export type EntryDetail = {
     status: EntryStatus;
     updatedAt: string;
   }>;
-  latestRevision: { id: string; number: number; createdAt: string } | null;
+  latestRevision: {
+    id: string;
+    number: number;
+    contentHash?: string;
+    createdAt: string;
+  } | null;
   publishedRevision: { id: string; number: number; slug: string } | null;
   pendingRequest: PendingRequest | null;
   unsavedChanges: boolean;
@@ -103,6 +114,9 @@ export type CmsSite = {
   locales: string[];
   defaultLocale: string;
   verification: "configured" | "read_verified" | "live_verified";
+  /** Path patterns per type and locale, e.g. { article: { de: "/blog/{slug}/" } }. */
+  routes?: Record<string, Record<string, string>>;
+  trailingSlash?: boolean;
   archived: boolean;
   version: number;
 };
@@ -128,3 +142,70 @@ export type CmsSummary = {
     updatedAt: string;
   }>;
 };
+
+/** POST publication-requests, unpublish-requests (an entry detail plus the outcome). */
+export type PublishResult = EntryDetail & {
+  mode: "direct" | "requested";
+  requestId: string | null;
+};
+
+/** POST /cms/entries/:id/preview */
+export type PreviewResult = {
+  token: string;
+  expiresAt: string;
+  path: string;
+  previewUrl: string | null;
+};
+
+export type CmsAsset = {
+  id: string;
+  name: string | null;
+  mime: string;
+  width: number;
+  height: number;
+  alt: Record<string, string>;
+  caption: Record<string, string>;
+  renditions: Array<{
+    name: string;
+    mime: string;
+    width: number;
+    height: number;
+  }>;
+  aiLabel: { origin: string; labelState: string } | null;
+  archived: boolean;
+  version: number;
+};
+
+/** GET /cms/assets */
+export type AssetList = { items: CmsAsset[]; nextCursor: string | null };
+
+export type CmsTerm = {
+  id: string;
+  kind: "category" | "tag";
+  locale: string;
+  slug: string;
+  name: string;
+  archived: boolean;
+};
+
+export type CmsAuthor = {
+  id: string;
+  name: string;
+  slug: string;
+  archived: boolean;
+};
+
+const EXTENSIONS: Record<string, string> = {
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+};
+
+/** The editor's preview image of an asset: the smallest rendition of at least 480 px. */
+export function previewFile(asset: Pick<CmsAsset, "renditions">) {
+  const order = ["w480", "w960", "w1600", "original"];
+  const found = order
+    .map((name) => asset.renditions.find((r) => r.name === name))
+    .find(Boolean);
+  return found ? `${found.name}.${EXTENSIONS[found.mime] ?? "webp"}` : null;
+}

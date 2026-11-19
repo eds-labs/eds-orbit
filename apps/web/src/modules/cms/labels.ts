@@ -63,8 +63,6 @@ const en = {
     translations: "Translations",
     preflightTitle: "Before publishing",
     preflightOk: "Nothing stops a publication.",
-    editorSoon:
-      "The editor follows in the next step. Until then drafts are written through the API or MCP.",
     issue: {
       CMS_TYPE_UNAVAILABLE: "This content type cannot be published yet.",
       CMS_TITLE_MISSING: "The title is missing.",
@@ -78,6 +76,208 @@ const en = {
       CMS_CONTENT_RULE: "The text breaks a rule of a website.",
     } as Record<string, string>,
     issueOther: "Something stops the publication",
+  },
+  editor: {
+    titlePlaceholder: "Title",
+    excerptLabel: "Excerpt",
+    excerptHint: "One or two sentences for lists and search results.",
+    bodyLabel: "Article text",
+    placeholder:
+      "Write the article… Headings start at level 2; the title is the page heading.",
+    toolbar: "Formatting",
+    tools: {
+      paragraph: "Paragraph",
+      h2: "Heading 2",
+      h3: "Heading 3",
+      h4: "Heading 4",
+      bold: "Bold",
+      italic: "Italic",
+      code: "Inline code",
+      link: "Link",
+      unlink: "Remove link",
+      bullet: "Bulleted list",
+      ordered: "Numbered list",
+      quote: "Quote",
+      callout: "Callout",
+      codeBlock: "Code block",
+      divider: "Divider",
+      image: "Image from the media library",
+      undo: "Undo",
+      redo: "Redo",
+    },
+    linkLabel: "Link target",
+    linkApply: "Set link",
+    linkRule:
+      "Allowed: https://…, mailto:…, a path starting with / or an #anchor.",
+    cancel: "Cancel",
+    calloutTone: "Tone",
+    tones: { info: "Info", tip: "Tip", warning: "Warning" } as Record<
+      string,
+      string
+    >,
+    caption: "Caption",
+    readOnly:
+      "You can read this entry; editing needs the editor role in Content.",
+    archived: "This entry is archived and cannot be edited.",
+    save: {
+      saved: "Saved",
+      dirty: "Unsaved changes",
+      saving: "Saving…",
+      error: "Not saved",
+      conflict: "Changed elsewhere",
+      invalid: "Text cannot be saved",
+    },
+    retry: "Try again",
+    reload: "Load the latest version",
+    conflictBody:
+      "Someone else saved this draft in the meantime. Load the latest version; your unsaved changes here are lost.",
+    leaveWarning: "There are unsaved changes.",
+    removed: "When saving, Orbit adjusts what it cannot store:",
+    removedPaste: (images: number, links: number) =>
+      [
+        images
+          ? `${images} pasted image${images === 1 ? "" : "s"} (add images from the media library)`
+          : "",
+        links
+          ? `${links} link${links === 1 ? "" : "s"} with a target that is not allowed`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" and ") + " removed.",
+    changes: {
+      node_removed: "unsupported content",
+      mark_removed: "unsupported formatting",
+      link_removed: "links with targets that are not allowed",
+      heading_level_adjusted: "headings moved to levels 2–4",
+      heading_in_nested_block:
+        "headings inside lists or quotes became paragraphs",
+      block_unwrapped: "nested quotes, callouts or code",
+      image_without_asset: "images without a library asset",
+      callout_tone_reset: "unknown callout tones",
+      code_language_removed: "invalid code languages",
+      nesting_flattened: "lists nested too deeply",
+    } as Record<string, string>,
+    invalid:
+      "The text exceeds a limit (size, blocks or nesting) and is not saved:",
+    tabs: {
+      publish: "Publishing",
+      seo: "SEO",
+      social: "Images & social",
+      taxonomy: "Categories & authors",
+      translations: "Translations",
+    },
+    sites: "Websites",
+    sitesHint:
+      "For a published entry the change takes effect with its next publication.",
+    when: "When",
+    now: "Now",
+    at: "At",
+    zone: (zone: string) => `Time zone: ${zone}`,
+    changeNote: "Change note (optional)",
+    publish: "Publish",
+    schedule: "Schedule",
+    update: "Publish update",
+    unpublish: "Withdraw",
+    unpublishConfirm:
+      "Withdraw the entry from every website? Its address answers 410 (gone) afterwards.",
+    cancelRequest: "Cancel request",
+    cancelSchedule: "Cancel schedule",
+    publishedNow: "Published.",
+    scheduledDone: "Scheduled.",
+    withdrawnNow: "Withdrawn.",
+    requested: "Requested. The decision waits under Decisions.",
+    cancelled: "Cancelled.",
+    preview: "Preview",
+    previewSite: "Website for the preview",
+    previewCreate: "Open preview",
+    previewNoPath: (until: string) =>
+      `The preview token is valid until ${until}, but the website has no preview path. The owner sets it under Administration & settings → Content → Websites.`,
+    previewOpen: "Open the preview on the website",
+    slug: "Address (slug)",
+    slugHint:
+      "Lower-case letters, digits and hyphens. A published address leaves a redirect when it changes.",
+    urlPreview: "Address on the website",
+    seoTitle: "SEO title",
+    seoTitleHint: "Shown in search results; without it the title is used.",
+    metaDescription: "Meta description",
+    metaHint: "Without it the excerpt is used.",
+    focusKeyword: "Focus keyword",
+    keywords: "Further keywords (comma-separated, at most 10)",
+    canonical: "Canonical URL (only for content that lives elsewhere)",
+    robotsIndex: "Search engines may index this page",
+    robotsFollow: "Search engines may follow its links",
+    snippet: "Search result preview",
+    length: (n: number, min: number, max: number) =>
+      `${n} characters (recommended ${min}–${max})`,
+    checksTitle: "Hints",
+    checks: {
+      title_length: "SEO title of 30–60 characters",
+      meta_length: "Meta description of 70–155 characters",
+      meta_missing: "A meta description or an excerpt",
+      keyword_missing: "A focus keyword",
+      keyword_not_in_title: "Focus keyword in the SEO title",
+      keyword_not_in_meta: "Focus keyword in the meta description",
+      keyword_not_in_intro: "Focus keyword in the first paragraph",
+      headings_skip: "Headings without skipped levels",
+      no_headings: "Headings that structure the text",
+      no_internal_links: "At least one link to another page of the website",
+      noindex: "The page is excluded from search engines",
+    } as Record<string, string>,
+    ogTitle: "Social title",
+    ogDescription: "Social description",
+    ogImage: "Social image (1200×630 is created automatically)",
+    hero: "Hero image",
+    chooseImage: "Choose image",
+    removeImage: "Remove",
+    noImage: "No image chosen.",
+    categories: "Categories",
+    tags: "Tags",
+    authors: "Authors",
+    noTerms: "None in this language yet.",
+    noAuthors: "No authors yet.",
+    termsLater:
+      "Categories, tags and authors are managed on their own page (follows).",
+    translationsNone: "No translations yet.",
+    newTranslation: "New translation",
+    translationLocale: "Language",
+    translationCopy: "Start from a copy of this draft",
+    translationCreate: "Create translation",
+    noMoreLocales: "Every language of the websites already has a version.",
+    mediaTitle: "Media library",
+    mediaSearch: "Search file names",
+    mediaEmpty: "No images yet. Upload images in the media library (follows).",
+    mediaAltMissing: "No alt text in this language",
+    mediaAi: "AI generated",
+    mediaChoose: "Choose",
+    errors: {
+      CMS_DRAFT_STALE: "The draft changed elsewhere.",
+      CMS_SLUG_TAKEN: "Another entry uses this address.",
+      CMS_SLUG_INVALID:
+        "The address may only hold lower-case letters, digits and hyphens.",
+      CMS_BODY_INVALID: "The text is not valid.",
+      CMS_REFERENCE_UNKNOWN: "An image, author or term no longer exists.",
+      CMS_ENTRY_ARCHIVED: "The entry is archived.",
+      CMS_REQUEST_PENDING:
+        "A request for this entry is already waiting for a decision.",
+      CMS_PREFLIGHT_FAILED:
+        "Something stops the publication; see Before publishing.",
+      CMS_SCHEDULE_TOO_SOON: "Choose a time at least two minutes ahead.",
+      CMS_SCHEDULE_TOO_FAR: "Choose a time within the next year.",
+      CMS_SCHEDULE_PASSED: "This time has passed.",
+      CMS_SCHEDULE_TIME_GAP:
+        "This local time does not exist (clock change). Choose another.",
+      CMS_SCHEDULE_TIME_AMBIGUOUS:
+        "This local time exists twice (clock change). Choose another.",
+      CMS_SCHEDULE_INVALID: "The time is not valid.",
+      CMS_VERSION_CONFLICT:
+        "The entry changed in the meantime. Reload the page.",
+      CMS_NOTHING_TO_CANCEL: "Nothing is waiting.",
+      CMS_ENTRY_NOT_LIVE: "The entry is not live.",
+      CMS_SITE_LOCALE_MISSING: "The website does not serve this language.",
+      CMS_TRANSLATION_EXISTS: "A version in this language exists already.",
+      CMS_REVISION_ALREADY_LIVE: "This version is live already.",
+    } as Record<string, string>,
+    errorOther: "The request failed",
   },
   attention: {
     open: "Open content",
@@ -154,8 +354,6 @@ const de: typeof en = {
     translations: "Übersetzungen",
     preflightTitle: "Vor dem Veröffentlichen",
     preflightOk: "Nichts steht einer Veröffentlichung im Weg.",
-    editorSoon:
-      "Der Editor folgt im nächsten Schritt. Bis dahin entstehen Entwürfe über die API oder MCP.",
     issue: {
       CMS_TYPE_UNAVAILABLE:
         "Dieser Inhaltstyp kann noch nicht veröffentlicht werden.",
@@ -173,6 +371,210 @@ const de: typeof en = {
     },
     issueOther: "Etwas verhindert die Veröffentlichung",
   },
+  editor: {
+    titlePlaceholder: "Titel",
+    excerptLabel: "Kurzbeschreibung",
+    excerptHint: "Ein bis zwei Sätze für Listen und Suchergebnisse.",
+    bodyLabel: "Artikeltext",
+    placeholder:
+      "Artikel schreiben … Überschriften beginnen bei Ebene 2; der Titel ist die Seitenüberschrift.",
+    toolbar: "Formatierung",
+    tools: {
+      paragraph: "Absatz",
+      h2: "Überschrift 2",
+      h3: "Überschrift 3",
+      h4: "Überschrift 4",
+      bold: "Fett",
+      italic: "Kursiv",
+      code: "Code im Text",
+      link: "Link",
+      unlink: "Link entfernen",
+      bullet: "Aufzählung",
+      ordered: "Nummerierte Liste",
+      quote: "Zitat",
+      callout: "Hinweisbox",
+      codeBlock: "Codeblock",
+      divider: "Trennlinie",
+      image: "Bild aus der Medienbibliothek",
+      undo: "Rückgängig",
+      redo: "Wiederholen",
+    },
+    linkLabel: "Linkziel",
+    linkApply: "Link setzen",
+    linkRule:
+      "Erlaubt: https://…, mailto:…, ein Pfad mit / am Anfang oder ein #Anker.",
+    cancel: "Abbrechen",
+    calloutTone: "Art",
+    tones: { info: "Info", tip: "Tipp", warning: "Warnung" },
+    caption: "Bildunterschrift",
+    readOnly:
+      "Du kannst diesen Eintrag lesen; zum Bearbeiten brauchst du die Editor-Rolle in Inhalte.",
+    archived: "Dieser Eintrag ist archiviert und kann nicht bearbeitet werden.",
+    save: {
+      saved: "Gespeichert",
+      dirty: "Ungespeicherte Änderungen",
+      saving: "Speichert …",
+      error: "Nicht gespeichert",
+      conflict: "Woanders geändert",
+      invalid: "Text kann nicht gespeichert werden",
+    },
+    retry: "Erneut versuchen",
+    reload: "Neuesten Stand laden",
+    conflictBody:
+      "Jemand anderes hat diesen Entwurf inzwischen gespeichert. Lade den neuesten Stand; deine ungespeicherten Änderungen hier gehen dabei verloren.",
+    leaveWarning: "Es gibt ungespeicherte Änderungen.",
+    removed: "Beim Speichern passt Orbit an, was es nicht speichern kann:",
+    removedPaste: (images: number, links: number) =>
+      [
+        images
+          ? `${images} eingefügte${images === 1 ? "s Bild" : " Bilder"} (Bilder bitte aus der Medienbibliothek einfügen)`
+          : "",
+        links
+          ? `${links} Link${links === 1 ? "" : "s"} mit nicht erlaubtem Ziel`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" und ") + " entfernt.",
+    changes: {
+      node_removed: "nicht unterstützte Inhalte",
+      mark_removed: "nicht unterstützte Formatierung",
+      link_removed: "Links mit nicht erlaubtem Ziel",
+      heading_level_adjusted: "Überschriften auf Ebene 2–4 verschoben",
+      heading_in_nested_block:
+        "Überschriften in Listen oder Zitaten wurden zu Absätzen",
+      block_unwrapped: "verschachtelte Zitate, Hinweisboxen oder Codeblöcke",
+      image_without_asset: "Bilder ohne Eintrag in der Medienbibliothek",
+      callout_tone_reset: "unbekannte Arten von Hinweisboxen",
+      code_language_removed: "ungültige Codesprachen",
+      nesting_flattened: "zu tief verschachtelte Listen",
+    },
+    invalid:
+      "Der Text überschreitet eine Grenze (Größe, Blöcke oder Verschachtelung) und wird nicht gespeichert:",
+    tabs: {
+      publish: "Veröffentlichung",
+      seo: "SEO",
+      social: "Bilder & Social",
+      taxonomy: "Kategorien & Autoren",
+      translations: "Übersetzungen",
+    },
+    sites: "Websites",
+    sitesHint:
+      "Bei einem veröffentlichten Eintrag wirkt die Änderung mit der nächsten Veröffentlichung.",
+    when: "Wann",
+    now: "Jetzt",
+    at: "Am",
+    zone: (zone: string) => `Zeitzone: ${zone}`,
+    changeNote: "Änderungsnotiz (optional)",
+    publish: "Veröffentlichen",
+    schedule: "Planen",
+    update: "Aktualisierung veröffentlichen",
+    unpublish: "Zurückziehen",
+    unpublishConfirm:
+      "Den Eintrag von allen Websites zurückziehen? Seine Adresse antwortet danach mit 410 (entfernt).",
+    cancelRequest: "Anfrage zurückziehen",
+    cancelSchedule: "Planung abbrechen",
+    publishedNow: "Veröffentlicht.",
+    scheduledDone: "Geplant.",
+    withdrawnNow: "Zurückgezogen.",
+    requested: "Angefragt. Die Entscheidung wartet unter Entscheidungen.",
+    cancelled: "Abgebrochen.",
+    preview: "Vorschau",
+    previewSite: "Website für die Vorschau",
+    previewCreate: "Vorschau öffnen",
+    previewNoPath: (until: string) =>
+      `Das Vorschau-Token gilt bis ${until}, aber die Website hat keinen Vorschaupfad. Der Owner trägt ihn unter Verwaltung & Einstellungen → Inhalte → Websites ein.`,
+    previewOpen: "Vorschau auf der Website öffnen",
+    slug: "Adresse (Slug)",
+    slugHint:
+      "Kleinbuchstaben, Ziffern und Bindestriche. Ändert sich eine veröffentlichte Adresse, bleibt eine Weiterleitung.",
+    urlPreview: "Adresse auf der Website",
+    seoTitle: "SEO-Titel",
+    seoTitleHint:
+      "Erscheint in Suchergebnissen; ohne ihn wird der Titel verwendet.",
+    metaDescription: "Meta-Beschreibung",
+    metaHint: "Ohne sie wird die Kurzbeschreibung verwendet.",
+    focusKeyword: "Fokus-Keyword",
+    keywords: "Weitere Keywords (durch Kommas getrennt, höchstens 10)",
+    canonical: "Canonical-URL (nur für Inhalte, die woanders stehen)",
+    robotsIndex: "Suchmaschinen dürfen die Seite indexieren",
+    robotsFollow: "Suchmaschinen dürfen ihren Links folgen",
+    snippet: "Vorschau im Suchergebnis",
+    length: (n: number, min: number, max: number) =>
+      `${n} Zeichen (empfohlen ${min}–${max})`,
+    checksTitle: "Hinweise",
+    checks: {
+      title_length: "SEO-Titel mit 30–60 Zeichen",
+      meta_length: "Meta-Beschreibung mit 70–155 Zeichen",
+      meta_missing: "Eine Meta-Beschreibung oder Kurzbeschreibung",
+      keyword_missing: "Ein Fokus-Keyword",
+      keyword_not_in_title: "Fokus-Keyword im SEO-Titel",
+      keyword_not_in_meta: "Fokus-Keyword in der Meta-Beschreibung",
+      keyword_not_in_intro: "Fokus-Keyword im ersten Absatz",
+      headings_skip: "Überschriften ohne übersprungene Ebenen",
+      no_headings: "Überschriften, die den Text gliedern",
+      no_internal_links:
+        "Mindestens ein Link auf eine andere Seite der Website",
+      noindex: "Die Seite ist von Suchmaschinen ausgeschlossen",
+    },
+    ogTitle: "Social-Titel",
+    ogDescription: "Social-Beschreibung",
+    ogImage: "Social-Bild (1200×630 entsteht automatisch)",
+    hero: "Titelbild",
+    chooseImage: "Bild wählen",
+    removeImage: "Entfernen",
+    noImage: "Kein Bild gewählt.",
+    categories: "Kategorien",
+    tags: "Tags",
+    authors: "Autoren",
+    noTerms: "In dieser Sprache noch keine.",
+    noAuthors: "Noch keine Autoren.",
+    termsLater:
+      "Kategorien, Tags und Autoren werden auf einer eigenen Seite verwaltet (folgt).",
+    translationsNone: "Noch keine Übersetzungen.",
+    newTranslation: "Neue Übersetzung",
+    translationLocale: "Sprache",
+    translationCopy: "Mit einer Kopie dieses Entwurfs beginnen",
+    translationCreate: "Übersetzung anlegen",
+    noMoreLocales: "Jede Sprache der Websites hat schon eine Fassung.",
+    mediaTitle: "Medienbibliothek",
+    mediaSearch: "Dateinamen durchsuchen",
+    mediaEmpty:
+      "Noch keine Bilder. Bilder lädst du in der Medienbibliothek hoch (folgt).",
+    mediaAltMissing: "Kein Alt-Text in dieser Sprache",
+    mediaAi: "KI erstellt",
+    mediaChoose: "Wählen",
+    errors: {
+      CMS_DRAFT_STALE: "Der Entwurf wurde woanders geändert.",
+      CMS_SLUG_TAKEN: "Ein anderer Eintrag nutzt diese Adresse.",
+      CMS_SLUG_INVALID:
+        "Die Adresse darf nur Kleinbuchstaben, Ziffern und Bindestriche enthalten.",
+      CMS_BODY_INVALID: "Der Text ist ungültig.",
+      CMS_REFERENCE_UNKNOWN:
+        "Ein Bild, Autor oder Begriff existiert nicht mehr.",
+      CMS_ENTRY_ARCHIVED: "Der Eintrag ist archiviert.",
+      CMS_REQUEST_PENDING:
+        "Für diesen Eintrag wartet schon eine Anfrage auf Entscheidung.",
+      CMS_PREFLIGHT_FAILED:
+        "Etwas verhindert die Veröffentlichung; siehe „Vor dem Veröffentlichen“.",
+      CMS_SCHEDULE_TOO_SOON:
+        "Wähle eine Zeit mindestens zwei Minuten in der Zukunft.",
+      CMS_SCHEDULE_TOO_FAR: "Wähle eine Zeit innerhalb des nächsten Jahres.",
+      CMS_SCHEDULE_PASSED: "Diese Zeit ist vorbei.",
+      CMS_SCHEDULE_TIME_GAP:
+        "Diese Uhrzeit gibt es wegen der Zeitumstellung nicht. Wähle eine andere.",
+      CMS_SCHEDULE_TIME_AMBIGUOUS:
+        "Diese Uhrzeit gibt es wegen der Zeitumstellung zweimal. Wähle eine andere.",
+      CMS_SCHEDULE_INVALID: "Die Zeit ist ungültig.",
+      CMS_VERSION_CONFLICT:
+        "Der Eintrag hat sich inzwischen geändert. Lade die Seite neu.",
+      CMS_NOTHING_TO_CANCEL: "Es wartet nichts.",
+      CMS_ENTRY_NOT_LIVE: "Der Eintrag ist nicht veröffentlicht.",
+      CMS_SITE_LOCALE_MISSING: "Die Website bedient diese Sprache nicht.",
+      CMS_TRANSLATION_EXISTS: "Eine Fassung in dieser Sprache gibt es schon.",
+      CMS_REVISION_ALREADY_LIVE: "Diese Version ist schon veröffentlicht.",
+    },
+    errorOther: "Die Anfrage ist fehlgeschlagen",
+  },
   attention: {
     open: "Inhalte öffnen",
     stopped: (n: number) =>
@@ -185,5 +587,7 @@ const de: typeof en = {
         : `${n} veröffentlichte Versionen erscheinen noch nicht auf ihrer Website`,
   },
 };
+
+export type EditorText = (typeof en)["editor"];
 
 export const cmsText = (locale: "en" | "de") => (locale === "de" ? de : en);

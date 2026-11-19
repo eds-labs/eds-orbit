@@ -161,6 +161,7 @@ describe("content entries (CH1.14a)", () => {
     answers["/entries/e1"] = {
       entry: entry({
         status: "published",
+        publishedRevisionId: "r2",
         lastPublishedAt: "2026-11-19T11:00:00.000Z",
       }),
       draft: {
@@ -206,7 +207,19 @@ describe("content entries (CH1.14a)", () => {
       `${t.entries.issue.CMS_CONTENT_RULE}<span class="field-hint"> · FamilyPlan</span>`,
     );
     expect(html).toContain(`${t.entries.issueOther} (NEW_CODE)`);
-    expect(html).toContain('href="?entry=e3"');
+    // The editor (CH1.14b): title, save state, a lazily loaded canvas and a
+    // publish button that waits while something stops the publication.
+    expect(html).toContain('value="Familienplanung"');
+    expect(html).toContain(`>${t.editor.save.saved}<`);
+    expect(html).toContain('class="cms-canvas cms-canvas-loading"');
+    expect(html).toContain(`disabled="">${t.editor.update}</button>`);
+    expect(html).toContain(`>${t.editor.unpublish}</button>`);
+
+    const viewer = render(<EntriesView />, { locale: "en", canEdit: false });
+    expect(viewer).toContain(t.editor.readOnly);
+    expect(viewer).toContain('readOnly=""');
+    expect(viewer).not.toContain(t.editor.update);
+    expect(viewer).not.toContain(t.editor.save.saved);
     search.value = "";
   });
 
