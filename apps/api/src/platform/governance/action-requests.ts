@@ -37,6 +37,7 @@ import {
   registeredChannelDirectories,
 } from "../modules/contributions.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
+import { apiKeyStillProposes } from "../api-keys/keys.ts";
 
 /**
  * Generic action requests (ADR 0008), stored as Entity(kind="action_requests").
@@ -88,6 +89,16 @@ export const requestedBy = z.discriminatedUnion("kind", [
       agentRunId: z.string().nullable(),
       taskId: z.uuid().optional(),
       argsHash: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
+  // A proposal through the versioned API (ADR 0029, CH1.13): the project API
+  // key it came from. `userId` is the key's principal (`api_key:<id>`).
+  z
+    .object({
+      kind: z.literal("api_key"),
+      userId: z.string().regex(/^api_key:[0-9a-f-]{36}$/),
+      keyId: z.uuid(),
+      prefix: z.string().min(1).max(32),
     })
     .strict(),
 ]);
@@ -179,6 +190,11 @@ export type ActionDefinition<P> = {
   mcpProposable?: boolean;
   mcpScopes?: readonly string[];
   /**
+   * A project API key may only propose types that set this (ADR 0029,
+   * CH1.13); the decision stays with the decider role.
+   */
+  apiProposable?: boolean;
+  /**
    * False for types that spend nothing and need no Marketing automation
    * (such as a configuration change): no active policy is required.
    */
@@ -248,7 +264,7 @@ function withCrossProjectContext(scope: Scope, by: RequestedBy): RequestedBy {
   const others = currentCrossProjectContext()?.filter(
     (projectId) => projectId !== scope.projectId,
   );
-  if (!others?.length || by.kind === "mcp") return by;
+  if (!others?.length || by.kind === "mcp" || by.kind === "api_key") return by;
   const merged = [...new Set([...(by.crossProjectContext ?? []), ...others])];
   return { ...by, crossProjectContext: merged.slice(0, 50) };
 }
@@ -268,6 +284,8 @@ export async function createActionRequest(
     ),
   );
   if (requester.kind === "mcp" && type.mcpProposable !== true)
+    throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
+  if (requester.kind === "api_key" && type.apiProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
   const payload = type.payload.parse(input.payload);
   // Types that spend nothing and need no automation may run without one;
@@ -305,6 +323,12 @@ export async function createActionRequest(
       packageHash,
       clientId: requester.clientId,
       grantId: requester.grantId,
+    });
+  if (requester.kind === "api_key")
+    await audit(tx, scope, "action_request.proposed", row.id, {
+      actionType: input.actionType,
+      packageHash,
+      apiKeyPrefix: requester.prefix,
     });
   return row;
 }
@@ -615,6 +639,12 @@ export async function decideActionRequest(
     throw new DomainError("MCP_GRANT_ENDED", 409);
   if (approve && d.requestedBy?.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
+  // A key's proposal executes only while the key still stands (revoked or
+  // expired keys end their open proposals at decision time).
+  if (approve && d.requestedBy?.kind === "api_key") {
+    if (type.apiProposable !== true) throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
+    if (!(await apiKeyStillProposes(String(d.requestedBy.keyId), scope))) throw new DomainError("API_KEY_ENDED", 409);
+  }
   // A standing decision only approves; a refusal is always a person's.
   if (source.channel !== "web" && !approve)
     throw new DomainError("DECISION_USER_REQUIRED", 403);

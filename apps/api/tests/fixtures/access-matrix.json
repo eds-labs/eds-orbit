@@ -2647,7 +2647,87 @@
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
+  "GET /api/v1/cms/assets": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/assets/{assetId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/authors": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/entries": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/entries/{entryId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/entries/{entryId}/preflight": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/entries/{entryId}/publications": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/entries/{entryId}/revisions": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/entries/{entryId}/revisions/{revisionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
   "GET /api/v1/cms/preview/entries": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/sites": {
     "anonymous": "unauthenticated",
     "outsider": "unauthenticated",
     "viewer": "unauthenticated",
@@ -2712,6 +2792,14 @@
     "owner": "unauthenticated"
   },
   "GET /api/v1/cms/sites/{siteId}/taxonomies/{kind}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "GET /api/v1/cms/terms": {
     "anonymous": "unauthenticated",
     "outsider": "unauthenticated",
     "viewer": "unauthenticated",
@@ -3046,6 +3134,38 @@
     "editor": "not_found:MODULE_DISABLED",
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/v1/cms/assets/{assetId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "PATCH /api/v1/cms/authors/{authorId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "PATCH /api/v1/cms/entries/{entryId}/draft": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "PATCH /api/v1/cms/terms/{termId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
   },
   "POST /api/account/email": {
     "anonymous": "unauthenticated",
@@ -6015,6 +6135,70 @@
     "sysadmin": "unauthenticated",
     "owner": "unauthenticated"
   },
+  "POST /api/v1/cms/assets": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/authors": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/entries": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/entries/{entryId}/publication-requests": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/entries/{entryId}/revisions": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/entries/{entryId}/translations": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/entries/{entryId}/unpublish-requests": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/v1/cms/terms": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
+  },
   "POST /api/workspaces/{workspaceId}/pause": {
     "anonymous": "unauthenticated",
     "outsider": "forbidden:FORBIDDEN",
@@ -6318,5 +6502,13 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "PUT /api/v1/cms/entries/{entryId}/sites": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
+    "owner": "unauthenticated"
   }
 }

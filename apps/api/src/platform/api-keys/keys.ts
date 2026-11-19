@@ -226,3 +226,15 @@ export function requireApiScope(principal: ApiPrincipal, key: string) {
   if (!moduleAvailable(def.owner)) throw new DomainError("NOT_FOUND", 404);
   if (!principal.scopes.includes(key)) throw new DomainError("API_KEY_SCOPE_MISSING", 403);
 }
+
+/**
+ * True while a key may still have its proposals executed: it exists in the
+ * project, is not revoked and has not expired (ADR 0029, CH1.13).
+ */
+export async function apiKeyStillProposes(keyId: string, scope: Pick<Scope, "workspaceId" | "projectId">, now = new Date()) {
+  const row = await authDb.apiKey.findFirst({
+    where: { id: keyId, workspaceId: scope.workspaceId, projectId: scope.projectId },
+    select: { revokedAt: true, expiresAt: true },
+  });
+  return Boolean(row && !row.revokedAt && !(row.expiresAt && row.expiresAt <= now));
+}

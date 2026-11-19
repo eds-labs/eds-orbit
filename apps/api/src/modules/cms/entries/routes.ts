@@ -23,7 +23,7 @@ import { createTerm, listTerms, setTermArchived, updateTerm } from "./taxonomies
 // for publication and deciding it follow in CH1.10.
 
 const versionBody = z.object({ version: versionInput }).strict();
-const revisionBody = z
+export const revisionBody = z
   .object({ changeNote: z.string().trim().max(500).nullable().optional(), draftVersion: versionInput.optional() })
   .strict();
 const param = (req: { params: unknown }, name: string) => String((req.params as Record<string, unknown>)[name] ?? "");

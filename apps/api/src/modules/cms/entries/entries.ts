@@ -259,9 +259,14 @@ export async function insertEntry(tx: DbTx, scope: Scope, input: NewEntry) {
   return entry;
 }
 
-export async function createEntry(tx: DbTx, scope: Scope, raw: unknown) {
+export async function createEntry(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  origin: { origin: EntryOrigin; originRef: Record<string, unknown> | null } = { origin: "manual", originRef: null },
+) {
   const input = createInput.parse(raw);
-  const entry = await insertEntry(tx, scope, input);
+  const entry = await insertEntry(tx, scope, { ...input, ...origin });
   return getEntry(tx, scope, entry.id);
 }
 

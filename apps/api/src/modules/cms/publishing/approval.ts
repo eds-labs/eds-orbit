@@ -181,6 +181,8 @@ function base<P extends Decidable>(payload: z.ZodType<P>) {
     // Spends nothing; publishing needs no Marketing policy.
     policyRequired: false,
     requires: [] as const,
+    // Integrations with `cms:publish.propose` may ask; a person decides (CH1.13).
+    apiProposable: true,
     ttlMs: 7 * 86_400_000,
     payload,
     costCeilingMicros: () => 0,

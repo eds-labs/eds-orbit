@@ -9,6 +9,7 @@ import { cmsMediaRoutes } from "./media/routes.ts";
 import { cmsPublishingRoutes } from "./publishing/routes.ts";
 import { cmsSiteRoutes } from "./sites/routes.ts";
 import { cmsDeliveryRoutes } from "./delivery/routes.ts";
+import { cmsManagementRoutes } from "./management/routes.ts";
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
 
@@ -37,4 +38,5 @@ export const cmsRoutes: RoutesContribution = (context) => {
   cmsPublishingRoutes(context);
   cmsSiteRoutes(context);
   cmsDeliveryRoutes(context);
+  cmsManagementRoutes(context);
 };
