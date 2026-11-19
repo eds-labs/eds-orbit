@@ -13,7 +13,7 @@ import {
   Textarea,
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
-import { PageHead, ResourceError } from "@/platform/ui/collection";
+import { ResourceError } from "@/platform/ui/collection";
 import {
   emptyDoc,
   fromTiptap,
@@ -146,7 +146,13 @@ function EditorBody({
   const [detail, setDetail] = useState(initial);
   const editable = canEdit && !detail.entry.archivedAt;
   const startDoc = useMemo(() => initialDoc(initial), [initial]);
-  const startJson = useMemo(() => toTiptap(startDoc), [startDoc]);
+  // An empty document still needs one paragraph to type into (and for the placeholder).
+  const startJson = useMemo(() => {
+    const json = toTiptap(startDoc);
+    return json.content?.length
+      ? json
+      : { type: "doc", content: [{ type: "paragraph" }] };
+  }, [startDoc]);
   const [form, setForm] = useState<DraftForm>(() => formOf(initial));
   const [doc, setDoc] = useState<OrbitDoc>(startDoc);
   const [changes, setChanges] = useState<TiptapChange[]>([]);
@@ -323,15 +329,17 @@ function EditorBody({
 
   return (
     <div className="cms-editor-page">
-      <PageHead
-        title={form.title || text.entries.untitled}
-        description={`${detail.entry.locale} · ${text.status[detail.entry.status]}`}
-      >
-        {editable && <SaveIndicator state={save} t={t} />}
-        <a className="button button-outline" href="?">
+      {/* The title field below is the page's visible heading. */}
+      <h1 className="sr-only">{form.title || text.entries.untitled}</h1>
+      <div className="cms-editor-head">
+        <a className="button button-outline button-sm" href="?">
           {text.entries.back}
         </a>
-      </PageHead>
+        <span className="field-hint">
+          {detail.entry.locale} · {text.status[detail.entry.status]}
+        </span>
+        {editable && <SaveIndicator state={save} t={t} />}
+      </div>
       {!canEdit && <Alert kind="info">{t.readOnly}</Alert>}
       {detail.entry.archivedAt && <Alert kind="info">{t.archived}</Alert>}
       {save === "conflict" && (

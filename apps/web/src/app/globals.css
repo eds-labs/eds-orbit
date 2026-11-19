@@ -9918,6 +9918,12 @@ button.drive-file-name {
   gap: 14px;
   min-width: 0;
 }
+.cms-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
 .cms-editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
@@ -9928,8 +9934,13 @@ button.drive-file-name {
 .cms-editor-side,
 .cms-panel {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   min-width: 0;
+}
+.cms-panel code,
+.cms-panel .field-hint {
+  overflow-wrap: anywhere;
 }
 .cms-editor-side {
   position: sticky;
