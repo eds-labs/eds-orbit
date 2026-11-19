@@ -41,7 +41,7 @@ const en = {
     localeLabel: "Language",
     sitesLabel: "Websites",
     noSites:
-      "No website serves this language yet. The owner adds websites in the settings.",
+      "No website serves this language yet. The owner adds websites under Administration & settings → Content → Websites.",
     filterStatus: "Status",
     filterLocale: "Language",
     search: "Search titles",
@@ -132,7 +132,7 @@ const de: typeof en = {
     localeLabel: "Sprache",
     sitesLabel: "Websites",
     noSites:
-      "Noch keine Website bedient diese Sprache. Der Owner legt Websites in den Einstellungen an.",
+      "Noch keine Website bedient diese Sprache. Der Owner legt Websites unter Verwaltung & Einstellungen → Inhalte → Websites an.",
     filterStatus: "Status",
     filterLocale: "Sprache",
     search: "Titel durchsuchen",

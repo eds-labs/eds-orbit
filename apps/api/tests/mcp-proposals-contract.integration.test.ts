@@ -68,12 +68,14 @@ describe("requestedBy contract for MCP proposals (WP-M4)", () => {
 });
 
 describe("registry-wide MCP proposable action types (WP-M4)", () => {
-  it("allows exactly assignment.confirm to be proposed from MCP", () => {
+  it("allows exactly assignment.confirm and the content publication types to be proposed from MCP", () => {
     const proposable = [...registeredActionTypes()]
       .filter(([, definition]) => definition.mcpProposable === true)
       .map(([type]) => type)
       .sort();
-    expect(proposable).toEqual(["assignment.confirm"]);
+    // Content publications (ADR 0029, CH1.16): proposed with orbit:cms,
+    // decided by the owner or a content editor in Orbit, never by a mandate.
+    expect(proposable).toEqual(["assignment.confirm", "cms.entry.publish", "cms.entry.unpublish"]);
   });
 });
 
