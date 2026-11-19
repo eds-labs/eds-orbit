@@ -1,5 +1,7 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { cmsSwitchedOn } from "./gate.ts";
+import { cmsActionTypes } from "./publishing/approval.ts";
+import { cmsPublicationSweep, cmsPublishJob, resumePublications } from "./publishing/worker.ts";
 import { cmsRoutes } from "./routes.ts";
 
 /** What the content module plugs into the platform; later steps add to it. */
@@ -7,6 +9,27 @@ export const cmsContributions: ModuleContributions = {
   available: cmsSwitchedOn,
   unavailableCode: "CMS_DISABLED",
   routes: cmsRoutes,
+  // Publishing, updating, scheduling and withdrawing content: W2, decided by
+  // the owner or a content editor (decision E-4), never by a mandate (CH1.10).
+  actionTypes: cmsActionTypes,
+  // Scheduled publications go live on the worker; lost jobs are queued again.
+  jobs: [cmsPublishJob],
+  periodic: [cmsPublicationSweep],
+  hooks: {
+    onProjectResume: async (tx, scope, { generation }) => {
+      await resumePublications(tx, scope, generation);
+    },
+  },
+  // Content-free facts about publications for other modules (CH1.15 contract).
+  events: {
+    publishes: [
+      "cms.entry.published",
+      "cms.entry.updated",
+      "cms.entry.unpublished",
+      "cms.entry.scheduled",
+      "cms.publication.needs_attention",
+    ],
+  },
   // Scopes of project API keys for the versioned routes (CH1.1); the routes
   // themselves arrive with CH1.12 (delivery, preview) and CH1.13 (management).
   // Events websites subscribe to for revalidation or rebuilds (CH1.3); the

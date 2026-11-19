@@ -43,6 +43,7 @@ import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { socialContributions } from "../src/modules/social/contributions.ts";
+import { cmsContributions } from "../src/modules/cms/contributions.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { webmailRetention } from "../src/modules/webmail/maintenance.ts";
 import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
@@ -92,6 +93,8 @@ describe("module contributions", () => {
         "notification_delivery",
         "notification_digest",
         "chat",
+        // Scheduled content publications (ADR 0029, CH1.10).
+        "cms_publish",
         "creative_preview",
         "domain_event",
         "email_archive",
@@ -203,8 +206,10 @@ describe("module contributions", () => {
   });
 
   it("lets marketing extend pause, resume and retention (WP1.8)", () => {
-    // Social re-enqueues recently paused deliveries on resume (ADR 0020, S5).
-    expect(registeredHooks()).toEqual([socialContributions.hooks, marketingHooks]);
+    // Social re-enqueues recently paused deliveries on resume (ADR 0020, S5);
+    // content re-queues due scheduled publications (ADR 0029, CH1.10).
+    expect(registeredHooks()).toEqual(expect.arrayContaining([socialContributions.hooks, cmsContributions.hooks, marketingHooks]));
+    expect(registeredHooks()).toHaveLength(3);
     // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
       platformContributions.retention,

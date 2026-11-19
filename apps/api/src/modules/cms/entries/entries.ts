@@ -29,6 +29,7 @@ import {
 import { contentHashOf, latestRevision, snapshotOf } from "./revisions.ts";
 import { ENTRY_SLUG_MAX, freeSlugFrom, requireSlugFree, slugFree } from "./slugs.ts";
 import { termsInLocale } from "./taxonomies.ts";
+import { pendingRequestFor, pendingRequestsByEntry } from "../publishing/requests.ts";
 
 // Entries and their drafts (ADR 0029 §3.2, CH1.8). An entry is one piece of
 // content in one locale; its draft is the single working copy, saved with an
@@ -172,7 +173,7 @@ async function writeSites(tx: DbTx, scope: Scope, entryId: string, siteIds: read
     });
 }
 
-async function sitesOf(tx: DbTx, scope: Scope, entryId: string) {
+export async function sitesOf(tx: DbTx, scope: Scope, entryId: string) {
   return (
     await tx.cmsEntrySite.findMany({ where: { projectId: scope.projectId, entryId }, select: { siteId: true }, orderBy: { createdAt: "asc" } })
   ).map((r) => r.siteId);
@@ -305,10 +306,12 @@ export async function listEntries(tx: DbTx, scope: Scope, raw: unknown) {
     select: { entryId: true, title: true, excerpt: true },
   });
   const draftOf = new Map(drafts.map((d) => [d.entryId, d]));
+  const pending = await pendingRequestsByEntry(tx, scope);
   const last = page[page.length - 1];
   return {
     items: page.map((entry) => ({
       ...entryView(entry),
+      pendingRequest: pending.get(entry.id) ?? null,
       title: draftOf.get(entry.id)?.title ?? "",
       excerpt: [...(draftOf.get(entry.id)?.excerpt ?? "")].slice(0, 160).join(""),
     })),
@@ -336,6 +339,8 @@ export async function getEntry(tx: DbTx, scope: Scope, id: string) {
     translations: translations.map((t) => ({ ...t, updatedAt: t.updatedAt.toISOString() })),
     latestRevision: latest ? { id: latest.id, number: latest.number, contentHash: latest.contentHash, createdAt: latest.createdAt.toISOString() } : null,
     publishedRevision: published,
+    /** A publication or withdrawal waiting for a decision. */
+    pendingRequest: await pendingRequestFor(tx, scope, entry.id),
     /** True when the draft has changes no revision holds yet. */
     unsavedChanges: !latest || latest.contentHash !== contentHashOf(snapshotOf(entry, draft)),
   };
@@ -417,7 +422,7 @@ export async function archiveEntry(tx: DbTx, scope: Scope, id: string, version: 
   requireVersion(entry.version, version);
   if (entry.status === "archived") return getEntry(tx, scope, entry.id);
   if (entry.publishedRevisionId || entry.scheduledRevisionId) throw refused("CMS_ENTRY_LIVE", 409);
-  if (entry.status === "in_review") throw refused("CMS_ENTRY_IN_REVIEW", 409);
+  if (await pendingRequestFor(tx, scope, entry.id)) throw refused("CMS_ENTRY_IN_REVIEW", 409);
   await tx.cmsEntry.update({
     where: { id: entry.id },
     data: { status: "archived", archivedAt: new Date(), version: { increment: 1 } },

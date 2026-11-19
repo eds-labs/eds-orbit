@@ -1167,6 +1167,22 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "GET /api/projects/{projectId}/cms/entries/{entryId}/preflight": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/cms/entries/{entryId}/publications": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/cms/entries/{entryId}/revisions": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1184,6 +1200,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/cms/entries/{entryId}/revisions/{revisionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/cms/publications/{publicationId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
@@ -4455,6 +4479,22 @@
     "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "POST /api/projects/{projectId}/cms/entries/{entryId}/publication-requests": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/cms/entries/{entryId}/publication/cancel": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/cms/entries/{entryId}/revisions": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -4480,6 +4520,14 @@
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/cms/entries/{entryId}/unarchive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/cms/entries/{entryId}/unpublish-requests": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
