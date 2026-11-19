@@ -44,6 +44,15 @@ export const pullConfig = z
      * rebuild need longer than ISR sites. The last miss needs a person.
      */
     liveCheckMinutes: z.array(z.int().min(1).max(1440)).min(1).max(10).default([1, 3, 10, 30, 60]),
+    /**
+     * The site's preview route (e.g. Next.js draft mode), called with
+     * `?token=…&path=…`; null: previews give the token only (CH1.12).
+     */
+    previewPath: z
+      .string()
+      .regex(/^\/[a-z0-9/_-]{0,100}$/)
+      .nullable()
+      .default(null),
   })
   .strict();
 export type PullConfig = z.infer<typeof pullConfig>;

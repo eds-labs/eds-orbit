@@ -137,6 +137,9 @@ const PUBLIC_ROUTES = [
   // Content images of live entries (ADR 0029, CH1.9): the signed token
   // authenticates; images not used by a live revision answer 404.
   "GET /api/public/cms/media/{token}/{file}",
+  // Draft images of a preview (CH1.12): the signed preview token in the
+  // query authenticates; without one the request is a 400 for everybody.
+  "GET /api/public/cms/preview-media/{assetId}/{file}",
   "GET /api/public/support/{publicKey}/conversations",
   "GET /api/public/support/{publicKey}/messages",
   "GET /api/public/support/{publicKey}/stream",

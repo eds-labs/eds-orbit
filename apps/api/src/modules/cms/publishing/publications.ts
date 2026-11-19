@@ -9,6 +9,7 @@ import { audit } from "../../../shared.ts";
 import { notFound, refused, sha256, UUID_RE } from "../entries/common.ts";
 import { clearRedirectsAt, entryPaths, redirectSlugChange, redirectWithdrawn } from "../entries/redirects.ts";
 import { scheduleLiveChecks } from "../sites/live-check.ts";
+import { entryPath, siteRoutes } from "../types/routes.ts";
 import { notifySites } from "../sites/notify.ts";
 import { preflight, type PreflightIssue } from "./preflight.ts";
 
@@ -251,6 +252,7 @@ export async function goLive(
   const now = new Date();
   const ref = { id: entry.id, type: entry.type, locale: entry.locale };
   const redirects: Array<{ siteId: string; fromPath: string; toPath: string | null; code: 301 | 410 }> = [];
+  const dropped: Array<{ siteId: string; path: string }> = [];
   let liveSlug: string | null = null;
   let liveNumber: number | null = null;
 
@@ -309,6 +311,10 @@ export async function goLive(
     } else await clearRedirectsAt(tx, scope, ref, revision.slug);
     liveSlug = revision.slug;
     liveNumber = revision.number;
+    // Sites that showed the previous revision but are not part of this one
+    // stop showing the entry: their old address answers 410 (CH1.12).
+    if (previous) dropped.push(...(await withdrawFromDroppedSites(tx, scope, entry, previous.slug, siteIds)));
+    for (const d of dropped) redirects.push({ siteId: d.siteId, fromPath: d.path, toPath: null, code: 410 });
   }
 
   await tx.cmsPublication.updateMany({
@@ -344,6 +350,20 @@ export async function goLive(
   await notifySites(
     tx,
     scope,
+    "cms.entry.unpublished",
+    dropped.map((d) => ({
+      siteId: d.siteId,
+      payload: {
+        siteId: d.siteId,
+        entry: { id: entry.id, type: entry.type, locale: entry.locale, slug: null, path: null, revision: null },
+        previousPath: d.path,
+        tags: tagsOf(entry, d.siteId),
+      },
+    })),
+  );
+  await notifySites(
+    tx,
+    scope,
     "cms.redirect.created",
     redirects.map((r) => ({
       siteId: r.siteId,
@@ -361,6 +381,53 @@ export async function goLive(
     await attempt(tx, scope, pub.id, "notify", notified.has(pub.siteId) ? "ok" : "skipped", notified.has(pub.siteId) ? {} : { errorCode: "CMS_NO_NOTIFIER" });
   await scheduleLiveChecks(tx, scope, pubs.map((p) => p.id));
   return [];
+}
+
+/**
+ * The sites that showed the entry's live revision and are not in the new
+ * batch: a 410 at the entry's old path there. Returns them with that path.
+ */
+async function withdrawFromDroppedSites(tx: DbTx, scope: Scope, entry: EntryRow, previousSlug: string, siteIds: readonly string[]) {
+  const before = await tx.cmsPublication.findMany({
+    where: {
+      projectId: scope.projectId,
+      entryId: entry.id,
+      revisionId: entry.publishedRevisionId,
+      status: { in: ["visible", "notified", "live_verified"] },
+      siteId: { notIn: [...siteIds] },
+    },
+    select: { siteId: true },
+    distinct: ["siteId"],
+  });
+  if (!before.length) return [];
+  const sites = await tx.cmsSite.findMany({ where: { projectId: scope.projectId, id: { in: before.map((b) => b.siteId) }, archivedAt: null } });
+  const out: Array<{ siteId: string; path: string }> = [];
+  for (const site of sites) {
+    let path: string;
+    try {
+      path = entryPath(siteRoutes.parse(site.routes), entry.type, entry.locale, previousSlug, site.trailingSlash);
+    } catch {
+      continue;
+    }
+    await tx.cmsRedirect.updateMany({
+      where: { projectId: scope.projectId, siteId: site.id, fromPath: path, removedAt: null },
+      data: { removedAt: new Date() },
+    });
+    await tx.cmsRedirect.create({
+      data: {
+        id: randomUUID(),
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        siteId: site.id,
+        fromPath: path,
+        code: 410,
+        reason: "archived",
+        createdBy: scope.userId,
+      },
+    });
+    out.push({ siteId: site.id, path });
+  }
+  return out;
 }
 
 /** A scheduled batch past the late window waits for a person (nothing goes live). */
