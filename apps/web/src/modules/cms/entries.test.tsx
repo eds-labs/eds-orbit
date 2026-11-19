@@ -32,6 +32,11 @@ import { labels, type Locale } from "@/lib/i18n";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { cmsWeb } from "./manifest";
 import { cmsAttention } from "./attention";
+import { CmsOverview } from "./overview";
+import {
+  ShellContext,
+  type ShellContextValue,
+} from "@/platform/shell/shell-context";
 import { EntriesView, listQuery } from "./entries";
 import { cmsText } from "./labels";
 
@@ -212,5 +217,47 @@ describe("content entries (CH1.14a)", () => {
     expect(
       cmsAttention.cms_live_check_failed!({ count: 1 } as never, "en").title,
     ).toBe(cmsText("en").attention.liveCheck(1));
+  });
+
+  it("the overview counts entries, open decisions and sites and links the latest", () => {
+    answers["/status"] = {
+      module: "cms",
+      version: "0.1.0",
+      settings: {
+        publishApprovers: "owner_or_editor",
+        fourEyes: true,
+        timeZone: null,
+        lateWindowHours: 24,
+      },
+      settingsVersion: 1,
+    };
+    answers["/summary"] = {
+      entries: { draft: 3, scheduled: 1, published: 7, archived: 0 },
+      waiting: 2,
+      sites: 1,
+      recent: [
+        {
+          id: "e9",
+          status: "draft",
+          locale: "de",
+          title: "Neu",
+          updatedAt: "2026-11-19T10:00:00.000Z",
+        },
+      ],
+    };
+    const shell = {
+      hrefOf: (key: string) =>
+        key === "cms.entries" ? "/p/p1/cms/entries" : "/",
+    } as unknown as ShellContextValue;
+    const html = render(
+      <ShellContext.Provider value={shell}>
+        <CmsOverview />
+      </ShellContext.Provider>,
+    );
+    const t = cmsText("de");
+    expect(html).toContain(t.overview.waiting);
+    expect(html).toContain(">7<");
+    expect(html).toContain(t.fourEyes);
+    expect(html).toContain('href="/p/p1/cms/entries?entry=e9"');
   });
 });

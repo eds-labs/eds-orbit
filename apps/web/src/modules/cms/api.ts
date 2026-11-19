@@ -109,3 +109,22 @@ export type CmsSite = {
 
 /** GET /cms/sites */
 export type SiteList = { items: CmsSite[] };
+
+/** GET /cms/summary */
+export type CmsSummary = {
+  entries: {
+    draft: number;
+    scheduled: number;
+    published: number;
+    archived: number;
+  };
+  waiting: number;
+  sites: number;
+  recent: Array<{
+    id: string;
+    status: EntryStatus;
+    locale: string;
+    title: string;
+    updatedAt: string;
+  }>;
+};

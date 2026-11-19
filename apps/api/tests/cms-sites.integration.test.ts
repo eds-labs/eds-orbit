@@ -308,6 +308,10 @@ describe.skipIf(!enabled)("content sites", () => {
     const redirects = (await call("viewer", "GET", `/sites/${moving.id}/redirects`)).json().items;
     expect(redirects).toMatchObject([{ fromPath: `/blog/${slug}/`, toEntryId: entryId, code: 301 }]);
     expect((await call("viewer", "GET", `/sites/${moving.id}`)).json()).toMatchObject({ entries: 1, liveEntries: 1 });
+    const summary = (await call("viewer", "GET", "/summary")).json();
+    expect(summary.entries.published).toBeGreaterThanOrEqual(1);
+    expect(summary.sites).toBeGreaterThanOrEqual(1);
+    expect(summary.recent[0]).toMatchObject({ status: expect.any(String), title: expect.any(String) });
   });
 
   it("reads the revision meta tag in any attribute order", () => {

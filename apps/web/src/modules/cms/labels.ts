@@ -15,8 +15,15 @@ const en = {
   } as Record<CmsSettings["publishApprovers"], string>,
   fourEyes: "The person who asks for a publication cannot approve it.",
   emptyTitle: "No content yet",
-  emptyBody:
-    "Articles, the editor and websites follow in the next steps of the rollout.",
+  emptyBody: "Create the first article under Entries.",
+  overview: {
+    drafts: "Drafts",
+    waiting: "Waiting for a decision",
+    scheduled: "Scheduled",
+    published: "Published",
+    sites: "Websites",
+    recent: "Edited last",
+  },
   status: {
     draft: "Draft",
     in_review: "In review",
@@ -99,8 +106,15 @@ const de: typeof en = {
   fourEyes:
     "Wer eine Veröffentlichung anfordert, kann sie nicht selbst freigeben.",
   emptyTitle: "Noch keine Inhalte",
-  emptyBody:
-    "Artikel, Editor und Websites folgen in den nächsten Schritten der Einführung.",
+  emptyBody: "Lege den ersten Artikel unter Einträge an.",
+  overview: {
+    drafts: "Entwürfe",
+    waiting: "Warten auf Entscheidung",
+    scheduled: "Geplant",
+    published: "Veröffentlicht",
+    sites: "Websites",
+    recent: "Zuletzt bearbeitet",
+  },
   status: {
     draft: "Entwurf",
     in_review: "In Prüfung",
