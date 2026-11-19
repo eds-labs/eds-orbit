@@ -5,6 +5,7 @@ import { cmsPublicationSweep, cmsPublishJob, resumePublications } from "./publis
 import { cmsRoutes } from "./routes.ts";
 import { cmsLiveCheckJob } from "./sites/live-check.ts";
 import { cmsInstructions, cmsTools } from "./tools.ts";
+import { cmsAttention } from "./attention.ts";
 
 /** What the content module plugs into the platform; later steps add to it. */
 export const cmsContributions: ModuleContributions = {
@@ -18,6 +19,8 @@ export const cmsContributions: ModuleContributions = {
   // Live checks confirm a site shows the live revision (CH1.11).
   jobs: [cmsPublishJob, cmsLiveCheckJob],
   periodic: [cmsPublicationSweep],
+  // Stopped publications and live checks a site failed (CH1.17).
+  attention: cmsAttention,
   // Assistant and MCP reads, draft writes and publication proposals (CH1.16).
   tools: cmsTools,
   assistant: {

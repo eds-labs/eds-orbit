@@ -8,6 +8,7 @@ import { buildServer } from "../src/server.ts";
 import { createWebhookEndpoint } from "../src/platform/outbound-webhooks/webhooks.ts";
 import { metaContent, runLiveCheck, setLiveCheckFetchForTests } from "../src/modules/cms/sites/live-check.ts";
 import { setSiteCheckFetchForTests } from "../src/modules/cms/sites/routes.ts";
+import { cmsAttention } from "../src/modules/cms/attention.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL);
 
@@ -274,6 +275,8 @@ describe.skipIf(!enabled)("content sites", () => {
     });
     expect(await runLiveCheck(workerScope(), goneId)).toEqual({ status: "needs_attention", errorCode: "CMS_LIVE_CHECK_FAILED" });
     expect((await call("viewer", "GET", `/publications/${goneId}`)).json()).toMatchObject({ status: "visible", errorCode: "CMS_LIVE_CHECK_FAILED" });
+    const attention = await run((tx) => cmsAttention(tx, ownerScope(), new Date()));
+    expect(attention).toContainEqual(expect.objectContaining({ kind: "cms_live_check_failed", count: 1, moduleId: "cms" }));
     const events = await run((tx) => tx.domainEvent.findMany({ where: { projectId, type: "cms.publication.needs_attention" } }));
     expect(events.some((e) => (e.data as { code?: string }).code === "CMS_LIVE_CHECK_FAILED")).toBe(true);
 

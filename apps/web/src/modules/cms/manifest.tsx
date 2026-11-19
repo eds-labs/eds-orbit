@@ -2,6 +2,7 @@ import { LayoutDashboard } from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { cmsText } from "./labels";
 import { CmsOverview } from "./overview";
+import { cmsAttention } from "./attention";
 
 const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
   en: cmsText("en").nav[key],
@@ -24,6 +25,7 @@ export const cmsWeb: WebModule = {
   },
   // Between Marketing (10) and Social (12).
   groupOrder: 11,
+  attention: cmsAttention,
   views: [
     { key: "cms", path: "", component: CmsOverview, nav: { label: nav("overview"), icon: LayoutDashboard, order: 0 } },
   ],

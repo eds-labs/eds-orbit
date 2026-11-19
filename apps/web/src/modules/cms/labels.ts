@@ -14,6 +14,11 @@ const en = {
   fourEyes: "The person who asks for a publication cannot approve it.",
   emptyTitle: "No content yet",
   emptyBody: "Articles, the editor and websites follow in the next steps of the rollout.",
+  attention: {
+    open: "Open content",
+    stopped: (n: number) => (n === 1 ? "1 publication stopped and needs a person" : `${n} publications stopped and need a person`),
+    liveCheck: (n: number) => (n === 1 ? "1 website does not show the published version yet" : `${n} published versions are not shown on their website yet`),
+  },
 };
 
 const de: typeof en = {
@@ -28,6 +33,11 @@ const de: typeof en = {
   fourEyes: "Wer eine Veröffentlichung anfordert, kann sie nicht selbst freigeben.",
   emptyTitle: "Noch keine Inhalte",
   emptyBody: "Artikel, Editor und Websites folgen in den nächsten Schritten der Einführung.",
+  attention: {
+    open: "Inhalte öffnen",
+    stopped: (n: number) => (n === 1 ? "1 Veröffentlichung wurde angehalten und braucht eine Person" : `${n} Veröffentlichungen wurden angehalten und brauchen eine Person`),
+    liveCheck: (n: number) => (n === 1 ? "1 Website zeigt die veröffentlichte Version noch nicht" : `${n} veröffentlichte Versionen erscheinen noch nicht auf ihrer Website`),
+  },
 };
 
 export const cmsText = (locale: "en" | "de") => (locale === "de" ? de : en);
