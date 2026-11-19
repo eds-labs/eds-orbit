@@ -36,6 +36,11 @@ export const marketingModule: ServerModule = {
       description:
         "Ahead-of-slot check state of released posts; no publishing authority",
     },
+    {
+      kind: "drive_watch",
+      description:
+        "Drive connection watch state (last check, outage, notice); no Drive authority",
+    },
     { kind: "approvals", description: "Content package approvals" },
     {
       kind: "assignments",
