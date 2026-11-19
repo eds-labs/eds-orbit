@@ -12,6 +12,7 @@ const en = {
     media: "Media",
     terms: "Categories & tags",
     authors: "Authors",
+    calendar: "Calendar",
   },
   approversTitle: "Publication approvals",
   approvers: {
@@ -453,6 +454,22 @@ const en = {
     approve: "Approve",
     reject: "Reject",
   },
+  calendar: {
+    title: "Calendar",
+    intro:
+      "Scheduled and published articles by day, in the project's time zone.",
+    previous: "Previous month",
+    next: "Next month",
+    today: "This month",
+    empty: "Nothing scheduled or published in this month.",
+    kinds: {
+      scheduled: "Scheduled",
+      published: "Published",
+      updated: "Updated",
+      unpublished: "Withdrawn",
+    } as Record<string, string>,
+    zone: (zone: string) => `Times in ${zone}`,
+  },
   attention: {
     open: "Open content",
     stopped: (n: number) =>
@@ -476,6 +493,7 @@ const de: typeof en = {
     media: "Medien",
     terms: "Kategorien & Tags",
     authors: "Autoren",
+    calendar: "Kalender",
   },
   approversTitle: "Freigabe von Veröffentlichungen",
   approvers: {
@@ -927,6 +945,22 @@ const de: typeof en = {
     note: "Die Freigabe gilt genau für diese Version, diese Websites und diese Zeit.",
     approve: "Freigeben",
     reject: "Ablehnen",
+  },
+  calendar: {
+    title: "Kalender",
+    intro:
+      "Geplante und veröffentlichte Artikel nach Tagen, in der Zeitzone des Projekts.",
+    previous: "Vorheriger Monat",
+    next: "Nächster Monat",
+    today: "Dieser Monat",
+    empty: "In diesem Monat ist nichts geplant oder veröffentlicht.",
+    kinds: {
+      scheduled: "Geplant",
+      published: "Veröffentlicht",
+      updated: "Aktualisiert",
+      unpublished: "Zurückgezogen",
+    },
+    zone: (zone: string) => `Zeiten in ${zone}`,
   },
   attention: {
     open: "Inhalte öffnen",

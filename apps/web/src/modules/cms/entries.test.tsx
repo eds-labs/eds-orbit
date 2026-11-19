@@ -112,6 +112,7 @@ describe("content entries (CH1.14a)", () => {
     expect(cms.views.map((v) => v.key)).toEqual([
       "cms",
       "cms.entries",
+      "cms.calendar",
       "cms.media",
       "cms.taxonomies",
       "cms.authors",

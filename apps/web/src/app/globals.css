@@ -10358,3 +10358,47 @@ button.drive-file-name {
   background: rgba(174, 54, 71, 0.08);
   border-left: 3px solid var(--danger);
 }
+/* Content module: calendar, CH1.14e. */
+.cms-calendar-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.cms-calendar-head h2 {
+  min-width: 180px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+}
+.cms-calendar {
+  display: grid;
+  gap: 12px;
+}
+.cms-calendar-day {
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.cms-calendar-day h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.cms-calendar-day ul {
+  display: grid;
+  gap: 6px;
+}
+.cms-calendar-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.cms-calendar-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  min-width: 44px;
+}

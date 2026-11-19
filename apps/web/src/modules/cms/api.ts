@@ -312,3 +312,19 @@ export type PublicationList = {
   items: CmsPublication[];
   nextBefore: string | null;
 };
+
+export type CalendarItem = {
+  entryId: string;
+  title: string;
+  locale: string;
+  kind: "scheduled" | "published" | "updated" | "unpublished";
+  at: string;
+  siteIds: string[];
+};
+
+/** GET /cms/calendar?from=&to= */
+export type CalendarAnswer = {
+  from: string;
+  to: string;
+  items: CalendarItem[];
+};

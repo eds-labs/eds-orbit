@@ -312,6 +312,16 @@ describe.skipIf(!enabled)("content sites", () => {
     expect(summary.entries.published).toBeGreaterThanOrEqual(1);
     expect(summary.sites).toBeGreaterThanOrEqual(1);
     expect(summary.recent[0]).toMatchObject({ status: expect.any(String), title: expect.any(String) });
+    // The calendar (CH1.14e): the publication of today, one item for the entry.
+    const from = new Date(Date.now() - 86_400_000).toISOString();
+    const to = new Date(Date.now() + 86_400_000).toISOString();
+    const calendar = await call("viewer", "GET", `/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    expect(calendar.statusCode, calendar.body).toBe(200);
+    expect(calendar.json().items.filter((i: { entryId: string }) => i.entryId === entryId)).toEqual([
+      expect.objectContaining({ kind: "published", siteIds: [moving.id], title: expect.any(String) }),
+    ]);
+    const tooLong = await call("viewer", "GET", `/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(new Date(Date.now() + 90 * 86_400_000).toISOString())}`);
+    expect(tooLong.statusCode).toBe(400);
   });
 
   it("reads the revision meta tag in any attribute order", () => {

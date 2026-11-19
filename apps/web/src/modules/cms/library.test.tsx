@@ -32,6 +32,7 @@ import { MediaView, missingAlt } from "./media";
 import { TaxonomiesView, termTree } from "./taxonomies";
 import { AuthorsView, bioOf, parseLinks } from "./authors";
 import { cmsText } from "./labels";
+import { byDay, dayIn, monthRange } from "./calendar";
 
 const project = {
   id: "p1",
@@ -218,5 +219,41 @@ describe("content library (CH1.14c)", () => {
     expect(html).toContain(cmsText("en").library.authors.new);
     expect(bioOf({ bio: { de: "Gründerin" } }, "en")).toBe("Gründerin");
     expect(bioOf({ bio: {} }, "en")).toBeNull();
+  });
+
+  it("groups calendar items by day in the project's time zone", () => {
+    // 23:30 UTC on 30 November is 1 December in Berlin.
+    expect(dayIn("2026-11-30T23:30:00.000Z", "Europe/Berlin")).toBe(
+      "2026-12-01",
+    );
+    expect(dayIn("2026-11-30T23:30:00.000Z", "UTC")).toBe("2026-11-30");
+    expect(monthRange(2026, 10)).toEqual({
+      from: "2026-10-31T00:00:00.000Z",
+      to: "2026-12-02T00:00:00.000Z",
+    });
+    const item = (at: string, entryId = "e") => ({
+      entryId,
+      title: "T",
+      locale: "de",
+      kind: "published" as const,
+      at,
+      siteIds: [],
+    });
+    const days = byDay(
+      [
+        item("2026-11-02T08:00:00.000Z", "b"),
+        item("2026-11-30T23:30:00.000Z", "c"),
+        item("2026-11-02T07:00:00.000Z", "a"),
+        item("2026-10-31T22:59:00.000Z", "z"),
+      ],
+      2026,
+      10,
+      "Europe/Berlin",
+    );
+    expect(
+      days.map(
+        ([day, items]) => `${day}:${items.map((i) => i.entryId).join("")}`,
+      ),
+    ).toEqual(["2026-11-02:ba"]);
   });
 });

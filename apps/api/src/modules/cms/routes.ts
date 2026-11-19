@@ -14,6 +14,18 @@ import { pendingRequestsByEntry } from "./publishing/requests.ts";
 
 const settingsInput = z.object({ settings: z.unknown(), version: z.int().min(1) }).strict();
 
+/** At most about two months per calendar request. */
+const CALENDAR_MAX_MS = 62 * 86_400_000;
+const calendarQuery = z
+  .object({ from: z.iso.datetime({ offset: true }), to: z.iso.datetime({ offset: true }) })
+  .strict()
+  .refine((q) => {
+    const span = Date.parse(q.to) - Date.parse(q.from);
+    return span > 0 && span <= CALENDAR_MAX_MS;
+  }, "CMS_CALENDAR_RANGE_INVALID");
+
+const SHOWN = ["visible", "notified", "live_verified"] as const;
+
 /** Content module routes; later steps add sites and the versioned API. */
 export const cmsRoutes: RoutesContribution = (context) => {
   const { app, auth } = context;
@@ -60,6 +72,70 @@ export const cmsRoutes: RoutesContribution = (context) => {
           updatedAt: r.updatedAt.toISOString(),
         })),
       };
+    }),
+  );
+  // The calendar (CH1.14e): schedules and publications in a time range,
+  // one item per entry, action and version (websites together).
+  app.get(`${CMS_BASE}/calendar`, (req) =>
+    inCms(auth, req, CMS_READ, async (tx, scope) => {
+      const q = calendarQuery.parse(req.query ?? {});
+      const from = new Date(q.from);
+      const to = new Date(q.to);
+      const scheduled = await tx.cmsEntry.findMany({
+        where: { projectId: scope.projectId, scheduledAt: { gte: from, lt: to }, archivedAt: null },
+        select: { id: true, locale: true, scheduledAt: true, scheduledRevisionId: true },
+        take: 500,
+      });
+      const queued = scheduled.length
+        ? await tx.cmsPublication.findMany({
+            where: { projectId: scope.projectId, entryId: { in: scheduled.map((e) => e.id) }, status: "queued" },
+            select: { entryId: true, siteId: true },
+          })
+        : [];
+      const shown = await tx.cmsPublication.findMany({
+        where: { projectId: scope.projectId, visibleAt: { gte: from, lt: to }, status: { in: [...SHOWN] } },
+        select: { entryId: true, revisionId: true, siteId: true, action: true, visibleAt: true },
+        orderBy: { visibleAt: "asc" },
+        take: 2000,
+      });
+      const entryIds = [...new Set([...scheduled.map((e) => e.id), ...shown.map((p) => p.entryId)])];
+      const entries = entryIds.length
+        ? await tx.cmsEntry.findMany({ where: { projectId: scope.projectId, id: { in: entryIds } }, select: { id: true, locale: true, status: true } })
+        : [];
+      const drafts = entryIds.length
+        ? await tx.cmsDraft.findMany({ where: { projectId: scope.projectId, entryId: { in: entryIds } }, select: { entryId: true, title: true } })
+        : [];
+      const titleOf = (id: string) => drafts.find((d) => d.entryId === id)?.title ?? "";
+      const localeOf = (id: string) => entries.find((e) => e.id === id)?.locale ?? "";
+      type Item = { entryId: string; title: string; locale: string; kind: string; at: string; siteIds: string[] };
+      const items: Item[] = scheduled.map((e) => ({
+        entryId: e.id,
+        title: titleOf(e.id),
+        locale: e.locale,
+        kind: "scheduled",
+        at: e.scheduledAt!.toISOString(),
+        siteIds: [...new Set(queued.filter((p) => p.entryId === e.id).map((p) => p.siteId))],
+      }));
+      const grouped = new Map<string, Item>();
+      for (const p of shown) {
+        const key = `${p.entryId}:${p.action}:${p.revisionId}`;
+        const item = grouped.get(key);
+        if (item) {
+          if (!item.siteIds.includes(p.siteId)) item.siteIds.push(p.siteId);
+          continue;
+        }
+        grouped.set(key, {
+          entryId: p.entryId,
+          title: titleOf(p.entryId),
+          locale: localeOf(p.entryId),
+          kind: p.action === "publish" ? "published" : p.action === "update" ? "updated" : "unpublished",
+          at: p.visibleAt!.toISOString(),
+          siteIds: [p.siteId],
+        });
+      }
+      items.push(...grouped.values());
+      items.sort((a, b) => a.at.localeCompare(b.at) || a.entryId.localeCompare(b.entryId));
+      return { from: from.toISOString(), to: to.toISOString(), items };
     }),
   );
   app.put(`${CMS_BASE}/settings`, (req) =>

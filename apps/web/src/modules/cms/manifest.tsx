@@ -1,4 +1,11 @@
-import { FileText, Image, LayoutDashboard, Tags, Users } from "lucide-react";
+import {
+  CalendarDays,
+  FileText,
+  Image,
+  LayoutDashboard,
+  Tags,
+  Users,
+} from "lucide-react";
 import type { WebModule } from "@/platform/shell/types";
 import { cmsText } from "./labels";
 import { CmsOverview } from "./overview";
@@ -8,6 +15,7 @@ import { EntriesView } from "./entries";
 import { MediaView } from "./media";
 import { TaxonomiesView } from "./taxonomies";
 import { AuthorsView } from "./authors";
+import { CalendarView } from "./calendar";
 
 const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
   en: cmsText("en").nav[key],
@@ -16,8 +24,8 @@ const nav = (key: keyof ReturnType<typeof cmsText>["nav"]) => ({
 
 /**
  * The content module in the web shell (ADR 0029): overview, entries with the
- * editor, media, categories and tags, authors (CH1.14a–c); history and
- * calendar follow (CH1.14). Opt-in:
+ * editor, media, categories and tags, authors, history and the calendar
+ * (CH1.14a–e). Opt-in:
  * shown only where the server lists the module as enabled (ORBIT_CMS and the
  * project row).
  */
@@ -45,6 +53,12 @@ export const cmsWeb: WebModule = {
       path: "entries",
       component: EntriesView,
       nav: { label: nav("entries"), icon: FileText, order: 10 },
+    },
+    {
+      key: "cms.calendar",
+      path: "calendar",
+      component: CalendarView,
+      nav: { label: nav("calendar"), icon: CalendarDays, order: 15 },
     },
     {
       key: "cms.media",
