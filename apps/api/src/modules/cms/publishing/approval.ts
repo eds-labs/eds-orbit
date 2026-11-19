@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CMS_SCOPE } from "../../../platform/mcp/scopes.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
@@ -183,6 +184,9 @@ function base<P extends Decidable>(payload: z.ZodType<P>) {
     requires: [] as const,
     // Integrations with `cms:publish.propose` may ask; a person decides (CH1.13).
     apiProposable: true,
+    // MCP clients with `orbit:cms` may ask too (cms_publish_propose, CH1.16).
+    mcpProposable: true,
+    mcpScopes: [CMS_SCOPE],
     ttlMs: 7 * 86_400_000,
     payload,
     costCeilingMicros: () => 0,

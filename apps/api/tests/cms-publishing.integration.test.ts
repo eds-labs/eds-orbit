@@ -166,12 +166,13 @@ describe.skipIf(!enabled)("content publishing", () => {
     await closeDatabase();
   });
 
-  it("registers both types as W2 decided by editors, never mandatable or MCP-proposable", () => {
+  it("registers both types as W2 decided by editors, never mandatable; MCP clients and keys only propose", () => {
     for (const type of ["cms.entry.publish", "cms.entry.unpublish"]) {
       const def = registeredActionType(type);
       expect(def, type).toMatchObject({ riskClass: "W2", deciderRole: "editor", inbox: "editors", policyRequired: false });
       expect(def?.mandate, type).toBeUndefined();
-      expect(def?.mcpProposable, type).not.toBe(true);
+      // Proposals from MCP (orbit:cms, CH1.16) and API keys (CH1.13) still wait for a person.
+      expect(def, type).toMatchObject({ mcpProposable: true, apiProposable: true, mcpScopes: ["orbit:cms"] });
     }
   });
 

@@ -22,6 +22,8 @@ export const WORK_CODING_SCOPE = "orbit:work.coding";
 export const ISSUES_SCOPE = "orbit:issues";
 /** Social accounts, posts and the calendar, and proposals to publish (ADR 0020). */
 export const SOCIAL_SCOPE = "orbit:social";
+/** Content entries, drafts, media and sites, and proposals to publish (ADR 0029). */
+export const CMS_SCOPE = "orbit:cms";
 
 /**
  * The content scope a delegated work order (MCP 2.0 task) needs for a
@@ -34,6 +36,7 @@ export const MODULE_CONTENT_SCOPES: Readonly<Record<string, string>> = {
   work: WORK_SCOPE,
   issues: ISSUES_SCOPE,
   social: SOCIAL_SCOPE,
+  cms: CMS_SCOPE,
 };
 
 /** True when a task's modules need a content scope the principal lacks. */

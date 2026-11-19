@@ -4,6 +4,7 @@ import { cmsActionTypes } from "./publishing/approval.ts";
 import { cmsPublicationSweep, cmsPublishJob, resumePublications } from "./publishing/worker.ts";
 import { cmsRoutes } from "./routes.ts";
 import { cmsLiveCheckJob } from "./sites/live-check.ts";
+import { cmsInstructions, cmsTools } from "./tools.ts";
 
 /** What the content module plugs into the platform; later steps add to it. */
 export const cmsContributions: ModuleContributions = {
@@ -17,6 +18,12 @@ export const cmsContributions: ModuleContributions = {
   // Live checks confirm a site shows the live revision (CH1.11).
   jobs: [cmsPublishJob, cmsLiveCheckJob],
   periodic: [cmsPublicationSweep],
+  // Assistant and MCP reads, draft writes and publication proposals (CH1.16).
+  tools: cmsTools,
+  assistant: {
+    features: () => ["cms"],
+    instructions: () => cmsInstructions,
+  },
   hooks: {
     onProjectResume: async (tx, scope, { generation }) => {
       await resumePublications(tx, scope, generation);

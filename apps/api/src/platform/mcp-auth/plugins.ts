@@ -47,6 +47,8 @@ export const MCP_SCOPES = [
   "orbit:issues",
   // Social accounts, posts and publishing proposals (ADR 0020).
   "orbit:social",
+  // Content entries, drafts, media and publishing proposals (ADR 0029).
+  "orbit:cms",
 ] as const;
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */

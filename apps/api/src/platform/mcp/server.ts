@@ -79,6 +79,7 @@ export const MCP_RESOURCE_SCOPES = [
   "orbit:work.coding",
   "orbit:issues",
   "orbit:social",
+  "orbit:cms",
 ] as const;
 const PRM_PATH = "/.well-known/oauth-protected-resource";
 

@@ -132,6 +132,7 @@ export const EXPLICIT_SCOPES = [
   "orbit:work.coding",
   "orbit:issues",
   "orbit:social",
+  "orbit:cms",
 ] as const;
 
 /** The scopes to accept: the requested ones in order, minus an unticked propose. */
