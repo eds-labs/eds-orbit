@@ -206,6 +206,9 @@ const publishDefinition: ActionDefinition<PublishPayload> = {
       title: p.title,
       slug: p.slug,
       revision: p.revisionNumber,
+      /** Ids for the inbox's difference against the live revision (content-free). */
+      revisionId: p.revisionId,
+      previousRevisionId: p.previousRevisionId,
       update: p.previousRevisionId !== null,
       siteIds: p.siteIds,
       schedule: p.schedule,
@@ -235,6 +238,7 @@ const unpublishDefinition: ActionDefinition<UnpublishPayload> = {
       title: p.title,
       slug: p.slug,
       siteIds: p.siteIds,
+      previousRevisionId: p.previousRevisionId,
       replacementEntryId: p.replacementEntryId,
     },
   }),

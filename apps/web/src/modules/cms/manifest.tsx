@@ -3,6 +3,7 @@ import type { WebModule } from "@/platform/shell/types";
 import { cmsText } from "./labels";
 import { CmsOverview } from "./overview";
 import { cmsAttention } from "./attention";
+import { cmsActionRequests } from "./action-requests";
 import { EntriesView } from "./entries";
 import { MediaView } from "./media";
 import { TaxonomiesView } from "./taxonomies";
@@ -31,6 +32,7 @@ export const cmsWeb: WebModule = {
   // Between Marketing (10) and Social (12).
   groupOrder: 11,
   attention: cmsAttention,
+  actionRequests: cmsActionRequests,
   views: [
     {
       key: "cms",

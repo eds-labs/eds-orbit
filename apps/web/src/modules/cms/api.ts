@@ -246,3 +246,69 @@ export function assetSrc(
     ? `/api${cmsPath(projectId, `/assets/${asset.id}/files/${file}`)}`
     : null;
 }
+
+export type RevisionSummary = {
+  id: string;
+  number: number;
+  slug: string;
+  title: string;
+  contentHash: string;
+  wordCount: number;
+  changeNote: string | null;
+  basedOnRevisionId: string | null;
+  live: boolean;
+  scheduled: boolean;
+  createdBy: string;
+  createdAt: string;
+};
+
+/** GET /cms/entries/:id/revisions */
+export type RevisionList = {
+  items: RevisionSummary[];
+  nextBefore: number | null;
+};
+
+export type BodyOp =
+  | { op: "equal"; count: number }
+  | { op: "added" | "removed"; type: string; text: string };
+
+/** GET /cms/entries/:id/revisions/diff?from=&to= */
+export type RevisionDiff = {
+  from: { id: string; number: number };
+  to: "draft" | { id: string; number: number };
+  fields: Array<{ name: string; from: unknown; to: unknown }>;
+  body: BodyOp[];
+  changed: boolean;
+};
+
+export type PublicationStatus =
+  | "queued"
+  | "claimed"
+  | "visible"
+  | "notified"
+  | "live_verified"
+  | "needs_attention"
+  | "cancelled"
+  | "failed";
+
+export type CmsPublication = {
+  id: string;
+  revisionId: string;
+  siteId: string;
+  action: "publish" | "update" | "unpublish";
+  status: PublicationStatus;
+  approvalRequestId: string | null;
+  scheduledAt: string;
+  visibleAt: string | null;
+  notifiedAt: string | null;
+  liveVerifiedAt: string | null;
+  errorCode: string | null;
+  attempts: number;
+  createdAt: string;
+};
+
+/** GET /cms/entries/:id/publications */
+export type PublicationList = {
+  items: CmsPublication[];
+  nextBefore: string | null;
+};

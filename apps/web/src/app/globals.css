@@ -10312,3 +10312,49 @@ button.drive-file-name {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Content module: history and differences, CH1.14d. */
+.cms-revisions {
+  display: grid;
+  gap: 8px;
+}
+.cms-revision {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+}
+.cms-diff {
+  display: grid;
+  gap: 12px;
+}
+.cms-diff del {
+  color: var(--danger);
+}
+.cms-diff ins {
+  color: var(--success);
+  text-decoration: none;
+}
+.cms-diff-body {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+.cms-diff-body li {
+  padding: 4px 8px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+.cms-diff-equal {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.cms-diff-added {
+  background: rgba(23, 114, 90, 0.08);
+  border-left: 3px solid var(--success);
+}
+.cms-diff-removed {
+  background: rgba(174, 54, 71, 0.08);
+  border-left: 3px solid var(--danger);
+}

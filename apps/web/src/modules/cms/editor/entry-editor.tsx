@@ -35,6 +35,7 @@ import {
 } from "../api";
 import { cmsText, type EditorText } from "../labels";
 import { MediaPicker } from "./media-picker";
+import { HistoryPanel } from "./history";
 import type { PasteNotice } from "./paste";
 import {
   errorText,
@@ -123,7 +124,8 @@ function SaveIndicator({ state, t }: { state: SaveState; t: EditorText }) {
   );
 }
 
-type Tab = "publish" | "seo" | "social" | "taxonomy" | "translations";
+type Tab =
+  "publish" | "seo" | "social" | "taxonomy" | "translations" | "history";
 
 function EditorBody({
   initial,
@@ -326,6 +328,7 @@ function EditorBody({
     { key: "social", label: t.tabs.social },
     { key: "taxonomy", label: t.tabs.taxonomy },
     { key: "translations", label: t.tabs.translations },
+    { key: "history", label: text.history.tab },
   ];
 
   return (
@@ -462,6 +465,18 @@ function EditorBody({
                 setField={setField}
                 entryLocale={detail.entry.locale}
                 editable={editable}
+              />
+            )}
+            {tab === "history" && (
+              <HistoryPanel
+                key={`${detail.latestRevision?.id ?? "none"}:${detail.entry.version}`}
+                detail={detail}
+                sites={sites}
+                editable={editable}
+                base={base}
+                flush={flush}
+                draftVersion={() => version.current}
+                onRestored={reload}
               />
             )}
             {tab === "translations" && (
