@@ -24,7 +24,7 @@ All reads show only what is live on the site: an entry whose live revision went 
 | --- | --- | --- |
 | `GET entries` | `type` (default `article`), `locale`, `category` or `tag` (slug, needs `locale`), `limit` ≤ 100, `cursor` | `{ items: EntrySummary[], nextCursor }`, newest first |
 | `GET entries/:type/by-slug/:slug` | `locale` (default: site default) | `Entry`, or `404 CMS_ENTRY_NOT_FOUND` with `detail.redirect` for an old address |
-| `GET taxonomies/:kind` | `kind` = `category` or `tag`; `locale` | terms with live entry counts |
+| `GET taxonomies/:kind` | `kind` = `category` or `tag`; `locale` | terms that live content on the site uses (with their parents), with live entry counts |
 | `GET authors` | `locale` (bio) | authors named on live content |
 | `GET redirects` | `limit` ≤ 1000, `cursor` | `{ fromPath, toPath, code }` with 301 or 410 |
 | `GET sitemap` | `locale`, `limit` ≤ 1000, `cursor` | indexable pages with `lastmod` and hreflang `alternates` |
@@ -97,6 +97,12 @@ Writes accept `Idempotency-Key` (24 hours; a different body under the same key i
 
 A proposal records the key (prefix, never the secret) as requester. It executes only while the key is neither revoked nor expired (`409 API_KEY_ENDED` at decision time).
 
+With the project's four-eyes setting on, the member who created the key cannot approve its proposals: the request names that member as accountable.
+
+Authors, terms and asset texts (alt text, caption, credit) are read live by the delivery API, so a change reaches every website at once. A key may change them only while no live content shows them; otherwise `PATCH` answers `409 CMS_LIVE_REFERENCE`, and a member makes the change in Orbit.
+
+Through the web origin (`/api/v1/…` behind the Next.js proxy), `Authorization`, `Idempotency-Key` and `If-None-Match` are passed on, and the API's `ETag`, `Cache-Control` and `Vary` reach the client unchanged. The public media route keeps its long-lived `Cache-Control` as well.
+
 ## Common errors
 
 | Code | Meaning |
@@ -109,3 +115,4 @@ A proposal records the key (prefix, never the secret) as requester. It executes 
 | `CMS_PREFLIGHT_FAILED` (422) | `detail.issues` lists what stops the publication |
 | `CMS_REQUEST_PENDING` (409) | the entry already has an open request |
 | `CMS_DRAFT_STALE` (409) | the draft changed since it was read |
+| `CMS_LIVE_REFERENCE` (409) | live content shows this author, term or asset; change it in Orbit |

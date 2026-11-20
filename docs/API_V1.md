@@ -26,7 +26,7 @@ Status: implemented on the Content Hub branch and switched off by default (`ORBI
 | --- | --- |
 | Errors | `{ "error": { "code", "message", "detail" } }` with a stable `code`. Every v1 answer carries `X-Request-Id`. |
 | Authentication | Every credential problem is `401 API_KEY_INVALID`. A missing scope is `403 API_KEY_SCOPE_MISSING`. |
-| Rate limits | Per key and minute: delivery 600, management 120, preview 60. The per-address limit applies as well. `429 RATE_LIMITED` when exceeded. |
+| Rate limits | Per minute, by kind of route (delivery 600, management 120, preview 60), counted twice: per client address before the key is checked, and per authenticated key afterwards. A request with a wrong or forged key counts only against its address, never against the key whose prefix it names. `429 RATE_LIMITED` when exceeded. |
 | Caching | Cacheable reads send `ETag` and `Cache-Control: private, max-age=60, stale-while-revalidate=86400, stale-if-error=604800`. `If-None-Match` answers `304`. |
 | Idempotency | Writes accept `Idempotency-Key` (8–128 characters of `A-Z a-z 0-9 _ . : -`). The same request within 24 hours replays the stored answer with `Idempotency-Replayed: true`. A different request with the same key is `422 IDEMPOTENCY_KEY_REUSED`. A parallel first use is `409 IDEMPOTENCY_KEY_IN_USE`: retry it. Server errors are not stored. |
 | Pagination | `?limit=&cursor=` returns `{ "items": [...], "nextCursor": string \| null }`. Cursors are opaque. |

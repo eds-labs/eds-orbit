@@ -2,7 +2,7 @@
 
 Orbit's content hub for website articles ([ADR 0029](adr/0029-content-module.md), plan [CONTENT_HUB.md](plans/CONTENT_HUB.md)). Orbit stores entries, their immutable revisions, media, categories, tags and authors. Websites read the live content through the [delivery API](CMS_API.md), so publishing an article needs no commit or deploy on the website. Agents and integrations write drafts and propose publications; a person in Orbit decides.
 
-Status (2026-11-19): phase 1 backend (CH1.1–CH1.13, CH1.15–CH1.17), and the web pages (CH1.14a–f: overview, entries and editor, calendar, media, categories and tags, authors, history, Decisions views, settings sections) are implemented and tested on the branch `claude/orbit-content-hub-architecture-0894a4`. It is not pushed, and every flag is off. The phase 1 acceptance (CH1.18) is still open.
+Status (2026-11-20): phase 1 (CH1.1–CH1.18) is implemented and accepted locally on the branch `claude/orbit-content-hub-architecture-0894a4`: backend, web pages, an independent security and UI review with its fixes, and the browser acceptance `apps/web/tests/cms.spec.ts` (run with `E2E_CMS=1` on a stack seeded by `E2E_CMS=1 node scripts/seed-e2e.ts`). It is not pushed, and every flag is off. Delivery needs Mario's approval of the schema hash for the three migrations and of the push to `main`.
 
 ## Switching it on
 
@@ -68,6 +68,8 @@ Settings (`PUT /api/projects/:id/cms/settings`, versioned): `publishApprovers` (
 - Notifier `webhook`: one of the module's webhook endpoints. An event about a site goes to the endpoints that site names and to module endpoints no site names. `coolify_rebuild` and `github_dispatch` follow with phase 2.
 - Editorial rules: forbidden phrases, plain-text profile, title length, required excerpt or hero image.
 - Verification: `configured` → `read_verified` (Orbit reached the origin, `POST …/sites/:id/verify`) → `live_verified` (a live check passed). A new origin resets it.
+- Manual redirects never start at a path where live content of the site answers (`409 CMS_REDIRECT_LIVE_PATH`): moving or withdrawing live content goes through an approved publication or withdrawal.
+- Authors, terms and asset texts are shared reference data that the delivery API reads live. Members change them in Orbit; API keys may change them only while no live content shows them (`409 CMS_LIVE_REFERENCE`).
 - Live check (opt-in, `adapterConfig.liveCheck`): the worker (`cms_live_check`) fetches the canonical page and expects `<meta name="orbit-revision" content="<revision id or number>">`. A withdrawn page must answer 404/410 or redirect. The schedule is `adapterConfig.liveCheckMinutes` (default 1, 3, 10, 30, 60 minutes); the last miss marks the publication `CMS_LIVE_CHECK_FAILED`.
 - A route change on a site with live entries leaves a 301 from each old path.
 
