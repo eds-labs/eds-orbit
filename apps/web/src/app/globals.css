@@ -10289,6 +10289,11 @@ button.drive-file-name {
   display: inline-grid;
   gap: 8px;
 }
+/* The file input is visually hidden inside its label: the label shows the ring. */
+.cms-upload label:has(input:focus-visible) {
+  outline: 3px solid #0969ff;
+  outline-offset: 3px;
+}
 .cms-upload .is-busy {
   opacity: 0.7;
   pointer-events: none;

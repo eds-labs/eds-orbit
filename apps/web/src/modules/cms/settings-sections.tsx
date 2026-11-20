@@ -90,18 +90,27 @@ export function siteBody(form: SiteForm) {
     defaultLocale: locales.includes(form.defaultLocale)
       ? form.defaultLocale
       : (locales[0] ?? ""),
-    routes: Object.keys(routes).length ? { article: routes } : {},
+    // Routes of other content types and other notifier kinds are not edited
+    // here; they are sent back unchanged.
+    routes: {
+      ...form.otherRoutes,
+      ...(Object.keys(routes).length ? { article: routes } : {}),
+    },
     trailingSlash: form.trailingSlash,
     adapterConfig: {
       ...form.adapterConfig,
       liveCheck: form.liveCheck,
       previewPath: form.previewPath.trim() || null,
     },
-    notifiers: form.endpointIds.map((endpointId) => ({
-      kind: "webhook",
-      endpointId,
-    })),
+    notifiers: [
+      ...form.otherNotifiers,
+      ...form.endpointIds.map((endpointId) => ({
+        kind: "webhook",
+        endpointId,
+      })),
+    ],
     contentRules: {
+      ...form.otherRules,
       forbiddenPhrases: form.forbidden
         .split(/\r?\n/)
         .map((p) => p.trim())
@@ -121,6 +130,9 @@ type SiteForm = {
   locales: string;
   defaultLocale: string;
   routes: Record<string, string>;
+  otherRoutes: Record<string, Record<string, string>>;
+  otherNotifiers: ManagedSite["notifiers"];
+  otherRules: Record<string, unknown>;
   trailingSlash: boolean;
   liveCheck: boolean;
   previewPath: string;
@@ -139,6 +151,11 @@ export const formOfSite = (site: ManagedSite | null): SiteForm => ({
   locales: (site?.locales ?? ["de"]).join(", "),
   defaultLocale: site?.defaultLocale ?? "de",
   routes: site?.routes.article ?? {},
+  otherRoutes: Object.fromEntries(
+    Object.entries(site?.routes ?? {}).filter(([type]) => type !== "article"),
+  ),
+  otherNotifiers: (site?.notifiers ?? []).filter((n) => n.kind !== "webhook"),
+  otherRules: { ...(site?.contentRules ?? {}) },
   trailingSlash: site?.trailingSlash ?? true,
   liveCheck: Boolean(site?.adapterConfig.liveCheck),
   previewPath: site?.adapterConfig.previewPath ?? "",

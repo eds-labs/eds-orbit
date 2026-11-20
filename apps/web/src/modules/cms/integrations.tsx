@@ -14,6 +14,7 @@ import { useWorkspace } from "@/components/workspace-context";
 import type { IntegrationContribution } from "@/platform/shell/types";
 import { cmsPath, type SiteList } from "./api";
 import { cmsText, type IntegrationsText } from "./labels";
+import { settingsError } from "./settings-sections";
 
 // Project API keys and outbound webhooks in the settings center's
 // Integrations area (ADR 0029, CH1.14f). Both are platform capabilities
@@ -133,7 +134,11 @@ export function ApiKeysSection() {
   return (
     <div className="cms-panel">
       {token && <Secret value={token} note={t.tokenOnce} />}
-      {act.error && <Alert kind="error">{act.error}</Alert>}
+      {act.error && (
+        <Alert kind="error">
+          {settingsError(cmsText(locale).settings, act.error)}
+        </Alert>
+      )}
       {keys.data &&
         (keys.data.items.length ? (
           <ul className="cms-revisions">
@@ -369,7 +374,11 @@ export function WebhooksSection() {
     <div className="cms-panel">
       {secret && <Secret value={secret} note={t.secretOnce} />}
       {notice && <Alert kind="success">{notice}</Alert>}
-      {act.error && <Alert kind="error">{act.error}</Alert>}
+      {act.error && (
+        <Alert kind="error">
+          {settingsError(cmsText(locale).settings, act.error)}
+        </Alert>
+      )}
       {hooks.data &&
         (hooks.data.items.length ? (
           <ul className="cms-revisions">

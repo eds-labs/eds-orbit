@@ -199,7 +199,7 @@ describe("module settings links in the sidebar", () => {
       ["social", undefined],
       ["webmail", "integrations"],
       ["ads", undefined],
-      ["cms", undefined],
+      ["cms", "cms-sites"],
     ]);
   });
 
@@ -278,6 +278,8 @@ describe("module settings links into the settings center (P5-R6)", () => {
       webmail: "/manage/p/p1/modules/webmail/settings",
       issues: "/manage/p/p1/modules/issues/settings",
       finance: "/manage/p/p1/modules/finance/mailboxes",
+      // Content opens on its websites (ADR 0029, CH1.14f).
+      cms: "/manage/p/p1/modules/cms/sites",
     });
   });
 

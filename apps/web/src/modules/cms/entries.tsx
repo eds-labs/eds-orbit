@@ -23,6 +23,7 @@ import {
 } from "./api";
 import { cmsText } from "./labels";
 import { EntryEditor } from "./editor/entry-editor";
+import { errorText } from "./editor/panels";
 
 // The content entries (ADR 0029 §5, CH1.14a): a filtered list and a form for
 // a new article; `?entry=<id>` opens the editor (CH1.14b).
@@ -135,7 +136,11 @@ function NewArticle({
           )}
         </fieldset>
       </FieldGroup>
-      {create.error && <Alert kind="error">{create.error}</Alert>}
+      {create.error && (
+        <Alert kind="error">
+          {errorText(cmsText(locale).editor, create.error)}
+        </Alert>
+      )}
       <Button type="submit" disabled={create.pending || !title.trim()}>
         {t.create}
       </Button>

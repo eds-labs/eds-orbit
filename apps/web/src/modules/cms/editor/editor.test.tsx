@@ -170,6 +170,16 @@ describe("draft saving", () => {
     expect(draftPatch("slug", "neu-hier")).toEqual({ slug: "neu-hier" });
     expect(draftPatch("title", "  Titel ")).toEqual({ title: "Titel" });
     expect(draftPatch("termIds", ["a"])).toEqual({ termIds: ["a"] });
+    // A canonical address still being typed waits until it is a full https URL.
+    expect(
+      draftPatch("seo", { canonicalOverride: "www.example.com" }),
+    ).toBeNull();
+    expect(draftPatch("seo", { canonicalOverride: "https://" })).toBeNull();
+    expect(
+      draftPatch("seo", { canonicalOverride: "https://example.com/a" }),
+    ).toEqual({
+      seo: { canonicalOverride: "https://example.com/a" },
+    });
     expect(
       cleanSeo({
         seoTitle: " T ",

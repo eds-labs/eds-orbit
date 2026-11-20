@@ -121,3 +121,18 @@ export function seoChecks(input: {
     checks.push({ code: "noindex", ok: false });
   return checks;
 }
+
+/** True for a full https:// address, as the server requires for canonicals. */
+export function isHttpsUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password
+    );
+  } catch {
+    return false;
+  }
+}

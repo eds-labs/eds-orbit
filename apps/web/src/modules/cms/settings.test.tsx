@@ -157,6 +157,27 @@ describe("content settings sections (CH1.14f)", () => {
     });
     expect(fresh.contentRules.forbiddenPhrases).toEqual(["ok"]);
     expect(fresh.adapterConfig.previewPath).toBeNull();
+    // Routes of other types, other notifier kinds and other rules stay as they are.
+    const wider = siteBody(
+      formOfSite({
+        ...site,
+        routes: { ...site.routes, faq: { de: "/faq/{slug}/" } },
+        notifiers: [...site.notifiers, { kind: "coolify_rebuild" }],
+        contentRules: {
+          ...site.contentRules,
+          later: true,
+        } as typeof site.contentRules,
+      }),
+    );
+    expect(wider.routes).toEqual({
+      faq: { de: "/faq/{slug}/" },
+      article: { de: "/blog/{slug}/", en: "/en/blog/{slug}/" },
+    });
+    expect(wider.notifiers).toEqual([
+      { kind: "coolify_rebuild" },
+      { kind: "webhook", endpointId: "h1" },
+    ]);
+    expect(wider.contentRules).toMatchObject({ later: true, plainText: false });
   });
 
   it("lists websites; only the owner manages them and reads webhook endpoints", () => {

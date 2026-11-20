@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
 import { post, put, useMutation, useResource, when } from "@/lib/api";
 import {
   Alert,
@@ -29,7 +28,14 @@ import {
   type PublishResult,
 } from "../api";
 import { cmsText, type EditorText } from "../labels";
-import { lengthState, RECOMMENDED, SEO_MAX, seoChecks, type Seo } from "./seo";
+import {
+  isHttpsUrl,
+  lengthState,
+  RECOMMENDED,
+  SEO_MAX,
+  seoChecks,
+  type Seo,
+} from "./seo";
 
 // The editor's side panel (CH1.14b): publishing, SEO, images and social,
 // categories and authors, translations. Draft fields save through the page's
@@ -138,7 +144,8 @@ export function PublishPanel({
         post<PublishResult>(`${base}/publication-requests`, {
           draftVersion: draftVersion(),
           ...(note.trim() ? { changeNote: note.trim() } : {}),
-          ...(mode === "at" ? { local } : {}),
+          // The zone shown next to the time is the zone the time means.
+          ...(mode === "at" ? { local, timeZone: zone } : {}),
         }),
       (r) => {
         setNote("");
@@ -215,7 +222,9 @@ export function PublishPanel({
         {e.scheduledAt && (
           <>
             <dt>{text.entries.scheduledFor}</dt>
-            <dd>{when(e.scheduledAt, locale, project.timezone)}</dd>
+            <dd>
+              {when(e.scheduledAt, locale, zone)} ({zone})
+            </dd>
           </>
         )}
       </dl>
@@ -551,8 +560,17 @@ export function SeoPanel({
             value={seo.canonicalOverride ?? ""}
             maxLength={2048}
             disabled={!editable}
+            aria-invalid={
+              seo.canonicalOverride && !isHttpsUrl(seo.canonicalOverride.trim())
+                ? true
+                : undefined
+            }
             onChange={(ev) => set({ canonicalOverride: ev.target.value })}
           />
+          {seo.canonicalOverride &&
+            !isHttpsUrl(seo.canonicalOverride.trim()) && (
+              <span className="field-hint">{t.canonicalInvalid}</span>
+            )}
         </Field>
         <label className="cms-check">
           <input
@@ -854,17 +872,19 @@ export function TranslationsPanel({
   sites,
   editable,
   base,
+  flush,
+  open: openEntry,
 }: {
   detail: EntryDetail;
   sites: CmsSite[];
   editable: boolean;
   base: string;
+  flush: () => Promise<boolean>;
+  open: (entryId: string) => void;
 }) {
   const { locale } = useWorkspace();
   const text = cmsText(locale);
   const t = text.editor;
-  const router = useRouter();
-  const pathname = usePathname();
   const taken = new Set([
     detail.entry.locale,
     ...detail.translations.map((tr) => tr.locale),
@@ -883,7 +903,16 @@ export function TranslationsPanel({
         <ul className="cms-translations">
           {detail.translations.map((tr) => (
             <li key={tr.id}>
-              <a href={`?entry=${tr.id}`}>{tr.locale}</a>{" "}
+              <a
+                href={`?entry=${tr.id}`}
+                onClick={(ev) => {
+                  if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+                  ev.preventDefault();
+                  openEntry(tr.id);
+                }}
+              >
+                {tr.locale}
+              </a>{" "}
               <Badge>{text.status[tr.status]}</Badge>{" "}
               <span className="field-hint">/{tr.slug}</span>
             </li>
@@ -898,13 +927,15 @@ export function TranslationsPanel({
             className="cms-fieldset"
             onSubmit={async (ev) => {
               ev.preventDefault();
+              // A copy starts from the saved draft: save what was typed first.
+              if (!(await flush())) return;
               const next = await create.run(() =>
                 post<EntryDetail>(`${base}/translations`, {
                   locale: target,
                   copy,
                 }),
               );
-              if (next) router.push(`${pathname}?entry=${next.entry.id}`);
+              if (next) openEntry(next.entry.id);
             }}
           >
             <h3 className="cms-panel-title">{t.newTranslation}</h3>

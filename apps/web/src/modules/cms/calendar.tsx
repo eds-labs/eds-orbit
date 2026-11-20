@@ -10,6 +10,7 @@ import {
   cmsPath,
   type CalendarAnswer,
   type CalendarItem,
+  type CmsStatus,
   type SiteList,
 } from "./api";
 import { cmsText } from "./labels";
@@ -77,7 +78,9 @@ export function CalendarView() {
     year: now.getFullYear(),
     month: now.getMonth(),
   });
-  const zone = project.timezone || "UTC";
+  // Schedules mean the module's zone when one is set (as in the editor).
+  const status = useResource<CmsStatus>(cmsPath(project.id, "/status"));
+  const zone = status.data?.settings.timeZone || project.timezone || "UTC";
   const range = monthRange(month.year, month.month);
   const answer = useResource<CalendarAnswer>(
     cmsPath(

@@ -29,7 +29,7 @@ import {
   linkAllowed,
   type TiptapNode,
 } from "../../../../../../packages/content-doc/src/index.ts";
-import { editorExtensions, type ImageSource } from "./schema";
+import { containerDepth, editorExtensions, type ImageSource } from "./schema";
 import { normalizePastedHtml, type PasteNotice } from "./paste";
 import type { EditorText } from "../labels";
 
@@ -42,7 +42,11 @@ export type CanvasProps = {
   editable: boolean;
   t: EditorText;
   srcOf: ImageSource;
-  onChange: (json: TiptapNode) => void;
+  /**
+   * Reports the document; a returned document replaces the canvas content
+   * (what orbit-doc can store), so the canvas never shows unsaved structure.
+   */
+  onChange: (json: TiptapNode) => TiptapNode | void;
   onPaste: (notice: PasteNotice) => void;
   /** Opens the media library; resolves with the chosen asset id. */
   pickImage: () => Promise<string | null>;
@@ -277,7 +281,15 @@ function Toolbar({
         </Tool>
         <Tool
           label={t.tools.divider}
-          onClick={() => c().setHorizontalRule().run()}
+          onClick={() => {
+            // Lists, quotes and callouts hold no dividers: it goes after them.
+            const { $from } = editor.state.selection;
+            if (containerDepth($from) > 0)
+              c()
+                .insertContentAt($from.after(1), { type: "horizontalRule" })
+                .run();
+            else c().setHorizontalRule().run();
+          }}
         >
           <Minus />
         </Tool>
@@ -285,13 +297,16 @@ function Toolbar({
           label={t.tools.image}
           onClick={async () => {
             const assetId = await pickImage();
-            if (assetId)
-              c()
-                .insertContent({
-                  type: "orbitImage",
-                  attrs: { assetId, caption: null },
-                })
-                .run();
+            if (!assetId) return;
+            const image = {
+              type: "orbitImage",
+              attrs: { assetId, caption: null },
+            };
+            // Lists, quotes and callouts hold no images: it goes after them.
+            const { $from } = editor.state.selection;
+            if (containerDepth($from) > 0)
+              c().insertContentAt($from.after(1), image).run();
+            else c().insertContent(image).run();
           }}
         >
           <ImagePlus />
@@ -391,8 +406,13 @@ export default function Canvas({
         return out;
       },
     },
-    onUpdate: ({ editor: e }) =>
-      latest.current.onChange(e.getJSON() as TiptapNode),
+    onUpdate: ({ editor: e }) => {
+      const replacement = latest.current.onChange(e.getJSON() as TiptapNode);
+      if (replacement)
+        e.commands.setContent(replacement as JSONContent, {
+          emitUpdate: false,
+        });
+    },
   });
   useEffect(() => {
     editor?.setEditable(editable);

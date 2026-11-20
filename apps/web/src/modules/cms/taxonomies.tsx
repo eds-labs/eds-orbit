@@ -73,11 +73,13 @@ function TermForm({
   const [language, setLanguage] = useState(term?.locale ?? termLocale);
   const [translationOf, setTranslationOf] = useState("");
   const save = useMutation();
+  // An archived parent stays selectable while it is the current one, so the
+  // form shows (and keeps) what is stored.
   const parents = terms.filter(
     (other) =>
       other.kind === "category" &&
       other.locale === language &&
-      !other.archived &&
+      (!other.archived || other.id === term?.parentId) &&
       other.id !== term?.id,
   );
   // Terms of the same kind in other languages this new term can translate.
@@ -176,6 +178,7 @@ function TermForm({
               {parents.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
+                  {p.archived ? ` (${cmsText(locale).status.archived})` : ""}
                 </option>
               ))}
             </select>

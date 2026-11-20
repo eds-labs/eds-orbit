@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter } from "next/navigation";
 import { api, ApiError, patch, useResource } from "@/lib/api";
 import {
   Alert,
@@ -47,7 +48,7 @@ import {
   type DraftForm,
   type SetField,
 } from "./panels";
-import type { Seo } from "./seo";
+import { isHttpsUrl, type Seo } from "./seo";
 
 // The content editor (ADR 0029 §5, CH1.14b): title, excerpt and the TipTap
 // canvas, with a side panel for publishing, SEO, images, categories and
@@ -61,6 +62,13 @@ const Canvas = dynamic(() => import("./canvas"), {
 
 const AUTOSAVE_MS = 1200;
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** A refusal of the values themselves (not of the connection or the session). */
+const refusesValues = (e: unknown) =>
+  e instanceof ApiError &&
+  e.status >= 400 &&
+  e.status < 500 &&
+  ![401, 403, 404, 429].includes(e.status);
 
 export type SaveState = keyof EditorText["save"];
 
@@ -97,8 +105,13 @@ export function draftPatch<K extends keyof DraftForm>(
   switch (key) {
     case "slug":
       return SLUG.test(value as string) ? { slug: value } : null;
-    case "seo":
-      return { seo: cleanSeo(value as Seo) };
+    case "seo": {
+      const seo = cleanSeo(value as Seo);
+      // An address still being typed waits until it is a full https URL.
+      if (seo.canonicalOverride && !isHttpsUrl(seo.canonicalOverride))
+        return null;
+      return { seo };
+    }
     case "title":
     case "excerpt":
       return { [key]: (value as string).trim() };
@@ -145,9 +158,15 @@ function EditorBody({
   const { project, locale, canEdit } = useWorkspace();
   const text = cmsText(locale);
   const t = text.editor;
+  const router = useRouter();
+  const pathname = usePathname();
   const base = cmsPath(project.id, `/entries/${initial.entry.id}`);
   const [detail, setDetail] = useState(initial);
-  const editable = canEdit && !detail.entry.archivedAt;
+  const [save, setSave] = useState<SaveState>("saved");
+  // After a conflict nothing typed here could be saved: the editor stops
+  // taking input until the latest version is loaded.
+  const writer = canEdit && !detail.entry.archivedAt;
+  const editable = writer && save !== "conflict";
   const startDoc = useMemo(() => initialDoc(initial), [initial]);
   // An empty document still needs one paragraph to type into (and for the placeholder).
   const startJson = useMemo(() => {
@@ -161,46 +180,103 @@ function EditorBody({
   const [changes, setChanges] = useState<TiptapChange[]>([]);
   const [paste, setPaste] = useState<PasteNotice | null>(null);
   const [problems, setProblems] = useState<string[]>([]);
-  const [save, setSave] = useState<SaveState>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Fields the server refused: kept apart so the others still save; a new
+  // value for one of them is tried again.
+  const [rejected, setRejected] = useState<string[]>([]);
 
   // Autosave: changed fields collect in `pending` and go out together.
   const pending = useRef<Record<string, unknown>>({});
+  const refused = useRef<Record<string, unknown>>({});
   const version = useRef(initial.draft.version);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inflight = useRef<Promise<boolean> | null>(null);
   const conflict = useRef(false);
+  // The canvas holds text the format cannot store: publishing would not show it.
+  const invalid = useRef(false);
+
+  const send = useCallback(
+    async (fields: Record<string, unknown>) => {
+      const next = await patch<EntryDetail>(`${base}/draft`, {
+        version: version.current,
+        ...fields,
+      });
+      version.current = next.draft.version;
+      setDetail(next);
+    },
+    [base],
+  );
 
   const flush = useCallback(async (): Promise<boolean> => {
     clearTimeout(timer.current);
     while (inflight.current) await inflight.current;
     if (conflict.current) return false;
     const body = pending.current;
-    if (!Object.keys(body).length) return true;
+    const settled = () =>
+      !invalid.current && !Object.keys(refused.current).length;
+    if (!Object.keys(body).length) return settled();
     pending.current = {};
     setSave("saving");
     setSaveError(null);
+    const stale = (e: unknown) => {
+      if (!(e instanceof ApiError && e.code === "CMS_DRAFT_STALE"))
+        return false;
+      conflict.current = true;
+      setSave("conflict");
+      return true;
+    };
     const run = (async () => {
       try {
-        const next = await patch<EntryDetail>(`${base}/draft`, {
-          version: version.current,
-          ...body,
-        });
-        version.current = next.draft.version;
-        setDetail(next);
-        setSave(Object.keys(pending.current).length ? "dirty" : "saved");
-        return true;
+        await send(body);
+        setSave(
+          Object.keys(pending.current).length
+            ? "dirty"
+            : Object.keys(refused.current).length
+              ? "error"
+              : "saved",
+        );
+        return settled();
       } catch (e) {
-        // Keep the changes; newer edits win over the failed ones.
-        pending.current = { ...body, ...pending.current };
-        const code = e instanceof ApiError ? e.code : "REQUEST_FAILED";
-        if (code === "CMS_DRAFT_STALE") {
-          conflict.current = true;
-          setSave("conflict");
-        } else {
-          setSave("error");
-          setSaveError(code);
+        if (stale(e)) {
+          pending.current = { ...body, ...pending.current };
+          return false;
         }
+        if (!refusesValues(e)) {
+          // Connection or server trouble: keep everything; newer edits win.
+          pending.current = { ...body, ...pending.current };
+          setSave("error");
+          setSaveError(e instanceof ApiError ? e.code : "REQUEST_FAILED");
+          return false;
+        }
+        // The server refused a value: find which field, save the others.
+        let code = (e as ApiError).code;
+        const keys = Object.keys(body);
+        const bad: Record<string, unknown> = {};
+        if (keys.length === 1) bad[keys[0]!] = body[keys[0]!];
+        else
+          for (const key of keys)
+            try {
+              await send({ [key]: body[key] });
+            } catch (one) {
+              if (stale(one)) {
+                pending.current = { ...body, ...pending.current };
+                return false;
+              }
+              if (!refusesValues(one)) {
+                pending.current = { ...body, ...pending.current };
+                setSave("error");
+                setSaveError(
+                  one instanceof ApiError ? one.code : "REQUEST_FAILED",
+                );
+                return false;
+              }
+              code = (one as ApiError).code;
+              bad[key] = body[key];
+            }
+        refused.current = { ...refused.current, ...bad };
+        setRejected(Object.keys(refused.current));
+        setSave("error");
+        setSaveError(code);
         return false;
       }
     })();
@@ -210,12 +286,20 @@ function EditorBody({
     } finally {
       inflight.current = null;
     }
-  }, [base]);
+  }, [send]);
 
   const queue = useCallback(
     (patchBody: Record<string, unknown>) => {
       if (!editable || conflict.current) return;
       Object.assign(pending.current, patchBody);
+      // A new value for a refused field replaces the refused one.
+      let changed = false;
+      for (const key of Object.keys(patchBody))
+        if (key in refused.current) {
+          delete refused.current[key];
+          changed = true;
+        }
+      if (changed) setRejected(Object.keys(refused.current));
       setSave("dirty");
       clearTimeout(timer.current);
       timer.current = setTimeout(() => void flush(), AUTOSAVE_MS);
@@ -223,10 +307,23 @@ function EditorBody({
     [editable, flush],
   );
 
+  /** Tries the refused fields again (after a passing problem). */
+  const retry = useCallback(() => {
+    pending.current = { ...refused.current, ...pending.current };
+    refused.current = {};
+    setRejected([]);
+    void flush();
+  }, [flush]);
+
   // Unsaved work: warn before the page unloads; save when the editor closes.
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
-      if (Object.keys(pending.current).length || inflight.current)
+      if (
+        Object.keys(pending.current).length ||
+        Object.keys(refused.current).length ||
+        inflight.current ||
+        invalid.current
+      )
         event.preventDefault();
     };
     window.addEventListener("beforeunload", warn);
@@ -235,6 +332,15 @@ function EditorBody({
       if (Object.keys(pending.current).length) void flush();
     };
   }, [flush]);
+
+  /** Leaves the editor in place after saving (no full page load). */
+  const leave = useCallback(
+    async (search: string) => {
+      await flush();
+      router.push(`${pathname}${search}`);
+    },
+    [flush, router, pathname],
+  );
 
   const setField: SetField = useCallback(
     (key, value) => {
@@ -246,18 +352,28 @@ function EditorBody({
   );
 
   const onBody = useCallback(
-    (json: TiptapNode) => {
+    (json: TiptapNode): TiptapNode | void => {
       const mapped = fromTiptap(json);
-      setChanges(mapped.changes);
+      // The notice stays until dismissed; the canvas below already shows the result.
+      if (mapped.changes.length) setChanges(mapped.changes);
       const result = validateOrbitDoc(mapped.doc);
       if (!result.valid) {
+        invalid.current = true;
         setProblems([...new Set(result.problems.map((p) => p.code))]);
         setSave("invalid");
         return;
       }
+      invalid.current = false;
       setProblems([]);
       setDoc(mapped.doc);
       queue({ body: mapped.doc });
+      // What orbit-doc cannot store leaves the canvas too, so it shows what is saved.
+      if (mapped.changes.length) {
+        const shown = toTiptap(mapped.doc);
+        return shown.content?.length
+          ? shown
+          : { type: "doc", content: [{ type: "paragraph" }] };
+      }
     },
     [queue],
   );
@@ -336,13 +452,21 @@ function EditorBody({
       {/* The title field below is the page's visible heading. */}
       <h1 className="sr-only">{form.title || text.entries.untitled}</h1>
       <div className="cms-editor-head">
-        <a className="button button-outline button-sm" href="?">
+        <a
+          className="button button-outline button-sm"
+          href={pathname}
+          onClick={(event) => {
+            if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+            event.preventDefault();
+            void leave("");
+          }}
+        >
           {text.entries.back}
         </a>
         <span className="field-hint">
           {detail.entry.locale} · {text.status[detail.entry.status]}
         </span>
-        {editable && <SaveIndicator state={save} t={t} />}
+        {writer && <SaveIndicator state={save} t={t} />}
       </div>
       {!canEdit && <Alert kind="info">{t.readOnly}</Alert>}
       {detail.entry.archivedAt && <Alert kind="info">{t.archived}</Alert>}
@@ -357,7 +481,21 @@ function EditorBody({
       {save === "error" && (
         <Alert kind="error">
           {errorText(t, saveError)}{" "}
-          <Button size="sm" variant="outline" onClick={() => void flush()}>
+          {rejected.length > 0 &&
+            t.rejected(
+              rejected
+                .map((key) =>
+                  key === "body"
+                    ? t.bodyField
+                    : (text.history.fieldNames[key] ?? key),
+                )
+                .join(", "),
+            )}{" "}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => (rejected.length ? retry() : void flush())}
+          >
             {t.retry}
           </Button>
         </Alert>
@@ -373,7 +511,10 @@ function EditorBody({
           {[...new Set(changes.map((c) => t.changes[c.code] ?? c.code))].join(
             "; ",
           )}
-          .
+          .{" "}
+          <Button size="sm" variant="ghost" onClick={() => setChanges([])}>
+            OK
+          </Button>
         </Alert>
       )}
       {paste && (
@@ -421,13 +562,16 @@ function EditorBody({
             <div className="cms-canvas cms-canvas-loading" />
           )}
         </div>
-        <aside className="cms-editor-side" aria-label={t.tabs.publish}>
+        <aside className="cms-editor-side" aria-label={t.sidePanel}>
           <Tabs
             tabs={tabs}
             value={tab}
             onChange={(key) => setTab(key as Tab)}
           />
-          <div role="tabpanel">
+          <div
+            role="tabpanel"
+            aria-label={tabs.find((x) => x.key === tab)?.label}
+          >
             {tab === "publish" && (
               <PublishPanel
                 detail={detail}
@@ -485,6 +629,8 @@ function EditorBody({
                 sites={sites}
                 editable={editable}
                 base={base}
+                flush={flush}
+                open={(id) => void leave(`?entry=${id}`)}
               />
             )}
           </div>

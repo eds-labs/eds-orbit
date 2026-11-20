@@ -13,11 +13,14 @@ import {
   type CalloutTone,
 } from "../../../../../../packages/content-doc/src/index.ts";
 
-// The editor's node and mark set (ADR 0029, CH0.2 spike): exactly what
-// orbit-doc-v1 can hold, so the editor never produces content the server
-// refuses. The mapping lives in packages/content-doc (fromTiptap/toTiptap);
-// the server validates every save, so this configuration is a convenience,
-// not the security boundary.
+// The editor's node and mark set (ADR 0029, CH0.2 spike): the node types
+// orbit-doc-v1 can hold. StarterKit's list items and quotes accept more
+// children than orbit-doc keeps (it keeps paragraphs and lists there); the
+// toolbar places images and dividers after such blocks, and the page puts
+// the mapped document back into the canvas when the mapping changed
+// something, so the canvas shows what is saved. The mapping lives in
+// packages/content-doc (fromTiptap/toTiptap); the server validates every
+// save, so this configuration is a convenience, not the security boundary.
 
 const TONES = new Set<string>(CALLOUT_TONES);
 
