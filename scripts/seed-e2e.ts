@@ -52,9 +52,44 @@ async function seedSocial(projectId: string) {
   });
   console.log("Social module and synthetic Telegram account ready.");
 }
+/**
+ * With E2E_CMS=1 (CH1.18): the content module on in the acceptance project
+ * and one synthetic website for German and English articles. Its address is
+ * reserved (.invalid), so nothing ever reaches a real host.
+ */
+async function seedCms(projectId: string) {
+  if (process.env.E2E_CMS !== "1") return;
+  const { authDb, scoped } = await import("../packages/db/src/index.ts");
+  const row = await authDb.project.findUniqueOrThrow({ where: { id: projectId } });
+  const owner = await authDb.projectMember.findFirstOrThrow({ where: { projectId, role: "owner" } });
+  await scoped(row.workspaceId, projectId, async (tx) => {
+    await tx.projectModule.upsert({
+      where: { workspaceId_projectId_moduleId: { workspaceId: row.workspaceId, projectId, moduleId: "cms" } },
+      create: { workspaceId: row.workspaceId, projectId, moduleId: "cms", enabled: true, moduleVersion: "0.1.0", changedBy: owner.userId },
+      update: { enabled: true },
+    });
+    const seeded = await tx.cmsSite.findFirst({ where: { projectId, name: "Orbit e2e site" } });
+    if (!seeded)
+      await tx.cmsSite.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: row.workspaceId,
+          projectId,
+          name: "Orbit e2e site",
+          baseUrl: "https://orbit-e2e.example.invalid",
+          locales: ["de", "en"],
+          defaultLocale: "de",
+          routes: { article: { de: "/blog/{slug}/", en: "/en/blog/{slug}/" } },
+          createdBy: owner.userId,
+        },
+      });
+  });
+  console.log("Content module and synthetic website ready.");
+}
 if (existing?.projectId) {
   await seedSocial(existing.projectId);
-  if (process.env.E2E_SOCIAL === "1") {
+  await seedCms(existing.projectId);
+  if (process.env.E2E_SOCIAL === "1" || process.env.E2E_CMS === "1") {
     const { closeDatabase } = await import("../packages/db/src/index.ts");
     await closeDatabase();
   }
@@ -137,6 +172,7 @@ writeFileSync(
   { mode: 0o600 },
 );
 await seedSocial(project.json().id);
+await seedCms(project.json().id);
 await app.close();
 await closeDatabase();
 console.log(

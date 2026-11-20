@@ -77,6 +77,17 @@ const SOCIAL_PAGES: Array<[group: string, name: string, path: string]> = [
   ["social", "Accounts", "/social/accounts"],
   ["social", "Analytics", "/social/analytics"],
 ];
+// The content group (ADR 0029, groupOrder 11, between Marketing and Social)
+// shows only on a stack seeded with E2E_CMS=1; it ends in "Content Settings".
+const CMS = process.env.E2E_CMS === "1";
+const CMS_PAGES: Array<[group: string, name: string, path: string]> = [
+  ["cms", "Overview", "/cms"],
+  ["cms", "Entries", "/cms/entries"],
+  ["cms", "Calendar", "/cms/calendar"],
+  ["cms", "Media", "/cms/media"],
+  ["cms", "Categories & tags", "/cms/taxonomies"],
+  ["cms", "Authors", "/cms/authors"],
+];
 const SUPPORT_PAGES: Array<[group: string, name: string, path: string]> = [
   ["support", "Overview", "/support"],
   ["support", "Tickets", "/support/tickets"],
@@ -96,6 +107,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["marketing", "Assets", "/marketing/assets"],
   ["marketing", "Analytics", "/marketing/analytics"],
   ["marketing", "Memory", "/marketing/memory"],
+  ...(CMS ? CMS_PAGES : []),
   ...(SOCIAL ? SOCIAL_PAGES : []),
   ...(SUPPORT ? SUPPORT_PAGES : []),
   ["knowledge", "Overview", "/knowledge"],
@@ -115,11 +127,16 @@ const CENTER_ENTRY = "Administration & settings";
 // The sidebar's links in order: PAGES, with each module group ending in its
 // settings link (spec §3.4; its name carries the group: "Marketing Settings"),
 // then the settings entry. Knowledge has no settings section.
+const SETTINGS_LINK: Record<string, string> = {
+  marketing: "Marketing Settings",
+  cms: "Content Settings",
+  support: "Support Settings",
+};
 const SIDEBAR_LINKS = [
   ...PAGES.flatMap(([group, name], i) => {
     const last = PAGES[i + 1]?.[0] !== group;
-    return last && (group === "marketing" || group === "support")
-      ? [badged(name), `${group[0]!.toUpperCase()}${group.slice(1)} Settings`]
+    return last && SETTINGS_LINK[group]
+      ? [badged(name), SETTINGS_LINK[group]]
       : [badged(name)];
   }),
   CENTER_ENTRY,
